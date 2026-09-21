@@ -482,6 +482,82 @@ $online_closed_count = 0;
             white-space: nowrap;
         }
 
+        .pf-change-item-review {
+            margin-bottom: 20px;
+            padding: 18px;
+            border-radius: 12px;
+            border: 1px solid #fde68a;
+            background: #fffbeb;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        .pf-change-item-review__title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #92400e;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            margin-bottom: 4px;
+        }
+        .pf-change-item-review__code {
+            font-size: 13px;
+            font-weight: 800;
+            color: #78350f;
+            margin-bottom: 14px;
+        }
+        .pf-change-item-review__section {
+            margin-top: 14px;
+        }
+        .pf-change-item-review__section-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #92400e;
+            text-transform: uppercase;
+            letter-spacing: .03em;
+            margin-bottom: 8px;
+        }
+        .pf-change-item-review__grid {
+            display: grid;
+            gap: 8px;
+            font-size: 13px;
+            color: #78350f;
+            line-height: 1.5;
+        }
+        .pf-change-item-review__description {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            padding: 12px 14px;
+            border: 1px solid #fde68a;
+            border-radius: 10px;
+            background: #fff;
+            color: #78350f;
+            font-size: 13px;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+        .pf-change-item-review__proof img {
+            display: block;
+            max-width: min(100%, 240px);
+            max-height: 240px;
+            border-radius: 10px;
+            border: 1px solid #fde68a;
+            cursor: zoom-in;
+            object-fit: contain;
+            background: #fff;
+        }
+        .pf-change-item-history {
+            margin-bottom: 20px;
+            padding: 14px;
+            border-radius: 12px;
+            border: 1px solid #fde68a;
+            background: #fffbeb;
+        }
+
         .customization-mobile-card__order-wrap {
             display: flex;
             flex-direction: column;
@@ -2784,70 +2860,84 @@ $online_closed_count = 0;
                         </div>
                     </template>
 
-                    <template x-if="currentJo.status === 'CHANGE_ITEM_REQUEST'">
-                        <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #fcd34d; background:#fffbeb;">
-                            <label style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;display:block;margin-bottom:4px;">Change Item Request</label>
-                            <div style="font-size:14px; color:#92400e; font-weight:600;">Customer reported an issue with the completed item. Review the request below.</div>
-                        </div>
-                    </template>
-
                     <template x-if="changeItemActiveRequest(currentJo)">
-                        <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #fde68a; background:#fffbeb;">
-                            <label style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;display:block;margin-bottom:12px;">Change Item Request</label>
-                            <div style="display:grid; gap:8px; font-size:13px; color:#78350f; line-height:1.5;">
-                                <div><strong>Original Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
-                                <div><strong>Change Item:</strong> <span x-text="changeItemActiveRequest(currentJo).change_item_code || ('CI-' + String(changeItemActiveRequest(currentJo).id || '').padStart(6, '0'))"></span></div>
-                                <div><strong>Customer:</strong> <span x-text="(currentJo.customer_full_name || ((currentJo.first_name || '') + ' ' + (currentJo.last_name || ''))).trim() || 'Walk-in customer'"></span></div>
-                                <div><strong>Item:</strong> <span x-text="getChangeItemItemName(currentJo)"></span></div>
-                                <div><strong>Original Status:</strong> Completed</div>
-                                <div><strong>Request Source:</strong> <span x-text="changeItemActiveRequest(currentJo).request_source_label || changeItemRequestedByLabel(changeItemActiveRequest(currentJo))"></span></div>
-                                <div><strong>Verification:</strong> <span x-text="changeItemActiveRequest(currentJo).verification_status_label || 'Pending Review'"></span></div>
-                                <div><strong>Change Item Status:</strong> <span x-text="changeItemActiveRequest(currentJo).change_status_label || changeItemActiveRequest(currentJo).status_label || changeItemActiveRequest(currentJo).status || 'Under Review'"></span></div>
-                                <div x-show="changeItemReworkInProgress(currentJo)"><strong>Current Production Status:</strong> In Production</div>
-                                <div><strong>Reason for Change:</strong> <span x-text="changeItemActiveRequest(currentJo).reason || '—'"></span></div>
-                                <div><strong>Issue Description:</strong> <span x-text="changeItemActiveRequest(currentJo).description || changeItemActiveRequest(currentJo).issue_description || '—'"></span></div>
-                                <div x-show="changeItemActiveRequest(currentJo).customer_notes"><strong>Customer Notes:</strong> <span x-text="changeItemActiveRequest(currentJo).customer_notes"></span></div>
-                                <div><strong>Requested:</strong> <span x-text="changeItemActiveRequest(currentJo).requested_at_display || changeItemActiveRequest(currentJo).requested_at || '—'"></span></div>
-                                <div><strong>Requested By:</strong> <span x-text="changeItemRequestedByLabel(changeItemActiveRequest(currentJo))"></span></div>
-                                <div x-show="changeItemActiveRequest(currentJo).staff_notes"><strong>Staff Notes:</strong> <span x-text="changeItemActiveRequest(currentJo).staff_notes"></span></div>
-                                <div style="margin-top:4px;">
-                                    <strong>Proof:</strong>
-                                    <template x-if="changeItemActiveRequest(currentJo).proof_url">
-                                        <div style="margin-top:8px;">
-                                            <template x-if="changeItemProofIsImage(changeItemActiveRequest(currentJo))">
-                                                <img :src="changeItemActiveRequest(currentJo).proof_url"
-                                                     @click="previewFile = changeItemActiveRequest(currentJo).proof_url"
-                                                     loading="lazy"
-                                                     style="display:block;max-width:min(100%, 220px);max-height:220px;border-radius:10px;border:1px solid #fde68a;cursor:zoom-in;object-fit:contain;background:#fff;">
-                                            </template>
-                                            <a :href="changeItemActiveRequest(currentJo).proof_url"
-                                               target="_blank"
-                                               rel="noopener noreferrer"
-                                               style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;font-weight:700;color:#0369a1;text-decoration:none;">
-                                                View proof
-                                            </a>
-                                        </div>
-                                    </template>
-                                    <span x-show="!changeItemActiveRequest(currentJo).proof_url" style="color:#92400e;">No proof uploaded</span>
+                        <div class="pf-change-item-review">
+                            <div class="pf-change-item-review__title">Change Item Request</div>
+                            <div class="pf-change-item-review__code" x-text="changeItemActiveRequest(currentJo).change_item_code || ('CI-' + String(changeItemActiveRequest(currentJo).id || '').padStart(6, '0'))"></div>
+
+                            <div class="pf-change-item-review__section">
+                                <div class="pf-change-item-review__section-label">Request Summary</div>
+                                <div class="pf-change-item-review__grid">
+                                    <div><strong>Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
+                                    <div><strong>Customer:</strong> <span x-text="(currentJo.customer_full_name || ((currentJo.first_name || '') + ' ' + (currentJo.last_name || ''))).trim() || 'Walk-in customer'"></span></div>
+                                    <div><strong>Item:</strong> <span x-text="getChangeItemItemName(currentJo)"></span></div>
+                                    <div><strong>Request Source:</strong> <span x-text="changeItemActiveRequest(currentJo).request_source_label || changeItemRequestedByLabel(changeItemActiveRequest(currentJo))"></span></div>
+                                    <div><strong>Status:</strong> <span x-text="changeItemDisplayStatus(currentJo)"></span></div>
+                                    <div><strong>Requested:</strong> <span x-text="changeItemActiveRequest(currentJo).requested_at_display || changeItemActiveRequest(currentJo).requested_at || '—'"></span></div>
+                                    <div x-show="changeItemReworkInProgress(currentJo)"><strong>Production Status:</strong> In Production</div>
                                 </div>
+                            </div>
+
+                            <div class="pf-change-item-review__section">
+                                <div class="pf-change-item-review__section-label">Reason for Change</div>
+                                <div class="pf-change-item-review__grid">
+                                    <div x-text="changeItemActiveRequest(currentJo).reason || '—'"></div>
+                                </div>
+                            </div>
+
+                            <div class="pf-change-item-review__section">
+                                <div class="pf-change-item-review__section-label">Issue Description</div>
+                                <div class="pf-change-item-review__description" x-text="changeItemActiveRequest(currentJo).description || changeItemActiveRequest(currentJo).issue_description || '—'"></div>
+                                <div x-show="changeItemActiveRequest(currentJo).customer_notes" style="margin-top:10px;font-size:12px;color:#78350f;">
+                                    <strong>Customer Notes:</strong>
+                                    <div class="pf-change-item-review__description" style="margin-top:6px;max-height:160px;" x-text="changeItemActiveRequest(currentJo).customer_notes"></div>
+                                </div>
+                            </div>
+
+                            <div class="pf-change-item-review__section pf-change-item-review__proof">
+                                <div class="pf-change-item-review__section-label">Customer Proof</div>
+                                <template x-if="changeItemActiveRequest(currentJo).proof_url">
+                                    <div>
+                                        <template x-if="changeItemProofIsImage(changeItemActiveRequest(currentJo))">
+                                            <img :src="changeItemActiveRequest(currentJo).proof_url"
+                                                 @click="previewFile = changeItemActiveRequest(currentJo).proof_url"
+                                                 loading="lazy"
+                                                 alt="Change Item proof">
+                                        </template>
+                                        <a :href="changeItemActiveRequest(currentJo).proof_url"
+                                           target="_blank"
+                                           rel="noopener noreferrer"
+                                           style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;font-weight:700;color:#0369a1;text-decoration:none;">
+                                            View proof
+                                        </a>
+                                    </div>
+                                </template>
+                                <div x-show="!changeItemActiveRequest(currentJo).proof_url" style="font-size:13px;color:#92400e;">No proof uploaded</div>
+                            </div>
+
+                            <div class="pf-change-item-review__section" x-show="changeItemActiveRequest(currentJo).staff_notes && !changeItemCanReview(currentJo)">
+                                <div class="pf-change-item-review__section-label">Staff Notes</div>
+                                <div class="pf-change-item-review__description" style="max-height:160px;" x-text="changeItemActiveRequest(currentJo).staff_notes"></div>
+                            </div>
+
+                            <div class="pf-change-item-review__section" x-show="changeItemActiveRequest(currentJo).rejection_reason">
+                                <div class="pf-change-item-review__section-label">Rejection Reason</div>
+                                <div class="pf-change-item-review__description" style="max-height:160px;color:#991b1b;" x-text="changeItemActiveRequest(currentJo).rejection_reason"></div>
                             </div>
                         </div>
                     </template>
 
-                    <template x-if="currentJo.change_item && currentJo.change_item.history && currentJo.change_item.history.length">
-                        <div style="margin-bottom:20px; padding:14px; border-radius:12px; border:1px solid #fde68a; background:#fffbeb;">
-                            <label style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;display:block;margin-bottom:10px;">Change Item</label>
+                    <template x-if="changeItemHistoryEntries(currentJo).length">
+                        <div class="pf-change-item-history">
+                            <label style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;display:block;margin-bottom:10px;">Previous Change Item Requests</label>
                             <div style="display:grid; gap:10px;">
-                                <template x-for="entry in (currentJo.change_item.history || [])" :key="'change-item-' + entry.id">
+                                <template x-for="entry in changeItemHistoryEntries(currentJo)" :key="'change-item-history-' + entry.id">
                                     <div style="padding:10px 12px; border:1px solid #fde68a; border-radius:10px; background:#fff;">
-                                        <div style="font-size:12px; font-weight:800; color:#92400e;" x-text="'Change Item #' + entry.sequence_no"></div>
-                                        <div style="font-size:12px; color:#78350f; margin-top:4px;"><strong>Status:</strong> <span x-text="entry.status_label"></span></div>
+                                        <div style="font-size:12px; font-weight:800; color:#92400e;" x-text="entry.change_item_code || ('CI-' + String(entry.id || '').padStart(6, '0'))"></div>
+                                        <div style="font-size:12px; color:#78350f; margin-top:4px;"><strong>Status:</strong> <span x-text="entry.status_label || entry.change_status_label"></span></div>
                                         <div style="font-size:12px; color:#78350f; margin-top:2px;"><strong>Reason:</strong> <span x-text="entry.reason"></span></div>
-                                        <div style="font-size:12px; color:#78350f; margin-top:2px;" x-show="entry.description"><strong>Details:</strong> <span x-text="entry.description"></span></div>
                                         <div style="font-size:12px; color:#78350f; margin-top:2px;" x-show="entry.requested_at_display"><strong>Requested:</strong> <span x-text="entry.requested_at_display"></span></div>
-                                        <div style="font-size:12px; color:#78350f; margin-top:2px;" x-show="entry.processed_by"><strong>Processed by:</strong> <span x-text="entry.processed_by"></span></div>
                                         <div style="font-size:12px; color:#991b1b; margin-top:2px;" x-show="entry.rejection_reason"><strong>Rejection reason:</strong> <span x-text="entry.rejection_reason"></span></div>
-                                        <a x-show="entry.proof_url" :href="entry.proof_url" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin-top:8px;font-size:11px;font-weight:700;color:#0369a1;text-decoration:none;">View proof</a>
                                     </div>
                                 </template>
                             </div>
@@ -4445,6 +4535,27 @@ window.pfServiceFieldCatalog = (() => {
             changeItemResolveId(row) {
                 const active = this.changeItemActiveRequest(row);
                 return parseInt((active && active.id) || row.change_item_request_id || 0, 10);
+            },
+            changeItemDisplayStatus(row) {
+                const active = this.changeItemActiveRequest(row);
+                if (!active) return '—';
+                if (this.changeItemReworkInProgress(row)) return 'Approved · In Production';
+                return active.change_status_label
+                    || active.status_label
+                    || active.verification_status_label
+                    || active.status
+                    || 'Pending Review';
+            },
+            changeItemHistoryEntries(row) {
+                if (!row || !row.change_item || !Array.isArray(row.change_item.history)) {
+                    return [];
+                }
+                const active = this.changeItemActiveRequest(row);
+                const activeId = parseInt((active && active.id) || row.change_item_request_id || 0, 10);
+                return row.change_item.history.filter((entry) => {
+                    const entryId = parseInt(entry.id || 0, 10);
+                    return activeId <= 0 || entryId !== activeId;
+                });
             },
             getChangeItemStatusLabel(status) {
                 const key = String(status || '').toLowerCase();

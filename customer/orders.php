@@ -1010,25 +1010,75 @@ require_once __DIR__ . '/../includes/header.php';
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
+    margin-bottom: 0.75rem;
 }
 .change-item-textarea {
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
     resize: vertical;
+    min-height: 112px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 .change-item-char-count {
     font-size: 0.72rem;
     color: #64748b;
     text-align: right;
     margin-top: 0.35rem;
+}
+.change-item-field-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 0.5rem;
+}
+.change-item-field-help {
+    display: block;
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-bottom: 0.5rem;
+    line-height: 1.45;
+}
+.change-item-order-meta {
+    padding: 0.875rem 1rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #f8fafc;
+    font-size: 0.875rem;
+    color: #334155;
+    line-height: 1.6;
+    margin-bottom: 1rem;
+}
+.change-item-select,
+.change-item-input {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 0.75rem 0.875rem;
+    background: #ffffff;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #0f172a;
+}
+.change-item-select:focus,
+.change-item-input:focus,
+.change-item-textarea:focus {
+    outline: none;
+    border-color: #0a2530;
+}
+#changeItemReasonOtherWrap {
+    display: none;
     margin-bottom: 0.75rem;
 }
 .cm-actions-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 0.75rem;
-    margin-top: 0.5rem;
+    margin-top: 1rem;
 }
 .cm-actions-row .cm-btn {
     width: 100%;
@@ -1036,14 +1086,18 @@ require_once __DIR__ . '/../includes/header.php';
     padding: 0.65rem 0.85rem;
 }
 .cm-btn-cancel {
-    background: #fef2f2;
-    color: #b91c1c;
-    border-color: #fecaca;
+    background: #ffffff;
+    color: #64748b;
+    border: 1px solid #cbd5e1;
 }
 .cm-btn-cancel:hover {
-    background: #fee2e2;
-    color: #991b1b;
+    background: #fef2f2;
+    color: #b91c1c;
     border-color: #fca5a5;
+}
+.cm-btn-cancel:focus-visible {
+    outline: 2px solid #fca5a5;
+    outline-offset: 2px;
 }
 .cm-btn-submit {
     background: #0a2530;
@@ -1109,6 +1163,8 @@ require_once __DIR__ . '/../includes/header.php';
 #changeItemModal .cm-box {
     width: 100%;
     max-width: min(520px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
     box-sizing: border-box;
     overflow-x: hidden;
 }
@@ -2433,24 +2489,33 @@ window.addEventListener('DOMContentLoaded', () => {
     <div class="cm-box">
         <h2 class="text-2xl font-black text-slate-900 mb-2">Request Change Item</h2>
         <p class="text-slate-600 font-medium text-sm mb-4">Report an issue with your completed order. This stays linked to your original order — no new order will be created.</p>
-        <div id="changeItemOrderMeta" class="text-sm text-slate-700 mb-4" style="line-height:1.6;"></div>
-        <label class="block text-sm font-bold text-slate-800 mb-2">Reason for Change Item</label>
-        <select id="changeItemReason" class="w-full mb-3 p-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-900" style="box-sizing:border-box;max-width:100%;">
+        <div id="changeItemOrderMeta" class="change-item-order-meta"></div>
+
+        <label class="change-item-field-label" for="changeItemReason">Reason for Change</label>
+        <select id="changeItemReason" class="change-item-select mb-3">
             <option value="">-- Select a reason --</option>
             <option value="damaged_item">Damaged Item</option>
             <option value="print_quality">Print/Output Quality Issue</option>
             <option value="incorrect_spec">Incorrect Item/Specification</option>
             <option value="production_defect">Production Defect</option>
-            <option value="other">Other</option>
+            <option value="other">Others</option>
         </select>
-        <input id="changeItemReasonOther" type="text" class="w-full mb-3 p-3 bg-white border-2 border-slate-200 rounded-xl hidden text-sm font-medium text-slate-900" placeholder="Specify reason..." style="box-sizing:border-box;max-width:100%;">
-        <label class="block text-sm font-bold text-slate-800 mb-2">Issue Description</label>
+
+        <div id="changeItemReasonOtherWrap">
+            <label class="change-item-field-label" for="changeItemReasonOther">Please specify</label>
+            <input id="changeItemReasonOther" type="text" class="change-item-input" placeholder="Describe the reason..." maxlength="255">
+        </div>
+
+        <label class="change-item-field-label" for="changeItemDescription">Issue Description</label>
+        <span class="change-item-field-help">Describe the issue with your completed item.</span>
         <div class="change-item-textarea-wrap">
-            <textarea id="changeItemDescription" maxlength="500" rows="4" class="change-item-textarea w-full p-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-900" placeholder="Describe the issue..."></textarea>
+            <textarea id="changeItemDescription" maxlength="500" rows="4" class="change-item-textarea" placeholder="Describe the issue..."></textarea>
             <div id="changeItemCharCount" class="change-item-char-count">0 / 500</div>
         </div>
-        <label class="block text-sm font-bold text-slate-800 mb-2">Proof (optional)</label>
-        <input id="changeItemProof" type="file" accept="image/*,application/pdf" class="w-full mb-4 text-sm" style="max-width:100%;box-sizing:border-box;">
+
+        <label class="change-item-field-label" for="changeItemProof">Proof (optional)</label>
+        <input id="changeItemProof" type="file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" class="w-full mb-4 text-sm" style="max-width:100%;box-sizing:border-box;">
+
         <div id="changeItemError" class="hidden text-sm font-semibold text-red-600 mb-3"></div>
         <div class="cm-actions-row">
             <button class="cm-btn cm-btn-cancel" type="button" onclick="closeChangeItemModal()">Cancel</button>
@@ -3543,7 +3608,7 @@ function openChangeItemModal() {
         `<div><strong>Original Order:</strong> ${escIM(ctx.code || ('ORD-' + String(ctx.orderId).padStart(5, '0')))}</div>`;
     document.getElementById('changeItemReason').value = '';
     document.getElementById('changeItemReasonOther').value = '';
-    document.getElementById('changeItemReasonOther').classList.add('hidden');
+    toggleChangeItemReasonOther(false);
     document.getElementById('changeItemDescription').value = '';
     document.getElementById('changeItemProof').value = '';
     document.getElementById('changeItemError').classList.add('hidden');
@@ -3567,11 +3632,17 @@ function closeChangeItemSuccessModal() {
         document.body.style.overflow = '';
     }
 }
+function toggleChangeItemReasonOther(show) {
+    const wrap = document.getElementById('changeItemReasonOtherWrap');
+    const input = document.getElementById('changeItemReasonOther');
+    if (!wrap || !input) return;
+    wrap.style.display = show ? 'block' : 'none';
+    if (!show) {
+        input.value = '';
+    }
+}
 document.getElementById('changeItemReason')?.addEventListener('change', function () {
-    const other = document.getElementById('changeItemReasonOther');
-    if (!other) return;
-    if (this.value === 'other') other.classList.remove('hidden');
-    else other.classList.add('hidden');
+    toggleChangeItemReasonOther(this.value === 'other');
 });
 document.getElementById('changeItemDescription')?.addEventListener('input', updateChangeItemCharCount);
 async function submitChangeItemRequest() {
