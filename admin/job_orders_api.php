@@ -75,6 +75,7 @@ require_once __DIR__ . '/../includes/production_material_compatibility.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/job_order_summary.php';
 require_once __DIR__ . '/../includes/change_item_workflow.php';
+require_once __DIR__ . '/../includes/service_field_priority_helper.php';
 
 function jo_api_attach_change_item_rows(array &$rows): void
 {
@@ -1161,7 +1162,7 @@ try {
             $counts = [
                 'ALL' => 0, 'INQUIRY' => 0, 'PAYMENT' => 0, 'PRODUCTION' => 0,
                 'TO_RECEIVE' => 0, 'COMPLETED' => 0, 'CHANGED_ITEMS' => 0, 'CLOSED' => 0,
-                'PENDING' => 0, 'CANCELLED' => 0,
+                'PENDING' => 0, 'CANCELLED' => 0, 'URGENT' => 0,
             ];
             $changeItemOrderIds = [];
             foreach ($countRows as $row) {
@@ -1199,6 +1200,17 @@ try {
                 } else {
                     $counts['INQUIRY']++;
                     $counts['PENDING']++;
+                }
+            }
+            $urgentSeen = [];
+            foreach ($countRows as $row) {
+                $orderId = (int)($row['order_id'] ?? 0);
+                if ($orderId <= 0 || isset($urgentSeen[$orderId])) {
+                    continue;
+                }
+                $urgentSeen[$orderId] = true;
+                if (printflow_order_has_urgent_request($orderId)) {
+                    $counts['URGENT']++;
                 }
             }
             jo_api_json_response(['success' => true, 'data' => $counts]);

@@ -103,6 +103,7 @@ $pos_completed_count = 0;
 $pos_cancelled_count = 0;
 $online_inquiry_count = 0;
 $online_payment_count = 0;
+$online_urgent_count = 0;
 $online_production_count = 0;
 $online_closed_count = 0;
 ?>
@@ -1914,13 +1915,13 @@ $online_closed_count = 0;
                          <span class="kpi-sub">Review, revisions, materials, pricing</span>
                      </span>
                  </div>
-                 <div class="kpi-card blue">
-                     <span class="kpi-card-inner">
-                         <span class="kpi-label">Payment</span>
-                         <span class="kpi-value" x-text="getStatusCount('PAYMENT')"><?php echo number_format($online_payment_count); ?></span>
-                         <span class="kpi-sub">To pay and for verification</span>
-                     </span>
-                 </div>
+                <div class="kpi-card rose">
+                    <span class="kpi-card-inner">
+                        <span class="kpi-label">Urgent Orders</span>
+                        <span class="kpi-value" x-text="getStatusCount('URGENT')"><?php echo number_format($online_urgent_count); ?></span>
+                        <span class="kpi-sub">Orders that need immediate attention</span>
+                    </span>
+                </div>
                  <div class="kpi-card emerald">
                      <span class="kpi-card-inner">
                          <span class="kpi-label">Production</span>
@@ -7324,6 +7325,12 @@ window.pfServiceFieldCatalog = (() => {
             getStatusCount(status) {
                 void this.ordersVersion;
                 const hasLocalFilters = this.search || this.serviceFilter !== 'ALL' || this.dateFilter !== 'ALL';
+                if (status === 'URGENT') {
+                    if (!hasLocalFilters && Object.prototype.hasOwnProperty.call(this.statusCounts, 'URGENT')) {
+                        return Number(this.statusCounts.URGENT || 0);
+                    }
+                    return this.orders.filter(o => this.matchesNonStatusFilters(o) && this.orderIsUrgentRequest(o)).length;
+                }
                 if (!hasLocalFilters && Object.prototype.hasOwnProperty.call(this.statusCounts, status)) {
                     return Number(this.statusCounts[status] || 0);
                 }

@@ -85,6 +85,12 @@ $assert(
     'ready-made product inventory deducts during mixed POS checkout'
 );
 $assert(
+    strpos($checkout, "['type' => 'product', 'items' => \$productItems]") !== false
+        && strpos($checkout, "['type' => 'custom', 'items' => \$serviceItems]") !== false
+        && strpos($checkout, 'POSBUNDLE-') !== false,
+    'mixed POS checkout splits product and service lines into separate orders linked by bundle reference'
+);
+$assert(
     strpos($pos, 'function posCheckoutCustomizationPayload(') !== false
         && strpos($pos, 'cart.map(posCheckoutItemPayload)') !== false,
     'checkout request omits heavy inline upload blobs when paths already exist'

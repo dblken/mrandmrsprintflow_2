@@ -828,8 +828,56 @@ function pos_extract_order_item_display_name(array $item): string {
     return $size !== '' ? ($baseName . ' (' . $size . ')') : ($baseName !== '' ? $baseName : 'Item');
 }
 
-function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): array {
-    return printflow_pos_build_receipt($orderId, $amountTendered);
+function pos_checkout_group_total(array $groupItems, array $products_cache): float
+{
+    $total = 0.0;
+    foreach ($groupItems as $item) {
+        $product_id = (int)($item['id'] ?? 0);
+        $qty = max(1, (int)($item['qty'] ?? 1));
+        $is_service = pos_payload_item_is_service((array)$item);
+        $p = $products_cache[$product_id] ?? ['price' => (float)($item['price'] ?? 0)];
+        $price = $is_service
+            ? (float)($item['price'] ?? ($p['price'] ?? 0))
+            : (float)($p['price'] ?? 0);
+        $total += $price * $qty;
+    }
+
+    return round($total, 2);
+}
+
+function pos_checkout_linked_order_ids(int $primaryOrderId): array
+{
+    if ($primaryOrderId <= 0) {
+        return [];
+    }
+
+    $rows = db_query(
+        'SELECT payment_reference FROM orders WHERE order_id = ? LIMIT 1',
+        'i',
+        [$primaryOrderId]
+    ) ?: [];
+    $reference = trim((string)($rows[0]['payment_reference'] ?? ''));
+    if ($reference === '' || !str_starts_with($reference, 'POSBUNDLE-')) {
+        return [$primaryOrderId];
+    }
+
+    $linkedRows = db_query(
+        "SELECT order_id FROM orders WHERE payment_reference = ? AND order_source = 'pos' ORDER BY order_id ASC",
+        's',
+        [$reference]
+    ) ?: [];
+    $linked = array_values(array_filter(array_map(static function (array $row): int {
+        return (int)($row['order_id'] ?? 0);
+    }, $linkedRows)));
+
+    return $linked !== [] ? $linked : [$primaryOrderId];
+}
+
+function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0, array $linkedOrderIds = []): array {
+    if ($linkedOrderIds === []) {
+        $linkedOrderIds = pos_checkout_linked_order_ids($orderId);
+    }
+    return printflow_pos_build_receipt($orderId, $amountTendered, $linkedOrderIds);
     /* Legacy implementation retained below temporarily for caller compatibility. */
     $orderRows = db_query(
         "SELECT o.*, c.first_name, c.last_name, c.email, c.contact_number,
@@ -1335,62 +1383,89 @@ try {
     // Fixed-product walk-in sales complete immediately; service/custom POS items keep their own workflow.
     $branch_id = $checkout_branch_id;
 
-    // Determine order_type based on cart content
-    $has_service = false;
+    $productItems = [];
+    $serviceItems = [];
     foreach ($items as $item) {
         if (pos_payload_item_is_service((array)$item)) {
-            $has_service = true;
-            break;
+            $serviceItems[] = $item;
+        } else {
+            $productItems[] = $item;
         }
     }
-    $order_type = $has_service ? 'custom' : 'product';
-    $order_status = $isPayMongo ? 'Pending' : ($has_service ? 'Pending' : 'Completed');
+    $orderGroups = [];
+    if ($productItems !== []) {
+        $orderGroups[] = ['type' => 'product', 'items' => $productItems];
+    }
+    if ($serviceItems !== []) {
+        $orderGroups[] = ['type' => 'custom', 'items' => $serviceItems];
+    }
+    $isMixedCart = count($orderGroups) > 1;
+    $posBundleReference = $isMixedCart ? ('POSBUNDLE-' . $checkoutToken) : $reference_number;
     $initial_payment_status = $isPayMongo ? 'Awaiting Payment' : 'Paid';
-    $reference_id = $items[0]['id'] ?? null;
+    $linkedOrderIds = [];
+    $primaryOrderId = null;
+    $order_id = null;
 
-    $priceFinalColumns = '';
-    $priceFinalValues = '';
-    $priceFinalTypes = '';
-    $priceFinalParams = [];
-    $amountPaidColumns = '';
-    $amountPaidValues = '';
-    $amountPaidTypes = '';
-    $amountPaidParams = [];
-    if (!$isPayMongo && $ordersHasAmountPaid) {
-        $amountPaidColumns = ', amount_paid';
-        $amountPaidValues = ', ?';
-        $amountPaidTypes = 'd';
-        $amountPaidParams[] = $amount_tendered;
-    }
-    if ($ordersHasPriceFinalized) {
-        $priceFinalColumns = ', price_finalized_at, price_finalized_by';
-        $priceFinalValues = ', NOW(), ?';
-        $priceFinalTypes = 'i';
-        $priceFinalParams[] = $checkoutStaffId;
-    }
+    foreach ($orderGroups as $group) {
+        $groupItems = $group['items'];
+        $order_type = (string)$group['type'];
+        $has_service = ($order_type === 'custom');
+        $groupTotal = pos_checkout_group_total($groupItems, $products_cache);
+        if ($isPayMongo && $isMixedCart && $order_type === 'product') {
+            $groupTotal = round($total_amount, 2);
+        }
+        $order_status = $isPayMongo ? 'Pending' : ($has_service ? 'Pending' : 'Completed');
+        $reference_id = $groupItems[0]['id'] ?? null;
 
-    $order_result = db_execute(
-        "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source{$amountPaidColumns}{$priceFinalColumns})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",
-        'iiidsssss' . $amountPaidTypes . $priceFinalTypes,
-        array_merge(
-            [$customer_id, $branch_id, $reference_id, $total_amount, $order_status, $initial_payment_status, $payment_method, $reference_number, $order_type],
-            $amountPaidParams,
-            $priceFinalParams
-        )
-    );
+        $priceFinalColumns = '';
+        $priceFinalValues = '';
+        $priceFinalTypes = '';
+        $priceFinalParams = [];
+        $amountPaidColumns = '';
+        $amountPaidValues = '';
+        $amountPaidTypes = '';
+        $amountPaidParams = [];
+        if (!$isPayMongo && $ordersHasAmountPaid) {
+            if (!$isMixedCart || $order_type === 'product') {
+                $amountPaidColumns = ', amount_paid';
+                $amountPaidValues = ', ?';
+                $amountPaidTypes = 'd';
+                $amountPaidParams[] = $amount_tendered;
+            }
+        }
+        if ($ordersHasPriceFinalized) {
+            $priceFinalColumns = ', price_finalized_at, price_finalized_by';
+            $priceFinalValues = ', NOW(), ?';
+            $priceFinalTypes = 'i';
+            $priceFinalParams[] = $checkoutStaffId;
+        }
 
-    if (!$order_result) {
-        $conn->rollback();
-        echo json_encode(['success' => false, 'message' => 'Failed to create order.']);
-        exit;
-    }
+        $order_result = db_execute(
+            "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source{$amountPaidColumns}{$priceFinalColumns})
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",
+            'iiidsssss' . $amountPaidTypes . $priceFinalTypes,
+            array_merge(
+                [$customer_id, $branch_id, $reference_id, $groupTotal, $order_status, $initial_payment_status, $payment_method, $posBundleReference, $order_type],
+                $amountPaidParams,
+                $priceFinalParams
+            )
+        );
 
-    $order_id = $conn->insert_id;
-    $checkout_stage = 'order_created';
+        if (!$order_result) {
+            $conn->rollback();
+            echo json_encode(['success' => false, 'message' => 'Failed to create order.']);
+            exit;
+        }
 
-    // Insert Order Items and Update Stock
-    foreach ($items as $item) {
+        $order_id = (int)$conn->insert_id;
+        $linkedOrderIds[] = $order_id;
+        if ($primaryOrderId === null || $order_type === 'product') {
+            $primaryOrderId = $order_id;
+        }
+        $checkout_stage = 'order_created';
+
+        // Insert order items and update stock for this category-specific order.
+        foreach ($groupItems as $item) {
         $product_id = (int)$item['id'];
         $qty = (int)$item['qty'];
         $p = $products_cache[$product_id] ?? null;
@@ -1668,7 +1743,22 @@ try {
                 throw new RuntimeException('Failed to deduct stock for ' . $prod_name . ': ' . $inventoryError->getMessage(), 409, $inventoryError);
             }
         }
+        }
+
+        if ($order_type === 'custom' && !empty($order_id)) {
+            try {
+                db_execute(
+                    "UPDATE job_orders SET status = 'PENDING', updated_at = NOW() WHERE order_id = ? AND status NOT IN ('COMPLETED', 'CANCELLED')",
+                    'i',
+                    [(int)$order_id]
+                );
+            } catch (Throwable $forceSyncError) {
+                error_log('PrintFlow POS forced pending sync warning for order #' . (int)$order_id . ': ' . $forceSyncError->getMessage());
+            }
+        }
     }
+
+    $order_id = $primaryOrderId;
 
     $checkout_stage = 'commit';
     pos_checkout_log_stage('commit', ['order_id' => (int)($order_id ?? 0)]);
@@ -1694,23 +1784,6 @@ try {
         } catch (Throwable $syncError) {
             $sync_warning = 'Sale completed, but production sync needs follow-up.';
             error_log('PrintFlow POS checkout sync warning for order #' . $syncOrderId . ': ' . $syncError->getMessage());
-        }
-    }
-
-    // Safety net: keep custom POS jobs aligned to the Pending walk-in order.
-    // Final material deduction happens when counter staff marks the order Completed.
-    if (($order_type ?? '') === 'custom' && !empty($order_id)) {
-        try {
-            db_execute(
-                "UPDATE job_orders SET status = 'PENDING', updated_at = NOW() WHERE order_id = ? AND status NOT IN ('COMPLETED', 'CANCELLED')",
-                'i',
-                [(int)$order_id]
-            );
-        } catch (Throwable $forceSyncError) {
-            if ($sync_warning === '') {
-                $sync_warning = 'Sale completed, but production sync needs follow-up.';
-            }
-            error_log('PrintFlow POS forced pending sync warning for order #' . (int)$order_id . ': ' . $forceSyncError->getMessage());
         }
     }
 
@@ -1750,7 +1823,7 @@ try {
         exit;
     }
 
-    $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered);
+    $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered, $linkedOrderIds);
     pos_checkout_persist_session_state(
         $checkoutToken,
         (int)$order_id,
@@ -1782,7 +1855,7 @@ try {
     if (!empty($order_id) && $checkout_committed) {
         error_log('PrintFlow POS checkout post-commit sync failed for order #' . (int)$order_id . ': ' . $e->getMessage());
         try {
-            $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered);
+            $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered, $linkedOrderIds);
             pos_checkout_persist_session_state(
                 $checkoutToken,
                 (int)$order_id,
