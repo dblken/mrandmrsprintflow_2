@@ -1559,14 +1559,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             margin-top: -1px;
         }
 
-        .receipt-printer-viewport.receipt-feed-active {
-            will-change: max-height;
+        .receipt-sheet.receipt-feed-active {
+            will-change: transform;
+        }
+
+        .receipt-printer-viewport.receipt-feed-empty {
+            min-height: 0;
         }
 
         @media (prefers-reduced-motion: reduce) {
-            .receipt-printer-viewport.receipt-feed-active {
+            .receipt-sheet.receipt-feed-active {
                 transition: none !important;
-                max-height: none !important;
             }
         }
 
@@ -3055,47 +3058,63 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function resetReceiptFeedAnimation(receiptEl) {
             const viewport = getReceiptPrinterViewport();
             if (viewport) {
-                viewport.classList.remove('receipt-feed-reveal', 'receipt-feed-active');
+                viewport.classList.remove('receipt-feed-reveal', 'receipt-feed-active', 'receipt-feed-empty');
                 viewport.style.transition = 'none';
+                viewport.style.height = '';
                 viewport.style.maxHeight = '';
-                viewport.style.clipPath = '';
+                viewport.style.minHeight = '';
             }
             if (receiptEl) {
                 receiptEl.classList.remove('receipt-feed-active');
+                receiptEl.style.transition = 'none';
                 receiptEl.style.transform = '';
             }
         }
 
         /**
-         * Paper-feed reveal: the slot stays fixed; only the viewport's visible height
-         * grows downward so the receipt emerges top-first (no translate/scroll).
+         * Paper consumed into printer: fixed slot at top; receipt block moves upward
+         * and is clipped by the viewport (overflow hidden) so content disappears into
+         * the slot top-first, footer last. Best-effort duration from 50 mm/s rated speed.
          */
         function runReceiptFeedAnimation(receiptEl, durationMs) {
             const viewport = getReceiptPrinterViewport();
             if (!receiptEl || !viewport) return Promise.resolve();
+
+            const fullHeight = Math.ceil(receiptEl.scrollHeight || receiptEl.offsetHeight || 0);
+            if (fullHeight <= 0) return Promise.resolve();
+
             if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-                resetReceiptFeedAnimation(receiptEl);
+                receiptEl.style.transition = 'none';
+                receiptEl.style.transform = `translateY(-${fullHeight}px)`;
+                viewport.classList.add('receipt-feed-empty');
+                viewport.style.height = '0px';
                 return Promise.resolve();
             }
 
             return new Promise(resolve => {
-                const fullHeight = Math.ceil(receiptEl.scrollHeight || receiptEl.offsetHeight || 0);
-                viewport.classList.remove('receipt-feed-active');
+                viewport.classList.remove('receipt-feed-empty');
                 viewport.style.transition = 'none';
-                viewport.style.maxHeight = '0px';
-                viewport.style.clipPath = 'inset(0 0 100% 0)';
-                void viewport.offsetHeight;
-                viewport.classList.add('receipt-feed-reveal', 'receipt-feed-active');
+                viewport.style.height = `${fullHeight}px`;
+                viewport.style.maxHeight = `${fullHeight}px`;
+                viewport.style.overflow = 'hidden';
+
+                receiptEl.classList.remove('receipt-feed-active');
+                receiptEl.style.transition = 'none';
+                receiptEl.style.transform = 'translateY(0)';
+                void receiptEl.offsetHeight;
+
+                receiptEl.classList.add('receipt-feed-active');
                 requestAnimationFrame(() => {
-                    viewport.style.transition = `max-height ${durationMs}ms linear, clip-path ${durationMs}ms linear`;
-                    viewport.style.maxHeight = `${fullHeight}px`;
-                    viewport.style.clipPath = 'inset(0 0 0 0)';
+                    receiptEl.style.transition = `transform ${durationMs}ms linear`;
+                    receiptEl.style.transform = `translateY(-${fullHeight}px)`;
                 });
+
                 window.setTimeout(() => {
+                    receiptEl.style.transition = 'none';
                     viewport.style.transition = 'none';
-                    viewport.style.maxHeight = '';
-                    viewport.style.clipPath = '';
-                    viewport.classList.remove('receipt-feed-active');
+                    viewport.style.height = '0px';
+                    viewport.style.maxHeight = '0px';
+                    viewport.classList.add('receipt-feed-empty');
                     resolve();
                 }, durationMs);
             });
@@ -3155,6 +3174,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         async function printReceipt() {
             if (posReceiptPrintProcessing || !activePosReceipt?.order_id) return;
             const printArea = document.getElementById('receipt-print-area');
+            resetReceiptFeedAnimation(printArea);
+            void printArea.offsetHeight;
             const durationMs = estimatePosReceiptPrintDurationMs(printArea);
 
             posReceiptPrintProcessing = true;
@@ -3190,6 +3211,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             } catch (error) {
                 console.error('Receipt printing failed:', error);
                 posReceiptPrintProcessing = false;
+                resetReceiptFeedAnimation(printArea);
                 setPosReceiptPrintState('Receipt printing failed.', true);
             }
         }
