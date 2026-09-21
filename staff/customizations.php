@@ -3324,17 +3324,18 @@ $online_closed_count = 0;
                         <div><strong>Item:</strong> <span x-text="getRowDisplayName(currentJo)"></span></div>
                         <div><strong>Original Status:</strong> Completed</div>
                     </div>
-                    <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Reason for Change Item</label>
-                    <select x-model="changeItemReasonCode" style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;margin-bottom:12px;">
+                    <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Reason for Change</label>
+                    <select x-model="changeItemReasonCode" style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;margin-bottom:12px;box-sizing:border-box;">
                         <option value="">-- Select a reason --</option>
                         <option value="damaged_item">Damaged Item</option>
                         <option value="print_quality">Print/Output Quality Issue</option>
                         <option value="incorrect_spec">Incorrect Item/Specification</option>
                         <option value="production_defect">Production Defect</option>
-                        <option value="other">Other</option>
+                        <option value="other">Others</option>
                     </select>
-                    <div x-show="changeItemReasonCode === 'other'" style="margin-bottom:12px;">
-                        <input x-model="changeItemReasonOther" type="text" placeholder="Specify reason..." style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box;">
+                    <div x-show="changeItemReasonCode === 'other'" x-cloak style="margin-bottom:12px;">
+                        <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Please specify</label>
+                        <input x-model="changeItemReasonOther" type="text" maxlength="255" placeholder="Describe the reason..." style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box;">
                     </div>
                     <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Issue Description <span style="color:#dc2626;">*</span></label>
                     <textarea x-model="changeItemDescription" maxlength="500" rows="4" placeholder="Describe the issue..." style="width:100%;max-width:100%;min-width:0;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;margin-bottom:4px;overflow-wrap:anywhere;"></textarea>

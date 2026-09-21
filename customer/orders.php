@@ -1082,8 +1082,14 @@ require_once __DIR__ . '/../includes/header.php';
 }
 .cm-actions-row .cm-btn {
     width: 100%;
+    height: 44px;
     min-height: 44px;
-    padding: 0.65rem 0.85rem;
+    padding: 0 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 .cm-btn-cancel {
     background: #ffffff;
@@ -1091,9 +1097,9 @@ require_once __DIR__ . '/../includes/header.php';
     border: 1px solid #cbd5e1;
 }
 .cm-btn-cancel:hover {
-    background: #fef2f2;
-    color: #b91c1c;
-    border-color: #fca5a5;
+    background: #dc2626;
+    color: #ffffff;
+    border-color: #dc2626;
 }
 .cm-btn-cancel:focus-visible {
     outline: 2px solid #fca5a5;
@@ -2513,7 +2519,7 @@ window.addEventListener('DOMContentLoaded', () => {
             <div id="changeItemCharCount" class="change-item-char-count">0 / 500</div>
         </div>
 
-        <label class="change-item-field-label" for="changeItemProof">Proof (optional)</label>
+        <label class="change-item-field-label" for="changeItemProof">Proof <span style="color:#dc2626;">*</span></label>
         <input id="changeItemProof" type="file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" class="w-full mb-4 text-sm" style="max-width:100%;box-sizing:border-box;">
 
         <div id="changeItemError" class="hidden text-sm font-semibold text-red-600 mb-3"></div>
@@ -3673,6 +3679,13 @@ async function submitChangeItemRequest() {
         err.classList.remove('hidden');
         return;
     }
+    const proofInput = document.getElementById('changeItemProof');
+    const proofFile = proofInput && proofInput.files && proofInput.files[0] ? proofInput.files[0] : null;
+    if (!proofFile) {
+        err.textContent = 'Please upload proof of the issue.';
+        err.classList.remove('hidden');
+        return;
+    }
     if (changeItemSubmitting) return;
     changeItemSubmitting = true;
     btn.disabled = true;
@@ -3685,8 +3698,7 @@ async function submitChangeItemRequest() {
         fd.append('issue_description', description.slice(0, CHANGE_ITEM_DESCRIPTION_MAX));
         fd.append('csrf_token', ctx.csrf || '');
         fd.append('idempotency_key', 'customer-change-item-' + ctx.orderId + '-' + Date.now());
-        const proof = document.getElementById('changeItemProof').files[0];
-        if (proof) fd.append('proof', proof);
+        fd.append('proof', proofFile);
         const res = await fetch(CUSTOMER_BASE_URL + '/customer/change_item_request.php', { method: 'POST', body: fd });
         const payload = await res.json();
         if (!payload.success) {
