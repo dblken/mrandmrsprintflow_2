@@ -267,6 +267,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
 $receipt_printers = printflow_receipt_printer_list();
 $receipt_table_preview_limit = 5;
 $receipt_printer_count = count($receipt_printers);
+$recent_receipt_job_count = 0;
 $recent_receipt_jobs = db_query(
     "SELECT j.id, j.receipt_number, j.status, j.attempts, j.max_attempts, j.error_message,
             j.created_at, j.printed_at, p.name AS printer_name
@@ -274,7 +275,6 @@ $recent_receipt_jobs = db_query(
      INNER JOIN receipt_printers p ON p.id = j.printer_id
      ORDER BY j.id DESC LIMIT 15"
 ) ?: [];
-$recent_receipt_job_count = count($recent_receipt_jobs);
 $generated_printer_api_key = (string)($_SESSION['receipt_printer_api_key'] ?? '');
 unset($_SESSION['receipt_printer_api_key']);
 $request_scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
@@ -381,24 +381,6 @@ $page_title = 'Settings - Admin';
         .printer-table th, .printer-table td { padding:9px 10px; border-bottom:1px solid #e5e7eb; text-align:left; vertical-align:middle; }
         .printer-table th { color:#6b7280; background:#f8fafc; font-size:10px; text-transform:uppercase; }
         .printer-table tr:last-child td { border-bottom:0; }
-        .printer-table-row--hidden { display: none; }
-        .printer-table-wrap.is-expanded .printer-table-row--hidden { display: table-row; }
-        .printer-show-more-btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            margin-top: 10px;
-            padding: 7px 14px;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            background: #fff;
-            color: #374151;
-            font-size: 13px;
-            font-weight: 500;
-            cursor: pointer;
-        }
-        .printer-show-more-btn:hover { border-color: #9ca3af; background: #f9fafb; }
-        .settings-card--hidden { display: none !important; }
         .printer-actions { display:flex; gap:6px; flex-wrap:wrap; }
         .btn-printer-secondary { padding:6px 10px; border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#374151; font-size:12px; cursor:pointer; }
         
@@ -596,14 +578,14 @@ $page_title = 'Settings - Admin';
                                 <label>Polling Fallback URL</label>
                                 <input type="text" readonly value="<?php echo htmlspecialchars($printer_poll_url); ?>" onclick="this.select()">
                             </div>
-                            <div class="printer-table-wrap" id="receipt-printers-table-wrap" style="margin-bottom:16px;">
+                            <div class="printer-table-wrap" style="margin-bottom:16px;">
                                 <table class="printer-table">
                                     <thead><tr><th>Printer</th><th>Branch</th><th>Layout</th><th>Agent</th><th>Actions</th></tr></thead>
                                     <tbody>
                                     <?php if (empty($receipt_printers)): ?>
                                         <tr><td colspan="5">No receipt printer configured yet.</td></tr>
-                                    <?php else: foreach ($receipt_printers as $printerIndex => $printer): ?>
-                                        <tr class="<?php echo $printerIndex >= $receipt_table_preview_limit ? 'printer-table-row--hidden' : ''; ?>">
+                                    <?php else: foreach ($receipt_printers as $printer): ?>
+                                        <tr>
                                             <td><strong><?php echo htmlspecialchars((string)$printer['name']); ?></strong><br><span style="color:#6b7280;"><?php echo htmlspecialchars((string)$printer['printer_driver_name']); ?></span></td>
                                             <td><?php echo htmlspecialchars((string)($printer['branch_name'] ?: 'Fallback')); ?></td>
                                             <td>58mm / <?php echo (int)$printer['columns_count']; ?> cols</td>
@@ -617,20 +599,15 @@ $page_title = 'Settings - Admin';
                                     </tbody>
                                 </table>
                             </div>
-                            <?php if ($receipt_printer_count > $receipt_table_preview_limit): ?>
-                                <button type="button" class="printer-show-more-btn" id="receipt-printers-show-more" data-more-label="Show more (<?php echo (int)($receipt_printer_count - $receipt_table_preview_limit); ?> more)" data-less-label="Show less">
-                                    Show more (<?php echo (int)($receipt_printer_count - $receipt_table_preview_limit); ?> more)
-                                </button>
-                            <?php endif; ?>
 
-                            <div class="printer-table-wrap" id="receipt-jobs-table-wrap" style="margin-top:16px;">
+                            <div class="printer-table-wrap">
                                 <table class="printer-table">
                                     <thead><tr><th>Recent Job</th><th>Printer</th><th>Status</th><th>Attempts</th><th></th></tr></thead>
                                     <tbody>
                                     <?php if (empty($recent_receipt_jobs)): ?>
                                         <tr><td colspan="5">No receipt print jobs yet.</td></tr>
-                                    <?php else: foreach ($recent_receipt_jobs as $jobIndex => $job): ?>
-                                        <tr class="<?php echo $jobIndex >= $receipt_table_preview_limit ? 'printer-table-row--hidden' : ''; ?>">
+                                    <?php else: foreach ($recent_receipt_jobs as $job): ?>
+                                        <tr>
                                             <td>#<?php echo (int)$job['id']; ?> <?php echo htmlspecialchars((string)$job['receipt_number']); ?><br><span style="color:#6b7280;"><?php echo htmlspecialchars((string)$job['created_at']); ?></span></td>
                                             <td><?php echo htmlspecialchars((string)$job['printer_name']); ?></td>
                                             <td><strong><?php echo htmlspecialchars(ucfirst((string)$job['status'])); ?></strong><?php if (!empty($job['error_message'])): ?><br><span style="color:#b91c1c;"><?php echo htmlspecialchars((string)$job['error_message']); ?></span><?php endif; ?></td>
@@ -641,17 +618,12 @@ $page_title = 'Settings - Admin';
                                     </tbody>
                                 </table>
                             </div>
-                            <?php if ($recent_receipt_job_count > $receipt_table_preview_limit): ?>
-                                <button type="button" class="printer-show-more-btn" id="receipt-jobs-show-more" data-more-label="Show more (<?php echo (int)($recent_receipt_job_count - $receipt_table_preview_limit); ?> more)" data-less-label="Show less">
-                                    Show more (<?php echo (int)($recent_receipt_job_count - $receipt_table_preview_limit); ?> more)
-                                </button>
-                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
 
-                <!-- Payment Methods (Dynamic) — hidden from admin UI; backend save handler retained -->
-                <div class="settings-card settings-card--hidden" aria-hidden="true">
+                <!-- Payment Methods (Dynamic) -->
+                <div class="settings-card">
                     <div class="settings-card-title">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
                         Payment Methods (Dynamic)
@@ -954,23 +926,6 @@ Stickers &amp; Decals"><?php
 
 <script>
 function printflowInitSettingsPage() {
-    function bindPrinterShowMore(buttonId, wrapId) {
-        const button = document.getElementById(buttonId);
-        const wrap = document.getElementById(wrapId);
-        if (!button || !wrap || button.dataset.pfBound === '1') {
-            return;
-        }
-        button.dataset.pfBound = '1';
-        button.addEventListener('click', function() {
-            const expanded = wrap.classList.toggle('is-expanded');
-            button.textContent = expanded
-                ? (button.dataset.lessLabel || 'Show less')
-                : (button.dataset.moreLabel || 'Show more');
-        });
-    }
-    bindPrinterShowMore('receipt-printers-show-more', 'receipt-printers-table-wrap');
-    bindPrinterShowMore('receipt-jobs-show-more', 'receipt-jobs-table-wrap');
-
     const receiptPrinterData = <?php echo json_encode($receipt_printers, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
     const receiptPrinterSelect = document.getElementById('receipt-printer-select');
     if (receiptPrinterSelect && receiptPrinterSelect.dataset.pfBound !== '1') {
