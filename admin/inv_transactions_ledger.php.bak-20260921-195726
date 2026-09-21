@@ -103,60 +103,6 @@ function pf_ledger_uom_label(string $uom): string {
     };
 }
 
-/** Resolve branch badge for a ledger row using inventory_transactions.branch_id only. */
-function pf_ledger_branch_badge_html(array $t, int $mainBranchId, string $mainBranchLegacyLabel): string {
-    $raw = $t['branch_id'] ?? null;
-    $branchId = ($raw === null || $raw === '') ? 0 : (int)$raw;
-
-    if ($branchId <= 0) {
-        return get_branch_badge_html($mainBranchId, $mainBranchLegacyLabel);
-    }
-
-    $branchName = trim((string)($t['branch_name'] ?? ''));
-    if ($branchName === '') {
-        $branchName = 'Branch #' . $branchId;
-    }
-
-    return get_branch_badge_html($branchId, $branchName);
-}
-
-/** Render one ledger table row (shared by full page and AJAX partial). */
-function pf_ledger_render_transaction_row(array $t, bool $showBranchColumn, int $mainBranchId, string $mainBranchLegacyLabel): void {
-    $qty = (float)$t['quantity'];
-    $isIN = ($t['direction'] === 'IN');
-    $displayQty = $isIN ? '+' . number_format($qty, 2) : '-' . number_format($qty, 2);
-    $qtyClass = $isIN ? 'qty-val positive' : 'qty-val negative';
-    $badgeClass = $isIN ? 'badge-in' : 'badge-out';
-    $displayType = str_replace('_', ' ', strtolower($t['ref_type'] ?: $t['direction'] ?: 'MOVEMENT'));
-
-    $typeBadgeClass = "badge $badgeClass";
-    $typeBadgeStyle = '';
-    if (in_array($displayType, ['joborder', 'job order'])) {
-        $displayType = 'customization';
-        $typeBadgeClass = '';
-        $typeBadgeStyle = 'display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#eef2ff;color:#4338ca;';
-    }
-    ?>
-    <tr>
-        <td style="font-family:monospace;font-size:12px;color:#111827;">#TX-<?php echo $t['id']; ?></td>
-        <td style="color:#6b7280;"><?php echo $t['transaction_date']; ?></td>
-        <td class="truncate" style="font-weight:500;color:#111827;" title="<?php echo htmlspecialchars($t['item_name']); ?>">
-            <?php echo htmlspecialchars($t['item_name']); ?>
-        </td>
-        <?php if ($showBranchColumn): ?>
-        <td><?php echo pf_ledger_branch_badge_html($t, $mainBranchId, $mainBranchLegacyLabel); ?></td>
-        <?php endif; ?>
-        <td><span class="<?php echo $typeBadgeClass; ?>" style="text-transform:capitalize;pointer-events:none;<?php echo $typeBadgeStyle; ?>"><?php echo $displayType; ?></span></td>
-        <td style="text-align:right;">
-            <span class="<?php echo $qtyClass; ?>"><?php echo $displayQty; ?></span>
-            <span style="font-size:11px;color:#6b7280;font-weight:600;margin-left:4px;"><?php echo $t['unit']; ?></span>
-        </td>
-        <td class="truncate" style="font-size:12px;color:#6b7280;" title="<?php echo htmlspecialchars($t['notes'] ?: '—'); ?>"><?php echo htmlspecialchars($t['notes'] ?: '—'); ?></td>
-        <td style="font-size:12px;color:#374151;"><?php echo htmlspecialchars($t['created_by_name'] ?: 'System'); ?></td>
-    </tr>
-    <?php
-}
-
 // Get filter parameters
 printflow_ensure_product_inventory_transaction_schema();
 $hasProductIdColumn = db_table_has_column('inventory_transactions', 'product_id');
@@ -193,14 +139,12 @@ $sql = "SELECT t.*,
                    ELSE COALESCE(NULLIF(TRIM(i.unit_of_measure), ''), NULLIF(TRIM(t.uom), ''), 'pcs')
                END as unit, 
                CONCAT(u.first_name, ' ', u.last_name) as created_by_name,
-               b.branch_name as branch_name,
                r.roll_code as roll_code,
                jo.id as job_ref_id,
                jo.order_id as job_order_store_order_id,
                 cust_map.customization_id as customization_ref_id
         FROM inventory_transactions t
         LEFT JOIN inv_items i ON t.item_id = i.id
-        LEFT JOIN branches b ON b.id = t.branch_id
         " . ($hasProductIdColumn ? "LEFT JOIN products p_direct ON t.product_id = p_direct.product_id" : "") . "
         LEFT JOIN products p_item ON UPPER(t.ref_type) IN ('ORDER', 'PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT') AND t.item_id = p_item.product_id
         LEFT JOIN products p_ref ON UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT') AND t.ref_id = p_ref.product_id
@@ -322,25 +266,6 @@ $sql .= $orderSql . " LIMIT $per_page OFFSET $offset";
 $transactions = db_query($sql, $types ?: null, $params ?: null) ?: [];
 $transactions = array_map('pf_ledger_enrich_transaction_row', $transactions);
 
-$ledgerShowBranchColumn = ($branchId <= 0);
-$ledgerTableColspan = $ledgerShowBranchColumn ? 8 : 7;
-$ledgerMainBranchId = function_exists('printflow_get_default_admin_branch_id')
-    ? (int)printflow_get_default_admin_branch_id()
-    : 1;
-if ($ledgerMainBranchId <= 0) {
-    $ledgerMainBranchId = 1;
-}
-$ledgerMainBranchLegacyLabel = 'Main Branch (legacy)';
-try {
-    $mainBranchRow = db_query('SELECT branch_name FROM branches WHERE id = ? LIMIT 1', 'i', [$ledgerMainBranchId]);
-    $resolvedMainBranchName = trim((string)($mainBranchRow[0]['branch_name'] ?? ''));
-    if ($resolvedMainBranchName !== '') {
-        $ledgerMainBranchLegacyLabel = $resolvedMainBranchName . ' (legacy)';
-    }
-} catch (Exception $e) {
-    // Keep fallback label when lookup is unavailable.
-}
-
 // Get items for filters/forms
 $items = db_query(
     "SELECT i.id, i.name, i.status, i.category_id, i.unit_of_measure AS unit, c.name AS category_name
@@ -359,11 +284,39 @@ if (isset($_GET['ajax'])) {
     ob_start();
     ?>
     <?php if (empty($transactions)): ?>
-        <tr><td colspan="<?php echo $ledgerTableColspan; ?>" style="text-align:center; padding: 60px; color:#6b7280; font-size: 15px;">No logs found for this period.</td></tr>
+        <tr><td colspan="7" style="text-align:center; padding: 60px; color:#6b7280; font-size: 15px;">No logs found for this period.</td></tr>
     <?php else: ?>
-        <?php foreach ($transactions as $t):
-            pf_ledger_render_transaction_row($t, $ledgerShowBranchColumn, $ledgerMainBranchId, $ledgerMainBranchLegacyLabel);
-        endforeach; ?>
+        <?php foreach ($transactions as $t): 
+            $qty = (float)$t['quantity'];
+            $isIN = ($t['direction'] === 'IN');
+            $displayQty = $isIN ? '+' . number_format($qty, 2) : '-' . number_format($qty, 2);
+            $qtyClass = $isIN ? 'qty-val positive' : 'qty-val negative';
+            $badgeClass = $isIN ? 'badge-in' : 'badge-out';
+            $displayType = str_replace('_', ' ', strtolower($t['ref_type'] ?: $t['direction'] ?: 'MOVEMENT'));
+            
+            $typeBadgeClass = "badge $badgeClass";
+            $typeBadgeStyle = '';
+            if (in_array($displayType, ['joborder', 'job order'])) {
+                $displayType = 'customization';
+                $typeBadgeClass = '';
+                $typeBadgeStyle = 'display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#eef2ff;color:#4338ca;';
+            }
+        ?>
+            <tr>
+                <td style="font-family:monospace;font-size:12px;color:#111827;">#TX-<?php echo $t['id']; ?></td>
+                <td style="color:#6b7280;"><?php echo $t['transaction_date']; ?></td>
+                <td class="truncate" style="font-weight:500;color:#111827;" title="<?php echo htmlspecialchars($t['item_name']); ?>">
+                    <?php echo htmlspecialchars($t['item_name']); ?>
+                </td>
+                <td><span class="<?php echo $typeBadgeClass; ?>" style="text-transform:capitalize;pointer-events:none;<?php echo $typeBadgeStyle; ?>"><?php echo $displayType; ?></span></td>
+                <td style="text-align:right;">
+                    <span class="<?php echo $qtyClass; ?>"><?php echo $displayQty; ?></span>
+                    <span style="font-size:11px;color:#6b7280;font-weight:600;margin-left:4px;"><?php echo $t['unit']; ?></span>
+                </td>
+                <td class="truncate" style="font-size:12px;color:#6b7280;" title="<?php echo htmlspecialchars($t['notes'] ?: '—'); ?>"><?php echo htmlspecialchars($t['notes'] ?: '—'); ?></td>
+                <td style="font-size:12px;color:#374151;"><?php echo htmlspecialchars($t['created_by_name'] ?: 'System'); ?></td>
+            </tr>
+        <?php endforeach; ?>
     <?php endif; ?>
     <?php
     $table_html = ob_get_clean();
@@ -851,7 +804,6 @@ if (isset($_GET['ajax'])) {
                                 <th>Ref #</th>
                                 <th>Date</th>
                                 <th>Item Name</th>
-                                <?php if ($ledgerShowBranchColumn): ?><th>Branch</th><?php endif; ?>
                                 <th>Transaction Type</th>
                                 <th style="text-align:right;">Quantity</th>
                                 <th>Notes</th>
@@ -860,11 +812,39 @@ if (isset($_GET['ajax'])) {
                         </thead>
                         <tbody id="ledgerTableBody">
                             <?php if (empty($transactions)): ?>
-                                <tr><td colspan="<?php echo $ledgerTableColspan; ?>" style="text-align:center; padding: 60px; color:#6b7280; font-size: 15px;">No logs found for this period.</td></tr>
+                                <tr><td colspan="7" style="text-align:center; padding: 60px; color:#6b7280; font-size: 15px;">No logs found for this period.</td></tr>
                             <?php else: ?>
-                                <?php foreach ($transactions as $t):
-                                    pf_ledger_render_transaction_row($t, $ledgerShowBranchColumn, $ledgerMainBranchId, $ledgerMainBranchLegacyLabel);
-                                endforeach; ?>
+                                <?php foreach ($transactions as $t): 
+                                    $qty = (float)$t['quantity'];
+                                    $isIN = ($t['direction'] === 'IN');
+                                    $displayQty = $isIN ? '+' . number_format($qty, 2) : '-' . number_format($qty, 2);
+                                    $qtyClass = $isIN ? 'qty-val positive' : 'qty-val negative';
+                                    $badgeClass = $isIN ? 'badge-in' : 'badge-out';
+                                    $displayType = str_replace('_', ' ', strtolower($t['ref_type'] ?: $t['direction'] ?: 'MOVEMENT'));
+                                    
+                                    $typeBadgeClass = "badge $badgeClass";
+                                    $typeBadgeStyle = '';
+                                    if (in_array($displayType, ['joborder', 'job order'])) {
+                                        $displayType = 'customization';
+                                        $typeBadgeClass = '';
+                                        $typeBadgeStyle = 'display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#eef2ff;color:#4338ca;';
+                                    }
+                                ?>
+                                    <tr>
+                                        <td style="font-family:monospace;font-size:12px;color:#111827;">#TX-<?php echo $t['id']; ?></td>
+                                        <td style="color:#6b7280;"><?php echo $t['transaction_date']; ?></td>
+                                        <td class="truncate" style="font-weight:500;color:#111827;" title="<?php echo htmlspecialchars($t['item_name']); ?>">
+                                            <?php echo htmlspecialchars($t['item_name']); ?>
+                                        </td>
+                                        <td><span class="<?php echo $typeBadgeClass; ?>" style="text-transform:capitalize;pointer-events:none;<?php echo $typeBadgeStyle; ?>"><?php echo $displayType; ?></span></td>
+                                        <td style="text-align:right;">
+                                            <span class="<?php echo $qtyClass; ?>"><?php echo $displayQty; ?></span>
+                                            <span style="font-size:11px;color:#6b7280;font-weight:600;margin-left:4px;"><?php echo $t['unit']; ?></span>
+                                        </td>
+                                        <td class="truncate" style="font-size:12px;color:#6b7280;" title="<?php echo htmlspecialchars($t['notes'] ?: '—'); ?>"><?php echo htmlspecialchars($t['notes'] ?: '—'); ?></td>
+                                        <td style="font-size:12px;color:#374151;"><?php echo htmlspecialchars($t['created_by_name'] ?: 'System'); ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
                             <?php endif; ?>
                         </tbody>
                     </table>
