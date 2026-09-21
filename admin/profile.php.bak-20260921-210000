@@ -337,6 +337,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_profile']) && 
     exit;
 }
 
+// Handle password change
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password']) && verify_csrf_token($_POST['csrf_token'] ?? '')) {
+    $current_password = $_POST['current_password'] ?? '';
+    $new_password = $_POST['new_password'] ?? '';
+    $confirm_password = $_POST['confirm_password'] ?? '';
+
+    $pw_error = '';
+    if (empty($current_password) || empty($new_password)) {
+        $pw_error = 'All password fields are required.';
+    } elseif (!password_verify($current_password, $admin['password_hash'])) {
+        $pw_error = 'Current password is incorrect.';
+    } elseif (strlen($new_password) < 8 || strlen($new_password) > 100 || !preg_match('/[A-Z]/', $new_password) || !preg_match('/[a-z]/', $new_password) || !preg_match('/[0-9]/', $new_password) || !preg_match('/[^A-Za-z0-9]/', $new_password) || strpos($new_password, ' ') !== false) {
+        $pw_error = 'Password must contain at least 8 and at most 100 characters, uppercase, lowercase, number, special character, and no spaces.';
+    } elseif ($new_password !== $confirm_password) {
+        $pw_error = 'New passwords do not match.';
+    } else {
+        $password_hash = password_hash($new_password, PASSWORD_BCRYPT);
+        db_execute("UPDATE users SET password_hash = ?, updated_at = NOW() WHERE user_id = ?", 'si', [$password_hash, $admin_id]);
+        $_SESSION['admin_profile_success'] = 'Password updated successfully!';
+    }
+    if ($pw_error !== '') {
+        $_SESSION['admin_profile_error'] = $pw_error;
+    }
+    header('Location: profile.php', true, 303);
+    exit;
+}
+
 $user_initial = strtoupper(substr($admin['first_name'], 0, 1));
 $profile_pic_url = !empty($admin['profile_picture']) 
     ? $base_path . '/public/assets/uploads/profiles/' . $admin['profile_picture']
@@ -717,33 +744,30 @@ $page_title = 'My Profile - PrintFlow Admin';
             transform: none !important;
             box-shadow: none !important;
         }
-        .security-link-card {
-            margin-top: 20px;
-            max-width: 720px;
+        .password-wrapper {
+            position: relative;
         }
-        .security-link-card p {
-            font-size: 13px;
-            color: #6b7280;
-            margin: 0 0 16px;
-            line-height: 1.5;
+        .password-wrapper input {
+            padding-right: 45px !important;
         }
-        .btn-outline {
-            display: inline-flex;
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #9ca3af;
+            display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 10px 18px;
-            border: 1px solid #53C5E0;
-            color: #0891b2;
-            background: #fff;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            text-decoration: none;
-            transition: background 0.2s, color 0.2s;
+            justify-content: center;
+            padding: 4px;
+            transition: color 0.2s;
+            z-index: 10;
         }
-        .btn-outline:hover {
-            background: #ecfeff;
-            color: #0e7490;
+        .password-toggle:hover {
+            color: #53C5E0;
         }
     </style>
 </head>
@@ -790,7 +814,7 @@ $page_title = 'My Profile - PrintFlow Admin';
                 </div>
             </div>
 
-            <div class="profile-columns" style="max-width:720px;">
+            <div class="profile-columns" style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
                 <!-- Profile Information -->
                 <div class="section-card">
                     <div class="section-title">
@@ -896,16 +920,57 @@ $page_title = 'My Profile - PrintFlow Admin';
                     </form>
                 </div>
 
-                <div class="section-card security-link-card">
+                <!-- Change Password -->
+                <div class="section-card">
                     <div class="section-title">
                         <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-                        Password & Security
+                        Change Password
                     </div>
-                    <p>Update your password and keep your account secure on a dedicated page.</p>
-                    <a href="password_security.php" class="btn-outline">
-                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-                        Go to Password & Security
-                    </a>
+                    <form method="POST" id="passwordForm" onsubmit="return validatePasswordForm(event)">
+                        <?php echo csrf_field(); ?>
+                        <input type="hidden" name="change_password" value="1">
+                        
+                        <div class="form-group" id="group_current_password">
+                            <label>Current Password *</label>
+                            <div class="password-wrapper">
+                                <input type="password" name="current_password" id="current_password" required autocomplete="current-password">
+                                <button type="button" class="password-toggle" onclick="togglePassword('current_password', this)">
+                                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                </button>
+                            </div>
+                            <div class="error-message" id="error_current_password">Current password is required.</div>
+                        </div>
+                        
+                        <div class="form-group" id="group_new_password">
+                            <label>New Password *</label>
+                            <div class="password-wrapper">
+                                <input type="password" name="new_password" id="new_password" required autocomplete="new-password">
+                                <button type="button" class="password-toggle" onclick="togglePassword('new_password', this)">
+                                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                </button>
+                            </div>
+                            <p id="password_requirements" style="font-size:11px;color:#9ca3af;margin-top:4px;">Min. 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 symbol</p>
+                            <div class="error-message" id="error_new_password">Invalid password format.</div>
+                        </div>
+                        
+                        <div class="form-group" id="group_confirm_password">
+                            <label>Confirm New Password *</label>
+                            <div class="password-wrapper">
+                                <input type="password" name="confirm_password" id="confirm_password" required autocomplete="new-password">
+                                <button type="button" class="password-toggle" onclick="togglePassword('confirm_password', this)">
+                                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                </button>
+                            </div>
+                            <div class="error-message" id="error_confirm_password">Passwords do not match.</div>
+                        </div>
+                        
+                        <div class="profile-form-actions">
+                            <button type="submit" class="btn-save" id="btn_update_password">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                                Update Password
+                            </button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </main>
@@ -1121,6 +1186,21 @@ $page_title = 'My Profile - PrintFlow Admin';
     window.viewProfilePicture = viewProfilePicture;
     window.closeViewPicture = closeViewPicture;
     
+    function togglePassword(fieldId, button) {
+        var field = document.getElementById(fieldId);
+        if (!field) return;
+        
+        if (field.type === 'password') {
+            field.type = 'text';
+            button.innerHTML = '<svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>';
+        } else {
+            field.type = 'password';
+            button.innerHTML = '<svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>';
+        }
+    }
+    
+    window.togglePassword = togglePassword;
+
     // --- PSGC-based Address Cascading (DOM refs refreshed in printflowInitProfilePage for Turbo) ---
     var addressInitial = {
         province: <?php echo json_encode($addressProvince, JSON_UNESCAPED_UNICODE); ?>,
@@ -1333,6 +1413,9 @@ $page_title = 'My Profile - PrintFlow Admin';
     // --- Validation Logic ---
     var birthdayMax = <?php echo json_encode($maxBirthday); ?>;
     var personalForm = document.getElementById('personalInfoForm');
+    var passwordForm = document.getElementById('passwordForm');
+    var passwordFieldIds = ['current_password', 'new_password', 'confirm_password'];
+    var passwordTouched = { current_password: false, new_password: false, confirm_password: false };
 
     var validators = {
         first_name: (val) => {
@@ -1384,6 +1467,18 @@ $page_title = 'My Profile - PrintFlow Admin';
             if (!val || val === 'Philippines') return "Address is required.";
             if (val.length < 5) return "Address must be at least 5 characters.";
             if (val.length > 200) return "Address cannot exceed 200 characters.";
+            return null;
+        },
+        new_password: (val) => {
+            // Match registration rules exactly.
+            if (!val) return "New password is required.";
+            if (val.length < 8) return "Password must be at least 8 characters.";
+            if (val.length > 100) return "Password must be at most 100 characters.";
+            if (!/[A-Z]/.test(val)) return "Password must have an uppercase letter.";
+            if (!/[a-z]/.test(val)) return "Password must have a lowercase letter.";
+            if (!/[0-9]/.test(val)) return "Password must have a number.";
+            if (!/[^A-Za-z0-9]/.test(val)) return "Password must have a special character.";
+            if (/\s/.test(val)) return "Password must not contain spaces.";
             return null;
         }
     };
@@ -1451,6 +1546,54 @@ $page_title = 'My Profile - PrintFlow Admin';
         if (btnSave) btnSave.disabled = !(fValid && mValid && lValid && eValid && bdayValid && cValid && pValid && ciValid && bValid && aValid);
     }
 
+    function checkPassword(force = false) {
+        const current = document.getElementById('current_password');
+        const newPass = document.getElementById('new_password');
+        const confirm = document.getElementById('confirm_password');
+        if (!current || !newPass || !confirm) return;
+        const hasAnyInput = (current.value + newPass.value + confirm.value).trim().length > 0;
+        const mustValidate = force || hasAnyInput || (passwordTouched && typeof passwordTouched === 'object' ? Object.values(passwordTouched).some(Boolean) : false);
+
+        if (!mustValidate) {
+            passwordFieldIds.forEach(clearValidationState);
+            var btnUp = document.getElementById('btn_update_password');
+            if (btnUp) btnUp.disabled = true;
+            return;
+        }
+
+        const currentValid = validateField('current_password', (val) => !val ? 'Current password is required.' : null, {
+            onlyWhenTouched: !force,
+            isTouched: passwordTouched.current_password || current.value.length > 0
+        });
+        const nValid = validateField('new_password', validators.new_password, {
+            onlyWhenTouched: !force,
+            isTouched: passwordTouched.new_password || newPass.value.length > 0
+        });
+
+        const cGroup = document.getElementById('group_confirm_password');
+        const cError = document.getElementById('error_confirm_password');
+        if (!cGroup || !cError) return;
+        let confirmValid = false;
+        if (!force && !passwordTouched.confirm_password && confirm.value === '') {
+            clearValidationState('confirm_password');
+        } else if (!confirm.value) {
+            cGroup.classList.add('is-invalid');
+            cGroup.classList.remove('is-valid');
+            cError.textContent = "Confirm password is required.";
+        } else if (confirm.value !== newPass.value) {
+            cGroup.classList.add('is-invalid');
+            cGroup.classList.remove('is-valid');
+            cError.textContent = "Passwords do not match.";
+        } else {
+            cGroup.classList.remove('is-invalid');
+            cGroup.classList.remove('is-valid');
+            confirmValid = true;
+        }
+
+        var btnUp2 = document.getElementById('btn_update_password');
+        if (btnUp2) btnUp2.disabled = !(currentValid && nValid && confirmValid);
+    }
+
     function validatePersonalInfoForm(event) {
         checkPersonalInfo();
         var btn = document.getElementById('btn_save_profile');
@@ -1461,7 +1604,18 @@ $page_title = 'My Profile - PrintFlow Admin';
         return ok;
     }
 
+    function validatePasswordForm(event) {
+        checkPassword(true);
+        var btn = document.getElementById('btn_update_password');
+        var ok = !!(btn && !btn.disabled);
+        if (!ok && event && typeof event.preventDefault === 'function') {
+            event.preventDefault();
+        }
+        return ok;
+    }
+
     window.validatePersonalInfoForm = validatePersonalInfoForm;
+    window.validatePasswordForm = validatePasswordForm;
 
     // Block numbers and special characters in name fields
     function blockNonLetters(event) {
@@ -1575,12 +1729,16 @@ $page_title = 'My Profile - PrintFlow Admin';
         if (!document.getElementById('personalInfoForm')) return;
 
         personalForm = document.getElementById('personalInfoForm');
+        passwordForm = document.getElementById('passwordForm');
         provinceSelect = document.getElementById('address_province');
         citySelect = document.getElementById('address_city');
         barangaySelect = document.getElementById('address_barangay');
         addressLineInput = document.getElementById('address_line');
         addressPreview = document.getElementById('address');
         bindProfileAddressCascadeListeners();
+
+        // Reset touched states
+        Object.keys(passwordTouched).forEach(k => passwordTouched[k] = false);
 
         // Initialize phone number with 09 if empty
         var phoneInput = document.getElementById('contact_number');
@@ -1624,6 +1782,81 @@ $page_title = 'My Profile - PrintFlow Admin';
             el.removeEventListener('blur', checkPersonalInfo);
             el.addEventListener('blur', checkPersonalInfo);
         });
+
+        passwordFieldIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.removeEventListener('input', checkPassword);
+            el.addEventListener('input', () => { passwordTouched[id] = true; checkPassword(); });
+            el.removeEventListener('blur', checkPassword);
+            el.addEventListener('blur', () => { passwordTouched[id] = true; checkPassword(); });
+            
+            // Block input when max length (64) is reached
+            el.removeEventListener('keydown', blockExcessPasswordInput);
+            el.addEventListener('keydown', blockExcessPasswordInput);
+            
+            // Block paste when it would exceed max length
+            el.removeEventListener('paste', blockExcessPasswordPaste);
+            el.addEventListener('paste', blockExcessPasswordPaste);
+        });
+
+        checkPassword(false);
+    }
+    
+    function blockExcessPasswordInput(event) {
+        var input = event.target;
+        var maxLength = 100;
+        
+        // Allow: backspace, delete, tab, escape, enter, arrow keys
+        if ([8, 9, 27, 13, 46, 37, 38, 39, 40].indexOf(event.keyCode) !== -1 ||
+            // Allow: Ctrl+A, Ctrl+C, Ctrl+X, Ctrl+Z (but NOT Ctrl+V - handled by paste event)
+            (event.ctrlKey === true && [65, 67, 88, 90].indexOf(event.keyCode) !== -1) ||
+            // Allow: home, end
+            (event.keyCode >= 35 && event.keyCode <= 36)) {
+            return true;
+        }
+        
+        // Block if at max length and no text is selected
+        if (input.value.length >= maxLength && input.selectionStart === input.selectionEnd) {
+            event.preventDefault();
+            return false;
+        }
+        
+        return true;
+    }
+    
+    function blockExcessPasswordPaste(event) {
+        var input = event.target;
+        var maxLength = 100;
+        
+        // Get pasted text
+        var pastedText = (event.clipboardData || window.clipboardData).getData('text');
+        
+        // Calculate what the new value would be
+        var currentValue = input.value;
+        var selectionStart = input.selectionStart;
+        var selectionEnd = input.selectionEnd;
+        
+        // Remove selected text and insert pasted text
+        var newValue = currentValue.substring(0, selectionStart) + pastedText + currentValue.substring(selectionEnd);
+        
+        // If new value exceeds max length, prevent paste
+        if (newValue.length > maxLength) {
+            event.preventDefault();
+            
+            // Optionally, paste only what fits
+            var availableSpace = maxLength - (currentValue.length - (selectionEnd - selectionStart));
+            if (availableSpace > 0) {
+                var truncatedText = pastedText.substring(0, availableSpace);
+                var finalValue = currentValue.substring(0, selectionStart) + truncatedText + currentValue.substring(selectionEnd);
+                input.value = finalValue;
+                input.setSelectionRange(selectionStart + truncatedText.length, selectionStart + truncatedText.length);
+            }
+            
+            return false;
+        }
+        
+        return true;
     }
 
     /* Turbo: turbo-init dispatches once per navigation (no duplicate DOMContentLoaded + page-init). */
