@@ -238,7 +238,7 @@ function printflow_change_item_reason_labels(): array
         'print_quality' => 'Print/Output Quality Issue',
         'incorrect_spec' => 'Incorrect Item/Specification',
         'production_defect' => 'Production Defect',
-        'other' => 'Other',
+        'other' => 'Others',
     ];
 }
 
@@ -961,10 +961,6 @@ function printflow_change_item_create(array $input): array
     if (strlen($description) > 500) {
         throw new InvalidArgumentException('Issue description must be 500 characters or fewer.');
     }
-    if ($reasonCode === 'other' && $reasonFallback === '') {
-        throw new InvalidArgumentException('Please specify a reason for Other.');
-    }
-
     $staffNotes = trim((string)($input['staff_notes'] ?? ''));
     if (strlen($staffNotes) > 2000) {
         throw new InvalidArgumentException('Staff notes must be 2000 characters or fewer.');

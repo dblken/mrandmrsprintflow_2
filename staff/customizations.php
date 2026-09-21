@@ -3333,12 +3333,8 @@ $online_closed_count = 0;
                         <option value="production_defect">Production Defect</option>
                         <option value="other">Others</option>
                     </select>
-                    <div x-show="changeItemReasonCode === 'other'" x-cloak style="margin-bottom:12px;">
-                        <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Please specify</label>
-                        <input x-model="changeItemReasonOther" type="text" maxlength="255" placeholder="Describe the reason..." style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box;">
-                    </div>
                     <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Issue Description <span style="color:#dc2626;">*</span></label>
-                    <textarea x-model="changeItemDescription" maxlength="500" rows="4" placeholder="Describe the issue..." style="width:100%;max-width:100%;min-width:0;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;margin-bottom:4px;overflow-wrap:anywhere;"></textarea>
+                    <textarea x-model="changeItemDescription" maxlength="500" rows="4" :placeholder="changeItemReasonCode === 'other' ? 'Please describe the issue and reason for requesting a change...' : 'Describe the issue with the completed item...'" style="width:100%;max-width:100%;min-width:0;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;margin-bottom:4px;overflow-wrap:anywhere;min-height:112px;max-height:180px;overflow-y:auto;"></textarea>
                     <div style="font-size:11px;color:#6b7280;text-align:right;margin-bottom:12px;" x-text="(changeItemDescription || '').length + ' / ' + changeItemDescriptionMaxLen"></div>
                     <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Proof (optional)</label>
                     <input type="file" accept="image/*,application/pdf" @change="changeItemProofFile = $event.target.files[0] || null" style="width:100%;margin-bottom:12px;">
@@ -3600,7 +3596,6 @@ window.pfServiceFieldCatalog = (() => {
             showChangeItemModal: false,
             showChangeItemRejectModal: false,
             changeItemReasonCode: '',
-            changeItemReasonOther: '',
             changeItemDescription: '',
             changeItemStaffNotes: '',
             changeItemProofFile: null,
@@ -8911,7 +8906,6 @@ window.pfServiceFieldCatalog = (() => {
             openChangeItemModal() {
                 this.changeItemModalError = '';
                 this.changeItemReasonCode = '';
-                this.changeItemReasonOther = '';
                 this.changeItemDescription = '';
                 this.changeItemStaffNotes = '';
                 this.changeItemProofFile = null;
@@ -8943,10 +8937,6 @@ window.pfServiceFieldCatalog = (() => {
                     this.changeItemModalError = 'Please select a reason.';
                     return;
                 }
-                if (this.changeItemReasonCode === 'other' && !this.changeItemReasonOther.trim()) {
-                    this.changeItemModalError = 'Please specify the reason.';
-                    return;
-                }
                 if (!this.changeItemDescription.trim()) {
                     this.changeItemModalError = 'Issue description is required.';
                     return;
@@ -8976,7 +8966,7 @@ window.pfServiceFieldCatalog = (() => {
                         fd.append('order_item_id', String(orderItemId));
                     }
                     fd.append('reason_code', this.changeItemReasonCode);
-                    fd.append('reason_label', this.changeItemReasonCode === 'other' ? this.changeItemReasonOther.trim() : '');
+                    fd.append('reason_label', '');
                     fd.append('issue_description', this.changeItemDescription.trim());
                     fd.append('staff_notes', this.changeItemStaffNotes.trim());
                     fd.append('idempotency_key', this.changeItemIdempotencyKey || ('staff-change-item-' + orderId + '-' + Date.now()));

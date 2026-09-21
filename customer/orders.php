@@ -955,19 +955,22 @@ require_once __DIR__ . '/../includes/header.php';
 .im-order-actions {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
     gap: 0.65rem;
+    width: 100%;
+    max-width: 17.5rem;
 }
 .im-order-action {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    width: auto;
-    min-width: min(100%, 12.5rem);
+    width: 100%;
+    min-width: 0;
     max-width: 100%;
     min-height: 42px;
-    padding: 0.65rem 1rem;
+    height: 42px;
+    padding: 0 1rem;
     border: 1px solid transparent;
     border-radius: 8px;
     background: #0a2530;
@@ -1018,6 +1021,8 @@ require_once __DIR__ . '/../includes/header.php';
     box-sizing: border-box;
     resize: vertical;
     min-height: 112px;
+    max-height: 180px;
+    overflow-y: auto;
     overflow-wrap: anywhere;
     word-break: break-word;
 }
@@ -1070,10 +1075,6 @@ require_once __DIR__ . '/../includes/header.php';
     outline: none;
     border-color: #0a2530;
 }
-#changeItemReasonOtherWrap {
-    display: none;
-    margin-bottom: 0.75rem;
-}
 .cm-actions-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1093,8 +1094,8 @@ require_once __DIR__ . '/../includes/header.php';
 }
 .cm-btn-cancel {
     background: #ffffff;
-    color: #64748b;
-    border: 1px solid #cbd5e1;
+    color: #dc2626;
+    border: 1px solid #dc2626;
 }
 .cm-btn-cancel:hover {
     background: #dc2626;
@@ -2507,15 +2508,9 @@ window.addEventListener('DOMContentLoaded', () => {
             <option value="other">Others</option>
         </select>
 
-        <div id="changeItemReasonOtherWrap">
-            <label class="change-item-field-label" for="changeItemReasonOther">Please specify</label>
-            <input id="changeItemReasonOther" type="text" class="change-item-input" placeholder="Describe the reason..." maxlength="255">
-        </div>
-
-        <label class="change-item-field-label" for="changeItemDescription">Issue Description</label>
-        <span class="change-item-field-help">Describe the issue with your completed item.</span>
+        <label class="change-item-field-label" for="changeItemDescription">Issue Description <span style="color:#dc2626;">*</span></label>
         <div class="change-item-textarea-wrap">
-            <textarea id="changeItemDescription" maxlength="500" rows="4" class="change-item-textarea" placeholder="Describe the issue..."></textarea>
+            <textarea id="changeItemDescription" maxlength="500" rows="4" class="change-item-textarea" placeholder="Describe the issue with your completed item..."></textarea>
             <div id="changeItemCharCount" class="change-item-char-count">0 / 500</div>
         </div>
 
@@ -3600,6 +3595,16 @@ function closeCancelModal() {
 
 let changeItemSubmitting = false;
 const CHANGE_ITEM_DESCRIPTION_MAX = 500;
+const CHANGE_ITEM_DESC_PLACEHOLDER_DEFAULT = 'Describe the issue with your completed item...';
+const CHANGE_ITEM_DESC_PLACEHOLDER_OTHER = 'Please describe the issue and reason for requesting a change...';
+function updateChangeItemDescriptionPlaceholder() {
+    const reason = document.getElementById('changeItemReason');
+    const field = document.getElementById('changeItemDescription');
+    if (!field) return;
+    field.placeholder = reason && reason.value === 'other'
+        ? CHANGE_ITEM_DESC_PLACEHOLDER_OTHER
+        : CHANGE_ITEM_DESC_PLACEHOLDER_DEFAULT;
+}
 function updateChangeItemCharCount() {
     const field = document.getElementById('changeItemDescription');
     const counter = document.getElementById('changeItemCharCount');
@@ -3613,11 +3618,10 @@ function openChangeItemModal() {
     document.getElementById('changeItemOrderMeta').innerHTML =
         `<div><strong>Original Order:</strong> ${escIM(ctx.code || ('ORD-' + String(ctx.orderId).padStart(5, '0')))}</div>`;
     document.getElementById('changeItemReason').value = '';
-    document.getElementById('changeItemReasonOther').value = '';
-    toggleChangeItemReasonOther(false);
     document.getElementById('changeItemDescription').value = '';
     document.getElementById('changeItemProof').value = '';
     document.getElementById('changeItemError').classList.add('hidden');
+    updateChangeItemDescriptionPlaceholder();
     updateChangeItemCharCount();
     document.getElementById('changeItemModal').classList.add('open');
     document.body.style.overflow = 'hidden';
@@ -3638,34 +3642,17 @@ function closeChangeItemSuccessModal() {
         document.body.style.overflow = '';
     }
 }
-function toggleChangeItemReasonOther(show) {
-    const wrap = document.getElementById('changeItemReasonOtherWrap');
-    const input = document.getElementById('changeItemReasonOther');
-    if (!wrap || !input) return;
-    wrap.style.display = show ? 'block' : 'none';
-    if (!show) {
-        input.value = '';
-    }
-}
-document.getElementById('changeItemReason')?.addEventListener('change', function () {
-    toggleChangeItemReasonOther(this.value === 'other');
-});
+document.getElementById('changeItemReason')?.addEventListener('change', updateChangeItemDescriptionPlaceholder);
 document.getElementById('changeItemDescription')?.addEventListener('input', updateChangeItemCharCount);
 async function submitChangeItemRequest() {
     const ctx = window.__pfChangeItemModalContext || {};
     const err = document.getElementById('changeItemError');
     const btn = document.getElementById('changeItemSubmitBtn');
     const reason = document.getElementById('changeItemReason').value;
-    const reasonOther = document.getElementById('changeItemReasonOther').value.trim();
     const description = document.getElementById('changeItemDescription').value.trim();
     if (!ctx.orderId) return;
     if (!reason) {
         err.textContent = 'Please select a reason.';
-        err.classList.remove('hidden');
-        return;
-    }
-    if (reason === 'other' && !reasonOther) {
-        err.textContent = 'Please specify the reason.';
         err.classList.remove('hidden');
         return;
     }
@@ -3694,7 +3681,7 @@ async function submitChangeItemRequest() {
         const fd = new FormData();
         fd.append('order_id', String(ctx.orderId));
         fd.append('reason_code', reason);
-        fd.append('reason_label', reason === 'other' ? reasonOther : '');
+        fd.append('reason_label', '');
         fd.append('issue_description', description.slice(0, CHANGE_ITEM_DESCRIPTION_MAX));
         fd.append('csrf_token', ctx.csrf || '');
         fd.append('idempotency_key', 'customer-change-item-' + ctx.orderId + '-' + Date.now());
