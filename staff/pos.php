@@ -73,6 +73,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo htmlspecialchars($page_title); ?> - PrintFlow</title>
     <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/output.css'); ?>">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
@@ -1400,6 +1401,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             margin: 0 auto 20px;
         }
 
+        #pos-alert-icon {
+            font-size: 30px;
+            line-height: 1;
+            display: block;
+        }
+
         .pos-alert-title {
             margin: 0 0 10px;
             font-weight: 800;
@@ -1525,6 +1532,38 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             padding: 28px;
             overflow: auto;
             background: linear-gradient(180deg, #f4f8f7 0%, #eef4f3 100%);
+        }
+
+        .receipt-printer-stage {
+            position: relative;
+            width: min(320px, 100%);
+            margin: 0 auto;
+        }
+
+        .receipt-printer-slot {
+            height: 10px;
+            background: linear-gradient(180deg, #475569 0%, #1e293b 100%);
+            border-radius: 6px 6px 0 0;
+            box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
+            margin-bottom: -2px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .receipt-printer-viewport {
+            overflow: hidden;
+            position: relative;
+        }
+
+        .receipt-sheet.receipt-feed-active {
+            will-change: transform;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .receipt-sheet.receipt-feed-active {
+                transition: none !important;
+                transform: none !important;
+            }
         }
 
         .receipt-sheet {
@@ -2455,7 +2494,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 </div>
             </div>
             <div class="receipt-modal-body">
-                <div id="receipt-print-area" class="receipt-sheet"></div>
+                <div class="receipt-printer-stage">
+                    <div class="receipt-printer-slot" aria-hidden="true"></div>
+                    <div class="receipt-printer-viewport" id="receipt-printer-viewport">
+                        <div id="receipt-print-area" class="receipt-sheet"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -2974,6 +3018,63 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         let activePosPrintJob = null;
         let posReceiptPrintProcessing = false;
 
+        const POS_RECEIPT_PRINTER_SPEC = {
+            speedMmPerSec: 50,
+            paperWidthMm: 58,
+            printWidthMm: 48,
+            avgLineHeightMm: 3.75,
+            calibrationBufferSec: 0.4,
+        };
+
+        /**
+         * Best-effort print duration from rated thermal head speed (50 mm/s @ 58 mm paper).
+         * PushPrinter / browser print APIs do not expose live paper-feed progress.
+         * Frame-perfect sync would need WebUSB/WebSerial printer status polling (separate scope).
+         */
+        function estimatePosReceiptPrintDurationMs(receiptEl) {
+            if (!receiptEl) {
+                return Math.round((POS_RECEIPT_PRINTER_SPEC.calibrationBufferSec + 1.5) * 1000);
+            }
+
+            const widthPx = receiptEl.offsetWidth || receiptEl.getBoundingClientRect().width || 1;
+            const heightPx = receiptEl.scrollHeight || receiptEl.offsetHeight || 0;
+            const lengthMm = (heightPx / widthPx) * POS_RECEIPT_PRINTER_SPEC.paperWidthMm;
+            const printTimeSec = lengthMm / POS_RECEIPT_PRINTER_SPEC.speedMmPerSec;
+            const totalSec = POS_RECEIPT_PRINTER_SPEC.calibrationBufferSec + printTimeSec;
+            return Math.max(900, Math.round(totalSec * 1000));
+        }
+
+        function resetReceiptFeedAnimation(receiptEl) {
+            if (!receiptEl) return;
+            receiptEl.classList.remove('receipt-feed-active');
+            receiptEl.style.transition = 'none';
+            receiptEl.style.transform = '';
+        }
+
+        function runReceiptFeedAnimation(receiptEl, durationMs) {
+            if (!receiptEl) return Promise.resolve();
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                resetReceiptFeedAnimation(receiptEl);
+                return Promise.resolve();
+            }
+
+            return new Promise(resolve => {
+                receiptEl.classList.remove('receipt-feed-active');
+                receiptEl.style.transition = 'none';
+                receiptEl.style.transform = 'translateY(100%)';
+                void receiptEl.offsetHeight;
+                receiptEl.classList.add('receipt-feed-active');
+                requestAnimationFrame(() => {
+                    receiptEl.style.transition = `transform ${durationMs}ms linear`;
+                    receiptEl.style.transform = 'translateY(0)';
+                });
+                window.setTimeout(() => {
+                    receiptEl.style.transition = 'none';
+                    resolve();
+                }, durationMs);
+            });
+        }
+
         function setPosReceiptPrintState(message = '', failed = false) {
             const status = document.getElementById('receipt-print-result');
             const button = document.getElementById('pos-print-receipt-btn');
@@ -2982,8 +3083,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 status.style.color = failed ? '#b91c1c' : '#0f766e';
             }
             if (button) {
-                button.disabled = posReceiptPrintProcessing;
-                button.textContent = failed ? 'Retry Print' : (posReceiptPrintProcessing ? 'Printing...' : 'Print Receipt');
+                button.disabled = false;
+                button.textContent = failed ? 'Retry Print' : 'Print Receipt';
             }
         }
 
@@ -2996,6 +3097,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             posReceiptPrintProcessing = false;
             setPosReceiptPrintState('No physical receipt has been printed yet.');
             printArea.innerHTML = buildReceiptHtml(activePosReceipt);
+            resetReceiptFeedAnimation(printArea);
             renderPosReceiptQr(receipt?.qr_payload);
             renderPosOnlineStoreQr();
             overlay.style.display = 'flex';
@@ -3026,28 +3128,39 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         async function printReceipt() {
             if (posReceiptPrintProcessing || !activePosReceipt?.order_id) return;
+            const printArea = document.getElementById('receipt-print-area');
+            const durationMs = estimatePosReceiptPrintDurationMs(printArea);
+
             posReceiptPrintProcessing = true;
-            setPosReceiptPrintState('Sending receipt to POS-58...');
+            setPosReceiptPrintState('Printing receipt...');
+
+            const animationPromise = runReceiptFeedAnimation(printArea, durationMs);
+            const printTaskPromise = activePosPrintJob?.job_id
+                ? retryReceiptPrintJob(activePosPrintJob, { silentStatus: true })
+                : (async () => {
+                    const response = await fetch(staffUrl('staff/api/pos_receipt_print.php'), {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            action: 'print',
+                            order_id: Number(activePosReceipt.order_id),
+                            csrf_token: POS_CSRF_TOKEN
+                        })
+                    });
+                    const result = await response.json();
+                    if (!response.ok || !result.success || !result.print_job?.ok) {
+                        throw new Error(result.message || 'Receipt printing failed.');
+                    }
+                    activePosPrintJob = result.print_job;
+                    await monitorReceiptPrintJob(result.print_job, { silentSuccess: true });
+                })();
+
             try {
-                if (activePosPrintJob?.job_id) {
-                    await retryReceiptPrintJob(activePosPrintJob);
-                    return;
-                }
-                const response = await fetch(staffUrl('staff/api/pos_receipt_print.php'), {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        action: 'print',
-                        order_id: Number(activePosReceipt.order_id),
-                        csrf_token: POS_CSRF_TOKEN
-                    })
-                });
-                const result = await response.json();
-                if (!response.ok || !result.success || !result.print_job?.ok) {
-                    throw new Error(result.message || 'Receipt printing failed.');
-                }
-                activePosPrintJob = result.print_job;
-                await monitorReceiptPrintJob(result.print_job);
+                await animationPromise;
+                setPosReceiptPrintState('Receipt printed successfully.');
+                showPOSScanNotice('Transaction completed', 'Receipt printed successfully.', 'success');
+                posReceiptPrintProcessing = false;
+                await printTaskPromise;
             } catch (error) {
                 console.error('Receipt printing failed:', error);
                 posReceiptPrintProcessing = false;
@@ -3055,15 +3168,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
         }
 
-        async function retryReceiptPrintJob(printJob) {
+        async function retryReceiptPrintJob(printJob, options = {}) {
+            const silentStatus = !!options.silentStatus;
             const jobId = Number(printJob?.job_id || 0);
             if (jobId <= 0) {
-                await showPOSAlert(
-                    'Receipt printing failed',
-                    'The sale is complete, but no printable receipt job is available. Please contact an administrator.',
-                    'error'
-                );
-                return;
+                if (!silentStatus) {
+                    await showPOSAlert(
+                        'Receipt printing failed',
+                        'The sale is complete, but no printable receipt job is available. Please contact an administrator.',
+                        'error'
+                    );
+                }
+                throw new Error('No printable receipt job is available.');
             }
             try {
                 const response = await fetch(staffUrl('staff/api/pos_receipt_print_retry.php'), {
@@ -3076,11 +3192,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     throw new Error(result.message || 'Receipt print job could not be retried.');
                 }
                 activePosPrintJob = result.print_job || {ok: true, job_id: jobId};
-                await monitorReceiptPrintJob(activePosPrintJob);
+                await monitorReceiptPrintJob(activePosPrintJob, { silentSuccess: silentStatus });
             } catch (error) {
                 console.error('Receipt print retry failed:', error);
-                posReceiptPrintProcessing = false;
-                setPosReceiptPrintState('Receipt printing failed.', true);
+                if (!silentStatus) {
+                    posReceiptPrintProcessing = false;
+                    setPosReceiptPrintState('Receipt printing failed.', true);
+                }
+                throw error;
             }
         }
 
@@ -3116,13 +3235,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             setPosReceiptPrintState('Receipt printing failed.', true);
         }
 
-        async function monitorReceiptPrintJob(printJob) {
+        async function monitorReceiptPrintJob(printJob, options = {}) {
+            const silentSuccess = !!options.silentSuccess;
             if (!printJob?.ok || !printJob?.job_id) {
                 await showReceiptPrintFailure(printJob, printJob?.message || 'The receipt could not be queued for the configured printer.');
                 return;
             }
 
-            showPOSScanNotice('Transaction completed', 'Printing receipt...', 'success');
+            if (!silentSuccess) {
+                showPOSScanNotice('Transaction completed', 'Printing receipt...', 'success');
+            }
             let lastStatusResult = null;
             for (let attempt = 0; attempt < 15; attempt += 1) {
                 await new Promise(resolve => window.setTimeout(resolve, 1500));
@@ -3137,8 +3259,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     if (response.ok && status === 'printed') {
                         posReceiptPrintProcessing = false;
                         activePosPrintJob = null;
-                        setPosReceiptPrintState('Receipt printed successfully.');
-                        showPOSScanNotice('Transaction completed', 'Receipt printed successfully.', 'success');
+                        if (!silentSuccess) {
+                            setPosReceiptPrintState('Receipt printed successfully.');
+                            showPOSScanNotice('Transaction completed', 'Receipt printed successfully.', 'success');
+                        }
                         return;
                     }
                     if (response.ok && status === 'failed') {
@@ -5040,7 +5164,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         async function clearCart() {
-            if (cart.length > 0 && (await showPOSConfirm('Clear Order', 'Are you sure you want to clear the current order?'))) {
+            if (cart.length > 0 && (await showPOSConfirm('Clear Order', 'Are you sure you want to clear the current order?', 'Clear', 'danger'))) {
                 await syncedCartAction('clear');
                 document.getElementById('pos-tendered').value = '';
             }
@@ -5789,12 +5913,29 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         let posAlertResolve = null;
 
+        function applyPOSModalIcon(type = 'info') {
+            const iconCont = document.getElementById('pos-alert-icon-container');
+            const icon = document.getElementById('pos-alert-icon');
+            if (!iconCont || !icon) return;
+
+            const presets = {
+                error: { bg: '#fee2e2', color: '#ef4444', icon: 'fa-circle-exclamation' },
+                warning: { bg: '#fef3c7', color: '#d97706', icon: 'fa-triangle-exclamation' },
+                success: { bg: '#dcfce7', color: '#10b981', icon: 'fa-circle-check' },
+                info: { bg: '#e0f2fe', color: '#0ea5e9', icon: 'fa-circle-info' },
+                confirm: { bg: '#edf4fc', color: '#2f6fae', icon: 'fa-circle-check' },
+                danger: { bg: '#fee2e2', color: '#ef4444', icon: 'fa-trash-can' },
+            };
+            const preset = presets[type] || presets.info;
+            iconCont.style.background = preset.bg;
+            icon.style.color = preset.color;
+            icon.className = 'fas ' + preset.icon;
+        }
+
         async function showPOSAlert(title, message, type = 'info') {
             return new Promise(resolve => {
                 const overlay = document.getElementById('pos-alert-overlay');
                 const box = document.getElementById('pos-alert-box');
-                const iconCont = document.getElementById('pos-alert-icon-container');
-                const icon = document.getElementById('pos-alert-icon');
                 const titleEl = document.getElementById('pos-alert-title');
                 const msgEl = document.getElementById('pos-alert-message');
                 const cancelBtn = document.getElementById('pos-alert-cancel');
@@ -5807,24 +5948,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 confirmBtn.disabled = false;
                 confirmBtn.textContent = 'OK';
                 confirmBtn.style.background = 'var(--staff-pos-button-bg)';
-
-                if (type === 'error') {
-                    iconCont.style.background = '#fee2e2';
-                    icon.style.color = '#ef4444';
-                    icon.className = 'fas fa-exclamation-circle';
-                } else if (type === 'warning') {
-                    iconCont.style.background = '#edf4fc';
-                    icon.style.color = '#2f6fae';
-                    icon.className = 'fas fa-exclamation-triangle';
-                } else if (type === 'success') {
-                    iconCont.style.background = '#dcfce7';
-                    icon.style.color = '#10b981';
-                    icon.className = 'fas fa-check-circle';
-                } else {
-                    iconCont.style.background = '#e0f2fe';
-                    icon.style.color = '#0ea5e9';
-                    icon.className = 'fas fa-info-circle';
-                }
+                applyPOSModalIcon(type);
 
                 overlay.style.display = 'flex';
                 setTimeout(() => {
@@ -5839,12 +5963,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
         }
 
-        async function showPOSConfirm(title, message, confirmLabel = 'Confirm') {
+        async function showPOSConfirm(title, message, confirmLabel = 'Confirm', variant = 'confirm') {
             return new Promise(resolve => {
                 const overlay = document.getElementById('pos-alert-overlay');
                 const box = document.getElementById('pos-alert-box');
-                const iconCont = document.getElementById('pos-alert-icon-container');
-                const icon = document.getElementById('pos-alert-icon');
                 const titleEl = document.getElementById('pos-alert-title');
                 const msgEl = document.getElementById('pos-alert-message');
                 const cancelBtn = document.getElementById('pos-alert-cancel');
@@ -5856,11 +5978,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 cancelBtn.disabled = false;
                 confirmBtn.disabled = false;
                 confirmBtn.textContent = confirmLabel;
-                confirmBtn.style.background = 'var(--staff-pos-button-bg)';
-
-                iconCont.style.background = '#eef2ff';
-                icon.style.color = '#2f6fae';
-                icon.className = 'fas fa-question-circle';
+                confirmBtn.style.background = variant === 'danger'
+                    ? '#ef4444'
+                    : 'var(--staff-pos-button-bg)';
+                applyPOSModalIcon(variant === 'danger' ? 'danger' : 'confirm');
 
                 overlay.style.display = 'flex';
                 setTimeout(() => {
