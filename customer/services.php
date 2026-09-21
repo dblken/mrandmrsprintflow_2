@@ -64,9 +64,10 @@ function pf_service_media_is_video($path) {
     return printflow_is_video_media_path((string) $path);
 }
 
-// Fetch services from DB (card stats resolved via the same helpers as service detail pages).
+// Fetch only catalog-card columns. Detailed options and workflow data load after selection.
 $visible_rows = db_query(
-    "SELECT s.*
+    "SELECT s.service_id, s.name, s.category, s.display_image, s.hero_image,
+            s.customer_link, s.customer_modal_text
      FROM services s
      WHERE s.status = 'Activated'
        AND COALESCE(s.visible_to_customer, 1) = 1

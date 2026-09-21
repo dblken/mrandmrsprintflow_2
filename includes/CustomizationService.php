@@ -958,6 +958,9 @@ class CustomizationService
             'reference_url'     => $images['reference_url'],
             'product_image_url' => $images['product_image_url'],
             'has_design'        => $images['has_design'],
+            'has_design_file'   => (bool)($images['has_design_file'] ?? $images['has_design'] ?? false),
+            'has_design_link'   => (bool)($images['has_design_link'] ?? false),
+            'design_external_link' => $images['design_external_link'] ?? null,
             'has_reference'     => $images['has_reference'],
             'design_name'       => $designUploadName,
             'design_is_image'   => $this->isImageUploadName($designUploadName)
@@ -1128,6 +1131,9 @@ class CustomizationService
             'reference_url'     => $images['reference_url'],
             'product_image_url' => $images['product_image_url'],
             'has_design'        => $images['has_design'],
+            'has_design_file'   => (bool)($images['has_design_file'] ?? $images['has_design'] ?? false),
+            'has_design_link'   => (bool)($images['has_design_link'] ?? false),
+            'design_external_link' => $images['design_external_link'] ?? null,
             'has_reference'     => $images['has_reference'],
             'design_name'       => $designUploadName,
             'design_is_image'   => $this->isImageUploadName($designUploadName)
@@ -1348,6 +1354,10 @@ class CustomizationService
 
     private function isUploadDesignKey(string $normalizedKey): bool
     {
+        if (str_ends_with($normalizedKey, 'link')) {
+            return false;
+        }
+
         if (in_array($normalizedKey, ['designupload', 'desingupload', 'designfile', 'uploaddesign'], true)) {
             return true;
         }
@@ -1900,19 +1910,32 @@ class CustomizationService
         $designMeta = getOrderDesignImage($item, [
             'order_id'       => $orderId,
             'customization'  => $custom,
-            'heal'           => true,
+            'heal'           => false,
             'debug'          => false,
         ]);
+
+        $hasDesignFile = function_exists('pf_order_ui_item_has_actual_uploaded_design_file')
+            ? pf_order_ui_item_has_actual_uploaded_design_file($item, false, $custom)
+            : ($designMeta['exists'] ?? false);
+
+        $designLinkMeta = function_exists('pf_order_ui_extract_design_external_link')
+            ? pf_order_ui_extract_design_external_link($custom)
+            : ['url' => ''];
+        $designExternalLink = trim((string)($designLinkMeta['url'] ?? ''));
+        $hasDesignLink = $designExternalLink !== '';
 
         $designUrl = null;
         $hasDesign = false;
         
-        if ($designMeta['exists']) {
+        if ($hasDesignFile && !empty($designMeta['exists'])) {
+            $hasDesign = true;
+            $designUrl = $designMeta['serve_url'] ?? $designMeta['url'] ?? $designMeta['direct_url'];
+        } elseif ($hasDesignFile) {
             $hasDesign = true;
             $designUrl = $designMeta['serve_url'] ?? $designMeta['url'] ?? $designMeta['direct_url'];
         }
         
-        if (!$hasDesign && $candidateDesignUrl !== null && trim($candidateDesignUrl) !== '') {
+        if (!$hasDesign && $candidateDesignUrl !== null && trim($candidateDesignUrl) !== '' && $hasDesignFile) {
             $candidateDesignUrl = trim($candidateDesignUrl);
             if (!$this->isLikelyCatalogOrPlaceholderImageUrl($candidateDesignUrl, $order, $custom)) {
                 $designUrl = $candidateDesignUrl;
@@ -1920,7 +1943,7 @@ class CustomizationService
             }
         }
         
-        if (!$hasDesign) {
+        if (!$hasDesign && $hasDesignFile) {
             foreach (['design_upload_data', 'upload_design_data', 'design_data'] as $dataKey) {
                 if (empty($custom[$dataKey]) || !is_scalar($custom[$dataKey])) {
                     continue;
@@ -1937,13 +1960,11 @@ class CustomizationService
             || $this->customHasUploadDesign($custom)
             || trim((string)($custom['design_upload_name'] ?? '')) !== ''
             || trim((string)($item['design_image_name'] ?? '')) !== '';
-        $hasStoredDesign = trim((string)($item['design_file'] ?? '')) !== ''
-            || (int)($item['design_image_bytes'] ?? 0) > 0;
         $serveUrl = $orderItemId > 0
             ? $this->baseUrl() . '/public/serve_design.php?type=order_item&id=' . $orderItemId
             : null;
 
-        if ($designUrl === null && $orderItemId > 0 && ($hasDesign || $hasStoredDesign)) {
+        if ($designUrl === null && $orderItemId > 0 && $hasDesignFile) {
             $designUrl = $designMeta['direct_url'] ?? $designMeta['serve_url'] ?? $serveUrl;
         }
 
@@ -1960,7 +1981,7 @@ class CustomizationService
             $referenceUrl = $this->baseUrl() . '/public/serve_design.php?type=order_item&id=' . $orderItemId . '&field=reference';
         }
 
-        $retrievableDesign = $hasDesign || $hasStoredDesign;
+        $retrievableDesign = $hasDesignFile;
         $serveUrlResolved = ($retrievableDesign && $orderItemId > 0)
             ? ($designMeta['serve_url'] ?? $serveUrl)
             : null;
@@ -1970,12 +1991,15 @@ class CustomizationService
             'reference_url'      => $referenceUrl,
             'product_image_url'  => null,
             'has_design'         => $retrievableDesign,
+            'has_design_file'    => $retrievableDesign,
+            'has_design_link'    => $hasDesignLink,
+            'design_external_link' => $designExternalLink !== '' ? $designExternalLink : null,
             'has_reference'      => $referenceUrl !== null,
             'design_exists'      => $hasDesign,
             'design_missing_path'=> $hasDesign ? null : ($designMeta['missing_path'] ?? $designMeta['stored_path']),
             'design_source'      => $designMeta['source'] ?? 'none',
             'design_serve_url'   => $serveUrlResolved,
-            'design_upload_requested' => !$retrievableDesign && $uploadRequested,
+            'design_upload_requested' => !$retrievableDesign && !$hasDesignLink && $uploadRequested,
         ];
     }
 

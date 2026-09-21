@@ -952,6 +952,202 @@ require_once __DIR__ . '/../includes/header.php';
     cursor: not-allowed;
     box-shadow: none;
 }
+.im-order-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+    width: 100%;
+    max-width: 17.5rem;
+}
+.im-order-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 42px;
+    height: 42px;
+    padding: 0 1rem;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: #0a2530;
+    color: #ffffff;
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    box-sizing: border-box;
+}
+.im-order-action:hover {
+    background: #0d3038;
+    box-shadow: 0 8px 18px rgba(10, 37, 48, 0.12);
+}
+.im-order-action svg {
+    flex-shrink: 0;
+}
+.im-order-action--change {
+    background: #0a2530;
+    border-color: #0a2530;
+}
+.im-order-action--receipt {
+    background: #0a2530;
+    border-color: #0a2530;
+}
+.im-order-action--rate {
+    background: rgba(249, 115, 22, 0.1);
+    color: #b45309;
+    border-color: rgba(249, 115, 22, 0.35);
+}
+.im-order-action--rate:hover {
+    background: #f97316;
+    color: #ffffff;
+    border-color: #f97316;
+}
+.change-item-textarea-wrap {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 0.75rem;
+}
+.change-item-textarea {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 112px;
+    max-height: 180px;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.change-item-char-count {
+    font-size: 0.72rem;
+    color: #64748b;
+    text-align: right;
+    margin-top: 0.35rem;
+}
+.change-item-field-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 0.5rem;
+}
+.change-item-field-help {
+    display: block;
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-bottom: 0.5rem;
+    line-height: 1.45;
+}
+.change-item-order-meta {
+    padding: 0.875rem 1rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #f8fafc;
+    font-size: 0.875rem;
+    color: #334155;
+    line-height: 1.6;
+    margin-bottom: 1rem;
+}
+.change-item-select,
+.change-item-input {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 0.75rem 0.875rem;
+    background: #ffffff;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #0f172a;
+}
+.change-item-select:focus,
+.change-item-input:focus,
+.change-item-textarea:focus {
+    outline: none;
+    border-color: #0a2530;
+}
+.cm-actions-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+.cm-actions-row .cm-btn {
+    width: 100%;
+    height: 44px;
+    min-height: 44px;
+    padding: 0 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.cm-btn-cancel {
+    background: #ffffff;
+    color: #dc2626;
+    border: 1px solid #dc2626;
+}
+.cm-btn-cancel:hover {
+    background: #dc2626;
+    color: #ffffff;
+    border-color: #dc2626;
+}
+.cm-btn-cancel:focus-visible {
+    outline: 2px solid #fca5a5;
+    outline-offset: 2px;
+}
+.cm-btn-submit {
+    background: #0a2530;
+    color: #ffffff;
+    border-color: #0a2530;
+}
+.cm-btn-submit:hover {
+    background: #0d3038;
+    border-color: #0d3038;
+}
+#changeItemSuccessModal {
+    position: fixed;
+    inset: 0;
+    z-index: 100003;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(15, 23, 42, 0.55);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    backdrop-filter: blur(4px);
+}
+#changeItemSuccessModal.open {
+    opacity: 1;
+    pointer-events: auto;
+}
+.cm-success-box {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    width: 100%;
+    max-width: 420px;
+    padding: 2rem;
+    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+    text-align: center;
+    animation: pfChangeItemSuccessIn 0.3s ease-out;
+}
+@keyframes pfChangeItemSuccessIn {
+    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
 
 #cancelModal {
     position: fixed; inset: 0; z-index: 100000;
@@ -962,6 +1158,23 @@ require_once __DIR__ . '/../includes/header.php';
     backdrop-filter: blur(4px);
 }
 #cancelModal.open { opacity: 1; pointer-events: auto; }
+
+#changeItemModal {
+    position: fixed; inset: 0; z-index: 100002;
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px; background: rgba(15, 23, 42, 0.55);
+    opacity: 0; pointer-events: none; transition: opacity .2s ease;
+    overflow-x: hidden;
+}
+#changeItemModal.open { opacity: 1; pointer-events: auto; }
+#changeItemModal .cm-box {
+    width: 100%;
+    max-width: min(520px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    box-sizing: border-box;
+    overflow-x: hidden;
+}
 .cm-box {
     background: #ffffff !important;
     border: 1px solid #e2e8f0;
@@ -1007,6 +1220,20 @@ require_once __DIR__ . '/../includes/header.php';
 .cm-btn-danger:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+}
+.cm-btn.cm-btn-cancel {
+    background: #ffffff;
+    color: #dc2626;
+    border: 2px solid #dc2626;
+}
+.cm-btn.cm-btn-cancel:hover {
+    background: #dc2626;
+    color: #ffffff;
+    border-color: #dc2626;
+}
+.cm-btn.cm-btn-cancel:focus-visible {
+    outline: 2px solid #fca5a5;
+    outline-offset: 2px;
 }
 
 @media (max-width: 640px) {
@@ -2278,6 +2505,52 @@ window.addEventListener('DOMContentLoaded', () => {
     </div>
 </div>
 
+<!-- Modal: Change Item Request -->
+<div id="changeItemModal" onclick="if(event.target === this) closeChangeItemModal()">
+    <div class="cm-box">
+        <h2 class="text-2xl font-black text-slate-900 mb-2">Request Change Item</h2>
+        <p class="text-slate-600 font-medium text-sm mb-4">Report an issue with your completed order. This stays linked to your original order — no new order will be created.</p>
+        <div id="changeItemOrderMeta" class="change-item-order-meta"></div>
+
+        <label class="change-item-field-label" for="changeItemReason">Reason for Change</label>
+        <select id="changeItemReason" class="change-item-select mb-3">
+            <option value="">-- Select a reason --</option>
+            <option value="damaged_item">Damaged Item</option>
+            <option value="print_quality">Print/Output Quality Issue</option>
+            <option value="incorrect_spec">Incorrect Item/Specification</option>
+            <option value="production_defect">Production Defect</option>
+            <option value="other">Others</option>
+        </select>
+
+        <label class="change-item-field-label" for="changeItemDescription">Issue Description <span style="color:#dc2626;">*</span></label>
+        <div class="change-item-textarea-wrap">
+            <textarea id="changeItemDescription" maxlength="500" rows="4" class="change-item-textarea" placeholder="Describe the issue with your completed item..."></textarea>
+            <div id="changeItemCharCount" class="change-item-char-count">0 / 500</div>
+        </div>
+
+        <label class="change-item-field-label" for="changeItemProof">Proof <span style="color:#dc2626;">*</span></label>
+        <input id="changeItemProof" type="file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" class="w-full mb-4 text-sm" style="max-width:100%;box-sizing:border-box;">
+
+        <div id="changeItemError" class="hidden text-sm font-semibold text-red-600 mb-3"></div>
+        <div class="cm-actions-row">
+            <button class="cm-btn cm-btn-cancel" type="button" onclick="closeChangeItemModal()">Cancel</button>
+            <button class="cm-btn cm-btn-submit" type="button" id="changeItemSubmitBtn" onclick="submitChangeItemRequest()">Submit Request</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Change Item Success -->
+<div id="changeItemSuccessModal" onclick="if(event.target === this) closeChangeItemSuccessModal()">
+    <div class="cm-success-box" onclick="event.stopPropagation()">
+        <div style="width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;background:rgba(10,37,48,0.08);color:#0a2530;">
+            <svg width="28" height="28" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <h2 class="text-xl font-black text-slate-900 mb-2">Change Item Request Submitted</h2>
+        <p class="text-slate-600 font-medium text-sm mb-6" style="line-height:1.6;">Your request has been sent to our team for review.</p>
+        <button type="button" class="cm-btn cm-btn-submit" style="width:100%;" onclick="closeChangeItemSuccessModal()">OK</button>
+    </div>
+</div>
+
 <script>
 function imIsLongFormSpecKey(k) {
     const s = String(k || '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -3007,6 +3280,7 @@ function openItemsModal(orderId, event, options = {}) {
                 const entries = Object.entries(item.customization).filter(([k, v]) => {
                     if (v === null || v === undefined || v === '') return false;
                     const nk = String(k).toLowerCase().replace(/\s+/g, '_');
+                    if (imIsDesignLinkKey(k)) return false;
                     if ((v === 'No' || v === 'None') && nk !== 'custom_print') return false;
                     if ([
                         'design_upload',
@@ -3017,6 +3291,10 @@ function openItemsModal(orderId, event, options = {}) {
                         'design_upload_path',
                         'design_upload_mime',
                         'design_file',
+                        'design_external_link',
+                        'design_link',
+                        'design_file_link',
+                        'upload_design_link',
                         'job_notes',
                         'reference_upload'
                     ].includes(nk) || String(k).startsWith('_')) return false;
@@ -3054,7 +3332,8 @@ function openItemsModal(orderId, event, options = {}) {
                 }
             }
 
-            const design = item.has_design ? `<a class="im-asset-trigger" href="${item.design_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.design_url}" class="im-thumb hover:scale-105 transition-transform" alt="Design"></span></a>` : '';
+            const design = item.has_design_file || item.has_design ? `<a class="im-asset-trigger" href="${item.design_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.design_url}" class="im-thumb hover:scale-105 transition-transform" alt="Design"></span></a>` : '';
+            const designLink = imRenderDesignLinkBlock(item);
             const reference = item.has_reference ? `<a class="im-asset-trigger" href="${item.reference_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.reference_url}" class="im-thumb hover:scale-105 transition-transform" alt="Reference"></span></a>` : '';
             const descLabel = data.is_service_order ? 'Service Description' : 'Item Description';
 
@@ -3064,10 +3343,10 @@ function openItemsModal(orderId, event, options = {}) {
                     ${specs}
                     ${longFormHtml}
                     
-                    ${design || reference ? `
+                    ${design || designLink || reference ? `
                         <div style="margin-top: 1rem;">
-                            <div class="im-meta-title">Uploaded Assets</div>
-                            <div style="display: flex; gap: 0.75rem;">${design}${reference}</div>
+                            <div class="im-meta-title">Design / Image</div>
+                            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: flex-start;">${design}${designLink}${reference ? `<div><div class="im-meta-title" style="font-size:0.72rem;margin-bottom:0.35rem;">Reference</div>${reference}</div>` : ''}</div>
                         </div>
                     ` : ''}
                 </td>
@@ -3098,6 +3377,13 @@ function openItemsModal(orderId, event, options = {}) {
         const payment = data.payment && typeof data.payment === 'object' ? data.payment : {};
         const paymentReceived = Boolean(data.payment_received || payment.received || String(data.payment_status || '').toLowerCase() === 'paid');
         const currentStatusLabel = data.display_status || data.status;
+        const changeItemActive = data.change_item && data.change_item.active ? data.change_item.active : null;
+        const changeItemEligible = !!(data.change_item && data.change_item.eligible);
+        window.__pfChangeItemModalContext = {
+            orderId: data.order_id,
+            code: data.order?.code || '',
+            csrf: data.csrf_token || ''
+        };
         const paymentMethod = payment.method || data.payment_method || 'Payment method not recorded';
         const paymentPaidAt = payment.paid_at || data.payment_paid_at || '';
         const paymentReference = payment.reference || data.payment_reference || '';
@@ -3177,7 +3463,7 @@ function openItemsModal(orderId, event, options = {}) {
                     </div>
 
                     <!-- Actions Area -->
-                    <div class="mt-auto pt-4 space-y-3">
+                    <div class="mt-auto pt-4 im-order-actions">
                         ${data.design_status === 'Revision Requested' && data.revision_request ? `
                             <div class="im-reject-card">
                                 <div class="im-reject-title">Revision Requested</div>
@@ -3206,14 +3492,41 @@ function openItemsModal(orderId, event, options = {}) {
                             </div>
                         ` : ''}
 
+                        ${changeItemActive ? `
+                            <div class="im-reject-card" style="border-color:#fde68a;background:#fffbeb;">
+                                <div class="im-reject-title" style="color:#92400e;">Change Item Request</div>
+                                <p class="im-reject-copy"><strong>Status:</strong> ${escIM(changeItemActive.status_label || changeItemActive.status || 'Under Review')}</p>
+                                <p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Reason:</strong> ${escIM(changeItemActive.reason || '')}</p>
+                                ${changeItemActive.description ? `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Details:</strong> ${escIM(changeItemActive.description)}</p>` : ''}
+                                ${changeItemActive.proof_url ? `
+                                    <div style="margin-top:0.75rem;">
+                                        <p class="im-reject-copy"><strong>Proof:</strong></p>
+                                        ${changeItemActive.proof_is_image ? `<img src="${escIM(changeItemActive.proof_url)}" alt="Change Item proof" loading="lazy" style="display:block;max-width:min(100%,220px);max-height:220px;margin-top:0.5rem;border-radius:10px;border:1px solid #fde68a;object-fit:contain;background:#fff;">` : ''}
+                                        <a href="${escIM(changeItemActive.proof_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;margin-top:0.5rem;font-size:12px;font-weight:700;color:#0369a1;text-decoration:none;">View proof</a>
+                                    </div>
+                                ` : `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Proof:</strong> No proof attached</p>`}
+                                ${changeItemActive.rejection_reason ? `<p class="im-reject-copy" style="margin-top:0.5rem;color:#991b1b;"><strong>Rejection reason:</strong> ${escIM(changeItemActive.rejection_reason)}</p>` : ''}
+                            </div>
+                        ` : ''}
+
+                        ${changeItemEligible ? `
+                            <button type="button" onclick="openChangeItemModal()" class="im-order-action im-order-action--change">
+                                <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0014-7.5M19 5a9 9 0 00-14 7.5"/></svg>
+                                <span>Request Change Item</span>
+                            </button>
+                        ` : ''}
+
                         ${data.receipt_available && data.receipt ? `
-                            <button type="button" onclick='openReceiptModal(${JSON.stringify('__RECEIPT__')})' class="im-primary-action" data-receipt-button="1">View Receipt</button>
+                            <button type="button" onclick='openReceiptModal(${JSON.stringify('__RECEIPT__')})' class="im-order-action im-order-action--receipt" data-receipt-button="1">
+                                <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                <span>View Receipt</span>
+                            </button>
                         `.replace(JSON.stringify('__RECEIPT__'), JSON.stringify(data.receipt).replace(/</g, '\\u003c')) : ''}
 
                         ${['Completed', 'To Rate', 'Rated'].includes(data.status) ? (
                             data.rating_data
-                                ? `<a href="${data.rating_data.view_url}" class="w-full py-3.5 bg-[rgba(249,115,22,0.1)] text-[#f97316] text-[11px] font-black border border-[rgba(249,115,22,0.4)] hover:bg-[#f97316] hover:text-white transition-all tracking-widest flex items-center justify-center gap-2 rounded-xl">★ VIEW YOUR REVIEW</a>`
-                                : `<a href="${CUSTOMER_BASE_URL}/customer/rate_order.php?order_id=${data.order_id}" class="w-full py-3.5 bg-[rgba(249,115,22,0.1)] text-[#f97316] text-[11px] font-black border border-[rgba(249,115,22,0.4)] hover:bg-[#f97316] hover:text-white transition-all tracking-widest flex items-center justify-center gap-2 rounded-xl">★ RATE THIS ORDER</a>`
+                                ? `<a href="${data.rating_data.view_url}" class="im-order-action im-order-action--rate"><svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg><span>View Your Review</span></a>`
+                                : `<a href="${CUSTOMER_BASE_URL}/customer/rate_order.php?order_id=${data.order_id}" class="im-order-action im-order-action--rate"><svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg><span>Rate This Order</span></a>`
                         ) : ''}
 
                         ${data.can_cancel ? `
@@ -3226,10 +3539,16 @@ function openItemsModal(orderId, event, options = {}) {
 
         const reviewAction = document.querySelector('#imBody a[href*="rate_order.php"], #imBody a[href*="reviews.php?order_id="]');
         if (reviewAction) {
-            reviewAction.className = 'w-full py-3.5 bg-[rgba(250,204,21,0.15)] text-[#b45309] text-[11px] font-black border border-[rgba(234,179,8,0.5)] hover:bg-[#eab308] hover:text-white transition-all tracking-widest flex items-center justify-center gap-2 rounded-xl';
-            reviewAction.textContent = reviewAction.href.includes('reviews.php?order_id=')
-                ? '★ VIEW YOUR REVIEW'
-                : '★ RATE THIS ORDER';
+            reviewAction.className = 'im-order-action im-order-action--rate';
+            if (!reviewAction.querySelector('svg')) {
+                reviewAction.innerHTML = '<svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg><span></span>';
+            }
+            const reviewLabel = reviewAction.querySelector('span') || reviewAction;
+            if (reviewAction.querySelector('span')) {
+                reviewAction.querySelector('span').textContent = reviewAction.href.includes('reviews.php?order_id=')
+                    ? 'View Your Review'
+                    : 'Rate This Order';
+            }
         }
     })
     .catch((error) => {
@@ -3286,6 +3605,116 @@ function openCancelModal(id, token) {
 }
 function closeCancelModal() {
     document.getElementById('cancelModal').classList.remove('open');
+}
+
+let changeItemSubmitting = false;
+const CHANGE_ITEM_DESCRIPTION_MAX = 500;
+const CHANGE_ITEM_DESC_PLACEHOLDER_DEFAULT = 'Describe the issue with your completed item...';
+const CHANGE_ITEM_DESC_PLACEHOLDER_OTHER = 'Please describe the issue and reason for requesting a change...';
+function updateChangeItemDescriptionPlaceholder() {
+    const reason = document.getElementById('changeItemReason');
+    const field = document.getElementById('changeItemDescription');
+    if (!field) return;
+    field.placeholder = reason && reason.value === 'other'
+        ? CHANGE_ITEM_DESC_PLACEHOLDER_OTHER
+        : CHANGE_ITEM_DESC_PLACEHOLDER_DEFAULT;
+}
+function updateChangeItemCharCount() {
+    const field = document.getElementById('changeItemDescription');
+    const counter = document.getElementById('changeItemCharCount');
+    if (!field || !counter) return;
+    const length = String(field.value || '').length;
+    counter.textContent = `${length} / ${CHANGE_ITEM_DESCRIPTION_MAX}`;
+}
+function openChangeItemModal() {
+    const ctx = window.__pfChangeItemModalContext || {};
+    if (!ctx.orderId) return;
+    document.getElementById('changeItemOrderMeta').innerHTML =
+        `<div><strong>Original Order:</strong> ${escIM(ctx.code || ('ORD-' + String(ctx.orderId).padStart(5, '0')))}</div>`;
+    document.getElementById('changeItemReason').value = '';
+    document.getElementById('changeItemDescription').value = '';
+    document.getElementById('changeItemProof').value = '';
+    document.getElementById('changeItemError').classList.add('hidden');
+    updateChangeItemDescriptionPlaceholder();
+    updateChangeItemCharCount();
+    document.getElementById('changeItemModal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+function closeChangeItemModal() {
+    document.getElementById('changeItemModal').classList.remove('open');
+    if (!document.getElementById('itemsModal').classList.contains('open')) {
+        document.body.style.overflow = '';
+    }
+}
+function showChangeItemSuccessModal() {
+    document.getElementById('changeItemSuccessModal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+function closeChangeItemSuccessModal() {
+    document.getElementById('changeItemSuccessModal').classList.remove('open');
+    if (!document.getElementById('itemsModal').classList.contains('open')) {
+        document.body.style.overflow = '';
+    }
+}
+document.getElementById('changeItemReason')?.addEventListener('change', updateChangeItemDescriptionPlaceholder);
+document.getElementById('changeItemDescription')?.addEventListener('input', updateChangeItemCharCount);
+async function submitChangeItemRequest() {
+    const ctx = window.__pfChangeItemModalContext || {};
+    const err = document.getElementById('changeItemError');
+    const btn = document.getElementById('changeItemSubmitBtn');
+    const reason = document.getElementById('changeItemReason').value;
+    const description = document.getElementById('changeItemDescription').value.trim();
+    if (!ctx.orderId) return;
+    if (!reason) {
+        err.textContent = 'Please select a reason.';
+        err.classList.remove('hidden');
+        return;
+    }
+    if (!description) {
+        err.textContent = 'Please describe the issue.';
+        err.classList.remove('hidden');
+        return;
+    }
+    if (description.length > CHANGE_ITEM_DESCRIPTION_MAX) {
+        err.textContent = 'Issue description must be 500 characters or fewer.';
+        err.classList.remove('hidden');
+        return;
+    }
+    const proofInput = document.getElementById('changeItemProof');
+    const proofFile = proofInput && proofInput.files && proofInput.files[0] ? proofInput.files[0] : null;
+    if (!proofFile) {
+        err.textContent = 'Please upload proof of the issue.';
+        err.classList.remove('hidden');
+        return;
+    }
+    if (changeItemSubmitting) return;
+    changeItemSubmitting = true;
+    btn.disabled = true;
+    err.classList.add('hidden');
+    try {
+        const fd = new FormData();
+        fd.append('order_id', String(ctx.orderId));
+        fd.append('reason_code', reason);
+        fd.append('reason_label', '');
+        fd.append('issue_description', description.slice(0, CHANGE_ITEM_DESCRIPTION_MAX));
+        fd.append('csrf_token', ctx.csrf || '');
+        fd.append('idempotency_key', 'customer-change-item-' + ctx.orderId + '-' + Date.now());
+        fd.append('proof', proofFile);
+        const res = await fetch(CUSTOMER_BASE_URL + '/customer/change_item_request.php', { method: 'POST', body: fd });
+        const payload = await res.json();
+        if (!payload.success) {
+            throw new Error(payload.message || 'Unable to submit Change Item request.');
+        }
+        closeChangeItemModal();
+        showChangeItemSuccessModal();
+        openItemsModal(ctx.orderId);
+    } catch (e) {
+        err.textContent = e.message || 'Unable to submit Change Item request.';
+        err.classList.remove('hidden');
+    } finally {
+        changeItemSubmitting = false;
+        btn.disabled = false;
+    }
 }
 
 document.addEventListener('change', e => {
@@ -3428,6 +3857,100 @@ function escIM(str) {
     return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function imIsDesignLinkKey(key) {
+    const k = String(key || '').trim();
+    if (!k) return false;
+    if (/\slink$/i.test(k)) return true;
+    const token = k.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    return ['design_link', 'design_file_link', 'upload_design_link', 'design_external_link'].includes(token)
+        || (token.endsWith('_link') && (token.includes('design') || token.includes('upload')));
+}
+
+function imDesignLinkPlatform(url) {
+    try {
+        const host = new URL(String(url || '')).hostname.toLowerCase();
+        if (host.includes('canva.com')) return 'Canva Design';
+        if (host.includes('drive.google.com') || host.includes('docs.google.com')) return 'Google Drive';
+        if (host.includes('dropbox.com')) return 'Dropbox';
+        if (host.includes('onedrive.live.com') || host.includes('1drv.ms')) return 'OneDrive';
+        if (host.includes('photos.google.com')) return 'Google Photos';
+    } catch (e) {}
+    return 'Design Link';
+}
+
+function imIsDirectImageUrl(url) {
+    const text = String(url || '').trim();
+    if (!/^https?:\/\//i.test(text)) return false;
+    try {
+        const parsed = new URL(text);
+        const host = parsed.hostname.toLowerCase();
+        if (/canva\.com|drive\.google\.com|docs\.google\.com|dropbox\.com|onedrive\.live\.com|1drv\.ms|photos\.google\.com/.test(host)) {
+            return false;
+        }
+        return /\.(?:jpe?g|png|gif|webp|svg|bmp|avif)(?:$|[?#])/i.test(parsed.pathname);
+    } catch (e) {
+        return false;
+    }
+}
+
+async function imCopyExternalLink(url, btn) {
+    const text = String(url || '').trim();
+    if (!text || !/^https?:\/\//i.test(text)) return false;
+    let copied = false;
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            copied = true;
+        }
+    } catch (e) {
+        copied = false;
+    }
+    if (!copied) {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'fixed';
+            ta.style.top = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            copied = document.execCommand('copy');
+            document.body.removeChild(ta);
+        } catch (fallbackErr) {
+            copied = false;
+        }
+    }
+    if (btn && copied) {
+        if (!btn.dataset.defaultLabel) {
+            btn.dataset.defaultLabel = (btn.textContent || 'Copy Link').trim() || 'Copy Link';
+        }
+        btn.textContent = '✓ Link copied';
+        setTimeout(function() {
+            btn.textContent = btn.dataset.defaultLabel || 'Copy Link';
+        }, 2000);
+    }
+    return copied;
+}
+
+function imRenderDesignLinkBlock(item) {
+    const url = String(item.design_external_link || '').trim();
+    if (!url || !/^https?:\/\//i.test(url)) return '';
+    const isDirect = item.design_link_is_direct_image || imIsDirectImageUrl(url);
+    const safeUrl = escIM(url);
+    const preview = isDirect
+        ? `<img src="${safeUrl}" class="im-thumb hover:scale-105 transition-transform" alt="Design preview" style="max-width:160px;max-height:120px;object-fit:contain;border-radius:8px;border:1px solid #dbeafe;background:#fff;margin-bottom:8px;">`
+        : '';
+    return `
+        <div class="im-design-link-card" style="min-width:220px;max-width:100%;padding:0.75rem;border:1px solid #dbeafe;border-radius:10px;background:#f8fafc;">
+            ${preview}
+            <div style="font-size:0.9rem;font-weight:600;color:#0f172a;line-height:1.45;word-break:break-all;overflow-wrap:anywhere;margin-bottom:8px;">🔗 ${safeUrl}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" class="im-copy-link-btn" data-link="${safeUrl}" style="padding:6px 10px;border:1px solid #93c5fd;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:700;cursor:pointer;">Copy Link</button>
+                <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="padding:6px 10px;border:1px solid #93c5fd;border-radius:8px;background:#fff;color:#0369a1;font-size:12px;font-weight:700;text-decoration:none;">Open Link</a>
+            </div>
+        </div>`;
+}
+
 function formatRevisionRequestedAt(value) {
     const date = new Date(String(value || '').replace(' ', 'T'));
     return Number.isNaN(date.getTime()) ? String(value || '') : date.toLocaleString();
@@ -3437,6 +3960,14 @@ document.addEventListener('click', function (event) {
     const link = event.target.closest('a[data-revision-action="1"]');
     if (!link) return;
     event.stopPropagation();
+});
+
+document.addEventListener('click', function (event) {
+    const btn = event.target.closest('.im-copy-link-btn');
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    imCopyExternalLink(btn.getAttribute('data-link') || '', btn);
 });
 
 function renderOrderSuccessBanner(message) {

@@ -53,9 +53,6 @@ $submission_id = $submission_id > 0
 $submission = $submission_id > 0 ? payment_verification_get_submission($submission_id) : null;
 $resolvedBranchId = (int)($job['branch_id'] ?? 0);
 $linkedOrderId = (int)($job['order_id'] ?? 0);
-if ($linkedOrderId <= 0 && $request_order_id > 0) {
-    $linkedOrderId = $request_order_id;
-}
 if ($resolvedBranchId <= 0 && $linkedOrderId > 0) {
     $branchRow = db_query("SELECT branch_id FROM orders WHERE order_id = ? LIMIT 1", 'i', [$linkedOrderId]);
     $resolvedBranchId = (int)($branchRow[0]['branch_id'] ?? 0);
@@ -269,20 +266,8 @@ if ($action === 'verify_payment') {
                     'sii',
                     [$new_payment_status, $user_id, $linkedJobId]
                 );
-                try {
-                    JobOrderService::updateStatus($linkedJobId, 'IN_PRODUCTION', null, '', $notified);
-                } catch (Throwable $statusSyncError) {
-                    // Keep payment verification successful even if deduction sync needs follow-up.
-                    db_execute(
-                        "UPDATE job_orders
-                         SET status = 'IN_PRODUCTION', updated_at = NOW()
-                         WHERE id = ?",
-                        'i',
-                        [$linkedJobId]
-                    );
-                    $syncWarnings[] = "Inventory deduction is pending for JO-" . printflow_format_job_code($linkedJobId) . ".";
-                    error_log('PrintFlow verify_payment warning for job #' . $linkedJobId . ': ' . $statusSyncError->getMessage());
-                }
+                // Production status and its material movements commit together.
+                JobOrderService::updateStatus($linkedJobId, 'IN_PRODUCTION', null, '', $notified);
                 $notified = true;
             }
             if (!empty($job['order_id'])) {

@@ -71,8 +71,32 @@ require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
+require_once __DIR__ . '/../includes/production_material_compatibility.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/job_order_summary.php';
+require_once __DIR__ . '/../includes/change_item_workflow.php';
+require_once __DIR__ . '/../includes/service_field_priority_helper.php';
+
+function jo_api_attach_change_item_rows(array &$rows): void
+{
+    $orderIds = [];
+    foreach ($rows as $row) {
+        $oid = (int)($row['order_id'] ?? 0);
+        if ($oid > 0) {
+            $orderIds[] = $oid;
+        }
+    }
+    if ($orderIds === []) {
+        return;
+    }
+
+    $summaries = printflow_change_item_batch_summaries($orderIds);
+    foreach ($rows as &$row) {
+        $oid = (int)($row['order_id'] ?? 0);
+        printflow_change_item_apply_to_row($row, $summaries[$oid] ?? null);
+    }
+    unset($row);
+}
 
 if (!is_logged_in()) {
     jo_api_json_response(['success' => false, 'error' => 'Unauthorized'], 401);
@@ -903,6 +927,86 @@ function jo_api_hydrate_items_raw(int $orderId, array &$items): void {
     unset($item);
 }
 
+function jo_api_material_context_for_assignment(int $orderId, ?string $orderType): array {
+    $orderType = strtoupper(trim((string)$orderType));
+    $context = [
+        'serviceId' => 0,
+        'serviceCategory' => '',
+        'serviceType' => '',
+        'serviceName' => '',
+        'serviceLabel' => 'this service',
+        'customization' => [],
+        'productType' => '',
+        'souvenirType' => '',
+        'stickerType' => '',
+        'cutType' => '',
+    ];
+
+    if ($orderType === 'ORDER') {
+        $payload = JobOrderService::getStoreOrderItemsPayload($orderId, false, true);
+        $items = array_values($payload['items'] ?? []);
+        jo_api_hydrate_items_raw($orderId, $items);
+
+        $linkedRows = db_query(
+            'SELECT order_item_id FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1',
+            'i',
+            [$orderId]
+        ) ?: [];
+        $linkedOrderItemId = (int)($linkedRows[0]['order_item_id'] ?? 0);
+        $firstCustom = [];
+        foreach ($items as $item) {
+            if ($firstCustom === [] && !empty($item['customization']) && is_array($item['customization'])) {
+                $firstCustom = $item['customization'];
+            }
+        }
+        $serviceName = trim((string)($payload['service_type'] ?? ''));
+        $materialContext = function_exists('printflow_anchor_material_context_to_order_item')
+            ? printflow_anchor_material_context_to_order_item(
+                $items,
+                $linkedOrderItemId,
+                $serviceName,
+                $firstCustom,
+                (string)($payload['width_ft'] ?? '1'),
+                (string)($payload['height_ft'] ?? '1')
+            )
+            : [];
+        $primaryCustom = is_array($materialContext['firstCustom'] ?? null) ? $materialContext['firstCustom'] : $firstCustom;
+        $serviceType = trim((string)($materialContext['serviceName'] ?? $serviceName));
+        $serviceCategory = trim((string)($materialContext['serviceCategory'] ?? ''));
+        $serviceId = (int)($materialContext['serviceId'] ?? ($primaryCustom['service_id'] ?? 0));
+        $serviceLabel = $serviceType !== '' && $serviceCategory !== '' && strcasecmp($serviceType, $serviceCategory) !== 0
+            ? $serviceType . ' / ' . $serviceCategory
+            : ($serviceType !== '' ? $serviceType : ($serviceCategory !== '' ? $serviceCategory : 'this service'));
+
+        return array_merge($context, [
+            'serviceId' => $serviceId,
+            'serviceCategory' => $serviceCategory,
+            'serviceType' => $serviceType,
+            'serviceName' => $serviceType,
+            'serviceLabel' => $serviceLabel,
+            'customization' => [$primaryCustom],
+            'productType' => (string)($primaryCustom['product_type'] ?? ''),
+            'souvenirType' => (string)($primaryCustom['souvenir_type'] ?? ''),
+            'stickerType' => (string)($primaryCustom['sticker_type'] ?? $primaryCustom['stickers_type'] ?? $primaryCustom['sticker_type_size'] ?? $primaryCustom['stickers_type_size'] ?? $primaryCustom['Sticker Type'] ?? ''),
+            'cutType' => (string)($primaryCustom['cut_type'] ?? $primaryCustom['Cut Type'] ?? ''),
+        ]);
+    }
+
+    $jobRows = db_query('SELECT * FROM job_orders WHERE id = ? LIMIT 1', 'i', [$orderId]) ?: [];
+    $job = $jobRows[0] ?? [];
+    $linkedOrderId = (int)($job['order_id'] ?? 0);
+    if ($linkedOrderId > 0) {
+        return jo_api_material_context_for_assignment($linkedOrderId, 'ORDER');
+    }
+    $serviceType = trim((string)($job['service_type'] ?? $job['job_title'] ?? ''));
+    return array_merge($context, [
+        'serviceType' => $serviceType,
+        'serviceName' => $serviceType,
+        'serviceLabel' => $serviceType !== '' ? $serviceType : 'this service',
+        'customization' => [],
+    ]);
+}
+
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 $serviceOnly = in_array(strtolower((string)($_GET['service_only'] ?? $_POST['service_only'] ?? '')), ['1', 'true', 'yes'], true);
 $summaryOnly = in_array(strtolower((string)($_GET['summary_only'] ?? '')), ['1', 'true', 'yes'], true);
@@ -1057,13 +1161,28 @@ try {
 
             $counts = [
                 'ALL' => 0, 'INQUIRY' => 0, 'PAYMENT' => 0, 'PRODUCTION' => 0,
-                'TO_RECEIVE' => 0, 'COMPLETED' => 0, 'CLOSED' => 0,
-                'PENDING' => 0, 'CANCELLED' => 0,
+                'TO_RECEIVE' => 0, 'COMPLETED' => 0, 'CHANGED_ITEMS' => 0, 'CLOSED' => 0,
+                'PENDING' => 0, 'CANCELLED' => 0, 'URGENT' => 0,
             ];
+            $changeItemOrderIds = [];
+            foreach ($countRows as $row) {
+                $oid = (int)($row['order_id'] ?? 0);
+                if ($oid > 0) {
+                    $changeItemOrderIds[] = $oid;
+                }
+            }
+            $changeItemSummaries = printflow_change_item_batch_summaries($changeItemOrderIds);
             foreach ($countRows as $row) {
                 $statusKey = strtoupper(str_replace(' ', '_', trim((string)($row['status'] ?? ''))));
                 $statusKey = str_replace(['–', '-'], '_', $statusKey);
+                $orderId = (int)($row['order_id'] ?? 0);
+                $pendingChangeReview = $orderId > 0
+                    && !empty($changeItemSummaries[$orderId]['change_item_pending_review']);
                 $counts['ALL']++;
+                if ($pendingChangeReview) {
+                    $counts['CHANGED_ITEMS']++;
+                    continue;
+                }
                 if (in_array($statusKey, ['REJECTED', 'CANCELLED'], true)) {
                     $counts['CLOSED']++;
                     $counts['CANCELLED']++;
@@ -1081,6 +1200,17 @@ try {
                 } else {
                     $counts['INQUIRY']++;
                     $counts['PENDING']++;
+                }
+            }
+            $urgentSeen = [];
+            foreach ($countRows as $row) {
+                $orderId = (int)($row['order_id'] ?? 0);
+                if ($orderId <= 0 || isset($urgentSeen[$orderId])) {
+                    continue;
+                }
+                $urgentSeen[$orderId] = true;
+                if (printflow_order_has_urgent_request($orderId)) {
+                    $counts['URGENT']++;
                 }
             }
             jo_api_json_response(['success' => true, 'data' => $counts]);
@@ -1308,6 +1438,7 @@ try {
                 $orders = $visibleOrders;
             }
             jo_api_attach_provider_payments($orders);
+            jo_api_attach_change_item_rows($orders);
             if ($summaryOnly) {
                 $orders = jo_api_summary_rows($orders);
             }
@@ -1377,6 +1508,7 @@ try {
                             WHEN o.status IN ('To Pay') THEN 'TO_PAY'
                             WHEN o.status = 'Payment Confirmed' THEN 'PAYMENT_CONFIRMED'
                             WHEN o.status IN ('Paid – In Process', 'Paid - In Process', 'Processing', 'In Production', 'Printing') THEN 'IN_PRODUCTION'
+                            WHEN o.status = 'Change Item Request' THEN 'CHANGE_ITEM_REQUEST'
                             WHEN o.status = 'Ready for Pickup' THEN 'TO_RECEIVE'
                             WHEN o.status = 'Completed' THEN 'COMPLETED'
                             WHEN o.status = 'Rejected' THEN 'REJECTED'
@@ -1411,6 +1543,7 @@ try {
                         'Approved', 'Design Approved',
                         'To Pay', 'Payment Confirmed', 'Downpayment Submitted', 'Pending Verification', 'To Verify',
                         'Processing', 'In Production', 'Printing', 'Paid – In Process', 'Paid - In Process', 'Ready for Pickup',
+                        'Change Item Request',
                         'Completed', 'Rejected', 'Cancelled'
                     )"
                     . ($serviceOnly ? " AND o.order_type = 'custom'" : "")
@@ -1626,6 +1759,7 @@ try {
             $serviceHasMore = count($svc_orders) === $dashboardFetchLimit;
 
             $merged = array_merge($pending_orders, $custom_orders, $svc_orders);
+            $merged = printflow_change_item_merge_pending_dashboard_rows($merged, $joStaffBranch, $listSource);
             jo_api_attach_provider_payments($merged);
             usort($merged, function ($a, $b) {
                 $ta = strtotime($a['updated_at'] ?? $a['created_at'] ?? $a['order_date'] ?? 'now');
@@ -1650,6 +1784,8 @@ try {
             $mergedHasMore = count($deduped) > ($dashboardListOffset + $dashboardListLimit)
                 || $pendingHasMore || $customHasMore || $serviceHasMore;
             $merged = array_slice($deduped, $dashboardListOffset, $dashboardListLimit);
+
+            jo_api_attach_change_item_rows($merged);
 
             if ($summaryOnly) {
                 $merged = jo_api_summary_rows($merged);
@@ -1918,6 +2054,7 @@ try {
                        COALESCE(NULLIF(o.payment_proof_path,''), NULLIF(o.payment_proof,''), NULLIF(jo.payment_proof_path,'')) AS payment_proof_path,
                        COALESCE(jo.payment_submitted_amount, o.downpayment_amount, 0) AS downpayment_amount,
                        o.order_source,
+                       o.status AS store_order_status,
                        o.design_status AS store_design_status,
                        o.revision_reason AS store_revision_reason,
                        " . $revisionCountSelect . "
@@ -1981,46 +2118,11 @@ try {
                 'Ready for Pickup'      => 'TO_RECEIVE',
                 'Ready For Pickup'      => 'TO_RECEIVE',
                 'Completed'             => 'COMPLETED',
+                'Change Item Request'   => 'CHANGE_ITEM_REQUEST',
                 'Cancelled'             => 'CANCELLED',
                 'Rejected'              => 'REJECTED',
             ];
-            $mapped_status = $status_map[$cust['status'] ?? ''] ?? 'PENDING';
-
-            if (!empty($cust['order_id']) && in_array($mapped_status, ['IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED'], true)) {
-                try {
-                    JobOrderService::ensureStoreOrderProductionDeductions((int)$cust['order_id']);
-                } catch (Throwable $syncErr) {
-                    error_log(sprintf(
-                        'PrintFlow customization deduction sync failed for order %d: %s',
-                        (int)$cust['order_id'],
-                        $syncErr->getMessage()
-                    ));
-                }
-            }
-            if ($mapped_status === 'IN_PRODUCTION') {
-                try {
-                    $linkedJobForDeduction = db_query(
-                        "SELECT id
-                         FROM job_orders
-                         WHERE order_id = ?
-                           AND status NOT IN ('COMPLETED', 'CANCELLED')
-                         ORDER BY id ASC
-                         LIMIT 1",
-                        'i',
-                        [(int)($cust['order_id'] ?? 0)]
-                    ) ?: [];
-                    $linkedJobId = (int)($linkedJobForDeduction[0]['id'] ?? 0);
-                    if ($linkedJobId > 0) {
-                        JobOrderService::ensureProductionDeductionsForJob($linkedJobId);
-                    }
-                } catch (Throwable $syncErr) {
-                    error_log(sprintf(
-                        'PrintFlow customization job-level deduction sync failed for order %d: %s',
-                        (int)($cust['order_id'] ?? 0),
-                        $syncErr->getMessage()
-                    ));
-                }
-            }
+            $mapped_status = $status_map[$cust['store_order_status'] ?? ''] ?? ($status_map[$cust['status'] ?? ''] ?? 'PENDING');
 
             // Determine payment proof status
             $payment_proof_status = 'NONE';
@@ -2428,6 +2530,7 @@ try {
                 'ink_usage'                => $linked_job_ink_usage,
                 'customization_details'    => printflow_normalize_customization_for_modal($details),
                 'revision_review'          => jo_api_revision_review((int)($cust['order_id'] ?? 0)),
+                'change_item'              => printflow_change_item_summary_for_order((int)($cust['order_id'] ?? 0)),
             ];
             if (in_array(strtolower((string)($_GET['debug_specs'] ?? '')), ['1', 'true', 'yes'], true)) {
                 $data['_debug'] = [
@@ -2478,47 +2581,12 @@ try {
                 'Paid – In Process' => 'IN_PRODUCTION',
                 'Paid - In Process' => 'IN_PRODUCTION',
                 'Processing' => 'IN_PRODUCTION', 'In Production' => 'IN_PRODUCTION', 'Printing' => 'IN_PRODUCTION',
-                'Ready for Pickup' => 'TO_RECEIVE', 'Completed' => 'COMPLETED', 'Cancelled' => 'CANCELLED'
+                'Ready for Pickup' => 'TO_RECEIVE', 'Completed' => 'COMPLETED', 'Cancelled' => 'CANCELLED',
+                'Change Item Request' => 'CHANGE_ITEM_REQUEST',
             ];
             $db_status = $o['status'] ?? '';
             $mapped_status = $status_map[$db_status] ?? $db_status;
 
-            if ($order_id > 0 && in_array($mapped_status, ['IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED'], true)) {
-                try {
-                    JobOrderService::ensureStoreOrderProductionDeductions($order_id);
-                } catch (Throwable $syncErr) {
-                    error_log(sprintf(
-                        'PrintFlow order deduction sync failed for order %d: %s',
-                        $order_id,
-                        $syncErr->getMessage()
-                    ));
-                }
-            }
-            if ($order_id > 0 && $mapped_status === 'IN_PRODUCTION') {
-                try {
-                    $linkedJobRows = db_query(
-                        "SELECT id
-                         FROM job_orders
-                         WHERE order_id = ?
-                           AND status NOT IN ('COMPLETED', 'CANCELLED')
-                         ORDER BY id ASC
-                         LIMIT 1",
-                        'i',
-                        [$order_id]
-                    ) ?: [];
-                    $linkedJobId = (int)($linkedJobRows[0]['id'] ?? 0);
-                    if ($linkedJobId > 0) {
-                        JobOrderService::ensureProductionDeductionsForJob($linkedJobId);
-                    }
-                } catch (Throwable $syncErr) {
-                    error_log(sprintf(
-                        'PrintFlow regular-order job-level deduction sync failed for order %d: %s',
-                        $order_id,
-                        $syncErr->getMessage()
-                    ));
-                }
-            }
-            
             // Map payment proof status for staff dashboard
             $payment_proof_status = 'NONE';
             $payment_proof_url = null;
@@ -2694,9 +2762,6 @@ try {
                 ];
             }
             $res = JobOrderService::updateStatus($id, $status, $machineId, $reason, false, $revisionMeta);
-            if ($res && $status === 'For Revision' && $reason !== '') {
-                db_execute("UPDATE job_orders SET notes = CONCAT(IFNULL(notes, ''), '\n[REVISION REQUEST] ', ?) WHERE id = ?", 'si', [$reason, $id]);
-            }
             jo_api_json_response(['success' => $res]);
             break;
 
@@ -2952,6 +3017,8 @@ try {
             } else {
                 jo_api_require_staff_branch($joStaffBranch, $orderId);
             }
+            $materialContext = jo_api_material_context_for_assignment($orderId, $orderType);
+            pfpm_assert_material_applicable($itemId, $materialContext);
             $res = JobOrderService::addMaterial($orderId, $itemId, $qty, $uom, $rollId, $notes, $metadata, $orderType);
             jo_api_json_response(['success' => true, 'id' => $res]);
             break;
@@ -2973,6 +3040,98 @@ try {
             $jomId = (int)($_POST['id'] ?? 0);
             if (!$jomId) throw new Exception("ID required.");
             throw new Exception('Assigned materials cannot be removed once they have been set.');
+            break;
+
+        case 'change_item_create':
+            jo_api_require_staff_mutation();
+            $orderId = (int)($_POST['order_id'] ?? 0);
+            if ($orderId <= 0) {
+                throw new Exception('Order ID required.');
+            }
+            jo_api_require_staff_order_branch($joStaffBranch, $orderId);
+            $proof = ['tmp_name' => '', 'name' => '', 'size' => 0];
+            if (!empty($_FILES['proof']) && is_array($_FILES['proof'])) {
+                $proof = $_FILES['proof'];
+            }
+            $upload = printflow_change_item_upload_proof($proof, $orderId);
+            $sourceChannel = printflow_change_item_normalize_source_channel(sanitize($_POST['source_channel'] ?? 'counter'));
+            $autoApprove = !empty($_POST['auto_approve']) || printflow_change_item_is_in_store_channel($sourceChannel);
+            $record = printflow_change_item_create([
+                'order_id' => $orderId,
+                'order_item_id' => (int)($_POST['order_item_id'] ?? 0),
+                'source_channel' => $sourceChannel,
+                'reason_code' => sanitize($_POST['reason_code'] ?? ''),
+                'reason_label' => sanitize($_POST['reason_label'] ?? ''),
+                'issue_description' => trim((string)($_POST['issue_description'] ?? '')),
+                'staff_notes' => trim((string)($_POST['staff_notes'] ?? '')),
+                'proof_path' => (string)($upload['path'] ?? ''),
+                'proof_original_name' => (string)($upload['original_name'] ?? ''),
+                'auto_approve' => $autoApprove,
+                'idempotency_key' => trim((string)($_POST['idempotency_key'] ?? '')),
+                'created_by_user_id' => (int)get_user_id(),
+                'created_by_role' => (string)get_user_type(),
+            ]);
+            jo_api_json_response([
+                'success' => true,
+                'message' => $autoApprove
+                    ? 'Change Item request approved and routed to Production.'
+                    : 'Change Item request created successfully.',
+                'change_item_id' => (int)($record['id'] ?? 0),
+                'data' => $record,
+            ]);
+            break;
+
+        case 'change_item_approve':
+            jo_api_require_staff_mutation();
+            $changeItemId = (int)($_POST['change_item_id'] ?? 0);
+            if ($changeItemId <= 0) {
+                throw new Exception('Change Item ID required.');
+            }
+            $orderRows = db_query(
+                'SELECT order_id FROM change_item_requests WHERE change_item_id = ? LIMIT 1',
+                'i',
+                [$changeItemId]
+            ) ?: [];
+            $orderId = (int)($orderRows[0]['order_id'] ?? 0);
+            if ($orderId <= 0) {
+                throw new Exception('Change Item request not found.');
+            }
+            jo_api_require_staff_order_branch($joStaffBranch, $orderId);
+            $record = printflow_change_item_approve($changeItemId, (int)get_user_id());
+            jo_api_json_response(['success' => true, 'data' => $record]);
+            break;
+
+        case 'change_item_reject':
+            jo_api_require_staff_mutation();
+            $changeItemId = (int)($_POST['change_item_id'] ?? 0);
+            $reason = trim((string)($_POST['reason'] ?? ''));
+            if ($changeItemId <= 0) {
+                throw new Exception('Change Item ID required.');
+            }
+            $orderRows = db_query(
+                'SELECT order_id FROM change_item_requests WHERE change_item_id = ? LIMIT 1',
+                'i',
+                [$changeItemId]
+            ) ?: [];
+            $orderId = (int)($orderRows[0]['order_id'] ?? 0);
+            if ($orderId <= 0) {
+                throw new Exception('Change Item request not found.');
+            }
+            jo_api_require_staff_order_branch($joStaffBranch, $orderId);
+            $record = printflow_change_item_reject($changeItemId, $reason, (int)get_user_id());
+            jo_api_json_response(['success' => true, 'data' => $record]);
+            break;
+
+        case 'change_item_summary':
+            $orderId = (int)($_GET['order_id'] ?? 0);
+            if ($orderId <= 0) {
+                throw new Exception('Order ID required.');
+            }
+            jo_api_require_staff_order_branch($joStaffBranch, $orderId);
+            jo_api_json_response([
+                'success' => true,
+                'data' => printflow_change_item_summary_for_order($orderId),
+            ]);
             break;
 
         default:

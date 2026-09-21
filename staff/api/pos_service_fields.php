@@ -17,9 +17,14 @@ if ($service_id < 1) {
     exit;
 }
 
-$service = db_query("SELECT service_id, name, category FROM services WHERE service_id = ? AND status = 'Activated'", 'i', [$service_id]);
+$service = db_query("SELECT service_id, name, category, COALESCE(price, 0) AS base_price FROM services WHERE service_id = ? AND status = 'Activated'", 'i', [$service_id]);
 if (empty($service)) {
-    echo json_encode(['success' => false, 'error' => 'Service not found']);
+    $exists = db_query("SELECT service_id, status FROM services WHERE service_id = ? LIMIT 1", 'i', [$service_id]);
+    if (empty($exists)) {
+        echo json_encode(['success' => false, 'error' => 'Service not found']);
+    } else {
+        echo json_encode(['success' => false, 'error' => 'Service is not available for POS ordering.']);
+    }
     exit;
 }
 $service = $service[0];
@@ -85,6 +90,7 @@ echo json_encode([
     'success'       => true,
     'service_id'    => $service_id,
     'name'          => $service['name'],
+    'base_price'    => (float)($service['base_price'] ?? 0),
     'fields_html'   => $fields_html,
     'csrf_token'    => generate_csrf_token(),
     'staff_branch_id' => $staff_branch_id,

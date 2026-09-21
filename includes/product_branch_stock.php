@@ -52,12 +52,19 @@ function printflow_ensure_product_branch_stock_table(): void {
         return;
     }
     global $conn;
+    if (printflow_db_in_transaction($conn)) {
+        // Never run implicit-commit DDL inside checkout/completion transactions.
+        // Existing installations must already have this canonical stock table.
+        $done = true;
+        return;
+    }
     $sql = "CREATE TABLE IF NOT EXISTS `product_branch_stock` (
         `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
         `product_id` INT NOT NULL,
         `branch_id` INT NOT NULL,
         `stock_quantity` INT NOT NULL DEFAULT 0,
         `low_stock_level` INT NOT NULL DEFAULT 10,
+        `critical_level` INT NOT NULL DEFAULT 0,
         `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (`id`),
         UNIQUE KEY `uq_product_branch` (`product_id`, `branch_id`),
@@ -135,6 +142,12 @@ function printflow_product_branch_stock_upsert(int $productId, int $branchId, in
  */
 function printflow_ensure_product_inventory_transaction_schema(): void {
     static $ddlDone = false;
+    global $conn;
+    if (!$ddlDone && printflow_db_in_transaction($conn)) {
+        // DDL would implicitly commit the caller's stock movement. Queries below
+        // fail closed if a required migration has not yet been applied.
+        return;
+    }
     if (!$ddlDone) {
         InventoryManager::ensureBranchScopedSchema();
 
@@ -146,6 +159,19 @@ function printflow_ensure_product_inventory_transaction_schema(): void {
         } catch (Throwable $e) {
             // Allow page logic to continue even if the schema is already being
             // changed by another request.
+        }
+
+        try {
+            $transactionCols = db_query("SHOW COLUMNS FROM inventory_transactions LIKE 'transaction_id'") ?: [];
+            if (empty($transactionCols)) {
+                db_execute("ALTER TABLE inventory_transactions ADD COLUMN transaction_id VARCHAR(50) NULL AFTER item_id");
+            }
+            $transactionIdx = db_query("SHOW INDEX FROM inventory_transactions WHERE Key_name = 'idx_unique_txn'") ?: [];
+            if (empty($transactionIdx)) {
+                db_execute("ALTER TABLE inventory_transactions ADD UNIQUE INDEX idx_unique_txn (transaction_id)");
+            }
+        } catch (Throwable $e) {
+            // The atomic order-line helper verifies this capability before use.
         }
 
         try {
@@ -168,8 +194,6 @@ function printflow_ensure_product_inventory_transaction_schema(): void {
 
         $ddlDone = true;
     }
-
-    printflow_repair_orphan_catalog_inventory_branches();
 }
 
 /**
@@ -293,9 +317,12 @@ function printflow_record_product_inventory_transaction(
     string $notes = '',
     ?int $userId = null,
     ?string $date = null,
-    ?int $branchId = null
+    ?int $branchId = null,
+    ?string $transactionId = null
 ) {
-    printflow_ensure_product_inventory_transaction_schema();
+    if (!printflow_db_in_transaction($conn)) {
+        printflow_ensure_product_inventory_transaction_schema();
+    }
 
     if ($productId <= 0 || $quantity <= 0) {
         return false;
@@ -354,7 +381,11 @@ function printflow_record_product_inventory_transaction(
     }
     // Never omit branch_id: NULL branch hid catalog movements on branch-filtered ledger views (Products / POS).
     $branchId = max(1, (int)$branchId);
-    $productTransactionId = 'PRD-' . date('YmdHis') . '-' . $branchId . '-' . $productId . '-' . random_int(1000, 9999);
+    $productTransactionId = trim((string)$transactionId);
+    if ($productTransactionId === '') {
+        $productTransactionId = 'PRD-' . date('YmdHis') . '-' . $branchId . '-' . $productId . '-' . random_int(1000, 9999);
+    }
+    $productTransactionId = substr($productTransactionId, 0, 50);
 
     $storedRefType = $normalizedRefType;
     $storedRefId = $refId;
@@ -466,6 +497,150 @@ function printflow_record_product_inventory_transaction(
 }
 
 /**
+ * Atomically deduct one ready-made order line and write its matching ledger row.
+ *
+ * The deterministic transaction_id is the backend idempotency key. Locking the
+ * order line prevents concurrent completion handlers from both passing the
+ * ledger check before either one commits.
+ *
+ * @return array{applied:bool,already_applied:bool,product_id:int,quantity:int,branch_id:int,option:?array}
+ */
+function printflow_apply_product_order_item_inventory(
+    int $orderItemId,
+    int $branchId = 0,
+    int $actorId = 0,
+    string $sourceLabel = 'Order'
+): array {
+    global $conn;
+
+    if ($orderItemId <= 0) {
+        throw new InvalidArgumentException('A valid order item is required for inventory deduction.');
+    }
+
+    printflow_ensure_product_inventory_transaction_schema();
+    require_once __DIR__ . '/product_option_stock.php';
+
+    if (!db_table_has_column('inventory_transactions', 'transaction_id')
+        || !db_table_has_column('inventory_transactions', 'product_id')) {
+        throw new RuntimeException('The product inventory ledger migration is unavailable.');
+    }
+
+    $startedTransaction = !printflow_db_in_transaction($conn);
+    if ($startedTransaction && !$conn->begin_transaction()) {
+        throw new RuntimeException('Unable to start product inventory transaction.');
+    }
+
+    try {
+        $rows = db_query(
+            "SELECT oi.order_item_id, oi.order_id, oi.product_id, oi.quantity, oi.customization_data,
+                    o.branch_id AS order_branch_id, o.status AS order_status, p.name AS product_name
+             FROM order_items oi
+             INNER JOIN orders o ON o.order_id = oi.order_id
+             INNER JOIN products p ON p.product_id = oi.product_id
+             WHERE oi.order_item_id = ?
+             LIMIT 1
+             FOR UPDATE",
+            'i',
+            [$orderItemId]
+        ) ?: [];
+        if ($rows === []) {
+            throw new RuntimeException('The product order item no longer exists.');
+        }
+
+        $item = $rows[0];
+        $orderId = (int)$item['order_id'];
+        $productId = (int)$item['product_id'];
+        $quantity = (int)$item['quantity'];
+        $orderBranchId = (int)($item['order_branch_id'] ?? 0);
+        if ($productId <= 0 || $quantity <= 0) {
+            throw new RuntimeException('The product order item has invalid inventory values.');
+        }
+        if (strcasecmp(trim((string)($item['order_status'] ?? '')), 'Cancelled') === 0) {
+            throw new RuntimeException('Cancelled orders cannot consume inventory.');
+        }
+        if ($orderBranchId > 0) {
+            if ($branchId > 0 && $branchId !== $orderBranchId) {
+                throw new RuntimeException('The requested inventory branch does not match the order branch.');
+            }
+            $branchId = $orderBranchId;
+        }
+        if ($branchId <= 0) {
+            throw new RuntimeException('The order does not identify an inventory branch.');
+        }
+
+        $transactionId = substr("ORDER-{$orderId}-ITEM-{$orderItemId}-OUT", 0, 50);
+        $existing = db_query(
+            'SELECT id FROM inventory_transactions WHERE transaction_id = ? LIMIT 1',
+            's',
+            [$transactionId]
+        ) ?: [];
+        if ($existing !== []) {
+            if ($startedTransaction) $conn->commit();
+            return [
+                'applied' => false,
+                'already_applied' => true,
+                'product_id' => $productId,
+                'quantity' => $quantity,
+                'branch_id' => $branchId,
+                'option' => null,
+            ];
+        }
+
+        $customization = json_decode((string)($item['customization_data'] ?? ''), true);
+        $customization = is_array($customization) ? $customization : [];
+        $optionResult = printflow_product_option_stock_deduct($productId, $branchId, $customization, $quantity);
+        if (!empty($optionResult['handled'])) {
+            if (empty($optionResult['success'])) {
+                throw new RuntimeException((string)($optionResult['message'] ?? 'Selected option stock is insufficient.'));
+            }
+        } elseif (!printflow_product_deduct_stock_for_branch($productId, $branchId, $quantity)) {
+            throw new RuntimeException('Insufficient product stock at the order branch.');
+        }
+
+        $orderRef = function_exists('printflow_get_order_inventory_reference')
+            ? printflow_get_order_inventory_reference($orderId)
+            : [];
+        $orderLabel = $orderRef['label'] ?? ('Order #' . $orderId);
+        $productName = trim((string)($item['product_name'] ?? '')) ?: ('Product #' . $productId);
+        $optionNote = !empty($optionResult['handled'])
+            ? ' (' . (string)$optionResult['field_label'] . ': ' . (string)$optionResult['option_value'] . ')'
+            : '';
+        $notes = trim($sourceLabel) . ": {$orderLabel} - {$productName}{$optionNote}";
+
+        $ledgerResult = printflow_record_product_inventory_transaction(
+            $productId,
+            'OUT',
+            (float)$quantity,
+            'ORDER',
+            $orderId,
+            $notes,
+            $actorId,
+            date('Y-m-d'),
+            $branchId,
+            $transactionId
+        );
+        if ($ledgerResult === false) {
+            throw new RuntimeException('Product stock changed but its ledger transaction could not be recorded.');
+        }
+
+        if ($startedTransaction) $conn->commit();
+        return [
+            'applied' => true,
+            'already_applied' => false,
+            'product_id' => $productId,
+            'quantity' => $quantity,
+            'branch_id' => $branchId,
+            'option' => !empty($optionResult['handled']) ? $optionResult : null,
+        ];
+    } catch (Throwable $e) {
+        if ($startedTransaction && printflow_db_in_transaction($conn)) {
+            $conn->rollback();
+        }
+        throw $e;
+    }
+}
+
+/**
  * Effective quantity + low threshold for a product at a branch.
  *
  * @return array{0:int,1:int} [stock_quantity, low_stock_level]
@@ -540,12 +715,12 @@ function printflow_product_deduct_stock_for_branch(int $productId, int $branchId
             if (empty($p) || (int)$p[0]['stock_quantity'] < $qty) {
                 return false;
             }
-            $u = db_execute(
+            $affected = db_execute_affected_rows(
                 'UPDATE products SET stock_quantity = stock_quantity - ? WHERE product_id = ? AND stock_quantity >= ?',
                 'iii',
                 [$qty, $productId, $qty]
             );
-            return $u !== false;
+            return $affected === 1;
         }
 
         $row = db_query(
@@ -558,12 +733,12 @@ function printflow_product_deduct_stock_for_branch(int $productId, int $branchId
             if ($cur < $qty) {
                 return false;
             }
-            $u = db_execute(
+            $affected = db_execute_affected_rows(
                 'UPDATE product_branch_stock SET stock_quantity = stock_quantity - ? WHERE product_id = ? AND branch_id = ? AND stock_quantity >= ?',
                 'iiii',
                 [$qty, $productId, $branchId, $qty]
             );
-            return $u !== false;
+            return $affected === 1;
         }
 
         return false;
@@ -573,10 +748,10 @@ function printflow_product_deduct_stock_for_branch(int $productId, int $branchId
     if (empty($p) || (int)$p[0]['stock_quantity'] < $qty) {
         return false;
     }
-    $u = db_execute(
+    $affected = db_execute_affected_rows(
         'UPDATE products SET stock_quantity = stock_quantity - ? WHERE product_id = ? AND stock_quantity >= ?',
         'iii',
         [$qty, $productId, $qty]
     );
-    return $u !== false;
+    return $affected === 1;
 }

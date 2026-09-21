@@ -103,6 +103,7 @@ $pos_completed_count = 0;
 $pos_cancelled_count = 0;
 $online_inquiry_count = 0;
 $online_payment_count = 0;
+$online_urgent_count = 0;
 $online_production_count = 0;
 $online_closed_count = 0;
 ?>
@@ -439,6 +440,133 @@ $online_closed_count = 0;
             font-weight: 700;
         }
 
+        .pf-order-code-stack {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            min-width: 0;
+            max-width: 100%;
+        }
+
+        .pf-urgent-request-badge {
+            display: inline-flex;
+            align-items: center;
+            align-self: flex-start;
+            max-width: 100%;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            background: #fee2e2;
+            color: #b91c1c;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: .04em;
+            line-height: 1.3;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .pf-change-item-badge {
+            display: inline-flex;
+            align-items: center;
+            align-self: flex-start;
+            max-width: 100%;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            background: #fef3c7;
+            color: #92400e;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: .04em;
+            line-height: 1.3;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .pf-change-item-review {
+            margin-bottom: 20px;
+            padding: 18px;
+            border-radius: 12px;
+            border: 1px solid #fde68a;
+            background: #fffbeb;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        .pf-change-item-review__title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #92400e;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            margin-bottom: 4px;
+        }
+        .pf-change-item-review__code {
+            font-size: 13px;
+            font-weight: 800;
+            color: #78350f;
+            margin-bottom: 14px;
+        }
+        .pf-change-item-review__section {
+            margin-top: 14px;
+        }
+        .pf-change-item-review__section-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #92400e;
+            text-transform: uppercase;
+            letter-spacing: .03em;
+            margin-bottom: 8px;
+        }
+        .pf-change-item-review__grid {
+            display: grid;
+            gap: 8px;
+            font-size: 13px;
+            color: #78350f;
+            line-height: 1.5;
+        }
+        .pf-change-item-review__description {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            padding: 12px 14px;
+            border: 1px solid #fde68a;
+            border-radius: 10px;
+            background: #fff;
+            color: #78350f;
+            font-size: 13px;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+        .pf-change-item-review__proof img {
+            display: block;
+            max-width: min(100%, 240px);
+            max-height: 240px;
+            border-radius: 10px;
+            border: 1px solid #fde68a;
+            cursor: zoom-in;
+            object-fit: contain;
+            background: #fff;
+        }
+        .pf-change-item-history {
+            margin-bottom: 20px;
+            padding: 14px;
+            border-radius: 12px;
+            border: 1px solid #fde68a;
+            background: #fffbeb;
+        }
+
+        .customization-mobile-card__order-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            min-width: 0;
+        }
+
         .source-badge-pill {
             min-width: 76px;
             text-align: center;
@@ -663,6 +791,29 @@ $online_closed_count = 0;
 
         .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999; }
         .modal-panel { background:#fff; border-radius:12px; box-shadow:0 25px 50px rgba(0,0,0,0.25); width:100%; max-width:560px; max-height:88vh; overflow-y:auto; margin:16px; position:relative; }
+        .pf-change-item-modal-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 11030;
+            background: rgba(15, 23, 42, 0.45);
+        }
+        .pf-change-item-modal-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 11031;
+            width: calc(100% - 32px);
+            max-width: 520px;
+            max-height: calc(100vh - 32px);
+            overflow-x: hidden;
+            overflow-y: auto;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+            border: 1px solid #fde68a;
+            box-sizing: border-box;
+        }
         .modal-wrap-text { max-width:100%; white-space:normal; word-break:break-word; overflow-wrap:anywhere; }
         .modal-header-copy { min-width:0; flex:1 1 auto; padding-right:12px; }
         .modal-item-title { line-height:1.35; }
@@ -687,7 +838,7 @@ $online_closed_count = 0;
         }
         .customizations-data-table {
             width: 100%;
-            min-width: 940px;
+            min-width: 1040px;
             table-layout: fixed;
         }
         .customizations-data-table th,
@@ -697,22 +848,26 @@ $online_closed_count = 0;
             box-sizing: border-box;
             vertical-align: middle;
         }
-        .customizations-data-table .col-order { width: 16%; }
-        .customizations-data-table .col-info { width: 24%; }
-        .customizations-data-table .col-status { width: 14%; }
-        .customizations-data-table .col-customer { width: 16%; }
-        .customizations-data-table .col-created { width: 18%; }
+        .customizations-data-table .col-order { width: 14%; }
+        .customizations-data-table .col-info { width: 20%; }
+        .customizations-data-table .col-needed { width: 12%; }
+        .customizations-data-table .col-status { width: 12%; }
+        .customizations-data-table .col-customer { width: 14%; }
+        .customizations-data-table .col-created { width: 16%; }
         .customizations-data-table .col-action { width: 12%; }
-        .customizations-data-table th:nth-child(3),
-        .customizations-data-table td:nth-child(3),
-        .customizations-data-table th:nth-child(6),
-        .customizations-data-table td:nth-child(6) {
+        .customizations-data-table th:nth-child(4),
+        .customizations-data-table td:nth-child(4),
+        .customizations-data-table th:nth-child(7),
+        .customizations-data-table td:nth-child(7) {
             text-align: center !important;
         }
-        .customizations-data-table th:nth-child(5),
-        .customizations-data-table td:nth-child(5) {
+        .customizations-data-table th:nth-child(6),
+        .customizations-data-table td:nth-child(6) {
             text-align: left !important;
             white-space: nowrap;
+        }
+        .needed-date-cell .table-text-main {
+            color: #334155;
         }
         .customizations-data-table .status-col-inner,
         .customizations-data-table .action-btn-group {
@@ -1265,6 +1420,7 @@ $online_closed_count = 0;
             }
             .customizations-data-table tr.customization-row .order-code-cell,
             .customizations-data-table tr.customization-row .customization-info-cell,
+            .customizations-data-table tr.customization-row .needed-date-cell,
             .customizations-data-table tr.customization-row .status-col-cell,
             .customizations-data-table tr.customization-row .customer-cell,
             .customizations-data-table tr.customization-row .created-cell,
@@ -1759,13 +1915,13 @@ $online_closed_count = 0;
                          <span class="kpi-sub">Review, revisions, materials, pricing</span>
                      </span>
                  </div>
-                 <div class="kpi-card blue">
-                     <span class="kpi-card-inner">
-                         <span class="kpi-label">Payment</span>
-                         <span class="kpi-value" x-text="getStatusCount('PAYMENT')"><?php echo number_format($online_payment_count); ?></span>
-                         <span class="kpi-sub">To pay and for verification</span>
-                     </span>
-                 </div>
+                <div class="kpi-card rose">
+                    <span class="kpi-card-inner">
+                        <span class="kpi-label">Urgent Orders</span>
+                        <span class="kpi-value" x-text="getStatusCount('URGENT')"><?php echo number_format($online_urgent_count); ?></span>
+                        <span class="kpi-sub">Orders that need immediate attention</span>
+                    </span>
+                </div>
                  <div class="kpi-card emerald">
                      <span class="kpi-card-inner">
                          <span class="kpi-label">Production</span>
@@ -1820,11 +1976,11 @@ $online_closed_count = 0;
 
                         <!-- Filter Menu -->
                         <div style="position: relative;">
-                            <button @click="filterOpen = !filterOpen; sortOpen = false" class="toolbar-btn" :class="(serviceFilter !== 'ALL' || dateFilter !== 'ALL') ? 'active' : ''">
+                            <button @click="filterOpen = !filterOpen; sortOpen = false" class="toolbar-btn" :class="(serviceFilter !== 'ALL' || dateFilter !== 'ALL' || priorityFilter !== 'ALL') ? 'active' : ''">
                                 <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
                                 <span class="toolbar-btn-label-light">Filter</span>
-                                <template x-if="serviceFilter !== 'ALL' || dateFilter !== 'ALL'">
-                                    <span class="filter-badge" x-text="(serviceFilter !== 'ALL' ? 1 : 0) + (dateFilter !== 'ALL' ? 1 : 0)"></span>
+                                <template x-if="serviceFilter !== 'ALL' || dateFilter !== 'ALL' || priorityFilter !== 'ALL'">
+                                    <span class="filter-badge" x-text="(serviceFilter !== 'ALL' ? 1 : 0) + (dateFilter !== 'ALL' ? 1 : 0) + (priorityFilter !== 'ALL' ? 1 : 0)"></span>
                                 </template>
                             </button>
                             <div x-show="filterOpen" @click.away="filterOpen = false" x-cloak class="dropdown-panel filter-panel" style="right: 0;">
@@ -1873,6 +2029,18 @@ $online_closed_count = 0;
 
                                 <div class="filter-section">
                                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                        <span class="filter-label" style="margin:0;">Priority</span>
+                                        <button @click="priorityFilter = 'ALL'" class="filter-reset-link">Reset</button>
+                                    </div>
+                                    <select x-model="priorityFilter" class="filter-select">
+                                        <option value="ALL">All</option>
+                                        <option value="REGULAR">Regular</option>
+                                        <option value="URGENT">Urgent</option>
+                                    </select>
+                                </div>
+
+                                <div class="filter-section">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                                         <span class="filter-label" style="margin:0;">Keyword search</span>
                                         <button @click="search = ''" class="filter-reset-link">Reset</button>
                                     </div>
@@ -1880,7 +2048,7 @@ $online_closed_count = 0;
                                 </div>
 
                                 <div class="filter-footer">
-                                    <button @click="serviceFilter = 'ALL'; dateFilter = 'ALL'; customDateFrom = ''; customDateTo = ''; search = '';" class="filter-btn-reset" style="width:100%;">
+                                    <button @click="serviceFilter = 'ALL'; dateFilter = 'ALL'; priorityFilter = 'ALL'; customDateFrom = ''; customDateTo = ''; search = '';" class="filter-btn-reset" style="width:100%;">
                                         Reset all filters
                                     </button>
                                 </div>
@@ -1915,6 +2083,10 @@ $online_closed_count = 0;
                             <span>COMPLETED</span>
                             <span class="tab-count" x-text="getStatusCount('COMPLETED')"></span>
                         </button>
+                        <button type="button" @click="activeStatus = 'CHANGED_ITEMS'" :class="activeStatus === 'CHANGED_ITEMS' ? 'active' : ''" class="pill-tab">
+                            <span>CHANGED ITEMS</span>
+                            <span class="tab-count" x-text="getStatusCount('CHANGED_ITEMS')"></span>
+                        </button>
                         <button type="button" @click="activeStatus = 'CLOSED'" :class="activeStatus === 'CLOSED' ? 'active' : ''" class="pill-tab">
                             <span>CANCELLED</span>
                             <span class="tab-count" x-text="getStatusCount('CLOSED')"></span>
@@ -1939,13 +2111,14 @@ $online_closed_count = 0;
                 <div class="overflow-x-auto -mx-6 px-6 customizations-table-scroll" style="clear:both;">
                     <table class="w-full text-sm text-left border-separate border-spacing-0 customizations-data-table">
                         <colgroup>
-                            <col class="col-order"><col class="col-info"><col class="col-status">
+                            <col class="col-order"><col class="col-info"><col class="col-needed"><col class="col-status">
                             <col class="col-customer"><col class="col-created"><col class="col-action">
                         </colgroup>
                         <thead class="bg-gray-50/50">
                             <tr>
                                 <th class="pl-6 pr-4 py-4 border-b border-gray-100">Order Code</th>
                                 <th class="px-4 py-4 border-b border-gray-100">Customization Info</th>
+                                <th class="px-4 py-4 border-b border-gray-100">Needed Date</th>
                                 <th class="px-4 py-4 border-b border-gray-100 text-center">Status</th>
                                 <th class="px-4 py-4 border-b border-gray-100">Customer</th>
                                 <th class="px-4 py-4 border-b border-gray-100">Created</th>
@@ -1957,7 +2130,11 @@ $online_closed_count = 0;
                                 <tr @click="viewDetails(jo.id, jo.order_type || 'JOB')" class="group transition-all relative cursor-pointer customization-row">
                                     <td class="pl-6 pr-4 py-4 relative order-code-cell" data-label="Order">
                                         <div class="row-indicator"></div>
-                                        <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(jo)" x-text="getDisplayOrderCode(jo)"></span>
+                                        <div class="pf-order-code-stack">
+                                            <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(jo)" x-text="getDisplayOrderCode(jo)"></span>
+                                            <span x-show="orderIsUrgentRequest(jo)" class="pf-urgent-request-badge">Urgent Request</span>
+                                            <span x-show="orderHasChangeItemBadge(jo)" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(jo)"></span>
+                                        </div>
                                     </td>
                                     <td class="px-4 py-4 customization-info-cell" data-label="Details">
                                         <div class="flex items-center gap-3">
@@ -1969,6 +2146,9 @@ $online_closed_count = 0;
                                                 <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="jo.order_type === 'SERVICE'">Service purchase</div>
                                             </div>
                                         </div>
+                                    </td>
+                                    <td class="px-4 py-4 needed-date-cell" data-label="Needed Date">
+                                        <div class="table-text-main truncate-ellipsis" :title="formatOrderNeededDate(jo, true)" x-text="formatOrderNeededDate(jo)"></div>
                                     </td>
                                     <td class="px-4 py-4 status-col-cell" data-label="Status">
                                         <div class="status-col-inner">
@@ -1999,6 +2179,7 @@ $online_closed_count = 0;
                                 <tr aria-hidden="true">
                                     <td class="pl-6 pr-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton"></span><span class="pf-customization-skeleton medium" style="margin-top:8px;"></span></td>
+                                    <td class="px-4 py-5"><span class="pf-customization-skeleton short"></span></td>
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton"></span></td>
@@ -2006,14 +2187,14 @@ $online_closed_count = 0;
                                 </tr>
                             </template>
                             <tr x-show="ordersError && orders.length === 0" x-cloak>
-                                <td colspan="6" class="px-6 py-20 text-center">
+                                <td colspan="7" class="px-6 py-20 text-center">
                                     <div style="color:#475569;font-weight:700;font-size:14px;">Unable to load customizations. Please try again.</div>
                                     <div style="margin-top:8px;color:#64748b;font-size:13px;" x-text="ordersError"></div>
                                     <button type="button" @click="retryLoadOrders()" :disabled="loadingOrders" :style="loadingOrders ? 'opacity:.6;cursor:not-allowed' : ''" style="margin-top:12px;padding:9px 16px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#1e3a5f;font-weight:700;cursor:pointer;">Retry</button>
                                 </td>
                             </tr>
                             <tr x-show="!loadingOrders && !ordersError && filteredOrders.length === 0">
-                                <td colspan="6" class="px-6 py-24 text-center">
+                                <td colspan="7" class="px-6 py-24 text-center">
                                     <span class="table-text-sub uppercase tracking-widest">No matching jobs in this stage</span>
                                 </td>
                             </tr>
@@ -2029,11 +2210,15 @@ $online_closed_count = 0;
                         >
                             <div class="customization-mobile-card__section customization-mobile-card__section--order">
                                 <span class="customization-mobile-card__label">Order</span>
-                                <span
-                                    class="customization-mobile-card__order"
-                                    :title="getDisplayOrderCode(jo)"
-                                    x-text="getDisplayOrderCode(jo)"
-                                ></span>
+                                <div class="customization-mobile-card__order-wrap">
+                                    <span
+                                        class="customization-mobile-card__order"
+                                        :title="getDisplayOrderCode(jo)"
+                                        x-text="getDisplayOrderCode(jo)"
+                                    ></span>
+                                    <span x-show="orderIsUrgentRequest(jo)" class="pf-urgent-request-badge">Urgent Request</span>
+                                    <span x-show="orderHasChangeItemBadge(jo)" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(jo)"></span>
+                                </div>
                             </div>
 
                             <div class="customization-mobile-card__section">
@@ -2049,6 +2234,14 @@ $online_closed_count = 0;
                             </div>
 
                             <div class="customization-mobile-card__meta">
+                                <div class="customization-mobile-card__meta-row">
+                                    <span class="customization-mobile-card__label">Needed Date</span>
+                                    <span
+                                        class="customization-mobile-card__value"
+                                        :title="formatOrderNeededDate(jo, true)"
+                                        x-text="formatOrderNeededDate(jo)"
+                                    ></span>
+                                </div>
                                 <div class="customization-mobile-card__meta-row">
                                     <span class="customization-mobile-card__label">Status</span>
                                     <div class="customization-mobile-card__status">
@@ -2269,9 +2462,13 @@ $online_closed_count = 0;
                                     </div>
                                     <template x-if="staffShouldRenderDesignSection(item)">
                                         <div style="margin-top:12px; padding:12px; border:1px solid #e5e7eb; border-radius:8px; background:#fff;">
-                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:8px;">Design</div>
+                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:8px;" x-text="staffDesignSectionLabel(item)"></div>
+                                            <template x-if="staffItemHasUploadedDesignFile(item)">
+                                                <div style="margin-bottom:12px;">
+                                                    <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">📁 Uploaded File</div>
+                                                    <div style="font-size:13px; font-weight:600; color:#1f2937; word-break:break-word; overflow-wrap:anywhere; margin-bottom:8px;" x-text="staffDesignDisplayFilename(item)"></div>
                                             <template x-if="staffEffectiveDesignOpenUrl(item) && staffDesignShowsAsImage(item)">
-                                                <div style="display:flex; flex-direction:column; align-items:flex-start; gap:8px; max-width:100%;">
+                                                <div style="display:flex; flex-direction:column; align-items:flex-start; gap:8px; max-width:100%; margin-bottom:8px;">
                                                     <img :src="staffEffectiveDesignOpenUrl(item)"
                                                          @click="previewFile = staffEffectiveDesignOpenUrl(item)"
                                                          loading="lazy"
@@ -2280,47 +2477,43 @@ $online_closed_count = 0;
                                                          height="160"
                                                          style="width:min(100%, 220px); max-height:220px; object-fit:contain; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.08); background:#f8fafc;"
                                                          onerror="this.style.display='none';">
-                                                    <a :href="staffEffectiveDesignOpenUrl(item)"
-                                                       target="_blank"
-                                                       rel="noopener noreferrer"
-                                                       style="font-size:12px; font-weight:500; color:#334155; word-break:break-word; overflow-wrap:anywhere; text-decoration:none;">
-                                                        <span x-text="staffDesignDisplayFilename(item)"></span>
-                                                    </a>
                                                 </div>
                                             </template>
-                                            <template x-if="staffEffectiveDesignOpenUrl(item) && !staffDesignShowsAsImage(item)">
-                                                <a :href="staffEffectiveDesignOpenUrl(item)"
-                                                   target="_blank"
-                                                   rel="noopener noreferrer"
-                                                   style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none;">
-                                                    <template x-if="staffFilenameLooksLikePdf(staffDesignDisplayFilename(item))">
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                                            <polyline points="14 2 14 8 20 8"></polyline>
-                                                            <line x1="16" y1="13" x2="8" y2="13"></line>
-                                                            <line x1="16" y1="17" x2="8" y2="17"></line>
-                                                            <polyline points="10 9 9 9 8 9"></polyline>
-                                                        </svg>
-                                                    </template>
-                                                    <template x-if="!staffFilenameLooksLikePdf(staffDesignDisplayFilename(item))">
-                                                        <span style="font-size:14px;">FILE</span>
-                                                    </template>
-                                                    <span x-text="staffDesignDisplayFilename(item)"></span>
-                                                    <template x-if="staffFilenameLooksLikePdf(staffDesignDisplayFilename(item))">
-                                                        <span style="font-size:10px;color:#6b7280;">(PDF)</span>
-                                                    </template>
-                                                </a>
+                                                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                                        <button type="button"
+                                                                @click="previewFile = staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)"
+                                                                style="padding:8px 12px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-size:12px; font-weight:600; color:#334155; cursor:pointer;">
+                                                            View
+                                                        </button>
+                                                        <a :href="staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)"
+                                                           target="_blank"
+                                                           rel="noopener noreferrer"
+                                                           download
+                                                           style="padding:8px 12px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-size:12px; font-weight:600; color:#334155; text-decoration:none;">
+                                                            Download
+                                                        </a>
+                                                    </div>
+                                                </div>
                                             </template>
-                                            <template x-if="!staffEffectiveDesignOpenUrl(item) && staffItemHasStoredDesign(item)">
-                                                <a :href="staffOrderItemDesignServeUrl(item)"
-                                                   target="_blank"
-                                                   rel="noopener noreferrer"
-                                                   style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none;">
-                                                    <span style="font-size:14px;">FILE</span>
-                                                    <span x-text="staffDesignDisplayFilename(item)"></span>
-                                                </a>
+                                            <template x-if="staffGetDesignExternalLink(item)">
+                                                <div>
+                                                    <div style="font-size:13px; font-weight:600; color:#1f2937; word-break:break-all; overflow-wrap:anywhere; margin-bottom:8px;" x-text="'🔗 ' + staffGetDesignExternalLink(item)"></div>
+                                                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+                                                        <button type="button"
+                                                                @click="staffCopyDesignLink(staffGetDesignExternalLink(item), $event)"
+                                                                style="padding:8px 12px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-size:12px; font-weight:600; color:#334155; cursor:pointer;">
+                                                            Copy Link
+                                                        </button>
+                                                        <a :href="sanitizeStaffLink(staffGetDesignExternalLink(item))"
+                                                           target="_blank"
+                                                           rel="noopener noreferrer"
+                                                           style="padding:8px 12px; border:1px solid #dbeafe; border-radius:8px; background:#eff6ff; font-size:12px; font-weight:600; color:#1d4ed8; text-decoration:none;">
+                                                            Open Link
+                                                        </a>
+                                                    </div>
+                                                </div>
                                             </template>
-                                            <template x-if="!staffEffectiveDesignOpenUrl(item) && !staffItemHasStoredDesign(item)">
+                                            <template x-if="!staffItemHasUploadedDesignFile(item) && !staffGetDesignExternalLink(item)">
                                                 <div style="font-size:12px; color:#6b7280; font-style:italic;">No design uploaded.</div>
                                             </template>
                                         </div>
@@ -2504,8 +2697,8 @@ $online_closed_count = 0;
                                                             <span class="production-material-option__status" :id="'production-material-status-' + item.id" x-text="materialStatusLabel(item)"></span>
                                                         </button>
                                                     </template>
-                                                    <div x-show="availableMaterialsForCurrentOrder.length === 0" class="production-material-empty">
-                                                        No materials match this search.
+                                                    <div x-show="availableMaterialsForCurrentOrder.length === 0" class="production-material-empty" x-text="materialPickerEmptyMessage">
+                                                        No recommended materials configured for this service.
                                                     </div>
                                                 </div>
                                                 <div x-show="!hasVerifiedMaterialSuggestions" style="margin-top:7px; color:#64748b; font-size:10px; line-height:1.4;">
@@ -2691,6 +2884,90 @@ $online_closed_count = 0;
                         </div>
                     </template>
 
+                    <template x-if="changeItemActiveRequest(currentJo)">
+                        <div class="pf-change-item-review">
+                            <div class="pf-change-item-review__title">Change Item Request</div>
+                            <div class="pf-change-item-review__code" x-text="changeItemActiveRequest(currentJo).change_item_code || ('CI-' + String(changeItemActiveRequest(currentJo).id || '').padStart(6, '0'))"></div>
+
+                            <div class="pf-change-item-review__section">
+                                <div class="pf-change-item-review__section-label">Request Summary</div>
+                                <div class="pf-change-item-review__grid">
+                                    <div><strong>Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
+                                    <div><strong>Customer:</strong> <span x-text="(currentJo.customer_full_name || ((currentJo.first_name || '') + ' ' + (currentJo.last_name || ''))).trim() || 'Walk-in customer'"></span></div>
+                                    <div><strong>Item:</strong> <span x-text="getChangeItemItemName(currentJo)"></span></div>
+                                    <div><strong>Request Source:</strong> <span x-text="changeItemActiveRequest(currentJo).request_source_label || changeItemRequestedByLabel(changeItemActiveRequest(currentJo))"></span></div>
+                                    <div><strong>Status:</strong> <span x-text="changeItemDisplayStatus(currentJo)"></span></div>
+                                    <div><strong>Requested:</strong> <span x-text="changeItemActiveRequest(currentJo).requested_at_display || changeItemActiveRequest(currentJo).requested_at || '—'"></span></div>
+                                    <div x-show="changeItemReworkInProgress(currentJo)"><strong>Production Status:</strong> In Production</div>
+                                </div>
+                            </div>
+
+                            <div class="pf-change-item-review__section">
+                                <div class="pf-change-item-review__section-label">Reason for Change</div>
+                                <div class="pf-change-item-review__grid">
+                                    <div x-text="changeItemActiveRequest(currentJo).reason || '—'"></div>
+                                </div>
+                            </div>
+
+                            <div class="pf-change-item-review__section">
+                                <div class="pf-change-item-review__section-label">Issue Description</div>
+                                <div class="pf-change-item-review__description" x-text="changeItemActiveRequest(currentJo).description || changeItemActiveRequest(currentJo).issue_description || '—'"></div>
+                                <div x-show="changeItemActiveRequest(currentJo).customer_notes" style="margin-top:10px;font-size:12px;color:#78350f;">
+                                    <strong>Customer Notes:</strong>
+                                    <div class="pf-change-item-review__description" style="margin-top:6px;max-height:160px;" x-text="changeItemActiveRequest(currentJo).customer_notes"></div>
+                                </div>
+                            </div>
+
+                            <div class="pf-change-item-review__section pf-change-item-review__proof">
+                                <div class="pf-change-item-review__section-label">Customer Proof</div>
+                                <template x-if="changeItemActiveRequest(currentJo).proof_url">
+                                    <div>
+                                        <template x-if="changeItemProofIsImage(changeItemActiveRequest(currentJo))">
+                                            <img :src="changeItemActiveRequest(currentJo).proof_url"
+                                                 @click="previewFile = changeItemActiveRequest(currentJo).proof_url"
+                                                 loading="lazy"
+                                                 alt="Change Item proof">
+                                        </template>
+                                        <a :href="changeItemActiveRequest(currentJo).proof_url"
+                                           target="_blank"
+                                           rel="noopener noreferrer"
+                                           style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;font-weight:700;color:#0369a1;text-decoration:none;">
+                                            View proof
+                                        </a>
+                                    </div>
+                                </template>
+                                <div x-show="!changeItemActiveRequest(currentJo).proof_url" style="font-size:13px;color:#92400e;">No proof uploaded</div>
+                            </div>
+
+                            <div class="pf-change-item-review__section" x-show="changeItemActiveRequest(currentJo).staff_notes && !changeItemCanReview(currentJo)">
+                                <div class="pf-change-item-review__section-label">Staff Notes</div>
+                                <div class="pf-change-item-review__description" style="max-height:160px;" x-text="changeItemActiveRequest(currentJo).staff_notes"></div>
+                            </div>
+
+                            <div class="pf-change-item-review__section" x-show="changeItemActiveRequest(currentJo).rejection_reason">
+                                <div class="pf-change-item-review__section-label">Rejection Reason</div>
+                                <div class="pf-change-item-review__description" style="max-height:160px;color:#991b1b;" x-text="changeItemActiveRequest(currentJo).rejection_reason"></div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <template x-if="changeItemHistoryEntries(currentJo).length">
+                        <div class="pf-change-item-history">
+                            <label style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;display:block;margin-bottom:10px;">Previous Change Item Requests</label>
+                            <div style="display:grid; gap:10px;">
+                                <template x-for="entry in changeItemHistoryEntries(currentJo)" :key="'change-item-history-' + entry.id">
+                                    <div style="padding:10px 12px; border:1px solid #fde68a; border-radius:10px; background:#fff;">
+                                        <div style="font-size:12px; font-weight:800; color:#92400e;" x-text="entry.change_item_code || ('CI-' + String(entry.id || '').padStart(6, '0'))"></div>
+                                        <div style="font-size:12px; color:#78350f; margin-top:4px;"><strong>Status:</strong> <span x-text="entry.status_label || entry.change_status_label"></span></div>
+                                        <div style="font-size:12px; color:#78350f; margin-top:2px;"><strong>Reason:</strong> <span x-text="entry.reason"></span></div>
+                                        <div style="font-size:12px; color:#78350f; margin-top:2px;" x-show="entry.requested_at_display"><strong>Requested:</strong> <span x-text="entry.requested_at_display"></span></div>
+                                        <div style="font-size:12px; color:#991b1b; margin-top:2px;" x-show="entry.rejection_reason"><strong>Rejection reason:</strong> <span x-text="entry.rejection_reason"></span></div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+
                     <!-- REJECTED -->
                     <template x-if="currentJo.status === 'REJECTED'">
                         <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #fca5a5; background:#fff1f2;">
@@ -2782,9 +3059,9 @@ $online_closed_count = 0;
                             <div x-show="currentJo.revision_review.changes && currentJo.revision_review.changes.length" style="display:grid;gap:7px;">
                                 <template x-for="change in (currentJo.revision_review.changes || [])" :key="change.path">
                                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;padding:8px;background:#fff;border:1px solid #bae6fd;border-radius:7px;align-items:start;">
-                                        <div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#0369a1;overflow-wrap:anywhere;" x-text="change.label"></div>
-                                        <div style="font-size:11px;color:#991b1b;overflow-wrap:anywhere;"><strong>Previous:</strong> <span x-text="formatRevisionAuditValue(change.previous)"></span></div>
-                                        <div style="font-size:11px;color:#166534;overflow-wrap:anywhere;"><strong>Revised:</strong> <span x-text="formatRevisionAuditValue(change.revised)"></span></div>
+                                        <div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#111827;overflow-wrap:anywhere;" x-text="change.label"></div>
+                                        <div style="font-size:11px;color:#111827;overflow-wrap:anywhere;"><strong style="color:#991b1b;">Original:</strong> <span x-text="formatRevisionAuditValue(change.previous)"></span></div>
+                                        <div style="font-size:11px;color:#111827;overflow-wrap:anywhere;"><strong style="color:#166534;">Updated:</strong> <span x-text="formatRevisionAuditValue(change.revised)"></span></div>
                                     </div>
                                 </template>
                             </div>
@@ -2799,8 +3076,8 @@ $online_closed_count = 0;
                             </div>
                             <template x-if="revisionReplacementIsImage()">
                                 <div style="margin-top:12px;">
-                                    <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;margin-bottom:6px;">Customer's Revised Design — Awaiting Staff Review</div>
-                                    <img :src="revisionReplacementDesignUrl()" alt="Customer revised design awaiting review" @click="previewFile = revisionReplacementDesignUrl()" style="display:block;max-width:min(100%,320px);max-height:220px;object-fit:contain;cursor:zoom-in;border-radius:10px;border:1px solid #bae6fd;background:#fff;box-shadow:0 2px 8px rgba(2,132,199,.12);">
+                                    <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;margin-bottom:6px;">Customer's Updated Design — Awaiting Staff Review</div>
+                                    <img :src="revisionReplacementDesignUrl()" alt="Customer updated design awaiting review" @click="previewFile = revisionReplacementDesignUrl()" style="display:block;max-width:min(100%,320px);max-height:220px;object-fit:contain;cursor:zoom-in;border-radius:10px;border:1px solid #bae6fd;background:#fff;box-shadow:0 2px 8px rgba(2,132,199,.12);">
                                 </div>
                             </template>
                         </div>
@@ -2820,9 +3097,9 @@ $online_closed_count = 0;
                                 <div x-show="(staffDesignShowsAsImage(revItem) && staffEffectiveDesignOpenUrl(revItem)) || (revItem.revision_design_url && staffFilenameLooksLikeImage(revItem.revision_design_name))"
                                      @click="previewFile = revItem.revision_design_url || staffEffectiveDesignOpenUrl(revItem)"
                                      style="flex-shrink:0; cursor:zoom-in;">
-                                    <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;margin-bottom:6px;max-width:220px;">Customer's Revised Design — Awaiting Staff Review</div>
+                                    <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;margin-bottom:6px;max-width:220px;">Customer's Updated Design — Awaiting Staff Review</div>
                                     <img :src="revItem.revision_design_url || staffEffectiveDesignOpenUrl(revItem)"
-                                         alt="Revised design preview"
+                                         alt="Updated design preview"
                                          style="display:block; max-width:min(100%, 220px); max-height:140px; object-fit:contain; border-radius:10px; border:1px solid #bae6fd; background:#fff; box-shadow:0 2px 8px rgba(2,132,199,0.12);"
                                          onerror="this.style.display='none'">
                                 </div>
@@ -2870,12 +3147,20 @@ $online_closed_count = 0;
                                 <button type="button" @click="verifyPayment()" :disabled="actionBusy || !canApproveVerification()" class="pf-entry-btn pf-entry-in" style="width:auto; max-width:220px; min-width:140px; justify-self:center; padding:0 14px; background:#10b981; color:#fff; border-color:#10b981;" :style="(actionBusy || !canApproveVerification()) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve</button>
                                 <button type="button" @click="openRejectPaymentModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Reject</button>
                             </div>
-                            <div x-show="!isPosSimplifiedView && (currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing')" style="display:flex; gap:8px;">
+                            <div x-show="!isPosSimplifiedView && (currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing' || changeItemReworkInProgress(currentJo))" style="display:flex; gap:8px;">
                                 <button type="button" @click="markReadyForPickup()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Mark as Ready for Pickup</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && currentJo.status === 'TO_RECEIVE'" style="display:flex; gap:8px;">
                                 <button type="button" @click="completeOrder()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Mark Final Completed</button>
                             </div>
+                            <div x-show="changeItemCanCreate(currentJo)" style="display:flex; gap:8px;">
+                                <button type="button" @click="openChangeItemModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Change Item</button>
+                            </div>
+                            <div x-show="changeItemCanReview(currentJo)" style="display:flex; gap:8px;">
+                                <button type="button" @click="approveChangeItem()" :disabled="actionBusy || changeItemSubmitting" class="pf-entry-btn pf-entry-in" :style="(actionBusy || changeItemSubmitting) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve Change Item</button>
+                                <button type="button" @click="openChangeItemRejectModal()" :disabled="actionBusy || changeItemSubmitting" class="pf-entry-btn pf-entry-out" :style="(actionBusy || changeItemSubmitting) ? 'opacity:.6;cursor:not-allowed;' : ''">Reject Change Item</button>
+                            </div>
+                            <div x-show="currentJo.has_change_item && (currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing' || changeItemReworkInProgress(currentJo))" style="font-size:11px;font-weight:700;color:#92400e;">Rework in progress for this Change Item.</div>
                         </div>
                         <div x-show="footerActionError" x-cloak style="font-size:12px;font-weight:600;color:#dc2626;line-height:1.45;max-width:560px;" x-text="footerActionError"></div>
                     </div>
@@ -2983,26 +3268,25 @@ $online_closed_count = 0;
             <!-- Modal Panel — true viewport center via transform -->
             <div x-show="showRevisionModal" x-cloak
                  style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002;
-                        width:calc(100% - 32px); max-width:520px; max-height:calc(100vh - 32px); overflow-y:auto;
+                        width:calc(100% - 32px); max-width:540px; max-height:calc(100vh - 32px);
                         background:white; border-radius:16px;
                         box-shadow:0 25px 50px -12px rgba(0,0,0,0.35);
-                         border:1px solid #fee2e2; overflow:auto;">
+                        border:1px solid #fee2e2; display:flex; flex-direction:column; overflow:hidden;">
                 <!-- Header -->
-                <div style="padding:16px 20px; border-bottom:1px solid #fee2e2; background:#fef2f2; display:flex; justify-content:space-between; align-items:center;">
+                <div style="flex:0 0 auto; padding:16px 20px; border-bottom:1px solid #fee2e2; background:#fef2f2; display:flex; justify-content:space-between; align-items:center;">
                     <h3 style="margin:0; font-size:16px; font-weight:700; color:#b91c1c;">Request Additional Details</h3>
                     <button @click="closeRevisionModal()" style="background:none; border:none; color:#f87171; cursor:pointer;" onmouseover="this.style.color='#b91c1c'" onmouseout="this.style.color='#f87171'">
                         <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                 </div>
                 <!-- Body -->
-                <div style="padding:20px;">
+                <div style="flex:1 1 auto; min-height:0; overflow-y:auto; padding:20px;">
                     <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:8px;">Reason for Revision</label>
                     <select x-model="revisionReasonSelect" @change="applyRevisionReasonDefaults()" style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; margin-bottom:16px; outline:none;" onfocus="this.style.borderColor='#f87171'" onblur="this.style.borderColor='#d1d5db'">
                         <option value="">-- Select a reason --</option>
                         <option value="low_image_quality">Low image quality</option>
                         <option value="wrong_design">Wrong design uploaded</option>
                         <option value="incorrect_details">Incorrect details provided</option>
-                        <option value="invalid_format">Not printable / invalid format</option>
                         <option value="others">Others</option>
                     </select>
                     <div x-show="revisionReasonSelect === 'others'" style="transition:all 0.2s; margin-bottom:16px;">
@@ -3010,35 +3294,109 @@ $online_closed_count = 0;
                         <input x-model="revisionReasonText" type="text" placeholder="Enter custom reason..." style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; outline:none; box-sizing:border-box;">
                     </div>
 
-                    <div x-show="revisionReasonSelect" x-cloak style="margin-bottom:16px; padding:12px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px;">
-                        <div style="font-size:13px; font-weight:700; color:#374151; margin-bottom:9px;">Allow customer to edit</div>
-                        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:8px 12px;">
+                    <div x-show="revisionReasonSelect" x-cloak style="margin-bottom:16px; padding:14px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px;">
+                        <div style="font-size:13px; font-weight:700; color:#374151; margin-bottom:4px;">Details customer needs to update</div>
+                        <div style="font-size:11px; color:#6b7280; margin-bottom:12px; line-height:1.45;">Select only the information that needs correction.</div>
+                        <div x-show="!revisionFieldOptions.length" style="font-size:12px; color:#6b7280; font-style:italic;">No customer-facing specifications were found for this order.</div>
+                        <div x-show="revisionDesignReasonUnavailable()" x-cloak style="margin-bottom:10px; font-size:12px; font-weight:600; color:#b45309; line-height:1.45;">No editable design upload field is available for this order.</div>
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px 14px;">
                             <template x-for="option in revisionFieldOptions" :key="option.value">
-                                <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; color:#374151; cursor:pointer; line-height:1.35;" :style="revisionFieldLocked(option.value) ? 'opacity:.48;cursor:not-allowed;' : ''">
-                                    <input type="checkbox" :value="option.value" x-model="revisionEditableFields" :disabled="revisionFieldLocked(option.value)" style="margin-top:2px; accent-color:#0f766e; flex:0 0 auto;">
-                                    <span x-text="option.label"></span>
+                                <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; color:#374151; line-height:1.35; min-width:0;" :style="revisionFieldLocked(option.value) ? 'opacity:.48;cursor:not-allowed;pointer-events:none;' : 'cursor:pointer;'">
+                                    <input type="checkbox" :value="option.value" x-model="revisionEditableFields" :disabled="revisionFieldLocked(option.value)" style="margin-top:2px; accent-color:#0f766e; flex:0 0 auto; pointer-events:auto;">
+                                    <span style="min-width:0;">
+                                        <span style="display:block; font-weight:600;" x-text="option.label"></span>
+                                        <span style="display:block; font-size:11px; color:#6b7280; margin-top:2px; word-break:break-word;" x-text="'Current: ' + (option.currentValue || 'No value submitted')"></span>
+                                    </span>
                                 </label>
                             </template>
                         </div>
+                        <div x-show="revisionReasonSelect && revisionFieldOptions.length && !revisionEditableFields.length" x-cloak style="margin-top:10px; font-size:12px; font-weight:600; color:#dc2626;">Select at least one detail the customer needs to update.</div>
                     </div>
 
-                    <div x-show="revisionReasonSelect" x-cloak>
+                    <div x-show="revisionReasonSelect" x-cloak style="margin-bottom:0;">
                         <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:8px;">Instructions for Customer <span style="color:#dc2626;">*</span></label>
-                        <textarea x-model="revisionInstruction" rows="4" placeholder="Clearly explain what the customer must correct..." style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; resize:vertical; outline:none; box-sizing:border-box;"></textarea>
-                    </div>
-
-                    <div style="margin-top:16px; padding-top:12px; border-top:1px solid #e5e7eb;">
-                        <div style="font-size:11px; color:#6b7280; line-height:1.45; margin-bottom:8px;">Product/service and branch cannot be revised here because they affect inventory, pricing, and routing.</div>
-                        <button type="button" @click="cancelAndRequestNewOrder()" style="border:0; background:none; padding:0; color:#b91c1c; font-size:12px; font-weight:700; cursor:pointer;">Cancel and Request New Order</button>
+                        <textarea x-model="revisionInstruction" rows="4" placeholder="Clearly explain what needs to be corrected..." style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; resize:vertical; outline:none; box-sizing:border-box;"></textarea>
                     </div>
                 </div>
                 <!-- Footer -->
-                <div style="padding:16px 20px; border-top:1px solid #f3f4f6; background:#f9fafb; display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
-                    <div style="display:flex; justify-content:flex-end; gap:8px;">
-                        <button @click="closeRevisionModal()" class="btn-secondary">Cancel</button>
-                        <button @click="submitRevision()" class="btn-action red">Send Revision Request</button>
-                    </div>
+                <div style="flex:0 0 auto; flex-shrink:0; padding:16px 20px; border-top:1px solid #e5e7eb; background:#fff; display:flex; flex-direction:column; align-items:stretch; gap:8px;">
                     <div x-show="revisionModalError" x-cloak style="width:100%; font-size:12px; font-weight:600; color:#dc2626; text-align:left;" x-text="revisionModalError"></div>
+                    <div style="display:flex; justify-content:flex-end; align-items:center; gap:10px; width:100%;">
+                        <button type="button" @click="closeRevisionModal()" class="pf-entry-btn pf-entry-out" style="height:38px; min-width:96px; padding:0 16px; justify-content:center; background:#fff;">Cancel</button>
+                        <button type="button" @click="submitRevision()" class="pf-entry-btn pf-entry-in" style="height:38px; min-width:170px; padding:0 16px; justify-content:center; background:#10b981; border-color:#10b981; color:#fff;" :disabled="revisionSubmitting || !isRevisionFormValid()" :style="(revisionSubmitting || !isRevisionFormValid()) ? 'opacity:.55;cursor:not-allowed;' : ''">
+                            <span x-show="!revisionSubmitting">Send Revision Request</span>
+                            <span x-show="revisionSubmitting">Sending...</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template x-if="showChangeItemModal">
+        <template x-teleport="body">
+            <div>
+                <div x-show="showChangeItemModal" x-cloak class="pf-change-item-modal-backdrop" @click="closeChangeItemModal()"></div>
+                <div x-show="showChangeItemModal" x-cloak class="pf-change-item-modal-panel" role="dialog" aria-modal="true" aria-labelledby="pf-change-item-modal-title">
+                <div style="padding:16px 20px; border-bottom:1px solid #fde68a; background:#fffbeb; display:flex; justify-content:space-between; align-items:center;">
+                    <h3 id="pf-change-item-modal-title" style="margin:0; font-size:16px; font-weight:700; color:#92400e;">Change Item</h3>
+                    <button type="button" @click="closeChangeItemModal()" style="background:none;border:none;color:#92400e;cursor:pointer;">✕</button>
+                </div>
+                <div style="padding:20px; box-sizing:border-box; max-width:100%; overflow-x:hidden;">
+                    <div style="font-size:12px;color:#78350f;margin-bottom:12px;line-height:1.5;">
+                        <div><strong>Original Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
+                        <div><strong>Customer:</strong> <span x-text="(currentJo.customer_full_name || ((currentJo.first_name || '') + ' ' + (currentJo.last_name || ''))).trim()"></span></div>
+                        <div><strong>Item:</strong> <span x-text="getRowDisplayName(currentJo)"></span></div>
+                        <div><strong>Original Status:</strong> Completed</div>
+                    </div>
+                    <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Reason for Change</label>
+                    <select x-model="changeItemReasonCode" style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;margin-bottom:12px;box-sizing:border-box;">
+                        <option value="">-- Select a reason --</option>
+                        <option value="damaged_item">Damaged Item</option>
+                        <option value="print_quality">Print/Output Quality Issue</option>
+                        <option value="incorrect_spec">Incorrect Item/Specification</option>
+                        <option value="production_defect">Production Defect</option>
+                        <option value="other">Others</option>
+                    </select>
+                    <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Issue Description <span style="color:#dc2626;">*</span></label>
+                    <textarea x-model="changeItemDescription" maxlength="500" rows="4" :placeholder="changeItemReasonCode === 'other' ? 'Please describe the issue and reason for requesting a change...' : 'Describe the issue with the completed item...'" style="width:100%;max-width:100%;min-width:0;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;margin-bottom:4px;overflow-wrap:anywhere;min-height:112px;max-height:180px;overflow-y:auto;"></textarea>
+                    <div style="font-size:11px;color:#6b7280;text-align:right;margin-bottom:12px;" x-text="(changeItemDescription || '').length + ' / ' + changeItemDescriptionMaxLen"></div>
+                    <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Proof (optional)</label>
+                    <input type="file" accept="image/*,application/pdf" @change="changeItemProofFile = $event.target.files[0] || null" style="width:100%;margin-bottom:12px;">
+                    <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Staff Notes</label>
+                    <textarea x-model="changeItemStaffNotes" maxlength="2000" rows="3" placeholder="Internal notes for staff..." style="width:100%;max-width:100%;min-width:0;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;overflow-wrap:anywhere;"></textarea>
+                    <div style="margin-top:14px;padding:12px 14px;border-radius:10px;border:1px solid #fde68a;background:#fff7ed;font-size:12px;color:#92400e;line-height:1.5;">
+                        Customer issue has been verified in-store. This request will be approved immediately and returned to Production.
+                    </div>
+                    <div x-show="changeItemModalError" x-cloak style="margin-top:12px;font-size:12px;font-weight:600;color:#dc2626;" x-text="changeItemModalError"></div>
+                </div>
+                <div style="padding:16px 20px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;">
+                    <button type="button" @click="closeChangeItemModal()" class="pf-entry-btn pf-entry-out" style="width:auto;min-width:0;">Cancel</button>
+                    <button type="button" @click="submitChangeItem()" class="pf-entry-btn pf-entry-in" style="width:auto;min-width:0;" :disabled="changeItemSubmitting" :style="changeItemSubmitting ? 'opacity:.6;cursor:not-allowed;' : ''">
+                        <span x-show="!changeItemSubmitting">Submit Change Item</span>
+                        <span x-show="changeItemSubmitting">Submitting...</span>
+                    </button>
+                </div>
+                </div>
+            </div>
+        </template>
+    </template>
+
+    <template x-if="showChangeItemRejectModal">
+        <div>
+            <div x-show="showChangeItemRejectModal" x-cloak style="position:fixed; inset:0; z-index:10001; background:rgba(15,23,42,.45);" @click="closeChangeItemRejectModal()"></div>
+            <div x-show="showChangeItemRejectModal" x-cloak style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002; width:calc(100% - 32px); max-width:420px; background:#fff; border-radius:16px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.35); border:1px solid #fecaca;">
+                <div style="padding:16px 20px; border-bottom:1px solid #fecaca; background:#fef2f2;">
+                    <h3 style="margin:0; font-size:16px; font-weight:700; color:#b91c1c;">Reject Change Item</h3>
+                </div>
+                <div style="padding:20px;">
+                    <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Reason for rejection <span style="color:#dc2626;">*</span></label>
+                    <textarea x-model="changeItemRejectReason" rows="4" placeholder="Explain why this Change Item cannot be approved..." style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+                    <div x-show="changeItemModalError" x-cloak style="margin-top:12px;font-size:12px;font-weight:600;color:#dc2626;" x-text="changeItemModalError"></div>
+                </div>
+                <div style="padding:16px 20px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:10px;">
+                    <button type="button" @click="closeChangeItemRejectModal()" class="pf-entry-btn pf-entry-out">Cancel</button>
+                    <button type="button" @click="rejectChangeItem()" class="pf-entry-btn pf-entry-in" style="background:#dc2626;border-color:#dc2626;color:#fff;" :disabled="changeItemSubmitting" :style="changeItemSubmitting ? 'opacity:.6;cursor:not-allowed;' : ''">Reject Change Item</button>
                 </div>
             </div>
         </div>
@@ -3130,7 +3488,7 @@ $preloaded_customization_rows_b64 = base64_encode($preloaded_customization_rows_
 // Canonical POS/online service form definitions (service_field_configs) for modal spec whitelisting.
 $pf_service_field_catalog = [];
 $config_rows = db_query(
-    "SELECT service_id, field_key, field_label, field_type, display_order
+    "SELECT service_id, field_key, field_label, field_type, display_order, parent_field_key, parent_value
      FROM service_field_configs
      WHERE is_visible = 1
      ORDER BY service_id ASC, display_order ASC"
@@ -3153,6 +3511,8 @@ foreach ($config_rows as $config_row) {
         'label' => $field_label !== '' ? $field_label : $field_key,
         'type' => trim((string)($config_row['field_type'] ?? 'text')),
         'order' => (int)($config_row['display_order'] ?? 0),
+        'parent_field_key' => trim((string)($config_row['parent_field_key'] ?? '')),
+        'parent_value' => trim((string)($config_row['parent_value'] ?? '')),
     ];
 }
 $pf_service_field_catalog_json = json_encode(
@@ -3202,11 +3562,14 @@ window.pfServiceFieldCatalog = (() => {
             let ordersAbortController = null;
             let countsAbortController = null;
             let countsRequestPromise = null;
+            const svcModalMixin = typeof window.printflowStaffServiceOrderModalMixin === 'function'
+                ? window.printflowStaffServiceOrderModalMixin({
+                    async afterSvcMutation() { await this.loadOrders(); }
+                })
+                : {};
             return {
-            ...window.printflowStaffServiceOrderModalMixin({
-                async afterSvcMutation() { await this.loadOrders(); }
-            }),
-            statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'INQUIRY', 'PAYMENT', 'PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'CLOSED']"; ?>,
+            ...svcModalMixin,
+            statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'INQUIRY', 'PAYMENT', 'PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'CHANGED_ITEMS', 'CLOSED']"; ?>,
             activeStatus: defaultStatus || 'ALL',
             _initialized: false,
             loadingOrders: true,
@@ -3254,7 +3617,19 @@ window.pfServiceFieldCatalog = (() => {
             revisionInstruction: '',
             revisionEditableFields: [],
             revisionFieldOptions: [],
+            revisionSubmitting: false,
             revisionModalError: '',
+            showChangeItemModal: false,
+            showChangeItemRejectModal: false,
+            changeItemReasonCode: '',
+            changeItemDescription: '',
+            changeItemStaffNotes: '',
+            changeItemProofFile: null,
+            changeItemRejectReason: '',
+            changeItemSubmitting: false,
+            changeItemModalError: '',
+            changeItemIdempotencyKey: '',
+            changeItemDescriptionMaxLen: 500,
             showRejectPaymentModal: false,
             rejectPaymentReasonSelect: '',
             rejectPaymentReasonText: '',
@@ -3580,6 +3955,7 @@ window.pfServiceFieldCatalog = (() => {
             materialSearch: '',
             dateFilter: 'ALL',
             serviceFilter: 'ALL',
+            priorityFilter: 'ALL',
             customDateFrom: '',
             customDateTo: '',
             actionBusy: false,
@@ -3635,6 +4011,13 @@ window.pfServiceFieldCatalog = (() => {
             },
             modalWorkflowStatus(jo) {
                 if (!jo) return '';
+                if (this.changeItemReworkInProgress(jo)) {
+                    const jobStatus = String(jo.job_status || 'IN_PRODUCTION').toUpperCase().replace(/\s+/g, '_');
+                    if (['IN_PRODUCTION', 'PROCESSING', 'PRINTING', 'TO_RECEIVE', 'READY_TO_COLLECT'].includes(jobStatus)) {
+                        return jobStatus;
+                    }
+                    return 'IN_PRODUCTION';
+                }
                 const raw = String(jo.status || '').toUpperCase().replace(/\s+/g, '_');
                 if (this.isPosPricingMode()) {
                     if (raw === 'PENDING' || raw === 'PENDING_REVIEW' || raw === 'PENDING_APPROVAL' || raw === 'FOR_REVISION') {
@@ -3925,7 +4308,55 @@ window.pfServiceFieldCatalog = (() => {
                     merged.items = loser.items;
                 }
 
+                this.mergeChangeItemFields(merged, winner, loser);
+
                 return merged;
+            },
+            mergeChangeItemFields(target, primary, secondary) {
+                if (!target) return target;
+                const fields = [
+                    'has_change_item',
+                    'change_item_active',
+                    'change_item_count',
+                    'change_item_badge',
+                    'change_item_status',
+                    'change_item_request_id',
+                    'change_item_pending_review',
+                    'change_item_code',
+                    'change_item_request_source',
+                    'change_item_request_source_label',
+                    'change_item_verification_status',
+                    'change_item_change_status',
+                ];
+                const isTruthy = (value) => value === true || value === 1 || value === '1';
+                const pickPending = (row) => {
+                    if (!row) return false;
+                    if (isTruthy(row.change_item_pending_review)) return true;
+                    return isTruthy(row.change_item_active)
+                        && String(row.change_item_status || '').toLowerCase() === 'requested';
+                };
+                const primaryPending = pickPending(primary);
+                const secondaryPending = pickPending(secondary);
+                const preferred = secondaryPending && !primaryPending ? secondary : primary;
+                const fallback = preferred === primary ? secondary : primary;
+
+                fields.forEach((field) => {
+                    const preferredValue = preferred && preferred[field];
+                    const fallbackValue = fallback && fallback[field];
+                    if (field === 'change_item_pending_review') {
+                        target[field] = pickPending(preferred) || pickPending(fallback);
+                        return;
+                    }
+                    if (preferredValue !== undefined && preferredValue !== null && preferredValue !== '') {
+                        target[field] = preferredValue;
+                        return;
+                    }
+                    if (fallbackValue !== undefined && fallbackValue !== null && fallbackValue !== '') {
+                        target[field] = fallbackValue;
+                    }
+                });
+
+                return target;
             },
             posDuplicateSignature(row) {
                 if (!row) return '';
@@ -3989,6 +4420,253 @@ window.pfServiceFieldCatalog = (() => {
                     ? row.order_id
                     : (row.id !== null && row.id !== undefined ? row.id : 0);
                 return 'ORD-' + String(orderId).padStart(5, '0');
+            },
+            orderIsUrgentRequest(row) {
+                if (!row) return false;
+                return row.is_urgent_request === true
+                    || row.is_urgent_request === 1
+                    || row.is_urgent_request === '1';
+            },
+            orderHasChangeItemBadge(row) {
+                if (!row) return false;
+                return row.has_change_item === true
+                    || row.has_change_item === 1
+                    || row.has_change_item === '1'
+                    || row.change_item_active === true
+                    || row.change_item_active === 1
+                    || row.change_item_active === '1'
+                    || String(row.change_item_badge || '').trim() !== '';
+            },
+            getChangeItemBadgeLabel(row) {
+                return String((row && row.change_item_badge) || 'Change Item').trim() || 'Change Item';
+            },
+            resolveChangeItemOrderId(row) {
+                if (!row) return 0;
+                const direct = parseInt(row.order_id || 0, 10);
+                if (direct > 0) return direct;
+                if (String(row.order_type || '').toUpperCase() === 'ORDER') {
+                    return parseInt(row.id || 0, 10);
+                }
+                return 0;
+            },
+            changeItemReworkInProgress(row) {
+                const active = this.changeItemActiveRequest(row);
+                if (!active) return false;
+                const status = String(active.status || row.change_item_status || '').toLowerCase();
+                return status === 'in rework';
+            },
+            changeItemPendingReview(row) {
+                if (!row) return false;
+                if (row.change_item_pending_review === true || row.change_item_pending_review === 1 || row.change_item_pending_review === '1') {
+                    return true;
+                }
+                const active = this.changeItemActiveRequest(row);
+                if (active && (active.is_pending_review === true || active.is_pending_review === 1)) {
+                    return true;
+                }
+                if (row.change_item_active && String(row.change_item_status || '').toLowerCase() === 'requested') {
+                    return true;
+                }
+                return false;
+            },
+            changeItemCanCreate(row) {
+                if (!row) return false;
+                const status = String(row.status || '').toUpperCase();
+                const completed = status === 'COMPLETED' || this.getPosWalkInBucket(row) === 'COMPLETED';
+                if (!completed) return false;
+                if (row.change_item_active === true || row.change_item_active === 1 || row.change_item_active === '1') {
+                    return false;
+                }
+                if (row.change_item && row.change_item.active) {
+                    return false;
+                }
+                if (row.change_item && row.change_item.eligible === false) {
+                    return false;
+                }
+                return true;
+            },
+            changeItemCanReview(row) {
+                if (!row || !this.changeItemPendingReview(row)) return false;
+                const active = this.changeItemActiveRequest(row);
+                if (!active) return false;
+                const source = String(active.request_source || active.source_channel || row.change_item_request_source || '').toUpperCase();
+                if (source === 'IN_STORE' || source === 'COUNTER') return false;
+                return true;
+            },
+            changeItemActiveRequest(row) {
+                if (!row) return null;
+                if (row.change_item && row.change_item.active) {
+                    return row.change_item.active;
+                }
+                if (!row.change_item_active && !row.change_item_request_id) {
+                    return null;
+                }
+                const status = String(row.change_item_status || 'Requested');
+                return {
+                    id: parseInt(row.change_item_request_id || 0, 10) || 0,
+                    change_item_code: row.change_item_code || ('CI-' + String(row.change_item_request_id || 0).padStart(6, '0')),
+                    status,
+                    status_label: this.getChangeItemStatusLabel(status),
+                    change_status: row.change_item_change_status || '',
+                    change_status_label: this.getChangeItemChangeStatusLabel(row.change_item_change_status || status),
+                    verification_status: row.change_item_verification_status || '',
+                    verification_status_label: this.getChangeItemVerificationStatusLabel(row.change_item_verification_status || ''),
+                    request_source: row.change_item_request_source || '',
+                    request_source_label: row.change_item_request_source_label || '',
+                    source_channel: row.change_item_request_source === 'IN_STORE' ? 'counter' : 'customer',
+                    is_pending_review: row.change_item_pending_review === true
+                        || row.change_item_pending_review === 1
+                        || String(status).toLowerCase() === 'requested',
+                    reason: '',
+                    description: '',
+                    issue_description: '',
+                    customer_notes: '',
+                    proof_url: '',
+                    staff_notes: '',
+                };
+            },
+            async mergeChangeItemDetailIntoCurrentJo(orderId) {
+                const parsedOrderId = parseInt(orderId || 0, 10);
+                if (!parsedOrderId) return;
+                try {
+                    const detailRes = await this.fetchOrderModalSummary(parsedOrderId);
+                    if (!detailRes.success || !detailRes.data) return;
+                    const summary = detailRes.data.change_item || null;
+                    if (!summary) return;
+                    this.currentJo = {
+                        ...this.currentJo,
+                        change_item: summary,
+                        has_change_item: !!(summary.active || summary.has_history),
+                        change_item_active: !!summary.active,
+                        change_item_status: summary.active ? (summary.active.status || '') : '',
+                        change_item_request_id: summary.active ? (summary.active.id || 0) : 0,
+                        change_item_pending_review: summary.active ? !!summary.active.is_pending_review : false,
+                        change_item_code: summary.active ? (summary.active.change_item_code || '') : '',
+                        change_item_request_source: summary.active ? (summary.active.request_source || '') : '',
+                        change_item_request_source_label: summary.active ? (summary.active.request_source_label || '') : '',
+                        change_item_verification_status: summary.active ? (summary.active.verification_status || '') : '',
+                        change_item_change_status: summary.active ? (summary.active.change_status || '') : '',
+                    };
+                    const cacheKey = String(this.currentJo.order_type || 'ORDER') + '-' + String(this.currentJo.id || parsedOrderId);
+                    this.modalCache[cacheKey] = this.currentJo;
+                    this.modalCacheLoadedAt[cacheKey] = Date.now();
+                } catch (error) {
+                    console.warn('[Customizations] Unable to load Change Item detail:', error);
+                }
+            },
+            changeItemResolveId(row) {
+                const active = this.changeItemActiveRequest(row);
+                return parseInt((active && active.id) || row.change_item_request_id || 0, 10);
+            },
+            changeItemDisplayStatus(row) {
+                const active = this.changeItemActiveRequest(row);
+                if (!active) return '—';
+                if (this.changeItemReworkInProgress(row)) return 'Approved · In Production';
+                return active.change_status_label
+                    || active.status_label
+                    || active.verification_status_label
+                    || active.status
+                    || 'Pending Review';
+            },
+            changeItemHistoryEntries(row) {
+                if (!row || !row.change_item || !Array.isArray(row.change_item.history)) {
+                    return [];
+                }
+                const active = this.changeItemActiveRequest(row);
+                const activeId = parseInt((active && active.id) || row.change_item_request_id || 0, 10);
+                return row.change_item.history.filter((entry) => {
+                    const entryId = parseInt(entry.id || 0, 10);
+                    return activeId <= 0 || entryId !== activeId;
+                });
+            },
+            getChangeItemStatusLabel(status) {
+                const key = String(status || '').toLowerCase();
+                const map = {
+                    requested: 'Pending Review',
+                    approved: 'Approved',
+                    rejected: 'Rejected',
+                    'in rework': 'In Production',
+                    completed: 'Completed',
+                };
+                return map[key] || (status ? String(status) : 'Pending Review');
+            },
+            getChangeItemChangeStatusLabel(status) {
+                const key = String(status || '').toUpperCase().replace(/[\s-]+/g, '_');
+                const map = {
+                    PENDING_REVIEW: 'Pending Review',
+                    APPROVED: 'Approved',
+                    REJECTED: 'Rejected',
+                    COMPLETED: 'Completed',
+                };
+                return map[key] || this.getChangeItemStatusLabel(status);
+            },
+            getChangeItemVerificationStatusLabel(status) {
+                const key = String(status || '').toUpperCase();
+                const map = {
+                    PENDING: 'Pending Review',
+                    VERIFIED: 'Verified',
+                    REJECTED: 'Rejected',
+                };
+                return map[key] || (status ? String(status) : 'Pending Review');
+            },
+            changeItemRequestedByLabel(active) {
+                if (!active) return '—';
+                if (active.request_source_label) return active.request_source_label;
+                const channel = String(active.source_channel || active.request_source || '').toLowerCase();
+                if (channel === 'counter' || channel === 'in_store' || channel === 'in-store') {
+                    return active.created_by ? ('In-Store — ' + active.created_by) : 'In-Store';
+                }
+                if (channel === 'customer' || channel === 'online') return 'Online';
+                return active.created_by || 'Online';
+            },
+            getChangeItemItemName(row) {
+                return this.getRowDisplayName(row)
+                    || row.service_type
+                    || row.job_title
+                    || (Array.isArray(row.items) && row.items[0] && row.items[0].product_name)
+                    || 'Order item';
+            },
+            changeItemProofIsImage(active) {
+                if (!active) return false;
+                if (active.proof_is_image === true || active.proof_is_image === 1) return true;
+                const url = String(active.proof_url || '').toLowerCase();
+                return /\.(jpe?g|png|gif|webp|bmp|avif)(\?|$)/.test(url);
+            },
+            orderPriorityFilterMatches(row) {
+                if (this.priorityFilter === 'ALL') return true;
+                if (this.priorityFilter === 'URGENT') return this.orderIsUrgentRequest(row);
+                if (this.priorityFilter === 'REGULAR') {
+                    return !!row.has_priority_field && !this.orderIsUrgentRequest(row);
+                }
+                return true;
+            },
+            getPriorityRequestLabel(row) {
+                return String((row && row.priority_request_label) || 'Priority').trim();
+            },
+            getPriorityRequestValue(row) {
+                return String((row && row.priority_request_value) || '').trim();
+            },
+            getPriorityRelatedFields(row) {
+                const related = row && row.priority_request_related;
+                return related && typeof related === 'object' ? related : {};
+            },
+            formatOrderNeededDate(row, forTitle = false) {
+                if (!row) return forTitle ? '' : '—';
+                const display = String(row.needed_date_display || '').trim();
+                if (display) return display;
+                const raw = String(row.needed_date || '').trim();
+                if (!raw) return forTitle ? '' : '—';
+                if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+                    const stamp = Date.parse(raw.slice(0, 10));
+                    if (!Number.isNaN(stamp)) {
+                        return new Date(stamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                    }
+                }
+                const stamp = Date.parse(raw);
+                if (!Number.isNaN(stamp)) {
+                    return new Date(stamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                }
+                return raw;
             },
             formatCustomizationInfo(row) {
                 if (!row) return 'Custom service';
@@ -4285,14 +4963,55 @@ window.pfServiceFieldCatalog = (() => {
             staffCustomizationKeyToken(key) {
                 return String(key || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
             },
+            staffCustomizationIsInternalKey(key) {
+                const raw = String(key || '').trim();
+                if (!raw) return true;
+                if (raw.charAt(0) === '_') return true;
+                const token = this.staffCustomizationKeyToken(raw);
+                return [
+                    'staff_priority_request',
+                    'priority_request',
+                    'priority_request_label',
+                    'priority_request_value',
+                    'priority_request_related',
+                    'is_urgent_request',
+                    'is_regular_priority',
+                    'has_priority_field',
+                ].includes(token);
+            },
+            staffCustomizationIsInternalLabel(label) {
+                const raw = String(label || '').trim();
+                if (!raw) return true;
+                if (this.staffCustomizationIsInternalKey(raw)) return true;
+                const token = this.staffCustomizationKeyToken(raw);
+                if (token.includes('staff_priority') || token.includes('priority_request')) return true;
+                if (/^staff\s+priority(\s+request)?$/i.test(raw)) return true;
+                return false;
+            },
+            staffCustomizationIsInternalValue(value) {
+                if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+                if (Object.prototype.hasOwnProperty.call(value, 'is_urgent_request')
+                    && Object.prototype.hasOwnProperty.call(value, 'has_priority_field')) {
+                    return true;
+                }
+                if (Object.prototype.hasOwnProperty.call(value, 'field_label')
+                    && Object.prototype.hasOwnProperty.call(value, 'selected_value')) {
+                    return true;
+                }
+                return false;
+            },
             staffCustomizationValueText(value) {
                 if (value === true) return 'Yes';
                 if (value === false) return 'No';
+                if (this.staffCustomizationIsInternalValue(value)) return '';
                 if (Array.isArray(value)) {
                     return value
                         .filter((entry) => entry !== null && entry !== undefined && String(entry).trim() !== '')
                         .map((entry) => String(entry).trim())
                         .join(', ');
+                }
+                if (value !== null && typeof value === 'object') {
+                    return '';
                 }
                 return value === null || value === undefined ? '' : String(value).trim();
             },
@@ -4325,7 +5044,11 @@ window.pfServiceFieldCatalog = (() => {
                     || (/^(data|blob):/i.test(text) && text.includes('base64'));
             },
             staffCustomizationFieldMeta(key) {
-                const token = this.staffCustomizationKeyToken(key);
+                const rawKey = String(key || '').trim();
+                const token = this.staffCustomizationKeyToken(rawKey);
+                if (this.staffCustomizationIsInternalKey(rawKey)) {
+                    return { group: token, label: '', priority: 999, hidden: true, design: false };
+                }
                 const hiddenExact = new Set([
                     'branch', 'branch_id', 'branch_name', 'branchname', 'pickup_branch', 'pickupbranch',
                     'service_id', 'customization_id', 'order_id', 'order_item_id', 'product_id', 'config_id',
@@ -4337,12 +5060,13 @@ window.pfServiceFieldCatalog = (() => {
                     'design_upload_data', 'reference_upload_data', 'design_tmp_path', 'reference_tmp_path',
                     'designtype', 'template'
                 ]);
-                const looksInternal = token.endsWith('_id')
+                const looksInternal = rawKey.charAt(0) === '_'
+                    || token.endsWith('_id')
                     || token.includes('_mime')
                     || token.includes('_blob')
                     || token.includes('_tmp_path')
                     || token.endsWith('_path');
-                if (!token || token[0] === '_' || looksInternal || hiddenExact.has(token)) {
+                if (!token || looksInternal || hiddenExact.has(token)) {
                     return { group: token, label: '', priority: 999, hidden: true, design: false };
                 }
                 if (
@@ -4419,6 +5143,9 @@ window.pfServiceFieldCatalog = (() => {
                     design_file_name: ['uploaded_design', 'Uploaded Design', 60],
                     uploaded_design_name: ['uploaded_design', 'Uploaded Design', 60],
                     uploaded_design: ['uploaded_design', 'Uploaded Design', 60],
+                    design_link: ['design_external_link', 'Design Link', 61],
+                    design_file_link: ['design_external_link', 'Design Link', 61],
+                    upload_design_link: ['design_external_link', 'Design Link', 61],
                     quantity: ['quantity', 'Quantity', 5],
                     qty: ['quantity', 'Quantity', 5],
                     print_type: ['print_type', 'Print Type', 45],
@@ -4432,7 +5159,10 @@ window.pfServiceFieldCatalog = (() => {
                 };
                 if (map[token]) {
                     const [group, label, priority] = map[token];
-                    return { group, label, priority, hidden: false, design: group === 'uploaded_design' };
+                    return { group, label, priority, hidden: false, design: group === 'uploaded_design' || group === 'design_external_link' };
+                }
+                if (token.endsWith('_link') && (token.includes('design') || token.includes('upload'))) {
+                    return { group: 'design_external_link', label: 'Design Link', priority: 61, hidden: false, design: true };
                 }
                 const label = String(key || '')
                     .replace(/_/g, ' ')
@@ -4506,7 +5236,7 @@ window.pfServiceFieldCatalog = (() => {
                 const allowedGroups = new Set();
                 const allowedTokenNorms = new Set();
                 const allowedLabelNorms = new Set();
-                const designField = { hasDesign: false, label: 'Uploaded Design' };
+                const designField = { hasDesign: false, label: 'Uploaded Design', key: '' };
                 let dimensionField = null;
                 const fields = catalog.fields.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
 
@@ -4545,6 +5275,7 @@ window.pfServiceFieldCatalog = (() => {
                         if (isDesign) {
                             designField.hasDesign = true;
                             designField.label = fieldLabel || 'Uploaded Design';
+                            designField.key = fieldKey;
                         }
                         if (!isReference) {
                             this.staffServiceFieldAliasTokens(fieldKey).forEach((alias) => allowedTokenNorms.add(alias));
@@ -4775,14 +5506,71 @@ window.pfServiceFieldCatalog = (() => {
                 return out;
             },
             staffShouldRenderDesignSection(item) {
-                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
-                if (profile) {
-                    return profile.designField.hasDesign === true;
+                return !!(this.staffItemHasUploadedDesignFile(item) || this.staffGetDesignExternalLink(item));
+            },
+            staffGetDesignExternalLink(item) {
+                if (!item) return '';
+                if (item.design_external_link && /^https?:\/\//i.test(String(item.design_external_link).trim())) {
+                    return String(item.design_external_link).trim();
                 }
-                return !!(this.staffEffectiveDesignOpenUrl(item) || this.staffItemHasStoredDesign(item));
+                const custom = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
+                    ? item.customization
+                    : {};
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                const candidates = [];
+                if (profile && profile.designField && profile.designField.label) {
+                    candidates.push(String(profile.designField.label).trim() + ' Link');
+                }
+                candidates.push('design_link', 'design_file_link', 'Upload Design Link', 'Design Link');
+                for (const candidate of candidates) {
+                    if (!Object.prototype.hasOwnProperty.call(custom, candidate)) continue;
+                    const value = this.staffCustomizationValueText(custom[candidate]);
+                    if (value && /^https?:\/\//i.test(value)) return value;
+                }
+                for (const [key, value] of Object.entries(custom)) {
+                    if (typeof key !== 'string' || !this.staffMeaningfulSpecValue(value)) continue;
+                    if (!/ link$/i.test(key.trim())) continue;
+                    const text = this.staffCustomizationValueText(value);
+                    if (text && /^https?:\/\//i.test(text)) return text;
+                    const token = this.staffCustomizationKeyToken(key);
+                    if (token.endsWith('_link') && (token.includes('design') || token.includes('upload'))) {
+                        if (text && /^https?:\/\//i.test(text)) return text;
+                    }
+                }
+                return '';
+            },
+            staffItemHasUploadedDesignFile(item) {
+                if (!item) return false;
+                if (typeof item.has_design_file === 'boolean') {
+                    return item.has_design_file;
+                }
+                return this.staffItemHasActualUploadedDesignFile(item);
+            },
+            staffItemHasActualUploadedDesignFile(item) {
+                if (!item) return false;
+                if ((item.design_image_bytes || 0) > 0) return true;
+                if (item.design_exists === true) {
+                    const openUrl = String(item.design_open_url || item.design_serve_url || '').trim();
+                    if (openUrl && !/^https?:\/\//i.test(openUrl)) return true;
+                    if (openUrl && /serve_design\.php/i.test(openUrl)) return true;
+                    if (String(item.design_file || '').trim() !== '') return true;
+                }
+                const custom = (item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization))
+                    ? item.customization
+                    : {};
+                for (const key of ['design_upload_data', 'upload_design_data', 'design_data']) {
+                    const text = this.staffCustomizationValueText(custom[key]);
+                    if (text && /^data:/i.test(text)) return true;
+                }
+                for (const key of ['design_upload_path', 'design_file', 'upload_design_path']) {
+                    const text = this.staffCustomizationValueText(custom[key]);
+                    if (!text || /^https?:\/\//i.test(text)) continue;
+                    if (text.includes('/') || /\.(jpe?g|png|gif|webp|pdf|ai|psd|svg)$/i.test(text)) return true;
+                }
+                return false;
             },
             staffDesignSectionLabel(item) {
-                return 'Design';
+                return 'Design / Image';
             },
             /**
              * Canonical staff/customer specification rows — mirrors includes/customization_normalizer.php.
@@ -4985,8 +5773,23 @@ window.pfServiceFieldCatalog = (() => {
                 if (fallbackCustom && !Array.isArray(fallbackCustom)) {
                     sourceCustom = { ...fallbackCustom, ...sourceCustom };
                 }
-                if (item && item.quantity && !this.staffMeaningfulSpecValue(sourceCustom.quantity) && !this.staffMeaningfulSpecValue(sourceCustom.qty)) {
+                if (item && item.quantity) {
+                    Object.keys(sourceCustom).forEach((key) => {
+                        if (this.staffCustomizationFieldMeta(key).group === 'quantity') {
+                            delete sourceCustom[key];
+                        }
+                    });
                     sourceCustom.quantity = item.quantity;
+                }
+                const revisedOrderNotes = this.staffLatestRevisionOrderNotes();
+                if (revisedOrderNotes) {
+                    Object.keys(sourceCustom).forEach((key) => {
+                        if (this.staffCustomizationFieldMeta(key).group === 'notes') {
+                            delete sourceCustom[key];
+                        }
+                    });
+                    sourceCustom.notes = revisedOrderNotes;
+                    sourceCustom.order_notes = revisedOrderNotes;
                 }
                 return sourceCustom;
             },
@@ -5009,6 +5812,9 @@ window.pfServiceFieldCatalog = (() => {
                     : this.staffFilterSpecsByServiceForm(normalized, item);
 
                 const entries = Object.entries(specs).filter(([k, v]) => {
+                    if (this.staffCustomizationIsInternalKey(k)) return false;
+                    if (this.staffCustomizationIsInternalLabel(k)) return false;
+                    if (this.staffCustomizationIsInternalValue(v)) return false;
                     if (v === '' || v == null) return false;
                     if (typeof v === 'string' && v.length > 2000) return false;
                     if (isDetail && item) {
@@ -5047,17 +5853,16 @@ window.pfServiceFieldCatalog = (() => {
                 });
             },
             staffDesignDisplayFilename(item) {
-                if (!item) return 'Open uploaded design';
+                if (!item) return 'Uploaded design';
                 const custom = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
                     ? item.customization
                     : {};
-                return item.design_name
+                const name = item.design_name
                     || item.design_image_name
                     || custom.design_upload_name
                     || custom.design_upload
-                    || custom['Upload Design']
-                    || this.staffBasename(item.design_file || custom.design_upload_path || '')
-                    || 'Open uploaded design';
+                    || this.staffBasename(item.design_file || custom.design_upload_path || '');
+                return String(name || 'Uploaded design').trim();
             },
             staffSpecIsDesignDisplayField(key, value, item) {
                 const meta = this.staffCustomizationFieldMeta(key);
@@ -5065,6 +5870,12 @@ window.pfServiceFieldCatalog = (() => {
                 const token = this.staffCustomizationKeyToken(key);
                 if (!token) return false;
                 if (token === 'design' || token.includes('design_upload') || token.includes('upload_design') || token.includes('uploaded_design')) {
+                    return true;
+                }
+                if (token.endsWith('_link') && (token.includes('design') || token.includes('upload'))) {
+                    return true;
+                }
+                if (/ link$/i.test(String(key || '').trim())) {
                     return true;
                 }
                 if (!item || !this.staffShouldRenderDesignSection(item)) return false;
@@ -5094,6 +5905,7 @@ window.pfServiceFieldCatalog = (() => {
                 return false;
             },
             getCustomLabel(k) {
+                if (this.staffCustomizationIsInternalLabel(k)) return '';
                 if (k === 'Dimensions' || k === 'Size / Dimensions') return 'Dimensions';
                 if (k === 'Notes') return 'Notes';
                 return this.customFieldLabels[k] || k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -5120,12 +5932,13 @@ window.pfServiceFieldCatalog = (() => {
                 const design = this.currentJo?.revision_review?.[key] || {};
                 const isPdf = String(design.media_type || '').toLowerCase() === 'pdf';
                 return kind === 'previous'
-                    ? (isPdf ? 'View Previous PDF' : 'View Previous Design')
-                    : (isPdf ? 'View Replacement PDF' : 'View Replacement Design');
+                    ? (isPdf ? 'View Original PDF' : 'View Original Design')
+                    : (isPdf ? 'View Updated PDF' : 'View Updated Design');
             },
             formatCustomValuePlain(v) {
                 if (v == null) return '';
-                if (typeof v === 'object') return JSON.stringify(v);
+                if (this.staffCustomizationIsInternalValue(v)) return '';
+                if (typeof v === 'object') return '';
                 return String(v);
             },
             isDisplayableLink(v) {
@@ -5140,6 +5953,45 @@ window.pfServiceFieldCatalog = (() => {
                 if (/^https?:\/\//i.test(s)) return s;
                 if (s.startsWith('/')) return s;
                 return '#';
+            },
+            async staffCopyDesignLink(url, event) {
+                const text = String(url || '').trim();
+                if (!text || !/^https?:\/\//i.test(text)) return false;
+                const btn = event && event.currentTarget ? event.currentTarget : null;
+                let copied = false;
+                try {
+                    if (navigator.clipboard && window.isSecureContext) {
+                        await navigator.clipboard.writeText(text);
+                        copied = true;
+                    }
+                } catch (err) {
+                    copied = false;
+                }
+                if (!copied) {
+                    try {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.setAttribute('readonly', '');
+                        ta.style.position = 'fixed';
+                        ta.style.top = '-9999px';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        copied = document.execCommand('copy');
+                        document.body.removeChild(ta);
+                    } catch (fallbackErr) {
+                        copied = false;
+                    }
+                }
+                if (btn && copied) {
+                    if (!btn.dataset.defaultLabel) {
+                        btn.dataset.defaultLabel = btn.textContent.trim() || 'Copy Link';
+                    }
+                    btn.textContent = '✓ Copied';
+                    setTimeout(() => {
+                        btn.textContent = btn.dataset.defaultLabel || 'Copy Link';
+                    }, 2000);
+                }
+                return copied;
             },
             staffResolveMediaUrl(raw) {
                 if (raw == null || raw === '') return '';
@@ -5263,22 +6115,7 @@ window.pfServiceFieldCatalog = (() => {
                     || this.staffFilenameLooksLikeImage(item.artwork_path || (this.currentJo && this.currentJo.artwork_path));
             },
             staffItemHasStoredDesign(item) {
-                if (!item) return false;
-                const custom = (item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization))
-                    ? item.customization
-                    : {};
-                return !!(item.design_is_image
-                    || item.design_image_bytes > 0
-                    || (item.design_name && String(item.design_name).trim())
-                    || (item.design_image_name && String(item.design_image_name).trim())
-                    || (item.design_file && String(item.design_file).trim())
-                    || (item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization) && (
-                        (item.customization.design_upload && String(item.customization.design_upload).trim())
-                        || (item.customization.design_upload_name && String(item.customization.design_upload_name).trim())
-                        || (item.customization.design_upload_path && String(item.customization.design_upload_path).trim())
-                    ))
-                    || (custom.design_upload && String(custom.design_upload).trim())
-                    || (custom['Upload Design'] && String(custom['Upload Design']).trim()));
+                return this.staffItemHasActualUploadedDesignFile(item);
             },
             /** Fallback when API omitted design_open_url but line item has stored artwork + filename */
             staffOrderItemDesignServeUrl(item) {
@@ -5289,7 +6126,7 @@ window.pfServiceFieldCatalog = (() => {
                 return base + '/public/serve_design.php?type=order_item&id=' + id;
             },
             staffEffectiveDesignOpenUrl(item) {
-                if (!item) return '';
+                if (!item || !this.staffItemHasUploadedDesignFile(item)) return '';
                 
                 // Priority 1: Check for revision design URL (newly uploaded revision)
                 const revisionUrl = (item.revision_design_url || '').trim();
@@ -5311,56 +6148,68 @@ window.pfServiceFieldCatalog = (() => {
 
                 // Priority 3: Direct stored design file path.
                 const designFile = (item.design_file || '').trim();
-                if (designFile) return this.staffResolveOrderUploadUrl(designFile);
+                if (designFile && !/^https?:\/\//i.test(designFile)) {
+                    return this.staffResolveOrderUploadUrl(designFile);
+                }
 
                 // Priority 3b: POS-staged upload path stored in customization payload.
                 const customizationDesignPath = ((item.customization && item.customization.design_upload_path) || '').trim();
-                if (customizationDesignPath) return this.staffResolveOrderUploadUrl(customizationDesignPath);
+                if (customizationDesignPath && !/^https?:\/\//i.test(customizationDesignPath)) {
+                    return this.staffResolveOrderUploadUrl(customizationDesignPath);
+                }
 
                 // Priority 4: Use job_orders.artwork_path if the order item did not carry a design_file.
                 const artworkPath = (item.artwork_path || (this.currentJo && this.currentJo.artwork_path) || '').trim();
-                if (artworkPath) return this.staffResolveOrderUploadUrl(artworkPath);
+                if (artworkPath && !/^https?:\/\//i.test(artworkPath)) {
+                    return this.staffResolveOrderUploadUrl(artworkPath);
+                }
 
-                // Priority 5: Reference file as last real upload fallback before placeholder behavior.
-                const referenceOpenUrl = (item.reference_open_url || item.reference_url || '').trim();
-                if (referenceOpenUrl) return this.staffResolveOrderUploadUrl(referenceOpenUrl);
-                
-                // Priority 6: Generic image/file URL only after the item-specific endpoint candidates.
-                const genericDesignUrl = (item.design_url || '').trim();
-                if (genericDesignUrl) return this.staffResolveOrderUploadUrl(genericDesignUrl);
-
-                // Priority 7: Fallback to serve_design.php when we know a design was stored
-                if (item.order_item_id && this.staffItemHasStoredDesign(item)) {
+                if (item.order_item_id && (item.design_image_bytes || 0) > 0) {
                     return this.staffOrderItemDesignServeUrl(item);
                 }
+
                 return '';
             },
             combinedCustomerNotes() {
                 const j = this.currentJo;
                 if (!j) return '';
 
+                const cleanCustomerNote = (value) => {
+                    const text = String(value || '').trim();
+                    if (!text) return '';
+                    return text
+                        .replace(/\r\n/g, '\n')
+                        .replace(/(?:^|\n)\s*\[REVISION REQUEST\][\s\S]*$/i, '')
+                        .trim();
+                };
+
                 const extractNote = (source) => {
                     if (!source || typeof source !== 'object' || Array.isArray(source)) return '';
                     const candidates = [
                         'notes', 'Notes', 'NOTES',
+                        'order_notes', 'Order Notes', 'Order_Notes',
                         'additional_notes', 'Additional Notes', 'Additional_Notes',
-                        'job_notes', 'Job Notes', 'jobnotes', 'JobNotes',
                         'customer_notes', 'Customer Notes', 'customernotes', 'CustomerNotes',
                         'other_instructions', 'Other Instructions',
-                        'special_instructions', 'Special Instructions',
-                        'design_notes', 'Design Notes'
+                        'special_instructions', 'Special Instructions'
                     ];
                     for (const key of candidates) {
                         const value = source[key];
-                        if (typeof value === 'string' && value.trim()) {
-                            return value.trim();
+                        if (typeof value === 'string') {
+                            const cleaned = cleanCustomerNote(value);
+                            if (cleaned) return cleaned;
                         }
                     }
                     return '';
                 };
+
+                const revisedOrderNote = this.staffLatestRevisionOrderNotes();
+                if (revisedOrderNote) {
+                    return revisedOrderNote;
+                }
                 
                 // Priority 1: Customer-facing notes only.
-                let note = (j.store_order_notes || '').trim();
+                let note = cleanCustomerNote(j.store_order_notes || '');
                 
                 // Priority 2: Item-specific customization notes
                 if (!note && j.items && j.items.length) {
@@ -5386,6 +6235,21 @@ window.pfServiceFieldCatalog = (() => {
 
                 return note || '';
             },
+            staffLatestRevisionOrderNotes() {
+                const changes = this.currentJo?.revision_review?.changes;
+                if (!Array.isArray(changes)) return '';
+                const cleanCustomerNote = (value) => String(value || '')
+                    .replace(/\r\n/g, '\n')
+                    .replace(/(?:^|\n)\s*\[REVISION REQUEST\][\s\S]*$/i, '')
+                    .trim();
+                for (let index = changes.length - 1; index >= 0; index--) {
+                    const change = changes[index] || {};
+                    if (change.path !== 'order.notes') continue;
+                    const value = cleanCustomerNote(change.revised);
+                    if (value) return value;
+                }
+                return '';
+            },
             isPendingReviewStatus(jo) {
                 if (!jo) return false;
                 const s = String(jo.status || '');
@@ -5404,6 +6268,7 @@ window.pfServiceFieldCatalog = (() => {
             /** Store/job row is actively in production — strictly status-based only. */
             isInProductionRow(row) {
                 if (!row) return false;
+                if (this.changeItemReworkInProgress(row)) return true;
                 const raw = String(row.status || '').trim();
                 const t = raw.toUpperCase().replace(/\s+/g, '_');
                 if (t === 'IN_PRODUCTION' || t === 'PROCESSING' || t === 'PRINTING') return true;
@@ -5529,6 +6394,12 @@ window.pfServiceFieldCatalog = (() => {
                         const state = this.materialClassification(item);
                         return state.tier === 'recommended' || state.tier === 'optional';
                     });
+            },
+            get materialPickerEmptyMessage() {
+                if (!this.hasVerifiedMaterialSuggestions) {
+                    return 'No recommended materials configured for this service.';
+                }
+                return 'No materials match this search.';
             },
             materialClassification(item) {
                 if (!item || !window.PrintFlowProductionMaterials) return { tier: 'unrelated', selectable: false };
@@ -5782,7 +6653,8 @@ window.pfServiceFieldCatalog = (() => {
                             'READY_TO_COLLECT': 'PENDING',
                             'COMPLETED': 'COMPLETED',
                             'REJECTED': 'CANCELLED',
-                            'CANCELLED': 'CANCELLED'
+                            'CANCELLED': 'CANCELLED',
+                            'CHANGE_ITEM_REQUEST': 'COMPLETED'
                         }
                         : {
                             'PENDING': 'INQUIRY',
@@ -5803,7 +6675,8 @@ window.pfServiceFieldCatalog = (() => {
                             'READY_TO_COLLECT': 'TO_RECEIVE',
                             'COMPLETED': 'COMPLETED',
                             'REJECTED': 'CLOSED',
-                            'CANCELLED': 'CLOSED'
+                            'CANCELLED': 'CLOSED',
+                            'CHANGE_ITEM_REQUEST': 'CHANGED_ITEMS'
                         };
                     const mapped = statusMap[initialStatus.toUpperCase().replace(/\s+/g, '_')] || initialStatus;
                     if (this.statuses.includes(mapped)) {
@@ -6200,6 +7073,11 @@ window.pfServiceFieldCatalog = (() => {
                     return rawTitle;
                 }
 
+                const titleWithoutQty = rawTitle.replace(/\s*-\s*\d+\s*pcs?$/i, '').trim();
+                if (titleWithoutQty && titleWithoutQty.toLowerCase() === resolvedService.toLowerCase()) {
+                    return resolvedService;
+                }
+
                 const titleUpper = rawTitle.toUpperCase();
                 const serviceUpper = resolvedService.toUpperCase();
                 const compatibilityMap = {
@@ -6259,14 +7137,20 @@ window.pfServiceFieldCatalog = (() => {
                     if (bucket === 'CANCELLED') return 'Cancelled';
                     return 'Pending';
                 }
-                return jo.status === 'COMPLETED' ? 'Completed' :
-                    (jo.status === 'APPROVED' ? 'Approved' :
-                    (jo.status === 'TO_PAY' ? 'To Pay' :
-                    (jo.status === 'PAYMENT_CONFIRMED' ? 'Payment Confirmed' :
-                    (jo.status === 'VERIFY_PAY' ? 'To Verify' :
-                    (jo.status === 'REJECTED' ? 'Rejected' :
-                    (jo.status === 'IN_PRODUCTION' ? 'In Production' :
-                    (jo.status === 'TO_RECEIVE' || jo.status === 'READY_TO_COLLECT' ? 'To Pickup' : jo.status)))))));
+                const statusKey = String(jo && jo.status ? jo.status : '').toUpperCase();
+                const statusMap = {
+                    COMPLETED: 'Completed',
+                    CHANGE_ITEM_REQUEST: 'Change Item Request',
+                    APPROVED: 'Approved',
+                    TO_PAY: 'To Pay',
+                    PAYMENT_CONFIRMED: 'Payment Confirmed',
+                    VERIFY_PAY: 'To Verify',
+                    REJECTED: 'Rejected',
+                    IN_PRODUCTION: 'In Production',
+                    TO_RECEIVE: 'To Pickup',
+                    READY_TO_COLLECT: 'To Pickup',
+                };
+                return statusMap[statusKey] || (jo && jo.status ? jo.status : '');
             },
             getStatusBadgeClass(jo) {
                 if (this.isPosSimplifiedView && this.isPosWalkInSource(jo)) {
@@ -6284,7 +7168,7 @@ window.pfServiceFieldCatalog = (() => {
                     'badge-verify':     jo.status === 'VERIFY_PAY',
                     'badge-production': jo.status === 'IN_PRODUCTION',
                     'badge-pickup':     jo.status === 'TO_RECEIVE' || jo.status === 'READY_TO_COLLECT',
-                    'badge-pending':    jo.status === 'PENDING',
+                    'badge-pending':    jo.status === 'PENDING' || jo.status === 'CHANGE_ITEM_REQUEST',
                     'badge-cancelled':  jo.status === 'REJECTED' || jo.status === 'CANCELLED'
                 };
             },
@@ -6293,11 +7177,14 @@ window.pfServiceFieldCatalog = (() => {
             },
             getOnlineStageBucket(row) {
                 if (!row) return 'INQUIRY';
+                if (this.changeItemPendingReview(row)) return 'CHANGED_ITEMS';
+                if (this.changeItemReworkInProgress(row)) return 'PRODUCTION';
                 const s = String(row.status || '').toUpperCase().replace(/\s+/g, '_');
                 if (s === 'REJECTED' || s === 'CANCELLED') return 'CLOSED';
                 if (['IN_PRODUCTION', 'PROCESSING', 'PRINTING'].includes(s)) return 'PRODUCTION';
                 if (['TO_RECEIVE', 'READY_TO_COLLECT'].includes(s)) return 'TO_RECEIVE';
                 if (s === 'COMPLETED') return 'COMPLETED';
+                if (s === 'CHANGE_ITEM_REQUEST') return 'CHANGED_ITEMS';
                 if (['TO_PAY', 'PAYMENT_CONFIRMED', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'].includes(s)) return 'PAYMENT';
                 return 'INQUIRY';
             },
@@ -6308,8 +7195,12 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 if (!this.isPosSimplifiedView) {
                     if (status === 'ALL') return true;
+                    if (status === 'CHANGED_ITEMS') return this.changeItemPendingReview(jo);
                     if (status === 'TO_RECEIVE') return String(jo.status || '').toUpperCase().replace(/\s+/g, '_') === 'TO_RECEIVE' || String(jo.status || '').toUpperCase().replace(/\s+/g, '_') === 'READY_TO_COLLECT';
-                    if (status === 'COMPLETED') return String(jo.status || '').toUpperCase().replace(/\s+/g, '_') === 'COMPLETED';
+                    if (status === 'COMPLETED') {
+                        const normalizedStatus = String(jo.status || '').toUpperCase().replace(/\s+/g, '_');
+                        return normalizedStatus === 'COMPLETED' && !this.changeItemPendingReview(jo);
+                    }
                     if (status === 'CLOSED') {
                         const normalizedStatus = String(jo.status || '').toUpperCase().replace(/\s+/g, '_');
                         return normalizedStatus === 'REJECTED' || normalizedStatus === 'CANCELLED';
@@ -6329,6 +7220,10 @@ window.pfServiceFieldCatalog = (() => {
                 if (this.serviceFilter !== 'ALL') {
                     const rowService = this.getServiceFilterValue(jo);
                     if (rowService !== this.serviceFilter) return false;
+                }
+
+                if (this.priorityFilter !== 'ALL' && !this.orderPriorityFilterMatches(jo)) {
+                    return false;
                 }
 
                 if (this.dateFilter !== 'ALL') {
@@ -6430,6 +7325,12 @@ window.pfServiceFieldCatalog = (() => {
             getStatusCount(status) {
                 void this.ordersVersion;
                 const hasLocalFilters = this.search || this.serviceFilter !== 'ALL' || this.dateFilter !== 'ALL';
+                if (status === 'URGENT') {
+                    if (!hasLocalFilters && Object.prototype.hasOwnProperty.call(this.statusCounts, 'URGENT')) {
+                        return Number(this.statusCounts.URGENT || 0);
+                    }
+                    return this.orders.filter(o => this.matchesNonStatusFilters(o) && this.orderIsUrgentRequest(o)).length;
+                }
                 if (!hasLocalFilters && Object.prototype.hasOwnProperty.call(this.statusCounts, status)) {
                     return Number(this.statusCounts[status] || 0);
                 }
@@ -6526,6 +7427,9 @@ window.pfServiceFieldCatalog = (() => {
                         });
                         if (detailRes.success && detailRes.data && requestToken === this.detailRequestToken) {
                             this.finishDetailLoadWith(detailRes.data, 'ORDER', cacheKey);
+                            if (!detailRes.data.change_item && regularOrderId) {
+                                await this.mergeChangeItemDetailIntoCurrentJo(regularOrderId);
+                            }
                             this.loadingDetails = false;
                             this.loadingDetailKey = '';
                             this.loadModalAssignments(regularOrderId, cacheKey, requestToken);
@@ -6558,6 +7462,9 @@ window.pfServiceFieldCatalog = (() => {
                         );
                         if (res.success && res.data && requestToken === this.detailRequestToken) {
                             this.finishDetailLoadWith(res.data, 'JOB', cacheKey);
+                            if (res.data.order_id) {
+                                await this.mergeChangeItemDetailIntoCurrentJo(res.data.order_id);
+                            }
                             this.resetMaterialForm();
                             this.resetInkForm();
                             for (const m of this.currentJo.materials || []) {
@@ -7589,56 +8496,375 @@ window.pfServiceFieldCatalog = (() => {
                 this.revisionEditableFields = [];
                 this.revisionFieldOptions = this.buildRevisionFieldOptions();
                 this.revisionModalError = '';
+                this.revisionSubmitting = false;
                 this.showRevisionModal = true;
             },
 
-            buildRevisionFieldOptions() {
-                const options = [
-                    { value: 'uploaded_design', label: 'Uploaded Design' },
-                    { value: 'needed_date', label: 'Needed Date' },
-                    { value: 'type_specifications', label: 'Type / Order Specifications' },
-                    { value: 'layout', label: 'Layout' },
-                    { value: 'quantity', label: 'Quantity' },
-                    { value: 'order_notes', label: 'Order Notes' }
-                ];
-                const seen = new Set(options.map(option => option.value));
-                const seenLogicalSpecs = new Set();
-                const protectedKeys = /(^_|branch|price|payment|service_id|product_id|order_id|item_id|design|upload|reference|status)/i;
-                (this.currentJo.items || []).forEach((item) => {
-                    const itemId = Number(item.order_item_id || 0);
-                    if (!itemId) return;
-                    // Permission tokens must use keys physically persisted on
-                    // the order item; enriched display labels are not writable.
-                    const revisionSpecs = {
-                        ...this.parseSpecsObject(item.customization_data || {}),
-                        ...this.parseSpecsObject(item.specifications_raw || {})
+            staffRevisionIsProtectedKey(key) {
+                const normalized = this.staffCustomizationKeyToken(key);
+                if (!normalized) return true;
+                const exact = new Set([
+                    'service_id', 'product_id', 'variant_id', 'branch', 'branch_id', 'branch_name',
+                    'service_type', 'product_name', 'category', 'source_page', 'source', 'item_key', 'cart_key',
+                    'form_type', 'customization_id', 'order_id', 'order_item_id', 'config_id',
+                    'price', 'unit_price', 'subtotal', 'total', 'total_amount', 'estimated_price', 'final_price',
+                    'payment_status', 'payment_method', 'order_status', 'status', 'csrf_token'
+                ]);
+                if (exact.has(normalized)) return true;
+                return normalized[0] === '_'
+                    || normalized.includes('payment')
+                    || normalized.includes('price')
+                    || normalized.includes('branch')
+                    || normalized.includes('service_id')
+                    || normalized.includes('product_id')
+                    || normalized.includes('_mime')
+                    || normalized.includes('_blob')
+                    || normalized.includes('_tmp_path')
+                    || normalized.endsWith('_path');
+            },
+
+            staffResolveFieldValueFromSource(fieldKey, sourceCustom) {
+                if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom)) return '';
+                const targetToken = this.staffCustomizationKeyToken(fieldKey);
+                if (!targetToken) return '';
+                if (Object.prototype.hasOwnProperty.call(sourceCustom, fieldKey)) {
+                    return this.staffCustomizationValueText(sourceCustom[fieldKey]);
+                }
+                for (const [key, value] of Object.entries(sourceCustom)) {
+                    const keyToken = this.staffCustomizationKeyToken(key);
+                    if (keyToken === targetToken || key === fieldKey) {
+                        return this.staffCustomizationValueText(value);
+                    }
+                }
+                return '';
+            },
+
+            staffRevisionFieldParentActive(field, sourceCustom) {
+                const parentKey = String(field && field.parent_field_key ? field.parent_field_key : '').trim();
+                const parentValue = String(field && field.parent_value ? field.parent_value : '').trim();
+                if (!parentKey) return true;
+                const actual = this.staffResolveFieldValueFromSource(parentKey, sourceCustom);
+                return actual.toLowerCase() === parentValue.toLowerCase();
+            },
+
+            staffFindStorageKeyForDisplayLabel(displayLabel, sourceCustom, item) {
+                const target = String(displayLabel || '').trim();
+                if (!target) return '';
+                if (target === 'Quantity') return '__quantity__';
+                if (target === 'Notes') return '__order_notes__';
+
+                const enriched = this.staffEnrichDimensionSpecs({ ...(sourceCustom || {}) }, item || null);
+                for (const [key] of Object.entries(enriched)) {
+                    const meta = this.staffCustomizationFieldMeta(key);
+                    if (meta.hidden || meta.group === 'service') continue;
+                    const candidates = new Set([
+                        meta.group === 'notes' ? 'Notes' : meta.label,
+                        this.getCustomLabel(key),
+                        this.getCustomLabel(meta.label),
+                        String(key)
+                    ]);
+                    if (candidates.has(target)) return key;
+                }
+
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                if (profile && Array.isArray(profile.fields)) {
+                    for (const field of profile.fields) {
+                        const fieldKey = String(field.key || '').trim();
+                        const fieldLabel = String(field.label || fieldKey).trim();
+                        if (!fieldKey) continue;
+                        if (fieldLabel === target || this.getCustomLabel(fieldKey) === target) {
+                            return fieldKey;
+                        }
+                    }
+                }
+                return Object.prototype.hasOwnProperty.call(enriched, target) ? target : '';
+            },
+
+            staffRevisionCatalogFileFieldIsReference(fieldConfig) {
+                if (!fieldConfig || typeof fieldConfig !== 'object') return false;
+                const keyToken = this.staffCustomizationKeyToken(fieldConfig.key || '');
+                const labelToken = this.staffCustomizationKeyToken(fieldConfig.label || '');
+                return keyToken.includes('reference')
+                    || labelToken.includes('reference')
+                    || fieldConfig.key === 'reference_file';
+            },
+
+            staffRevisionCatalogFileFieldIsDesignCandidate(fieldConfig) {
+                if (!fieldConfig || typeof fieldConfig !== 'object') return false;
+                if (String(fieldConfig.type || '').toLowerCase() !== 'file') return false;
+                if (this.staffRevisionCatalogFileFieldIsReference(fieldConfig)) return false;
+                const keyToken = this.staffCustomizationKeyToken(fieldConfig.key || '');
+                const labelToken = this.staffCustomizationKeyToken(fieldConfig.label || '');
+                return keyToken.includes('design')
+                    || labelToken.includes('design')
+                    || labelToken.includes('artwork')
+                    || labelToken.includes('upload')
+                    || fieldConfig.key === 'design_file';
+            },
+
+            staffRevisionResolveDesignUploadField(item) {
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                if (profile && profile.designField && profile.designField.hasDesign) {
+                    return {
+                        permission: 'uploaded_design',
+                        label: profile.designField.label || 'Uploaded Design',
+                        key: String(profile.designField.key || '').trim()
                     };
-                    Object.entries(revisionSpecs).forEach(([key, fieldValue]) => {
-                        const normalized = String(key || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-                        if (!normalized || protectedKeys.test(normalized)) return;
-                        if (typeof fieldValue === 'string' && fieldValue.length > 10000) return;
-                        if (['quantity', 'qty'].includes(normalized)) return;
-                        if (['needed_date', 'need_date', 'date_needed', 'required_date', 'due_date'].includes(normalized)) return;
-                        if (normalized.includes('layout')) return;
-                        if (['notes', 'order_notes', 'customer_notes', 'additional_notes', 'special_instructions', 'job_notes'].includes(normalized)) return;
-                        const logicalSpec = `${itemId}:${normalized}`;
-                        if (seenLogicalSpecs.has(logicalSpec)) return;
-                        seenLogicalSpecs.add(logicalSpec);
-                        const value = `spec:${itemId}:${encodeURIComponent(String(key))}`;
-                        if (seen.has(value)) return;
-                        seen.add(value);
-                        options.push({ value, label: `Other: ${this.getCustomLabel(key)}` });
+                }
+                if (profile && Array.isArray(profile.fields)) {
+                    const fileFields = profile.fields.filter((field) => this.staffRevisionCatalogFileFieldIsDesignCandidate(field));
+                    if (fileFields.length === 1) {
+                        const field = fileFields[0];
+                        return {
+                            permission: 'uploaded_design',
+                            label: String(field.label || field.key || 'Uploaded Design').trim(),
+                            key: String(field.key || '').trim()
+                        };
+                    }
+                }
+                if (this.staffShouldRenderDesignSection(item)) {
+                    return {
+                        permission: 'uploaded_design',
+                        label: 'Uploaded Design',
+                        key: ''
+                    };
+                }
+                return null;
+            },
+
+            staffRevisionDesignCurrentValue(item) {
+                if (!item) return 'No value submitted';
+                if (this.staffEffectiveDesignOpenUrl(item) || this.staffItemHasStoredDesign(item)) {
+                    const filename = this.staffDesignDisplayFilename(item);
+                    if (filename && filename !== 'Open uploaded design') {
+                        return filename;
+                    }
+                    return 'File uploaded';
+                }
+                const resolved = this.staffRevisionResolveDesignUploadField(item);
+                if (resolved && resolved.key) {
+                    const sourceCustom = this.staffResolveItemCustomizationSource(item.customization, item);
+                    const customValue = this.staffResolveFieldValueFromSource(resolved.key, sourceCustom);
+                    if (this.staffMeaningfulSpecValue(customValue)) {
+                        return this.staffBasename(this.staffCustomizationValueText(customValue));
+                    }
+                }
+                return 'No value submitted';
+            },
+
+            staffRevisionFieldConfigIsDesignUpload(fieldConfig, item = null) {
+                if (!fieldConfig || typeof fieldConfig !== 'object') return false;
+                if (String(fieldConfig.type || '').toLowerCase() !== 'file') return false;
+                if (this.staffRevisionCatalogFileFieldIsReference(fieldConfig)) return false;
+                const resolved = item ? this.staffRevisionResolveDesignUploadField(item) : null;
+                if (resolved) {
+                    const fieldKey = String(fieldConfig.key || '').trim();
+                    const fieldLabel = String(fieldConfig.label || '').trim();
+                    const resolvedKeyToken = this.staffCustomizationKeyToken(resolved.key || '');
+                    const fieldKeyToken = this.staffCustomizationKeyToken(fieldKey);
+                    if (resolvedKeyToken && fieldKeyToken && resolvedKeyToken === fieldKeyToken) return true;
+                    if (fieldLabel && fieldLabel === resolved.label) return true;
+                }
+                return this.staffRevisionCatalogFileFieldIsDesignCandidate(fieldConfig);
+            },
+
+            staffRevisionStorageKeyIsDesignUpload(storageKey, fieldConfig = null, item = null) {
+                const token = this.staffCustomizationKeyToken(storageKey);
+                if (!token || token.includes('reference')) return false;
+                if (fieldConfig && this.staffRevisionFieldConfigIsDesignUpload(fieldConfig, item)) return true;
+                const resolved = item ? this.staffRevisionResolveDesignUploadField(item) : null;
+                if (resolved) {
+                    const resolvedKeyToken = this.staffCustomizationKeyToken(resolved.key || '');
+                    if (resolvedKeyToken && resolvedKeyToken === token) return true;
+                    const labelToken = this.staffCustomizationKeyToken(resolved.label || '');
+                    if (labelToken && labelToken === token) return true;
+                }
+                const meta = this.staffCustomizationFieldMeta(storageKey);
+                if (meta.design || meta.group === 'uploaded_design') return true;
+                return token.includes('design')
+                    || token.includes('upload_design')
+                    || token.includes('uploaddesign')
+                    || token.includes('uploadeddesign')
+                    || token.includes('artwork');
+            },
+
+            staffRevisionFieldMatchesDesignUpload(fieldKey, fieldConfig, item) {
+                if (!item) return false;
+                const resolved = this.staffRevisionResolveDesignUploadField(item);
+                if (!resolved) return false;
+                const candidates = [fieldKey, fieldConfig && fieldConfig.key].filter(Boolean);
+                const resolvedKeyToken = this.staffCustomizationKeyToken(resolved.key || '');
+                for (const candidate of candidates) {
+                    if (resolvedKeyToken && this.staffCustomizationKeyToken(candidate) === resolvedKeyToken) {
+                        return true;
+                    }
+                }
+                const label = String((fieldConfig && fieldConfig.label) || fieldKey || '').trim();
+                return label !== '' && label === resolved.label;
+            },
+
+            staffRevisionOptionIsDesignUpload(option) {
+                if (!option || typeof option !== 'object') return false;
+                if (option.isDesignUpload === true) return true;
+                return String(option.value || '') === 'uploaded_design';
+            },
+
+            staffRevisionFindDesignUploadOptions() {
+                return (this.revisionFieldOptions || []).filter((option) => this.staffRevisionOptionIsDesignUpload(option));
+            },
+
+            revisionDesignReasonUnavailable() {
+                const designReasons = ['low_image_quality', 'wrong_design'];
+                if (!designReasons.includes(this.revisionReasonSelect)) return false;
+                return this.staffRevisionFindDesignUploadOptions().length === 0;
+            },
+
+            staffRevisionPermissionToken(itemId, storageKey, fieldConfig = null, item = null) {
+                if (!storageKey || this.staffRevisionIsProtectedKey(storageKey)) return '';
+                if (storageKey === '__quantity__') return 'quantity';
+                if (storageKey === '__order_notes__') return 'order_notes';
+
+                const meta = this.staffCustomizationFieldMeta(storageKey);
+                if (meta.hidden || meta.group === 'service') return '';
+                if (this.staffRevisionStorageKeyIsDesignUpload(storageKey, fieldConfig, item)) return 'uploaded_design';
+                if (meta.group === 'uploaded_design') return 'uploaded_design';
+                if (meta.group === 'quantity') return 'quantity';
+                if (meta.group === 'layout') return 'layout';
+                if (meta.group === 'needed_date') return 'needed_date';
+                if (meta.group === 'notes') return 'order_notes';
+
+                if (itemId > 0) {
+                    return `spec:${itemId}:${encodeURIComponent(String(storageKey))}`;
+                }
+                return '';
+            },
+
+            staffCollectRevisionFieldCandidates(item) {
+                const itemId = Number(item && item.order_item_id ? item.order_item_id : 0);
+                const built = this.staffBuildItemDisplaySpecs(item && item.customization, item, {
+                    isDetail: true,
+                    includeService: false,
+                    includeNotes: true,
+                    includeQuantity: true,
+                    skipServiceFilter: true
+                });
+                const sourceCustom = built.enriched || built.source || {};
+                const rows = [];
+                const seenPermissions = new Set();
+                const seenLabels = new Set();
+
+                const addRow = (permission, label, currentValue, priority = 100, isDesignUpload = false) => {
+                    if (!permission || seenPermissions.has(permission)) return;
+                    const cleanLabel = this.getCustomLabel(label);
+                    if (!cleanLabel || seenLabels.has(cleanLabel)) return;
+                    seenPermissions.add(permission);
+                    seenLabels.add(cleanLabel);
+                    rows.push({
+                        value: permission,
+                        label: cleanLabel,
+                        currentValue: currentValue || 'No value submitted',
+                        priority,
+                        isDesignUpload: isDesignUpload === true || permission === 'uploaded_design'
+                    });
+                };
+
+                const resolvedDesignField = this.staffRevisionResolveDesignUploadField(item);
+                if (resolvedDesignField) {
+                    addRow(
+                        resolvedDesignField.permission,
+                        resolvedDesignField.label,
+                        this.staffRevisionDesignCurrentValue(item),
+                        60,
+                        true
+                    );
+                }
+
+                built.entries.forEach(([displayLabel, displayValue]) => {
+                    const storageKey = this.staffFindStorageKeyForDisplayLabel(displayLabel, sourceCustom, item);
+                    if (this.staffRevisionFieldMatchesDesignUpload(storageKey, null, item)) return;
+                    const isDesignUpload = this.staffRevisionStorageKeyIsDesignUpload(storageKey, null, item);
+                    if (isDesignUpload && seenPermissions.has('uploaded_design')) return;
+                    const permission = this.staffRevisionPermissionToken(itemId, storageKey, null, item);
+                    if (!permission) return;
+                    const meta = this.staffCustomizationFieldMeta(storageKey);
+                    addRow(permission, displayLabel, displayValue, meta.priority || 100, permission === 'uploaded_design' || isDesignUpload);
+                });
+
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                if (profile && Array.isArray(profile.fields)) {
+                    profile.fields.forEach((field) => {
+                        const fieldKey = String(field.key || '').trim();
+                        if (!fieldKey) return;
+                        if (this.staffRevisionFieldMatchesDesignUpload(fieldKey, field, item)) return;
+                        const fieldType = String(field.type || 'text').toLowerCase();
+                        const isDesignUpload = this.staffRevisionFieldConfigIsDesignUpload(field, item)
+                            || this.staffRevisionStorageKeyIsDesignUpload(fieldKey, field, item);
+                        if (fieldType === 'file') {
+                            if (this.staffRevisionCatalogFileFieldIsReference(field)) return;
+                            if (isDesignUpload && seenPermissions.has('uploaded_design')) return;
+                        }
+                        if (!this.staffRevisionFieldParentActive(field, sourceCustom)) return;
+                        const meta = this.staffCustomizationFieldMeta(fieldKey);
+                        if (meta.hidden || meta.group === 'service') return;
+                        const permission = this.staffRevisionPermissionToken(itemId, fieldKey, field, item);
+                        const label = String(field.label || meta.label || fieldKey);
+                        if (!permission || seenLabels.has(this.getCustomLabel(label))) return;
+                        const hasValue = this.staffMeaningfulSpecValue(this.staffResolveFieldValueFromSource(fieldKey, sourceCustom));
+                        if (!hasValue) {
+                            addRow(permission, label, 'No value submitted', field.order || meta.priority || 100, permission === 'uploaded_design' || isDesignUpload);
+                        }
+                    });
+                }
+
+                rows.sort((left, right) => (left.priority || 100) - (right.priority || 100));
+                return rows;
+            },
+
+            buildRevisionFieldOptions() {
+                const options = [];
+                const seen = new Set();
+                const items = Array.isArray(this.currentJo && this.currentJo.items) ? this.currentJo.items : [];
+                items.forEach((item) => {
+                    this.staffCollectRevisionFieldCandidates(item).forEach((row) => {
+                        if (seen.has(row.value)) return;
+                        seen.add(row.value);
+                        options.push(row);
                     });
                 });
+
+                if (!this.staffOrderNotesRenderedInItemSpecs()) {
+                    const orderNote = this.combinedCustomerNotes().trim();
+                    if (orderNote && orderNote !== 'No specific instructions.' && !seen.has('order_notes')) {
+                        options.push({
+                            value: 'order_notes',
+                            label: 'Order Notes',
+                            currentValue: orderNote,
+                            priority: 50
+                        });
+                    }
+                }
+
+                options.sort((left, right) => (left.priority || 100) - (right.priority || 100));
                 return options;
             },
 
+            isRevisionFormValid() {
+                if (!this.revisionReasonSelect) return false;
+                if (this.revisionReasonSelect === 'others' && !String(this.revisionReasonText || '').trim()) return false;
+                if (!Array.isArray(this.revisionEditableFields) || !this.revisionEditableFields.length) return false;
+                if (!String(this.revisionInstruction || '').trim()) return false;
+                return true;
+            },
+
             applyRevisionReasonDefaults() {
-                const designReasons = ['low_image_quality', 'wrong_design', 'invalid_format'];
+                const designReasons = ['low_image_quality', 'wrong_design'];
                 if (designReasons.includes(this.revisionReasonSelect)) {
-                    this.revisionEditableFields = ['uploaded_design'];
+                    const designFields = this.staffRevisionFindDesignUploadOptions().map((option) => option.value);
+                    this.revisionEditableFields = designFields.length ? [...designFields] : [];
                 } else if (this.revisionReasonSelect === 'incorrect_details') {
-                    this.revisionEditableFields = ['needed_date', 'type_specifications', 'layout', 'quantity', 'order_notes'];
+                    this.revisionEditableFields = (this.revisionFieldOptions || [])
+                        .filter((option) => !this.staffRevisionOptionIsDesignUpload(option))
+                        .map((option) => option.value);
                 } else {
                     this.revisionEditableFields = [];
                 }
@@ -7646,12 +8872,16 @@ window.pfServiceFieldCatalog = (() => {
             },
 
             revisionFieldLocked(field) {
-                return ['low_image_quality', 'wrong_design', 'invalid_format'].includes(this.revisionReasonSelect)
-                    && field !== 'uploaded_design';
+                const designReasons = ['low_image_quality', 'wrong_design'];
+                if (!designReasons.includes(this.revisionReasonSelect)) return false;
+                if (String(field || '') === 'uploaded_design') return false;
+                const option = (this.revisionFieldOptions || []).find((entry) => entry.value === field);
+                return !this.staffRevisionOptionIsDesignUpload(option);
             },
 
             closeRevisionModal() {
                 this.revisionModalError = '';
+                this.revisionSubmitting = false;
                 this.showRevisionModal = false;
             },
             async submitRevision() {
@@ -7665,8 +8895,12 @@ window.pfServiceFieldCatalog = (() => {
                     this.revisionModalError = 'Please specify the revision reason.';
                     return;
                 }
+                if (this.revisionDesignReasonUnavailable()) {
+                    this.revisionModalError = 'No editable design upload field is available for this order.';
+                    return;
+                }
                 if (!this.revisionEditableFields.length) {
-                    this.revisionModalError = 'Select at least one field the customer may edit.';
+                    this.revisionModalError = 'Select at least one detail the customer needs to update.';
                     return;
                 }
                 if (!this.revisionInstruction.trim()) {
@@ -7683,7 +8917,7 @@ window.pfServiceFieldCatalog = (() => {
                     }[this.revisionReasonSelect] || this.revisionReasonSelect);
                 this.revisionModalError = '';
                 if (!this.beginModalAction()) return;
-                this.showRevisionModal = false;
+                this.revisionSubmitting = true;
                 try {
                     const ok = await this.updateStatus(oid, 'For Revision', null, legacyReason, {
                         reasonCode: this.revisionReasonSelect,
@@ -7692,9 +8926,169 @@ window.pfServiceFieldCatalog = (() => {
                         permittedFields: [...this.revisionEditableFields]
                     });
                     if (ok) {
+                        this.showRevisionModal = false;
                         this.showStaffAlert('Success', 'Additional details request sent successfully.');
                     }
                 } finally {
+                    this.revisionSubmitting = false;
+                    this.endModalAction();
+                }
+            },
+
+            openChangeItemModal() {
+                this.changeItemModalError = '';
+                this.changeItemReasonCode = '';
+                this.changeItemDescription = '';
+                this.changeItemStaffNotes = '';
+                this.changeItemProofFile = null;
+                this.changeItemIdempotencyKey = 'staff-change-item-' + String(this.resolveChangeItemOrderId(this.currentJo) || this.currentJo.id || '') + '-' + Date.now();
+                this.showChangeItemModal = true;
+            },
+            closeChangeItemModal() {
+                this.changeItemModalError = '';
+                this.changeItemSubmitting = false;
+                this.showChangeItemModal = false;
+            },
+            openChangeItemRejectModal() {
+                this.changeItemModalError = '';
+                this.changeItemRejectReason = '';
+                this.showChangeItemRejectModal = true;
+            },
+            closeChangeItemRejectModal() {
+                this.changeItemModalError = '';
+                this.changeItemSubmitting = false;
+                this.showChangeItemRejectModal = false;
+            },
+            async submitChangeItem() {
+                const orderId = this.resolveChangeItemOrderId(this.currentJo);
+                if (!orderId) {
+                    this.changeItemModalError = 'Original order not found.';
+                    return;
+                }
+                if (!this.changeItemReasonCode) {
+                    this.changeItemModalError = 'Please select a reason.';
+                    return;
+                }
+                if (!this.changeItemDescription.trim()) {
+                    this.changeItemModalError = 'Issue description is required.';
+                    return;
+                }
+                if (this.changeItemDescription.trim().length > this.changeItemDescriptionMaxLen) {
+                    this.changeItemModalError = 'Issue description must be 500 characters or fewer.';
+                    return;
+                }
+                if (this.changeItemStaffNotes.trim().length > 2000) {
+                    this.changeItemModalError = 'Staff notes must be 2000 characters or fewer.';
+                    return;
+                }
+                if (!this.beginModalAction()) return;
+                this.changeItemSubmitting = true;
+                this.changeItemModalError = '';
+                try {
+                    const fd = new FormData();
+                    fd.append('action', 'change_item_create');
+                    fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                    fd.append('order_id', String(orderId));
+                    fd.append('source_channel', 'in_store');
+                    fd.append('auto_approve', '1');
+                    fd.append('verified_in_store', '1');
+                    const primaryItem = this.resolvePrimaryOrderItem(this.currentJo);
+                    const orderItemId = parseInt((primaryItem && primaryItem.order_item_id) || this.currentJo.linked_order_item_id || this.currentJo.order_item_id || 0, 10);
+                    if (orderItemId > 0) {
+                        fd.append('order_item_id', String(orderItemId));
+                    }
+                    fd.append('reason_code', this.changeItemReasonCode);
+                    fd.append('reason_label', '');
+                    fd.append('issue_description', this.changeItemDescription.trim());
+                    fd.append('staff_notes', this.changeItemStaffNotes.trim());
+                    fd.append('idempotency_key', this.changeItemIdempotencyKey || ('staff-change-item-' + orderId + '-' + Date.now()));
+                    if (this.changeItemProofFile) {
+                        fd.append('proof', this.changeItemProofFile);
+                    }
+                    const res = await this.parseJsonResponse(
+                        await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd }),
+                        'Change Item create'
+                    );
+                    if (!res.success) {
+                        this.changeItemModalError = res.error || res.message || 'Unable to submit Change Item.';
+                        return;
+                    }
+                    this.showChangeItemModal = false;
+                    const successMessage = (res.message || '').trim()
+                        || 'Change Item submitted and routed to Production.';
+                    this.showStaffAlert('Success', successMessage);
+                    if (res.data && res.data.status && String(res.data.status).toLowerCase() === 'in rework') {
+                        this.activeStatus = 'PRODUCTION';
+                    }
+                    await this.loadOrders();
+                    await this.viewDetails(this.currentJo.id, this.currentJo.order_type || 'CUSTOMIZATION');
+                } finally {
+                    this.changeItemSubmitting = false;
+                    this.endModalAction();
+                }
+            },
+            async approveChangeItem() {
+                const changeItemId = this.changeItemResolveId(this.currentJo);
+                if (!changeItemId) {
+                    this.setFooterActionError('No pending Change Item request was found.');
+                    return;
+                }
+                if (!this.beginModalAction()) return;
+                this.changeItemSubmitting = true;
+                try {
+                    const fd = new FormData();
+                    fd.append('action', 'change_item_approve');
+                    fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                    fd.append('change_item_id', String(changeItemId));
+                    const res = await this.parseJsonResponse(
+                        await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd }),
+                        'Change Item approve'
+                    );
+                    if (!res.success) {
+                        this.setFooterActionError(res.error || res.message || 'Unable to approve Change Item.');
+                        return;
+                    }
+                    this.showStaffAlert('Success', 'Change Item approved. Rework has started on the original order.');
+                    this.activeStatus = 'PRODUCTION';
+                    await this.loadOrders();
+                    await this.viewDetails(this.currentJo.id, this.currentJo.order_type || 'CUSTOMIZATION');
+                } finally {
+                    this.changeItemSubmitting = false;
+                    this.endModalAction();
+                }
+            },
+            async rejectChangeItem() {
+                const changeItemId = this.changeItemResolveId(this.currentJo);
+                if (!changeItemId) {
+                    this.changeItemModalError = 'No pending Change Item request was found.';
+                    return;
+                }
+                if (!this.changeItemRejectReason.trim()) {
+                    this.changeItemModalError = 'Rejection reason is required.';
+                    return;
+                }
+                if (!this.beginModalAction()) return;
+                this.changeItemSubmitting = true;
+                try {
+                    const fd = new FormData();
+                    fd.append('action', 'change_item_reject');
+                    fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                    fd.append('change_item_id', String(changeItemId));
+                    fd.append('reason', this.changeItemRejectReason.trim());
+                    const res = await this.parseJsonResponse(
+                        await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd }),
+                        'Change Item reject'
+                    );
+                    if (!res.success) {
+                        this.changeItemModalError = res.error || res.message || 'Unable to reject Change Item.';
+                        return;
+                    }
+                    this.showChangeItemRejectModal = false;
+                    this.showStaffAlert('Updated', 'Change Item request rejected. Customer has been notified.');
+                    await this.loadOrders();
+                    await this.viewDetails(this.currentJo.id, this.currentJo.order_type || 'CUSTOMIZATION');
+                } finally {
+                    this.changeItemSubmitting = false;
                     this.endModalAction();
                 }
             },

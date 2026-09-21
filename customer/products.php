@@ -16,51 +16,13 @@ function pf_product_media_is_video($path) {
     return (bool)preg_match('/\.(mp4|webm|mov|m4v)(?:[\?#].*)?$/', $path);
 }
 
-// Reviews table columns vary across deployments
-$review_cols = array_flip(array_column(db_query("SHOW COLUMNS FROM reviews") ?: [], 'Field'));
-$review_service_expr = isset($review_cols['service_type']) ? 'r.service_type' : "''";
-$review_order_expr = isset($review_cols['order_id']) ? 'r.order_id' : 'NULL';
-$review_ref_expr = isset($review_cols['reference_id']) ? 'r.reference_id' : 'NULL';
-$review_type_expr = isset($review_cols['review_type']) ? 'r.review_type' : "''";
-$review_match_parts = [];
-if (isset($review_cols['reference_id']) && isset($review_cols['review_type'])) {
-    $review_match_parts[] = "({$review_type_expr} = 'product' AND {$review_ref_expr} = p.product_id)";
-}
-if (isset($review_cols['order_id'])) {
-    $review_match_parts[] = "EXISTS (
-        SELECT 1
-        FROM order_items oi_rating
-        WHERE oi_rating.order_id = {$review_order_expr}
-          AND oi_rating.product_id = p.product_id
-    )";
-}
-$review_match_parts[] = "{$review_service_expr} COLLATE utf8mb4_unicode_ci = p.name COLLATE utf8mb4_unicode_ci";
-$review_match_sql = '(' . implode(' OR ', $review_match_parts) . ')';
-
-$avg_rating_sql = "(SELECT AVG(rating) FROM reviews r WHERE {$review_match_sql}) as avg_rating";
-$review_count_sql = "(SELECT COUNT(*) FROM reviews r WHERE {$review_match_sql}) as review_count";
-
 // Get filter parameters
 $category = $_GET['category'] ?? '';
 
-// Build query — restore activated catalog items
-$sql = "SELECT p.*, 
-    (SELECT COUNT(*) FROM product_variants pv WHERE pv.product_id = p.product_id AND pv.status = 'Active') as variant_count,
-    (SELECT COALESCE(SUM(oi.quantity),0) FROM order_items oi JOIN orders o ON oi.order_id = o.order_id WHERE oi.product_id = p.product_id AND o.status != 'Cancelled' AND (
-        LOWER(TRIM(COALESCE(o.order_type, ''))) != 'custom'
-        OR oi.customization_data LIKE '%\"config_id\"%'
-        OR oi.customization_data LIKE '%\"form_type\":\"dynamic\"%'
-        OR oi.customization_data LIKE '%\"form_type\": \"dynamic\"%'
-        OR oi.customization_data LIKE '%\"source_page\":\"products\"%'
-        OR oi.customization_data LIKE '%\"source_page\":\"product\"%'
-        OR oi.customization_data LIKE '%\"source_page\":\"dynamic_form\"%'
-        OR oi.customization_data LIKE '%\"source_page\": \"products\"%'
-        OR oi.customization_data LIKE '%\"source_page\": \"product\"%'
-        OR oi.customization_data LIKE '%\"source_page\": \"dynamic_form\"%'
-    )) as sold_count,
-    {$avg_rating_sql},
-    {$review_count_sql}
-    FROM products p 
+// Fetch paginated product rows first; card stats are resolved in one batched pass below.
+$sql = "SELECT p.*,
+    (SELECT COUNT(*) FROM product_variants pv WHERE pv.product_id = p.product_id AND pv.status = 'Active') as variant_count
+    FROM products p
     WHERE p.status = 'Activated'";
 $params = [];
 $types = '';
@@ -96,7 +58,16 @@ $params[] = $items_per_page;
 $params[] = $offset;
 $types .= 'ii';
 
-$products = db_query($sql, $types, $params);
+$products = db_query($sql, $types, $params) ?: [];
+$product_stats_map = printflow_catalog_product_card_stats_map($products);
+foreach ($products as &$product_row) {
+    $product_id = (int)($product_row['product_id'] ?? 0);
+    $card_stats = $product_stats_map[$product_id] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
+    $product_row['sold_count'] = (int)($card_stats['sold_count'] ?? 0);
+    $product_row['avg_rating'] = (float)($card_stats['avg_rating'] ?? 0);
+    $product_row['review_count'] = (int)($card_stats['review_count'] ?? 0);
+}
+unset($product_row);
 
 $base_path = pf_app_base_path();
 $default_product_img = $base_path . '/public/assets/images/services/default.png';

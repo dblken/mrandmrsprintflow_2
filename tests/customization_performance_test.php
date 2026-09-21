@@ -60,7 +60,7 @@ $methodSource = $methodStart !== false && $methodEnd !== false
     : '';
 $assert($methodSource !== '', 'summary batch method is missing');
 $assert(strpos($methodSource, 'oi.design_image') === false, 'summary query must not select design_image');
-$assert(strpos($methodSource, 'oi.customization_data, oi.specifications') === false, 'summary query must not select raw customization/specification columns');
+$assert(strpos($methodSource, 'resolveBatchStoreOrderLineIdentity') !== false, 'summary batch must resolve service/product identity before naming rows');
 $assert(strpos($methodSource, "'specifications_raw'") === false, 'summary rows must not return raw specifications');
 
 $pageSource = (string)file_get_contents(__DIR__ . '/../staff/customizations.php');

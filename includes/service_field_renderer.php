@@ -148,9 +148,34 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                 }
                 $html .= '</select>';
             } else {
-                $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
+                $allowSelectOthers = !empty($config['allow_others']);
+                $rawOptions = array_values($config['options'] ?? []);
+                $presetValues = [];
+                foreach ($rawOptions as $opt) {
+                    $ov = is_array($opt) ? trim((string)($opt['value'] ?? '')) : trim((string)$opt);
+                    if ($ov !== '') {
+                        $presetValues[$ov] = true;
+                    }
+                }
+                $hasOthersInList = isset($presetValues['Others']);
+                $selectOptions = $rawOptions;
+                if ($allowSelectOthers && !$hasOthersInList) {
+                    $selectOptions[] = ['value' => 'Others', 'price' => 0];
+                }
+                $othersAvailable = $hasOthersInList || $allowSelectOthers;
+
+                $savedOtherText = trim((string)($saved_customization[$field_label . ' (Other)'] ?? ''));
+                $selectSaved = trim((string)$saved_value);
+                if ($othersAvailable && $selectSaved !== '' && $selectSaved !== 'Others' && !isset($presetValues[$selectSaved])) {
+                    $selectSaved = 'Others';
+                    if ($savedOtherText === '') {
+                        $savedOtherText = trim((string)$saved_value);
+                    }
+                }
+
+                $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field pf-select-with-others" data-field-key="' . htmlspecialchars($field_key) . '" data-other-option="Others" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
                 $html .= '<option value="">Select ' . $label . '</option>';
-                foreach ($config['options'] ?? [] as $option) {
+                foreach ($selectOptions as $option) {
                     $optionValue = is_array($option) ? ($option['value'] ?? '') : $option;
                     $optionPrice = is_array($option) ? ($option['price'] ?? 0) : 0;
                     if ($optionValue === '') continue;
@@ -160,9 +185,18 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                     
                     $value = htmlspecialchars($optionValue);
                     $displayValue = htmlspecialchars(pf_service_option_label($optionValue));
-                    $html .= '<option value="' . $value . '" data-price="' . htmlspecialchars((string)$optionPrice) . '">' . $displayValue . '</option>';
+                    $selected = ($selectSaved === (string)$optionValue) ? ' selected' : '';
+                    $html .= '<option value="' . $value . '" data-price="' . htmlspecialchars((string)$optionPrice) . '"' . $selected . '>' . $displayValue . '</option>';
                 }
                 $html .= '</select>';
+
+                if ($othersAvailable) {
+                    $showOthersInput = ($selectSaved === 'Others');
+                    $placeholder = 'Enter custom ' . strtolower(trim((string)($config['label'] ?? 'value')));
+                    $html .= '<div class="select-others-wrap" id="select-others-' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '" style="margin-top:12px;display:' . ($showOthersInput ? 'block' : 'none') . '">';
+                    $html .= '<input type="text" name="' . htmlspecialchars($field_key) . '_other" class="input-field select-others-input" placeholder="' . htmlspecialchars($placeholder, ENT_QUOTES, 'UTF-8') . '" value="' . htmlspecialchars($savedOtherText, ENT_QUOTES, 'UTF-8') . '" style="max-width:400px;" autocomplete="off">';
+                    $html .= '</div>';
+                }
             }
             break;
             
@@ -435,7 +469,46 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             break;
             
         case 'file':
-            $html .= '<input type="file" name="design_file" id="design_file" accept=".jpg,.jpeg,.png,.pdf" class="input-field" ' . $required_attr . ' style="max-width: 400px;">';
+            $link_post_name = function_exists('service_order_design_link_post_name')
+                ? service_order_design_link_post_name($field_key)
+                : ($field_key . '_link');
+            $link_storage_key = function_exists('service_order_design_link_storage_key')
+                ? service_order_design_link_storage_key((string)($config['label'] ?? 'Design'))
+                : 'Design Link';
+            $saved_link = trim((string)(
+                $saved_customization[$link_storage_key]
+                ?? $saved_customization[$link_post_name]
+                ?? $saved_customization['design_link']
+                ?? ''
+            ));
+            $accept_attr = function_exists('service_order_design_file_accept_attr')
+                ? service_order_design_file_accept_attr()
+                : '.jpg,.jpeg,.png,.webp,.gif,.svg,.pdf,.ai,.psd';
+            $formats_label = defined('SERVICE_ORDER_SUPPORTED_FORMATS_LABEL')
+                ? SERVICE_ORDER_SUPPORTED_FORMATS_LABEL
+                : 'PNG, JPG, JPEG, WEBP, GIF, SVG, PDF, AI, PSD';
+            $required_data = $config['required'] ? ' data-pf-required="1"' : '';
+            $initial_mode = $saved_link !== '' ? 'link' : 'file';
+
+            $html .= '<div class="pf-file-upload-group" data-pf-file-upload="1" data-pf-design-initial="' . htmlspecialchars($initial_mode, ENT_QUOTES, 'UTF-8') . '"' . $required_data . ' style="max-width:100%;width:100%;">';
+            $html .= '<p class="pf-design-mode-question">How would you like to provide your design?</p>';
+            $html .= '<div class="pf-design-mode-tabs" role="tablist" aria-label="Design input method">';
+            $html .= '<button type="button" class="pf-design-mode-tab' . ($initial_mode === 'file' ? ' active' : '') . '" data-pf-design-mode="file" role="tab" aria-selected="' . ($initial_mode === 'file' ? 'true' : 'false') . '"><span aria-hidden="true">📁</span> Upload File</button>';
+            $html .= '<button type="button" class="pf-design-mode-tab' . ($initial_mode === 'link' ? ' active' : '') . '" data-pf-design-mode="link" role="tab" aria-selected="' . ($initial_mode === 'link' ? 'true' : 'false') . '"><span aria-hidden="true">🔗</span> Use a Link</button>';
+            $html .= '</div>';
+
+            $html .= '<div class="pf-design-mode-panel" data-pf-design-panel="file"' . ($initial_mode === 'link' ? ' hidden' : '') . '>';
+            $html .= '<div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Upload your design</div>';
+            $html .= '<input type="file" name="design_file" id="design_file" accept="' . htmlspecialchars($accept_attr, ENT_QUOTES, 'UTF-8') . '" class="input-field pf-design-file-input" style="max-width:100%;width:100%;margin-bottom:8px;">';
+            $html .= '<p class="pf-supported-formats" style="margin:0;font-size:12px;color:#6b7280;line-height:1.5;">Supported: ' . htmlspecialchars($formats_label, ENT_QUOTES, 'UTF-8') . '<br>Maximum file size: 5 MB</p>';
+            $html .= '</div>';
+
+            $html .= '<div class="pf-design-mode-panel" data-pf-design-panel="link"' . ($initial_mode === 'link' ? '' : ' hidden') . '>';
+            $html .= '<label for="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Design / Canva Link</label>';
+            $html .= '<input type="url" name="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" id="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" class="input-field pf-design-link-input" placeholder="https://..." value="' . htmlspecialchars($saved_link, ENT_QUOTES, 'UTF-8') . '" inputmode="url" autocomplete="url" style="max-width:100%;width:100%;">';
+            $html .= '<p style="margin:8px 0 0;font-size:12px;color:#9ca3af;line-height:1.5;">Paste a publicly accessible design, image, or Canva link.</p>';
+            $html .= '</div>';
+            $html .= '</div>';
             break;
             
         case 'date':
@@ -532,6 +605,69 @@ function render_service_fields($service_id, $branches = [], $existing_data = [])
  */
 function get_service_field_scripts() {
     return <<<'JSEND'
+<style>
+.pf-file-upload-group {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 14px 16px;
+    background: #fafafa;
+    box-sizing: border-box;
+}
+.pf-design-mode-question {
+    margin: 0 0 10px;
+    font-size: 13px;
+    color: #4b5563;
+    font-weight: 500;
+    line-height: 1.4;
+}
+.pf-design-mode-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+}
+.pf-design-mode-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #fff;
+    color: #374151;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+    min-height: 44px;
+    width: 100%;
+    box-sizing: border-box;
+}
+.pf-design-mode-tab:hover {
+    border-color: #c7d2fe;
+    background: #f8fafc;
+}
+.pf-design-mode-tab.active {
+    border-color: #6366f1;
+    background: #eef2ff;
+    color: #4338ca;
+    box-shadow: 0 0 0 1px #6366f1;
+}
+.pf-design-mode-panel {
+    border-top: 1px dashed #e5e7eb;
+    padding-top: 14px;
+}
+.pf-design-mode-panel[hidden] {
+    display: none !important;
+}
+@media (max-width: 480px) {
+    .pf-design-mode-tab {
+        font-size: 12px;
+        padding: 10px 8px;
+    }
+}
+</style>
 <script>
 var dimensionMode = window.__pfServiceDimensionMode || 'preset';
 
@@ -582,7 +718,30 @@ function pfSyncRadioOthersWrap(radio) {
             val = r.value;
         }
     });
-    wrap.style.display = val === 'Others' ? 'block' : 'none';
+    const show = val === 'Others';
+    wrap.style.display = show ? 'block' : 'none';
+    const input = wrap.querySelector('input');
+    if (input) {
+        if (!show) input.value = '';
+        const selectedRadio = row.querySelector('input[type="radio"].pricing-field[name="' + radio.name + '"]:checked');
+        input.required = !!(show && selectedRadio && selectedRadio.hasAttribute('required'));
+    }
+}
+
+function pfSyncSelectOthersWrap(select) {
+    if (!select || !select.name) return;
+    const wrap = document.getElementById('select-others-' + select.name);
+    if (!wrap) return;
+    const otherValue = select.getAttribute('data-other-option') || 'Others';
+    const show = select.value === otherValue;
+    wrap.style.display = show ? 'block' : 'none';
+    const input = wrap.querySelector('input');
+    if (input) {
+        if (!show) input.value = '';
+        if (select.hasAttribute('required')) {
+            input.required = show;
+        }
+    }
 }
 
 function selectNestedDimension(key, w, h, e) {
@@ -810,6 +969,7 @@ window.handleNestedFields = handleNestedFields;
 window.selectNestedDimension = selectNestedDimension;
 window.selectNestedDimensionOthers = selectNestedDimensionOthers;
 window.syncNestedDimension = syncNestedDimension;
+window.pfSyncSelectOthersWrap = pfSyncSelectOthersWrap;
 window.validateDimensionInput = validateDimensionInput;
 window.updateDimensionUnit = updateDimensionUnit;
 window.syncDimensionToHidden = syncDimensionToHidden;
@@ -856,6 +1016,11 @@ if (!window.__pfServiceFieldDelegatesBound) {
         const radio = e.target.closest('.shopee-opt-btn input[type="radio"]');
         if (radio) {
             updateOptVisual(radio);
+            updateConditionalFields();
+        }
+        const select = e.target.closest('select.pf-select-with-others');
+        if (select) {
+            pfSyncSelectOthersWrap(select);
             updateConditionalFields();
         }
     }, true);
@@ -979,6 +1144,68 @@ function clearFieldRowValues(row) {
     });
 }
 
+function initPfDesignUploadGroups(root) {
+    const scope = root || document;
+    scope.querySelectorAll('.pf-file-upload-group:not([data-pf-design-init])').forEach(group => {
+        group.dataset.pfDesignInit = '1';
+        const tabs = Array.from(group.querySelectorAll('.pf-design-mode-tab'));
+        const panels = Array.from(group.querySelectorAll('.pf-design-mode-panel'));
+        const setMode = (mode) => {
+            const nextMode = mode === 'link' ? 'link' : 'file';
+            group.dataset.pfDesignMode = nextMode;
+            tabs.forEach(tab => {
+                const active = (tab.dataset.pfDesignMode || 'file') === nextMode;
+                tab.classList.toggle('active', active);
+                tab.setAttribute('aria-selected', active ? 'true' : 'false');
+            });
+            panels.forEach(panel => {
+                const show = (panel.dataset.pfDesignPanel || 'file') === nextMode;
+                if (show) panel.removeAttribute('hidden');
+                else panel.setAttribute('hidden', '');
+            });
+            const row = group.closest('.shopee-form-row');
+            if (row) {
+                row.querySelectorAll('.field-error').forEach(el => el.remove());
+                row.querySelectorAll('.field-invalid').forEach(el => el.classList.remove('field-invalid'));
+            }
+        };
+        tabs.forEach(tab => {
+            tab.addEventListener('click', function() {
+                setMode(this.dataset.pfDesignMode || 'file');
+            });
+        });
+        const fileInput = group.querySelector('input[type="file"].pf-design-file-input, input[type="file"][name="design_file"]');
+        const linkInput = group.querySelector('.pf-design-link-input');
+        const clearLinkInput = () => {
+            if (!linkInput) return;
+            linkInput.value = '';
+            linkInput.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+        const clearFileInput = () => {
+            if (!fileInput) return;
+            fileInput.value = '';
+            fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        if (fileInput) {
+            fileInput.addEventListener('change', function() {
+                if (this.files && this.files.length > 0) {
+                    clearLinkInput();
+                    setMode('file');
+                }
+            });
+        }
+        if (linkInput) {
+            linkInput.addEventListener('input', function() {
+                if (String(this.value || '').trim() !== '') {
+                    clearFileInput();
+                    setMode('link');
+                }
+            });
+        }
+        setMode(group.dataset.pfDesignInitial || 'file');
+    });
+}
+
 function initServiceFieldRenderer() {
     // Ensure all nested fields are hidden initially
     document.querySelectorAll('.nested-fields-container').forEach(container => {
@@ -1014,9 +1241,17 @@ function initServiceFieldRenderer() {
     
     // Initialize select listeners
     document.querySelectorAll('select').forEach(select => {
+        if (select.classList && select.classList.contains('pf-select-with-others')) {
+            pfSyncSelectOthersWrap(select);
+        }
         if (select.dataset.pfServiceFieldBound === '1') return;
         select.dataset.pfServiceFieldBound = '1';
-        select.addEventListener('change', updateConditionalFields);
+        select.addEventListener('change', function() {
+            if (this.classList && this.classList.contains('pf-select-with-others')) {
+                pfSyncSelectOthersWrap(this);
+            }
+            updateConditionalFields();
+        });
     });
     
     document.querySelectorAll('.custom-dim-width, .custom-dim-height').forEach(input => {
@@ -1030,6 +1265,7 @@ function initServiceFieldRenderer() {
     
     // Run once on load to show initial state
     updateConditionalFields();
+    initPfDesignUploadGroups();
 }
 
 if (document.readyState === 'loading') {

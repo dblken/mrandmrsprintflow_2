@@ -10,10 +10,107 @@
 
 if (!defined('BASE_URL')) define('BASE_URL', '/printflow');
 
-// Allowed MIME types for design uploads (JPG, PNG, PDF, AI)
-define('SERVICE_ORDER_ALLOWED_MIME', ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf', 'application/postscript', 'application/x-adobe-ai', 'image/vnd.adobe.photoshop']);
-define('SERVICE_ORDER_ALLOWED_EXT', ['jpg', 'jpeg', 'png', 'pdf', 'ai', 'psd']);
+// Allowed MIME types for design uploads (images, PDF, AI/PSD)
+define('SERVICE_ORDER_ALLOWED_MIME', [
+    'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml',
+    'application/pdf', 'application/postscript', 'application/x-adobe-ai', 'image/vnd.adobe.photoshop',
+]);
+define('SERVICE_ORDER_ALLOWED_EXT', ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'pdf', 'ai', 'psd']);
 define('SERVICE_ORDER_MAX_SIZE', 5 * 1024 * 1024); // 5MB limit requested by user
+define('SERVICE_ORDER_SUPPORTED_FORMATS_LABEL', 'PNG, JPG, JPEG, WEBP, GIF, SVG, PDF, AI, PSD');
+
+/**
+ * POST field name for the optional design/image link paired with a file field.
+ */
+function service_order_design_link_post_name(string $field_key = 'design_file'): string {
+    $field_key = trim($field_key);
+    return $field_key !== '' ? $field_key . '_link' : 'design_file_link';
+}
+
+/**
+ * Customization JSON key for storing an external design/image link.
+ */
+function service_order_design_link_storage_key(string $field_label): string {
+    $field_label = trim($field_label);
+    return $field_label !== '' ? $field_label . ' Link' : 'Design Link';
+}
+
+/**
+ * Accept attribute for customer file inputs.
+ */
+function service_order_design_file_accept_attr(): string {
+    return '.' . implode(',.', SERVICE_ORDER_ALLOWED_EXT);
+}
+
+/**
+ * Validate an external design/image link (HTTP/HTTPS only).
+ *
+ * @return array{ok:bool,error:string,url:string}
+ */
+function service_order_validate_design_link(string $url): array {
+    $url = trim($url);
+    if ($url === '') {
+        return ['ok' => false, 'error' => 'Please enter a design link.', 'url' => ''];
+    }
+
+    if (preg_match('/^\s*(javascript|data|file|vbscript):/i', $url)) {
+        return ['ok' => false, 'error' => 'Invalid link. Only HTTP/HTTPS URLs are allowed.', 'url' => ''];
+    }
+
+    if (!preg_match('/^https?:\/\//i', $url)) {
+        return ['ok' => false, 'error' => 'Please enter a valid HTTP or HTTPS link.', 'url' => ''];
+    }
+
+    if (filter_var($url, FILTER_VALIDATE_URL) === false) {
+        return ['ok' => false, 'error' => 'Please enter a valid design link.', 'url' => ''];
+    }
+
+    $parts = parse_url($url);
+    $host = strtolower((string)($parts['host'] ?? ''));
+    if ($host === 'localhost' || $host === '0.0.0.0' || str_ends_with($host, '.local')) {
+        return ['ok' => false, 'error' => 'Please enter a publicly accessible design link.', 'url' => ''];
+    }
+
+    if (filter_var($host, FILTER_VALIDATE_IP)) {
+        $flags = FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE;
+        if (filter_var($host, FILTER_VALIDATE_IP, $flags) === false) {
+            return ['ok' => false, 'error' => 'Please enter a publicly accessible design link.', 'url' => ''];
+        }
+    }
+
+    return ['ok' => true, 'error' => '', 'url' => $url];
+}
+
+/**
+ * Read a saved external design link from customization payload keys.
+ */
+function service_order_extract_design_link_from_customization(array $customization, string $field_label = '', string $field_key = 'design_file'): string {
+    $candidates = [];
+    if ($field_label !== '') {
+        $candidates[] = service_order_design_link_storage_key($field_label);
+    }
+    $candidates[] = service_order_design_link_post_name($field_key);
+    $candidates[] = 'design_link';
+    $candidates[] = 'design_external_link';
+    $candidates[] = 'Upload Design Link';
+    $candidates[] = 'Design Link';
+
+    foreach ($candidates as $candidate) {
+        if (!array_key_exists($candidate, $customization)) {
+            continue;
+        }
+        $value = $customization[$candidate];
+        if (!is_scalar($value)) {
+            continue;
+        }
+        $text = trim((string)$value);
+        if ($text !== '' && preg_match('/^https?:\/\//i', $text)) {
+            return $text;
+        }
+    }
+
+    return '';
+}
 
 /**
  * Validate uploaded design file
@@ -52,14 +149,14 @@ function service_order_validate_file($file) {
     $mime  = finfo_file($finfo, $file['tmp_name']);
     finfo_close($finfo);
 
-    if (!in_array($mime, SERVICE_ORDER_ALLOWED_MIME)) {
-        return ['ok' => false, 'error' => 'Invalid file type. Only JPG and PNG images are allowed.', 'mime' => ''];
+    if (!in_array($mime, SERVICE_ORDER_ALLOWED_MIME, true)) {
+        return ['ok' => false, 'error' => 'Invalid file type. Supported files: ' . SERVICE_ORDER_SUPPORTED_FORMATS_LABEL . '.', 'mime' => ''];
     }
 
     // Extra check: extension must also match (defence-in-depth)
     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-    if (!in_array($ext, SERVICE_ORDER_ALLOWED_EXT)) {
-        return ['ok' => false, 'error' => 'Invalid file extension. Only .jpg / .jpeg / .png are allowed.', 'mime' => ''];
+    if (!in_array($ext, SERVICE_ORDER_ALLOWED_EXT, true)) {
+        return ['ok' => false, 'error' => 'Invalid file extension. Supported files: ' . SERVICE_ORDER_SUPPORTED_FORMATS_LABEL . '.', 'mime' => ''];
     }
 
     return ['ok' => true, 'error' => '', 'mime' => $mime];

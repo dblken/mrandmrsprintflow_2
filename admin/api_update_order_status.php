@@ -16,6 +16,7 @@ require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/variant_functions.php';
 require_once __DIR__ . '/../includes/TarpaulinService.php';
+require_once __DIR__ . '/../includes/provider_payments.php';
 
 require_role(['Admin', 'Manager']);
 
@@ -41,17 +42,54 @@ if (!$order_id || !in_array($new_status, $allowed)) {
 }
 
 // Get current order
-$order = db_query("SELECT order_id, status, customer_id, branch_id FROM orders WHERE order_id = ?", 'i', [$order_id]);
+$order = db_query(
+    "SELECT order_id, status, customer_id, branch_id, order_type, order_source, reference_id, payment_status
+     FROM orders WHERE order_id = ?",
+    'i',
+    [$order_id]
+);
 if (empty($order)) {
     echo json_encode(['success' => false, 'error' => 'Order not found']);
     exit;
 }
 $order = $order[0];
+$isReadyMadeProductOrder = strtolower(trim((string)($order['order_type'] ?? ''))) === 'product'
+    && printflow_is_ready_made_product_order($order);
+if ($new_status === 'Completed' && $isReadyMadeProductOrder) {
+    $paymentStatus = strtolower(trim((string)($order['payment_status'] ?? '')));
+    if (!in_array($paymentStatus, ['paid', 'fully paid'], true)) {
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => 'Cannot complete an unpaid ready-made product order.']);
+        exit;
+    }
+    $providerPayment = printflow_provider_payment_find('order', $order_id, 'online', printflow_paymongo_mode());
+    if (($providerPayment['status'] ?? '') !== 'paid') {
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => 'Cannot complete this order before PayMongo verifies payment.']);
+        exit;
+    }
+}
 
 printflow_assert_order_branch_access($order_id);
 
+$serviceCompletionTransactionStarted = false;
+if ($new_status === 'Completed' && !$isReadyMadeProductOrder) {
+    global $conn;
+    if (!printflow_db_in_transaction($conn)) {
+        $conn->begin_transaction();
+        $serviceCompletionTransactionStarted = true;
+    }
+    $lockedOrderRows = db_query('SELECT status FROM orders WHERE order_id = ? FOR UPDATE', 'i', [$order_id]) ?: [];
+    if ($lockedOrderRows === []) {
+        if ($serviceCompletionTransactionStarted) $conn->rollback();
+        echo json_encode(['success' => false, 'error' => 'Order not found']);
+        exit;
+    }
+    $order['status'] = (string)$lockedOrderRows[0]['status'];
+}
+
 // --- Safeguard: Check if all roll-based items have production specs ---
-if ($new_status === 'Completed' && $order['status'] !== 'Completed') {
+if ($new_status === 'Completed' && $order['status'] !== 'Completed' && !$isReadyMadeProductOrder) {
     $missing_specs = db_query("
         SELECT p.name 
         FROM order_items oi
@@ -63,6 +101,7 @@ if ($new_status === 'Completed' && $order['status'] !== 'Completed') {
     ", 'i', [$order_id]);
 
     if (!empty($missing_specs)) {
+        if ($serviceCompletionTransactionStarted && printflow_db_in_transaction($conn)) $conn->rollback();
         $names = array_column($missing_specs, 'name');
         echo json_encode([
             'success' => false,
@@ -73,9 +112,10 @@ if ($new_status === 'Completed' && $order['status'] !== 'Completed') {
 }
 
 // --- Material deduction when marking Completed ---
-if ($new_status === 'Completed' && $order['status'] !== 'Completed') {
+if ($new_status === 'Completed' && $order['status'] !== 'Completed' && !$isReadyMadeProductOrder) {
     $deduction = deduct_materials_by_variant($order_id);
     if (!$deduction['success']) {
+        if ($serviceCompletionTransactionStarted && printflow_db_in_transaction($conn)) $conn->rollback();
         echo json_encode([
             'success' => false,
             'error'   => implode(' ', $deduction['errors']),
@@ -89,6 +129,7 @@ if ($new_status === 'Completed' && $order['status'] !== 'Completed') {
     } catch (Exception $e) {
         // We log it but maybe continue? Or block?
         // Blocking is safer if the user wants strict inventory control.
+        if ($serviceCompletionTransactionStarted && printflow_db_in_transaction($conn)) $conn->rollback();
         echo json_encode([
             'success' => false,
             'error'   => "Tarpaulin deduction failed: " . $e->getMessage(),
@@ -96,54 +137,68 @@ if ($new_status === 'Completed' && $order['status'] !== 'Completed') {
         exit;
     }
 
+}
+
+$inventoryTransactionStarted = false;
+if ($new_status === 'Completed' && $order['status'] !== 'Completed' && $isReadyMadeProductOrder) {
+    global $conn;
+    if (!printflow_db_in_transaction($conn)) {
+        $conn->begin_transaction();
+        $inventoryTransactionStarted = true;
+    }
+    db_query('SELECT order_id FROM orders WHERE order_id = ? FOR UPDATE', 'i', [$order_id]);
+
     $orderBranchId = (int)($order['branch_id'] ?? 0);
-    $orderRef = printflow_get_order_inventory_reference($order_id);
-    $orderLabel = $orderRef['label'] ?? ('Order #' . printflow_format_order_code($order_id, ''));
-    // Branch-aware product stock deduction for regular order items.
     $productItems = db_query(
-        "SELECT oi.product_id, oi.quantity, p.name AS product_name
-         FROM order_items oi
-         LEFT JOIN products p ON p.product_id = oi.product_id
-         WHERE oi.order_id = ?",
+        "SELECT oi.order_item_id, oi.product_id, oi.quantity
+         FROM order_items oi WHERE oi.order_id = ?",
         'i',
         [$order_id]
     ) ?: [];
 
-    foreach ($productItems as $item) {
-        $productId = (int)($item['product_id'] ?? 0);
-        $qty = (int)($item['quantity'] ?? 0);
-        if ($productId <= 0 || $qty <= 0) {
-            continue;
-        }
+    try {
+        foreach ($productItems as $item) {
+            $productId = (int)($item['product_id'] ?? 0);
+            $qty = (int)($item['quantity'] ?? 0);
+            if ($productId <= 0 || $qty <= 0) continue;
 
-        if (!printflow_product_deduct_stock_for_branch($productId, $orderBranchId, $qty)) {
-            $productName = (string)($item['product_name'] ?? ('Product #' . $productId));
-            echo json_encode([
-                'success' => false,
-                'error'   => "Insufficient stock for \"{$productName}\" at branch #{$orderBranchId}.",
-            ]);
-            exit;
+            printflow_apply_product_order_item_inventory(
+                (int)$item['order_item_id'],
+                $orderBranchId,
+                (int)(get_user_id() ?? 0),
+                'Admin product completion'
+            );
         }
-
-        printflow_record_product_inventory_transaction(
-            $productId,
-            'OUT',
-            (float)$qty,
-            'ORDER',
-            $order_id,
-            "{$orderLabel} completed - " . (string)($item['product_name'] ?? ('Product #' . $productId)),
-            (int)(get_user_id() ?? 0),
-            date('Y-m-d'),
-            $orderBranchId
-        );
+    } catch (Throwable $inventoryError) {
+        if ($inventoryTransactionStarted && printflow_db_in_transaction($conn)) $conn->rollback();
+        echo json_encode(['success' => false, 'error' => $inventoryError->getMessage()]);
+        exit;
     }
-}
 
 // Update status
-db_execute(
-    "UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?",
-    'si', [$new_status, $order_id]
-);
+    if (!db_execute(
+        "UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?",
+        'si',
+        [$new_status, $order_id]
+    )) {
+        if ($inventoryTransactionStarted && printflow_db_in_transaction($conn)) $conn->rollback();
+        echo json_encode(['success' => false, 'error' => 'Failed to update order status.']);
+        exit;
+    }
+    if ($inventoryTransactionStarted) $conn->commit();
+} else {
+    $statusUpdated = db_execute(
+        "UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?",
+        'si',
+        [$new_status, $order_id]
+    );
+    if (!$statusUpdated) {
+        if ($serviceCompletionTransactionStarted && printflow_db_in_transaction($conn)) $conn->rollback();
+        echo json_encode(['success' => false, 'error' => 'Failed to update order status.']);
+        exit;
+    }
+    if ($serviceCompletionTransactionStarted) $conn->commit();
+}
 
 // Notify customer + add system message to chat
 $customer_id = (int)$order['customer_id'];

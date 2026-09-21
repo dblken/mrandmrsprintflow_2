@@ -11,6 +11,7 @@ require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
+require_once __DIR__ . '/../includes/change_item_workflow.php';
 
 header('Content-Type: application/json');
 
@@ -76,6 +77,7 @@ $status_map = [
     'Ready for Pickup' => 'TO_RECEIVE',
     'Completed' => 'COMPLETED',
     'Cancelled' => 'CANCELLED',
+    'Change Item Request' => 'CHANGE_ITEM_REQUEST',
 ];
 $db_status = (string)($o['status'] ?? '');
 $mapped_status = $status_map[$db_status] ?? $db_status;
@@ -100,13 +102,15 @@ if ($service_name === '') {
 
 $linked_job_id = 0;
 $linked_job_order_item_id = 0;
+$linked_job_status = '';
 $linkedJobRows = db_query(
-    "SELECT id, order_item_id FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1",
+    "SELECT id, order_item_id, status FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1",
     'i',
     [$order_id]
 ) ?: [];
 $linked_job_id = (int)($linkedJobRows[0]['id'] ?? 0);
 $linked_job_order_item_id = (int)($linkedJobRows[0]['order_item_id'] ?? 0);
+$linked_job_status = (string)($linkedJobRows[0]['status'] ?? '');
 if ($linked_job_id <= 0 && $ensureJob && strtolower(trim((string)($o['order_type'] ?? ''))) === 'custom') {
     $linked_job_id = (int)(JobOrderService::ensureJobsForStoreOrder($order_id) ?? 0);
     if ($linked_job_id > 0) {
@@ -300,6 +304,7 @@ $data = [
     'id' => $o['order_id'],
     'order_id' => $o['order_id'],
     'job_order_id' => $linked_job_id ?: null,
+    'job_status' => $linked_job_status !== '' ? $linked_job_status : null,
     'requires_ink' => $linked_job_id ? printflow_job_requires_ink($linked_job_id) : true,
     'order_type' => 'ORDER',
     'customer_full_name' => $o['customer_full_name'] ?? trim(($o['first_name'] ?? '') . ' ' . ($o['last_name'] ?? '')),
@@ -360,5 +365,25 @@ $data = [
     'ink_usage' => $ink_usage,
     'revision_review' => printflow_revision_review_payload($order_id, true),
 ];
+
+$changeItemSummary = printflow_change_item_summary_for_order($order_id);
+$data['change_item'] = $changeItemSummary;
+$data['has_change_item'] = !empty($changeItemSummary['has_history']) || !empty($changeItemSummary['active']);
+$data['change_item_active'] = !empty($changeItemSummary['active']);
+$data['change_item_badge'] = !empty($changeItemSummary['show_badge'])
+    ? (string)($changeItemSummary['badge_label'] ?? 'Changed Item')
+    : '';
+$data['change_item_status'] = !empty($changeItemSummary['active'])
+    ? (string)($changeItemSummary['active']['status'] ?? '')
+    : '';
+$data['change_item_request_id'] = !empty($changeItemSummary['active']['id'])
+    ? (int)$changeItemSummary['active']['id']
+    : 0;
+$data['change_item_pending_review'] = !empty($changeItemSummary['active']['is_pending_review']);
+$data['change_item_code'] = (string)($changeItemSummary['active']['change_item_code'] ?? '');
+$data['change_item_request_source'] = (string)($changeItemSummary['active']['request_source'] ?? '');
+$data['change_item_request_source_label'] = (string)($changeItemSummary['active']['request_source_label'] ?? '');
+$data['change_item_verification_status'] = (string)($changeItemSummary['active']['verification_status'] ?? '');
+$data['change_item_change_status'] = (string)($changeItemSummary['active']['change_status'] ?? '');
 
 echo json_encode(['success' => true, 'data' => $data]);

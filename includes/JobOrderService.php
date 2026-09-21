@@ -237,7 +237,15 @@ class JobOrderService {
         return (int)($row[0]['order_id'] ?? 0);
     }
 
-    private static function getScopedMaterials(int $jobId, bool $onlyUndeducted = false): array {
+    public static function getJobBranchIdPublic(int $jobId): ?int {
+        return self::getJobBranchId($jobId);
+    }
+
+    public static function getScopedMaterialsPublic(int $jobId, bool $onlyUndeducted = false, bool $forUpdate = false): array {
+        return self::getScopedMaterials($jobId, $onlyUndeducted, $forUpdate);
+    }
+
+    private static function getScopedMaterials(int $jobId, bool $onlyUndeducted = false, bool $forUpdate = false): array {
         $storeOrderId = self::getLinkedStoreOrderId($jobId);
         $sql = "SELECT *
                 FROM job_order_materials
@@ -256,11 +264,14 @@ class JobOrderService {
         if ($onlyUndeducted) {
             $sql .= " AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')";
         }
+        if ($forUpdate) {
+            $sql .= " FOR UPDATE";
+        }
 
         return db_query($sql, $types, $params) ?: [];
     }
 
-    private static function getScopedInkUsage(int $jobId): array {
+    private static function getScopedInkUsage(int $jobId, bool $onlyUndeducted = false, bool $forUpdate = false): array {
         $storeOrderId = self::getLinkedStoreOrderId($jobId);
         $sql = "SELECT *
                 FROM job_order_ink_usage
@@ -275,6 +286,17 @@ class JobOrderService {
         }
 
         $sql .= ")";
+        if ($onlyUndeducted) {
+            if (!self::tableHasColumn('job_order_ink_usage', 'deducted_at')) {
+                $existingInkRows = db_query($sql . ' LIMIT 1', $types, $params) ?: [];
+                if ($existingInkRows === []) return [];
+                throw new RuntimeException('The ink-usage idempotency migration is required before inventory can be deducted.');
+            }
+            $sql .= " AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')";
+        }
+        if ($forUpdate) {
+            $sql .= " FOR UPDATE";
+        }
 
         return db_query($sql, $types, $params) ?: [];
     }
@@ -764,6 +786,11 @@ class JobOrderService {
             ));
 
             try {
+                require_once __DIR__ . '/service_field_priority_helper.php';
+                $serviceIdForPriority = (int)($custom['service_id'] ?? 0);
+                $priorityRequest = printflow_resolve_dynamic_order_priority($serviceIdForPriority, $custom);
+                $jobPriority = (string)($priorityRequest['job_priority'] ?? 'NORMAL');
+
                 $jid = self::createOrder([
                     'order_id'        => $orderId,
                     'customer_id'     => $customerId,
@@ -779,7 +806,7 @@ class JobOrderService {
                     'estimated_total' => $unit_price * $job_qty,
                     'notes'           => $notes,
                     'due_date'        => null,
-                    'priority'        => 'NORMAL',
+                    'priority'        => $jobPriority,
                     'order_item_id'   => (int)($item['order_item_id'] ?? 0),
                     'artwork_path'    => self::orderItemArtworkPath((int)($item['order_item_id'] ?? 0)),
                     'created_by'      => null,
@@ -1096,10 +1123,29 @@ class JobOrderService {
             } elseif (!empty($order['order_id'])) {
                 printflow_revision_close_active((int)$order['order_id'], 'Closed - ' . (string)$newStatus);
             }
+
+            $linkedOrderId = (int)($order['order_id'] ?? 0);
+            $preserveStoreOrderStatus = false;
+            if ($linkedOrderId > 0) {
+                require_once __DIR__ . '/change_item_workflow.php';
+                $preserveStoreOrderStatus = printflow_change_item_blocks_store_order_sync($linkedOrderId);
+            }
+            $activeChangeItem = ($preserveStoreOrderStatus && $linkedOrderId > 0)
+                ? printflow_change_item_get_active($linkedOrderId)
+                : null;
+
             // Materials are now handled once the job is live in production.
             if (in_array($normalizedNewStatus, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'], true)) {
-                // Deduct materials when moving to production
-                self::processDeductions($orderId);
+                if ($activeChangeItem !== null) {
+                    try {
+                        printflow_change_item_process_inventory((int)($activeChangeItem['change_item_id'] ?? 0));
+                    } catch (Throwable $e) {
+                        throw new Exception($e->getMessage());
+                    }
+                } else {
+                    // Deduct materials when moving to production
+                    self::processDeductions($orderId);
+                }
             }
 
             if ($normalizedNewStatus === 'COMPLETED') {
@@ -1124,8 +1170,11 @@ class JobOrderService {
                     throw new Exception('Cannot mark as Completed: payment must be Paid. Current payment status: ' . ($order['payment_status'] ?? 'Unpaid'));
                 }
                 
-                // Process deductions again (idempotent - will skip already deducted items)
-                self::processDeductions($orderId);
+                // Completion is a recovery pass for assigned materials only.
+                // Ink usage is processed at production entry and must not be issued twice.
+                if (!$preserveStoreOrderStatus) {
+                    self::processDeductions($orderId, ['materials' => true, 'inks' => false]);
+                }
                 if ($order['customer_id']) {
                     self::updateCustomerStatus($order['customer_id']);
                 }
@@ -1137,7 +1186,7 @@ class JobOrderService {
             }
 
             // Sync status back to standard orders table
-            if (!empty($order['order_id'])) {
+            if (!empty($order['order_id']) && !$preserveStoreOrderStatus) {
                 // Map job status → orders table status
                 $order_status_map = [
                     'PENDING'       => 'Pending Approval',
@@ -1151,6 +1200,7 @@ class JobOrderService {
                     'COMPLETED'     => 'Completed',
                     'CANCELLED'     => 'Cancelled',
                     'FOR_REVISION'  => 'For Revision',
+                    'CHANGE_ITEM_REQUEST' => 'Change Item Request',
                 ];
                 $storeStatus = $order_status_map[$normalizedNewStatus] ?? $newStatus;
 
@@ -1176,6 +1226,9 @@ class JobOrderService {
 
                 db_execute("UPDATE orders SET " . implode(', ', $sql_parts) . " WHERE order_id = ?", $types, $params);
             }
+
+            require_once __DIR__ . '/change_item_workflow.php';
+            printflow_change_item_on_job_status_change((int)$orderId, $normalizedNewStatus);
 
             // Send real-time notification to customer on every status change
             if (!$silent && !empty($order['customer_id'])) {
@@ -1231,24 +1284,41 @@ class JobOrderService {
      * Idempotent deduction for all materials in an order.
      */
     private static function processDeductions($orderId, array $options = []) {
+        global $conn;
+
+        $startedTransaction = !printflow_db_in_transaction($conn);
+        if ($startedTransaction && !$conn->begin_transaction()) {
+            throw new RuntimeException('Unable to start the material deduction transaction.');
+        }
+
+        try {
         $processMaterials = $options['materials'] ?? true;
         $processInks = $options['inks'] ?? true;
         $branchId = self::getJobBranchId((int)$orderId);
+        if ($branchId === null || $branchId <= 0) {
+            throw new RuntimeException("Job #{$orderId} does not identify an inventory branch.");
+        }
+        db_query('SELECT id FROM job_orders WHERE id = ? FOR UPDATE', 'i', [(int)$orderId]);
         $jobRef = printflow_get_job_inventory_reference((int)$orderId);
         $jobLabel = $jobRef['label'] ?? ('Job #' . printflow_format_job_code((int)$orderId));
-        $materials = $processMaterials ? self::getScopedMaterials((int)$orderId, true) : [];
+        $materials = $processMaterials ? self::getScopedMaterials((int)$orderId, true, true) : [];
         
         if ($materials) {
             foreach ($materials as $m) {
+                db_query('SELECT id FROM inv_items WHERE id = ? FOR UPDATE', 'i', [(int)$m['item_id']]);
                 $item = InventoryManager::getItem($m['item_id']);
-                if (!$item) continue;
+                if (!$item) {
+                    throw new RuntimeException('An assigned inventory material no longer exists.');
+                }
 
                 if ($item['track_by_roll']) {
                     $lengthNeeded = (float)($m['computed_required_length_ft'] ?: $m['quantity']);
 
                     if ($lengthNeeded <= 0) {
                         // Nothing to deduct — mark as processed and continue
-                        db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ?", 'i', [$m['id']]);
+                        if (db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')", 'i', [$m['id']]) === false) {
+                            throw new RuntimeException('Failed to mark the zero-quantity material as processed.');
+                        }
                         continue;
                     }
 
@@ -1276,6 +1346,7 @@ class JobOrderService {
                     if (is_array($metadata) && isset($metadata['lamination_item_id']) && !empty($metadata['lamination_length_ft'])) {
                         $lamItem = InventoryManager::getItem($metadata['lamination_item_id']);
                         if ($lamItem) {
+                            db_query('SELECT id FROM inv_items WHERE id = ? FOR UPDATE', 'i', [(int)$lamItem['id']]);
                             try {
                                 if ($lamItem['track_by_roll']) {
                                     RollService::deductFIFO(
@@ -1308,7 +1379,9 @@ class JobOrderService {
                         }
                     }
 
-                    db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ?", 'i', [$m['id']]);
+                    if (db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')", 'i', [$m['id']]) === false) {
+                        throw new RuntimeException('Failed to finalize the roll-material deduction.');
+                    }
                 } else {
                     // Non-roll deduction
                     InventoryManager::issueStock(
@@ -1323,18 +1396,23 @@ class JobOrderService {
                         $branchId
                     );
                     // Mark as deducted
-                    db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ?", 'i', [$m['id']]);
+                    if (db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')", 'i', [$m['id']]) === false) {
+                        throw new RuntimeException('Failed to finalize the material deduction.');
+                    }
                 }
             }
         }
 
         // Process Ink Deductions
-        $inks = $processInks ? self::getScopedInkUsage((int)$orderId) : [];
+        $inks = $processInks ? self::getScopedInkUsage((int)$orderId, true, true) : [];
         if ($inks) {
             foreach ($inks as $ink) {
+                db_query('SELECT id FROM inv_items WHERE id = ? FOR UPDATE', 'i', [(int)$ink['item_id']]);
                 // Determine item from inventory
                 $inkItem = InventoryManager::getItem($ink['item_id']);
-                if (!$inkItem) continue;
+                if (!$inkItem) {
+                    throw new RuntimeException('An assigned ink inventory item no longer exists.');
+                }
                 $inkQtyForInventory = self::convertInkMlToItemUom((float)$ink['quantity_used'], $inkItem);
 
                 InventoryManager::issueStock(
@@ -1348,7 +1426,26 @@ class JobOrderService {
                     false,
                     $branchId
                 );
+                if (db_execute(
+                    "UPDATE job_order_ink_usage
+                     SET deducted_at = NOW()
+                     WHERE id = ?
+                       AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')",
+                    'i',
+                    [(int)$ink['id']]
+                ) === false) {
+                    throw new RuntimeException('Failed to finalize the ink deduction.');
+                }
             }
+        }
+        if ($startedTransaction) {
+            $conn->commit();
+        }
+        } catch (Throwable $e) {
+            if ($startedTransaction && printflow_db_in_transaction($conn)) {
+                $conn->rollback();
+            }
+            throw $e;
         }
     }
 
@@ -2265,12 +2362,19 @@ class JobOrderService {
             ];
         }
         $service_name = get_service_name_from_customization($first_custom, $items_out[0]['product_name'] ?? 'Custom Order');
+        require_once __DIR__ . '/service_field_priority_helper.php';
+        $serviceIdForPriority = (int)($items_out[0]['service_id'] ?? 0);
+        if ($serviceIdForPriority <= 0) {
+            $serviceIdForPriority = (int)($first_custom['service_id'] ?? 0);
+        }
+        $priorityRequest = printflow_resolve_dynamic_order_priority($serviceIdForPriority, $first_custom);
         return [
             'items'        => $items_out,
             'width_ft'     => $width_ft,
             'height_ft'    => $height_ft,
             'service_type' => $service_name,
             'line_qty'     => $total_qty,
+            'priority_request' => $priorityRequest,
         ];
         }
 
@@ -2766,6 +2870,7 @@ class JobOrderService {
             }
         }
 
+        require_once __DIR__ . '/service_field_priority_helper.php';
         return [
             'items' => $items_out,
             'width_ft' => $width_ft,
@@ -2775,6 +2880,79 @@ class JobOrderService {
             'service_category' => $service_category,
             'line_qty' => $total_qty,
             'customization_details' => $first_custom,
+            'priority_request' => printflow_resolve_dynamic_order_priority(
+                (int)($service_id ?: ($first_custom['service_id'] ?? 0)),
+                $first_custom
+            ),
+        ];
+    }
+
+    /**
+     * Resolve customer Needed Date from store order items (first matching line).
+     *
+     * @param array<string,mixed> $orderMeta
+     * @param array<int,array<string,mixed>> $orderItems
+     * @return array{needed_date:string,needed_date_display:string}
+     */
+    private static function resolveStoreOrderNeededDatePayload(array $orderMeta, array $orderItems, bool $serviceOnly = false): array
+    {
+        require_once __DIR__ . '/service_field_priority_helper.php';
+
+        foreach ($orderItems as $item) {
+            $custom = customer_orders_decode_customization_payload((string)($item['customization_data'] ?? ''));
+            $savedSpecs = customer_orders_decode_customization_payload((string)($item['specifications'] ?? ''));
+            if ($savedSpecs !== []) {
+                $custom = printflow_overlay_nonempty_assoc($custom, $savedSpecs);
+            }
+            if ($serviceOnly && !self::isServiceStoreOrderItem($item, $custom)) {
+                continue;
+            }
+
+            $identity = self::resolveBatchStoreOrderLineIdentity($orderMeta, $item, $custom);
+            $serviceId = (int)($identity['service_id'] ?? 0);
+            if ($serviceId <= 0) {
+                $serviceId = (int)($custom['service_id'] ?? 0);
+            }
+
+            $raw = printflow_resolve_needed_date_from_customization($custom, $serviceId);
+            if ($raw !== '') {
+                return [
+                    'needed_date' => $raw,
+                    'needed_date_display' => printflow_format_needed_date_display($raw),
+                ];
+            }
+        }
+
+        return [
+            'needed_date' => '',
+            'needed_date_display' => '',
+        ];
+    }
+
+    /**
+     * Resolve staff list display identity using the same rules as customer/orders.php.
+     *
+     * @return array{display_name:string,service_id:int,item_type:string}
+     */
+    private static function resolveBatchStoreOrderLineIdentity(array $orderMeta, array $item, array $custom): array {
+        if (function_exists('printflow_resolve_order_line_identity')) {
+            $identity = printflow_resolve_order_line_identity($orderMeta, $item, $custom);
+            return [
+                'display_name' => trim((string)($identity['display_name'] ?? '')) ?: 'Custom Order',
+                'service_id' => (int)($identity['service_id'] ?? 0),
+                'item_type' => (string)($identity['item_type'] ?? 'product'),
+            ];
+        }
+
+        $name = trim((string)($item['product_name'] ?? ''));
+        if ($name === '') {
+            $name = get_service_name_from_customization($custom, 'Custom Order');
+        }
+
+        return [
+            'display_name' => $name !== '' ? $name : 'Custom Order',
+            'service_id' => (int)($custom['service_id'] ?? $item['service_id'] ?? 0),
+            'item_type' => self::isServiceStoreOrderItem($item, $custom) ? 'service' : 'product',
         ];
     }
 
@@ -2782,8 +2960,9 @@ class JobOrderService {
      * Batch-load the small subset of order-item data required by staff list rows.
      *
      * This deliberately never selects design_image and never returns raw
-     * customization/specification JSON. Full media and specifications belong to
-     * getStoreOrderItemsPayload()/getOrder(), which are called when View opens.
+     * customization/specification JSON in the API payload. Full media and
+     * specifications belong to getStoreOrderItemsPayload()/getOrder(), which
+     * are called when View opens.
      *
      * @param  int[] $orderIds
      * @return array<int, array{items:array,width_ft:string,height_ft:string,service_type:string,line_qty:int}>
@@ -2798,39 +2977,29 @@ class JobOrderService {
             printflow_ensure_order_items_specifications_column();
         }
 
+        require_once __DIR__ . '/order_ui_helper.php';
+
         $idsStr = implode(',', $orderIds);
+        $itemTypeSelect = self::tableHasColumn('order_items', 'item_type') ? 'oi.item_type,' : '';
+        $serviceIdSelect = self::tableHasColumn('order_items', 'service_id') ? 'oi.service_id,' : '';
         $items = db_query(
             "SELECT oi.order_item_id, oi.order_id, oi.product_id, oi.quantity,
-                    p.name AS product_name, p.category, p.product_type,
-                    COALESCE(
-                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.width')) END,
-                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.width')) END
-                    ) AS pf_width,
-                    COALESCE(
-                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.height')) END,
-                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.height')) END
-                    ) AS pf_height,
-                    COALESCE(
-                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.dimensions')) END,
-                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.dimensions')) END
-                    ) AS pf_dimensions,
-                    COALESCE(
-                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.service_type')) END,
-                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_type')) END
-                    ) AS pf_service_type,
-                    COALESCE(
-                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.source_page')) END,
-                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.source_page')) END
-                    ) AS pf_source_page,
-                    COALESCE(
-                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.form_type')) END,
-                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.form_type')) END
-                    ) AS pf_form_type
+                    oi.customization_data, oi.specifications,
+                    {$itemTypeSelect}{$serviceIdSelect}
+                    p.name AS product_name, p.category, p.product_type
              FROM order_items oi
              LEFT JOIN products p ON p.product_id = oi.product_id
              WHERE oi.order_id IN ({$idsStr})
              ORDER BY oi.order_item_id ASC"
         ) ?: [];
+
+        $orderMetaById = [];
+        $orderMetaRows = db_query(
+            "SELECT order_id, order_type, reference_id FROM orders WHERE order_id IN ({$idsStr})"
+        ) ?: [];
+        foreach ($orderMetaRows as $orderMetaRow) {
+            $orderMetaById[(int)$orderMetaRow['order_id']] = $orderMetaRow;
+        }
 
         $itemsByOrder = [];
         foreach ($items as $item) {
@@ -2844,17 +3013,16 @@ class JobOrderService {
             $totalQty = 0;
             $widthFt = '1';
             $heightFt = '1';
+            $orderMeta = $orderMetaById[$orderId] ?? ['order_type' => 'custom', 'reference_id' => 0];
 
             foreach ($itemsByOrder[$orderId] ?? [] as $item) {
-                $custom = array_filter([
-                    'width' => $item['pf_width'] ?? null,
-                    'height' => $item['pf_height'] ?? null,
-                    'dimensions' => $item['pf_dimensions'] ?? null,
-                    'service_type' => $item['pf_service_type'] ?? null,
-                    'source_page' => $item['pf_source_page'] ?? null,
-                    'form_type' => $item['pf_form_type'] ?? null,
-                ], static fn($value): bool => $value !== null && trim((string)$value) !== '');
-                if ($serviceOnly && !self::isServiceStoreOrderItem($item, $custom)) {
+                $custom = customer_orders_decode_customization_payload((string)($item['customization_data'] ?? ''));
+                $savedSpecs = customer_orders_decode_customization_payload((string)($item['specifications'] ?? ''));
+                if ($savedSpecs !== []) {
+                    $custom = printflow_overlay_nonempty_assoc($custom, $savedSpecs);
+                }
+                $identity = self::resolveBatchStoreOrderLineIdentity($orderMeta, $item, $custom);
+                if ($serviceOnly && $identity['item_type'] !== 'service' && !self::isServiceStoreOrderItem($item, $custom)) {
                     continue;
                 }
                 if ($firstCustom === []) {
@@ -2874,29 +3042,51 @@ class JobOrderService {
                     }
                 }
 
-                $name = trim((string)($item['product_name'] ?? ''));
-                if ($name === '') {
-                    $name = get_service_name_from_customization($custom, 'Custom Order');
-                }
-
                 $itemsOut[] = [
                     'order_item_id' => (int)($item['order_item_id'] ?? 0),
-                    'product_name' => $name,
+                    'product_name' => $identity['display_name'],
                     'product_type' => $item['product_type'] ?? 'custom',
+                    'item_type' => $identity['item_type'],
+                    'service_id' => $identity['service_id'],
                     'quantity' => $quantity,
-                    'customization' => [],
+                    'customization' => array_filter([
+                        'service_type' => $custom['service_type'] ?? null,
+                        'service_id' => $identity['service_id'] > 0 ? $identity['service_id'] : ($custom['service_id'] ?? null),
+                        'source_page' => $custom['source_page'] ?? null,
+                    ], static fn($value): bool => $value !== null && trim((string)$value) !== ''),
                 ];
             }
 
-            $serviceName = $itemsOut !== []
-                ? get_service_name_from_customization($firstCustom, $itemsOut[0]['product_name'] ?? 'Custom Order')
-                : '';
+            $serviceName = '';
+            if ($itemsOut !== []) {
+                $serviceName = trim((string)($itemsOut[0]['product_name'] ?? ''));
+            }
+            if ($serviceName === '') {
+                $serviceName = get_service_name_from_customization($firstCustom, 'Custom Order');
+            }
+
+            require_once __DIR__ . '/service_field_priority_helper.php';
+            $serviceIdForPriority = (int)($itemsOut[0]['service_id'] ?? 0);
+            if ($serviceIdForPriority <= 0) {
+                $serviceIdForPriority = (int)($firstCustom['service_id'] ?? 0);
+            }
+            $priorityRequest = printflow_resolve_dynamic_order_priority($serviceIdForPriority, $firstCustom);
+            $neededDatePayload = self::resolveStoreOrderNeededDatePayload(
+                $orderMeta,
+                $itemsByOrder[$orderId] ?? [],
+                $serviceOnly
+            );
+
             $payloads[$orderId] = [
                 'items' => $itemsOut,
                 'width_ft' => $widthFt,
                 'height_ft' => $heightFt,
                 'service_type' => $serviceName,
+                'service_id' => (int)($itemsOut[0]['service_id'] ?? 0),
                 'line_qty' => $totalQty,
+                'priority_request' => $priorityRequest,
+                'needed_date' => $neededDatePayload['needed_date'],
+                'needed_date_display' => $neededDatePayload['needed_date_display'],
             ];
         }
 
@@ -2933,11 +3123,14 @@ class JobOrderService {
         }
 
         $idsStr = implode(',', $orderIds);
+        $itemTypeSelect = self::tableHasColumn('order_items', 'item_type') ? 'oi.item_type,' : '';
+        $serviceIdSelect = self::tableHasColumn('order_items', 'service_id') ? 'oi.service_id,' : '';
         $items = db_query(
             "SELECT oi.order_item_id, oi.order_id, oi.product_id, oi.quantity,
                     oi.customization_data, oi.specifications,
                     oi.design_image, oi.design_file, oi.reference_image_file,
                     IFNULL(LENGTH(oi.design_image),0) AS pf_design_image_bytes,
+                    {$itemTypeSelect}{$serviceIdSelect}
                     p.name AS product_name, p.category, p.product_type,
                     {$productImageSelect}
              FROM order_items oi
@@ -2947,6 +3140,14 @@ class JobOrderService {
         ) ?: [];
 
         require_once __DIR__ . '/order_ui_helper.php';
+
+        $orderMetaById = [];
+        $orderMetaRows = db_query(
+            "SELECT order_id, order_type, reference_id FROM orders WHERE order_id IN ({$idsStr})"
+        ) ?: [];
+        foreach ($orderMetaRows as $orderMetaRow) {
+            $orderMetaById[(int)$orderMetaRow['order_id']] = $orderMetaRow;
+        }
 
         // Group by order_id
         $itemsByOrder = [];
@@ -2962,6 +3163,7 @@ class JobOrderService {
             $total_qty   = 0;
             $width_ft    = '1';
             $height_ft   = '1';
+            $orderMeta = $orderMetaById[$orderId] ?? ['order_type' => 'custom', 'reference_id' => 0];
 
             foreach ($orderItems as $item) {
                 $custom    = customer_orders_decode_customization_payload((string)($item['customization_data'] ?? ''));
@@ -2969,7 +3171,8 @@ class JobOrderService {
                 if ($savedSpecs !== []) {
                     $custom = printflow_overlay_nonempty_assoc($custom, $savedSpecs);
                 }
-                if ($serviceOnly && !self::isServiceStoreOrderItem($item, $custom)) {
+                $identity = self::resolveBatchStoreOrderLineIdentity($orderMeta, $item, $custom);
+                if ($serviceOnly && $identity['item_type'] !== 'service' && !self::isServiceStoreOrderItem($item, $custom)) {
                     continue;
                 }
                 if (empty($first_custom)) {
@@ -2991,12 +3194,10 @@ class JobOrderService {
                     }
                 }
 
-                $name = (string)($item['product_name'] ?? 'Custom Order');
-                if ($name === '') {
-                    $name = get_service_name_from_customization($custom, 'Custom Order');
-                }
-
-                $serviceIdForImage = (int)($custom['service_id'] ?? 0);
+                $name = $identity['display_name'];
+                $serviceIdForImage = $identity['service_id'] > 0
+                    ? $identity['service_id']
+                    : (int)($custom['service_id'] ?? 0);
                 if ($serviceIdForImage <= 0 && function_exists('printflow_resolve_active_service_catalog_id')) {
                     $serviceIdForImage = printflow_resolve_active_service_catalog_id($name);
                 }
@@ -3005,6 +3206,7 @@ class JobOrderService {
                     'order_item_id'      => (int)($item['order_item_id'] ?? 0),
                     'product_name'       => $name,
                     'product_type'       => $item['product_type'] ?? 'custom',
+                    'item_type'          => $identity['item_type'],
                     'product_image'      => (string)($item['product_image'] ?? ''),
                     'service_id'         => $serviceIdForImage,
                     'service_image'      => function_exists('get_service_image_url') ? get_service_image_url($name, $serviceIdForImage) : '',
@@ -3021,16 +3223,32 @@ class JobOrderService {
                 ];
             }
 
-            $service_name = !empty($items_out)
-                ? get_service_name_from_customization($first_custom, $items_out[0]['product_name'] ?? 'Custom Order')
-                : '';
+            $service_name = '';
+            if ($items_out !== []) {
+                $service_name = trim((string)($items_out[0]['product_name'] ?? ''));
+            }
+            if ($service_name === '') {
+                $service_name = get_service_name_from_customization($first_custom, 'Custom Order');
+            }
+
+            require_once __DIR__ . '/service_field_priority_helper.php';
+            $serviceIdForPriority = (int)($items_out[0]['service_id'] ?? 0);
+            if ($serviceIdForPriority <= 0) {
+                $serviceIdForPriority = (int)($first_custom['service_id'] ?? 0);
+            }
+            $priorityRequest = printflow_resolve_dynamic_order_priority($serviceIdForPriority, $first_custom);
+            $neededDatePayload = self::resolveStoreOrderNeededDatePayload($orderMeta, $orderItems, $serviceOnly);
 
             $payloads[$orderId] = [
                 'items'        => $items_out,
                 'width_ft'     => $width_ft,
                 'height_ft'    => $height_ft,
                 'service_type' => $service_name,
+                'service_id'   => (int)($items_out[0]['service_id'] ?? 0),
                 'line_qty'     => $total_qty,
+                'priority_request' => $priorityRequest,
+                'needed_date' => $neededDatePayload['needed_date'],
+                'needed_date_display' => $neededDatePayload['needed_date_display'],
             ];
         }
 
@@ -3102,6 +3320,17 @@ class JobOrderService {
         }
         if (trim((string)($payload['service_category'] ?? '')) !== '') {
             $jo['service_category'] = printflow_canonical_admin_service_category((string)$payload['service_category']);
+        }
+        if (!empty($payload['priority_request']) && is_array($payload['priority_request'])) {
+            require_once __DIR__ . '/service_field_priority_helper.php';
+            printflow_apply_priority_request_to_row($jo, $payload['priority_request']);
+        }
+        if (array_key_exists('needed_date', $payload) || array_key_exists('needed_date_display', $payload)) {
+            require_once __DIR__ . '/service_field_priority_helper.php';
+            printflow_apply_needed_date_to_row($jo, (string)($payload['needed_date'] ?? ''));
+            if (trim((string)($payload['needed_date_display'] ?? '')) !== '') {
+                $jo['needed_date_display'] = (string)$payload['needed_date_display'];
+            }
         }
         $titleParts = [];
         foreach ($payload['items'] ?? [] as $it) {

@@ -18,6 +18,13 @@ class InventoryManager {
         if (self::$branchSchemaEnsured) {
             return;
         }
+        global $conn;
+        if (printflow_db_in_transaction($conn)) {
+            // Schema changes implicitly commit MySQL transactions. Inventory
+            // movements must fail on missing schema instead of splitting atomic work.
+            self::$branchSchemaEnsured = true;
+            return;
+        }
 
         try {
             $txnCols = db_query("SHOW COLUMNS FROM inventory_transactions LIKE 'branch_id'") ?: [];

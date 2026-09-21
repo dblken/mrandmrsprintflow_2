@@ -59,6 +59,11 @@ try {
     $pos_services = db_query("SELECT service_id, name, category FROM services WHERE status = 'Activated' ORDER BY name ASC") ?: [];
 } catch (Exception $e) {
 }
+
+$pos_csrf_token = generate_csrf_token();
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -68,6 +73,7 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo htmlspecialchars($page_title); ?> - PrintFlow</title>
     <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/output.css'); ?>">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
@@ -217,6 +223,201 @@ try {
             resize: none !important;
             min-height: 80px !important;
             max-height: 80px !important;
+        }
+
+        /* Service modal: match Customer choice/select styling */
+        #service-modal-overlay .shopee-opt-btn {
+            min-height: 40px;
+            min-width: 80px;
+            padding: 0 12px !important;
+            border: 1px solid #e2e8f0 !important;
+            background: #ffffff !important;
+            color: #333 !important;
+            font-size: 0.875rem !important;
+            border-radius: 2px !important;
+            position: relative !important;
+            overflow: hidden !important;
+        }
+
+        #service-modal-overlay .shopee-opt-btn:hover {
+            border-color: #0a2530 !important;
+            color: #0a2530 !important;
+            background: #ffffff !important;
+        }
+
+        #service-modal-overlay button.shopee-opt-btn.active,
+        #service-modal-overlay label.shopee-opt-btn.active,
+        #service-modal-overlay button.shopee-opt-btn:has(input:checked),
+        #service-modal-overlay label.shopee-opt-btn:has(input:checked) {
+            border-color: #0a2530 !important;
+            background: #ffffff !important;
+            color: #0a2530 !important;
+        }
+
+        #service-modal-overlay button.shopee-opt-btn.active::after,
+        #service-modal-overlay label.shopee-opt-btn.active::after,
+        #service-modal-overlay button.shopee-opt-btn:has(input:checked)::after,
+        #service-modal-overlay label.shopee-opt-btn:has(input:checked)::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            right: -10px;
+            width: 20px;
+            height: 20px;
+            background: #0a2530;
+            transform: rotate(45deg);
+        }
+
+        #service-modal-overlay textarea.shopee-opt-btn:hover,
+        #service-modal-overlay textarea.shopee-opt-btn:focus,
+        #service-modal-overlay .quantity-container.shopee-opt-btn:hover {
+            border-color: #e5e7eb !important;
+            background: #ffffff !important;
+            color: #374151 !important;
+        }
+
+        #service-modal-overlay select.shopee-opt-btn {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            color: #0f172a !important;
+            background-color: #ffffff !important;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 1rem;
+            padding-right: 2.5rem !important;
+        }
+
+        #service-modal-overlay select.shopee-opt-btn option {
+            color: #0f172a;
+            background: #ffffff;
+        }
+
+        #service-modal-overlay select.shopee-opt-btn:focus {
+            border-color: #0a2530 !important;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(10, 37, 48, 0.08);
+        }
+
+        #service-modal-overlay .sm-footer-actions {
+            padding: 14px 20px;
+            border-top: 1px solid #e2e8f0;
+            background: #f8fafc;
+            flex-shrink: 0;
+        }
+
+        #service-modal-overlay .sm-footer-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            width: 100%;
+            flex-wrap: wrap;
+        }
+
+        #service-modal-overlay .pos-estimated-price-display {
+            flex: 1 1 220px;
+            min-width: 0;
+        }
+
+        #service-modal-overlay .pos-est-price-label {
+            font-size: 10px;
+            font-weight: 800;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            line-height: 1.2;
+        }
+
+        #service-modal-overlay .pos-est-price-amount {
+            font-size: 1.25rem;
+            color: #0f172a;
+            font-weight: 900;
+            line-height: 1.2;
+            margin-top: 2px;
+        }
+
+        #service-modal-overlay .pos-est-price-meta {
+            font-size: 0.75rem;
+            color: #64748b;
+            margin-top: 2px;
+            font-weight: 500;
+        }
+
+        #service-modal-overlay .sm-footer-buttons {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            flex: 0 0 auto;
+        }
+
+        #service-modal-overlay .sm-btn-cancel {
+            min-width: 108px;
+            padding: 11px 20px;
+            border: 1px solid #dc2626;
+            border-radius: 10px;
+            background: #ffffff;
+            color: #dc2626;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            line-height: 1.2;
+            transition: background 0.2s, border-color 0.2s, color 0.2s;
+        }
+
+        #service-modal-overlay .sm-btn-cancel:hover {
+            background: #fef2f2;
+            border-color: #b91c1c;
+            color: #b91c1c;
+        }
+
+        #service-modal-overlay .sm-btn-cancel:focus-visible {
+            outline: 2px solid #dc2626;
+            outline-offset: 2px;
+        }
+
+        #service-modal-overlay .sm-btn-add {
+            min-width: 148px;
+            padding: 11px 22px;
+            border: none;
+            border-radius: 10px;
+            background: #00232b;
+            color: #fff;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            line-height: 1.2;
+            box-shadow: 0 10px 24px rgba(0, 35, 43, 0.28);
+            transition: background 0.2s;
+        }
+
+        #service-modal-overlay .sm-btn-add:hover {
+            background: #003a47;
+        }
+
+        #service-modal-overlay .sm-btn-add:focus-visible {
+            outline: 2px solid #00232b;
+            outline-offset: 2px;
+        }
+
+        @media (max-width: 560px) {
+            #service-modal-overlay .sm-footer-inner {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            #service-modal-overlay .sm-footer-buttons {
+                width: 100%;
+                justify-content: stretch;
+            }
+
+            #service-modal-overlay .sm-btn-cancel,
+            #service-modal-overlay .sm-btn-add {
+                flex: 1 1 0;
+                min-width: 0;
+            }
         }
 
         .dim-label {
@@ -1200,6 +1401,12 @@ try {
             margin: 0 auto 20px;
         }
 
+        #pos-alert-icon {
+            font-size: 30px;
+            line-height: 1;
+            display: block;
+        }
+
         .pos-alert-title {
             margin: 0 0 10px;
             font-weight: 800;
@@ -1325,6 +1532,45 @@ try {
             padding: 28px;
             overflow: auto;
             background: linear-gradient(180deg, #f4f8f7 0%, #eef4f3 100%);
+        }
+
+        .receipt-printer-stage {
+            position: relative;
+            width: min(320px, 100%);
+            margin: 0 auto;
+        }
+
+        .receipt-printer-slot {
+            height: 12px;
+            background: linear-gradient(180deg, #334155 0%, #0f172a 55%, #020617 100%);
+            border-radius: 5px 5px 0 0;
+            box-shadow:
+                inset 0 2px 5px rgba(0, 0, 0, 0.55),
+                0 2px 6px rgba(15, 23, 42, 0.22);
+            position: relative;
+            z-index: 3;
+            flex-shrink: 0;
+        }
+
+        .receipt-printer-viewport {
+            overflow: hidden;
+            position: relative;
+            z-index: 1;
+            margin-top: -1px;
+        }
+
+        .receipt-sheet.receipt-feed-active {
+            will-change: transform;
+        }
+
+        .receipt-printer-viewport.receipt-feed-empty {
+            min-height: 0;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .receipt-sheet.receipt-feed-active {
+                transition: none !important;
+            }
         }
 
         .receipt-sheet {
@@ -1871,7 +2117,7 @@ try {
     </style>
 </head>
 
-<body data-turbo="false" data-csrf="<?php echo htmlspecialchars(generate_csrf_token(), ENT_QUOTES, 'UTF-8'); ?>">
+<body data-turbo="false" data-csrf="<?php echo htmlspecialchars($pos_csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
 
     <div class="dashboard-container">
         <?php
@@ -2169,17 +2415,17 @@ try {
                     onmouseover="this.style.color='#1e293b'" onmouseout="this.style.color='#94a3b8'">&times;</button>
             </div>
             <div id="sm-fields-body" style="overflow-y:auto;flex:1;padding:20px 24px;"></div>
-            <div id="sm-footer-actions"
-                style="display:none;padding:16px 24px;border-top:1px solid #e2e8f0;background:#f8fafc;flex-shrink:0;">
-                <div style="display:flex;gap:10px;">
-                    <button onclick="closeServiceModal()"
-                        style="flex:1;padding:12px;border:1px solid #cbd5e1;border-radius:10px;background:#ffffff;color:#475569;font-weight:700;cursor:pointer;font-size:14px;"
-                        onmouseover="this.style.background='#f8fafc';this.style.borderColor='#94a3b8';this.style.color='#334155'"
-                        onmouseout="this.style.background='#ffffff';this.style.borderColor='#cbd5e1';this.style.color='#475569'">Cancel</button>
-                    <button id="sm-add-to-order-btn" onclick="confirmServiceModal()"
-                        style="flex:2;padding:12px;border:none;border-radius:10px;background:#00232b;color:#fff;font-weight:700;cursor:pointer;font-size:14px;box-shadow:0 10px 24px rgba(0,35,43,0.28);"
-                        onmouseover="this.style.background='#003a47'" onmouseout="this.style.background='#00232b'">Add
-                        to Order</button>
+            <div id="sm-footer-actions" class="sm-footer-actions" style="display:none;">
+                <div class="sm-footer-inner">
+                    <div id="pos-estimated-price-display" class="pos-estimated-price-display">
+                        <div class="pos-est-price-label">Estimated Price</div>
+                        <div id="pos-estimated-total" class="pos-est-price-amount">₱0.00</div>
+                        <div class="pos-est-price-meta">Based on selected options · Qty <span id="pos-qty-display">1</span></div>
+                    </div>
+                    <div class="sm-footer-buttons">
+                        <button type="button" class="sm-btn-cancel" onclick="closeServiceModal()">Cancel</button>
+                        <button type="button" id="sm-add-to-order-btn" class="sm-btn-add" onclick="confirmServiceModal()">Add to Order</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2255,7 +2501,12 @@ try {
                 </div>
             </div>
             <div class="receipt-modal-body">
-                <div id="receipt-print-area" class="receipt-sheet"></div>
+                <div class="receipt-printer-stage">
+                    <div class="receipt-printer-slot" aria-hidden="true"></div>
+                    <div class="receipt-printer-viewport" id="receipt-printer-viewport">
+                        <div id="receipt-print-area" class="receipt-sheet"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -2317,6 +2568,23 @@ try {
         </div>
     </div>
 
+    <!-- Modal for variant / size selection on option-stock products -->
+    <div id="variant-modal-overlay"
+        style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:1000; align-items:center; justify-content:center;">
+        <div class="price-modal" style="border-radius:20px; border:1px solid #e2e8f0; width:min(360px, calc(100vw - 32px));">
+            <h3 id="vm-title"
+                style="margin:0 0 8px 0; font-size:20px; font-weight:800; color:#0f172a; letter-spacing:-0.02em;">Select Option</h3>
+            <p id="vm-subtitle" style="margin:0 0 18px 0; font-size:13px; color:#64748b; line-height:1.45;"></p>
+            <div id="vm-options" style="display:flex; flex-direction:column; gap:10px; margin-bottom:24px; max-height:280px; overflow-y:auto;"></div>
+            <div style="display:flex; gap:12px;">
+                <button type="button" onclick="closeVariantModal()"
+                    style="flex:1; padding:14px; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; color:#64748b; font-weight:700; cursor:pointer;">Cancel</button>
+                <button type="button" onclick="confirmVariantSelection()"
+                    style="flex:1; padding:14px; border:none; border-radius:12px; background:var(--staff-pos-button-bg); color:white; font-weight:700; cursor:pointer;">Add to Cart</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal for Custom Price -->
     <div id="price-modal-overlay"
         style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:1000; align-items:center; justify-content:center;">
@@ -2362,6 +2630,7 @@ try {
     echo get_service_field_scripts();
     ?>
 
+    <script src="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/js/service_estimated_price.js'); ?>"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
@@ -2380,6 +2649,7 @@ try {
         const barcodeScanQueue = [];
         let posBarcodeDebugEnabled = false;
         let isAddingToOrder = false;
+        let posEstimatedPriceController = null;
         const STAFF_BASE_PATH = <?php echo json_encode(BASE_PATH); ?>;
         const POS_CSRF_TOKEN = document.body.dataset.csrf || '';
         try {
@@ -2411,6 +2681,165 @@ try {
             } finally {
                 clearTimeout(timeoutId);
             }
+        }
+
+        function posCheckoutCustomizationPayload(customization) {
+            if (!customization || typeof customization !== 'object') {
+                return null;
+            }
+            const payload = { ...customization };
+            const stripKeys = [
+                'design_upload_data',
+                'reference_upload_data',
+                'design_data',
+                'reference_data',
+                'design_blob',
+                'reference_blob'
+            ];
+            stripKeys.forEach(key => delete payload[key]);
+            if (payload.design_upload_path || payload.design_file || payload.design_tmp_path) {
+                delete payload.design_upload_data;
+            }
+            if (payload.reference_upload_path || payload.reference_file) {
+                delete payload.reference_upload_data;
+            }
+            return Object.keys(payload).length ? payload : null;
+        }
+
+        function posCheckoutItemPayload(item) {
+            return {
+                id: item.product_id,
+                qty: item.qty,
+                price: item.price,
+                name: item.name || null,
+                customization: posCheckoutCustomizationPayload(item.customization),
+                is_service: item.is_service || false,
+                pending_order_id: item.pending_order_id || 0,
+                pending_customization_id: item.pending_customization_id || 0
+            };
+        }
+
+        function posVariantOptionsList(product) {
+            if (!product || !product.has_variant_stock) return [];
+            if (Array.isArray(product.variant_stock_options)) {
+                return product.variant_stock_options;
+            }
+            return Object.entries(product.variant_stock_options || {}).map(([optionValue, meta]) => ({
+                option_value: optionValue,
+                stock_quantity: meta && meta.stock_quantity != null ? meta.stock_quantity : 0
+            }));
+        }
+
+        function posVariantOptionsInStock(product) {
+            return posVariantOptionsList(product).filter(option => (parseInt(option.stock_quantity, 10) || 0) > 0);
+        }
+
+        function posBuildVariantCustomization(product, optionValue) {
+            const fieldKey = product.variant_stock_field_key || 'size';
+            const fieldLabel = product.variant_stock_field_label || fieldKey;
+            const normalized = String(optionValue || '').trim();
+            const customization = {};
+            customization[fieldKey] = normalized;
+            customization[fieldLabel] = normalized;
+            return customization;
+        }
+
+        function posCartItemVariantLabel(item) {
+            const customization = item && item.customization && typeof item.customization === 'object'
+                ? item.customization
+                : null;
+            if (!customization) return '';
+            const keys = Object.keys(customization);
+            for (const key of keys) {
+                const normalized = String(key || '').trim().toLowerCase();
+                if (['size', 'sizes', 'variant', 'variants'].includes(normalized) && customization[key]) {
+                    return String(customization[key]);
+                }
+            }
+            return '';
+        }
+
+        function posResolveVariantBeforeAdd(product) {
+            if (!product || !product.has_variant_stock) {
+                return { action: 'add', customization: null };
+            }
+            const inStock = posVariantOptionsInStock(product);
+            if (inStock.length === 0) {
+                return { action: 'error', message: (product.product_name || 'This product') + ' is out of stock.' };
+            }
+            if (inStock.length === 1) {
+                const optionValue = inStock[0].option_value;
+                return {
+                    action: 'add',
+                    customization: posBuildVariantCustomization(product, optionValue)
+                };
+            }
+            return {
+                action: 'prompt',
+                options: inStock,
+                fieldLabel: product.variant_stock_field_label || 'Option'
+            };
+        }
+
+        let pendingVariantProduct = null;
+        let pendingVariantAddOptions = null;
+
+        function openVariantModal(product, options, fieldLabel, addOptions = {}) {
+            pendingVariantProduct = product;
+            pendingVariantAddOptions = addOptions;
+            const overlay = document.getElementById('variant-modal-overlay');
+            const title = document.getElementById('vm-title');
+            const subtitle = document.getElementById('vm-subtitle');
+            const optionsEl = document.getElementById('vm-options');
+            const productName = product.product_name || product.name || 'Product';
+            title.textContent = 'Select ' + fieldLabel;
+            subtitle.textContent = productName + ' requires a ' + fieldLabel.toLowerCase() + ' before it can be added to the cart.';
+            optionsEl.innerHTML = options.map((option, index) => {
+                const value = String(option.option_value || '').replace(/"/g, '&quot;');
+                const stock = parseInt(option.stock_quantity, 10) || 0;
+                const checked = index === 0 ? 'checked' : '';
+                return '<label style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; cursor:pointer;">'
+                    + '<span style="display:flex; align-items:center; gap:10px; font-weight:600; color:#0f172a;">'
+                    + '<input type="radio" name="pos_variant_option" value="' + value + '" ' + checked + '>'
+                    + '<span>' + value + '</span>'
+                    + '</span>'
+                    + '<span style="font-size:12px; color:#64748b;">' + stock + ' left</span>'
+                    + '</label>';
+            }).join('');
+            overlay.style.display = 'flex';
+        }
+
+        function closeVariantModal() {
+            document.getElementById('variant-modal-overlay').style.display = 'none';
+            pendingVariantProduct = null;
+            pendingVariantAddOptions = null;
+        }
+
+        async function confirmVariantSelection() {
+            if (!pendingVariantProduct) return;
+            const selected = document.querySelector('#variant-modal-overlay input[name="pos_variant_option"]:checked');
+            if (!selected || !selected.value) {
+                await showPOSAlert('Selection Required', 'Please choose an option before adding this product.', 'warning');
+                return;
+            }
+            const customization = posBuildVariantCustomization(pendingVariantProduct, selected.value);
+            const addOptions = pendingVariantAddOptions || {};
+            const product = pendingVariantProduct;
+            closeVariantModal();
+            return await posAddProductToCart(product, null, null, customization, addOptions);
+        }
+
+        async function posAddProductToCart(p, overridePrice = null, overrideName = null, customization = null, options = {}) {
+            const name = overrideName || p.product_name;
+            const price = overridePrice !== null ? overridePrice : parseFloat(p.price);
+            return await syncedCartAction('add', {
+                product_id: p.product_id,
+                name: name,
+                price: price,
+                qty: 1,
+                customization: customization,
+                is_service: false
+            }, options);
         }
         function formatMoney(value) {
             const amount = Number.parseFloat(value);
@@ -2596,6 +3025,101 @@ try {
         let activePosPrintJob = null;
         let posReceiptPrintProcessing = false;
 
+        const POS_RECEIPT_PRINTER_SPEC = {
+            speedMmPerSec: 50,
+            paperWidthMm: 58,
+            printWidthMm: 48,
+            avgLineHeightMm: 3.75,
+            calibrationBufferSec: 0.4,
+        };
+
+        /**
+         * Best-effort print duration from rated thermal head speed (50 mm/s @ 58 mm paper).
+         * PushPrinter / browser print APIs do not expose live paper-feed progress.
+         * Frame-perfect sync would need WebUSB/WebSerial printer status polling (separate scope).
+         */
+        function estimatePosReceiptPrintDurationMs(receiptEl) {
+            if (!receiptEl) {
+                return Math.round((POS_RECEIPT_PRINTER_SPEC.calibrationBufferSec + 1.5) * 1000);
+            }
+
+            const widthPx = receiptEl.offsetWidth || receiptEl.getBoundingClientRect().width || 1;
+            const heightPx = receiptEl.scrollHeight || receiptEl.offsetHeight || 0;
+            const lengthMm = (heightPx / widthPx) * POS_RECEIPT_PRINTER_SPEC.paperWidthMm;
+            const printTimeSec = lengthMm / POS_RECEIPT_PRINTER_SPEC.speedMmPerSec;
+            const totalSec = POS_RECEIPT_PRINTER_SPEC.calibrationBufferSec + printTimeSec;
+            return Math.max(900, Math.round(totalSec * 1000));
+        }
+
+        function getReceiptPrinterViewport() {
+            return document.getElementById('receipt-printer-viewport');
+        }
+
+        function resetReceiptFeedAnimation(receiptEl) {
+            const viewport = getReceiptPrinterViewport();
+            if (viewport) {
+                viewport.classList.remove('receipt-feed-reveal', 'receipt-feed-active', 'receipt-feed-empty');
+                viewport.style.transition = 'none';
+                viewport.style.height = '';
+                viewport.style.maxHeight = '';
+                viewport.style.minHeight = '';
+            }
+            if (receiptEl) {
+                receiptEl.classList.remove('receipt-feed-active');
+                receiptEl.style.transition = 'none';
+                receiptEl.style.transform = '';
+            }
+        }
+
+        /**
+         * Paper consumed into printer: fixed slot at top; receipt block moves upward
+         * and is clipped by the viewport (overflow hidden) so content disappears into
+         * the slot top-first, footer last. Best-effort duration from 50 mm/s rated speed.
+         */
+        function runReceiptFeedAnimation(receiptEl, durationMs) {
+            const viewport = getReceiptPrinterViewport();
+            if (!receiptEl || !viewport) return Promise.resolve();
+
+            const fullHeight = Math.ceil(receiptEl.scrollHeight || receiptEl.offsetHeight || 0);
+            if (fullHeight <= 0) return Promise.resolve();
+
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                receiptEl.style.transition = 'none';
+                receiptEl.style.transform = `translateY(-${fullHeight}px)`;
+                viewport.classList.add('receipt-feed-empty');
+                viewport.style.height = '0px';
+                return Promise.resolve();
+            }
+
+            return new Promise(resolve => {
+                viewport.classList.remove('receipt-feed-empty');
+                viewport.style.transition = 'none';
+                viewport.style.height = `${fullHeight}px`;
+                viewport.style.maxHeight = `${fullHeight}px`;
+                viewport.style.overflow = 'hidden';
+
+                receiptEl.classList.remove('receipt-feed-active');
+                receiptEl.style.transition = 'none';
+                receiptEl.style.transform = 'translateY(0)';
+                void receiptEl.offsetHeight;
+
+                receiptEl.classList.add('receipt-feed-active');
+                requestAnimationFrame(() => {
+                    receiptEl.style.transition = `transform ${durationMs}ms linear`;
+                    receiptEl.style.transform = `translateY(-${fullHeight}px)`;
+                });
+
+                window.setTimeout(() => {
+                    receiptEl.style.transition = 'none';
+                    viewport.style.transition = 'none';
+                    viewport.style.height = '0px';
+                    viewport.style.maxHeight = '0px';
+                    viewport.classList.add('receipt-feed-empty');
+                    resolve();
+                }, durationMs);
+            });
+        }
+
         function setPosReceiptPrintState(message = '', failed = false) {
             const status = document.getElementById('receipt-print-result');
             const button = document.getElementById('pos-print-receipt-btn');
@@ -2604,8 +3128,8 @@ try {
                 status.style.color = failed ? '#b91c1c' : '#0f766e';
             }
             if (button) {
-                button.disabled = posReceiptPrintProcessing;
-                button.textContent = failed ? 'Retry Print' : (posReceiptPrintProcessing ? 'Printing...' : 'Print Receipt');
+                button.disabled = false;
+                button.textContent = failed ? 'Retry Print' : 'Print Receipt';
             }
         }
 
@@ -2618,6 +3142,7 @@ try {
             posReceiptPrintProcessing = false;
             setPosReceiptPrintState('No physical receipt has been printed yet.');
             printArea.innerHTML = buildReceiptHtml(activePosReceipt);
+            resetReceiptFeedAnimation(printArea);
             renderPosReceiptQr(receipt?.qr_payload);
             renderPosOnlineStoreQr();
             overlay.style.display = 'flex';
@@ -2648,44 +3173,61 @@ try {
 
         async function printReceipt() {
             if (posReceiptPrintProcessing || !activePosReceipt?.order_id) return;
+            const printArea = document.getElementById('receipt-print-area');
+            resetReceiptFeedAnimation(printArea);
+            void printArea.offsetHeight;
+            const durationMs = estimatePosReceiptPrintDurationMs(printArea);
+
             posReceiptPrintProcessing = true;
-            setPosReceiptPrintState('Sending receipt to POS-58...');
+            setPosReceiptPrintState('Printing receipt...');
+
+            const animationPromise = runReceiptFeedAnimation(printArea, durationMs);
+            const printTaskPromise = activePosPrintJob?.job_id
+                ? retryReceiptPrintJob(activePosPrintJob, { silentStatus: true })
+                : (async () => {
+                    const response = await fetch(staffUrl('staff/api/pos_receipt_print.php'), {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            action: 'print',
+                            order_id: Number(activePosReceipt.order_id),
+                            csrf_token: POS_CSRF_TOKEN
+                        })
+                    });
+                    const result = await response.json();
+                    if (!response.ok || !result.success || !result.print_job?.ok) {
+                        throw new Error(result.message || 'Receipt printing failed.');
+                    }
+                    activePosPrintJob = result.print_job;
+                    await monitorReceiptPrintJob(result.print_job, { silentSuccess: true });
+                })();
+
             try {
-                if (activePosPrintJob?.job_id) {
-                    await retryReceiptPrintJob(activePosPrintJob);
-                    return;
-                }
-                const response = await fetch(staffUrl('staff/api/pos_receipt_print.php'), {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        action: 'print',
-                        order_id: Number(activePosReceipt.order_id),
-                        csrf_token: POS_CSRF_TOKEN
-                    })
-                });
-                const result = await response.json();
-                if (!response.ok || !result.success || !result.print_job?.ok) {
-                    throw new Error(result.message || 'Receipt printing failed.');
-                }
-                activePosPrintJob = result.print_job;
-                await monitorReceiptPrintJob(result.print_job);
+                await animationPromise;
+                setPosReceiptPrintState('Receipt printed successfully.');
+                showPOSScanNotice('Transaction completed', 'Receipt printed successfully.', 'success');
+                posReceiptPrintProcessing = false;
+                await printTaskPromise;
             } catch (error) {
                 console.error('Receipt printing failed:', error);
                 posReceiptPrintProcessing = false;
+                resetReceiptFeedAnimation(printArea);
                 setPosReceiptPrintState('Receipt printing failed.', true);
             }
         }
 
-        async function retryReceiptPrintJob(printJob) {
+        async function retryReceiptPrintJob(printJob, options = {}) {
+            const silentStatus = !!options.silentStatus;
             const jobId = Number(printJob?.job_id || 0);
             if (jobId <= 0) {
-                await showPOSAlert(
-                    'Receipt printing failed',
-                    'The sale is complete, but no printable receipt job is available. Please contact an administrator.',
-                    'error'
-                );
-                return;
+                if (!silentStatus) {
+                    await showPOSAlert(
+                        'Receipt printing failed',
+                        'The sale is complete, but no printable receipt job is available. Please contact an administrator.',
+                        'error'
+                    );
+                }
+                throw new Error('No printable receipt job is available.');
             }
             try {
                 const response = await fetch(staffUrl('staff/api/pos_receipt_print_retry.php'), {
@@ -2698,11 +3240,14 @@ try {
                     throw new Error(result.message || 'Receipt print job could not be retried.');
                 }
                 activePosPrintJob = result.print_job || {ok: true, job_id: jobId};
-                await monitorReceiptPrintJob(activePosPrintJob);
+                await monitorReceiptPrintJob(activePosPrintJob, { silentSuccess: silentStatus });
             } catch (error) {
                 console.error('Receipt print retry failed:', error);
-                posReceiptPrintProcessing = false;
-                setPosReceiptPrintState('Receipt printing failed.', true);
+                if (!silentStatus) {
+                    posReceiptPrintProcessing = false;
+                    setPosReceiptPrintState('Receipt printing failed.', true);
+                }
+                throw error;
             }
         }
 
@@ -2738,13 +3283,16 @@ try {
             setPosReceiptPrintState('Receipt printing failed.', true);
         }
 
-        async function monitorReceiptPrintJob(printJob) {
+        async function monitorReceiptPrintJob(printJob, options = {}) {
+            const silentSuccess = !!options.silentSuccess;
             if (!printJob?.ok || !printJob?.job_id) {
                 await showReceiptPrintFailure(printJob, printJob?.message || 'The receipt could not be queued for the configured printer.');
                 return;
             }
 
-            showPOSScanNotice('Transaction completed', 'Printing receipt...', 'success');
+            if (!silentSuccess) {
+                showPOSScanNotice('Transaction completed', 'Printing receipt...', 'success');
+            }
             let lastStatusResult = null;
             for (let attempt = 0; attempt < 15; attempt += 1) {
                 await new Promise(resolve => window.setTimeout(resolve, 1500));
@@ -2759,8 +3307,10 @@ try {
                     if (response.ok && status === 'printed') {
                         posReceiptPrintProcessing = false;
                         activePosPrintJob = null;
-                        setPosReceiptPrintState('Receipt printed successfully.');
-                        showPOSScanNotice('Transaction completed', 'Receipt printed successfully.', 'success');
+                        if (!silentSuccess) {
+                            setPosReceiptPrintState('Receipt printed successfully.');
+                            showPOSScanNotice('Transaction completed', 'Receipt printed successfully.', 'success');
+                        }
                         return;
                     }
                     if (response.ok && status === 'failed') {
@@ -2906,16 +3456,26 @@ try {
         });
 
         async function syncedCartAction(action, payload = {}, options = {}) {
+            if (posCheckoutRequestInFlight && action !== 'clear' && !options.allowDuringCheckout) {
+                console.warn('Skipped cart sync during checkout:', action);
+                return { success: false, skipped: true, message: 'Checkout in progress.' };
+            }
             console.log('syncedCartAction:', action, payload);
             try {
-                const response = await fetch(staffUrl('staff/api/pos_cart_handler.php'), {
+                const response = await fetchWithTimeout(staffUrl('staff/api/pos_cart_handler.php'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action, ...payload })
-                });
-                const data = await response.json();
+                }, Number(options.timeoutMs || 15000));
+                const responseText = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                } catch (parseError) {
+                    throw new Error('Cart server returned an invalid response.');
+                }
                 console.log('syncedCartAction Response:', data);
-                if (data.success) {
+                if (response.ok && data.success) {
                     cart = data.cart || [];
                     console.log('Updated local cart:', cart);
                     renderCart();
@@ -2968,6 +3528,37 @@ try {
             return { label: 'Branch *', type: 'select', name: 'branch_id', options: branches, required: hasBranches };
         }
 
+        function destroyPosEstimatedPrice() {
+            if (posEstimatedPriceController && typeof posEstimatedPriceController.destroy === 'function') {
+                posEstimatedPriceController.destroy();
+            }
+            posEstimatedPriceController = null;
+            resetPosEstimatedPriceDisplay();
+        }
+
+        function resetPosEstimatedPriceDisplay() {
+            const footer = document.getElementById('pos-estimated-price-display');
+            if (!footer) return;
+            const totalEl = footer.querySelector('#pos-estimated-total');
+            const qtyEl = footer.querySelector('#pos-qty-display');
+            if (totalEl) totalEl.textContent = '₱0.00';
+            if (qtyEl) qtyEl.textContent = '1';
+        }
+
+        function initPosEstimatedPrice(body, basePrice) {
+            destroyPosEstimatedPrice();
+            const footer = document.getElementById('pos-estimated-price-display');
+            if (!footer || typeof window.printflowInitServiceEstimatedPrice !== 'function') {
+                return;
+            }
+            posEstimatedPriceController = window.printflowInitServiceEstimatedPrice(body, {
+                basePrice: basePrice,
+                form: body,
+                estimatedTotalEl: footer.querySelector('#pos-estimated-total'),
+                qtyDisplayEl: footer.querySelector('#pos-qty-display')
+            });
+        }
+
         async function openServiceModal(serviceId, serviceName) {
             console.log('openServiceModal called:', serviceId, serviceName);
             const overlay = document.getElementById('service-modal-overlay');
@@ -2975,6 +3566,7 @@ try {
             const body = document.getElementById('sm-fields-body');
             const footerActions = document.getElementById('sm-footer-actions');
 
+            destroyPosEstimatedPrice();
             title.textContent = serviceName + ' — Order Details';
             body.innerHTML = '<div style="text-align:center;padding:2rem;color:#64748b;"><i class="fas fa-spinner fa-spin"></i> Loading fields...</div>';
             footerActions.style.display = 'none';
@@ -3028,11 +3620,15 @@ try {
                     });
                 });
                 body.querySelectorAll('select').forEach(s => {
+                    if (typeof pfSyncSelectOthersWrap === 'function') pfSyncSelectOthersWrap(s);
                     s.addEventListener('change', function () {
+                        if (typeof pfSyncSelectOthersWrap === 'function') pfSyncSelectOthersWrap(this);
                         if (typeof updateConditionalFields === 'function') updateConditionalFields();
                     });
                 });
                 bindServiceValidationClearers(body);
+                if (typeof initPfDesignUploadGroups === 'function') initPfDesignUploadGroups(body);
+                initPosEstimatedPrice(body, parseFloat(data.base_price) || 0);
             } catch (e) {
                 body.innerHTML = '<p style="color:#ef4444;text-align:center;padding:1rem;">Network error. Please try again.</p>';
             }
@@ -3041,6 +3637,9 @@ try {
         function closeServiceModal() {
             isAddingToOrder = false;
             setServiceAddButtonBusy(false);
+            destroyPosEstimatedPrice();
+            const body = document.getElementById('sm-fields-body');
+            if (body) body.innerHTML = '';
             document.getElementById('service-modal-overlay').style.display = 'none';
         }
 
@@ -3160,10 +3759,29 @@ try {
                     }
                 }
 
-                // Text / number
-                const textInput = row.querySelector('input[type="text"], input[type="number"]:not(#quantity-input)');
+                // Text / number / design link
+                const textInput = row.querySelector('input[type="text"], input[type="number"]:not(#quantity-input), input[type="url"].pf-design-link-input');
                 if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
-                    customization[labelText] = textInput.value.trim();
+                    if (textInput.classList.contains('pf-design-link-input')) {
+                        customization[labelText + ' Link'] = textInput.value.trim();
+                    } else {
+                        customization[labelText] = textInput.value.trim();
+                    }
+                }
+
+                const uploadGroup = row.querySelector('.pf-file-upload-group[data-pf-required="1"]');
+                if (uploadGroup && isRequired) {
+                    const fileInput = uploadGroup.querySelector('.pf-design-file-input');
+                    const linkInput = uploadGroup.querySelector('.pf-design-link-input');
+                    const hasFile = !!(fileInput && fileInput.files && fileInput.files.length > 0);
+                    const hasLink = !!(linkInput && linkInput.value.trim());
+                    if (!hasFile && !hasLink) {
+                        showPOSAlert('Required Field', 'Please upload a design or paste a design link.', 'warning');
+                        valid = false;
+                    } else if (hasLink && !isValidDesignLink(linkInput.value.trim())) {
+                        showPOSAlert('Invalid Link', 'Please enter a valid HTTP or HTTPS design link.', 'warning');
+                        valid = false;
+                    }
                 }
             });
 
@@ -3249,7 +3867,10 @@ try {
             const label = serviceFieldLabel(row);
             const name = String((input && input.name) || serviceFieldKey(row) || label).toLowerCase();
             const type = input ? String(input.type || '').toLowerCase() : '';
-            if (name.includes('design') || type === 'file') return 'Please upload a design.';
+            if (row && row.querySelector('.pf-file-upload-group')) {
+                return 'Please upload a design or paste a design link.';
+            }
+            if (name.includes('design') || type === 'file') return 'Please upload a design or paste a design link.';
             if (name.includes('layout') || label.toLowerCase().includes('layout')) return 'Please select a layout.';
             if (name.includes('needed_date') || label.toLowerCase().includes('needed date')) return 'Please select a needed date.';
             if (name.includes('quantity') || label.toLowerCase().includes('quantity')) return 'Quantity must be at least 1.';
@@ -3342,6 +3963,18 @@ try {
             });
         }
 
+        function isValidDesignLink(value) {
+            const text = String(value || '').trim();
+            if (!text) return true;
+            if (/^\s*(javascript|data|file|vbscript):/i.test(text)) return false;
+            try {
+                const parsed = new URL(text);
+                return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+            } catch (err) {
+                return false;
+            }
+        }
+
         function validateServiceOrderForm() {
             const body = document.getElementById('sm-fields-body');
             const errors = {};
@@ -3369,7 +4002,17 @@ try {
                     }
                 });
                 radiosByName.forEach((radios, name) => {
-                    if (!radios.some(radio => radio.checked)) addError(row, radios[0], name);
+                    const checked = radios.find(radio => radio.checked);
+                    if (!checked) {
+                        addError(row, radios[0], name);
+                        return;
+                    }
+                    if (checked.value === 'Others') {
+                        const otherInput = row.querySelector('input[name="' + name + '_other"]');
+                        if (otherInput && !String(otherInput.value || '').trim()) {
+                            addError(row, otherInput, name + '_other');
+                        }
+                    }
                 });
 
                 const dimensionInputs = requiredInputs.filter(input => input.type === 'hidden' && input.dataset.dimensionRole);
@@ -3382,6 +4025,13 @@ try {
                     const value = input.type === 'file'
                         ? (input.files && input.files.length > 0 ? input.files[0].name : '')
                         : String(input.value || '').trim();
+                    if (input.tagName === 'SELECT') {
+                        const otherValue = input.getAttribute('data-other-option') || 'Others';
+                        const rowOtherInput = row.querySelector('input[name="' + input.name + '_other"]');
+                        if (value === otherValue && rowOtherInput && !String(rowOtherInput.value || '').trim()) {
+                            addError(row, rowOtherInput, input.name + '_other');
+                        }
+                    }
                     if (input.name === 'quantity' || input.classList.contains('pf-service-quantity-input')) {
                         const qty = parseInt(value, 10);
                         if (!Number.isFinite(qty) || qty < 1) addError(row, input);
@@ -3389,6 +4039,23 @@ try {
                     }
                     if (!value) addError(row, input);
                 });
+            });
+
+            body.querySelectorAll('.pf-file-upload-group[data-pf-required="1"]').forEach(group => {
+                const row = group.closest('.shopee-form-row');
+                if (!row || !isServiceFieldVisible(row)) return;
+                const fileInput = group.querySelector('.pf-design-file-input');
+                const linkInput = group.querySelector('.pf-design-link-input');
+                const hasFile = !!(fileInput && fileInput.files && fileInput.files.length > 0);
+                const linkValue = linkInput ? String(linkInput.value || '').trim() : '';
+                const hasLink = linkValue !== '';
+                if (!hasFile && !hasLink) {
+                    addError(row, fileInput || linkInput || group);
+                    return;
+                }
+                if (hasLink && !isValidDesignLink(linkValue)) {
+                    addError(row, linkInput || group, (linkInput && linkInput.name) || 'design_link');
+                }
             });
 
             return { valid: Object.keys(errors).length === 0, errors };
@@ -3435,10 +4102,31 @@ try {
                 if (!isServiceFieldVisible(row)) return;
 
                 const checkedRadio = row.querySelector('input[type="radio"]:checked');
-                if (checkedRadio) setCustomizationValue(customization, row, checkedRadio, checkedRadio.value);
+                if (checkedRadio) {
+                    let radioValue = checkedRadio.value;
+                    if (radioValue === 'Others') {
+                        const radioOther = row.querySelector('input[name="' + checkedRadio.name + '_other"]');
+                        if (radioOther && radioOther.value.trim()) {
+                            radioValue = radioOther.value.trim();
+                            customization[serviceFieldLabel(row) + ' (Other)'] = radioValue;
+                        }
+                    }
+                    setCustomizationValue(customization, row, checkedRadio, radioValue);
+                }
 
                 const sel = row.querySelector('select:not([name="branch_id"])');
-                if (sel && sel.value) setCustomizationValue(customization, row, sel, sel.value);
+                if (sel && sel.value) {
+                    let selectValue = sel.value;
+                    const otherValue = sel.getAttribute('data-other-option') || 'Others';
+                    if (selectValue === otherValue) {
+                        const selectOther = row.querySelector('input[name="' + sel.name + '_other"]');
+                        if (selectOther && selectOther.value.trim()) {
+                            selectValue = selectOther.value.trim();
+                            customization[serviceFieldLabel(row) + ' (Other)'] = selectValue;
+                        }
+                    }
+                    setCustomizationValue(customization, row, sel, selectValue);
+                }
 
                 const dateInput = row.querySelector('input[type="date"]');
                 if (dateInput && dateInput.value) setCustomizationValue(customization, row, dateInput, dateInput.value);
@@ -3466,8 +4154,12 @@ try {
                     }
                 }
 
-                const textInput = row.querySelector('input[type="text"]:not(.pf-service-quantity-input), input[type="number"]:not(#quantity-input):not(.pf-service-quantity-input)');
+                const textInput = row.querySelector('input[type="text"]:not(.pf-service-quantity-input):not(.select-others-input):not(.radio-others-input), input[type="number"]:not(#quantity-input):not(.pf-service-quantity-input), input[type="url"].pf-design-link-input');
                 if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
+                    if (textInput.classList.contains('pf-design-link-input')) {
+                        const labelText = serviceFieldLabel(row);
+                        customization[labelText + ' Link'] = textInput.value.trim();
+                    }
                     setCustomizationValue(customization, row, textInput, textInput.value.trim());
                 }
             });
@@ -4037,21 +4729,24 @@ try {
             return true;
         }
         async function addToCart(p, overridePrice = null, overrideName = null, options = {}) {
-            const name = overrideName || p.product_name;
-            const price = overridePrice !== null ? overridePrice : parseFloat(p.price);
-
             if (p.price == 0 && overridePrice === null) {
                 openPriceModal(p);
                 return;
             }
 
-            return await syncedCartAction('add', {
-                product_id: p.product_id,
-                name: name,
-                price: price,
-                qty: 1,
-                is_service: false
-            }, options);
+            const variantPlan = posResolveVariantBeforeAdd(p);
+            if (variantPlan.action === 'error') {
+                if (!options.silentErrors) {
+                    await showPOSAlert('Cannot Add Product', variantPlan.message, 'warning');
+                }
+                return { success: false, message: variantPlan.message };
+            }
+            if (variantPlan.action === 'prompt') {
+                openVariantModal(p, variantPlan.options, variantPlan.fieldLabel, options);
+                return { success: true, pending_variant: true };
+            }
+
+            return await posAddProductToCart(p, overridePrice, overrideName, variantPlan.customization, options);
         }
 
         let pendingCustomProduct = null;
@@ -4517,7 +5212,7 @@ try {
         }
 
         async function clearCart() {
-            if (cart.length > 0 && (await showPOSConfirm('Clear Order', 'Are you sure you want to clear the current order?'))) {
+            if (cart.length > 0 && (await showPOSConfirm('Clear Order', 'Are you sure you want to clear the current order?', 'Clear', 'danger'))) {
                 await syncedCartAction('clear');
                 document.getElementById('pos-tendered').value = '';
             }
@@ -4556,6 +5251,7 @@ try {
                         } catch (_) {}
                     }
 
+                    const variantLabel = posCartItemVariantLabel(item);
                     const priceHtml = (isService && !priceWasSet && !hasMaterialSet)
                         ? `<button type="button" class="pos-btn-set-price" onclick="redirectToSetPrice(${index})" title="Click to set price in Customizations">
                     <i class="fas fa-tag"></i> Set Price
@@ -4565,7 +5261,7 @@ try {
                     div.innerHTML = `
                 <div class="pos-cart-item-top">
                     <div class="pos-item-details">
-                        <div class="pos-item-name">${item.name}</div>
+                        <div class="pos-item-name">${escapeHtml(item.name)}${variantLabel ? `<div style="font-size:11px; color:#64748b; margin-top:2px;">${escapeHtml(variantLabel)}</div>` : ''}</div>
                     </div>
                     <button type="button" class="pos-item-remove" onclick="removeByCartIndex(${index})" title="Remove item" aria-label="Remove item">
                         <i class="fas fa-trash-alt"></i> Remove
@@ -4639,6 +5335,13 @@ try {
             const icon = document.getElementById('checkout-icon');
             const text = document.getElementById('checkout-text');
 
+            if (posCheckoutRequestInFlight) {
+                btn.disabled = true;
+                icon.className = 'fas fa-spinner fa-spin';
+                text.textContent = 'Processing...';
+                return;
+            }
+
             if (cart.length === 0) {
                 btn.disabled = true;
                 icon.className = 'fas fa-lock';
@@ -4685,6 +5388,24 @@ try {
         async function processCheckout() {
             if (cart.length === 0 || posCheckoutRequestInFlight || posCheckoutConfirmOpen) return;
 
+            console.log('[POS CHECKOUT] started');
+            console.log('[POS CHECKOUT] validating cart', { items: cart.length, total: currentTotal });
+
+            for (const item of cart) {
+                if (item.is_service) continue;
+                const catalogProduct = products.find(p => String(p.product_id) === String(item.product_id));
+                if (!catalogProduct || !catalogProduct.has_variant_stock) continue;
+                if (!posCartItemVariantLabel(item)) {
+                    const fieldLabel = catalogProduct.variant_stock_field_label || 'stock option';
+                    await showPOSAlert(
+                        'Selection Required',
+                        item.name + ': please select a ' + fieldLabel + ' before checkout. Remove this item and add it again.',
+                        'warning'
+                    );
+                    return;
+                }
+            }
+
             // Validate customer selection
             const customer = $('#pos-customer').val();
             if (!customer) {
@@ -4717,15 +5438,11 @@ try {
             posCheckoutConfirmOpen = false;
             if (!confirmed) return;
 
-            const btn = document.getElementById('pos-checkout-btn');
-            btn.disabled = true;
-            document.getElementById('checkout-icon').className = 'fas fa-spinner fa-spin';
-            document.getElementById('checkout-text').textContent = 'Processing...';
-
             posCheckoutRequestInFlight = true;
+            updateCheckoutState();
 
-            resetPayMongoPosCheckoutState();
-            const checkoutToken = getPosPayMongoCheckoutToken(true);
+            resetPayMongoPosCheckoutState(false);
+            const checkoutToken = getPosPayMongoCheckoutToken();
             posPayMongoCheckoutPending = true;
             const payload = {
                 action: 'walkin_checkout',
@@ -4735,70 +5452,108 @@ try {
                 amount_tendered: tendered,
                 csrf_token: POS_CSRF_TOKEN,
                 checkout_token: checkoutToken,
-                items: cart.map(i => ({
-                    id: i.product_id,
-                    qty: i.qty,
-                    price: i.price,
-                    name: i.name || null,
-                    customization: i.customization || null,
-                    is_service: i.is_service || false,
-                    pending_order_id: i.pending_order_id || 0,
-                    pending_customization_id: i.pending_customization_id || 0
-                }))
+                items: cart.map(posCheckoutItemPayload)
             };
 
-            let checkoutCompleted = false;
+            let checkoutData = null;
+            let checkoutErrorMessage = '';
+            const checkoutUrl = staffUrl('staff/api/pos_checkout.php');
             try {
-                const res = await fetchWithTimeout(staffUrl('staff/api/pos_checkout.php'), {
+                console.log('[POS CHECKOUT] request sent', checkoutUrl, { items: payload.items.length });
+                const startedAt = performance.now();
+                const res = await fetchWithTimeout(checkoutUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 }, 45000);
+                console.log('[POS CHECKOUT] response received', {
+                    status: res.status,
+                    ms: Math.round(performance.now() - startedAt)
+                });
                 const text = await res.text();
                 let data;
                 try {
                     data = JSON.parse(text);
                 } catch (parseErr) {
-                    console.error('Non-JSON response from checkout:', text);
-                    await showPOSAlert('Server Error', 'Server error. Check browser console for details.', 'error');
-                    updateCheckoutState();
+                    console.error('[POS CHECKOUT] ERROR invalid JSON response', text.slice(0, 500));
+                    checkoutErrorMessage = 'Server returned an invalid response. Check the browser console for details.';
                     return;
                 }
-                if (data.success) {
-                    await syncedCartAction('clear');
-                    checkoutCompleted = true;
-
-                    if (data.payment_pending && data.payment) {
-                        openPayMongoPosModal(data.order_id, data.payment);
-                        updateCheckoutState();
-                        return;
-                    }
-
-                    posPayMongoCheckoutPending = false;
-                    document.getElementById('pos-payment-method').value = 'Cash';
-                    document.getElementById('pos-tendered').value = '';
-                    toggleReferenceField();
-                    calculateChange();
-                    updateCheckoutState();
-                    openReceiptModal(data.receipt);
+                if (res.ok && data.success) {
+                    console.log('[POS CHECKOUT] checkout completed', { orderId: data.order_id });
+                    checkoutData = data;
                 } else {
-                    await showPOSAlert('Error', 'Checkout failed: ' + (data.message || 'Error'), 'error');
-                    updateCheckoutState();
+                    console.error('[POS CHECKOUT] ERROR', {
+                        status: res.status,
+                        stage: data.stage || '',
+                        message: data.message || ''
+                    });
+                    checkoutErrorMessage = data.message
+                        || ('Checkout failed with HTTP ' + res.status + '.');
                 }
             } catch (e) {
-                console.error('Checkout error:', e);
-                const message = e.name === 'AbortError'
+                console.error('[POS CHECKOUT] ERROR', e);
+                checkoutErrorMessage = e.name === 'AbortError'
                     ? 'Checkout took too long to respond. Please refresh the POS and check Store Orders before trying again.'
-                    : 'Network error: ' + e.message;
-                await showPOSAlert('Network Error', message, 'error');
-                updateCheckoutState();
+                    : ('Network error: ' + e.message);
             } finally {
                 posCheckoutConfirmOpen = false;
                 posCheckoutRequestInFlight = false;
-                if (!checkoutCompleted) {
+                updateCheckoutState();
+                console.log('[POS CHECKOUT] UI unlocked');
+            }
+
+            if (checkoutErrorMessage) {
+                await showPOSAlert('Checkout Failed', checkoutErrorMessage, 'error');
+                return;
+            }
+            if (!checkoutData) return;
+
+            posPayMongoCheckoutPending = false;
+            resetPayMongoPosCheckoutState();
+
+            if (checkoutData.payment_pending && checkoutData.payment) {
+                openPayMongoPosModal(checkoutData.order_id, checkoutData.payment);
+                const clearResult = await syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000});
+                if (!clearResult.success) {
+                    cart = [];
+                    renderCart();
                     updateCheckoutState();
                 }
+                return;
             }
+
+            document.getElementById('pos-payment-method').value = 'Cash';
+            document.getElementById('pos-tendered').value = '';
+            toggleReferenceField();
+            calculateChange();
+
+            if (checkoutData.receipt && checkoutData.order_id) {
+                try {
+                    openReceiptModal(checkoutData.receipt);
+                } catch (receiptError) {
+                    console.error('[POS CHECKOUT] receipt modal failed:', receiptError);
+                    await showPOSAlert(
+                        'Sale Completed',
+                        'Order #' + checkoutData.order_id + ' was saved, but the receipt preview could not be opened.',
+                        'warning'
+                    );
+                }
+            } else {
+                await showPOSAlert(
+                    'Sale Completed',
+                    (checkoutData.message || 'Sale completed successfully.')
+                        + (checkoutData.order_id ? ' Order #' + checkoutData.order_id + '.' : ''),
+                    checkoutData.warning ? 'warning' : 'success'
+                );
+            }
+
+            const clearResult = await syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000});
+            if (!clearResult.success) {
+                cart = [];
+                renderCart();
+            }
+            updateCheckoutState();
         }
 
         function getPosPayMongoCheckoutToken(forceNew = false) {
@@ -4824,7 +5579,7 @@ try {
             return posPayMongoCheckoutAttemptToken;
         }
 
-        function resetPayMongoPosCheckoutState() {
+        function resetPayMongoPosCheckoutState(clearCheckoutToken = true) {
             if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
             if (paymongoCountdownTimer) window.clearInterval(paymongoCountdownTimer);
             paymongoPollTimer = null;
@@ -4834,9 +5589,11 @@ try {
             pendingPayMongoPrintJob = null;
             pendingPayMongoOrderId = 0;
             posPayMongoCheckoutPending = false;
-            posPayMongoCheckoutAttemptToken = null;
             sessionStorage.removeItem('pos_paymongo_pending');
-            sessionStorage.removeItem('pos_paymongo_checkout_token');
+            if (clearCheckoutToken) {
+                posPayMongoCheckoutAttemptToken = null;
+                sessionStorage.removeItem('pos_paymongo_checkout_token');
+            }
         }
 
         function closePayMongoPosModal() {
@@ -5120,6 +5877,8 @@ try {
         window.processCheckout = processCheckout;
         window.addQuickService = addQuickService;
         window.addToCart = addToCart;
+        window.closeVariantModal = closeVariantModal;
+        window.confirmVariantSelection = confirmVariantSelection;
         window.togglePosOtherInput = togglePosOtherInput;
         window.updateQtyByCartIndex = updateQtyByCartIndex;
         window.removeByCartIndex = removeByCartIndex;
@@ -5202,12 +5961,29 @@ try {
 
         let posAlertResolve = null;
 
+        function applyPOSModalIcon(type = 'info') {
+            const iconCont = document.getElementById('pos-alert-icon-container');
+            const icon = document.getElementById('pos-alert-icon');
+            if (!iconCont || !icon) return;
+
+            const presets = {
+                error: { bg: '#fee2e2', color: '#ef4444', icon: 'fa-circle-exclamation' },
+                warning: { bg: '#fef3c7', color: '#d97706', icon: 'fa-triangle-exclamation' },
+                success: { bg: '#dcfce7', color: '#10b981', icon: 'fa-circle-check' },
+                info: { bg: '#e0f2fe', color: '#0ea5e9', icon: 'fa-circle-info' },
+                confirm: { bg: '#edf4fc', color: '#2f6fae', icon: 'fa-circle-check' },
+                danger: { bg: '#fee2e2', color: '#ef4444', icon: 'fa-trash-can' },
+            };
+            const preset = presets[type] || presets.info;
+            iconCont.style.background = preset.bg;
+            icon.style.color = preset.color;
+            icon.className = 'fas ' + preset.icon;
+        }
+
         async function showPOSAlert(title, message, type = 'info') {
             return new Promise(resolve => {
                 const overlay = document.getElementById('pos-alert-overlay');
                 const box = document.getElementById('pos-alert-box');
-                const iconCont = document.getElementById('pos-alert-icon-container');
-                const icon = document.getElementById('pos-alert-icon');
                 const titleEl = document.getElementById('pos-alert-title');
                 const msgEl = document.getElementById('pos-alert-message');
                 const cancelBtn = document.getElementById('pos-alert-cancel');
@@ -5220,24 +5996,7 @@ try {
                 confirmBtn.disabled = false;
                 confirmBtn.textContent = 'OK';
                 confirmBtn.style.background = 'var(--staff-pos-button-bg)';
-
-                if (type === 'error') {
-                    iconCont.style.background = '#fee2e2';
-                    icon.style.color = '#ef4444';
-                    icon.className = 'fas fa-exclamation-circle';
-                } else if (type === 'warning') {
-                    iconCont.style.background = '#edf4fc';
-                    icon.style.color = '#2f6fae';
-                    icon.className = 'fas fa-exclamation-triangle';
-                } else if (type === 'success') {
-                    iconCont.style.background = '#dcfce7';
-                    icon.style.color = '#10b981';
-                    icon.className = 'fas fa-check-circle';
-                } else {
-                    iconCont.style.background = '#e0f2fe';
-                    icon.style.color = '#0ea5e9';
-                    icon.className = 'fas fa-info-circle';
-                }
+                applyPOSModalIcon(type);
 
                 overlay.style.display = 'flex';
                 setTimeout(() => {
@@ -5252,12 +6011,10 @@ try {
             });
         }
 
-        async function showPOSConfirm(title, message, confirmLabel = 'Confirm') {
+        async function showPOSConfirm(title, message, confirmLabel = 'Confirm', variant = 'confirm') {
             return new Promise(resolve => {
                 const overlay = document.getElementById('pos-alert-overlay');
                 const box = document.getElementById('pos-alert-box');
-                const iconCont = document.getElementById('pos-alert-icon-container');
-                const icon = document.getElementById('pos-alert-icon');
                 const titleEl = document.getElementById('pos-alert-title');
                 const msgEl = document.getElementById('pos-alert-message');
                 const cancelBtn = document.getElementById('pos-alert-cancel');
@@ -5269,11 +6026,10 @@ try {
                 cancelBtn.disabled = false;
                 confirmBtn.disabled = false;
                 confirmBtn.textContent = confirmLabel;
-                confirmBtn.style.background = 'var(--staff-pos-button-bg)';
-
-                iconCont.style.background = '#eef2ff';
-                icon.style.color = '#2f6fae';
-                icon.className = 'fas fa-question-circle';
+                confirmBtn.style.background = variant === 'danger'
+                    ? '#ef4444'
+                    : 'var(--staff-pos-button-bg)';
+                applyPOSModalIcon(variant === 'danger' ? 'danger' : 'confirm');
 
                 overlay.style.display = 'flex';
                 setTimeout(() => {

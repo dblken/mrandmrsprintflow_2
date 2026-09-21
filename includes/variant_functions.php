@@ -137,7 +137,8 @@ function deduct_materials_by_variant(int $order_id): array {
             "SELECT m.material_name, IFNULL(bi.stock_quantity, 0) as stock_quantity 
              FROM materials m 
              LEFT JOIN branch_inventory bi ON bi.material_id = m.material_id AND bi.branch_id = ?
-             WHERE m.material_id = ?",
+             WHERE m.material_id = ?
+             FOR UPDATE",
             'ii', [$branch_id, $mid]
         );
         
@@ -152,18 +153,21 @@ function deduct_materials_by_variant(int $order_id): array {
     if (!empty($errors)) return ['success' => false, 'message' => "Stock validation failed.", 'errors' => $errors];
 
     // 5. Deduct stock safely inside transaction
-    $conn->begin_transaction();
+    $startedTransaction = !printflow_db_in_transaction($conn);
+    if ($startedTransaction) {
+        $conn->begin_transaction();
+    }
     try {
         foreach ($requirements as $mid => $total_needed) {
-            $ok = db_execute(
+            $affected = db_execute_affected_rows(
                 "UPDATE branch_inventory 
                  SET stock_quantity = stock_quantity - ?, last_updated = CURRENT_TIMESTAMP 
-                 WHERE material_id = ? AND branch_id = ?",
-                'dii', [$total_needed, $mid, $branch_id]
+                 WHERE material_id = ? AND branch_id = ? AND stock_quantity >= ?",
+                'diid', [$total_needed, $mid, $branch_id, $total_needed]
             );
             
             // Validate the row was successfully updated
-            if (!$ok || $conn->affected_rows === 0) {
+            if ($affected !== 1) {
                 throw new Exception("Material deduction failed for item #{$mid} at physical branch #{$branch_id}.");
             }
         }
@@ -173,18 +177,20 @@ function deduct_materials_by_variant(int $order_id): array {
             $bom = get_variant_materials((int) $item['variant_id']);
             foreach ($bom as $mat) {
                 $deducted = (float) $mat['quantity_required'] * (int) $item['order_qty'];
-                db_execute(
+                if (db_execute(
                     "INSERT INTO material_usage_logs (order_id, order_item_id, variant_id, material_id, quantity_deducted) 
                      VALUES (?, ?, ?, ?, ?)",
                     'iiiid', [$order_id, (int)$item['order_item_id'], (int)$item['variant_id'], $mat['material_id'], $deducted]
-                );
+                ) === false) {
+                    throw new RuntimeException('Failed to record the variant material movement.');
+                }
             }
         }
 
-        $conn->commit();
+        if ($startedTransaction) $conn->commit();
         return ['success' => true, 'message' => "Materials deducted securely across Branch #{$branch_id}.", 'errors' => []];
-    } catch (Exception $e) {
-        $conn->rollback();
+    } catch (Throwable $e) {
+        if ($startedTransaction && printflow_db_in_transaction($conn)) $conn->rollback();
         return ['success' => false, 'message' => "Deduction transaction error.", 'errors' => [$e->getMessage()]];
     }
 }

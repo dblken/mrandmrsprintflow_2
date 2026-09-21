@@ -88,6 +88,7 @@ require_once __DIR__ . '/../includes/service_field_config_helper.php';
 require_once __DIR__ . '/../includes/order_items_persistence.php';
 require_once __DIR__ . '/../includes/runtime_config.php';
 require_once __DIR__ . '/../includes/revision_workflow.php';
+require_once __DIR__ . '/../includes/change_item_workflow.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 
 require_role('Customer');
@@ -1175,14 +1176,17 @@ foreach ($items as $lineIndex => $item) {
         }
     }
 
+    $designSource = pf_order_ui_resolve_design_source($item, false, $custom_data);
+    $designExternalLink = trim((string)($designSource['link_url'] ?? ''));
+    $designLinkPlatform = trim((string)($designSource['link_platform'] ?? 'Design Link'));
+    $designLinkIsDirectImage = !empty($designSource['link_is_direct_image']);
+    $has_own_design = !empty($designSource['has_file']);
+
     $line_oid = (int)($item['order_item_id'] ?? 0);
-    $designMeta = function_exists('getOrderDesignImage')
-        ? getOrderDesignImage($item, ['order_id' => $order_id, 'heal' => true])
+    $designMeta = ($has_own_design && function_exists('getOrderDesignImage'))
+        ? getOrderDesignImage($item, ['order_id' => $order_id, 'heal' => false])
         : null;
-    $has_own_design = is_array($designMeta) ? !empty($designMeta['exists']) : printflow_order_item_row_has_retrievable_design($item);
-    $design_serve_id = $has_own_design
-        ? $line_oid
-        : (($line_oid === 0 && $any_design_order_item_id > 0) ? $any_design_order_item_id : 0);
+    $design_serve_id = $has_own_design ? $line_oid : 0;
     $has_design_thumb = $has_own_design && ($design_serve_id > 0 || !empty($designMeta['direct_url']));
     $design_url = null;
     if ($has_own_design && is_array($designMeta)) {
@@ -1209,7 +1213,8 @@ foreach ($items as $lineIndex => $item) {
         'estimated_price' => format_currency($raw_subtotal),
         'final_price'   => format_currency($raw_subtotal),
         'customization' => $customForPayload,
-        'has_design'    => $has_design_thumb,
+        'has_design'    => $has_own_design,
+        'has_design_file' => $has_own_design,
         'has_reference' => !empty($item['reference_image_file']),
         'design_kind'   => $has_own_design
             ? pf_asset_kind($item['design_image_mime'] ?? '', $item['design_file'] ?? '')
@@ -1218,6 +1223,10 @@ foreach ($items as $lineIndex => $item) {
                 : pf_asset_kind($item['design_image_mime'] ?? '', $item['design_file'] ?? '')),
         'reference_kind'=> pf_asset_kind('', $item['reference_image_file'] ?? ''),
         'design_url'    => $design_url,
+        'design_external_link' => $designExternalLink,
+        'has_design_link' => $designExternalLink !== '',
+        'design_link_platform' => $designLinkPlatform !== '' ? $designLinkPlatform : 'Design Link',
+        'design_link_is_direct_image' => $designLinkIsDirectImage,
         'reference_url' => !empty($item['reference_image_file'])
                             ? $base_path . '/public/serve_design.php?type=order_item&id=' . $line_oid . '&field=reference'
                             : null,
@@ -1399,6 +1408,8 @@ customer_order_items_json([
         'revise_url' => (function_exists('pf_app_base_path') ? pf_app_base_path() : '') . '/customer/edit_order.php?order_id=' . $order_id,
     ] : null,
     'revision_request_error' => $revision_request_error,
+    'change_item' => printflow_change_item_summary_for_order($order_id),
+    'change_item_reasons' => printflow_change_item_reason_labels(),
     'payment_rejection_reason' => $order['payment_rejection_reason'] ?? '',
     'items'            => $items_out,
     'can_cancel'       => $can_cancel,

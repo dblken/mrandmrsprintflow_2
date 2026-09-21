@@ -750,6 +750,10 @@ function printflow_notification_target_url_for_user(string $userType, array $not
  * Notify all activated shop users (Staff, Admin, Manager) about a new customer order.
  */
 function notify_staff_new_order(int $order_id, string $customer_first_name, int $customer_id = 0): void {
+    if (!function_exists('printflow_order_has_urgent_request')) {
+        require_once __DIR__ . '/service_field_priority_helper.php';
+    }
+
     $preview = printflow_order_notification_preview($order_id);
     $service_name = trim((string)($preview['display_name'] ?? ''));
     if ($service_name === '') {
@@ -775,7 +779,17 @@ function notify_staff_new_order(int $order_id, string $customer_first_name, int 
         $service_name = trim((string)($preview['item_kind'] ?? '')) === 'Product' ? 'a product order' : 'a service order';
     }
     $name = trim($customer_first_name) !== '' ? trim($customer_first_name) : 'A customer';
-    $msg = "{$name} sent an inquiry for {$service_name}";
+    $isUrgentRequest = printflow_order_has_urgent_request($order_id);
+    if ($isUrgentRequest) {
+        $orderCode = function_exists('printflow_format_order_code')
+            ? printflow_format_order_code($order_id, '')
+            : ('#' . $order_id);
+        $neededDate = printflow_order_priority_needed_date_label($order_id);
+        $neededLine = $neededDate !== '' ? "\nNeeded Date: {$neededDate}" : '';
+        $msg = "🔴 New Urgent Order Request\n\nOrder {$orderCode}{$neededLine}\n\n{$name} sent an urgent request for {$service_name}";
+    } else {
+        $msg = "{$name} sent an inquiry for {$service_name}";
+    }
 
     // Notify shop users (existing notification system)
     notify_shop_users($msg, 'Order', false, false, $order_id);

@@ -358,19 +358,9 @@ try {
                         // Move product jobs straight to READY_TO_COLLECT
                         db_execute("UPDATE job_orders SET status = 'READY_TO_COLLECT' WHERE id = ?", 'i', [$job['id']]);
                     } else {
-                        // Move service jobs to IN_PRODUCTION. Keep payment success even if
-                        // inventory deduction sync fails and needs manual follow-up.
-                        try {
-                            JobOrderService::updateStatus($job['id'], 'IN_PRODUCTION', null, '', $notified);
-                        } catch (Throwable $statusSyncError) {
-                            db_execute(
-                                "UPDATE job_orders SET status = 'IN_PRODUCTION', updated_at = NOW() WHERE id = ?",
-                                'i',
-                                [$job['id']]
-                            );
-                            $sync_warning = 'Payment approved, but inventory deduction needs follow-up.';
-                            error_log('PrintFlow staff verify payment warning for job #' . (int)$job['id'] . ': ' . $statusSyncError->getMessage());
-                        }
+                        // Production status and inventory deduction are one operation.
+                        // Any inventory error aborts this payment-approval transaction.
+                        JobOrderService::updateStatus($job['id'], 'IN_PRODUCTION', null, '', $notified);
                         $notified = true;
                     }
                 }

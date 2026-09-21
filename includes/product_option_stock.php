@@ -13,6 +13,13 @@ function printflow_ensure_product_option_stock_table(): void
     if ($done) {
         return;
     }
+    global $conn;
+    if (printflow_db_in_transaction($conn)) {
+        // Avoid implicit-commit DDL during an atomic sale. Missing schema will
+        // surface as a query failure and roll the sale back.
+        $done = true;
+        return;
+    }
 
     db_execute(
         "CREATE TABLE IF NOT EXISTS product_option_stock (
@@ -311,12 +318,16 @@ function printflow_product_option_stock_validate(
     int $requestedQty
 ): array {
     $selection = printflow_product_option_stock_find_selected_value($productId, $customization);
-    if ($selection === null) {
+    $hasOptionStock = printflow_product_option_stock_has_rows($productId, $branchId);
+    if (!$hasOptionStock) {
         return ['uses_option_stock' => false, 'ok' => true];
     }
-
-    if (!printflow_product_option_stock_has_rows($productId, $branchId)) {
-        return ['uses_option_stock' => false, 'ok' => true];
+    if ($selection === null) {
+        return [
+            'uses_option_stock' => true,
+            'ok' => false,
+            'message' => 'A valid stock option must be selected for this product.',
+        ];
     }
 
     $rows = printflow_product_option_stock_map($productId, $branchId);
@@ -348,6 +359,106 @@ function printflow_product_option_stock_validate(
     ];
 }
 
+/**
+ * Normalize POS/cart customization for option-stock products.
+ * Auto-selects when exactly one in-stock option exists; otherwise requires an explicit selection.
+ *
+ * @return array{
+ *   ok:bool,
+ *   customization:array,
+ *   message:string,
+ *   field_label:string,
+ *   auto_selected:bool
+ * }
+ */
+function printflow_product_option_stock_prepare_cart_customization(
+    int $productId,
+    int $branchId,
+    array $customization,
+    int $requestedQty,
+    string $productName = ''
+): array {
+    if ($productId <= 0 || $branchId <= 0) {
+        return [
+            'ok' => false,
+            'customization' => $customization,
+            'message' => 'Invalid product for stock option validation.',
+            'field_label' => 'stock option',
+            'auto_selected' => false,
+        ];
+    }
+
+    if (!printflow_product_option_stock_has_rows($productId, $branchId)) {
+        return [
+            'ok' => true,
+            'customization' => $customization,
+            'message' => '',
+            'field_label' => '',
+            'auto_selected' => false,
+        ];
+    }
+
+    $field = printflow_product_resolve_stock_field_config($productId);
+    $fieldLabel = trim((string)($field['field_label'] ?? 'stock option'));
+    $autoSelected = false;
+    $selection = printflow_product_option_stock_find_selected_value($productId, $customization);
+    if ($selection === null) {
+        $rows = printflow_product_option_stock_map($productId, $branchId);
+        $inStock = array_values(array_filter(
+            $rows,
+            static fn(array $row): bool => (int)($row['stock_quantity'] ?? 0) > 0
+        ));
+        if (count($inStock) === 1 && $field !== null) {
+            $optionValue = (string)($inStock[0]['option_value'] ?? '');
+            if ($optionValue !== '') {
+                $customization[$field['field_key']] = $optionValue;
+                $customization[$field['field_label']] = $optionValue;
+                $autoSelected = true;
+            }
+        }
+    }
+
+    $stockCheck = printflow_product_option_stock_validate($productId, $branchId, $customization, $requestedQty);
+    if (empty($stockCheck['uses_option_stock'])) {
+        return [
+            'ok' => true,
+            'customization' => $customization,
+            'message' => '',
+            'field_label' => $fieldLabel,
+            'auto_selected' => $autoSelected,
+        ];
+    }
+
+    if (!empty($stockCheck['ok'])) {
+        return [
+            'ok' => true,
+            'customization' => $customization,
+            'message' => '',
+            'field_label' => $fieldLabel,
+            'auto_selected' => $autoSelected,
+        ];
+    }
+
+    $namePrefix = $productName !== '' ? ($productName . ': ') : '';
+    $message = (string)($stockCheck['message'] ?? 'A valid stock option must be selected for this product.');
+    if (
+        stripos($message, 'valid stock option must be selected') !== false
+        || stripos($message, 'Selected option is out of stock') !== false
+    ) {
+        $message = $namePrefix . 'Please select a valid ' . $fieldLabel . ' for this product.';
+    } elseif ($productName !== '' && stripos($message, $productName) === false) {
+        $message = $namePrefix . $message;
+    }
+
+    return [
+        'ok' => false,
+        'customization' => $customization,
+        'message' => $message,
+        'field_label' => $fieldLabel,
+        'auto_selected' => false,
+    ];
+}
+
 function printflow_product_option_stock_deduct(
     int $productId,
     int $branchId,
@@ -355,8 +466,16 @@ function printflow_product_option_stock_deduct(
     int $qty
 ): array {
     $selection = printflow_product_option_stock_find_selected_value($productId, $customization);
-    if ($selection === null || !printflow_product_option_stock_has_rows($productId, $branchId)) {
+    $hasOptionStock = printflow_product_option_stock_has_rows($productId, $branchId);
+    if (!$hasOptionStock) {
         return ['handled' => false, 'success' => false];
+    }
+    if ($selection === null) {
+        return [
+            'handled' => true,
+            'success' => false,
+            'message' => 'A valid stock option must be selected for this product.',
+        ];
     }
 
     $currentRows = printflow_product_option_stock_map($productId, $branchId);
@@ -379,7 +498,7 @@ function printflow_product_option_stock_deduct(
         ];
     }
 
-    $result = db_execute(
+    $affected = db_execute_affected_rows(
         "UPDATE product_option_stock
          SET stock_quantity = stock_quantity - ?
          WHERE product_id = ? AND branch_id = ? AND field_key = ? AND option_value = ? AND stock_quantity >= ?",
@@ -389,7 +508,8 @@ function printflow_product_option_stock_deduct(
 
     return [
         'handled' => true,
-        'success' => $result !== false,
+        'success' => $affected === 1,
+        'message' => $affected === 1 ? '' : 'Selected option stock changed before checkout completed.',
         'field_key' => $selection['field_key'],
         'field_label' => $selection['field_label'],
         'option_value' => $selection['option_value'],

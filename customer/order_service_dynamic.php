@@ -356,9 +356,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 }
             } elseif ($config['type'] === 'file') {
                 $has_design_field = true;
-                if ($config['required'] && (!isset($_FILES['design_file']) || $_FILES['design_file']['error'] !== UPLOAD_ERR_OK)) {
-                    $error = 'Please upload your design.';
+                $link_post_name = service_order_design_link_post_name($key);
+                $design_link_raw = trim((string)($_POST[$link_post_name] ?? ''));
+                $has_uploaded_file = isset($_FILES['design_file']) && $_FILES['design_file']['error'] === UPLOAD_ERR_OK;
+                $has_design_link = $design_link_raw !== '';
+
+                if ($config['required'] && !$has_uploaded_file && !$has_design_link) {
+                    $error = 'Please upload your design or paste a design link.';
                     break;
+                }
+
+                if ($has_design_link) {
+                    $link_check = service_order_validate_design_link($design_link_raw);
+                    if (!$link_check['ok']) {
+                        $error = $link_check['error'];
+                        break;
+                    }
                 }
             } elseif ($config['type'] === 'radio' || $config['type'] === 'select') {
                 // Skip branch validation as it's already validated above
@@ -370,7 +383,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 }
                 
                 // If "Others" is selected, check specify input
-                if (($_POST[$key] ?? '') === 'Others' && empty(trim($_POST[$key . '_other'] ?? ''))) {
+                if (($_POST[$key] ?? '') === 'Others' && !empty($config['allow_others']) && empty(trim($_POST[$key . '_other'] ?? ''))) {
                     $error = 'Please specify ' . strtolower($config['label']) . '.';
                     break;
                 }
@@ -403,6 +416,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $design_tmp_path = null;
         $design_name = null;
         $design_mime = null;
+        $design_link_url = null;
         
         if ($has_design_field && isset($_FILES['design_file']) && $_FILES['design_file']['error'] === UPLOAD_ERR_OK) {
             $valid = service_order_validate_file($_FILES['design_file']);
@@ -424,8 +438,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     $error = 'Failed to process uploaded file.';
                 }
             }
-        } elseif (!$has_design_field) {
-            // No design field configured, create item key without file
+        }
+
+        if ($has_design_field) {
+            foreach ($field_configs as $fileKey => $fileConfig) {
+                if (($fileConfig['type'] ?? '') !== 'file' || empty($fileConfig['visible'])) {
+                    continue;
+                }
+                $link_post_name = service_order_design_link_post_name($fileKey);
+                $design_link_raw = trim((string)($_POST[$link_post_name] ?? ''));
+                if ($design_link_raw === '') {
+                    continue;
+                }
+                $link_check = service_order_validate_design_link($design_link_raw);
+                if (!$link_check['ok']) {
+                    $error = $link_check['error'];
+                    break;
+                }
+                $design_link_url = $link_check['url'];
+                break;
+            }
+        }
+
+        if (empty($error) && !isset($item_key)) {
             $item_key = 'service_' . $service_id . '_' . time() . '_' . rand(100, 999);
         }
         
@@ -476,8 +511,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     continue;
                 }
                 if ($config['type'] === 'file') {
+                    $field_label = $spec_label($config, $key);
                     if ($design_name !== null && $design_name !== '') {
-                        $customization[$spec_label($config, $key)] = $design_name;
+                        $customization[$field_label] = $design_name;
+                    }
+                    if ($design_link_url !== null && $design_link_url !== '') {
+                        $customization[service_order_design_link_storage_key($field_label)] = $design_link_url;
+                        $customization['design_external_link'] = $design_link_url;
                     }
                     continue;
                 }
@@ -509,9 +549,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                         }
                         $val = implode(', ', $parts);
                     }
-                    if ($val === 'Others' && !empty($_POST[$key . '_other'])) {
-                        $val = $_POST[$key . '_other'];
-                        $customization[$spec_label($config, $key) . ' (Other)'] = $_POST[$key . '_other'];
+                    if ($val === 'Others' && !empty($config['allow_others']) && !empty($_POST[$key . '_other'])) {
+                        $val = trim((string)$_POST[$key . '_other']);
+                        $customization[$spec_label($config, $key) . ' (Other)'] = $val;
                     }
                     $customization[$spec_label($config, $key)] = $val;
                     if (($config['type'] ?? '') === 'textarea' && $key === 'notes') {
@@ -539,6 +579,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $customization['service_id'] = $service_id;
             if (empty($customization['service_type'])) {
                 $customization['service_type'] = $service['name'];
+            }
+
+            require_once __DIR__ . '/../includes/service_field_priority_helper.php';
+            $priorityRequest = printflow_resolve_dynamic_order_priority($service_id, $customization);
+            $prioritySnapshot = printflow_build_staff_priority_request_snapshot($priorityRequest);
+            if ($prioritySnapshot !== null) {
+                $customization['_staff_priority_request'] = $prioritySnapshot;
             }
 
             // Calculate estimated price dynamically based on selected options
@@ -1773,108 +1820,16 @@ document.addEventListener('keydown', function(e) {
 });
 </script>
 
+<script src="<?php echo htmlspecialchars($base_path . '/public/assets/js/service_estimated_price.js'); ?>"></script>
 <script>
-// Estimated Price Calculation System - Global scope
-window.calculateEstimatedPrice = window.calculateEstimatedPrice || null;
-
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('serviceForm');
-    if (!form) return;
-    
-    // Get base price from PHP
-    const basePrice = <?php echo (float)($service['base_price'] ?? 0); ?>;
-    
-    window.calculateEstimatedPrice = function() {
-        let optionsTotal = 0;
-        
-        // Calculate price from radio buttons
-        const checkedRadios = form.querySelectorAll('input[type="radio"].pricing-field:checked');
-        checkedRadios.forEach(radio => {
-            const price = parseFloat(radio.getAttribute('data-price') || 0);
-            optionsTotal += price;
-        });
-        
-        // Calculate price from select dropdowns
-        const selects = form.querySelectorAll('select.pricing-field');
-        selects.forEach(select => {
-            const selectedOption = select.options[select.selectedIndex];
-            if (selectedOption && selectedOption.value) {
-                const price = parseFloat(selectedOption.getAttribute('data-price') || 0);
-                optionsTotal += price;
-            }
-        });
-        
-        // Calculate price from dimension buttons
-        const activeDimensionBtn = form.querySelector('button.shopee-opt-btn.pricing-field.active[data-price]');
-        if (activeDimensionBtn) {
-            const price = parseFloat(activeDimensionBtn.getAttribute('data-price') || 0);
-            optionsTotal += price;
-        }
+    if (!form || typeof window.printflowInitServiceEstimatedPrice !== 'function') return;
 
-        // Nested fields under radio/select options (only when container is visible)
-        form.querySelectorAll('.nested-fields-container').forEach(function(container) {
-            var cs = window.getComputedStyle(container);
-            if (cs.display === 'none' || cs.visibility === 'hidden') return;
-            if (!container.offsetParent) return;
-
-            container.querySelectorAll('select').forEach(function(sel) {
-                var opt = sel.options[sel.selectedIndex];
-                if (opt && opt.value) {
-                    optionsTotal += parseFloat(opt.getAttribute('data-price') || '0') || 0;
-                }
-            });
-            container.querySelectorAll('input[type="radio"]:checked').forEach(function(radio) {
-                optionsTotal += parseFloat(radio.getAttribute('data-price') || '0') || 0;
-            });
-            container.querySelectorAll('.shopee-opt-group').forEach(function(grp) {
-                var btn = grp.querySelector('button.shopee-opt-btn.active[data-price]');
-                if (btn) {
-                    optionsTotal += parseFloat(btn.getAttribute('data-price') || '0') || 0;
-                }
-            });
-        });
-        
-        // Get quantity (field name comes from admin service_field_configs)
-        const qtyInput = form.querySelector('.pf-service-quantity-input');
-        const quantity = parseInt(qtyInput?.value || 1);
-        
-        // Calculate totals
-        const unitPrice = basePrice + optionsTotal;
-        const estimatedTotal = unitPrice * quantity;
-        
-        // Update display
-        const estimatedTotalEl = document.getElementById('estimated-total');
-        const qtyDisplayEl = document.getElementById('qty-display');
-        const unitPriceInputEl = document.getElementById('calculated-unit-price');
-        const estimatedPriceInputEl = document.getElementById('calculated-estimated-price');
-        
-        if (estimatedTotalEl) {
-            estimatedTotalEl.textContent = '₱' + estimatedTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-        }
-        
-        if (qtyDisplayEl) {
-            qtyDisplayEl.textContent = quantity;
-        }
-        
-        if (unitPriceInputEl) {
-            unitPriceInputEl.value = unitPrice.toFixed(2);
-        }
-        
-        if (estimatedPriceInputEl) {
-            estimatedPriceInputEl.value = estimatedTotal.toFixed(2);
-        }
-    };
-    
-    // Listen to all form changes
-    form.addEventListener('change', window.calculateEstimatedPrice);
-    form.addEventListener('input', function(e) {
-        if (e.target.classList && e.target.classList.contains('pf-service-quantity-input')) {
-            window.calculateEstimatedPrice();
-        }
+    window.printflowInitServiceEstimatedPrice(form, {
+        basePrice: <?php echo (float)($service['base_price'] ?? 0); ?>,
+        form: form
     });
-    
-    // Initial calculation
-    window.calculateEstimatedPrice();
 });
 </script>
 
@@ -1890,13 +1845,30 @@ document.addEventListener('DOMContentLoaded', function() {
 
             row.querySelectorAll('select').forEach(select => {
                 hasControls = true;
-                if (select.value && select.value !== '') rowHasValue = true;
+                if (select.value && select.value !== '') {
+                    const otherWrap = select.name ? document.getElementById('select-others-' + select.name) : null;
+                    const otherInput = otherWrap ? otherWrap.querySelector('input') : null;
+                    const otherValue = select.getAttribute('data-other-option') || 'Others';
+                    if (select.value === otherValue && otherInput) {
+                        rowHasValue = otherInput.value.trim() !== '';
+                    } else {
+                        rowHasValue = true;
+                    }
+                }
             });
 
             const radios = row.querySelectorAll('input[type="radio"]');
             if (radios.length > 0) {
                 hasControls = true;
-                if (row.querySelector('input[type="radio"]:checked')) rowHasValue = true;
+                const checkedRadio = row.querySelector('input[type="radio"]:checked');
+                if (checkedRadio) {
+                    if (checkedRadio.value === 'Others') {
+                        const otherInput = row.querySelector('input[name="' + checkedRadio.name + '_other"]');
+                        rowHasValue = otherInput ? otherInput.value.trim() !== '' : true;
+                    } else {
+                        rowHasValue = true;
+                    }
+                }
             }
 
             const widthHidden = row.querySelector('[data-dimension-role="width"], #width_hidden');
@@ -1928,6 +1900,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (file.files && file.files.length > 0) rowHasValue = true;
             });
 
+            row.querySelectorAll('.pf-design-link-input').forEach(linkInput => {
+                hasControls = true;
+                if (linkInput.value && linkInput.value.trim() !== '') rowHasValue = true;
+            });
+
             row.querySelectorAll('input[type="text"], input[type="number"], textarea').forEach(input => {
                 if (input.type === 'hidden' || input.dataset.dimensionRole || input.id === 'width_hidden' || input.id === 'height_hidden') return;
                 hasControls = true;
@@ -1948,6 +1925,18 @@ document.addEventListener('DOMContentLoaded', function() {
             const labelEl = row.querySelector('.shopee-form-label');
             if (!labelEl || !labelEl.innerText.includes('*')) return;
             if (getRowValueState(row).rowHasValue) removeRowErrors(row);
+        };
+
+        const isValidDesignLink = (value) => {
+            const text = String(value || '').trim();
+            if (!text) return true;
+            if (/^\s*(javascript|data|file|vbscript):/i.test(text)) return false;
+            try {
+                const parsed = new URL(text);
+                return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+            } catch (err) {
+                return false;
+            }
         };
 
         form.addEventListener('submit', function(e) {
@@ -1985,7 +1974,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     const firstControl = row.querySelector('select, label, input:not([type="hidden"]), textarea') || row;
                     const finalMessage = fieldName.includes('Branch') ? 'Please select a branch for pickup.' : `${fieldName} is required.`;
                     setError(firstControl, finalMessage);
+                    return;
                 }
+
+                row.querySelectorAll('.pf-design-link-input').forEach(linkInput => {
+                    const linkValue = String(linkInput.value || '').trim();
+                    if (linkValue !== '' && !isValidDesignLink(linkValue)) {
+                        setError(linkInput, 'Please enter a valid HTTP or HTTPS design link.');
+                    }
+                });
             });
             
             if (hasError) {

@@ -11,7 +11,15 @@ function printflow_pos_receipt_item_name(array $item): string {
     return $size !== '' ? $name . ' (' . $size . ')' : $name;
 }
 
-function printflow_pos_build_receipt(int $orderId, float $amountTendered = 0.0): array {
+function printflow_pos_build_receipt(int $orderId, float $amountTendered = 0.0, array $linkedOrderIds = []): array {
+    $linkedOrderIds = array_values(array_unique(array_filter(array_map('intval', $linkedOrderIds))));
+    if ($linkedOrderIds === []) {
+        $linkedOrderIds = [$orderId];
+    }
+    if (!in_array($orderId, $linkedOrderIds, true)) {
+        array_unshift($linkedOrderIds, $orderId);
+    }
+
     $orders = db_query(
         "SELECT o.*, c.first_name, c.last_name, c.email, c.contact_number,
                 b.branch_name, b.address AS branch_address, b.contact_number AS branch_contact,
@@ -39,13 +47,14 @@ function printflow_pos_build_receipt(int $orderId, float $amountTendered = 0.0):
         [$orderId]
     ) ?: [];
     $providerPayment = $providerRows[0] ?? null;
+    $placeholders = implode(',', array_fill(0, count($linkedOrderIds), '?'));
     $rows = db_query(
         "SELECT oi.quantity, oi.unit_price, oi.customization_data, p.name AS product_name
          FROM order_items oi
          LEFT JOIN products p ON p.product_id = oi.product_id
-         WHERE oi.order_id = ? ORDER BY oi.order_item_id",
-        'i',
-        [$orderId]
+         WHERE oi.order_id IN ($placeholders) ORDER BY oi.order_item_id",
+        str_repeat('i', count($linkedOrderIds)),
+        $linkedOrderIds
     ) ?: [];
 
     $items = [];
@@ -67,7 +76,18 @@ function printflow_pos_build_receipt(int $orderId, float $amountTendered = 0.0):
             'customization' => $customization,
         ];
     }
-    $total = (float)$order['total_amount'];
+    $total = 0.0;
+    foreach ($linkedOrderIds as $linkedOrderId) {
+        $linkedRows = db_query(
+            'SELECT total_amount FROM orders WHERE order_id = ? LIMIT 1',
+            'i',
+            [(int)$linkedOrderId]
+        ) ?: [];
+        $total += (float)($linkedRows[0]['total_amount'] ?? 0);
+    }
+    if ($total <= 0) {
+        $total = (float)$order['total_amount'];
+    }
     $discountAmount = max(0, $subtotal - $total);
     $shop = printflow_load_runtime_config(
         'shop',
