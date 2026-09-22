@@ -268,32 +268,73 @@ if ($initials === '') {
         .pf-burger-nav {
             display: flex;
             flex-direction: column;
-            gap: 0.25rem;
+            gap: 0.5rem;
         }
         .pf-burger-link {
             display: flex;
             align-items: center;
-            justify-content: center;
-            padding: 0.75rem 1rem;
-            border-radius: 0.5rem;
-            color: rgba(255, 255, 255, 0.85);
+            justify-content: flex-start;
+            gap: 12px;
+            width: 100%;
+            box-sizing: border-box;
+            padding: 12px 16px;
+            border-radius: 10px;
+            color: #ffffff;
             text-decoration: none;
-            text-align: center;
+            text-align: left;
             font-size: 0.95rem;
             font-weight: 600;
-            transition: all 0.2s;
-            background: transparent;
+            transition: background 0.2s ease, transform 0.15s ease;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid transparent;
+            -webkit-tap-highlight-color: transparent;
         }
-        .pf-burger-link:hover {
-            background: rgba(83, 197, 224, 0.1);
-            color: #53c5e0;
+        .pf-burger-link__icon {
+            width: 20px;
+            height: 20px;
+            flex: 0 0 20px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+        }
+        .pf-burger-link__icon svg {
+            width: 20px;
+            height: 20px;
+            stroke: currentColor;
+        }
+        .pf-burger-link__label {
+            flex: 1 1 auto;
+            min-width: 0;
+            color: #ffffff;
+        }
+        .pf-burger-link .pf-chat-unread-badge {
+            margin-left: auto;
+            flex-shrink: 0;
+        }
+        .pf-burger-link:hover,
+        .pf-burger-link:focus-visible {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+        }
+        .pf-burger-link:active {
+            background: rgba(255, 255, 255, 0.12);
+            color: #ffffff;
+            transform: scale(0.99);
         }
         .pf-burger-link.active {
             background: rgba(83, 197, 224, 0.16);
-            color: #53c5e0 !important;
+            color: #ffffff !important;
             border-left: 3px solid #53c5e0;
-            padding-left: 1rem;
-            padding-right: calc(1rem + 3px);
+            padding-left: 13px;
+            padding-right: 16px;
+        }
+        .pf-burger-link.active .pf-burger-link__icon,
+        .pf-burger-link.active .pf-burger-link__label {
+            color: #ffffff;
+        }
+        .pf-burger-menu a.pf-burger-link.nav-active {
+            color: #ffffff !important;
         }
         #main-header .pf-nav-links .nav-link.nav-active {
             color: #53c5e0 !important;
@@ -839,13 +880,35 @@ if ($initials === '') {
     <div class="pf-burger-section">
         <div class="pf-burger-section-title">Navigation</div>
         <nav class="pf-burger-nav">
-            <a href="<?php echo $base_url; ?>/customer/services.php" class="pf-burger-link" onclick="closeBurgerMenu()">Services</a>
-            <a href="<?php echo $base_url; ?>/customer/products.php" class="pf-burger-link" onclick="closeBurgerMenu()">Products</a>
-            <a href="<?php echo $base_url; ?>/customer/cart.php" class="pf-burger-link" onclick="closeBurgerMenu()">My Cart</a>
-            <a href="<?php echo $base_url; ?>/customer/orders.php" class="pf-burger-link" onclick="closeBurgerMenu()">Orders</a>
-            <a href="<?php echo $base_url; ?>/customer/messages.php" class="pf-burger-link" onclick="closeBurgerMenu()">Messages <span class="pf-chat-unread-badge" data-chat-unread-badge style="display:<?php echo $pf_customer_chat_unread > 0 ? 'inline-flex' : 'none'; ?>;"><?php echo $pf_customer_chat_unread > 99 ? '99+' : ($pf_customer_chat_unread > 0 ? (int)$pf_customer_chat_unread : ''); ?></span></a>
-            <a href="<?php echo $base_url; ?>/customer/notifications.php" class="pf-burger-link" onclick="closeBurgerMenu()">Notifications</a>
-            <a href="<?php echo $base_url; ?>/customer/profile.php" class="pf-burger-link" onclick="closeBurgerMenu()">Profile</a>
+            <a href="<?php echo $base_url; ?>/customer/services.php" class="pf-burger-link" onclick="closeBurgerMenu()">
+                <span class="pf-burger-link__icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg></span>
+                <span class="pf-burger-link__label">Services</span>
+            </a>
+            <a href="<?php echo $base_url; ?>/customer/products.php" class="pf-burger-link" onclick="closeBurgerMenu()">
+                <span class="pf-burger-link__icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg></span>
+                <span class="pf-burger-link__label">Products</span>
+            </a>
+            <a href="<?php echo $base_url; ?>/customer/cart.php" class="pf-burger-link" onclick="closeBurgerMenu()">
+                <span class="pf-burger-link__icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 0a2 2 0 100 4 2 2 0 000-4z"/></svg></span>
+                <span class="pf-burger-link__label">My Cart</span>
+            </a>
+            <a href="<?php echo $base_url; ?>/customer/orders.php" class="pf-burger-link" onclick="closeBurgerMenu()">
+                <span class="pf-burger-link__icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg></span>
+                <span class="pf-burger-link__label">Orders</span>
+            </a>
+            <a href="<?php echo $base_url; ?>/customer/messages.php" class="pf-burger-link" onclick="closeBurgerMenu()">
+                <span class="pf-burger-link__icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h8m-8 4h5m-7 6h12a2 2 0 002-2V8a2 2 0 00-2-2H6a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg></span>
+                <span class="pf-burger-link__label">Messages</span>
+                <span class="pf-chat-unread-badge" data-chat-unread-badge style="display:<?php echo $pf_customer_chat_unread > 0 ? 'inline-flex' : 'none'; ?>;"><?php echo $pf_customer_chat_unread > 99 ? '99+' : ($pf_customer_chat_unread > 0 ? (int)$pf_customer_chat_unread : ''); ?></span>
+            </a>
+            <a href="<?php echo $base_url; ?>/customer/notifications.php" class="pf-burger-link" onclick="closeBurgerMenu()">
+                <span class="pf-burger-link__icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg></span>
+                <span class="pf-burger-link__label">Notifications</span>
+            </a>
+            <a href="<?php echo $base_url; ?>/customer/profile.php" class="pf-burger-link" onclick="closeBurgerMenu()">
+                <span class="pf-burger-link__icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg></span>
+                <span class="pf-burger-link__label">Profile</span>
+            </a>
         </nav>
     </div>
     <div class="pf-burger-actions">
@@ -856,7 +919,8 @@ if ($initials === '') {
             Install App
         </button>
         <button onclick="closeBurgerMenu(); document.getElementById('logout-confirm-modal').style.display='flex'" type="button"
-                class="pf-burger-btn-login" style="color:rgba(239,68,68,.9);border-color:rgba(239,68,68,.3);">
+                class="pf-burger-btn-login pf-burger-btn-logout" style="color:rgba(239,68,68,.9);border-color:rgba(239,68,68,.3);display:flex;align-items:center;justify-content:center;gap:10px;">
+            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
             Logout
         </button>
     </div>
