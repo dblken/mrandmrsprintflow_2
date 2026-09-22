@@ -544,29 +544,44 @@ if (!function_exists('pf_payment_qr_url')) {
 <style>
     /* === PAYMENT PAGE — WIDE TWO-COLUMN LAYOUT === */
     .payment-container {
-        width: min(1100px, calc(100vw - 2rem)) !important;
-        max-width: 1100px !important;
+        width: min(1240px, calc(100vw - 1.5rem)) !important;
+        max-width: 1240px !important;
         margin: 0 auto !important;
-        padding: 2rem 0 4rem !important;
+        padding: 0.85rem 0 1.75rem !important;
     }
     .payment-layout {
         display: grid;
-        grid-template-columns: 1fr 420px;
-        gap: 1.5rem;
+        grid-template-columns: minmax(0, 1fr) minmax(300px, 390px);
+        gap: 1rem 1.25rem;
         align-items: start;
+    }
+    @media (min-width: 901px) {
+        .payment-sidebar {
+            position: sticky;
+            top: 0.65rem;
+            align-self: start;
+        }
     }
     @media (max-width: 900px) {
         .payment-layout { grid-template-columns: 1fr; }
-        .payment-sidebar { order: -1; }
+        .payment-sidebar { order: -1; position: static; }
+    }
+    .payment-topbar {
+        margin-bottom: 1rem !important;
     }
     .payment-card {
         background: #ffffff !important;
         border: 1px solid #e5e7eb !important;
-        border-radius: 4px !important;
-        box-shadow: 0 1px 1px 0 rgba(0,0,0,.05);
+        border-radius: 8px !important;
+        box-shadow: 0 1px 2px 0 rgba(0,0,0,.04);
         overflow: hidden;
-        margin-bottom: 1.25rem;
+        margin-bottom: 0.75rem;
         backdrop-filter: none;
+    }
+    .payment-page-shell .payment-card.p-6,
+    .payment-page-shell .payment-sidebar .payment-card,
+    .payment-page-shell .payment-main > .payment-card {
+        padding: 0.85rem 1rem !important;
     }
     /* Fix all dark section titles → white */
     .payment-section-title {
@@ -754,19 +769,19 @@ if (!function_exists('pf_payment_qr_url')) {
         border-radius: 4px;
         color: #00232b !important;
     }
-    .paymongo-card { padding:1.4rem;margin-bottom:1.25rem;border:1px solid #dbe5e8;border-radius:14px;background:#fff;box-shadow:0 10px 28px rgba(0,35,43,.08);color:#172b32; }
-    .paymongo-eyebrow { color:#0f766e;font-size:.7rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase; }
-    .paymongo-title { margin:.35rem 0 0;color:#102f38;font-size:1.08rem;font-weight:850; }
-    .paymongo-amount-wrap { margin:1.15rem 0;padding:1rem;border-radius:10px;background:#f1f8f8; }
-    .paymongo-label { color:#64748b;font-size:.72rem;font-weight:750;letter-spacing:.04em;text-transform:uppercase; }
-    .paymongo-amount { margin-top:.15rem;color:#082f3a;font-size:1.8rem;font-weight:900;letter-spacing:-.025em; }
-    .paymongo-method-summary { margin-top:1rem;padding:.95rem 1rem;border:1px solid #cbdde1;border-radius:10px;background:#f8fcfd;color:#17343d; }
-    .paymongo-method-summary strong { display:block;color:#082f3a;font-size:.9rem;letter-spacing:.035em; }
-    .paymongo-method-summary span { display:block;margin-top:.35rem;color:#5b6f76;font-size:.8rem;line-height:1.45; }
-    .paymongo-qr-card { margin-top:1rem;padding:1.15rem;border:1px solid #dbe5e8;border-radius:12px;background:#fbfefe;text-align:center; }
-    .paymongo-qr-card img { width:min(248px,100%);padding:8px;border:1px solid #e2e8f0;border-radius:8px; }
-    .paymongo-state { margin-top:.85rem;padding:.7rem .8rem;border-radius:8px;background:#f1f5f9;color:#43565d;font-size:.8rem;line-height:1.45;text-align:center; }
-    .paymongo-actions { display:flex;justify-content:center;flex-wrap:wrap;gap:.65rem;margin-top:.85rem; }
+    .paymongo-card { padding:0.95rem 1rem;margin-bottom:0.65rem;border:1px solid #dbe5e8;border-radius:12px;background:#fff;box-shadow:0 6px 18px rgba(0,35,43,.06);color:#172b32; }
+    .paymongo-eyebrow { color:#0f766e;font-size:.68rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase; }
+    .paymongo-title { margin:.2rem 0 0;color:#102f38;font-size:1rem;font-weight:850; }
+    .paymongo-amount-wrap { margin:0.55rem 0;padding:0.6rem 0.75rem;border-radius:10px;background:#f1f8f8; }
+    .paymongo-label { color:#64748b;font-size:.68rem;font-weight:750;letter-spacing:.04em;text-transform:uppercase; }
+    .paymongo-amount { margin-top:.1rem;color:#082f3a;font-size:1.55rem;font-weight:900;letter-spacing:-.025em; }
+    .paymongo-method-summary { margin-top:0.55rem;padding:0.6rem 0.75rem;border:1px solid #cbdde1;border-radius:10px;background:#f8fcfd;color:#17343d; }
+    .paymongo-method-summary strong { display:block;color:#082f3a;font-size:.85rem;letter-spacing:.035em; }
+    .paymongo-method-summary span { display:block;margin-top:.25rem;color:#5b6f76;font-size:.76rem;line-height:1.4; }
+    .paymongo-qr-card { margin-top:0.55rem;padding:0.65rem 0.75rem;border:1px solid #dbe5e8;border-radius:12px;background:#fbfefe;text-align:center; }
+    .paymongo-qr-card img { width:min(220px,100%);padding:6px;border:1px solid #e2e8f0;border-radius:8px; }
+    .paymongo-state { margin-top:0.5rem;padding:0.55rem 0.65rem;border-radius:8px;background:#f1f5f9;color:#43565d;font-size:.76rem;line-height:1.4;text-align:center; }
+    .paymongo-actions { display:flex;justify-content:center;flex-wrap:wrap;gap:.5rem;margin-top:0.55rem; }
     .paymongo-action { display:inline-flex;min-height:42px;align-items:center;justify-content:center;width:auto;padding:.65rem 1rem;border-radius:9px;font-size:.8rem;font-weight:800;text-decoration:none; }
     .paymongo-action-primary { border:1px solid #063b47;background:#063b47;color:#fff; }
     .paymongo-action-secondary { border:1px solid #a9c7cc;background:#fff;color:#0a5962; }
@@ -780,8 +795,123 @@ if (!function_exists('pf_payment_qr_url')) {
     /* Compact specs in item card */
     .order-spec-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-        gap: 0.6rem;
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 0.45rem;
+    }
+
+    /* —— Compact order summary (left column) —— */
+    .payment-page-shell .payment-grand-total {
+        padding: 0.65rem 0.85rem !important;
+        margin-bottom: 0.65rem !important;
+        border-radius: 8px !important;
+        box-shadow: none !important;
+        border: 1px solid #e5e7eb !important;
+    }
+    .payment-page-shell .payment-grand-total .payment-grand-total-label {
+        margin-bottom: 0.2rem !important;
+        font-size: 0.72rem !important;
+    }
+    .payment-page-shell .payment-grand-total .payment-grand-total-value {
+        font-size: 1.65rem !important;
+        line-height: 1.15 !important;
+    }
+    .payment-page-shell .payment-items-wrap {
+        margin-bottom: 0 !important;
+    }
+    .payment-page-shell .payment-items-wrap .items-heading {
+        margin-bottom: 0.35rem;
+    }
+    .payment-page-shell .payment-line-item {
+        margin-bottom: 0.45rem !important;
+        padding-bottom: 0.45rem !important;
+    }
+    .payment-page-shell .payment-main .payment-items-wrap > div[style*="margin-bottom: 1.5rem"] {
+        margin-bottom: 0.65rem !important;
+    }
+    .payment-page-shell .payment-main .order-item-header {
+        padding: 0.7rem 0.85rem !important;
+        gap: 0.7rem !important;
+        align-items: center !important;
+    }
+    .payment-page-shell .payment-main .order-item-image {
+        width: 84px !important;
+        height: 84px !important;
+        min-width: 84px !important;
+        flex-shrink: 0 !important;
+        border-radius: 10px !important;
+    }
+    .payment-page-shell .payment-main .order-item-content h3 {
+        font-size: 0.9rem !important;
+        line-height: 1.25 !important;
+        margin-bottom: 0.15rem !important;
+    }
+    .payment-page-shell .payment-main .order-item-category-badge {
+        margin-bottom: 0.45rem !important;
+        padding: 2px 8px !important;
+    }
+    .payment-page-shell .payment-main .order-item-specs {
+        padding: 0.6rem 0.85rem !important;
+    }
+    .payment-page-shell .payment-main .order-item-specs h4 {
+        margin-bottom: 0.45rem !important;
+        padding-bottom: 0.35rem !important;
+        font-size: 0.78rem !important;
+    }
+    .payment-page-shell .payment-main .order-item-spec-grid,
+    .payment-page-shell .payment-main .review-spec-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        gap: 0.4rem 0.5rem !important;
+    }
+    .payment-page-shell .payment-main .order-item-spec-tile,
+    .payment-page-shell .payment-main .review-spec-tile {
+        padding: 0.4rem 0.5rem !important;
+        border-radius: 8px !important;
+        min-width: 0 !important;
+    }
+    .payment-page-shell .payment-main .order-item-spec-tile .pf-spec-label,
+    .payment-page-shell .payment-main .review-spec-tile .pf-spec-label {
+        margin-bottom: 2px !important;
+        font-size: 0.6rem !important;
+        line-height: 1.2 !important;
+    }
+    .payment-page-shell .payment-main .order-item-spec-tile .pf-spec-value,
+    .payment-page-shell .payment-main .review-spec-tile .pf-spec-value {
+        font-size: 0.82rem !important;
+        line-height: 1.3 !important;
+        overflow-wrap: anywhere !important;
+        word-break: break-word !important;
+    }
+    .payment-page-shell .payment-main .order-item-upload-design {
+        padding: 0.5rem 0.55rem !important;
+    }
+    .payment-page-shell .payment-main .order-item-upload-design img {
+        max-height: 168px !important;
+        max-width: min(100%, 300px) !important;
+        width: auto !important;
+        height: auto !important;
+        object-fit: contain !important;
+        display: block !important;
+        margin: 0 auto !important;
+        cursor: zoom-in;
+    }
+    .payment-page-shell .payment-main .show-more-btn {
+        margin-bottom: 0.5rem !important;
+        padding: 0.5rem !important;
+    }
+    @media (max-width: 900px) {
+        .payment-page-shell .payment-main .order-item-spec-grid,
+        .payment-page-shell .payment-main .review-spec-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        }
+    }
+    @media (max-width: 640px) {
+        .payment-page-shell .payment-main .order-item-spec-grid,
+        .payment-page-shell .payment-main .review-spec-grid {
+            grid-template-columns: 1fr 1fr !important;
+        }
+        .payment-page-shell .payment-main .order-item-upload-design img {
+            max-height: 200px !important;
+        }
     }
     @media (max-width: 640px) {
         h1 { font-size: 1rem !important; }
@@ -810,7 +940,7 @@ if (!function_exists('pf_payment_qr_url')) {
 <div class="min-h-screen payment-page-shell">
     <div class="payment-container">
             
-            <div class="payment-topbar" style="display: flex; align-items: center; justify-content: space-between; position: relative; margin-bottom: 2rem;">
+            <div class="payment-topbar" style="display: flex; align-items: center; justify-content: space-between; position: relative;">
                 <?php 
                 $back_url = 'orders.php';
                 if (!$is_job_order) {
@@ -831,12 +961,12 @@ if (!function_exists('pf_payment_qr_url')) {
                 <div class="payment-main">
                 <div class="payment-card p-6">
                 <!-- Grand Total -->
-                <div style="background: linear-gradient(135deg, #0f3340, #0a2530); border: none; border-radius: 0; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: 0 4px 15px rgba(0,0,0,0.25); text-align: center;">
-                    <span style="font-size: 0.78rem; font-weight: 700; color: #9fc4d4; text-transform: uppercase; letter-spacing: 0.1em; display: block; margin-bottom: 0.4rem;">Order Total Amount</span>
-                    <span style="font-size: 2.25rem; font-weight: 900; color: #53c5e0; letter-spacing: -0.01em;">₱ <?php echo number_format($total_amount, 2); ?></span>
+                <div class="payment-grand-total" style="background: linear-gradient(135deg, #0f3340, #0a2530); border: none; border-radius: 0; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: 0 4px 15px rgba(0,0,0,0.25); text-align: center;">
+                    <span class="payment-grand-total-label" style="font-size: 0.78rem; font-weight: 700; color: #9fc4d4; text-transform: uppercase; letter-spacing: 0.1em; display: block; margin-bottom: 0.4rem;">Order Total Amount</span>
+                    <span class="payment-grand-total-value" style="font-size: 2.25rem; font-weight: 900; color: #53c5e0; letter-spacing: -0.01em;">₱ <?php echo number_format($total_amount, 2); ?></span>
                 </div>
 
-                <div style="margin-bottom: 1.5rem;">
+                <div class="payment-items-wrap" style="margin-bottom: 1.5rem;">
                     <?php if (!$is_job_order): ?>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
                             <h3 class="items-heading">Items (<?php echo count($items); ?>)</h3>
@@ -847,7 +977,7 @@ if (!function_exists('pf_payment_qr_url')) {
                             $item_index++;
                             $is_hidden = ($item_index > 3);
                         ?>
-                            <div class="<?php echo $is_hidden ? 'items-hidden' : ''; ?>" style="margin-bottom: 0.75rem; border-bottom: 1px solid rgba(83,197,224,0.12); padding-bottom: 0.75rem; <?php echo ($item_index === count($items)) ? 'border-bottom: none;' : ''; ?>">
+                            <div class="<?php echo $is_hidden ? 'items-hidden' : ''; ?> payment-line-item" style="margin-bottom: 0.75rem; border-bottom: 1px solid rgba(83,197,224,0.12); padding-bottom: 0.75rem; <?php echo ($item_index === count($items)) ? 'border-bottom: none;' : ''; ?>">
                                 <?php render_order_item_clean($item, false, true); ?>
                             </div>
                         <?php endforeach; ?>
@@ -957,7 +1087,7 @@ if (!function_exists('pf_payment_qr_url')) {
                     ?>
                     <?php if ($paymongo_available && $paymongo_qrph_available): ?>
                         <div id="paymongo-test-payment" class="paymongo-card">
-                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;">
                                 <div><div class="paymongo-eyebrow">Payment Method</div><h2 class="paymongo-title">Pay securely with PayMongo</h2></div>
                                 <?php if ($paymongo_mode === 'test'): ?><span style="padding:3px 8px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:800;text-transform:uppercase;">Test Mode</span><?php endif; ?>
                             </div>
@@ -970,12 +1100,12 @@ if (!function_exists('pf_payment_qr_url')) {
                                 <span>Scan the QR using a supported banking or e-wallet app.</span>
                             </div>
                             <div id="paymongo-qr-panel" class="paymongo-qr-card" style="display:none;">
-                                <div class="paymongo-eyebrow">QR Ph Payment</div><div class="paymongo-amount" style="font-size:1.45rem;margin:.3rem 0 .5rem;"><?php echo format_currency($total_amount); ?></div>
-                                <div style="font-size:.8rem;color:#52666d;line-height:1.5;margin-bottom:.8rem;">Scan this QR using a supported banking or e-wallet application.</div>
+                                <div class="paymongo-eyebrow">QR Ph Payment</div><div class="paymongo-amount" style="font-size:1.35rem;margin:.2rem 0 .35rem;"><?php echo format_currency($total_amount); ?></div>
+                                <div style="font-size:.76rem;color:#52666d;line-height:1.45;margin-bottom:.45rem;">Scan this QR using a supported banking or e-wallet application.</div>
                                 <img id="paymongo-qr-image" alt="PayMongo QR Ph payment code">
-                                <div style="margin-top:.75rem;font-size:.82rem;font-weight:800;color:#9a6700;">Waiting for payment</div>
-                                <div id="paymongo-qr-countdown" style="font-size:.82rem;font-weight:800;color:#0f766e;margin-top:.25rem;min-height:20px;"></div>
-                                <div style="margin-top:.5rem;font-size:.72rem;color:#64748b;overflow-wrap:anywhere;">Order Reference: <strong style="color:#223b43;">#<?php echo (int)$order_id; ?></strong></div>
+                                <div style="margin-top:.45rem;font-size:.78rem;font-weight:800;color:#9a6700;">Waiting for payment</div>
+                                <div id="paymongo-qr-countdown" style="font-size:.78rem;font-weight:800;color:#0f766e;margin-top:.15rem;min-height:18px;"></div>
+                                <div style="margin-top:.35rem;font-size:.7rem;color:#64748b;overflow-wrap:anywhere;">Order Reference: <strong style="color:#223b43;">#<?php echo (int)$order_id; ?></strong></div>
                             </div>
                             <div class="paymongo-actions"><button id="paymongo-retry" type="button" class="paymongo-action paymongo-action-primary" style="display:none;">Generate New QR</button></div>
                             <div id="paymongo-payment-state" class="paymongo-state" role="status" aria-live="polite">Preparing your QR Ph payment...</div>
