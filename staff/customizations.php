@@ -222,6 +222,118 @@ $online_closed_count = 0;
             margin-bottom: 24px;
         }
 
+        .pf-staff-customizations-root .kpi-card--link {
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        }
+
+        .pf-staff-customizations-root .kpi-card--link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+        }
+
+        .pf-staff-customizations-root .kpi-card--link:active {
+            transform: translateY(0);
+        }
+
+        .pf-staff-customizations-root .kpi-card--urgent-pulse {
+            animation: pfUrgentKpiPulse 2.5s ease-in-out infinite;
+        }
+
+        @keyframes pfUrgentKpiPulse {
+            0%, 100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.28);
+            }
+            50% {
+                box-shadow: 0 0 0 7px rgba(239, 68, 68, 0.06);
+            }
+        }
+
+        .pf-urgent-attention-banner {
+            position: sticky;
+            top: 12px;
+            z-index: 40;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin: 0 0 16px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid #fdba74;
+            background: linear-gradient(90deg, #fff7ed 0%, #ffedd5 100%);
+            box-shadow: 0 8px 24px rgba(234, 88, 12, 0.12);
+        }
+
+        .pf-urgent-attention-banner__message {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #9a3412;
+            font-size: 14px;
+            font-weight: 700;
+            line-height: 1.35;
+        }
+
+        .pf-urgent-attention-banner__message i {
+            color: #ea580c;
+            font-size: 18px;
+        }
+
+        .pf-urgent-attention-banner__action {
+            border: 0;
+            border-radius: 999px;
+            padding: 8px 14px;
+            background: #ea580c;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .pf-urgent-attention-banner__action:hover {
+            background: #c2410c;
+        }
+
+        .pf-orders-section-row td {
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .pf-orders-section-label {
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #64748b;
+        }
+
+        .pf-orders-section-label--urgent {
+            color: #b45309;
+        }
+
+        .customizations-mobile-section-label {
+            margin: 8px 0 4px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            background: #fff7ed;
+            border: 1px solid #fed7aa;
+            color: #9a3412;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .customizations-mobile-section-label--regular {
+            background: #f8fafc;
+            border-color: #e2e8f0;
+            color: #64748b;
+        }
+
         .pf-staff-customizations-root .pf-customizations-table-card {
             margin-top: 8px;
             container: customization-list / inline-size;
@@ -1877,6 +1989,18 @@ $online_closed_count = 0;
         </header>
 
         <main>
+                <div
+                    x-show="!isPosSimplifiedView && urgentOrderCount > 0"
+                    x-cloak
+                    class="pf-urgent-attention-banner"
+                    role="status"
+                >
+                    <div class="pf-urgent-attention-banner__message">
+                        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                        <span x-text="urgentBannerMessage()"></span>
+                    </div>
+                    <button type="button" class="pf-urgent-attention-banner__action" @click="focusUrgentOrders()">View Now</button>
+                </div>
                 <div class="kpi-row">
                  <?php if ($isPosCustomizationView): ?>
                  <div class="kpi-card indigo">
@@ -1908,28 +2032,35 @@ $online_closed_count = 0;
                      </span>
                  </div>
                  <?php else: ?>
-                 <div class="kpi-card amber">
+                 <div class="kpi-card amber kpi-card--link" role="button" tabindex="0" @click="navigateFromKpi('INQUIRY')" @keydown.enter.prevent="navigateFromKpi('INQUIRY')">
                      <span class="kpi-card-inner">
                          <span class="kpi-label">Inquiry &amp; Design</span>
                          <span class="kpi-value" x-text="getStatusCount('INQUIRY')"><?php echo number_format($online_inquiry_count); ?></span>
                          <span class="kpi-sub">Review, revisions, materials, pricing</span>
                      </span>
                  </div>
-                <div class="kpi-card rose">
+                <div
+                    class="kpi-card rose kpi-card--link"
+                    role="button"
+                    tabindex="0"
+                    :class="{ 'kpi-card--urgent-pulse': urgentOrderCount > 0 }"
+                    @click="navigateFromKpi('URGENT')"
+                    @keydown.enter.prevent="navigateFromKpi('URGENT')"
+                >
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Urgent Orders</span>
                         <span class="kpi-value" x-text="getStatusCount('URGENT')"><?php echo number_format($online_urgent_count); ?></span>
                         <span class="kpi-sub">Orders that need immediate attention</span>
                     </span>
                 </div>
-                 <div class="kpi-card emerald">
+                 <div class="kpi-card emerald kpi-card--link" role="button" tabindex="0" @click="navigateFromKpi('PRODUCTION')" @keydown.enter.prevent="navigateFromKpi('PRODUCTION')">
                      <span class="kpi-card-inner">
                          <span class="kpi-label">Production</span>
                          <span class="kpi-value" x-text="getStatusCount('PRODUCTION')"><?php echo number_format($online_production_count); ?></span>
                          <span class="kpi-sub">Printing, pickup, completed</span>
                      </span>
                  </div>
-                 <div class="kpi-card rose">
+                 <div class="kpi-card rose kpi-card--link" role="button" tabindex="0" @click="navigateFromKpi('CANCELLED')" @keydown.enter.prevent="navigateFromKpi('CANCELLED')">
                      <span class="kpi-card-inner">
                          <span class="kpi-label">Cancelled</span>
                          <span class="kpi-value" x-text="getStatusCount('CLOSED')"><?php echo number_format($online_closed_count); ?></span>
@@ -2126,54 +2257,63 @@ $online_closed_count = 0;
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
-                            <template x-for="jo in paginatedOrders" :key="(jo.order_type || 'JOB') + '-' + jo.id">
-                                <tr @click="viewDetails(jo.id, jo.order_type || 'JOB')" class="group transition-all relative cursor-pointer customization-row">
+                            <template x-for="item in paginatedListItems" :key="item.key">
+                                <template x-if="item.kind === 'section'">
+                                    <tr class="pf-orders-section-row">
+                                        <td colspan="7" class="px-6 py-2">
+                                            <div class="pf-orders-section-label" :class="item.label === 'Urgent Orders' ? 'pf-orders-section-label--urgent' : ''" x-text="item.label"></div>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <template x-if="item.kind === 'row'">
+                                <tr @click="viewDetails(item.jo.id, item.jo.order_type || 'JOB')" class="group transition-all relative cursor-pointer customization-row">
                                     <td class="pl-6 pr-4 py-4 relative order-code-cell" data-label="Order">
                                         <div class="row-indicator"></div>
                                         <div class="pf-order-code-stack">
-                                            <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(jo)" x-text="getDisplayOrderCode(jo)"></span>
-                                            <span x-show="orderIsUrgentRequest(jo)" class="pf-urgent-request-badge">Urgent Request</span>
-                                            <span x-show="orderHasChangeItemBadge(jo)" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(jo)"></span>
+                                            <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(item.jo)" x-text="getDisplayOrderCode(item.jo)"></span>
+                                            <span x-show="orderIsUrgentRequest(item.jo)" class="pf-urgent-request-badge">Urgent Request</span>
+                                            <span x-show="orderHasChangeItemBadge(item.jo)" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(item.jo)"></span>
                                         </div>
                                     </td>
                                     <td class="px-4 py-4 customization-info-cell" data-label="Details">
                                         <div class="flex items-center gap-3">
                                             <div class="flex flex-col gap-0 min-w-0">
-                                                <div class="table-text-main truncate-ellipsis" :title="getRowDisplayName(jo)" x-text="getRowDisplayName(jo)"></div>
-                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="jo.order_type !== 'SERVICE'"><span x-text="jo.width_ft"></span>'×<span x-text="jo.height_ft"></span>' • <span x-text="jo.quantity"></span> pcs</div>
-                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="false && jo.order_type !== 'SERVICE'"><span x-text="jo.width_ft"></span>'Ã—<span x-text="jo.height_ft"></span>' â€¢ <span x-text="jo.quantity"></span> pcs</div>
-                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(jo)"></div>
-                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="jo.order_type === 'SERVICE'">Service purchase</div>
+                                                <div class="table-text-main truncate-ellipsis" :title="getRowDisplayName(item.jo)" x-text="getRowDisplayName(item.jo)"></div>
+                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type !== 'SERVICE'"><span x-text="item.jo.width_ft"></span>'×<span x-text="item.jo.height_ft"></span>' • <span x-text="item.jo.quantity"></span> pcs</div>
+                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="false && item.jo.order_type !== 'SERVICE'"><span x-text="item.jo.width_ft"></span>'Ã—<span x-text="item.jo.height_ft"></span>' â€¢ <span x-text="item.jo.quantity"></span> pcs</div>
+                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(item.jo)"></div>
+                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type === 'SERVICE'">Service purchase</div>
                                             </div>
                                         </div>
                                     </td>
                                     <td class="px-4 py-4 needed-date-cell" data-label="Needed Date">
-                                        <div class="table-text-main truncate-ellipsis" :title="formatOrderNeededDate(jo, true)" x-text="formatOrderNeededDate(jo)"></div>
+                                        <div class="table-text-main truncate-ellipsis" :title="formatOrderNeededDate(item.jo, true)" x-text="formatOrderNeededDate(item.jo)"></div>
                                     </td>
                                     <td class="px-4 py-4 status-col-cell" data-label="Status">
                                         <div class="status-col-inner">
-                                        <div :class="getStatusBadgeClass(jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(jo)">
+                                        <div :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(item.jo)">
                                             </div>
                                         </div>
                                     </td>
                                     <td class="px-4 py-4 customer-cell" data-label="Customer">
-                                        <div class="table-text-main truncate-ellipsis" :title="(jo.first_name + ' ' + (jo.last_name || '')).trim()" x-text="jo.first_name + ' ' + (jo.last_name || '')"></div>
+                                        <div class="table-text-main truncate-ellipsis" :title="(item.jo.first_name + ' ' + (item.jo.last_name || '')).trim()" x-text="item.jo.first_name + ' ' + (item.jo.last_name || '')"></div>
                                     </td>
                                     <td class="px-4 py-4 text-right created-cell" data-label="Created">
-                                        <div class="table-text-main truncate-ellipsis" :title="jo.created_at ? new Date(jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''" x-text="jo.created_at ? new Date(jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"></div>
-                                        <div class="table-text-sub uppercase truncate-ellipsis" :title="jo.due_date ? 'Due ' + new Date(jo.due_date).toLocaleDateString() : ''" x-text="jo.due_date ? 'Due ' + new Date(jo.due_date).toLocaleDateString() : ''"></div>
+                                        <div class="table-text-main truncate-ellipsis" :title="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''" x-text="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"></div>
+                                        <div class="table-text-sub uppercase truncate-ellipsis" :title="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''" x-text="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''"></div>
                                     </td>
                                     <td class="px-4 py-4 action-col-cell" data-label="Action">
                                         <div class="action-btn-group">
                                             <button
-                                                @click.stop="viewDetails(jo.id, jo.order_type || 'JOB')"
+                                                @click.stop="viewDetails(item.jo.id, item.jo.order_type || 'JOB')"
                                                 class="table-action-btn"
-                                                :disabled="loadingDetailKey === detailKeyFor(jo.id, jo.order_type || 'JOB')"
-                                                :style="loadingDetailKey === detailKeyFor(jo.id, jo.order_type || 'JOB') ? 'opacity:0.65;cursor:wait;' : ''"
-                                                x-text="loadingDetailKey === detailKeyFor(jo.id, jo.order_type || 'JOB') ? 'Loading...' : 'View'"></button>
+                                                :disabled="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB')"
+                                                :style="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'opacity:0.65;cursor:wait;' : ''"
+                                                x-text="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'Loading...' : 'View'"></button>
                                         </div>
                                     </td>
                                 </tr>
+                                </template>
                             </template>
                             <template x-for="rowIndex in (loadingOrders && orders.length === 0 ? 6 : 0)" :key="'skeleton-' + rowIndex">
                                 <tr aria-hidden="true">
@@ -2203,33 +2343,41 @@ $online_closed_count = 0;
                 </div>
 
                 <div class="customizations-mobile-list" aria-label="Customization orders">
-                    <template x-for="jo in paginatedOrders" :key="'mobile-' + (jo.order_type || 'JOB') + '-' + jo.id">
+                    <template x-for="item in paginatedListItems" :key="'mobile-' + item.key">
+                        <template x-if="item.kind === 'section'">
+                            <div
+                                class="customizations-mobile-section-label"
+                                :class="item.label === 'All Orders' ? 'customizations-mobile-section-label--regular' : ''"
+                                x-text="item.label"
+                            ></div>
+                        </template>
+                        <template x-if="item.kind === 'row'">
                         <article
                             class="customization-mobile-card"
-                            @click="viewDetails(jo.id, jo.order_type || 'JOB')"
+                            @click="viewDetails(item.jo.id, item.jo.order_type || 'JOB')"
                         >
                             <div class="customization-mobile-card__section customization-mobile-card__section--order">
                                 <span class="customization-mobile-card__label">Order</span>
                                 <div class="customization-mobile-card__order-wrap">
                                     <span
                                         class="customization-mobile-card__order"
-                                        :title="getDisplayOrderCode(jo)"
-                                        x-text="getDisplayOrderCode(jo)"
+                                        :title="getDisplayOrderCode(item.jo)"
+                                        x-text="getDisplayOrderCode(item.jo)"
                                     ></span>
-                                    <span x-show="orderIsUrgentRequest(jo)" class="pf-urgent-request-badge">Urgent Request</span>
-                                    <span x-show="orderHasChangeItemBadge(jo)" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(jo)"></span>
+                                    <span x-show="orderIsUrgentRequest(item.jo)" class="pf-urgent-request-badge">Urgent Request</span>
+                                    <span x-show="orderHasChangeItemBadge(item.jo)" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(item.jo)"></span>
                                 </div>
                             </div>
 
                             <div class="customization-mobile-card__section">
                                 <span class="customization-mobile-card__label">Details</span>
                                 <div class="customization-mobile-card__details">
-                                    <span class="table-text-main" x-text="getRowDisplayName(jo)"></span>
-                                    <span class="table-text-sub uppercase tracking-wider" x-show="jo.order_type !== 'SERVICE'">
-                                        <span x-text="jo.width_ft"></span>&prime;&times;<span x-text="jo.height_ft"></span>&prime; &bull; <span x-text="jo.quantity"></span> pcs
+                                    <span class="table-text-main" x-text="getRowDisplayName(item.jo)"></span>
+                                    <span class="table-text-sub uppercase tracking-wider" x-show="item.jo.order_type !== 'SERVICE'">
+                                        <span x-text="item.jo.width_ft"></span>&prime;&times;<span x-text="item.jo.height_ft"></span>&prime; &bull; <span x-text="item.jo.quantity"></span> pcs
                                     </span>
-                                    <span class="table-text-sub uppercase tracking-wider" x-show="jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(jo)"></span>
-                                    <span class="table-text-sub uppercase tracking-wider" x-show="jo.order_type === 'SERVICE'">Service purchase</span>
+                                    <span class="table-text-sub uppercase tracking-wider" x-show="item.jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(item.jo)"></span>
+                                    <span class="table-text-sub uppercase tracking-wider" x-show="item.jo.order_type === 'SERVICE'">Service purchase</span>
                                 </div>
                             </div>
 
@@ -2238,30 +2386,30 @@ $online_closed_count = 0;
                                     <span class="customization-mobile-card__label">Needed Date</span>
                                     <span
                                         class="customization-mobile-card__value"
-                                        :title="formatOrderNeededDate(jo, true)"
-                                        x-text="formatOrderNeededDate(jo)"
+                                        :title="formatOrderNeededDate(item.jo, true)"
+                                        x-text="formatOrderNeededDate(item.jo)"
                                     ></span>
                                 </div>
                                 <div class="customization-mobile-card__meta-row">
                                     <span class="customization-mobile-card__label">Status</span>
                                     <div class="customization-mobile-card__status">
-                                        <span :class="getStatusBadgeClass(jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(jo)"></span>
+                                        <span :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(item.jo)"></span>
                                     </div>
                                 </div>
                                 <div class="customization-mobile-card__meta-row">
                                     <span class="customization-mobile-card__label">Customer</span>
                                     <span
                                         class="customization-mobile-card__value"
-                                        :title="(jo.first_name + ' ' + (jo.last_name || '')).trim()"
-                                        x-text="jo.first_name + ' ' + (jo.last_name || '')"
+                                        :title="(item.jo.first_name + ' ' + (item.jo.last_name || '')).trim()"
+                                        x-text="item.jo.first_name + ' ' + (item.jo.last_name || '')"
                                     ></span>
                                 </div>
                                 <div class="customization-mobile-card__meta-row">
                                     <span class="customization-mobile-card__label">Created</span>
                                     <span
                                         class="customization-mobile-card__value"
-                                        :title="jo.created_at ? new Date(jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"
-                                        x-text="jo.created_at ? new Date(jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"
+                                        :title="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"
+                                        x-text="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"
                                     ></span>
                                 </div>
                             </div>
@@ -2269,14 +2417,15 @@ $online_closed_count = 0;
                             <div class="customization-mobile-card__footer">
                                 <button
                                     type="button"
-                                    @click.stop="viewDetails(jo.id, jo.order_type || 'JOB')"
+                                    @click.stop="viewDetails(item.jo.id, item.jo.order_type || 'JOB')"
                                     class="table-action-btn"
-                                    :disabled="loadingDetailKey === detailKeyFor(jo.id, jo.order_type || 'JOB')"
-                                    :style="loadingDetailKey === detailKeyFor(jo.id, jo.order_type || 'JOB') ? 'opacity:0.65;cursor:wait;' : ''"
-                                    x-text="loadingDetailKey === detailKeyFor(jo.id, jo.order_type || 'JOB') ? 'Loading...' : 'View Order'"
+                                    :disabled="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB')"
+                                    :style="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'opacity:0.65;cursor:wait;' : ''"
+                                    x-text="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'Loading...' : 'View Order'"
                                 ></button>
                             </div>
                         </article>
+                        </template>
                     </template>
 
                     <template x-for="rowIndex in (loadingOrders && orders.length === 0 ? 3 : 0)" :key="'mobile-skeleton-' + rowIndex">
@@ -2297,7 +2446,7 @@ $online_closed_count = 0;
                 </div>
 
                 <!-- Standardized Premium Pagination -->
-                <div x-show="totalPages > 1" class="pagination-container staff-pagination-shell">
+                <div x-show="shouldShowPagination" class="pagination-container staff-pagination-shell">
                     <div class="staff-pagination__controls">
                         <!-- Previous Button -->
                         <button x-show="currentPage > 1"
@@ -6788,6 +6937,7 @@ window.pfServiceFieldCatalog = (() => {
                         }
                         this.statusCounts = result.data;
                         this.countsLastLoadedAt = Date.now();
+                        this.publishUrgentCount(Number(this.statusCounts.URGENT || 0));
                     } catch (error) {
                         // Navigation, teardown and timeout aborts are expected. Keep
                         // the last good counters without reporting a false failure.
@@ -7273,21 +7423,54 @@ window.pfServiceFieldCatalog = (() => {
                     return this.matchesNonStatusFilters(jo);
                 });
 
-                // Sorting
-                return filtered.sort((a, b) => {
+                const compareRows = (a, b) => {
                     if (this.sortOrder === 'oldest') {
                         return (a._ts || 0) - (b._ts || 0);
-                    } else if (this.sortOrder === 'az') {
+                    }
+                    if (this.sortOrder === 'az') {
                         const nameA = ((a.first_name || '') + ' ' + (a.last_name || '')).toLowerCase();
                         const nameB = ((b.first_name || '') + ' ' + (b.last_name || '')).toLowerCase();
                         return nameA.localeCompare(nameB);
-                    } else if (this.sortOrder === 'za') {
+                    }
+                    if (this.sortOrder === 'za') {
                         const nameA = ((a.first_name || '') + ' ' + (a.last_name || '')).toLowerCase();
                         const nameB = ((b.first_name || '') + ' ' + (b.last_name || '')).toLowerCase();
                         return nameB.localeCompare(nameA);
                     }
-                    return (b._ts || 0) - (a._ts || 0); // newest (default)
+                    return (b._ts || 0) - (a._ts || 0);
+                };
+
+                return filtered.sort((a, b) => {
+                    if (this.activeStatus === 'ALL') {
+                        const aUrgent = this.orderIsUrgentRequest(a) ? 1 : 0;
+                        const bUrgent = this.orderIsUrgentRequest(b) ? 1 : 0;
+                        if (aUrgent !== bUrgent) {
+                            return bUrgent - aUrgent;
+                        }
+                    }
+                    return compareRows(a, b);
                 });
+            },
+
+            buildOrderListItems(rows, pageStart = 0) {
+                const items = [];
+                let prevUrgent = null;
+                rows.forEach((jo, index) => {
+                    const isUrgent = this.activeStatus === 'ALL' && this.orderIsUrgentRequest(jo);
+                    if (isUrgent && prevUrgent !== true) {
+                        items.push({ kind: 'section', key: `section-urgent-${pageStart + index}`, label: 'Urgent Orders' });
+                    }
+                    if (!isUrgent && prevUrgent === true) {
+                        items.push({ kind: 'section', key: `section-all-${pageStart + index}`, label: 'All Orders' });
+                    }
+                    items.push({
+                        kind: 'row',
+                        key: `row-${jo.order_type || 'JOB'}-${jo.id}`,
+                        jo
+                    });
+                    prevUrgent = isUrgent;
+                });
+                return items;
             },
 
             get paginatedOrders() {
@@ -7296,9 +7479,40 @@ window.pfServiceFieldCatalog = (() => {
                 return this.filteredOrders.slice(start, end);
             },
 
+            get paginatedListItems() {
+                const start = (this.currentPage - 1) * this.itemsPerPage;
+                const end = start + this.itemsPerPage;
+                return this.buildOrderListItems(this.filteredOrders.slice(start, end), start);
+            },
+
+            getActiveTabMatchingCount() {
+                const hasExtraFilters = this.search
+                    || this.serviceFilter !== 'ALL'
+                    || this.dateFilter !== 'ALL'
+                    || this.priorityFilter !== 'ALL';
+                if (hasExtraFilters) {
+                    return this.filteredOrders.length;
+                }
+                if (this.activeStatus === 'CANCELLED') {
+                    return this.getStatusCount('CLOSED');
+                }
+                return this.getStatusCount(this.activeStatus);
+            },
+
+            get shouldShowPagination() {
+                return this.getActiveTabMatchingCount() > this.itemsPerPage;
+            },
+
+            get urgentOrderCount() {
+                return this.getStatusCount('URGENT');
+            },
+
             get totalPages() {
-                const loadedPages = Math.max(1, Math.ceil(this.filteredOrders.length / this.itemsPerPage));
-                return loadedPages + (this.ordersHasMore ? 1 : 0);
+                const count = this.getActiveTabMatchingCount();
+                if (count <= this.itemsPerPage) {
+                    return 1;
+                }
+                return Math.ceil(count / this.itemsPerPage);
             },
 
             get pageNumbers() {
@@ -7335,6 +7549,47 @@ window.pfServiceFieldCatalog = (() => {
                     return Number(this.statusCounts[status] || 0);
                 }
                 return this.orders.filter(o => this.matchesNonStatusFilters(o) && this.matchesStatusTab(o, status)).length;
+            },
+
+            publishUrgentCount(count) {
+                const normalized = Math.max(0, Number(count) || 0);
+                if (window.PrintFlowUrgentCustomizations && typeof window.PrintFlowUrgentCustomizations.set === 'function') {
+                    window.PrintFlowUrgentCustomizations.set(normalized);
+                }
+                window.dispatchEvent(new CustomEvent('printflow:urgent-customizations-count', {
+                    detail: { count: normalized }
+                }));
+            },
+
+            urgentBannerMessage() {
+                const count = this.urgentOrderCount;
+                if (count <= 0) return '';
+                return count === 1
+                    ? '1 Urgent Order needs immediate attention'
+                    : `${count} Urgent Orders need immediate attention`;
+            },
+
+            navigateFromKpi(target) {
+                this.priorityFilter = 'ALL';
+                if (target === 'URGENT') {
+                    this.activeStatus = 'ALL';
+                } else if (target === 'INQUIRY') {
+                    this.activeStatus = 'INQUIRY';
+                } else if (target === 'PRODUCTION') {
+                    this.activeStatus = 'PRODUCTION';
+                } else if (target === 'CANCELLED') {
+                    this.activeStatus = 'CLOSED';
+                }
+                this.currentPage = 1;
+                this.scheduleFilterCoverage();
+                const listCard = document.querySelector('.pf-customizations-table-card');
+                if (listCard && typeof listCard.scrollIntoView === 'function') {
+                    listCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            },
+
+            focusUrgentOrders() {
+                this.navigateFromKpi('URGENT');
             },
 
             async viewDetails(id, orderType = 'JOB') {

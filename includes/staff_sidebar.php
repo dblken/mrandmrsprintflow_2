@@ -7,6 +7,12 @@ $is_pending = isset($_SESSION['user_status']) && $_SESSION['user_status'] === 'P
 $staff_access_meta = function_exists('printflow_get_staff_access_meta') ? printflow_get_staff_access_meta() : ['key' => 'online', 'short_label' => 'Staff'];
 $is_pos_staff = ($staff_access_meta['key'] ?? '') === 'pos';
 $is_online_staff = ($staff_access_meta['key'] ?? '') === 'online';
+$urgent_customizations_source = 'all';
+if ($is_pos_staff) {
+    $urgent_customizations_source = 'pos';
+} elseif ($is_online_staff) {
+    $urgent_customizations_source = 'online';
+}
 require_once __DIR__ . '/shop_config.php';
 
 // Load config for BASE_PATH
@@ -118,6 +124,13 @@ if (isset($_SESSION['user_id'])) {
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
                 </svg>
                 Customizations
+                <span
+                    class="nav-badge nav-badge--sidebar-slot"
+                    data-urgent-customizations-badge
+                    data-urgent-badge-mode="visibility"
+                    style="visibility:hidden;"
+                    aria-hidden="true"
+                ></span>
             </a>
             <?php /* HIDDEN: Customizations V2 page is no longer in use
             <a href="<?php echo $base_path; ?>/staff/customizations_v2.php" class="nav-item menu-link <?php echo $current_page === 'customizations_v2.php' ? 'active' : ''; ?>">
@@ -338,6 +351,8 @@ window.PFConfig = {
 <script src="<?php echo $base_path; ?>/public/assets/js/notifications.js?v=<?php echo $notif_js_ver; ?>" defer></script>
 <?php $chat_badge_js_ver = @filemtime(__DIR__ . '/../public/assets/js/chat_unread_badges.js') ?: '1'; ?>
 <script src="<?php echo $base_path; ?>/public/assets/js/chat_unread_badges.js?v=<?php echo $chat_badge_js_ver; ?>" data-base-url="<?php echo htmlspecialchars($base_path, ENT_QUOTES); ?>" data-initial-count="<?php echo (int)$_staff_unread_chat; ?>" defer></script>
+<?php $urgent_customizations_js_ver = @filemtime(__DIR__ . '/../public/assets/js/urgent_customization_badges.js') ?: '1'; ?>
+<script src="<?php echo $base_path; ?>/public/assets/js/urgent_customization_badges.js?v=<?php echo $urgent_customizations_js_ver; ?>" data-base-url="<?php echo htmlspecialchars($base_path, ENT_QUOTES); ?>" data-source="<?php echo htmlspecialchars($urgent_customizations_source, ENT_QUOTES); ?>" defer></script>
 <script src="<?php echo $base_path; ?>/public/assets/js/inactivity_logout.js" defer></script>
 <?php $receipt_scanner_ver = @filemtime(__DIR__ . '/../public/assets/js/receipt-scanner.js') ?: time(); ?>
 <script src="<?php echo $base_path; ?>/public/assets/js/receipt-scanner.js?v=<?php echo $receipt_scanner_ver; ?>" data-base-path="<?php echo htmlspecialchars($base_path, ENT_QUOTES); ?>" defer></script>
