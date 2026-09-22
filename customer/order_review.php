@@ -960,10 +960,10 @@ require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <style>
-    .order-container { max-width: 650px; margin: 0 auto; }
-    .order-container--product { max-width: 900px; }
-    .compact-section { margin-bottom: 1.25rem; }
-    .compact-card { padding: 1.25rem !important; }
+    .order-container { max-width: 1120px; margin: 0 auto; }
+    .order-container--product { max-width: 1120px; }
+    .compact-section { margin-bottom: 1rem; }
+    .compact-card { padding: 1rem 1.15rem !important; }
     .review-title { text-align: center; margin-bottom: 2rem; color: #1f2937 !important; }
     .review-card {
         background: rgba(0,49,61,0.85) !important;
@@ -1026,7 +1026,7 @@ require_once __DIR__ . '/../includes/header.php';
         align-items: center;
         justify-content: space-between;
         position: relative;
-        margin-bottom: 2rem;
+        margin-bottom: 1rem;
         gap: 1rem;
     }
     .order-review-back-link {
@@ -1049,8 +1049,8 @@ require_once __DIR__ . '/../includes/header.php';
         background: #f0f9ff;
         border: 1px solid #bae6fd;
         border-radius: 10px;
-        padding: 1rem;
-        margin-bottom: 1.5rem;
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.5rem;
     }
     .review-total-banner-row {
         display: flex;
@@ -1062,8 +1062,70 @@ require_once __DIR__ . '/../includes/header.php';
         display: flex;
         justify-content: flex-end;
         gap: 1rem;
-        padding-top: 1rem;
+        padding-top: 0.85rem;
+        margin-top: 0.85rem;
         border-top: 1px solid #e5e7eb;
+        flex-shrink: 0;
+    }
+    .review-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+        gap: 1.25rem 1.5rem;
+        align-items: start;
+    }
+    .review-layout-col {
+        min-width: 0;
+    }
+    .review-layout-col--aside {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    .review-layout-col--aside .review-heading {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+    }
+    .review-layout-col--order .review-heading {
+        margin-bottom: 0.65rem;
+    }
+    @media (min-width: 901px) {
+        .order-review-page {
+            padding-top: 0.75rem;
+            padding-bottom: 0.75rem;
+        }
+        .order-review-page .review-order-entry {
+            margin-bottom: 0.65rem !important;
+            padding-bottom: 0.65rem !important;
+        }
+        .order-review-page .review-order-entry .order-item-upload-design img {
+            max-height: 168px !important;
+        }
+        .order-review-page .review-order-entry .order-item-specs {
+            padding: 0.65rem 0.85rem !important;
+        }
+        .review-info-note {
+            margin-bottom: 0 !important;
+            margin-top: 0 !important;
+            padding: 12px 14px;
+        }
+        .review-contact-grid {
+            margin-bottom: 0 !important;
+            gap: 0.65rem;
+        }
+        .review-input-disabled-textarea {
+            min-height: 38px;
+        }
+    }
+    @media (max-width: 900px) {
+        .review-layout {
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+        .review-layout-col--aside .review-heading {
+            padding-top: 0.75rem;
+            border-top: 1px solid #e5e7eb;
+        }
     }
     .review-buy-btn {
         width: auto;
@@ -1748,7 +1810,7 @@ require_once __DIR__ . '/../includes/header.php';
     }
 </script>
 
-<div class="min-h-screen py-8 order-review-page">
+<div class="min-h-screen py-4 order-review-page">
     <?php if (!isset($order_placed_id)): ?>
     <div class="container mx-auto px-4 order-container<?php echo $is_product_order ? ' order-container--product' : ''; ?>">
         <div class="order-review-page-header">
@@ -1769,8 +1831,10 @@ require_once __DIR__ . '/../includes/header.php';
 
             <!-- Single Consolidated Card -->
             <div class="card compact-card review-card">
+                <div class="review-layout">
+                <div class="review-layout-col review-layout-col--order">
                 <!-- 1. Order Summary -->
-                <h2 class="review-heading" style="font-size:1rem; font-weight:700; margin-bottom:1rem; display:flex; align-items:center; gap:8px;">
+                <h2 class="review-heading" style="font-size:1rem; font-weight:700; margin-bottom:0.65rem; display:flex; align-items:center; gap:8px;">
                     Order Summary (<?php echo count($items_to_review); ?> item<?php echo count($items_to_review) > 1 ? 's' : ''; ?>)
                 </h2>
                 <?php 
@@ -1781,7 +1845,7 @@ require_once __DIR__ . '/../includes/header.php';
                     $review_snapshot = pf_order_ui_normalize_review_customization(review_item_customization($item), $item, true);
                     $review_snapshot_json = printflow_encode_customization_payload($review_snapshot);
                 ?>
-                <div class="review-order-item review-order-entry <?php echo review_item_is_product($item) ? 'review-order-entry--product' : 'review-order-entry--service'; ?> <?php echo $is_hidden ? 'items-hidden' : ''; ?>" style="margin-bottom: 1.5rem; padding-bottom: 1.5rem; <?php echo $key !== array_key_last($items_to_review) ? 'border-bottom: 1px solid #e5e7eb;' : ''; ?>">
+                <div class="review-order-item review-order-entry <?php echo review_item_is_product($item) ? 'review-order-entry--product' : 'review-order-entry--service'; ?> <?php echo $is_hidden ? 'items-hidden' : ''; ?>" style="margin-bottom: 0.75rem; padding-bottom: 0.75rem; <?php echo $key !== array_key_last($items_to_review) ? 'border-bottom: 1px solid #e5e7eb;' : ''; ?>">
                     <input type="hidden" name="spec_snapshot[<?php echo htmlspecialchars((string)$key, ENT_QUOTES, 'UTF-8'); ?>]" value="<?php echo htmlspecialchars($review_snapshot_json, ENT_QUOTES, 'UTF-8'); ?>">
                     <?php
                     try {
@@ -1813,8 +1877,11 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
                 <?php endif; ?>
 
+                </div><!-- /.review-layout-col--order -->
+
+                <div class="review-layout-col review-layout-col--aside">
                 <!-- Pricing Notice -->
-                <div class="review-info-note" style="margin-bottom: 2rem;">
+                <div class="review-info-note">
                     <span style="font-size:1.25rem; flex-shrink:0;">ℹ️</span>
                     <div>
                         <?php if ($is_product_order): ?>
@@ -1828,8 +1895,8 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
 
                 <?php if ($needs_branch_selection): ?>
-                <!-- 2. Branch Selection -->
-                <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid #e5e7eb; margin-bottom: 1.5rem;">
+                <!-- Branch Selection -->
+                <div style="margin-bottom: 0;">
                     <label class="review-input-label" style="margin-bottom: 0.5rem; display: block;">Pickup Branch *</label>
                     <select name="branch_id" id="branch_id" class="input-field" required style="background: #ffffff; border: 1px solid #d1d5db; color: #374151; font-weight: 500; font-size: 0.9rem; padding: 0.75rem; border-radius: 8px; cursor: pointer; transition: all 0.2s; width: 100%; display: block;">
                         <?php foreach ($branches as $b): ?>
@@ -1843,11 +1910,11 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
                 <?php endif; ?>
 
-                <!-- 3. Contact Information -->
-                <h2 class="review-heading" style="font-size:1rem; font-weight:700; margin-bottom:1rem; padding-bottom:0.5rem; padding-top:1rem; border-top: 1px solid #e5e7eb; display:flex; align-items:center; gap:8px;">
+                <!-- Contact Information -->
+                <h2 class="review-heading" style="font-size:1rem; font-weight:700; margin-bottom:0.65rem; display:flex; align-items:center; gap:8px;">
                     Contact Information
                 </h2>
-                <div class="review-contact-grid" style="margin-bottom: 1.5rem;">
+                <div class="review-contact-grid">
                     <div>
                         <label class="review-input-label">First Name</label>
                         <input type="text" class="input-field review-input-disabled" value="<?php echo htmlspecialchars($customer['first_name'] ?? ''); ?>" disabled>
@@ -1869,15 +1936,17 @@ require_once __DIR__ . '/../includes/header.php';
                         <textarea class="input-field review-input-disabled review-input-disabled-textarea" rows="2" disabled><?php echo htmlspecialchars($customer_address); ?></textarea>
                     </div>
                 </div>
+                </div><!-- /.review-layout-col--aside -->
+                </div><!-- /.review-layout -->
 
-                <!-- 4. Final Actions -->
+                <!-- Final Actions -->
                 <div class="review-actions-bar">
                     <a href="cart.php" 
                        class="shopee-btn-outline" style="width: 150px; text-align: center; padding: 0.75rem; text-decoration: none; white-space: nowrap;">
                         Back to Cart
                     </a>
                     
-                    <button type="submit" name="confirm_order" value="1" class="shopee-btn-primary" style="width: 150px; white-space: nowrap;"><?php echo $is_product_order ? 'Pay Now' : 'Inquire Now'; ?></button>
+                    <button type="submit" name="confirm_order" value="1" class="shopee-btn-primary" style="width: 150px; white-space: nowrap;"><?php echo $is_product_order ? 'Pay Now' : 'Proceed to Review'; ?></button>
                 </div>
             </div>
         </form>
