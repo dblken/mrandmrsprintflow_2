@@ -777,9 +777,6 @@ $online_closed_count = 0;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .pf-customizations-table-card .table-text-sub.uppercase.tracking-wider:not([x-text]):has(> span[x-text="jo.width_ft"]) {
-            display: none !important;
-        }
         .truncate-ellipsis {
             display: block;
             min-width: 0;
@@ -1631,19 +1628,32 @@ $online_closed_count = 0;
                 box-sizing: border-box;
             }
             .pf-staff-customizations-root .customizations-table-scroll {
-                display: none !important;
+                display: block !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow-x: hidden !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
             }
             .pf-staff-customizations-root .customizations-mobile-list {
-                display: grid;
-                grid-template-columns: minmax(0, 1fr);
-                gap: 12px;
-                width: 100%;
-                max-width: 100%;
-                min-width: 0;
-                margin: 0;
-                padding: 0;
-                overflow: visible;
-                box-sizing: border-box;
+                display: none !important;
+            }
+            .pf-staff-customizations-root .customizations-data-table tr.pf-orders-section-row {
+                display: block !important;
+                margin: 0 0 8px !important;
+                border: 0 !important;
+                background: transparent !important;
+            }
+            .pf-staff-customizations-root .customizations-data-table tr.pf-orders-section-row td {
+                display: block !important;
+                padding: 6px 4px !important;
+                border: 0 !important;
+            }
+            html .pf-staff-customizations-root .customizations-data-table tr.customization-row td.status-col-cell,
+            html .pf-staff-customizations-root .customizations-data-table tr.customization-row td.created-cell,
+            html .pf-staff-customizations-root .customizations-data-table tr.customization-row td.needed-date-cell {
+                display: grid !important;
             }
             .customization-mobile-card {
                 display: flex;
@@ -2287,7 +2297,6 @@ $online_closed_count = 0;
                                             <div class="flex items-center gap-3">
                                                 <div class="flex flex-col gap-0 min-w-0">
                                                     <div class="table-text-main truncate-ellipsis" :title="getRowDisplayName(item.jo)" x-text="getRowDisplayName(item.jo)"></div>
-                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type !== 'SERVICE'"><span x-text="item.jo.width_ft"></span>'×<span x-text="item.jo.height_ft"></span>' • <span x-text="item.jo.quantity"></span> pcs</div>
                                                     <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(item.jo)"></div>
                                                     <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type === 'SERVICE'">Service purchase</div>
                                                 </div>
@@ -2390,9 +2399,6 @@ $online_closed_count = 0;
                                 <span class="customization-mobile-card__label">Details</span>
                                 <div class="customization-mobile-card__details">
                                     <span class="table-text-main" x-text="getRowDisplayName(item.jo)"></span>
-                                    <span class="table-text-sub uppercase tracking-wider" x-show="item.jo.order_type !== 'SERVICE'">
-                                        <span x-text="item.jo.width_ft"></span>&prime;&times;<span x-text="item.jo.height_ft"></span>&prime; &bull; <span x-text="item.jo.quantity"></span> pcs
-                                    </span>
                                     <span class="table-text-sub uppercase tracking-wider" x-show="item.jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(item.jo)"></span>
                                     <span class="table-text-sub uppercase tracking-wider" x-show="item.jo.order_type === 'SERVICE'">Service purchase</span>
                                 </div>
@@ -4876,7 +4882,19 @@ window.pfServiceFieldCatalog = (() => {
                         if (extras.length >= 4) break;
                     }
                     if (extras.length) {
-                        base = [base, ...extras].filter(Boolean).join(' • ');
+                        const baseLower = base.toLowerCase();
+                        const filtered = extras.filter((extra) => {
+                            const normalized = String(extra).trim().toLowerCase();
+                            if (!normalized) return false;
+                            if (baseLower.includes(normalized)) return false;
+                            if (/^\d+(\.\d+)?['′]?\s*[x×]\s*\d+/.test(normalized) && baseLower.includes('×')) {
+                                return false;
+                            }
+                            return true;
+                        });
+                        if (filtered.length) {
+                            base = [base, ...filtered].filter(Boolean).join(' • ');
+                        }
                     }
                 }
 
