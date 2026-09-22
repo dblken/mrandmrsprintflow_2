@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
+require_once __DIR__ . '/../includes/change_item_workflow.php';
 
 require_role('Customer');
 ensure_ratings_table_exists();
@@ -123,7 +124,8 @@ $tab_counts = [
     'cancelled_rejected' => 0,
     'torate' => 0,
     'completed' => 0,
-    'totalorders' => 0
+    'totalorders' => 0,
+    'changed_items' => printflow_change_item_customer_orders_count((int)$customer_id),
 ];
 
 foreach ($tab_status_map as $tab_key => $statuses) {
@@ -204,7 +206,14 @@ $count_params = [$customer_id]; // Need this for the count query
 $types = 'i';
 $count_types = 'i'; // Need this for the count query
 
-if ($active_tab !== 'all' && isset($tab_status_map[$active_tab])) {
+if ($active_tab === 'changed_items') {
+    $changeItemExistsSql = ' AND EXISTS (
+        SELECT 1 FROM change_item_requests ci
+        WHERE ci.order_id = o.order_id
+    )';
+    $sql .= $changeItemExistsSql;
+    $count_sql .= $changeItemExistsSql;
+} elseif ($active_tab !== 'all' && isset($tab_status_map[$active_tab])) {
     $statuses = $tab_status_map[$active_tab];
     $placeholders = implode(',', array_fill(0, count($statuses), '?'));
     
@@ -262,7 +271,13 @@ $display_sort_expr = "
         ELSE o.order_date
     END
 ";
-$sql .= " ORDER BY {$display_sort_expr} DESC, o.order_id DESC LIMIT {$limit} OFFSET {$offset_val}";
+if ($active_tab === 'changed_items') {
+    $sql .= " ORDER BY (
+        SELECT MAX(ci.requested_at) FROM change_item_requests ci WHERE ci.order_id = o.order_id
+    ) DESC, o.order_id DESC LIMIT {$limit} OFFSET {$offset_val}";
+} else {
+    $sql .= " ORDER BY {$display_sort_expr} DESC, o.order_id DESC LIMIT {$limit} OFFSET {$offset_val}";
+}
 
 $orders_raw = db_query($sql, $types, $params);
 $orders = is_array($orders_raw) ? $orders_raw : [];
@@ -355,7 +370,42 @@ foreach ($orders as &$order) {
 }
 unset($order);
 
-usort($orders, static function (array $a, array $b): int {
+if ($orders !== []) {
+    $changeItemOrderIds = array_values(array_unique(array_filter(array_map(
+        static fn(array $row): int => (int)($row['order_id'] ?? 0),
+        $orders
+    ))));
+    $changeItemSummaries = printflow_change_item_batch_summaries($changeItemOrderIds);
+    foreach ($orders as &$order) {
+        $oid = (int)($order['order_id'] ?? 0);
+        $summary = $changeItemSummaries[$oid] ?? null;
+        if (!is_array($summary) || empty($summary['has_change_item'])) {
+            $order['_change_item'] = null;
+            continue;
+        }
+        $badge = printflow_change_item_ui_badge_from_summary($summary);
+        $order['_change_item'] = [
+            'has_change_item' => true,
+            'badge_label' => (string)($badge['label'] ?? ''),
+            'badge_variant' => (string)($badge['variant'] ?? ''),
+            'badge_subtitle' => (string)($badge['subtitle'] ?? ''),
+            'latest_requested_at' => (string)($summary['change_item_latest_requested_at'] ?? ''),
+            'pending_review' => !empty($summary['change_item_pending_review']),
+        ];
+    }
+    unset($order);
+}
+
+$orders_list_active_tab = $active_tab;
+usort($orders, static function (array $a, array $b) use ($orders_list_active_tab): int {
+    if ($orders_list_active_tab === 'changed_items') {
+        $ta = strtotime((string)($a['_change_item']['latest_requested_at'] ?? '')) ?: (int)($a['_display_ts'] ?? 0);
+        $tb = strtotime((string)($b['_change_item']['latest_requested_at'] ?? '')) ?: (int)($b['_display_ts'] ?? 0);
+        if ($ta === $tb) {
+            return (int)($b['order_id'] ?? 0) <=> (int)($a['order_id'] ?? 0);
+        }
+        return $tb <=> $ta;
+    }
     $ta = (int)($a['_display_ts'] ?? 0);
     $tb = (int)($b['_display_ts'] ?? 0);
     if ($ta === $tb) {
@@ -526,6 +576,47 @@ require_once __DIR__ . '/../includes/header.php';
     border-radius: 6px !important;
     font-weight: 800;
     transition: all 0.3s;
+}
+.orders-theme-page .ct-change-item-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.55rem;
+    border-radius: 9999px;
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    line-height: 1.25;
+    white-space: nowrap;
+    max-width: 100%;
+}
+.orders-theme-page .ct-change-item-badge--request {
+    background: rgba(251, 191, 36, 0.18);
+    color: #fbbf24;
+    border: 1px solid rgba(251, 191, 36, 0.35);
+}
+.orders-theme-page .ct-change-item-badge--changed {
+    background: rgba(34, 197, 94, 0.14);
+    color: #4ade80;
+    border: 1px solid rgba(34, 197, 94, 0.35);
+}
+.orders-theme-page .ct-change-item-badge--rejected {
+    background: rgba(248, 113, 113, 0.14);
+    color: #f87171;
+    border: 1px solid rgba(248, 113, 113, 0.35);
+}
+.orders-theme-page .ct-change-item-subtitle {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin-top: 0.25rem;
+    line-height: 1.4;
+}
+.orders-theme-page .card-top-row .card-top-badges {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.35rem;
+    min-width: 0;
 }
 .orders-theme-page .tt-tab.active .tt-tab-count {
     background: #53c5e0;
@@ -2372,6 +2463,7 @@ require_once __DIR__ . '/../includes/header.php';
                         <a href="?tab=topay" class="tt-tab <?php echo $active_tab === 'topay' ? 'active' : ''; ?>">To Pay <span class="tt-tab-count"><?php echo $tab_counts['topay']; ?></span></a>
                         <a href="?tab=pickup" class="tt-tab <?php echo $active_tab === 'pickup' ? 'active' : ''; ?>">Ready <span class="tt-tab-count"><?php echo $tab_counts['pickup']; ?></span></a>
                         <a href="?tab=completed" class="tt-tab <?php echo $active_tab === 'completed' ? 'active' : ''; ?>">Completed <span class="tt-tab-count"><?php echo $tab_counts['completed']; ?></span></a>
+                        <a href="?tab=changed_items" class="tt-tab <?php echo $active_tab === 'changed_items' ? 'active' : ''; ?>">Changed Items <span class="tt-tab-count"><?php echo (int)$tab_counts['changed_items']; ?></span></a>
                         <a href="?tab=cancelled_rejected" class="tt-tab <?php echo $active_tab === 'cancelled_rejected' ? 'active' : ''; ?>">Cancelled/Rejected <span class="tt-tab-count"><?php echo $tab_counts['cancelled_rejected']; ?></span></a>
                     </div>
                     <button type="button" class="tt-tabs-nav tt-tabs-nav-right" id="ttTabsNextBtn" aria-label="Scroll tabs right">
@@ -2384,9 +2476,14 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="orders-list-content">
                 <?php if (empty($orders)): ?>
                     <div class="empty-view">
-                        <div class="empty-view-title">No orders found</div>
-                        <div class="empty-view-sub">Orders from this category will show up here.</div>
-                        <a href="<?php echo BASE_URL; ?>/customer/services.php" class="empty-view-btn">Browse Services</a>
+                        <?php if ($active_tab === 'changed_items'): ?>
+                            <div class="empty-view-title">No change item requests yet</div>
+                            <div class="empty-view-sub">Orders where you submit a Change Item request will appear here.</div>
+                        <?php else: ?>
+                            <div class="empty-view-title">No orders found</div>
+                            <div class="empty-view-sub">Orders from this category will show up here.</div>
+                            <a href="<?php echo BASE_URL; ?>/customer/services.php" class="empty-view-btn">Browse Services</a>
+                        <?php endif; ?>
                     </div>
                 <?php else: ?>
                     <?php foreach ($orders as $index => $order): ?>
@@ -2414,11 +2511,30 @@ require_once __DIR__ . '/../includes/header.php';
                             $amount_due = ((int)($financial['amount_due_centavos'] ?? 0)) / 100;
                             $paid_amount = ((int)($financial['paid_amount_centavos'] ?? 0)) / 100;
                             $payment_paid_at = trim((string)($order['_payment_paid_at_raw'] ?? ''));
+                            $changeItemMeta = is_array($order['_change_item'] ?? null) ? $order['_change_item'] : null;
+                            $changeItemBadgeVariant = $changeItemMeta ? (string)($changeItemMeta['badge_variant'] ?? '') : '';
+                            $changeItemBadgeClass = 'ct-change-item-badge';
+                            if ($changeItemBadgeVariant === 'changed') {
+                                $changeItemBadgeClass .= ' ct-change-item-badge--changed';
+                            } elseif ($changeItemBadgeVariant === 'rejected') {
+                                $changeItemBadgeClass .= ' ct-change-item-badge--rejected';
+                            } elseif ($changeItemBadgeVariant === 'request') {
+                                $changeItemBadgeClass .= ' ct-change-item-badge--request';
+                            }
+                            $changeItemSubtitle = $changeItemMeta ? (string)($changeItemMeta['badge_subtitle'] ?? '') : '';
+                            if ($active_tab === 'changed_items' && $changeItemMeta && !empty($changeItemMeta['latest_requested_at'])) {
+                                $changeItemSubtitle = format_datetime($changeItemMeta['latest_requested_at']);
+                            }
                         ?>
                         <div class="ct-order-card" id="order-card-<?php echo $order['order_id']; ?>" data-order-id="<?php echo $order['order_id']; ?>" data-status="<?php echo htmlspecialchars($order['status']); ?>" data-order-type="<?php echo htmlspecialchars((string)($order['order_type'] ?? '')); ?>" data-payment-received="<?php echo !empty($order['_payment_received']) ? '1' : '0'; ?>" onclick="openItemsModal(<?php echo $order['order_id']; ?>)">
                             <div class="card-top-row">
                                 <span class="order-id-chip"><?php echo htmlspecialchars($order['order_code']); ?></span>
-                                <div class="status-pill <?php echo $st_cls; ?>"><?php echo htmlspecialchars($display_status); ?></div>
+                                <div class="card-top-badges">
+                                    <?php if ($changeItemMeta && !empty($changeItemMeta['badge_label'])): ?>
+                                        <span class="<?php echo htmlspecialchars($changeItemBadgeClass); ?>"><?php echo htmlspecialchars($changeItemMeta['badge_label']); ?></span>
+                                    <?php endif; ?>
+                                    <div class="status-pill <?php echo $st_cls; ?>"><?php echo htmlspecialchars($display_status); ?></div>
+                                </div>
                             </div>
 
                             <div class="card-content">
@@ -2426,7 +2542,16 @@ require_once __DIR__ . '/../includes/header.php';
                                 <div class="details-column">
                                     <h3 class="order-title"><?php echo htmlspecialchars($d_name); ?></h3>
                                     <div class="qty-tag"><?php echo max(1, (int)($order['total_quantity'] ?? 0)); ?> Items</div>
-                                    <p class="timestamp-text"><?php echo htmlspecialchars($timestamp_meta['text']); ?></p>
+                                    <?php if ($active_tab === 'changed_items' && $changeItemMeta): ?>
+                                        <?php if ($changeItemSubtitle !== ''): ?>
+                                            <p class="ct-change-item-subtitle"><?php echo htmlspecialchars($changeItemMeta['badge_subtitle'] ?? $changeItemSubtitle); ?></p>
+                                        <?php endif; ?>
+                                        <?php if (!empty($changeItemMeta['latest_requested_at'])): ?>
+                                            <p class="timestamp-text"><?php echo htmlspecialchars(format_datetime($changeItemMeta['latest_requested_at'])); ?></p>
+                                        <?php endif; ?>
+                                    <?php else: ?>
+                                        <p class="timestamp-text"><?php echo htmlspecialchars($timestamp_meta['text']); ?></p>
+                                    <?php endif; ?>
                                     <?php if (strcasecmp((string)($order['status'] ?? ''), 'Rejected') === 0 && !empty($order['payment_rejection_reason'])): ?>
                                         <p class="rejected-reason-text">Rejected reason: <?php echo htmlspecialchars($order['payment_rejection_reason']); ?></p>
                                     <?php endif; ?>
@@ -3512,8 +3637,11 @@ function openItemsModal(orderId, event, options = {}) {
         const payment = data.payment && typeof data.payment === 'object' ? data.payment : {};
         const paymentReceived = Boolean(data.payment_received || payment.received || String(data.payment_status || '').toLowerCase() === 'paid');
         const currentStatusLabel = data.display_status || data.status;
-        const changeItemActive = data.change_item && data.change_item.active ? data.change_item.active : null;
-        const changeItemEligible = !!(data.change_item && data.change_item.eligible);
+        const changeItemSummary = data.change_item && typeof data.change_item === 'object' ? data.change_item : {};
+        const changeItemActive = changeItemSummary.active || null;
+        const changeItemHistory = Array.isArray(changeItemSummary.history) ? changeItemSummary.history : [];
+        const changeItemDisplay = changeItemActive || (changeItemHistory.length ? changeItemHistory[changeItemHistory.length - 1] : null);
+        const changeItemEligible = !!changeItemSummary.eligible;
         window.__pfChangeItemModalContext = {
             orderId: data.order_id,
             code: data.order?.code || '',
@@ -3627,14 +3755,15 @@ function openItemsModal(orderId, event, options = {}) {
                             </div>
                         ` : ''}
 
-                        ${changeItemActive ? `
+                        ${changeItemDisplay ? `
                             <div class="im-reject-card" style="border-color:#fde68a;background:#fffbeb;">
                                 <div class="im-reject-title" style="color:#92400e;">Change Item Request</div>
-                                <p class="im-reject-copy"><strong>Status:</strong> ${escIM(changeItemActive.status_label || changeItemActive.status || 'Under Review')}</p>
-                                <p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Reason:</strong> ${escIM(changeItemActive.reason || '')}</p>
-                                ${changeItemActive.description ? `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Details:</strong> ${escIM(changeItemActive.description)}</p>` : ''}
-                                ${buildChangeItemActiveEvidenceHtml(changeItemActive)}
-                                ${changeItemActive.rejection_reason ? `<p class="im-reject-copy" style="margin-top:0.5rem;color:#991b1b;"><strong>Rejection reason:</strong> ${escIM(changeItemActive.rejection_reason)}</p>` : ''}
+                                <p class="im-reject-copy"><strong>Request:</strong> ${escIM(changeItemDisplay.display_badge_label || 'Change Request')}</p>
+                                <p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Order status:</strong> ${escIM(currentStatusLabel)}</p>
+                                <p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Reason:</strong> ${escIM(changeItemDisplay.reason || '')}</p>
+                                ${changeItemDisplay.description ? `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Issue description:</strong> ${escIM(changeItemDisplay.description || changeItemDisplay.issue_description || '')}</p>` : ''}
+                                ${buildChangeItemActiveEvidenceHtml(changeItemDisplay)}
+                                ${changeItemDisplay.rejection_reason ? `<p class="im-reject-copy" style="margin-top:0.5rem;color:#991b1b;"><strong>Rejection reason:</strong> ${escIM(changeItemDisplay.rejection_reason)}</p>` : ''}
                             </div>
                         ` : ''}
 
@@ -3960,6 +4089,12 @@ function showChangeItemSuccessModal() {
 }
 function closeChangeItemSuccessModal() {
     document.getElementById('changeItemSuccessModal').classList.remove('open');
+    const submittedOrderId = window.__pfChangeItemSubmittedOrderId || 0;
+    window.__pfChangeItemSubmittedOrderId = 0;
+    if (submittedOrderId) {
+        window.location.href = CUSTOMER_BASE_URL + '/customer/orders.php?tab=changed_items';
+        return;
+    }
     if (!document.getElementById('itemsModal').classList.contains('open')) {
         document.body.style.overflow = '';
     }
@@ -4032,8 +4167,8 @@ async function submitChangeItemRequest() {
             throw new Error(payload.message || 'Unable to submit Change Item request.');
         }
         closeChangeItemModal();
+        window.__pfChangeItemSubmittedOrderId = ctx.orderId;
         showChangeItemSuccessModal();
-        openItemsModal(ctx.orderId);
     } catch (e) {
         err.textContent = e.message || 'Unable to submit Change Item request.';
         err.classList.remove('hidden');

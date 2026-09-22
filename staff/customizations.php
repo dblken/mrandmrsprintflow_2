@@ -599,6 +599,18 @@ $online_closed_count = 0;
             text-transform: uppercase;
             white-space: nowrap;
         }
+        .pf-change-item-badge--request {
+            background: #fef3c7;
+            color: #b45309;
+        }
+        .pf-change-item-badge--changed {
+            background: #dcfce7;
+            color: #166534;
+        }
+        .pf-change-item-badge--rejected {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
 
         .pf-change-item-review {
             margin-bottom: 20px;
@@ -2112,7 +2124,7 @@ $online_closed_count = 0;
                                             <div class="pf-order-code-stack">
                                                 <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(item.jo)" x-text="getDisplayOrderCode(item.jo)"></span>
                                                 <span x-show="orderIsUrgentRequest(item.jo)" class="pf-urgent-request-badge">Urgent Request</span>
-                                                <span x-show="orderHasChangeItemBadge(item.jo)" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(item.jo)"></span>
+                                                <span x-show="orderHasChangeItemBadge(item.jo)" :class="getChangeItemBadgeClass(item.jo)" x-text="getChangeItemBadgeLabel(item.jo)"></span>
                                             </div>
                                         </td>
                                     </template>
@@ -2215,7 +2227,7 @@ $online_closed_count = 0;
                                         x-text="getDisplayOrderCode(item.jo)"
                                     ></span>
                                     <span x-show="orderIsUrgentRequest(item.jo)" class="pf-urgent-request-badge">Urgent Request</span>
-                                    <span x-show="orderHasChangeItemBadge(item.jo)" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(item.jo)"></span>
+                                    <span x-show="orderHasChangeItemBadge(item.jo)" :class="getChangeItemBadgeClass(item.jo)" x-text="getChangeItemBadgeLabel(item.jo)"></span>
                                 </div>
                             </div>
 
@@ -2888,6 +2900,11 @@ $online_closed_count = 0;
                             <div class="pf-change-item-review__code" x-text="changeItemActiveRequest(currentJo).change_item_code || ('CI-' + String(changeItemActiveRequest(currentJo).id || '').padStart(6, '0'))"></div>
 
                             <div class="pf-change-item-review__section">
+                                <div class="pf-change-item-review__section-label">Request Status</div>
+                                <span :class="getChangeItemBadgeClass(currentJo)" x-text="changeItemActiveRequest(currentJo).display_badge_label || getChangeItemBadgeLabel(currentJo)"></span>
+                            </div>
+
+                            <div class="pf-change-item-review__section">
                                 <div class="pf-change-item-review__section-label">Request Summary</div>
                                 <div class="pf-change-item-review__grid">
                                     <div><strong>Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
@@ -3407,9 +3424,10 @@ $online_closed_count = 0;
     </template>
 
     <template x-if="showChangeItemRejectModal">
+        <template x-teleport="body">
         <div>
-            <div x-show="showChangeItemRejectModal" x-cloak style="position:fixed; inset:0; z-index:10001; background:rgba(15,23,42,.45);" @click="closeChangeItemRejectModal()"></div>
-            <div x-show="showChangeItemRejectModal" x-cloak style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002; width:calc(100% - 32px); max-width:420px; background:#fff; border-radius:16px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.35); border:1px solid #fecaca;">
+            <div x-show="showChangeItemRejectModal" x-cloak class="pf-change-item-modal-backdrop" style="z-index:12100;" @click="closeChangeItemRejectModal()"></div>
+            <div x-show="showChangeItemRejectModal" x-cloak class="pf-change-item-modal-panel" style="z-index:12101;" role="dialog" aria-modal="true">
                 <div style="padding:16px 20px; border-bottom:1px solid #fecaca; background:#fef2f2;">
                     <h3 style="margin:0; font-size:16px; font-weight:700; color:#b91c1c;">Reject Change Item</h3>
                 </div>
@@ -3424,6 +3442,7 @@ $online_closed_count = 0;
                 </div>
             </div>
         </div>
+        </template>
     </template>
 
 
@@ -4463,7 +4482,24 @@ window.pfServiceFieldCatalog = (() => {
                     || String(row.change_item_badge || '').trim() !== '';
             },
             getChangeItemBadgeLabel(row) {
-                return String((row && row.change_item_badge) || 'Change Item').trim() || 'Change Item';
+                const label = String((row && row.change_item_badge) || '').trim();
+                if (label) return label;
+                const active = this.changeItemActiveRequest(row);
+                if (active && active.display_badge_label) {
+                    return String(active.display_badge_label);
+                }
+                return 'Change Request';
+            },
+            getChangeItemBadgeClass(row) {
+                const variant = String((row && row.change_item_badge_variant) || '').trim();
+                if (variant === 'changed') return 'pf-change-item-badge pf-change-item-badge--changed';
+                if (variant === 'rejected') return 'pf-change-item-badge pf-change-item-badge--rejected';
+                if (variant === 'request') return 'pf-change-item-badge pf-change-item-badge--request';
+                const active = this.changeItemActiveRequest(row);
+                const activeVariant = String((active && active.display_badge_variant) || '').trim();
+                if (activeVariant === 'changed') return 'pf-change-item-badge pf-change-item-badge--changed';
+                if (activeVariant === 'rejected') return 'pf-change-item-badge pf-change-item-badge--rejected';
+                return 'pf-change-item-badge pf-change-item-badge--request';
             },
             resolveChangeItemOrderId(row) {
                 if (!row) return 0;
@@ -4523,6 +4559,9 @@ window.pfServiceFieldCatalog = (() => {
                 if (row.change_item && row.change_item.active) {
                     return row.change_item.active;
                 }
+                if (row.change_item && Array.isArray(row.change_item.history) && row.change_item.history.length) {
+                    return row.change_item.history[row.change_item.history.length - 1];
+                }
                 if (!row.change_item_active && !row.change_item_request_id) {
                     return null;
                 }
@@ -4558,19 +4597,25 @@ window.pfServiceFieldCatalog = (() => {
                     if (!detailRes.success || !detailRes.data) return;
                     const summary = detailRes.data.change_item || null;
                     if (!summary) return;
+                    const latestHistory = Array.isArray(summary.history) && summary.history.length
+                        ? summary.history[summary.history.length - 1]
+                        : null;
+                    const primary = summary.active || latestHistory;
                     this.currentJo = {
                         ...this.currentJo,
                         change_item: summary,
                         has_change_item: !!(summary.active || summary.has_history),
                         change_item_active: !!summary.active,
-                        change_item_status: summary.active ? (summary.active.status || '') : '',
-                        change_item_request_id: summary.active ? (summary.active.id || 0) : 0,
+                        change_item_status: primary ? (primary.status || '') : '',
+                        change_item_request_id: primary ? (primary.id || 0) : 0,
                         change_item_pending_review: summary.active ? !!summary.active.is_pending_review : false,
-                        change_item_code: summary.active ? (summary.active.change_item_code || '') : '',
-                        change_item_request_source: summary.active ? (summary.active.request_source || '') : '',
-                        change_item_request_source_label: summary.active ? (summary.active.request_source_label || '') : '',
-                        change_item_verification_status: summary.active ? (summary.active.verification_status || '') : '',
-                        change_item_change_status: summary.active ? (summary.active.change_status || '') : '',
+                        change_item_code: primary ? (primary.change_item_code || '') : '',
+                        change_item_request_source: primary ? (primary.request_source || '') : '',
+                        change_item_request_source_label: primary ? (primary.request_source_label || '') : '',
+                        change_item_verification_status: primary ? (primary.verification_status || '') : '',
+                        change_item_change_status: primary ? (primary.change_status || '') : '',
+                        change_item_badge: (detailRes.data.change_item_badge || summary.badge_label || ''),
+                        change_item_badge_variant: (detailRes.data.change_item_badge_variant || summary.badge_variant || ''),
                     };
                     const cacheKey = String(this.currentJo.order_type || 'ORDER') + '-' + String(this.currentJo.id || parsedOrderId);
                     this.modalCache[cacheKey] = this.currentJo;

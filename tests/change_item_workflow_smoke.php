@@ -45,7 +45,7 @@ change_item_test_assert(strpos($workflow, "'iiiiisissssssssss'") === false, 'cha
 change_item_test_assert(strpos($workflow, "initialStatus = 'Requested'") !== false, 'change item inserts as Requested before approval');
 change_item_test_assert(strpos($workflow, 'printflow_change_item_blocks_store_order_sync') !== false, 'completed orders preserve store status during change item rework');
 change_item_test_assert(strpos($workflow, 'printflow_change_item_on_job_status_change($jobOrderId, \'IN_PRODUCTION\')') !== false, 'counter auto-approve triggers production hook');
-change_item_test_assert(strpos($workflow, "'Change Item'") !== false, 'change item badge label is Change Item');
+change_item_test_assert(strpos($workflow, 'Change Request') !== false, 'change item UI badge labels defined');
 change_item_test_assert(strpos($workflow, 'printflow_change_item_insert_row') !== false, 'dedicated change item insert helper exists');
 change_item_test_assert(strpos($workflow, 'printflow_change_item_release_inactive_slots') !== false, 'stale active change item slots are released before insert');
 change_item_test_assert(strpos($workflow, 'printflow_change_item_upgrade_schema') !== false, 'change item schema upgrade runs on ensure');
@@ -70,5 +70,8 @@ change_item_test_assert(strpos($staffCustomizations, 'changeItemEvidencePhotos')
 change_item_test_assert(strpos($staffCustomizations, 'Video Evidence') !== false, 'staff customizations renders change item video evidence');
 change_item_test_assert(strpos($jobApi, "case 'change_item_evidence':") !== false, 'staff API exposes change item evidence endpoint');
 change_item_test_assert(strpos($customerOrders, 'Proof / Evidence') !== false, 'customer change item modal proof section updated');
+change_item_test_assert(strpos($customerOrders, 'tab=changed_items') !== false, 'customer orders exposes Changed Items tab');
+change_item_test_assert(strpos($workflow, 'printflow_change_item_ui_badge_from_request_status') !== false, 'change item UI badge mapping exists');
+change_item_test_assert(strpos($staffCustomizations, 'getChangeItemBadgeClass') !== false, 'staff change item badge variants supported');
 
 echo "All change item workflow smoke checks passed.\n";

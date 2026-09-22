@@ -414,6 +414,96 @@ function printflow_change_item_change_status_label(string $status): string
     return $map[$key] ?? ucwords(strtolower(str_replace('_', ' ', $key)));
 }
 
+/**
+ * UI badge for Change Item request state (separate from order status).
+ *
+ * @return array{key:string,label:string,variant:string,subtitle:string}
+ */
+function printflow_change_item_ui_badge_from_request_status(string $requestStatus): array
+{
+    $normalized = printflow_change_item_normalize_status($requestStatus);
+    if ($normalized === 'REQUESTED') {
+        return [
+            'key' => 'change_request',
+            'label' => 'Change Request',
+            'variant' => 'request',
+            'subtitle' => 'Change item request submitted',
+        ];
+    }
+    if ($normalized === 'REJECTED') {
+        return [
+            'key' => 'change_rejected',
+            'label' => 'Change Request Rejected',
+            'variant' => 'rejected',
+            'subtitle' => 'Change item request was not approved',
+        ];
+    }
+    if (in_array($normalized, ['APPROVED', 'IN_REWORK', 'COMPLETED'], true)) {
+        return [
+            'key' => 'changed_item',
+            'label' => 'Changed Item',
+            'variant' => 'changed',
+            'subtitle' => $normalized === 'COMPLETED'
+                ? 'Change request processed'
+                : 'Change request approved — replacement in progress',
+        ];
+    }
+
+    return [
+        'key' => 'change_request',
+        'label' => 'Change Request',
+        'variant' => 'request',
+        'subtitle' => 'Change item request submitted',
+    ];
+}
+
+function printflow_change_item_ui_badge_for_order(int $orderId): array
+{
+    if ($orderId <= 0 || !printflow_change_item_ensure_schema()) {
+        return ['key' => '', 'label' => '', 'variant' => '', 'subtitle' => ''];
+    }
+
+    $active = printflow_change_item_get_active($orderId);
+    if ($active !== null) {
+        return printflow_change_item_ui_badge_from_request_status((string)($active['request_status'] ?? ''));
+    }
+
+    $rows = db_query(
+        'SELECT request_status FROM change_item_requests WHERE order_id = ? ORDER BY change_item_id DESC LIMIT 1',
+        'i',
+        [$orderId]
+    ) ?: [];
+    if ($rows === []) {
+        return ['key' => '', 'label' => '', 'variant' => '', 'subtitle' => ''];
+    }
+
+    return printflow_change_item_ui_badge_from_request_status((string)($rows[0]['request_status'] ?? ''));
+}
+
+function printflow_change_item_ui_badge_from_summary(array $summary): array
+{
+    if (empty($summary['has_change_item'])) {
+        return ['key' => '', 'label' => '', 'variant' => '', 'subtitle' => ''];
+    }
+
+    $activeStatus = trim((string)($summary['change_item_status'] ?? ''));
+    if (!empty($summary['change_item_active']) && $activeStatus !== '') {
+        return printflow_change_item_ui_badge_from_request_status($activeStatus);
+    }
+
+    $latest = trim((string)($summary['change_item_latest_status'] ?? ''));
+    if ($latest !== '') {
+        return printflow_change_item_ui_badge_from_request_status($latest);
+    }
+
+    return [
+        'key' => 'changed_item',
+        'label' => 'Changed Item',
+        'variant' => 'changed',
+        'subtitle' => 'Change request processed',
+    ];
+}
+
 function printflow_change_item_is_pending_review(array $row): bool
 {
     if ((int)($row['active_flag'] ?? 0) !== 1) {
@@ -597,6 +687,7 @@ function printflow_change_item_public_record(array $row): array
     $sourceChannel = (string)($row['source_channel'] ?? '');
     $verificationStatus = printflow_change_item_resolve_verification_status($row);
     $changeStatus = printflow_change_item_resolve_change_status($row);
+    $uiBadge = printflow_change_item_ui_badge_from_request_status($status);
 
     $record = [
         'id' => $changeItemId,
@@ -638,6 +729,10 @@ function printflow_change_item_public_record(array $row): array
         'evidence_photo_count' => 0,
         'has_video_evidence' => false,
         'has_customer_evidence' => trim((string)($row['proof_path'] ?? '')) !== '',
+        'display_badge_key' => (string)($uiBadge['key'] ?? ''),
+        'display_badge_label' => (string)($uiBadge['label'] ?? ''),
+        'display_badge_variant' => (string)($uiBadge['variant'] ?? ''),
+        'display_badge_subtitle' => (string)($uiBadge['subtitle'] ?? ''),
     ];
     if ($changeItemId > 0) {
         $evidence = printflow_change_item_evidence_for_api($changeItemId, $row);
@@ -1656,6 +1751,8 @@ function printflow_change_item_summary_for_order(int $orderId): array
     $active = printflow_change_item_get_active($orderId);
     $eligibility = printflow_change_item_order_is_eligible($orderId);
 
+    $uiBadge = printflow_change_item_ui_badge_for_order($orderId);
+
     return [
         'eligible' => !empty($eligibility['eligible']),
         'ineligible_reason' => (string)($eligibility['reason'] ?? ''),
@@ -1664,7 +1761,9 @@ function printflow_change_item_summary_for_order(int $orderId): array
         'has_history' => $history !== [],
         'change_item_count' => count($history),
         'show_badge' => $history !== [] || $active !== null,
-        'badge_label' => 'Change Item',
+        'badge_label' => (string)($uiBadge['label'] ?? ''),
+        'badge_variant' => (string)($uiBadge['variant'] ?? ''),
+        'badge_key' => (string)($uiBadge['key'] ?? ''),
     ];
 }
 
@@ -1864,7 +1963,9 @@ function printflow_change_item_batch_summaries(array $orderIds): array
                 COUNT(*) AS total_count,
                 MAX(CASE WHEN active_flag = 1 THEN request_status ELSE NULL END) AS active_status,
                 MAX(CASE WHEN active_flag = 1 THEN change_item_id ELSE NULL END) AS active_change_item_id,
-                MAX(CASE WHEN active_flag = 1 THEN source_channel ELSE NULL END) AS active_source_channel
+                MAX(CASE WHEN active_flag = 1 THEN source_channel ELSE NULL END) AS active_source_channel,
+                SUBSTRING_INDEX(GROUP_CONCAT(request_status ORDER BY change_item_id DESC SEPARATOR '\t'), '\t', 1) AS latest_status,
+                MAX(requested_at) AS latest_requested_at
          FROM change_item_requests
          WHERE order_id IN ($placeholders)
          GROUP BY order_id",
@@ -1883,13 +1984,25 @@ function printflow_change_item_batch_summaries(array $orderIds): array
             && printflow_change_item_normalize_status($activeStatus) === 'REQUESTED';
         $activeSource = (string)($row['active_source_channel'] ?? '');
 
+        $summaryRow = [
+            'has_change_item' => (int)($row['total_count'] ?? 0) > 0,
+            'change_item_active' => (int)($row['active_count'] ?? 0) > 0,
+            'change_item_status' => $activeStatus,
+            'change_item_latest_status' => (string)($row['latest_status'] ?? ''),
+        ];
+        $uiBadge = printflow_change_item_ui_badge_from_summary($summaryRow);
+
         $out[$oid] = [
             'has_change_item' => (int)($row['total_count'] ?? 0) > 0,
             'change_item_count' => (int)($row['total_count'] ?? 0),
             'change_item_active' => (int)($row['active_count'] ?? 0) > 0,
             'change_item_status' => $activeStatus,
+            'change_item_latest_status' => (string)($row['latest_status'] ?? ''),
+            'change_item_latest_requested_at' => (string)($row['latest_requested_at'] ?? ''),
             'change_item_request_id' => (int)($row['active_change_item_id'] ?? 0),
-            'change_item_badge' => (int)($row['total_count'] ?? 0) > 0 ? 'Change Item' : '',
+            'change_item_badge' => (string)($uiBadge['label'] ?? ''),
+            'change_item_badge_variant' => (string)($uiBadge['variant'] ?? ''),
+            'change_item_badge_key' => (string)($uiBadge['key'] ?? ''),
             'change_item_pending_review' => $pendingReview,
             'change_item_code' => printflow_change_item_format_code((int)($row['active_change_item_id'] ?? 0)),
             'change_item_request_source' => printflow_change_item_request_source_key($activeSource),
@@ -1926,6 +2039,9 @@ function printflow_change_item_apply_to_row(array &$row, ?array $summary): void
         $row['change_item_request_source_label'] = '';
         $row['change_item_verification_status'] = '';
         $row['change_item_change_status'] = '';
+        $row['change_item_badge_variant'] = '';
+        $row['change_item_badge_key'] = '';
+        $row['change_item_latest_status'] = '';
         return;
     }
 
@@ -1941,4 +2057,25 @@ function printflow_change_item_apply_to_row(array &$row, ?array $summary): void
     $row['change_item_request_source_label'] = (string)($summary['change_item_request_source_label'] ?? '');
     $row['change_item_verification_status'] = (string)($summary['change_item_verification_status'] ?? '');
     $row['change_item_change_status'] = (string)($summary['change_item_change_status'] ?? '');
+    $row['change_item_badge_variant'] = (string)($summary['change_item_badge_variant'] ?? '');
+    $row['change_item_badge_key'] = (string)($summary['change_item_badge_key'] ?? '');
+    $row['change_item_latest_status'] = (string)($summary['change_item_latest_status'] ?? '');
+}
+
+function printflow_change_item_customer_orders_count(int $customerId): int
+{
+    if ($customerId <= 0 || !printflow_change_item_ensure_schema()) {
+        return 0;
+    }
+
+    $rows = db_query(
+        'SELECT COUNT(DISTINCT ci.order_id) AS total
+         FROM change_item_requests ci
+         INNER JOIN orders o ON o.order_id = ci.order_id
+         WHERE o.customer_id = ?',
+        'i',
+        [$customerId]
+    ) ?: [];
+
+    return (int)($rows[0]['total'] ?? 0);
 }

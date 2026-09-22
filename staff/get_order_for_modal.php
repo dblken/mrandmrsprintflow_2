@@ -370,9 +370,10 @@ $changeItemSummary = printflow_change_item_summary_for_order($order_id);
 $data['change_item'] = $changeItemSummary;
 $data['has_change_item'] = !empty($changeItemSummary['has_history']) || !empty($changeItemSummary['active']);
 $data['change_item_active'] = !empty($changeItemSummary['active']);
-$data['change_item_badge'] = !empty($changeItemSummary['show_badge'])
-    ? (string)($changeItemSummary['badge_label'] ?? 'Changed Item')
-    : '';
+$changeItemUiBadge = printflow_change_item_ui_badge_for_order($order_id);
+$data['change_item_badge'] = (string)($changeItemUiBadge['label'] ?? '');
+$data['change_item_badge_variant'] = (string)($changeItemUiBadge['variant'] ?? '');
+$data['change_item_badge_key'] = (string)($changeItemUiBadge['key'] ?? '');
 $data['change_item_status'] = !empty($changeItemSummary['active'])
     ? (string)($changeItemSummary['active']['status'] ?? '')
     : '';
