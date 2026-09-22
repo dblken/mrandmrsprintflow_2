@@ -7097,6 +7097,84 @@ function printflow_service_catalog_image_from_id(int $serviceId): string {
     return printflow_service_catalog_image_from_row($rows[0]);
 }
 
+/**
+ * Live admin primary service image (IMG 1 / first still in display_image CSV), with cache-bust from updated_at.
+ */
+function printflow_live_service_catalog_image_url(int $serviceId): string {
+    $serviceId = (int)$serviceId;
+    if ($serviceId <= 0 || !function_exists('db_query')) {
+        return '';
+    }
+
+    $appBase = function_exists('pf_app_base_path') ? pf_app_base_path() : '';
+    $defaultImg = rtrim($appBase, '/') . '/public/assets/images/services/default.png';
+
+    $rows = db_query(
+        "SELECT display_image, hero_image, updated_at
+         FROM services
+         WHERE service_id = ?
+           AND LOWER(TRIM(COALESCE(status,''))) <> 'archived'
+         LIMIT 1",
+        'i',
+        [$serviceId]
+    ) ?: [];
+
+    if ($rows === []) {
+        return '';
+    }
+
+    $row = $rows[0];
+    $url = pf_service_card_primary_image(
+        (string)($row['display_image'] ?? ''),
+        (string)($row['hero_image'] ?? ''),
+        $appBase,
+        $defaultImg
+    );
+
+    if ($url === '' || $url === $defaultImg) {
+        return $url;
+    }
+
+    $v = (int)(strtotime((string)($row['updated_at'] ?? '')) ?: 0);
+    if ($v > 0) {
+        $url .= (strpos($url, '?') === false ? '?' : '&') . 'v=' . $v;
+    }
+
+    return $url;
+}
+
+/**
+ * Cart/session line thumbnail for services — always live catalog art (never customer upload).
+ *
+ * @param array<string,mixed> $item
+ */
+function printflow_cart_line_service_catalog_image_url(array $item, string $cartKey = '', string $displayName = ''): string {
+    $sid = function_exists('printflow_resolve_service_catalog_service_id_from_cart_line')
+        ? (int)printflow_resolve_service_catalog_service_id_from_cart_line($item)
+        : (int)($item['service_id'] ?? 0);
+
+    if ($sid <= 0 && $cartKey !== '' && preg_match('/^service_(\d+)_/', $cartKey, $matches)) {
+        $sid = (int)$matches[1];
+    }
+
+    if ($sid > 0) {
+        $url = printflow_live_service_catalog_image_url($sid);
+        if ($url !== '') {
+            return $url;
+        }
+    }
+
+    $displayName = trim($displayName);
+    if ($displayName === '') {
+        $displayName = trim((string)($item['name'] ?? ''));
+    }
+    if ($displayName !== '' && function_exists('printflow_service_catalog_image_from_name')) {
+        return printflow_service_catalog_image_from_name($displayName);
+    }
+
+    return '';
+}
+
 function printflow_service_catalog_image_from_name(string $serviceName): string {
     $serviceName = trim($serviceName);
     if ($serviceName === '') {

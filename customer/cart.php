@@ -6,7 +6,6 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
-require_once __DIR__ . '/../includes/order_ui_helper.php';
 
 require_role('Customer');
 
@@ -876,17 +875,12 @@ require_once __DIR__ . '/../includes/header.php';
                                             $prod_id = (int)($item['product_id'] ?? 0);
                                             $product_img = "";
 
-                                            $cart_item_for_ui = $item;
-                                            $cart_item_for_ui['_cart_key'] = (string)$pid;
-                                            if ($item_origin === 'Service' || !empty($item['design_tmp_path']) || !empty($item['uploaded_files'])) {
-                                                $design_media = pf_order_ui_resolve_item_design_urls(
-                                                    $cart_item_for_ui,
-                                                    true,
+                                            if ($item_origin === 'Service') {
+                                                $product_img = printflow_cart_line_service_catalog_image_url(
+                                                    $item,
+                                                    (string)$pid,
                                                     (string)$item_display_name
                                                 );
-                                                if (!empty($design_media['upload_is_previewable_image']) && !empty($design_media['upload_url'])) {
-                                                    $product_img = $design_media['upload_url'];
-                                                }
                                             }
                                             
                                             // 1. Prefer admin-uploaded photo_path, then legacy product_image

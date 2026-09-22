@@ -76,12 +76,18 @@ function review_enrich_cart_item(array $item): array {
                         $item['category'] = $service['category'];
                     }
                 }
-                $display_image = trim((string)($service['display_image'] ?? ''));
-                $hero_image = trim((string)($service['hero_image'] ?? ''));
-                $first_image = $display_image !== '' ? trim(explode(',', $display_image)[0]) : $hero_image;
-                $catalog_image = review_resolve_catalog_image($first_image);
+                $catalog_image = function_exists('printflow_live_service_catalog_image_url')
+                    ? printflow_live_service_catalog_image_url($resolved_service_id)
+                    : null;
+                if (empty($catalog_image)) {
+                    $display_image = trim((string)($service['display_image'] ?? ''));
+                    $hero_image = trim((string)($service['hero_image'] ?? ''));
+                    $first_image = $display_image !== '' ? trim(explode(',', $display_image)[0]) : $hero_image;
+                    $catalog_image = review_resolve_catalog_image($first_image);
+                }
                 if (!empty($catalog_image)) {
                     $item['service_image'] = $catalog_image;
+                    $item['catalog_service_image'] = $catalog_image;
                     $item['product_image'] = $catalog_image;
                 }
             }
@@ -971,12 +977,44 @@ require_once __DIR__ . '/../includes/header.php';
         border-radius: 12px !important;
         backdrop-filter: blur(8px);
     }
+    .order-review-page .order-container form.review-checkout-form {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
+    @media (min-width: 901px) {
+        .order-review-page .order-container form.review-checkout-form {
+            max-height: calc(100dvh - 7.5rem);
+        }
+        .order-review-page .review-card {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .order-review-page .review-card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            padding-bottom: 0.25rem;
+        }
+    }
+    .review-layout-top {
+        margin-bottom: 0.65rem;
+    }
+    .review-layout-top .review-heading {
+        margin-bottom: 0 !important;
+        color: #eaf6fb !important;
+        border-bottom: none !important;
+        padding-bottom: 0 !important;
+    }
     .review-heading {
         color: #111827 !important;
         border-bottom-color: #e5e7eb !important;
     }
     .review-info-note {
-        margin-top: 1rem;
+        margin-top: 0;
         background: #f0f9ff !important;
         border: 1px solid #bae6fd !important;
         border-left: 4px solid #0ea5e9 !important;
@@ -1059,13 +1097,45 @@ require_once __DIR__ . '/../includes/header.php';
         gap: 1rem;
     }
     .review-actions-bar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 1.75rem;
+        padding-top: 0.85rem;
+        margin-top: 0;
+        border-top: 1px solid rgba(83, 197, 224, 0.22);
+        flex-shrink: 0;
+        background: rgba(0, 49, 61, 0.92);
+        position: sticky;
+        bottom: 0;
+        z-index: 6;
+        padding-bottom: 0.15rem;
+    }
+    .review-actions-bar-inner {
+        grid-column: 1;
         display: flex;
         justify-content: flex-end;
+        align-items: center;
         gap: 1rem;
-        padding-top: 0.85rem;
-        margin-top: 0.85rem;
-        border-top: 1px solid #e5e7eb;
-        flex-shrink: 0;
+        flex-wrap: wrap;
+    }
+    @media (max-width: 900px) {
+        .review-actions-bar {
+            grid-template-columns: 1fr;
+            gap: 0;
+            position: sticky;
+            bottom: 0;
+            padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
+            box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.18);
+        }
+        .review-actions-bar-inner {
+            grid-column: 1;
+            justify-content: stretch;
+        }
+        .review-actions-bar-inner .shopee-btn-outline,
+        .review-actions-bar-inner .shopee-btn-primary {
+            flex: 1 1 0;
+            min-width: 0;
+        }
     }
     .review-layout {
         display: grid;
@@ -1872,7 +1942,7 @@ require_once __DIR__ . '/../includes/header.php';
             <h1 class="text-2xl font-bold text-gray-800 order-review-page-title">Review Your Order</h1>
         </div>
 
-        <form method="POST" action="order_review.php?item=<?php echo urlencode($item_key); ?>" novalidate data-pf-skip-guard>
+        <form method="POST" action="order_review.php?item=<?php echo urlencode($item_key); ?>" novalidate data-pf-skip-guard class="review-checkout-form">
             <input type="hidden" name="item" value="<?php echo htmlspecialchars($item_key); ?>">
             <?php echo csrf_field(); ?>
             
@@ -1882,12 +1952,14 @@ require_once __DIR__ . '/../includes/header.php';
 
             <!-- Single Consolidated Card -->
             <div class="card compact-card review-card">
-                <div class="review-layout">
-                <div class="review-layout-col review-layout-col--order">
-                <!-- 1. Order Summary -->
-                <h2 class="review-heading" style="font-size:1rem; font-weight:700; margin-bottom:0.65rem; display:flex; align-items:center; gap:8px;">
+                <div class="review-layout-top">
+                <h2 class="review-heading" style="font-size:1rem; font-weight:700; margin-bottom:0; display:flex; align-items:center; gap:8px;">
                     Order Summary (<?php echo count($items_to_review); ?> item<?php echo count($items_to_review) > 1 ? 's' : ''; ?>)
                 </h2>
+                </div>
+                <div class="review-card-body">
+                <div class="review-layout">
+                <div class="review-layout-col review-layout-col--order">
                 <?php 
                 $item_index = 0;
                 foreach ($items_to_review as $key => $item): 
@@ -1989,15 +2061,18 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
                 </div><!-- /.review-layout-col--aside -->
                 </div><!-- /.review-layout -->
+                </div><!-- /.review-card-body -->
 
                 <!-- Final Actions -->
                 <div class="review-actions-bar">
+                    <div class="review-actions-bar-inner">
                     <a href="cart.php" 
                        class="shopee-btn-outline" style="width: 150px; text-align: center; padding: 0.75rem; text-decoration: none; white-space: nowrap;">
                         Back to Cart
                     </a>
                     
                     <button type="submit" name="confirm_order" value="1" class="shopee-btn-primary" style="width: 150px; white-space: nowrap;"><?php echo $is_product_order ? 'Pay Now' : 'Inquire Now'; ?></button>
+                    </div>
                 </div>
             </div>
         </form>

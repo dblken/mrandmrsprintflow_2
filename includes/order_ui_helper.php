@@ -708,6 +708,14 @@ if (!function_exists('pf_order_ui_resolve_catalog_image_url')) {
     function pf_order_ui_resolve_catalog_image_url(array $item, bool $is_cart_item, string $fallbackName = ''): ?string
     {
         if (pf_order_ui_is_service_item($item, $is_cart_item)) {
+            if ($is_cart_item && function_exists('printflow_cart_line_service_catalog_image_url')) {
+                $cart_key = (string)($item['_cart_key'] ?? '');
+                $live_url = printflow_cart_line_service_catalog_image_url($item, $cart_key, $fallbackName);
+                if ($live_url !== '') {
+                    return $live_url;
+                }
+            }
+
             foreach (['service_image', 'catalog_service_image'] as $serviceImageField) {
                 if (!empty($item[$serviceImageField])) {
                     $url = pf_order_ui_asset_url($item[$serviceImageField]);
