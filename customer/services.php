@@ -222,7 +222,7 @@ function render_service_card($srv, int $card_index = 0) {
 
         </div>
         <div class="shopee-footer" onclick="event.stopPropagation();">
-            <button type="button" onclick="window.location.href='<?php echo htmlspecialchars($order_link, ENT_QUOTES, 'UTF-8'); ?>'" class="shopee-btn shopee-btn-cart" title="Order Service">
+            <button type="button" onclick="beginServiceCartJourney(event, <?php echo htmlspecialchars(json_encode($order_link), ENT_QUOTES, 'UTF-8'); ?>)" class="shopee-btn shopee-btn-cart" title="Order Service">
                 <svg style="width: 1.25rem; height: 1.25rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
             </button>
             <a href="<?php echo htmlspecialchars($order_link); ?>" class="shopee-btn shopee-btn-buy">Customize Now</a>
@@ -712,6 +712,7 @@ function render_service_card($srv, int $card_index = 0) {
     </div>
 </div>
 
+<script src="<?php echo htmlspecialchars($base_path); ?>/public/assets/js/add_to_cart_fx.js"></script>
 <script>
 var basePath = <?php echo json_encode($base_path); ?>;
 var currentModalData = {};
@@ -935,6 +936,42 @@ function buyNowService() {
     if (currentModalData.link) {
         window.location.href = currentModalData.link;
     }
+}
+
+function beginServiceCartJourney(ev, link) {
+    if (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+    }
+    var targetLink = String(link || '').trim();
+    if (!targetLink) {
+        return;
+    }
+    var btn = ev && ev.currentTarget ? ev.currentTarget : null;
+    var lockKey = 'service-' + targetLink;
+    if (window.PFAddToCartFx && PFAddToCartFx.isPending(lockKey)) {
+        return;
+    }
+    var navigate = function () {
+        window.location.href = targetLink;
+    };
+    if (!window.PFAddToCartFx) {
+        navigate();
+        return;
+    }
+    PFAddToCartFx.withLock(lockKey, btn, function () {
+        return new Promise(function (resolve) {
+            PFAddToCartFx.run(btn, {
+                message: 'Added to cart ✓',
+                onComplete: function () {
+                    window.setTimeout(function () {
+                        navigate();
+                        resolve(true);
+                    }, 100);
+                }
+            });
+        });
+    });
 }
 </script>
 
