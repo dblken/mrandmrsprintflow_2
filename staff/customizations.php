@@ -2265,57 +2265,57 @@ $online_closed_count = 0;
                             <template x-for="item in paginatedListItems" :key="item.key">
                                 <tr
                                     :class="item.kind === 'section' ? 'pf-orders-section-row' : 'group transition-all relative cursor-pointer customization-row'"
-                                    @click="item.kind === 'row' ? viewDetails(item.jo.id, item.jo.order_type || 'JOB') : null"
+                                    @click="openOrderListItem(item)"
                                 >
                                     <template x-if="item.kind === 'section'">
                                         <td colspan="7" class="px-6 py-2">
                                             <div class="pf-orders-section-label" :class="item.label === 'Urgent Orders' ? 'pf-orders-section-label--urgent' : ''" x-text="item.label"></div>
                                         </td>
                                     </template>
-                                    <template x-else-if="item.kind === 'row'">
+                                    <template x-else-if="isValidOrderListRow(item)">
                                         <td class="pl-6 pr-4 py-4 relative order-code-cell" data-label="Order">
                                             <div class="row-indicator"></div>
                                             <div class="pf-order-code-stack">
-                                                <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(item.jo)" x-text="getDisplayOrderCode(item.jo)"></span>
-                                                <span x-show="orderIsUrgentRequest(item.jo)" class="pf-urgent-request-badge">Urgent Request</span>
-                                                <span x-show="orderHasChangeItemBadge(item.jo)" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(item.jo)"></span>
+                                                <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(orderListItemRowJo(item))" x-text="getDisplayOrderCode(orderListItemRowJo(item))"></span>
+                                                <span x-show="orderIsUrgentRequest(orderListItemRowJo(item))" class="pf-urgent-request-badge">Urgent Request</span>
+                                                <span x-show="orderHasChangeItemBadge(orderListItemRowJo(item))" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(orderListItemRowJo(item))"></span>
                                             </div>
                                         </td>
                                         <td class="px-4 py-4 customization-info-cell" data-label="Details">
                                             <div class="flex items-center gap-3">
                                                 <div class="flex flex-col gap-0 min-w-0">
-                                                    <div class="table-text-main truncate-ellipsis" :title="getRowDisplayName(item.jo)" x-text="getRowDisplayName(item.jo)"></div>
-                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type !== 'SERVICE'"><span x-text="item.jo.width_ft"></span>'×<span x-text="item.jo.height_ft"></span>' • <span x-text="item.jo.quantity"></span> pcs</div>
-                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="false && item.jo.order_type !== 'SERVICE'"><span x-text="item.jo.width_ft"></span>'Ã—<span x-text="item.jo.height_ft"></span>' â€¢ <span x-text="item.jo.quantity"></span> pcs</div>
-                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(item.jo)"></div>
-                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type === 'SERVICE'">Service purchase</div>
+                                                    <div class="table-text-main truncate-ellipsis" :title="getRowDisplayName(orderListItemRowJo(item))" x-text="getRowDisplayName(orderListItemRowJo(item))"></div>
+                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="orderListItemRowJo(item)?.order_type !== 'SERVICE'"><span x-text="orderListItemRowJo(item)?.width_ft"></span>'×<span x-text="orderListItemRowJo(item)?.height_ft"></span>' • <span x-text="orderListItemRowJo(item)?.quantity"></span> pcs</div>
+                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="false && orderListItemRowJo(item)?.order_type !== 'SERVICE'"><span x-text="orderListItemRowJo(item)?.width_ft"></span>'Ã—<span x-text="orderListItemRowJo(item)?.height_ft"></span>' â€¢ <span x-text="orderListItemRowJo(item)?.quantity"></span> pcs</div>
+                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="orderListItemRowJo(item)?.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(orderListItemRowJo(item))"></div>
+                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="orderListItemRowJo(item)?.order_type === 'SERVICE'">Service purchase</div>
                                                 </div>
                                             </div>
                                         </td>
                                         <td class="px-4 py-4 needed-date-cell" data-label="Needed Date">
-                                            <div class="table-text-main truncate-ellipsis" :title="formatOrderNeededDate(item.jo, true)" x-text="formatOrderNeededDate(item.jo)"></div>
+                                            <div class="table-text-main truncate-ellipsis" :title="formatOrderNeededDate(orderListItemRowJo(item), true)" x-text="formatOrderNeededDate(orderListItemRowJo(item))"></div>
                                         </td>
                                         <td class="px-4 py-4 status-col-cell" data-label="Status">
                                             <div class="status-col-inner">
-                                            <div :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(item.jo)">
+                                            <div :class="getStatusBadgeClass(orderListItemRowJo(item))" class="pf-pill status-badge-pill" x-text="getStatusLabel(orderListItemRowJo(item))">
                                                 </div>
                                             </div>
                                         </td>
                                         <td class="px-4 py-4 customer-cell" data-label="Customer">
-                                            <div class="table-text-main truncate-ellipsis" :title="(item.jo.first_name + ' ' + (item.jo.last_name || '')).trim()" x-text="item.jo.first_name + ' ' + (item.jo.last_name || '')"></div>
+                                            <div class="table-text-main truncate-ellipsis" :title="((orderListItemRowJo(item)?.first_name || '') + ' ' + (orderListItemRowJo(item)?.last_name || '')).trim()" x-text="(orderListItemRowJo(item)?.first_name || '') + ' ' + (orderListItemRowJo(item)?.last_name || '')"></div>
                                         </td>
                                         <td class="px-4 py-4 text-right created-cell" data-label="Created">
-                                            <div class="table-text-main truncate-ellipsis" :title="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''" x-text="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"></div>
-                                            <div class="table-text-sub uppercase truncate-ellipsis" :title="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''" x-text="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''"></div>
+                                            <div class="table-text-main truncate-ellipsis" :title="orderListItemRowJo(item)?.created_at ? new Date(orderListItemRowJo(item).created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''" x-text="orderListItemRowJo(item)?.created_at ? new Date(orderListItemRowJo(item).created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"></div>
+                                            <div class="table-text-sub uppercase truncate-ellipsis" :title="orderListItemRowJo(item)?.due_date ? 'Due ' + new Date(orderListItemRowJo(item).due_date).toLocaleDateString() : ''" x-text="orderListItemRowJo(item)?.due_date ? 'Due ' + new Date(orderListItemRowJo(item).due_date).toLocaleDateString() : ''"></div>
                                         </td>
                                         <td class="px-4 py-4 action-col-cell" data-label="Action">
                                             <div class="action-btn-group">
                                                 <button
-                                                    @click.stop="viewDetails(item.jo.id, item.jo.order_type || 'JOB')"
+                                                    @click.stop="openOrderListItem(item)"
                                                     class="table-action-btn"
-                                                    :disabled="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB')"
-                                                    :style="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'opacity:0.65;cursor:wait;' : ''"
-                                                    x-text="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'Loading...' : 'View'"></button>
+                                                    :disabled="loadingDetailKey === detailKeyFor(orderListItemRowJo(item)?.id, orderListItemRowJo(item)?.order_type || 'JOB')"
+                                                    :style="loadingDetailKey === detailKeyFor(orderListItemRowJo(item)?.id, orderListItemRowJo(item)?.order_type || 'JOB') ? 'opacity:0.65;cursor:wait;' : ''"
+                                                    x-text="loadingDetailKey === detailKeyFor(orderListItemRowJo(item)?.id, orderListItemRowJo(item)?.order_type || 'JOB') ? 'Loading...' : 'View'"></button>
                                             </div>
                                         </td>
                                     </template>
@@ -2351,39 +2351,40 @@ $online_closed_count = 0;
                 <div class="customizations-mobile-list" aria-label="Customization orders">
                     <template x-for="item in paginatedListItems" :key="'mobile-' + item.key">
                         <div class="customizations-mobile-list-entry">
-                        <div
-                            x-show="item.kind === 'section'"
-                            class="customizations-mobile-section-label"
-                            :class="item.label === 'All Orders' ? 'customizations-mobile-section-label--regular' : ''"
-                            x-text="item.label"
-                        ></div>
+                        <template x-if="item.kind === 'section'">
+                            <div
+                                class="customizations-mobile-section-label"
+                                :class="item.label === 'All Orders' ? 'customizations-mobile-section-label--regular' : ''"
+                                x-text="item.label"
+                            ></div>
+                        </template>
+                        <template x-else-if="isValidOrderListRow(item)">
                         <article
-                            x-show="item.kind === 'row'"
                             class="customization-mobile-card"
-                            @click="viewDetails(item.jo.id, item.jo.order_type || 'JOB')"
+                            @click="openOrderListItem(item)"
                         >
                             <div class="customization-mobile-card__section customization-mobile-card__section--order">
                                 <span class="customization-mobile-card__label">Order</span>
                                 <div class="customization-mobile-card__order-wrap">
                                     <span
                                         class="customization-mobile-card__order"
-                                        :title="getDisplayOrderCode(item.jo)"
-                                        x-text="getDisplayOrderCode(item.jo)"
+                                        :title="getDisplayOrderCode(orderListItemRowJo(item))"
+                                        x-text="getDisplayOrderCode(orderListItemRowJo(item))"
                                     ></span>
-                                    <span x-show="orderIsUrgentRequest(item.jo)" class="pf-urgent-request-badge">Urgent Request</span>
-                                    <span x-show="orderHasChangeItemBadge(item.jo)" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(item.jo)"></span>
+                                    <span x-show="orderIsUrgentRequest(orderListItemRowJo(item))" class="pf-urgent-request-badge">Urgent Request</span>
+                                    <span x-show="orderHasChangeItemBadge(orderListItemRowJo(item))" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(orderListItemRowJo(item))"></span>
                                 </div>
                             </div>
 
                             <div class="customization-mobile-card__section">
                                 <span class="customization-mobile-card__label">Details</span>
                                 <div class="customization-mobile-card__details">
-                                    <span class="table-text-main" x-text="getRowDisplayName(item.jo)"></span>
-                                    <span class="table-text-sub uppercase tracking-wider" x-show="item.jo.order_type !== 'SERVICE'">
-                                        <span x-text="item.jo.width_ft"></span>&prime;&times;<span x-text="item.jo.height_ft"></span>&prime; &bull; <span x-text="item.jo.quantity"></span> pcs
+                                    <span class="table-text-main" x-text="getRowDisplayName(orderListItemRowJo(item))"></span>
+                                    <span class="table-text-sub uppercase tracking-wider" x-show="orderListItemRowJo(item)?.order_type !== 'SERVICE'">
+                                        <span x-text="orderListItemRowJo(item)?.width_ft"></span>&prime;&times;<span x-text="orderListItemRowJo(item)?.height_ft"></span>&prime; &bull; <span x-text="orderListItemRowJo(item)?.quantity"></span> pcs
                                     </span>
-                                    <span class="table-text-sub uppercase tracking-wider" x-show="item.jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(item.jo)"></span>
-                                    <span class="table-text-sub uppercase tracking-wider" x-show="item.jo.order_type === 'SERVICE'">Service purchase</span>
+                                    <span class="table-text-sub uppercase tracking-wider" x-show="orderListItemRowJo(item)?.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(orderListItemRowJo(item))"></span>
+                                    <span class="table-text-sub uppercase tracking-wider" x-show="orderListItemRowJo(item)?.order_type === 'SERVICE'">Service purchase</span>
                                 </div>
                             </div>
 
@@ -2392,30 +2393,30 @@ $online_closed_count = 0;
                                     <span class="customization-mobile-card__label">Needed Date</span>
                                     <span
                                         class="customization-mobile-card__value"
-                                        :title="formatOrderNeededDate(item.jo, true)"
-                                        x-text="formatOrderNeededDate(item.jo)"
+                                        :title="formatOrderNeededDate(orderListItemRowJo(item), true)"
+                                        x-text="formatOrderNeededDate(orderListItemRowJo(item))"
                                     ></span>
                                 </div>
                                 <div class="customization-mobile-card__meta-row">
                                     <span class="customization-mobile-card__label">Status</span>
                                     <div class="customization-mobile-card__status">
-                                        <span :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(item.jo)"></span>
+                                        <span :class="getStatusBadgeClass(orderListItemRowJo(item))" class="pf-pill status-badge-pill" x-text="getStatusLabel(orderListItemRowJo(item))"></span>
                                     </div>
                                 </div>
                                 <div class="customization-mobile-card__meta-row">
                                     <span class="customization-mobile-card__label">Customer</span>
                                     <span
                                         class="customization-mobile-card__value"
-                                        :title="(item.jo.first_name + ' ' + (item.jo.last_name || '')).trim()"
-                                        x-text="item.jo.first_name + ' ' + (item.jo.last_name || '')"
+                                        :title="((orderListItemRowJo(item)?.first_name || '') + ' ' + (orderListItemRowJo(item)?.last_name || '')).trim()"
+                                        x-text="(orderListItemRowJo(item)?.first_name || '') + ' ' + (orderListItemRowJo(item)?.last_name || '')"
                                     ></span>
                                 </div>
                                 <div class="customization-mobile-card__meta-row">
                                     <span class="customization-mobile-card__label">Created</span>
                                     <span
                                         class="customization-mobile-card__value"
-                                        :title="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"
-                                        x-text="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"
+                                        :title="orderListItemRowJo(item)?.created_at ? new Date(orderListItemRowJo(item).created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"
+                                        x-text="orderListItemRowJo(item)?.created_at ? new Date(orderListItemRowJo(item).created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"
                                     ></span>
                                 </div>
                             </div>
@@ -2423,14 +2424,15 @@ $online_closed_count = 0;
                             <div class="customization-mobile-card__footer">
                                 <button
                                     type="button"
-                                    @click.stop="viewDetails(item.jo.id, item.jo.order_type || 'JOB')"
+                                    @click.stop="openOrderListItem(item)"
                                     class="table-action-btn"
-                                    :disabled="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB')"
-                                    :style="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'opacity:0.65;cursor:wait;' : ''"
-                                    x-text="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'Loading...' : 'View Order'"
+                                    :disabled="loadingDetailKey === detailKeyFor(orderListItemRowJo(item)?.id, orderListItemRowJo(item)?.order_type || 'JOB')"
+                                    :style="loadingDetailKey === detailKeyFor(orderListItemRowJo(item)?.id, orderListItemRowJo(item)?.order_type || 'JOB') ? 'opacity:0.65;cursor:wait;' : ''"
+                                    x-text="loadingDetailKey === detailKeyFor(orderListItemRowJo(item)?.id, orderListItemRowJo(item)?.order_type || 'JOB') ? 'Loading...' : 'View Order'"
                                 ></button>
                             </div>
                         </article>
+                        </template>
                         </div>
                     </template>
 
@@ -7461,13 +7463,27 @@ window.pfServiceFieldCatalog = (() => {
             buildOrderListItems(rows, pageStart = 0) {
                 const items = [];
                 let prevUrgent = null;
-                rows.forEach((jo, index) => {
+                const safeRows = Array.isArray(rows) ? rows : [];
+                safeRows.forEach((jo, index) => {
+                    if (!jo || typeof jo !== 'object') {
+                        return;
+                    }
                     const isUrgent = this.activeStatus === 'ALL' && this.orderIsUrgentRequest(jo);
                     if (isUrgent && prevUrgent !== true) {
-                        items.push({ kind: 'section', key: `section-urgent-${pageStart + index}`, label: 'Urgent Orders' });
+                        items.push({
+                            kind: 'section',
+                            key: `section-urgent-${pageStart + index}`,
+                            label: 'Urgent Orders',
+                            jo: null
+                        });
                     }
                     if (!isUrgent && prevUrgent === true) {
-                        items.push({ kind: 'section', key: `section-all-${pageStart + index}`, label: 'All Orders' });
+                        items.push({
+                            kind: 'section',
+                            key: `section-all-${pageStart + index}`,
+                            label: 'All Orders',
+                            jo: null
+                        });
                     }
                     items.push({
                         kind: 'row',
@@ -7479,6 +7495,31 @@ window.pfServiceFieldCatalog = (() => {
                 return items;
             },
 
+            isValidOrderListRow(item) {
+                return !!(item && item.kind === 'row' && item.jo && typeof item.jo === 'object');
+            },
+
+            orderListItemRowJo(item) {
+                return this.isValidOrderListRow(item) ? item.jo : null;
+            },
+
+            openOrderListItem(item) {
+                const jo = this.orderListItemRowJo(item);
+                if (!jo) return;
+                this.viewDetails(jo.id, jo.order_type || 'JOB');
+            },
+
+            sanitizeOrderListItems(items) {
+                if (!Array.isArray(items)) return [];
+                return items.filter((item) => {
+                    if (!item || typeof item !== 'object' || !item.key) return false;
+                    if (item.kind === 'section') {
+                        return typeof item.label === 'string' && item.label !== '';
+                    }
+                    return this.isValidOrderListRow(item);
+                });
+            },
+
             get paginatedOrders() {
                 const start = (this.currentPage - 1) * this.itemsPerPage;
                 const end = start + this.itemsPerPage;
@@ -7488,7 +7529,8 @@ window.pfServiceFieldCatalog = (() => {
             get paginatedListItems() {
                 const start = (this.currentPage - 1) * this.itemsPerPage;
                 const end = start + this.itemsPerPage;
-                return this.buildOrderListItems(this.filteredOrders.slice(start, end), start);
+                const built = this.buildOrderListItems(this.filteredOrders.slice(start, end), start);
+                return this.sanitizeOrderListItems(built);
             },
 
             getActiveTabMatchingCount() {
