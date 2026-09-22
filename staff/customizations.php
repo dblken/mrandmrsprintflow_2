@@ -1145,194 +1145,7 @@ $online_closed_count = 0;
                 padding: 16px !important;
             }
 
-            /* Improved Table Card Layout for Mobile */
-            /* Stop horizontal scroll at table wrapper */
-            .pf-staff-customizations-root .overflow-x-auto {
-                padding: 0 !important;
-                margin: 0 !important;
-                overflow-x: hidden !important;
-                max-width: 100vw !important;
-                width: 100% !important;
-                box-sizing: border-box !important;
-            }
-
-            html .pf-staff-customizations-root table, 
-            .pf-staff-customizations-root table { 
-                display: block !important; 
-                width: 100% !important; 
-                max-width: 100% !important; 
-                min-width: 0 !important; 
-                overflow: hidden !important; 
-                box-sizing: border-box !important; 
-            }
-            html .pf-staff-customizations-root thead, 
-            .pf-staff-customizations-root thead { 
-                display: none !important; 
-            }
-            html .pf-staff-customizations-root tbody, 
-            .pf-staff-customizations-root tbody { 
-                display: block !important; 
-                width: 100% !important; 
-                max-width: 100% !important; 
-                min-width: 0 !important; 
-                overflow: hidden !important; 
-            }
-
-            /* Each job row = a card */
-            html .pf-staff-customizations-root tr, 
-            .pf-staff-customizations-root tr { 
-                display: flex !important; 
-                flex-direction: column !important; 
-                width: 100% !important; 
-                max-width: 100% !important; 
-                min-width: 0 !important; 
-                box-sizing: border-box !important; 
-                margin-bottom: 10px !important; 
-                border: 1px solid #e2e8f0 !important; 
-                border-radius: 10px !important; 
-                background: #fff !important; 
-                overflow: hidden !important; 
-                padding: 0 !important; 
-                gap: 0 !important; 
-            }
-
-            /* Every cell */
-            html .pf-staff-customizations-root td, 
-            .pf-staff-customizations-root td { 
-                display: flex !important; 
-                align-items: center !important; 
-                justify-content: space-between !important;
-                width: 100% !important; 
-                max-width: 100% !important; 
-                min-width: 0 !important; 
-                box-sizing: border-box !important; 
-                padding: 6px 12px !important; 
-                border-bottom: 1px solid #f1f5f9 !important; 
-                overflow: hidden !important; 
-                font-size: 12px !important; 
-                color: #374151 !important; 
-            }
-            html .pf-staff-customizations-root td:last-child, 
-            .pf-staff-customizations-root td:last-child { 
-                border-bottom: none !important; 
-            }
-
-            /* ── Row 0: Order Code ── */
-            html .pf-staff-customizations-root td:nth-child(1), 
-            .pf-staff-customizations-root td:nth-child(1) { 
-                order: 0 !important; 
-                background: #f8fafc !important; 
-                padding: 8px 12px !important; 
-                font-weight: 700 !important; 
-                color: #1e293b !important; 
-                gap: 6px !important; 
-            }
-            .pf-staff-customizations-root td:nth-child(1)::before { content: none !important; }
-
-            /* ── Row 1: Info ── */
-            html .pf-staff-customizations-root td:nth-child(2), 
-            .pf-staff-customizations-root td:nth-child(2) { 
-                order: 1 !important; 
-                padding: 7px 12px !important; 
-                overflow: hidden !important; 
-                flex-direction: column !important;
-                align-items: flex-start !important;
-            }
-            html .pf-staff-customizations-root td:nth-child(2)::before, 
-            .pf-staff-customizations-root td:nth-child(2)::before { display: none !important; }
-            html .pf-staff-customizations-root td:nth-child(2) .table-text-main, 
-            .pf-staff-customizations-root td:nth-child(2) .table-text-main { 
-                font-size: 12px !important; 
-                font-weight: 600 !important; 
-                color: #111827 !important; 
-                white-space: nowrap !important; 
-                overflow: hidden !important; 
-                text-overflow: ellipsis !important; 
-                max-width: 250px !important; 
-                width: 100% !important; 
-                display: block !important; 
-            }
-            html .pf-staff-customizations-root td:nth-child(2) .table-text-sub, 
-            .pf-staff-customizations-root td:nth-child(2) .table-text-sub { 
-                font-size: 10px !important; 
-                white-space: nowrap !important; 
-                overflow: hidden !important; 
-                text-overflow: ellipsis !important; 
-                max-width: 250px !important; 
-                width: 100% !important; 
-                display: block !important; 
-            }
-
-            /* ── Row 2: Customer ── */
-            html .pf-staff-customizations-root td:nth-child(5), 
-            .pf-staff-customizations-root td:nth-child(5) { 
-                order: 2 !important; 
-                overflow: hidden !important; 
-            }
-            html .pf-staff-customizations-root td:nth-child(5)::before, 
-            .pf-staff-customizations-root td:nth-child(5)::before { 
-                content: "Customer  " !important; font-size: 9px !important; 
-                font-weight: 700 !important; text-transform: uppercase !important; 
-                color: #94a3b8 !important; flex-shrink: 0 !important; 
-                white-space: nowrap !important; margin-right: 4px !important; 
-            }
-            html .pf-staff-customizations-root td:nth-child(5) .table-text-main, 
-            .pf-staff-customizations-root td:nth-child(5) .table-text-main { 
-                white-space: nowrap !important; overflow: hidden !important; 
-                text-overflow: ellipsis !important; max-width: 160px !important; 
-                width: 100% !important; display: block !important; 
-            }
-
-            /* ── HIDE Source and Date/Created ── */
-            html .pf-staff-customizations-root td:nth-child(4), 
-            .pf-staff-customizations-root td:nth-child(4), 
-            html .pf-staff-customizations-root td:nth-child(6), 
-            .pf-staff-customizations-root td:nth-child(6) { display: none !important; }
-
-            /* ── Row 4: Status ── */
-            html .pf-staff-customizations-root td:nth-child(3), 
-            .pf-staff-customizations-root td:nth-child(3) { 
-                order: 4 !important; 
-                justify-content: flex-start !important; 
-                gap: 6px !important; 
-                overflow: hidden !important; 
-            }
-            .pf-staff-customizations-root td:nth-child(3)::before { 
-                content: "Status  " !important; font-size: 9px !important; 
-                font-weight: 700 !important; text-transform: uppercase !important; 
-                color: #94a3b8 !important; flex-shrink: 0 !important; 
-                white-space: nowrap !important; margin-right: 4px !important; 
-            }
-
-            /* ── Row 5: Action buttons ── */
-            html .pf-staff-customizations-root td:nth-child(7), 
-            .pf-staff-customizations-root td:nth-child(7) { 
-                order: 10 !important; 
-                padding: 10px 12px !important; 
-                border-top: 1px solid #e8eef3 !important; 
-                border-bottom: none !important; 
-                overflow: visible !important; 
-                justify-content: stretch !important;
-            }
-            .pf-staff-customizations-root td:nth-child(7)::before { display: none !important; }
-            html .pf-staff-customizations-root td:nth-child(7) .action-btn-group,
-            .pf-staff-customizations-root td:nth-child(7) .action-btn-group {
-                width: 100% !important;
-                display: grid !important;
-                grid-template-columns: minmax(0, 1fr) minmax(0, 88px) !important;
-                gap: 8px !important;
-                align-items: center !important;
-            }
-            html .pf-staff-customizations-root td:nth-child(7) .table-action-btn, 
-            .pf-staff-customizations-root td:nth-child(7) .table-action-btn { 
-                display: flex !important; align-items: center !important; justify-content: center !important; 
-                width: auto !important; max-width: none !important;
-                flex: 1 1 0 !important;
-                min-width: 0 !important; padding: 10px 8px !important; font-size: 12px !important; 
-                font-weight: 700 !important; border-radius: 8px !important; white-space: nowrap !important; 
-                overflow: hidden !important; text-overflow: ellipsis !important; min-height: 36px !important; 
-                box-sizing: border-box !important; 
-            }
+            /* Order list layout uses @container customization-list tiers below. */
 
             /* Button Wrap and spacing fix */
             .pf-entry-btn {
@@ -1374,108 +1187,67 @@ $online_closed_count = 0;
                 gap: 10px !important;
                 width: 100% !important;
             }
+        }
 
-            /* Semantic mobile cards. The former nth-child rules assumed seven
-               columns even though this table has six. */
-            html .pf-staff-customizations-root .customizations-table-scroll,
-            .pf-staff-customizations-root .customizations-table-scroll {
-                overflow-x: hidden !important;
-            }
-            html .pf-staff-customizations-root .customizations-data-table,
-            .pf-staff-customizations-root .customizations-data-table {
-                min-width: 0 !important;
-            }
-            html .pf-staff-customizations-root tr.customization-row,
-            .pf-staff-customizations-root tr.customization-row {
-                display: grid !important;
-                grid-template-columns: minmax(0, 1fr) auto !important;
+        /* Compact horizontal table while the list container still fits a row layout. */
+        @container customization-list (min-width: 681px) and (max-width: 1100px) {
+            .customizations-table-scroll {
+                margin: 0 !important;
                 padding: 0 !important;
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch;
             }
-            html .pf-staff-customizations-root tr.customization-row td,
-            .pf-staff-customizations-root tr.customization-row td {
-                display: flex !important;
-                width: auto !important;
-                max-width: none !important;
-                padding: 9px 12px !important;
-                overflow: hidden !important;
-            }
-            .pf-staff-customizations-root tr.customization-row td::before {
-                content: attr(data-label) !important;
-                flex: 0 0 78px;
-                margin-right: 10px;
-                color: #94a3b8;
-                font-size: 9px;
-                font-weight: 800;
-                letter-spacing: .06em;
-                text-transform: uppercase;
-            }
-            html .pf-staff-customizations-root tr.customization-row .order-code-cell,
-            .pf-staff-customizations-root tr.customization-row .order-code-cell {
-                grid-column: 1 / 2 !important;
-                order: 0 !important;
-                background: #f8fafc !important;
-            }
-            .pf-staff-customizations-root tr.customization-row .order-code-cell::before,
-            .pf-staff-customizations-root tr.customization-row .status-col-cell::before,
-            .pf-staff-customizations-root tr.customization-row .action-col-cell::before {
-                content: none !important;
-            }
-            html .pf-staff-customizations-root tr.customization-row .status-col-cell,
-            .pf-staff-customizations-root tr.customization-row .status-col-cell {
-                grid-column: 2 / 3 !important;
-                order: 0 !important;
-                justify-content: flex-end !important;
-                background: #f8fafc !important;
-            }
-            .pf-staff-customizations-root tr.customization-row .status-badge-pill {
-                min-width: 92px !important;
-            }
-            html .pf-staff-customizations-root tr.customization-row .customization-info-cell,
-            .pf-staff-customizations-root tr.customization-row .customization-info-cell {
-                grid-column: 1 / -1 !important;
-                order: 1 !important;
-                flex-direction: row !important;
-                align-items: flex-start !important;
-            }
-            .pf-staff-customizations-root tr.customization-row .customization-info-cell::before {
-                display: block !important;
-                content: attr(data-label) !important;
-            }
-            html .pf-staff-customizations-root tr.customization-row .customer-cell,
-            .pf-staff-customizations-root tr.customization-row .customer-cell,
-            html .pf-staff-customizations-root tr.customization-row .created-cell,
-            .pf-staff-customizations-root tr.customization-row .created-cell {
-                display: flex !important;
-                grid-column: 1 / -1 !important;
-                order: 2 !important;
-            }
-            html .pf-staff-customizations-root tr.customization-row .created-cell,
-            .pf-staff-customizations-root tr.customization-row .created-cell {
-                order: 3 !important;
-                text-align: left !important;
-            }
-            html .pf-staff-customizations-root tr.customization-row .action-col-cell,
-            .pf-staff-customizations-root tr.customization-row .action-col-cell {
-                display: flex !important;
-                grid-column: 1 / -1 !important;
-                order: 4 !important;
-                padding: 10px 12px !important;
-                border-top: 1px solid #e8eef3 !important;
-                border-bottom: 0 !important;
-            }
-            .pf-staff-customizations-root tr.customization-row .action-btn-group,
-            .pf-staff-customizations-root tr.customization-row .table-action-btn {
+            .customizations-data-table {
+                min-width: 0 !important;
                 width: 100% !important;
+                table-layout: fixed !important;
+                font-size: 12.5px;
             }
-            .pf-staff-customizations-root tr.customization-row .table-text-main,
-            .pf-staff-customizations-root tr.customization-row .table-text-sub {
-                max-width: none !important;
+            .customizations-data-table thead th {
+                padding: 10px 8px !important;
+                font-size: 10.5px !important;
+                letter-spacing: 0.035em;
+            }
+            .customizations-data-table th,
+            .customizations-data-table td {
+                padding-left: 8px !important;
+                padding-right: 8px !important;
+            }
+            .customizations-data-table td {
+                padding-top: 12px !important;
+                padding-bottom: 12px !important;
+                min-width: 0;
+            }
+            .customizations-data-table .col-order { width: 13%; }
+            .customizations-data-table .col-info { width: 19%; }
+            .customizations-data-table .col-needed { width: 11%; }
+            .customizations-data-table .col-status { width: 11%; }
+            .customizations-data-table .col-customer { width: 13%; }
+            .customizations-data-table .col-created { width: 14%; }
+            .customizations-data-table .col-action { width: 11%; }
+            .customizations-data-table .status-badge-pill,
+            .customizations-data-table .pf-pill {
+                min-width: 0;
+                max-width: 100%;
+                padding-left: 7px;
+                padding-right: 7px;
+                font-size: 10px;
+            }
+            .customizations-data-table .table-action-btn {
+                min-width: 0;
+                padding: 5px 8px;
+                font-size: 11px;
+            }
+            .customizations-data-table .customization-info-cell .table-text-sub {
+                white-space: normal;
+                overflow-wrap: anywhere;
             }
         }
 
         /* The sidebar changes the list's usable width independently of the
-           viewport. Convert records to cards when this component is narrow. */
-        @container customization-list (max-width: 960px) {
+           viewport. Stack to labeled cards only when the list container is
+           genuinely too narrow for a table row. */
+        @container customization-list (max-width: 680px) {
             .customizations-table-scroll {
                 margin: 0 !important;
                 padding: 0 !important;
@@ -1631,7 +1403,7 @@ $online_closed_count = 0;
                 display: block !important;
                 margin: 0 !important;
                 padding: 0 !important;
-                overflow-x: hidden !important;
+                overflow-x: auto !important;
                 width: 100% !important;
                 max-width: 100% !important;
                 box-sizing: border-box !important;
@@ -1649,11 +1421,6 @@ $online_closed_count = 0;
                 display: block !important;
                 padding: 6px 4px !important;
                 border: 0 !important;
-            }
-            html .pf-staff-customizations-root .customizations-data-table tr.customization-row td.status-col-cell,
-            html .pf-staff-customizations-root .customizations-data-table tr.customization-row td.created-cell,
-            html .pf-staff-customizations-root .customizations-data-table tr.customization-row td.needed-date-cell {
-                display: grid !important;
             }
             .customization-mobile-card {
                 display: flex;

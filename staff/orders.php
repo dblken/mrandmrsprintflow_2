@@ -1227,7 +1227,7 @@ $page_title = 'Orders - Staff';
         /* Medium-width table stage */
         /* Keep a real table at medium component widths. The container width,
            rather than the viewport, accounts for the persistent sidebar. */
-        @container staff-orders-card (min-width: 801px) and (max-width: 1040px) {
+        @container staff-orders-card (min-width: 681px) and (max-width: 1100px) {
             .orders-table-scroll {
                 margin-left: 0 !important;
                 margin-right: 0 !important;
@@ -1435,74 +1435,20 @@ $page_title = 'Orders - Staff';
                 font-size: 12px !important;
             }
 
-            /* ── CRITICAL: Contain the whole card and table ── */
-            .staff-orders-table-card { padding: 10px !important; overflow: hidden !important; max-width: 100vw !important; width: 100% !important; box-sizing: border-box !important; }
-
-            /* Kill the global min-width that causes overflow */
-            html.printflow-staff .orders-table, .orders-table { display: block !important; width: 100% !important; max-width: 100% !important; min-width: 0 !important; overflow: hidden !important; box-sizing: border-box !important; }
-            html.printflow-staff .orders-table thead, .orders-table thead { display: none !important; }
-            html.printflow-staff .orders-table tbody, .orders-table tbody { display: block !important; width: 100% !important; max-width: 100% !important; min-width: 0 !important; overflow: hidden !important; }
-
-            /* Each order row = a card */
-            html.printflow-staff .orders-table tr, .orders-table tr { display: flex !important; flex-direction: column !important; width: 100% !important; max-width: 100% !important; min-width: 0 !important; box-sizing: border-box !important; margin-bottom: 10px !important; border: 1px solid #e2e8f0 !important; border-radius: 10px !important; background: #fff !important; overflow: hidden !important; padding: 0 !important; gap: 0 !important; }
-
-            /* Every cell: full-width, contained, never overflows */
-            html.printflow-staff .orders-table td, .orders-table td { display: flex !important; align-items: center !important; width: 100% !important; max-width: 100% !important; min-width: 0 !important; box-sizing: border-box !important; padding: 6px 12px !important; border-bottom: 1px solid #f1f5f9 !important; overflow: hidden !important; font-size: 12px !important; color: #374151 !important; }
-            html.printflow-staff .orders-table td:last-child, .orders-table td:last-child { border-bottom: none !important; }
-
-            /* ── Row 0: Order ID (header bar of card) ── */
-            html.printflow-staff .orders-table td:first-child, .orders-table td:first-child { order: 0 !important; background: #f8fafc !important; padding: 8px 12px !important; font-weight: 700 !important; color: #1e293b !important; gap: 6px !important; }
-            .orders-table td:first-child::before { content: none !important; }
-            .orders-table td:first-child .row-indicator { top: 0 !important; bottom: 0 !important; left: 0 !important; width: 3px !important; border-radius: 0 !important; opacity: 1 !important; }
-
-            /* ── Row 1: Product name – single line with ellipsis ── */
-            html.printflow-staff .orders-table td:nth-child(2), .orders-table td:nth-child(2) { order: 1 !important; padding: 7px 12px !important; overflow: hidden !important; }
-            html.printflow-staff .orders-table td:nth-child(2)::before, .orders-table td:nth-child(2)::before { display: none !important; }
-            html.printflow-staff .orders-table td:nth-child(2) .table-text-main, .orders-table td:nth-child(2) .table-text-main { font-size: 12px !important; font-weight: 600 !important; color: #111827 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; max-width: 220px !important; width: 100% !important; display: block !important; }
-
-            /* ── Row 2: Customer name ── */
-            html.printflow-staff .orders-table td:nth-child(3), .orders-table td:nth-child(3) { order: 2 !important; overflow: hidden !important; }
-            html.printflow-staff .orders-table td:nth-child(3)::before, .orders-table td:nth-child(3)::before { content: "Customer  " !important; font-size: 9px !important; font-weight: 700 !important; text-transform: uppercase !important; color: #94a3b8 !important; flex-shrink: 0 !important; white-space: nowrap !important; margin-right: 4px !important; }
-            html.printflow-staff .orders-table td:nth-child(3) .table-text-main, .orders-table td:nth-child(3) .table-text-main { white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; max-width: 160px !important; width: 100% !important; display: block !important; }
-
-            /* ── HIDE Source and Date ── */
-            html.printflow-staff .orders-table td:nth-child(4), .orders-table td:nth-child(4), html.printflow-staff .orders-table td:nth-child(5), .orders-table td:nth-child(5) { display: none !important; }
-
-            /* ── Row 3: Amount ── */
-            html.printflow-staff .orders-table td:nth-child(6), .orders-table td:nth-child(6) { order: 3 !important; overflow: hidden !important; }
-            .orders-table td:nth-child(6)::before { content: "Amount  " !important; font-size: 9px !important; font-weight: 700 !important; text-transform: uppercase !important; color: #94a3b8 !important; flex-shrink: 0 !important; white-space: nowrap !important; margin-right: 4px !important; }
-
-            /* ── Row 4: Status ── */
-            html.printflow-staff .orders-table td.status-col-cell, .orders-table td.status-col-cell { order: 4 !important; justify-content: flex-start !important; gap: 6px !important; overflow: hidden !important; }
-            .orders-table td.status-col-cell::before { content: "Status  " !important; font-size: 9px !important; font-weight: 700 !important; text-transform: uppercase !important; color: #94a3b8 !important; flex-shrink: 0 !important; white-space: nowrap !important; margin-right: 4px !important; }
-
-            /* ── Row 5: Action buttons — ALWAYS both visible ── */
-            html.printflow-staff .orders-table td.action-col-cell, .orders-table td.action-col-cell { order: 10 !important; padding: 8px 10px !important; border-top: 1px solid #e8eef3 !important; border-bottom: none !important; overflow: visible !important; }
-            .orders-table td.action-col-cell::before { display: none !important; }
-            .orders-card-actions {
-                display: grid !important;
-                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            .staff-orders-table-card {
+                padding: 10px !important;
+                overflow: hidden !important;
+                max-width: 100% !important;
                 width: 100% !important;
-                gap: 12px !important;
+                box-sizing: border-box !important;
             }
-            
-            /* High specificity to force View + Message onto one line equally */
-            html.printflow-staff .orders-table .orders-card-actions .table-action-btn,
-            html.printflow-staff .orders-table .orders-card-actions a.table-action-btn,
-            .orders-table .orders-card-actions .table-action-btn,
-            .orders-table .orders-card-actions a.table-action-btn {
-                display: inline-flex !important; align-items: center !important; justify-content: center !important; 
-                width: 100% !important; max-width: 100% !important;
-                min-width: 0 !important; padding: 8px 4px !important; font-size: 12px !important; 
-                font-weight: 600 !important; border-radius: 8px !important; white-space: nowrap !important; 
-                overflow: hidden !important; text-overflow: ellipsis !important; min-height: 36px !important; 
-                box-sizing: border-box !important; 
-            }
+
+            /* Order list layout uses @container staff-orders-card tiers below. */
         }
 
         /* Switch to cards only when the table's real available width after the
            sidebar is too narrow for the compact table stage. */
-        @container staff-orders-card (max-width: 800px) {
+        @container staff-orders-card (max-width: 680px) {
             .orders-table-scroll {
                 margin: 0 !important;
                 padding: 0 !important;
