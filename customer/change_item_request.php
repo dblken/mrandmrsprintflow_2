@@ -30,11 +30,33 @@ $orderId = (int)($_POST['order_id'] ?? 0);
 $customerId = (int)get_user_id();
 
 try {
-    $proof = ['tmp_name' => '', 'name' => '', 'size' => 0];
-    if (!empty($_FILES['proof']) && is_array($_FILES['proof'])) {
-        $proof = $_FILES['proof'];
+    $photoFiles = printflow_change_item_collect_uploaded_files('proof_photos');
+    $videoFile = printflow_change_item_collect_single_upload('proof_video');
+
+    // Legacy single-file field (backward compatibility for older UI caches).
+    if ($photoFiles === [] && $videoFile === null && !empty($_FILES['proof']) && is_array($_FILES['proof'])) {
+        $legacy = $_FILES['proof'];
+        if ((int)($legacy['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            $photoFiles = [$legacy];
+        }
     }
-    $upload = printflow_change_item_upload_proof($proof, $orderId);
+
+    printflow_change_item_validate_customer_evidence($photoFiles, $videoFile);
+
+    $uploadedPhotos = [];
+    foreach ($photoFiles as $file) {
+        $uploadedPhotos[] = printflow_change_item_upload_customer_photo($file, $orderId);
+    }
+    $uploadedVideo = null;
+    if ($videoFile !== null) {
+        $uploadedVideo = printflow_change_item_upload_customer_video($videoFile, $orderId);
+    }
+
+    $primaryProof = $uploadedPhotos[0] ?? null;
+    $proofPath = $primaryProof ? (string)($primaryProof['path'] ?? '') : '';
+    $proofName = $primaryProof
+        ? (string)($primaryProof['original_name'] ?? '')
+        : ($uploadedVideo ? (string)($uploadedVideo['original_name'] ?? '') : '');
 
     $record = printflow_change_item_create([
         'order_id' => $orderId,
@@ -44,13 +66,22 @@ try {
         'reason_label' => sanitize($_POST['reason_label'] ?? ''),
         'issue_description' => trim((string)($_POST['issue_description'] ?? '')),
         'customer_notes' => trim((string)($_POST['customer_notes'] ?? '')),
-        'proof_path' => (string)($upload['path'] ?? ''),
-        'proof_original_name' => (string)($upload['original_name'] ?? ''),
+        'proof_path' => $proofPath,
+        'proof_original_name' => $proofName,
         'auto_approve' => false,
         'idempotency_key' => trim((string)($_POST['idempotency_key'] ?? '')),
         'created_by_user_id' => $customerId,
         'created_by_role' => 'Customer',
     ]);
+
+    $changeItemId = (int)($record['id'] ?? 0);
+    if ($changeItemId > 0 && ($uploadedPhotos !== [] || $uploadedVideo !== null)) {
+        printflow_change_item_attach_evidence($changeItemId, $uploadedPhotos, $uploadedVideo);
+        $saved = db_query('SELECT * FROM change_item_requests WHERE change_item_id = ? LIMIT 1', 'i', [$changeItemId]) ?: [];
+        if ($saved !== []) {
+            $record = printflow_change_item_public_record($saved[0]) + ['duplicate' => !empty($record['duplicate'])];
+        }
+    }
 
     echo json_encode([
         'success' => true,

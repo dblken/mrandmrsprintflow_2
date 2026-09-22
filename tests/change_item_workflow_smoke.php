@@ -61,4 +61,14 @@ change_item_test_assert(strpos(file_get_contents($root . '/staff/get_order_for_m
 change_item_test_assert(strpos($workflow, 'printflow_change_item_merge_pending_dashboard_rows') !== false, 'pending change item rows merge into customization list');
 change_item_test_assert(strpos(file_get_contents($root . '/includes/job_order_summary.php'), 'change_item_pending_review') !== false, 'summary row contract preserves change item pending review fields');
 
+change_item_test_assert(strpos($workflow, 'printflow_change_item_attach_evidence') !== false, 'change item evidence attachments supported');
+change_item_test_assert(strpos($workflow, 'change_item_evidence') !== false, 'change item evidence table ensured');
+change_item_test_assert(strpos($customerApi, 'proof_photos') !== false, 'customer submit accepts multiple proof photos');
+change_item_test_assert(strpos($customerApi, 'proof_video') !== false, 'customer submit accepts optional proof video');
+change_item_test_assert(strpos($customerOrders, 'changeItemEvidenceState') !== false, 'customer change item evidence UI state');
+change_item_test_assert(strpos($staffCustomizations, 'changeItemEvidencePhotos') !== false, 'staff customizations renders change item photo evidence grid');
+change_item_test_assert(strpos($staffCustomizations, 'Video Evidence') !== false, 'staff customizations renders change item video evidence');
+change_item_test_assert(strpos($jobApi, "case 'change_item_evidence':") !== false, 'staff API exposes change item evidence endpoint');
+change_item_test_assert(strpos($customerOrders, 'Proof / Evidence') !== false, 'customer change item modal proof section updated');
+
 echo "All change item workflow smoke checks passed.\n";

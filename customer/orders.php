@@ -1056,6 +1056,125 @@ require_once __DIR__ . '/../includes/header.php';
     line-height: 1.6;
     margin-bottom: 1rem;
 }
+.change-item-evidence-section {
+    margin-bottom: 0.75rem;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+.change-item-evidence-sub {
+    margin-top: 0.65rem;
+}
+.change-item-evidence-sub:first-of-type {
+    margin-top: 0;
+}
+.change-item-evidence-subhead {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #334155;
+    margin-bottom: 0.35rem;
+}
+.change-item-evidence-help {
+    font-size: 0.72rem;
+    color: #64748b;
+    line-height: 1.4;
+    margin-bottom: 0.45rem;
+}
+.change-item-evidence-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0.45rem 0.75rem;
+    border-radius: 8px;
+    border: 1px dashed #94a3b8;
+    background: #f8fafc;
+    color: #0f172a;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    max-width: 100%;
+}
+.change-item-evidence-btn:hover {
+    border-color: #64748b;
+    background: #f1f5f9;
+}
+.change-item-evidence-count {
+    font-size: 0.72rem;
+    color: #475569;
+    margin-top: 0.35rem;
+    font-weight: 600;
+}
+.change-item-evidence-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 0.5rem;
+    max-width: 100%;
+}
+@media (max-width: 480px) {
+    .change-item-evidence-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+.change-item-evidence-thumb {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+}
+.change-item-evidence-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.change-item-evidence-remove {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.72);
+    color: #fff;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.change-item-video-card {
+    margin-top: 0.45rem;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #f8fafc;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+.change-item-video-card video {
+    width: 100%;
+    max-height: 140px;
+    border-radius: 8px;
+    background: #000;
+    margin-top: 0.35rem;
+}
+.change-item-video-meta {
+    font-size: 0.72rem;
+    color: #475569;
+    word-break: break-word;
+}
+.change-item-hidden-file {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
 .change-item-select,
 .change-item-input {
     width: 100%;
@@ -2528,8 +2647,24 @@ window.addEventListener('DOMContentLoaded', () => {
             <div id="changeItemCharCount" class="change-item-char-count">0 / 500</div>
         </div>
 
-        <label class="change-item-field-label" for="changeItemProof">Proof <span style="color:#dc2626;">*</span></label>
-        <input id="changeItemProof" type="file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" class="w-full mb-4 text-sm" style="max-width:100%;box-sizing:border-box;">
+        <label class="change-item-field-label">Proof / Evidence <span style="color:#dc2626;">*</span></label>
+        <div class="change-item-evidence-section">
+            <div class="change-item-evidence-sub">
+                <div class="change-item-evidence-subhead">Photos</div>
+                <div class="change-item-evidence-help">Up to 5 photos · Max 5 MB each · JPG, PNG, WEBP</div>
+                <button type="button" class="change-item-evidence-btn" id="changeItemAddPhotosBtn">+ Add Photos</button>
+                <input id="changeItemPhotoInput" type="file" class="change-item-hidden-file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple>
+                <div id="changeItemPhotoCount" class="change-item-evidence-count hidden"></div>
+                <div id="changeItemPhotoGrid" class="change-item-evidence-grid hidden"></div>
+            </div>
+            <div class="change-item-evidence-sub" style="margin-top:0.85rem;">
+                <div class="change-item-evidence-subhead">Video <span style="font-weight:600;color:#64748b;">(Optional)</span></div>
+                <div class="change-item-evidence-help">1 video · Max 20 MB · MP4, MOV, WEBM · Up to 90 seconds recommended</div>
+                <button type="button" class="change-item-evidence-btn" id="changeItemAddVideoBtn">+ Upload Video</button>
+                <input id="changeItemVideoInput" type="file" class="change-item-hidden-file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm">
+                <div id="changeItemVideoCard" class="change-item-video-card hidden"></div>
+            </div>
+        </div>
 
         <div id="changeItemError" class="hidden text-sm font-semibold text-red-600 mb-3"></div>
         <div class="cm-actions-row">
@@ -3498,13 +3633,7 @@ function openItemsModal(orderId, event, options = {}) {
                                 <p class="im-reject-copy"><strong>Status:</strong> ${escIM(changeItemActive.status_label || changeItemActive.status || 'Under Review')}</p>
                                 <p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Reason:</strong> ${escIM(changeItemActive.reason || '')}</p>
                                 ${changeItemActive.description ? `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Details:</strong> ${escIM(changeItemActive.description)}</p>` : ''}
-                                ${changeItemActive.proof_url ? `
-                                    <div style="margin-top:0.75rem;">
-                                        <p class="im-reject-copy"><strong>Proof:</strong></p>
-                                        ${changeItemActive.proof_is_image ? `<img src="${escIM(changeItemActive.proof_url)}" alt="Change Item proof" loading="lazy" style="display:block;max-width:min(100%,220px);max-height:220px;margin-top:0.5rem;border-radius:10px;border:1px solid #fde68a;object-fit:contain;background:#fff;">` : ''}
-                                        <a href="${escIM(changeItemActive.proof_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;margin-top:0.5rem;font-size:12px;font-weight:700;color:#0369a1;text-decoration:none;">View proof</a>
-                                    </div>
-                                ` : `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Proof:</strong> No proof attached</p>`}
+                                ${buildChangeItemActiveEvidenceHtml(changeItemActive)}
                                 ${changeItemActive.rejection_reason ? `<p class="im-reject-copy" style="margin-top:0.5rem;color:#991b1b;"><strong>Rejection reason:</strong> ${escIM(changeItemActive.rejection_reason)}</p>` : ''}
                             </div>
                         ` : ''}
@@ -3611,6 +3740,185 @@ let changeItemSubmitting = false;
 const CHANGE_ITEM_DESCRIPTION_MAX = 500;
 const CHANGE_ITEM_DESC_PLACEHOLDER_DEFAULT = 'Describe the issue with your completed item...';
 const CHANGE_ITEM_DESC_PLACEHOLDER_OTHER = 'Please describe the issue and reason for requesting a change...';
+const CHANGE_ITEM_MAX_PHOTOS = 5;
+const CHANGE_ITEM_MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+const CHANGE_ITEM_MAX_VIDEO_BYTES = 20 * 1024 * 1024;
+const CHANGE_ITEM_MAX_VIDEO_SECONDS = 90;
+const changeItemEvidenceState = { photos: [], video: null };
+
+function changeItemFormatBytes(bytes) {
+    const n = Number(bytes) || 0;
+    if (n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    if (n >= 1024) return Math.round(n / 1024) + ' KB';
+    return n + ' B';
+}
+function changeItemAllowedPhoto(file) {
+    const name = String(file.name || '').toLowerCase();
+    const type = String(file.type || '').toLowerCase();
+    return type === 'image/jpeg' || type === 'image/png' || type === 'image/webp'
+        || /\.(jpe?g|png|webp)$/.test(name);
+}
+function changeItemAllowedVideo(file) {
+    const name = String(file.name || '').toLowerCase();
+    const type = String(file.type || '').toLowerCase();
+    return type === 'video/mp4' || type === 'video/quicktime' || type === 'video/webm'
+        || /\.(mp4|mov|webm)$/.test(name);
+}
+function buildChangeItemActiveEvidenceHtml(active) {
+    if (!active) return '';
+    const ev = active.evidence || {};
+    let photos = Array.isArray(ev.photos) ? ev.photos : [];
+    if (!photos.length && active.proof_url && active.proof_is_image) {
+        photos = [{ url: active.proof_url, original_name: active.proof_original_name || 'Proof' }];
+    }
+    const video = ev.video || null;
+    if (!photos.length && !video && !active.proof_url) {
+        return '<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Proof:</strong> No proof attached</p>';
+    }
+    let html = '<div style="margin-top:0.75rem;"><p class="im-reject-copy"><strong>Proof:</strong></p>';
+    if (photos.length) {
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:8px;max-width:100%;margin-top:0.5rem;">';
+        photos.forEach((photo) => {
+            const url = escIM(photo.url || '');
+            if (!url) return;
+            html += `<a href="${url}" target="_blank" rel="noopener noreferrer" style="display:block;border-radius:8px;overflow:hidden;border:1px solid #fde68a;aspect-ratio:1;background:#fff;"><img src="${url}" alt="Change Item proof" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block;"></a>`;
+        });
+        html += '</div>';
+    }
+    if (video && video.url) {
+        const mime = escIM(video.mime || 'video/mp4');
+        html += `<video controls preload="metadata" playsinline style="width:100%;max-height:200px;margin-top:0.65rem;border-radius:10px;background:#000;"><source src="${escIM(video.url)}" type="${mime}"></video>`;
+    } else if (!photos.length && active.proof_url) {
+        html += `<a href="${escIM(active.proof_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;margin-top:0.5rem;font-size:12px;font-weight:700;color:#0369a1;text-decoration:none;">View proof</a>`;
+    }
+    html += '</div>';
+    return html;
+}
+function resetChangeItemEvidenceUi() {
+    changeItemEvidenceState.photos.forEach((entry) => {
+        if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+    });
+    if (changeItemEvidenceState.video && changeItemEvidenceState.video.previewUrl) {
+        URL.revokeObjectURL(changeItemEvidenceState.video.previewUrl);
+    }
+    changeItemEvidenceState.photos = [];
+    changeItemEvidenceState.video = null;
+    const photoInput = document.getElementById('changeItemPhotoInput');
+    const videoInput = document.getElementById('changeItemVideoInput');
+    if (photoInput) photoInput.value = '';
+    if (videoInput) videoInput.value = '';
+    renderChangeItemEvidenceUi();
+}
+function renderChangeItemEvidenceUi() {
+    const grid = document.getElementById('changeItemPhotoGrid');
+    const countEl = document.getElementById('changeItemPhotoCount');
+    const videoCard = document.getElementById('changeItemVideoCard');
+    if (grid) {
+        grid.innerHTML = changeItemEvidenceState.photos.map((entry, index) => `
+            <div class="change-item-evidence-thumb">
+                <img src="${escIM(entry.previewUrl)}" alt="Evidence photo ${index + 1}">
+                <button type="button" class="change-item-evidence-remove" aria-label="Remove photo" onclick="removeChangeItemPhoto(${index})">&times;</button>
+            </div>
+        `).join('');
+        grid.classList.toggle('hidden', changeItemEvidenceState.photos.length === 0);
+    }
+    if (countEl) {
+        if (changeItemEvidenceState.photos.length) {
+            countEl.textContent = `${changeItemEvidenceState.photos.length} / ${CHANGE_ITEM_MAX_PHOTOS} photos`;
+            countEl.classList.remove('hidden');
+        } else {
+            countEl.textContent = '';
+            countEl.classList.add('hidden');
+        }
+    }
+    if (videoCard) {
+        if (changeItemEvidenceState.video) {
+            const v = changeItemEvidenceState.video;
+            videoCard.innerHTML = `
+                <div class="change-item-video-meta"><strong>${escIM(v.file.name)}</strong> · ${escIM(changeItemFormatBytes(v.file.size))}</div>
+                <video controls preload="metadata" playsinline src="${escIM(v.previewUrl)}"></video>
+                <button type="button" class="change-item-evidence-btn" style="margin-top:0.45rem;" onclick="removeChangeItemVideo()">Remove video</button>
+            `;
+            videoCard.classList.remove('hidden');
+        } else {
+            videoCard.innerHTML = '';
+            videoCard.classList.add('hidden');
+        }
+    }
+}
+function showChangeItemEvidenceError(message) {
+    const err = document.getElementById('changeItemError');
+    if (!err) return;
+    err.textContent = message;
+    err.classList.remove('hidden');
+}
+function addChangeItemPhotosFromFileList(fileList) {
+    const err = document.getElementById('changeItemError');
+    if (err) err.classList.add('hidden');
+    const files = Array.from(fileList || []);
+    for (const file of files) {
+        if (changeItemEvidenceState.photos.length >= CHANGE_ITEM_MAX_PHOTOS) {
+            showChangeItemEvidenceError('You can upload up to 5 photos.');
+            break;
+        }
+        if (!changeItemAllowedPhoto(file)) {
+            showChangeItemEvidenceError('Unsupported image format. Please use JPG, PNG, or WEBP.');
+            continue;
+        }
+        if (file.size > CHANGE_ITEM_MAX_PHOTO_BYTES) {
+            showChangeItemEvidenceError('Image is too large. Maximum size is 5 MB.');
+            continue;
+        }
+        changeItemEvidenceState.photos.push({
+            file,
+            previewUrl: URL.createObjectURL(file),
+        });
+    }
+    renderChangeItemEvidenceUi();
+}
+function removeChangeItemPhoto(index) {
+    const entry = changeItemEvidenceState.photos[index];
+    if (entry && entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+    changeItemEvidenceState.photos.splice(index, 1);
+    renderChangeItemEvidenceUi();
+}
+function removeChangeItemVideo() {
+    if (changeItemEvidenceState.video && changeItemEvidenceState.video.previewUrl) {
+        URL.revokeObjectURL(changeItemEvidenceState.video.previewUrl);
+    }
+    changeItemEvidenceState.video = null;
+    const videoInput = document.getElementById('changeItemVideoInput');
+    if (videoInput) videoInput.value = '';
+    renderChangeItemEvidenceUi();
+}
+function setChangeItemVideoFile(file) {
+    const err = document.getElementById('changeItemError');
+    if (err) err.classList.add('hidden');
+    if (!file) return;
+    if (!changeItemAllowedVideo(file)) {
+        showChangeItemEvidenceError('Unsupported video format. Please use MP4, MOV, or WEBM.');
+        return;
+    }
+    if (file.size > CHANGE_ITEM_MAX_VIDEO_BYTES) {
+        showChangeItemEvidenceError('Video is too large. Maximum size is 20 MB.');
+        return;
+    }
+    removeChangeItemVideo();
+    const entry = { file, previewUrl: URL.createObjectURL(file) };
+    changeItemEvidenceState.video = entry;
+    const probe = document.createElement('video');
+    probe.preload = 'metadata';
+    probe.onloadedmetadata = () => {
+        URL.revokeObjectURL(probe.src);
+        if (probe.duration && probe.duration > CHANGE_ITEM_MAX_VIDEO_SECONDS + 0.5) {
+            showChangeItemEvidenceError('Video is longer than 90 seconds. Please upload a shorter clip.');
+            removeChangeItemVideo();
+        }
+    };
+    probe.onerror = () => URL.revokeObjectURL(probe.src);
+    probe.src = entry.previewUrl;
+    renderChangeItemEvidenceUi();
+}
 function updateChangeItemDescriptionPlaceholder() {
     const reason = document.getElementById('changeItemReason');
     const field = document.getElementById('changeItemDescription');
@@ -3633,7 +3941,7 @@ function openChangeItemModal() {
         `<div><strong>Original Order:</strong> ${escIM(ctx.code || ('ORD-' + String(ctx.orderId).padStart(5, '0')))}</div>`;
     document.getElementById('changeItemReason').value = '';
     document.getElementById('changeItemDescription').value = '';
-    document.getElementById('changeItemProof').value = '';
+    resetChangeItemEvidenceUi();
     document.getElementById('changeItemError').classList.add('hidden');
     updateChangeItemDescriptionPlaceholder();
     updateChangeItemCharCount();
@@ -3658,6 +3966,21 @@ function closeChangeItemSuccessModal() {
 }
 document.getElementById('changeItemReason')?.addEventListener('change', updateChangeItemDescriptionPlaceholder);
 document.getElementById('changeItemDescription')?.addEventListener('input', updateChangeItemCharCount);
+document.getElementById('changeItemAddPhotosBtn')?.addEventListener('click', () => {
+    document.getElementById('changeItemPhotoInput')?.click();
+});
+document.getElementById('changeItemAddVideoBtn')?.addEventListener('click', () => {
+    document.getElementById('changeItemVideoInput')?.click();
+});
+document.getElementById('changeItemPhotoInput')?.addEventListener('change', (event) => {
+    addChangeItemPhotosFromFileList(event.target.files);
+    event.target.value = '';
+});
+document.getElementById('changeItemVideoInput')?.addEventListener('change', (event) => {
+    const file = event.target.files && event.target.files[0] ? event.target.files[0] : null;
+    setChangeItemVideoFile(file);
+    event.target.value = '';
+});
 async function submitChangeItemRequest() {
     const ctx = window.__pfChangeItemModalContext || {};
     const err = document.getElementById('changeItemError');
@@ -3680,10 +4003,8 @@ async function submitChangeItemRequest() {
         err.classList.remove('hidden');
         return;
     }
-    const proofInput = document.getElementById('changeItemProof');
-    const proofFile = proofInput && proofInput.files && proofInput.files[0] ? proofInput.files[0] : null;
-    if (!proofFile) {
-        err.textContent = 'Please upload proof of the issue.';
+    if (!changeItemEvidenceState.photos.length && !changeItemEvidenceState.video) {
+        err.textContent = 'Please upload at least one photo or one video as proof.';
         err.classList.remove('hidden');
         return;
     }
@@ -3699,7 +4020,12 @@ async function submitChangeItemRequest() {
         fd.append('issue_description', description.slice(0, CHANGE_ITEM_DESCRIPTION_MAX));
         fd.append('csrf_token', ctx.csrf || '');
         fd.append('idempotency_key', 'customer-change-item-' + ctx.orderId + '-' + Date.now());
-        fd.append('proof', proofFile);
+        changeItemEvidenceState.photos.forEach((entry) => {
+            fd.append('proof_photos[]', entry.file, entry.file.name);
+        });
+        if (changeItemEvidenceState.video && changeItemEvidenceState.video.file) {
+            fd.append('proof_video', changeItemEvidenceState.video.file, changeItemEvidenceState.video.file.name);
+        }
         const res = await fetch(CUSTOMER_BASE_URL + '/customer/change_item_request.php', { method: 'POST', body: fd });
         const payload = await res.json();
         if (!payload.success) {

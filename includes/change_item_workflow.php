@@ -116,6 +116,33 @@ function printflow_change_item_upgrade_schema(): void
          WHERE active_flag = 1
            AND UPPER(REPLACE(REPLACE(request_status, '-', ' '), ' ', '')) IN ('REJECTED', 'COMPLETED')"
     );
+
+    printflow_change_item_ensure_evidence_schema();
+}
+
+function printflow_change_item_ensure_evidence_schema(): bool
+{
+    static $ready = null;
+    if ($ready !== null) {
+        return $ready;
+    }
+
+    $ready = (bool) db_execute(
+        "CREATE TABLE IF NOT EXISTS change_item_evidence (
+            evidence_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            change_item_id BIGINT UNSIGNED NOT NULL,
+            media_kind VARCHAR(10) NOT NULL,
+            storage_path VARCHAR(512) NOT NULL,
+            original_name VARCHAR(255) NULL DEFAULT NULL,
+            file_size INT UNSIGNED NULL DEFAULT NULL,
+            sort_order TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (evidence_id),
+            KEY idx_change_item_evidence (change_item_id, sort_order, media_kind)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
+    return $ready;
 }
 
 function printflow_change_item_release_inactive_slots(int $orderId): void
@@ -571,7 +598,7 @@ function printflow_change_item_public_record(array $row): array
     $verificationStatus = printflow_change_item_resolve_verification_status($row);
     $changeStatus = printflow_change_item_resolve_change_status($row);
 
-    return [
+    $record = [
         'id' => $changeItemId,
         'change_item_code' => printflow_change_item_format_code($changeItemId),
         'sequence_no' => (int)($row['sequence_no'] ?? 1),
@@ -608,7 +635,21 @@ function printflow_change_item_public_record(array $row): array
         'created_by' => trim((string)($row['created_by_name'] ?? '')),
         'is_active' => (int)($row['active_flag'] ?? 0) === 1,
         'is_pending_review' => printflow_change_item_is_pending_review($row),
+        'evidence_photo_count' => 0,
+        'has_video_evidence' => false,
+        'has_customer_evidence' => trim((string)($row['proof_path'] ?? '')) !== '',
     ];
+    if ($changeItemId > 0) {
+        $evidence = printflow_change_item_evidence_for_api($changeItemId, $row);
+        $record['evidence'] = $evidence;
+        $record['evidence_photo_count'] = count($evidence['photos'] ?? []);
+        $record['has_video_evidence'] = !empty($evidence['video']);
+        $record['has_customer_evidence'] = $record['evidence_photo_count'] > 0
+            || $record['has_video_evidence']
+            || trim((string)($row['proof_path'] ?? '')) !== '';
+    }
+
+    return $record;
 }
 
 function printflow_change_item_proof_url(array $row): string
@@ -688,7 +729,326 @@ function printflow_change_item_upload_proof(array $file, int $orderId): array
         'success' => true,
         'path' => '/uploads/change_items/' . $storedName,
         'original_name' => $original,
+        'file_size' => (int)($file['size'] ?? 0),
+        'media_kind' => 'photo',
     ];
+}
+
+function printflow_change_item_storage_path_to_url(string $path): string
+{
+    $path = trim($path);
+    if ($path === '') {
+        return '';
+    }
+    if (preg_match('#^https?://#i', $path)) {
+        return $path;
+    }
+    $base = function_exists('pf_app_base_path') ? rtrim((string) pf_app_base_path(), '') : '';
+    if (strpos($path, '/uploads/') === 0) {
+        return $base . $path;
+    }
+    return $base . (strpos($path, '/') === 0 ? $path : '/' . $path);
+}
+
+function printflow_change_item_collect_uploaded_files(string $field): array
+{
+    if (empty($_FILES[$field]) || !is_array($_FILES[$field])) {
+        return [];
+    }
+
+    $bucket = $_FILES[$field];
+    if (!isset($bucket['name'])) {
+        return [];
+    }
+
+    if (!is_array($bucket['name'])) {
+        if ((int)($bucket['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            return [];
+        }
+        return [[
+            'name' => (string)($bucket['name'] ?? ''),
+            'type' => (string)($bucket['type'] ?? ''),
+            'tmp_name' => (string)($bucket['tmp_name'] ?? ''),
+            'error' => (int)($bucket['error'] ?? UPLOAD_ERR_NO_FILE),
+            'size' => (int)($bucket['size'] ?? 0),
+        ]];
+    }
+
+    $files = [];
+    $count = count($bucket['name']);
+    for ($i = 0; $i < $count; $i++) {
+        $error = (int)($bucket['error'][$i] ?? UPLOAD_ERR_NO_FILE);
+        if ($error === UPLOAD_ERR_NO_FILE) {
+            continue;
+        }
+        $files[] = [
+            'name' => (string)($bucket['name'][$i] ?? ''),
+            'type' => (string)($bucket['type'][$i] ?? ''),
+            'tmp_name' => (string)($bucket['tmp_name'][$i] ?? ''),
+            'error' => $error,
+            'size' => (int)($bucket['size'][$i] ?? 0),
+        ];
+    }
+
+    return $files;
+}
+
+function printflow_change_item_collect_single_upload(string $field): ?array
+{
+    $files = printflow_change_item_collect_uploaded_files($field);
+    if ($files === []) {
+        return null;
+    }
+    return $files[0];
+}
+
+function printflow_change_item_validate_customer_evidence(array $photoFiles, ?array $videoFile): void
+{
+    $photoFiles = array_values(array_filter($photoFiles, static function (array $file): bool {
+        return (int)($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+    }));
+
+    if ($photoFiles === [] && $videoFile === null) {
+        throw new InvalidArgumentException('Please upload at least one photo or one video as proof.');
+    }
+    if (count($photoFiles) > 5) {
+        throw new InvalidArgumentException('You can upload up to 5 photos.');
+    }
+
+    foreach ($photoFiles as $file) {
+        printflow_change_item_assert_upload_ok($file, 'photo');
+    }
+    if ($videoFile !== null) {
+        printflow_change_item_assert_upload_ok($videoFile, 'video');
+    }
+}
+
+function printflow_change_item_assert_upload_ok(array $file, string $kind): void
+{
+    $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($error === UPLOAD_ERR_NO_FILE) {
+        return;
+    }
+    if ($error !== UPLOAD_ERR_OK) {
+        throw new InvalidArgumentException('Upload failed. Please try again.');
+    }
+    if (empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+        throw new InvalidArgumentException('Invalid upload.');
+    }
+
+    $size = (int)($file['size'] ?? 0);
+    $original = trim((string)($file['name'] ?? ''));
+    $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
+
+    if ($kind === 'photo') {
+        if ($size > 5 * 1024 * 1024) {
+            throw new InvalidArgumentException('Image is too large. Maximum size is 5 MB.');
+        }
+        $allowedExt = ['jpg', 'jpeg', 'png', 'webp'];
+        if (!in_array($ext, $allowedExt, true)) {
+            throw new InvalidArgumentException('Unsupported image format. Please use JPG, PNG, or WEBP.');
+        }
+        $allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+    } else {
+        if ($size > 20 * 1024 * 1024) {
+            throw new InvalidArgumentException('Video is too large. Maximum size is 20 MB.');
+        }
+        $allowedExt = ['mp4', 'mov', 'webm'];
+        if (!in_array($ext, $allowedExt, true)) {
+            throw new InvalidArgumentException('Unsupported video format. Please use MP4, MOV, or WEBM.');
+        }
+        $allowedMimes = ['video/mp4', 'video/quicktime', 'video/webm'];
+    }
+
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mime = $finfo ? (string) finfo_file($finfo, $file['tmp_name']) : '';
+    if ($finfo) {
+        finfo_close($finfo);
+    }
+    if ($mime !== '' && !in_array($mime, $allowedMimes, true)) {
+        throw new InvalidArgumentException($kind === 'photo'
+            ? 'Unsupported image format. Please use JPG, PNG, or WEBP.'
+            : 'Unsupported video format. Please use MP4, MOV, or WEBM.');
+    }
+}
+
+function printflow_change_item_upload_customer_photo(array $file, int $orderId): array
+{
+    printflow_change_item_assert_upload_ok($file, 'photo');
+    return printflow_change_item_store_upload($file, $orderId, 'photo');
+}
+
+function printflow_change_item_upload_customer_video(array $file, int $orderId): array
+{
+    printflow_change_item_assert_upload_ok($file, 'video');
+    return printflow_change_item_store_upload($file, $orderId, 'video');
+}
+
+function printflow_change_item_store_upload(array $file, int $orderId, string $kind): array
+{
+    $original = trim((string)($file['name'] ?? ($kind === 'photo' ? 'photo.jpg' : 'video.mp4')));
+    $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
+    if ($kind === 'photo') {
+        $allowed = ['jpg', 'jpeg', 'png', 'webp'];
+    } else {
+        $allowed = ['mp4', 'mov', 'webm'];
+    }
+    if (!in_array($ext, $allowed, true)) {
+        $ext = $kind === 'photo' ? 'jpg' : 'mp4';
+    }
+
+    $uploadRoot = dirname(__DIR__) . '/uploads/change_items';
+    if (!is_dir($uploadRoot) && !mkdir($uploadRoot, 0755, true) && !is_dir($uploadRoot)) {
+        throw new RuntimeException('Unable to store proof upload.');
+    }
+
+    $prefix = $kind === 'video' ? 'change-item-video' : 'change-item';
+    $storedName = $prefix . '-' . (int) $orderId . '-' . bin2hex(random_bytes(8)) . '.' . $ext;
+    $targetPath = $uploadRoot . '/' . $storedName;
+    if (!move_uploaded_file($file['tmp_name'], $targetPath)) {
+        throw new RuntimeException('Unable to save upload.');
+    }
+
+    return [
+        'success' => true,
+        'path' => '/uploads/change_items/' . $storedName,
+        'original_name' => $original,
+        'file_size' => (int)($file['size'] ?? 0),
+        'media_kind' => $kind === 'video' ? 'video' : 'photo',
+    ];
+}
+
+function printflow_change_item_attach_evidence(int $changeItemId, array $photoUploads, ?array $videoUpload = null): void
+{
+    if ($changeItemId <= 0 || !printflow_change_item_ensure_evidence_schema()) {
+        return;
+    }
+
+    $sort = 0;
+    foreach ($photoUploads as $upload) {
+        $path = trim((string)($upload['path'] ?? ''));
+        if ($path === '') {
+            continue;
+        }
+        db_execute(
+            'INSERT INTO change_item_evidence (change_item_id, media_kind, storage_path, original_name, file_size, sort_order)
+             VALUES (?, ?, ?, ?, ?, ?)',
+            'isssii',
+            [
+                $changeItemId,
+                'photo',
+                $path,
+                trim((string)($upload['original_name'] ?? '')) ?: null,
+                (int)($upload['file_size'] ?? 0) ?: null,
+                $sort,
+            ]
+        );
+        $sort++;
+    }
+
+    if ($videoUpload !== null) {
+        $path = trim((string)($videoUpload['path'] ?? ''));
+        if ($path !== '') {
+            db_execute(
+                'INSERT INTO change_item_evidence (change_item_id, media_kind, storage_path, original_name, file_size, sort_order)
+                 VALUES (?, ?, ?, ?, ?, 0)',
+                'isssi',
+                [
+                    $changeItemId,
+                    'video',
+                    $path,
+                    trim((string)($videoUpload['original_name'] ?? '')) ?: null,
+                    (int)($videoUpload['file_size'] ?? 0) ?: null,
+                ]
+            );
+        }
+    }
+}
+
+function printflow_change_item_evidence_rows(int $changeItemId): array
+{
+    if ($changeItemId <= 0 || !printflow_change_item_ensure_evidence_schema()) {
+        return [];
+    }
+
+    return db_query(
+        'SELECT evidence_id, media_kind, storage_path, original_name, file_size, sort_order
+         FROM change_item_evidence
+         WHERE change_item_id = ?
+         ORDER BY media_kind ASC, sort_order ASC, evidence_id ASC',
+        'i',
+        [$changeItemId]
+    ) ?: [];
+}
+
+function printflow_change_item_evidence_for_api(int $changeItemId, array $requestRow = []): array
+{
+    $photos = [];
+    $video = null;
+    $rows = printflow_change_item_evidence_rows($changeItemId);
+
+    foreach ($rows as $row) {
+        $kind = strtolower((string)($row['media_kind'] ?? ''));
+        $path = trim((string)($row['storage_path'] ?? ''));
+        if ($path === '') {
+            continue;
+        }
+        $payload = [
+            'id' => (int)($row['evidence_id'] ?? 0),
+            'url' => printflow_change_item_storage_path_to_url($path),
+            'path' => $path,
+            'original_name' => (string)($row['original_name'] ?? ''),
+            'file_size' => (int)($row['file_size'] ?? 0),
+        ];
+        if ($kind === 'video') {
+            $video = $payload + ['mime' => printflow_change_item_guess_video_mime($path)];
+        } else {
+            $photos[] = $payload;
+        }
+    }
+
+    if ($photos === [] && $video === null) {
+        $legacyPath = trim((string)($requestRow['proof_path'] ?? ''));
+        if ($legacyPath !== '' && printflow_change_item_proof_is_image($requestRow)) {
+            $photos[] = [
+                'id' => 0,
+                'url' => printflow_change_item_storage_path_to_url($legacyPath),
+                'path' => $legacyPath,
+                'original_name' => (string)($requestRow['proof_original_name'] ?? ''),
+                'file_size' => 0,
+            ];
+        }
+    }
+
+    return [
+        'photos' => $photos,
+        'video' => $video,
+    ];
+}
+
+function printflow_change_item_guess_video_mime(string $path): string
+{
+    $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+    $map = [
+        'mp4' => 'video/mp4',
+        'mov' => 'video/quicktime',
+        'webm' => 'video/webm',
+    ];
+    return $map[$ext] ?? 'video/mp4';
+}
+
+function printflow_change_item_format_file_size(int $bytes): string
+{
+    if ($bytes <= 0) {
+        return '';
+    }
+    if ($bytes >= 1024 * 1024) {
+        return round($bytes / (1024 * 1024), 1) . ' MB';
+    }
+    if ($bytes >= 1024) {
+        return round($bytes / 1024, 0) . ' KB';
+    }
+    return $bytes . ' B';
 }
 
 function printflow_change_item_next_sequence(int $orderId): int

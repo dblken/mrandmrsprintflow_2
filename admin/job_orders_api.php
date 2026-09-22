@@ -3145,6 +3145,30 @@ try {
             ]);
             break;
 
+        case 'change_item_evidence':
+            $changeItemId = (int)($_GET['change_item_id'] ?? 0);
+            if ($changeItemId <= 0) {
+                throw new Exception('Change Item ID required.');
+            }
+            $rows = db_query(
+                'SELECT ci.*, o.branch_id
+                 FROM change_item_requests ci
+                 INNER JOIN orders o ON o.order_id = ci.order_id
+                 WHERE ci.change_item_id = ?
+                 LIMIT 1',
+                'i',
+                [$changeItemId]
+            ) ?: [];
+            if ($rows === []) {
+                throw new Exception('Change Item request not found.');
+            }
+            jo_api_require_staff_order_branch($joStaffBranch, (int)($rows[0]['order_id'] ?? 0));
+            jo_api_json_response([
+                'success' => true,
+                'data' => printflow_change_item_evidence_for_api($changeItemId, $rows[0]),
+            ]);
+            break;
+
         default:
             throw new Exception("Unknown action: $action");
     }

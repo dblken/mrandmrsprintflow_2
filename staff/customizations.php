@@ -668,6 +668,63 @@ $online_closed_count = 0;
             object-fit: contain;
             background: #fff;
         }
+        .pf-change-item-review__evidence-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+            gap: 8px;
+            max-width: 100%;
+            margin-top: 8px;
+        }
+        @media (max-width: 640px) {
+            .pf-change-item-review__evidence-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+        .pf-change-item-review__evidence-thumb {
+            position: relative;
+            aspect-ratio: 1;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #fde68a;
+            background: #fff;
+            cursor: zoom-in;
+            padding: 0;
+        }
+        .pf-change-item-review__evidence-thumb img {
+            width: 100%;
+            height: 100%;
+            max-width: none;
+            max-height: none;
+            object-fit: cover;
+            border: none;
+            border-radius: 0;
+        }
+        .pf-change-item-review__video-wrap {
+            margin-top: 8px;
+            max-width: 100%;
+        }
+        .pf-change-item-review__video-wrap video {
+            width: 100%;
+            max-height: 220px;
+            border-radius: 10px;
+            background: #000;
+            display: block;
+        }
+        .pf-image-lightbox-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 12050;
+            background: rgba(15, 23, 42, 0.55);
+        }
+        .pf-image-lightbox-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 12051;
+            max-width: min(92vw, 960px);
+            max-height: 90vh;
+        }
         .pf-change-item-history {
             margin-bottom: 20px;
             padding: 14px;
@@ -2279,10 +2336,11 @@ $online_closed_count = 0;
     <!-- No more materials modal - integrated into details -->
 
 <!-- Image Preview Lightbox -->
-<div x-show="previewFile" x-cloak @click.self="previewFile = null" style="position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); z-index:10000; max-width:90vw; max-height:90vh;">
-    <div style="position:relative; background:white; border-radius:16px; padding:20px; box-shadow:0 25px 50px rgba(0,0,0,0.3); border:1px solid #e5e7eb;">
+<div x-show="previewFile" x-cloak class="pf-image-lightbox-backdrop" @click="previewFile = null"></div>
+<div x-show="previewFile" x-cloak class="pf-image-lightbox-panel" @click.stop>
+    <div style="position:relative; background:white; border-radius:16px; padding:20px; box-shadow:0 25px 50px rgba(0,0,0,0.3); border:1px solid #e5e7eb; max-height:90vh; overflow:auto;">
         <button @click="previewFile = null" style="position:absolute; top:10px; right:10px; background:#f3f4f6; border:none; color:#374151; font-size:24px; width:36px; height:36px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; z-index:10001; font-weight:300; line-height:1;" onmouseover="this.style.background='#e5e7eb'" onmouseout="this.style.background='#f3f4f6'">&times;</button>
-        <img :src="previewFile" @click.stop style="max-width:80vw; max-height:70vh; border-radius:8px; display:block;">
+        <img :src="previewFile" @click.stop style="max-width:min(86vw,880px); max-height:72vh; border-radius:8px; display:block; object-fit:contain;">
         <div style="margin-top:16px; text-align:center;">
             <a :href="previewFile" download @click.stop style="background:#06A1A1; color:white; padding:10px 24px; border-radius:8px; text-decoration:none; font-size:14px; font-weight:600; display:inline-flex; align-items:center; gap:8px; transition:all 0.2s;" onmouseover="this.style.background='#047676'" onmouseout="this.style.background='#06A1A1'">
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -2859,8 +2917,34 @@ $online_closed_count = 0;
                             </div>
 
                             <div class="pf-change-item-review__section pf-change-item-review__proof">
-                                <div class="pf-change-item-review__section-label">Customer Proof</div>
-                                <template x-if="changeItemActiveRequest(currentJo).proof_url">
+                                <div class="pf-change-item-review__section-label">Customer Evidence</div>
+                                <template x-if="changeItemEvidencePhotos(changeItemActiveRequest(currentJo)).length">
+                                    <div>
+                                        <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:4px;">
+                                            Photos (<span x-text="changeItemEvidencePhotos(changeItemActiveRequest(currentJo)).length"></span>)
+                                        </div>
+                                        <div class="pf-change-item-review__evidence-grid">
+                                            <template x-for="(photo, photoIndex) in changeItemEvidencePhotos(changeItemActiveRequest(currentJo))" :key="'ci-evidence-photo-' + photoIndex">
+                                                <button type="button" class="pf-change-item-review__evidence-thumb" @click="previewFile = photo.url" :aria-label="'View evidence photo ' + (photoIndex + 1)">
+                                                    <img :src="photo.url" :alt="photo.original_name || ('Evidence photo ' + (photoIndex + 1))" loading="lazy">
+                                                </button>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </template>
+                                <template x-if="changeItemEvidenceVideo(changeItemActiveRequest(currentJo))">
+                                    <div class="pf-change-item-review__video-wrap" style="margin-top:12px;">
+                                        <div class="pf-change-item-review__section-label" style="margin-bottom:6px;">Video Evidence</div>
+                                        <video controls playsinline preload="metadata"
+                                               :src="changeItemEvidenceVideo(changeItemActiveRequest(currentJo)).url">
+                                            <source :src="changeItemEvidenceVideo(changeItemActiveRequest(currentJo)).url"
+                                                    :type="changeItemEvidenceVideo(changeItemActiveRequest(currentJo)).mime || 'video/mp4'">
+                                        </video>
+                                        <div style="font-size:11px;color:#78350f;margin-top:6px;word-break:break-word;"
+                                             x-text="changeItemEvidenceVideo(changeItemActiveRequest(currentJo)).original_name || 'Customer video'"></div>
+                                    </div>
+                                </template>
+                                <template x-if="!changeItemHasEvidence(changeItemActiveRequest(currentJo)) && changeItemActiveRequest(currentJo).proof_url">
                                     <div>
                                         <template x-if="changeItemProofIsImage(changeItemActiveRequest(currentJo))">
                                             <img :src="changeItemActiveRequest(currentJo).proof_url"
@@ -2876,7 +2960,7 @@ $online_closed_count = 0;
                                         </a>
                                     </div>
                                 </template>
-                                <div x-show="!changeItemActiveRequest(currentJo).proof_url" style="font-size:13px;color:#92400e;">No proof uploaded</div>
+                                <div x-show="!changeItemHasEvidence(changeItemActiveRequest(currentJo)) && !changeItemActiveRequest(currentJo).proof_url" style="font-size:13px;color:#92400e;">No proof uploaded</div>
                             </div>
 
                             <div class="pf-change-item-review__section" x-show="changeItemActiveRequest(currentJo).staff_notes && !changeItemCanReview(currentJo)">
@@ -4572,6 +4656,29 @@ window.pfServiceFieldCatalog = (() => {
                 if (active.proof_is_image === true || active.proof_is_image === 1) return true;
                 const url = String(active.proof_url || '').toLowerCase();
                 return /\.(jpe?g|png|gif|webp|bmp|avif)(\?|$)/.test(url);
+            },
+            changeItemEvidencePhotos(active) {
+                if (!active) return [];
+                const ev = active.evidence;
+                if (ev && Array.isArray(ev.photos) && ev.photos.length) {
+                    return ev.photos.filter((photo) => photo && photo.url);
+                }
+                if (this.changeItemProofIsImage(active) && active.proof_url) {
+                    return [{
+                        url: active.proof_url,
+                        original_name: active.proof_original_name || 'Proof',
+                    }];
+                }
+                return [];
+            },
+            changeItemEvidenceVideo(active) {
+                if (!active || !active.evidence || !active.evidence.video || !active.evidence.video.url) {
+                    return null;
+                }
+                return active.evidence.video;
+            },
+            changeItemHasEvidence(active) {
+                return this.changeItemEvidencePhotos(active).length > 0 || !!this.changeItemEvidenceVideo(active);
             },
             orderPriorityFilterMatches(row) {
                 if (this.priorityFilter === 'ALL') return true;
