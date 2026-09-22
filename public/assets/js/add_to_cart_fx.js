@@ -21,7 +21,9 @@
             '@keyframes pfCartBounce{0%{transform:scale(1)}35%{transform:scale(1.18)}70%{transform:scale(.94)}100%{transform:scale(1)}}',
             '.pf-cart-confirm{position:fixed;z-index:10051;padding:6px 12px;border-radius:999px;background:rgba(15,23,42,.92);color:#fff;font-size:12px;font-weight:700;letter-spacing:.02em;pointer-events:none;opacity:0;transform:translate(-50%,6px);transition:opacity .22s ease,transform .22s ease;white-space:nowrap;max-width:min(92vw,260px);text-overflow:ellipsis;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,.22)}',
             '.pf-cart-confirm.is-visible{opacity:1;transform:translate(-50%,0)}',
-            '.shopee-btn-cart.is-pending{opacity:.72;transform:scale(.96);pointer-events:none;transition:opacity .15s ease,transform .15s ease}'
+            '.shopee-btn-cart.is-pending{opacity:.72;transform:scale(.96);pointer-events:none;transition:opacity .15s ease,transform .15s ease}',
+            '.pos-catalog-card.is-selecting{outline:2px solid rgba(13,148,136,.45);outline-offset:2px;transform:translateY(-2px)}',
+            '.pf-pos-cart-panel.is-receiving{box-shadow:inset 0 0 0 2px rgba(13,148,136,.35);transition:box-shadow .25s ease}'
         ].join('');
         document.head.appendChild(style);
     }
@@ -30,31 +32,59 @@
         return !!(global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches);
     }
 
-    function getCartIconEl() {
-        return document.querySelector('.pf-cart-icon')
+    function getCartIconEl(opts) {
+        opts = opts || {};
+        if (opts.cartTargetSelector) {
+            var target = document.querySelector(opts.cartTargetSelector);
+            if (target) {
+                return target.querySelector('.pf-pos-cart-icon, .pf-cart-icon') || target;
+            }
+        }
+        return document.querySelector('.pf-pos-cart-icon')
+            || document.querySelector('.pf-cart-icon')
             || document.querySelector('a[href*="cart.php"] svg');
     }
 
-    function getCartAnchorEl() {
-        var icon = getCartIconEl();
+    function getCartAnchorEl(opts) {
+        opts = opts || {};
+        if (opts.cartTargetSelector) {
+            var panel = document.querySelector(opts.cartTargetSelector);
+            if (panel) {
+                return panel;
+            }
+        }
+        var icon = getCartIconEl(opts);
         if (icon && icon.closest) {
             var anchor = icon.closest('a');
             if (anchor) {
                 return anchor;
             }
+            if (icon.classList && (icon.classList.contains('pf-pos-cart-icon') || icon.classList.contains('pf-cart-icon'))) {
+                return icon.closest('.pos-cart-header') || icon;
+            }
         }
         return document.querySelector('a[href*="cart.php"]');
+    }
+
+    function findCatalogCard(el, opts) {
+        if (!el || !el.closest) {
+            return null;
+        }
+        var selector = (opts && opts.cardSelector) ? opts.cardSelector : '.shopee-card, .pos-catalog-card';
+        return el.closest(selector);
     }
 
     function getFlySourceFromCard(card) {
         if (!card) {
             return null;
         }
-        var img = card.querySelector('.shopee-img-wrap img.shopee-img, img.shopee-img, video.shopee-img');
+        var img = card.querySelector(
+            '.pos-catalog-card__media img, .shopee-img-wrap img.shopee-img, img.shopee-img, video.shopee-img'
+        );
         if (img) {
             return img;
         }
-        return card.querySelector('.shopee-img-wrap') || card;
+        return card.querySelector('.pos-catalog-card__media, .shopee-img-wrap') || card;
     }
 
     function createClone(sourceEl) {
@@ -119,22 +149,33 @@
         global.requestAnimationFrame(frame);
     }
 
-    function bounceCart() {
-        var icon = getCartIconEl();
+    function bounceCart(opts) {
+        opts = opts || {};
+        var icon = getCartIconEl(opts);
         if (!icon) {
             return;
         }
         icon.classList.remove('pf-cart-icon-bounce');
         void icon.offsetWidth;
         icon.classList.add('pf-cart-icon-bounce');
+        if (opts.cartTargetSelector) {
+            var panel = document.querySelector(opts.cartTargetSelector);
+            if (panel) {
+                panel.classList.add('is-receiving');
+                global.setTimeout(function () {
+                    panel.classList.remove('is-receiving');
+                }, 520);
+            }
+        }
         global.setTimeout(function () {
             icon.classList.remove('pf-cart-icon-bounce');
         }, 450);
     }
 
-    function showCartConfirm(message) {
+    function showCartConfirm(message, opts) {
+        opts = opts || {};
         ensureStyles();
-        var anchor = getCartAnchorEl();
+        var anchor = getCartAnchorEl(opts);
         if (!anchor) {
             if (typeof global.showToast === 'function') {
                 global.showToast(message);
@@ -166,14 +207,14 @@
     function run(sourceButton, opts) {
         opts = opts || {};
         ensureStyles();
-        var card = sourceButton && sourceButton.closest ? sourceButton.closest('.shopee-card') : null;
+        var card = findCatalogCard(sourceButton, opts);
         var source = getFlySourceFromCard(card);
-        var cartIcon = getCartIconEl();
+        var cartIcon = getCartIconEl(opts);
         var message = opts.message || 'Added to cart ✓';
 
         function finish() {
-            bounceCart();
-            showCartConfirm(message);
+            bounceCart(opts);
+            showCartConfirm(message, opts);
             if (typeof opts.onComplete === 'function') {
                 opts.onComplete();
             }

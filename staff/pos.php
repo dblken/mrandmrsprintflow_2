@@ -53,10 +53,46 @@ try {
 } catch (Exception $e) {
 }
 
-// Fetch active services from DB (same source as customer/services.php)
+// Fetch active services from DB (same catalog fields as customer/services.php)
 $pos_services = [];
+$pos_default_catalog_img = (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/assets/images/services/default.png';
+$pos_base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 try {
-    $pos_services = db_query("SELECT service_id, name, category FROM services WHERE status = 'Activated' ORDER BY name ASC") ?: [];
+    require_once __DIR__ . '/../includes/customer_service_catalog.php';
+    $service_rows = db_query(
+        "SELECT service_id, name, category, display_image, hero_image
+         FROM services WHERE status = 'Activated' ORDER BY name ASC"
+    ) ?: [];
+    $service_ids = array_map(static fn($r) => (int) ($r['service_id'] ?? 0), $service_rows);
+    $pricing_by_service = printflow_catalog_pricing_metadata_map($service_ids);
+    foreach ($service_rows as $row) {
+        $sid = (int) ($row['service_id'] ?? 0);
+        if ($sid < 1) {
+            continue;
+        }
+        $pricing = $pricing_by_service[$sid] ?? printflow_catalog_pricing_metadata_from_fields([]);
+        $img = pf_service_card_primary_image(
+            (string) ($row['display_image'] ?? ''),
+            (string) ($row['hero_image'] ?? ''),
+            $pos_base_path,
+            $pos_default_catalog_img
+        );
+        $image_url = pf_normalize_service_image_path($img, $pos_base_path, $pos_default_catalog_img);
+        $price_label = trim((string) ($pricing['price_label'] ?? ''));
+        if ($price_label === '') {
+            $price_label = 'Custom Pricing';
+        }
+        $display_price = $pricing['display_price'] ?? null;
+        $pos_services[] = [
+            'service_id' => $sid,
+            'name' => $row['name'],
+            'category' => $row['category'] ?? '',
+            'image_url' => $image_url,
+            'price_label' => $price_label,
+            'display_price' => $display_price,
+            'pricing_type' => (string) ($pricing['pricing_type'] ?? 'custom'),
+        ];
+    }
 } catch (Exception $e) {
 }
 
@@ -456,13 +492,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             position: relative;
             flex: 1;
             height: 100%;
-            display: flex;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(360px, 34vw);
             background: #ffffff;
             border: none;
             overflow: hidden;
             margin: 0;
             min-height: 0;
-            /* Critical for vertical scroll */
         }
 
         /* Left Side: Products */
@@ -620,130 +656,162 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             box-sizing: border-box;
         }
 
+        .pos-catalog-grid,
         .pos-products-grid {
             flex: 1;
             overflow-y: auto;
-            padding: 16px;
+            padding: 16px 18px;
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-            gap: 12px;
+            grid-template-columns: repeat(auto-fill, minmax(min(100%, 152px), 1fr));
+            gap: 14px;
             align-content: start;
             background: #f8fafc;
         }
 
-        /* Product Card */
-        .pos-card {
+        @media (min-width: 768px) {
+            .pos-catalog-grid,
+            .pos-products-grid {
+                grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+            }
+        }
+
+        @media (min-width: 1200px) {
+            .pos-catalog-grid,
+            .pos-products-grid {
+                grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+            }
+        }
+
+        /* Catalog card (products + services) */
+        .pos-catalog-card {
             background: #ffffff;
             border: 1px solid #e2e8f0;
-            border-radius: 14px;
+            border-radius: 12px;
             overflow: hidden;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
             display: flex;
             flex-direction: column;
-            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
-            height: auto;
-            min-height: 160px;
-        }
-
-        .pos-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 18px 34px rgba(15, 23, 42, 0.1);
-            border-color: var(--staff-primary);
-        }
-
-        .pos-card.no-stock {
-            opacity: 0.5;
-            cursor: not-allowed;
-            filter: grayscale(80%);
-        }
-
-        .pos-card.no-stock:hover {
-            transform: none;
-            box-shadow: none;
-        }
-
-        .pos-card-icon-container {
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+            min-height: 0;
+            text-align: left;
+            padding: 0;
+            font: inherit;
+            color: inherit;
             width: 100%;
-            min-height: 110px;
+        }
+
+        .pos-catalog-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.1);
+            border-color: rgba(var(--staff-accent-rgb), 0.45);
+        }
+
+        .pos-catalog-card.no-stock {
+            opacity: 0.62;
+            cursor: not-allowed;
+            filter: grayscale(55%);
+        }
+
+        .pos-catalog-card.no-stock:hover {
+            transform: none;
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+            border-color: #e2e8f0;
+        }
+
+        .pos-catalog-card__media {
             position: relative;
-            background: var(--staff-pos-button-bg);
-            flex: 1;
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            background: #f1f5f9;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        .pos-catalog-card__media img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .pos-catalog-card__badge {
+            position: absolute;
+            left: 8px;
+            top: 8px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            background: rgba(15, 23, 42, 0.78);
+            color: #fff;
+        }
+
+        .pos-catalog-card__badge.is-danger {
+            background: rgba(220, 38, 38, 0.92);
+        }
+
+        .pos-catalog-card__body {
+            padding: 10px 12px 12px;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 12px;
-            gap: 8px;
+            gap: 6px;
+            flex: 1;
+            min-height: 72px;
         }
 
-        .pos-card-price-top {
-            background: rgba(255, 255, 255, 0.25);
-            backdrop-filter: blur(8px);
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-weight: 700;
-            color: white;
+        .pos-catalog-card__name {
             font-size: 13px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-        }
-
-        .pos-card-product-name {
-            font-family: var(--pf-ui-font-sans);
-            font-size: 14px;
             font-weight: 700;
-            color: white;
-            text-align: center;
-            line-height: 1.3;
+            color: #0f172a;
+            line-height: 1.35;
             display: -webkit-box;
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
             overflow: hidden;
             word-break: break-word;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+            margin: 0;
         }
 
-
-
-        .pos-card-body {
-            padding: 8px 10px;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            background: white;
-            flex-shrink: 0;
+        .pos-catalog-card__price {
+            font-size: 14px;
+            font-weight: 800;
+            color: var(--staff-primary);
+            margin-top: auto;
         }
 
-        .pos-card-title {
-            font-size: 11px;
+        .pos-catalog-card__meta {
+            font-size: 10px;
             font-weight: 600;
             color: #64748b;
-            text-align: center;
-            line-height: 1.2;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
         }
 
-        .pos-card-stock {
-            font-size: 9px;
-            color: #64748b;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 3px;
+        /* Legacy alias for JS filters */
+        .pos-card.no-stock {
+            opacity: 0.62;
+            cursor: not-allowed;
         }
 
         /* Right Side: Cart */
         .pos-cart-area {
-            width: 420px;
+            width: auto;
+            max-width: 520px;
             background: #ffffff;
             display: flex;
             flex-direction: column;
             flex-shrink: 0;
             border-left: 1px solid #e2e8f0;
             min-height: 0;
+        }
+
+        .pos-cart-main {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
         }
 
         .pos-cart-header {
@@ -825,13 +893,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-cart-list {
-            flex: 1;
+            flex: 1 1 auto;
+            min-height: 0;
+            max-height: min(320px, 36vh);
             overflow-y: auto;
-            padding: 16px 20px;
+            overflow-x: hidden;
+            padding: 12px 18px 14px;
+            -webkit-overflow-scrolling: touch;
         }
 
         .pos-empty-state {
-            height: 100%;
+            min-height: 140px;
+            padding: 24px 12px;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -841,19 +914,25 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-empty-state i {
-            font-size: 48px;
-            margin-bottom: 16px;
+            font-size: 40px;
+            margin-bottom: 10px;
             color: #cbd5e1;
+        }
+
+        .pos-empty-state p {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 600;
         }
 
         .pos-cart-item {
             display: block;
-            padding: 14px;
+            padding: 12px 14px;
             border: 1px solid #e2e8f0;
             border-radius: 12px;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             background: #fff;
-            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
             transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
         }
 
@@ -867,14 +946,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             display: flex;
             align-items: flex-start;
             justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 12px;
+            gap: 10px;
+            margin-bottom: 10px;
         }
 
         .pos-cart-item-bottom {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) auto auto;
-            gap: 12px;
+            grid-template-columns: minmax(0, 1fr) auto minmax(72px, auto);
+            gap: 10px;
             align-items: center;
         }
 
@@ -1290,12 +1369,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-services-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-            padding: 24px;
+            flex: 1;
+            overflow-y: auto;
             align-content: start;
-            height: 100%;
+            height: auto;
+        }
+
+        .pos-cart-header .pf-pos-cart-icon {
+            color: var(--staff-primary);
+            margin-right: 8px;
+            font-size: 16px;
         }
 
         /* Price Input Modal */
@@ -2010,10 +2093,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
 
             .pos-wrapper {
-                flex-direction: column !important;
+                grid-template-columns: 1fr !important;
                 overflow-y: auto !important;
                 overflow-x: hidden !important;
-                display: flex !important;
+                display: grid !important;
                 height: auto !important;
                 min-height: 0 !important;
                 overscroll-behavior-y: contain;
@@ -2045,14 +2128,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             .pos-cart-area {
                 width: 100%;
+                max-width: none;
                 border-left: none;
                 flex: none !important;
                 height: auto;
                 min-height: 0 !important;
             }
             .pos-cart-list {
-                min-height: 350px;
-                overflow: visible !important;
+                max-height: min(280px, 42vh);
+                overflow-y: auto !important;
             }
             
             /* Fix squished headers */
@@ -2107,11 +2191,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 justify-content: center;
             }
             
-            /* Fix grid squishing */
-            .pos-services-grid {
-                grid-template-columns: 1fr 1fr !important;
-                padding: 16px !important;
-                gap: 8px !important;
+            .pos-catalog-grid,
+            .pos-products-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                padding: 14px !important;
+                gap: 10px !important;
             }
         }
     </style>
@@ -2251,7 +2335,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                     <i class="fas fa-arrow-left"></i> <span>Back</span>
                                 </button>
                             </div>
-                            <div class="pos-products-grid" id="pos-products-grid"></div>
+                            <div class="pos-catalog-grid pos-products-grid" id="pos-products-grid"></div>
                         </div>
 
                         <!-- Services View -->
@@ -2270,17 +2354,34 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                 </button>
                             </div>
 
-                            <div class="pos-services-grid" style="border-bottom:none; padding: 24px; overflow-y: auto;">
+                            <div class="pos-catalog-grid pos-services-grid" id="pos-services-grid">
                                 <?php if (empty($pos_services)): ?>
                                     <div style="grid-column:1/-1;text-align:center;color:#64748b;padding:2rem;">No services
                                         available.</div>
                                 <?php else: ?>
-                                    <?php foreach ($pos_services as $svc): ?>
-                                        <button type="button" class="service-btn"
-                                            onclick="openServiceModal(<?php echo (int) $svc['service_id']; ?>, '<?php echo addslashes($svc['name']); ?>'); setActiveService(this)"
-                                            data-service="<?php echo htmlspecialchars($svc['name']); ?>"
-                                            title="<?php echo htmlspecialchars($svc['name']); ?>">
-                                            <span><?php echo htmlspecialchars($svc['name']); ?></span>
+                                    <?php foreach ($pos_services as $svc):
+                                        $svc_img = htmlspecialchars($svc['image_url'] ?? $pos_default_catalog_img, ENT_QUOTES);
+                                        $svc_name = htmlspecialchars($svc['name'] ?? '', ENT_QUOTES);
+                                        $svc_price = $svc['display_price'] ?? null;
+                                        $price_text = ($svc_price !== null && $svc_price !== '')
+                                            ? '₱' . number_format((float) $svc_price, 2)
+                                            : htmlspecialchars($svc['price_label'] ?? 'Custom Pricing', ENT_QUOTES);
+                                    ?>
+                                        <button type="button" class="pos-catalog-card"
+                                            onclick="posOpenServiceFromCard(this, <?php echo (int) $svc['service_id']; ?>, <?php echo json_encode($svc['name'], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>)"
+                                            data-service="<?php echo $svc_name; ?>"
+                                            title="<?php echo $svc_name; ?>">
+                                            <div class="pos-catalog-card__media">
+                                                <img src="<?php echo $svc_img; ?>" alt="" loading="lazy" decoding="async"
+                                                    onerror="this.onerror=null;this.src='<?php echo htmlspecialchars($pos_default_catalog_img, ENT_QUOTES); ?>';">
+                                            </div>
+                                            <div class="pos-catalog-card__body">
+                                                <?php if (!empty($svc['category'])): ?>
+                                                    <span class="pos-catalog-card__meta"><?php echo htmlspecialchars($svc['category']); ?></span>
+                                                <?php endif; ?>
+                                                <p class="pos-catalog-card__name"><?php echo $svc_name; ?></p>
+                                                <div class="pos-catalog-card__price"><?php echo $price_text; ?></div>
+                                            </div>
                                         </button>
                                     <?php endforeach; ?>
                                 <?php endif; ?>
@@ -2289,13 +2390,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     </div>
 
                     <!-- RIGHT: CART -->
-                    <div class="pos-cart-area">
-                        <div class="pos-cart-header">
-                            <h2>Current Order</h2>
+                    <div class="pos-cart-area pf-pos-cart-panel" data-pos-cart-panel>
+                        <div class="pos-cart-header pf-pos-cart-target">
+                            <h2><i class="fas fa-shopping-cart pf-pos-cart-icon" aria-hidden="true"></i> Current Order</h2>
                             <button class="pos-btn-clear" onclick="clearCart()"><i class="fas fa-trash"></i>
                                 Clear</button>
                         </div>
 
+                        <div class="pos-cart-main">
                         <div class="pos-customer-section">
                             <div class="pos-customer-label">
                                 <span class="pos-section-label"><i class="fas fa-user"></i> Customer *</span>
@@ -2316,9 +2418,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                         <div class="pos-cart-list" id="pos-cart-items">
                             <div class="pos-empty-state">
-                                <i class="fas fa-shopping-basket"></i>
+                                <i class="fas fa-shopping-cart"></i>
                                 <p>Cart is empty</p>
                             </div>
+                        </div>
                         </div>
 
                         <div class="pos-checkout-section">
@@ -2632,6 +2735,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
     <script src="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/js/service_estimated_price.js'); ?>"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <?php $pos_add_fx_ver = @filemtime(__DIR__ . '/../public/assets/js/add_to_cart_fx.js') ?: '1'; ?>
+    <script src="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/js/add_to_cart_fx.js'); ?>?v=<?php echo (int) $pos_add_fx_ver; ?>"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -2651,7 +2756,38 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         let isAddingToOrder = false;
         let posEstimatedPriceController = null;
         const STAFF_BASE_PATH = <?php echo json_encode(BASE_PATH); ?>;
+        const POS_DEFAULT_CATALOG_IMG = <?php echo json_encode($pos_default_catalog_img); ?>;
+        const POS_ADD_FX_OPTS = {
+            cartTargetSelector: '[data-pos-cart-panel]',
+            cardSelector: '.pos-catalog-card',
+            message: 'Added to cart ✓'
+        };
+        let posLastServiceCardEl = null;
         const POS_CSRF_TOKEN = document.body.dataset.csrf || '';
+
+        function posCatalogImageUrl(product) {
+            if (!product) return POS_DEFAULT_CATALOG_IMG;
+            if (product.image_url) return product.image_url;
+            const raw = String(product.photo_path || product.product_image || '').trim();
+            if (!raw) return POS_DEFAULT_CATALOG_IMG;
+            if (/^https?:\/\//i.test(raw)) return raw;
+            const path = raw.startsWith('/') ? raw : '/' + raw;
+            return STAFF_BASE_PATH + path;
+        }
+
+        function posPlayAddAnimation(sourceEl) {
+            if (!sourceEl || !window.PFAddToCartFx) return;
+            window.PFAddToCartFx.run(sourceEl, POS_ADD_FX_OPTS);
+        }
+
+        function posOpenServiceFromCard(cardEl, serviceId, serviceName) {
+            posLastServiceCardEl = cardEl || null;
+            if (cardEl && cardEl.classList) {
+                cardEl.classList.add('is-selecting');
+                window.setTimeout(function () { cardEl.classList.remove('is-selecting'); }, 320);
+            }
+            openServiceModal(serviceId, serviceName);
+        }
         try {
             posBarcodeDebugEnabled = new URLSearchParams(window.location.search).get('pos_barcode_debug') === '1'
                 || window.localStorage.getItem('printflow_pos_barcode_debug') === '1';
@@ -3479,6 +3615,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     cart = data.cart || [];
                     console.log('Updated local cart:', cart);
                     renderCart();
+                    if (action === 'add' && options.fxSourceEl) {
+                        posPlayAddAnimation(options.fxSourceEl);
+                    }
                     return { success: true };
                 } else {
                     console.error('syncedCartAction Error:', data.message);
@@ -3829,7 +3968,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 qty: parseInt(customization['quantity'] || 1),
                 customization: customization,
                 is_service: true
-            });
+            }, { fxSourceEl: posLastServiceCardEl });
 
             if (result.success) closeServiceModal();
         }
@@ -4413,28 +4552,45 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
-            filtered.forEach((p, index) => {
+            filtered.forEach((p) => {
                 const outOfStock = p.stock_quantity <= 0;
+                const imgUrl = escapeHtml(posCatalogImageUrl(p));
+                const defaultImg = escapeHtml(POS_DEFAULT_CATALOG_IMG);
 
-                const card = document.createElement('div');
-                card.className = `pos-card ${outOfStock ? 'no-stock' : ''}`;
-                if (!outOfStock) card.onclick = () => addToCart(p);
+                const card = document.createElement('button');
+                card.type = 'button';
+                card.className = `pos-catalog-card pos-card ${outOfStock ? 'no-stock' : ''}`;
+                if (!outOfStock) {
+                    card.onclick = async () => {
+                        card.classList.add('is-selecting');
+                        try {
+                            await addToCart(p, null, null, { fxSourceEl: card });
+                        } finally {
+                            card.classList.remove('is-selecting');
+                        }
+                    };
+                }
 
                 const priceFormatted = formatMoney(p.price || 0);
-                const productName = p.product_name || 'Unnamed Product';
+                const productName = escapeHtml(p.product_name || 'Unnamed Product');
+                const category = escapeHtml(p.category || 'Product');
                 const stockQty = parseInt(p.stock_quantity) || 0;
+                const stockBadge = outOfStock
+                    ? '<span class="pos-catalog-card__badge is-danger">Out of Stock</span>'
+                    : (stockQty <= (parseInt(p.low_stock_level, 10) || 10)
+                        ? `<span class="pos-catalog-card__badge">${stockQty} left</span>`
+                        : '');
 
                 card.innerHTML = `
-            <div class="pos-card-icon-container">
-                <div class="pos-card-price-top">${priceFormatted}</div>
-                <div class="pos-card-product-name">${productName}</div>
+            <div class="pos-catalog-card__media">
+                <img src="${imgUrl}" alt="" loading="lazy" decoding="async"
+                    onerror="this.onerror=null;this.src='${defaultImg}';">
+                ${stockBadge}
             </div>
-            <div class="pos-card-body">
-                <div class="pos-card-title">${p.category || 'Product'}</div>
-                <div class="pos-card-stock">
-                    <i class="fas ${outOfStock ? 'fa-times-circle' : 'fa-check-circle'}" style="color:${outOfStock ? '#ef4444' : 'var(--staff-primary)'}; font-size:8px;"></i>
-                    <span>${outOfStock ? 'Out' : stockQty + ' left'}</span>
-                </div>
+            <div class="pos-catalog-card__body">
+                <span class="pos-catalog-card__meta">${category}</span>
+                <p class="pos-catalog-card__name">${productName}</p>
+                <div class="pos-catalog-card__price">${priceFormatted}</div>
             </div>
         `;
                 grid.appendChild(card);

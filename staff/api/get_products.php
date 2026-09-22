@@ -61,7 +61,8 @@ try {
             p.product_type,
             ({$stockSel}) as stock_quantity, 
             ({$lowSel}) as low_stock_level,
-            p.product_image 
+            p.product_image,
+            p.photo_path
         FROM products p
         {$join}
         WHERE p.status = 'Activated' 
@@ -71,6 +72,8 @@ try {
         $types ?: null,
         $params ?: null
     );
+    $base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
+    $default_product_img = $base_path . '/public/assets/images/services/default.png';
     $products = [];
     foreach ($rows ?: [] as $p) {
         $optionStock = $staffBranch > 0 ? printflow_product_option_stock_total((int)$p['product_id'], $staffBranch) : null;
@@ -86,6 +89,8 @@ try {
         }
         $p['stock_status'] = get_stock_status($p['stock_quantity'], $p['low_stock_level']);
         $p['quantity'] = (int) ($p['stock_quantity'] ?? 0);
+        $raw_img = ($p['photo_path'] ?? '') ?: ($p['product_image'] ?? '');
+        $p['image_url'] = pf_normalize_service_image_path((string) $raw_img, $base_path, $default_product_img);
         $products[] = $p;
     }
     echo json_encode(['success' => true, 'products' => $products]);
