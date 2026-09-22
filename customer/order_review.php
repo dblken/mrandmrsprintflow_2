@@ -1965,7 +1965,7 @@ require_once __DIR__ . '/../includes/header.php';
         }
     }
 
-    /* Inquire Now — full-screen success overlay */
+    /* Inquire Now — centered confirmation modal */
     .pf-order-success-overlay {
         position: fixed;
         inset: 0;
@@ -1973,12 +1973,12 @@ require_once __DIR__ . '/../includes/header.php';
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 1.5rem;
-        background: rgba(10, 37, 48, 0.96);
+        padding: 1.25rem;
+        background: rgba(0, 0, 0, 0.4);
         opacity: 0;
         visibility: hidden;
         pointer-events: none;
-        transition: opacity 0.45s ease-in-out, visibility 0.45s ease-in-out;
+        transition: opacity 0.4s ease-in-out, visibility 0.4s ease-in-out;
     }
     .pf-order-success-overlay.is-visible {
         opacity: 1;
@@ -1989,19 +1989,37 @@ require_once __DIR__ . '/../includes/header.php';
         opacity: 0;
         visibility: hidden;
     }
+    .pf-order-success-modal {
+        width: min(100%, 380px);
+        background: #ffffff;
+        border-radius: 16px;
+        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18), 0 8px 16px rgba(15, 23, 42, 0.08);
+        padding: 1.75rem 1.5rem 1.5rem;
+        opacity: 0;
+        transform: scale(0.9);
+        transition: opacity 0.4s ease-in-out, transform 0.4s ease-in-out;
+    }
+    .pf-order-success-overlay.is-visible .pf-order-success-modal {
+        opacity: 1;
+        transform: scale(1);
+    }
+    .pf-order-success-overlay.is-leaving .pf-order-success-modal {
+        opacity: 0;
+        transform: scale(0.96);
+    }
     .pf-order-success-stage {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         text-align: center;
-        max-width: 22rem;
         width: 100%;
     }
     .pf-order-success-icon {
-        width: clamp(72px, 18vw, 96px);
-        height: clamp(72px, 18vw, 96px);
-        margin-bottom: 1.25rem;
+        width: 72px;
+        height: 72px;
+        margin-bottom: 1rem;
+        flex-shrink: 0;
     }
     .pf-order-success-icon svg {
         width: 100%;
@@ -2017,13 +2035,18 @@ require_once __DIR__ . '/../includes/header.php';
         transform-origin: 50% 50%;
     }
     .pf-order-success-stage[data-state="loading"] .pf-success-circle {
-        stroke-dasharray: 166;
+        stroke-dasharray: 70 166;
         stroke-dashoffset: 0;
-        animation: pf-order-success-pulse 1.1s ease-in-out infinite;
+        animation: pf-order-success-spin 0.95s ease-in-out infinite;
     }
-    @keyframes pf-order-success-pulse {
-        0%, 100% { opacity: 0.45; transform: scale(0.92); }
-        50% { opacity: 1; transform: scale(1); }
+    @keyframes pf-order-success-spin {
+        0% { transform: rotate(0deg); opacity: 0.65; }
+        50% { opacity: 1; }
+        100% { transform: rotate(360deg); opacity: 0.65; }
+    }
+    .pf-order-success-stage[data-state="loading"] .pf-success-check,
+    .pf-order-success-stage[data-state="loading"] .pf-order-success-error-mark {
+        display: none;
     }
     .pf-success-check {
         fill: none;
@@ -2051,22 +2074,38 @@ require_once __DIR__ . '/../includes/header.php';
         stroke-dashoffset: 0;
         transition: stroke-dashoffset 0.55s 0.45s ease-in-out, opacity 0.2s 0.45s ease-in-out;
     }
-    .pf-order-success-msg {
+    .pf-order-success-status {
         margin: 0;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: #374151;
+        line-height: 1.45;
+    }
+    .pf-order-success-stage[data-state="success"] .pf-order-success-status,
+    .pf-order-success-stage[data-state="error"] .pf-order-success-status {
+        display: none;
+    }
+    .pf-order-success-msg {
+        margin: 0.35rem 0 0;
         font-size: 1rem;
         font-weight: 700;
-        color: #eaf6fb;
+        color: #111827;
         line-height: 1.45;
         opacity: 0;
-        transform: translateY(10px);
+        transform: translateY(8px);
         transition: opacity 0.45s ease-in-out, transform 0.45s ease-in-out;
+    }
+    .pf-order-success-stage[data-state="loading"] .pf-order-success-msg {
+        display: none;
     }
     .pf-order-success-msg.is-visible {
         opacity: 1;
         transform: translateY(0);
     }
     .pf-order-success-stage[data-state="error"] .pf-success-circle {
-        stroke: #f87171;
+        stroke: #fb923c;
+        stroke-dasharray: 166;
+        stroke-dashoffset: 0;
         animation: none;
         opacity: 1;
     }
@@ -2076,22 +2115,28 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-order-success-error-mark {
         display: none;
         fill: none;
-        stroke: #f87171;
+        stroke: #ea580c;
         stroke-width: 3;
         stroke-linecap: round;
     }
     .pf-order-success-stage[data-state="error"] .pf-order-success-error-mark {
         display: block;
     }
+    .pf-order-success-stage[data-state="error"] .pf-order-success-msg {
+        display: block;
+        color: #991b1b;
+        font-weight: 600;
+        font-size: 0.92rem;
+    }
     .pf-order-success-retry {
-        margin-top: 1.25rem;
-        padding: 0.65rem 1.25rem;
+        margin-top: 1.1rem;
+        padding: 0.6rem 1.15rem;
         border-radius: 10px;
-        border: 1px solid rgba(83, 197, 224, 0.45);
-        background: rgba(83, 197, 224, 0.12);
-        color: #eaf6fb;
+        border: 1px solid #cbd5e1;
+        background: #f8fafc;
+        color: #0f172a;
         font-weight: 700;
-        font-size: 0.9rem;
+        font-size: 0.875rem;
         cursor: pointer;
         opacity: 0;
         pointer-events: none;
@@ -2102,7 +2147,7 @@ require_once __DIR__ . '/../includes/header.php';
         pointer-events: auto;
     }
     .pf-order-success-retry:hover {
-        background: rgba(83, 197, 224, 0.22);
+        background: #e2e8f0;
     }
 </style>
 
@@ -2293,17 +2338,20 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 
 <?php if (!$is_product_order): ?>
-<div id="pfOrderSuccessOverlay" class="pf-order-success-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="pfOrderSuccessMsg">
-    <div class="pf-order-success-stage" id="pfOrderSuccessStage" data-state="loading">
-        <div class="pf-order-success-icon" aria-hidden="true">
-            <svg viewBox="0 0 52 52" xmlns="http://www.w3.org/2000/svg">
-                <circle class="pf-success-circle" cx="26" cy="26" r="25"/>
-                <path class="pf-success-check" d="M14.5 27.5 L22 35 L38 18"/>
-                <path class="pf-order-success-error-mark" d="M18 18 L34 34 M34 18 L18 34"/>
-            </svg>
+<div id="pfOrderSuccessOverlay" class="pf-order-success-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="pfOrderSuccessStatus">
+    <div class="pf-order-success-modal" id="pfOrderSuccessModal">
+        <div class="pf-order-success-stage" id="pfOrderSuccessStage" data-state="loading">
+            <div class="pf-order-success-icon" aria-hidden="true">
+                <svg viewBox="0 0 52 52" xmlns="http://www.w3.org/2000/svg">
+                    <circle class="pf-success-circle" cx="26" cy="26" r="25"/>
+                    <path class="pf-success-check" d="M14.5 27.5 L22 35 L38 18"/>
+                    <path class="pf-order-success-error-mark" d="M18 18 L34 34 M34 18 L18 34"/>
+                </svg>
+            </div>
+            <p class="pf-order-success-status" id="pfOrderSuccessStatus">Submitting your inquiry...</p>
+            <p class="pf-order-success-msg" id="pfOrderSuccessMsg"></p>
+            <button type="button" class="pf-order-success-retry" id="pfOrderSuccessRetry">Retry</button>
         </div>
-        <p class="pf-order-success-msg" id="pfOrderSuccessMsg"></p>
-        <button type="button" class="pf-order-success-retry" id="pfOrderSuccessRetry">Try again</button>
     </div>
 </div>
 <?php endif; ?>
@@ -2316,6 +2364,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const isServiceInquire = form && form.getAttribute('data-service-inquire') === '1';
     const overlay = document.getElementById('pfOrderSuccessOverlay');
     const stage = document.getElementById('pfOrderSuccessStage');
+    const statusEl = document.getElementById('pfOrderSuccessStatus');
     const msgEl = document.getElementById('pfOrderSuccessMsg');
     const retryBtn = document.getElementById('pfOrderSuccessRetry');
     let submitInFlight = false;
@@ -2324,6 +2373,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!overlay || !stage) return;
         stage.dataset.state = 'loading';
         stage.classList.remove('is-drawn');
+        if (statusEl) {
+            statusEl.textContent = 'Submitting your inquiry...';
+        }
         if (msgEl) {
             msgEl.textContent = '';
             msgEl.classList.remove('is-visible');
@@ -2368,7 +2420,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
         setTimeout(function() {
-            msgEl.textContent = 'Order placed successfully!';
+            msgEl.textContent = 'Inquiry sent successfully!';
             msgEl.classList.add('is-visible');
         }, 720);
         setTimeout(function() {
