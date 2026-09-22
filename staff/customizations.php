@@ -1841,7 +1841,7 @@ $online_closed_count = 0;
 
         <main>
                 <div
-                    x-show="!isPosSimplifiedView && urgentOrderCount > 0"
+                    x-show="urgentOrderCount > 0"
                     x-cloak
                     class="pf-urgent-attention-banner"
                     role="status"
@@ -1854,13 +1854,20 @@ $online_closed_count = 0;
                 </div>
                 <div class="kpi-row">
                  <?php if ($isPosCustomizationView): ?>
-                 <div class="kpi-card indigo">
-                     <span class="kpi-card-inner">
-                         <span class="kpi-label">Total Customizations</span>
-                         <span class="kpi-value" x-text="getStatusCount('ALL')"><?php echo number_format($total_jobs); ?></span>
-                         <span class="kpi-sub" x-text="getStatusCount('COMPLETED') + ' items finished'"><?php echo number_format($completed_jobs); ?> items finished</span>
-                     </span>
-                 </div>
+                <div
+                    class="kpi-card rose kpi-card--link"
+                    role="button"
+                    tabindex="0"
+                    :class="{ 'kpi-card--urgent-pulse': urgentOrderCount > 0 }"
+                    @click="navigateFromKpi('URGENT')"
+                    @keydown.enter.prevent="navigateFromKpi('URGENT')"
+                >
+                    <span class="kpi-card-inner">
+                        <span class="kpi-label">Urgent Orders</span>
+                        <span class="kpi-value" x-text="getStatusCount('URGENT')">0</span>
+                        <span class="kpi-sub">Orders that need immediate attention</span>
+                    </span>
+                </div>
                  <div class="kpi-card amber">
                      <span class="kpi-card-inner">
                          <span class="kpi-label">Pending</span>
