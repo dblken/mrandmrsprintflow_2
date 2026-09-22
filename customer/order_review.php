@@ -1069,17 +1069,21 @@ require_once __DIR__ . '/../includes/header.php';
     }
     .review-layout {
         display: grid;
-        grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
-        gap: 1.25rem 1.5rem;
-        align-items: start;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 1.25rem 1.75rem;
+        align-items: stretch;
     }
     .review-layout-col {
         min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
     }
     .review-layout-col--aside {
         display: flex;
         flex-direction: column;
         gap: 0.75rem;
+        justify-content: flex-start;
     }
     .review-layout-col--aside .review-heading {
         margin-top: 0;
@@ -1093,6 +1097,42 @@ require_once __DIR__ . '/../includes/header.php';
         .order-review-page {
             padding-top: 0.75rem;
             padding-bottom: 0.75rem;
+        }
+        .order-review-page .review-layout-col--order .review-order-entry .order-item-header {
+            flex-wrap: wrap;
+            align-items: flex-start !important;
+        }
+        .order-review-page .review-layout-col--order .review-order-entry--service .order-item-content {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 0.65rem !important;
+            overflow: visible !important;
+        }
+        .order-review-page .review-layout-col--order .review-order-entry--service .order-item-content h3 {
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+            line-height: 1.3 !important;
+        }
+        .order-review-page .review-layout-col--order .review-order-entry--service .order-item-details {
+            display: flex !important;
+            flex-wrap: wrap !important;
+            gap: 0.85rem 1.25rem !important;
+            width: 100% !important;
+            padding-top: 0.35rem !important;
+        }
+        .order-review-page .review-layout-col--order .review-order-entry--service .review-detail-label,
+        .order-review-page .review-layout-col--order .review-order-entry--service .review-total-label {
+            white-space: normal !important;
+            line-height: 1.25 !important;
+        }
+        .order-review-page .review-layout-col--order .review-order-entry--service .review-total-value {
+            white-space: normal !important;
+        }
+        .order-review-page .review-layout-col--order .review-order-entry .order-item-spec-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            gap: 0.85rem 1rem !important;
         }
         .order-review-page .review-order-entry {
             margin-bottom: 0.65rem !important;
@@ -1552,8 +1592,9 @@ require_once __DIR__ . '/../includes/header.php';
     .order-review-page .review-order-entry .review-detail-label,
     .order-review-page .review-order-entry .review-total-label {
         color: #9fc4d4 !important;
-        white-space: nowrap;
+        white-space: normal;
         font-size: 0.64rem !important;
+        line-height: 1.25 !important;
     }
     .order-review-page .review-order-entry .review-detail-value {
         color: #eaf6fb !important;
@@ -1561,7 +1602,9 @@ require_once __DIR__ . '/../includes/header.php';
     .order-review-page .review-order-entry .review-total-value {
         color: #53c5e0 !important;
         font-size: 1.1rem !important;
-        white-space: nowrap;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        line-height: 1.25 !important;
     }
     .order-review-page .review-order-entry--product .order-item-content {
         grid-template-columns: minmax(210px, 1.9fr) minmax(90px, 0.8fr) minmax(54px, 0.45fr) minmax(96px, 0.75fr) minmax(104px, 0.8fr) !important;
@@ -1613,8 +1656,16 @@ require_once __DIR__ . '/../includes/header.php';
         font-size: 1rem !important;
     }
     .order-review-page .review-order-entry .order-item-spec-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
         gap: 1rem 1.25rem !important;
+    }
+    .order-review-page .review-order-entry .order-item-spec-tile .pf-spec-label,
+    .order-review-page .review-order-entry .order-item-spec-tile .pf-spec-value {
+        overflow: visible !important;
+        text-overflow: clip !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+        word-break: break-word !important;
     }
     .order-review-page .review-order-entry .order-item-spec-tile {
         min-width: 0 !important;
@@ -1946,7 +1997,7 @@ require_once __DIR__ . '/../includes/header.php';
                         Back to Cart
                     </a>
                     
-                    <button type="submit" name="confirm_order" value="1" class="shopee-btn-primary" style="width: 150px; white-space: nowrap;"><?php echo $is_product_order ? 'Pay Now' : 'Proceed to Review'; ?></button>
+                    <button type="submit" name="confirm_order" value="1" class="shopee-btn-primary" style="width: 150px; white-space: nowrap;"><?php echo $is_product_order ? 'Pay Now' : 'Inquire Now'; ?></button>
                 </div>
             </div>
         </form>

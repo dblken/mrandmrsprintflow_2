@@ -593,6 +593,54 @@ if (!function_exists('pf_order_ui_cart_has_design_upload')) {
     }
 }
 
+if (!function_exists('pf_order_ui_cart_temp_disk_path')) {
+    /**
+     * Resolve on-disk temp upload for a cart line (design or reference).
+     *
+     * @return array{path:string,mime:string,name:string}|null
+     */
+    function pf_order_ui_cart_temp_disk_path(array $item, string $field): ?array
+    {
+        $path_key = $field === 'reference' ? 'reference_tmp_path' : 'design_tmp_path';
+        $mime_key = $field === 'reference' ? 'reference_mime' : 'design_mime';
+        $name_key = $field === 'reference' ? 'reference_name' : 'design_name';
+
+        $path = trim((string)($item[$path_key] ?? ''));
+        if ($path !== '' && is_file($path)) {
+            return [
+                'path' => $path,
+                'mime' => trim((string)($item[$mime_key] ?? '')),
+                'name' => pf_order_ui_safe_upload_name($item[$name_key] ?? ''),
+            ];
+        }
+
+        if ($field !== 'design' || empty($item['uploaded_files']) || !is_array($item['uploaded_files'])) {
+            return null;
+        }
+
+        foreach ($item['uploaded_files'] as $upload) {
+            if (!is_array($upload)) {
+                continue;
+            }
+            $upload_field = strtolower(trim((string)($upload['field'] ?? ($upload['field_key'] ?? ''))));
+            if ($upload_field !== '' && !str_contains($upload_field, 'design')) {
+                continue;
+            }
+            $tmp = trim((string)($upload['tmp_path'] ?? ($upload['path'] ?? '')));
+            if ($tmp === '' || !is_file($tmp)) {
+                continue;
+            }
+            return [
+                'path' => $tmp,
+                'mime' => trim((string)($upload['mime'] ?? ($upload['type'] ?? ''))),
+                'name' => pf_order_ui_safe_upload_name($upload['name'] ?? ''),
+            ];
+        }
+
+        return null;
+    }
+}
+
 if (!function_exists('pf_order_ui_temp_preview_url')) {
     function pf_order_ui_temp_preview_url(array $item, string $field): ?string {
         $cart_key = (string)($item['_cart_key'] ?? '');
@@ -600,17 +648,8 @@ if (!function_exists('pf_order_ui_temp_preview_url')) {
             return null;
         }
 
-        $path_key = $field === 'reference' ? 'reference_tmp_path' : 'design_tmp_path';
-        $mime_key = $field === 'reference' ? 'reference_mime' : 'design_mime';
-
-        if (empty($item[$path_key]) || !is_file((string)$item[$path_key])) {
+        if (pf_order_ui_cart_temp_disk_path($item, $field) === null) {
             return null;
-        }
-
-        $mime = (string)($item[$mime_key] ?? '');
-        // Be permissive with MIME types for temp previews, but prioritize images
-        if ($mime !== '' && stripos($mime, 'image/') !== 0 && stripos($mime, 'application/octet-stream') === false) {
-            // Allow if it's likely a file we can serve
         }
 
         $base = defined('BASE_URL') ? BASE_URL : (function_exists('pf_app_base_path') ? pf_app_base_path() : '');

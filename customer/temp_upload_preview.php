@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/order_ui_helper.php';
 
 require_role('Customer');
 
@@ -13,17 +14,14 @@ if ($item_key === '' || !isset($_SESSION['cart'][$item_key]) || !is_array($_SESS
 }
 
 $item = $_SESSION['cart'][$item_key];
-$path_key = $field === 'reference' ? 'reference_tmp_path' : 'design_tmp_path';
-$mime_key = $field === 'reference' ? 'reference_mime' : 'design_mime';
-$name_key = $field === 'reference' ? 'reference_name' : 'design_name';
-
-$path = (string)($item[$path_key] ?? '');
-if ($path === '' || !is_file($path)) {
+$resolved = pf_order_ui_cart_temp_disk_path($item, $field === 'reference' ? 'reference' : 'design');
+if ($resolved === null) {
     http_response_code(404);
     exit;
 }
 
-$mime = (string)($item[$mime_key] ?? '');
+$path = $resolved['path'];
+$mime = $resolved['mime'];
 if ($mime === '' && function_exists('finfo_open')) {
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
     if ($finfo) {
@@ -37,7 +35,7 @@ if (stripos($mime, 'image/') !== 0) {
     exit;
 }
 
-$filename = basename((string)($item[$name_key] ?? 'preview'));
+$filename = basename((string)($resolved['name'] !== '' ? $resolved['name'] : 'preview'));
 
 header('Content-Type: ' . $mime);
 header('Content-Length: ' . filesize($path));

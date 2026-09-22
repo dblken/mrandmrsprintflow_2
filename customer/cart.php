@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/order_ui_helper.php';
 
 require_role('Customer');
 
@@ -874,9 +875,22 @@ require_once __DIR__ . '/../includes/header.php';
                                             <?php
                                             $prod_id = (int)($item['product_id'] ?? 0);
                                             $product_img = "";
+
+                                            $cart_item_for_ui = $item;
+                                            $cart_item_for_ui['_cart_key'] = (string)$pid;
+                                            if ($item_origin === 'Service' || !empty($item['design_tmp_path']) || !empty($item['uploaded_files'])) {
+                                                $design_media = pf_order_ui_resolve_item_design_urls(
+                                                    $cart_item_for_ui,
+                                                    true,
+                                                    (string)$item_display_name
+                                                );
+                                                if (!empty($design_media['upload_is_previewable_image']) && !empty($design_media['upload_url'])) {
+                                                    $product_img = $design_media['upload_url'];
+                                                }
+                                            }
                                             
                                             // 1. Prefer admin-uploaded photo_path, then legacy product_image
-                                            if ($prod_id > 0) {
+                                            if ($product_img === '' && $prod_id > 0) {
                                                 $prod_data = db_query("SELECT photo_path, product_image FROM products WHERE product_id = ? LIMIT 1", 'i', [$prod_id]);
                                                 if (!empty($prod_data)) {
                                                     $photo_path = trim((string)($prod_data[0]['photo_path'] ?? ''));
@@ -890,7 +904,7 @@ require_once __DIR__ . '/../includes/header.php';
                                             }
                                             
                                             // 2. Try explicit product ID (file-based fallback)
-                                            if (empty($product_img) && $prod_id > 0) {
+                                            if ($product_img === '' && $prod_id > 0) {
                                                 $img_base = "../public/images/products/product_" . $prod_id;
                                                 if (file_exists($img_base . ".jpg")) {
                                                     $product_img = $base_url . "/public/images/products/product_" . $prod_id . ".jpg";
@@ -900,7 +914,7 @@ require_once __DIR__ . '/../includes/header.php';
                                             }
                                             
                                             // 3. Fallback based on category/service_type for Service Orders
-                                            if (empty($product_img)) {
+                                            if ($product_img === '') {
                                                 $cat_lower = strtolower(($item['category'] ?? '') . ' ' . ($item['name'] ?? ''));
                                                 if (strpos($cat_lower, 'reflectorized') !== false || strpos($cat_lower, 'signage') !== false) {
                                                     $product_img = $base_url . "/public/images/products/signage.jpg";
