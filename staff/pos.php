@@ -682,6 +682,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
         }
 
+        @media (min-width: 1280px) {
+            .pos-catalog-grid,
+            .pos-products-grid {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+        }
+
         /* Catalog card (products + services) */
         .pos-catalog-card {
             background: #ffffff;
@@ -2085,31 +2092,36 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
         }
 
-        /* Mobile & Tablet Responsive Layout */
-        @media (max-width: 1024px) {
-            /* The POS wrapper is the single mobile scroll container. */
-            .main-content {
-                overflow-y: hidden !important;
+        /* Tablet: slightly narrower cart, keep side-by-side */
+        @media (min-width: 768px) and (max-width: 1024px) {
+            .pos-wrapper {
+                grid-template-columns: minmax(0, 1fr) minmax(300px, 36vw);
+            }
+        }
+
+        /* Mobile: stack catalog above cart — no overlap */
+        @media (max-width: 767px) {
+            .pos-main-shell {
+                height: auto !important;
+                min-height: 100dvh;
+                overflow-x: hidden !important;
+                overflow-y: auto !important;
             }
 
             .pos-wrapper {
                 grid-template-columns: 1fr !important;
-                overflow-y: auto !important;
-                overflow-x: hidden !important;
-                display: grid !important;
                 height: auto !important;
                 min-height: 0 !important;
-                overscroll-behavior-y: contain;
-                -webkit-overflow-scrolling: touch;
+                overflow: visible !important;
             }
 
             .pos-products-area {
                 flex: none !important;
                 height: auto !important;
-                min-height: auto !important;
+                min-height: 0 !important;
                 overflow: visible !important;
                 border-right: none;
-                border-bottom: 4px solid #e2e8f0;
+                border-bottom: none;
             }
 
             #selection-view,
@@ -2119,83 +2131,110 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 min-height: 0 !important;
             }
 
+            .pos-catalog-grid,
             .pos-products-grid,
             .pos-services-grid {
                 flex: none !important;
                 min-height: 0 !important;
                 overflow: visible !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                padding: 14px !important;
+                gap: 10px !important;
             }
 
             .pos-cart-area {
                 width: 100%;
                 max-width: none;
                 border-left: none;
+                border-top: 4px solid #e2e8f0;
                 flex: none !important;
                 height: auto;
                 min-height: 0 !important;
             }
+
+            .pos-cart-main {
+                flex: none;
+            }
+
             .pos-cart-list {
-                max-height: min(280px, 42vh);
+                max-height: min(260px, 38vh);
                 overflow-y: auto !important;
             }
-            
-            /* Fix squished headers */
-            .pos-search-header {
-                grid-template-columns: 1fr 1fr;
-                padding: 16px !important;
-                gap: 12px !important;
+
+            .pos-checkout-section {
+                position: sticky;
+                bottom: 0;
+                z-index: 2;
+                box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.06);
             }
+
+            .pos-search-header {
+                grid-template-columns: 1fr;
+                padding: 14px !important;
+                gap: 10px !important;
+            }
+
             .pos-toolbar-sku,
-            .pos-toolbar-search {
+            .pos-toolbar-search,
+            .pos-toolbar-category,
+            .pos-btn-back {
                 grid-column: 1 / -1;
             }
+
             .pos-search-box,
-            .pos-barcode-scan {
-                max-width: none !important;
-                width: 100%;
-            }
+            .pos-barcode-scan,
             .pos-search-header .pos-category-select,
             .pos-search-header .pos-btn-back {
                 width: 100% !important;
+                max-width: none !important;
             }
+
             .pos-btn-back {
-                grid-column: 1 / -1;
                 justify-content: center;
             }
+
             .pos-cart-item-bottom {
                 grid-template-columns: 1fr;
                 gap: 10px;
             }
+
             .pos-item-total {
                 text-align: left;
             }
+
             .pos-tender-group {
                 grid-template-columns: 1fr;
             }
+
             .pos-payment-field,
             .pos-tender-wrap,
             .pos-tender-input {
                 max-width: none !important;
                 justify-self: stretch;
             }
-            
+
             .pos-services-header {
                 flex-direction: column;
                 align-items: stretch !important;
                 text-align: center;
-                gap: 16px !important;
-                padding: 16px !important;
+                gap: 12px !important;
+                padding: 14px !important;
             }
+
             .pos-services-header button {
                 width: 100% !important;
                 justify-content: center;
             }
-            
-            .pos-catalog-grid,
-            .pos-products-grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-                padding: 14px !important;
-                gap: 10px !important;
+
+            .pos-qty-btn {
+                width: 44px;
+                height: 44px;
+            }
+
+            .pos-item-remove,
+            .pos-btn-clear,
+            .pos-btn-checkout {
+                min-height: 44px;
             }
         }
     </style>
@@ -2212,7 +2251,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
         ?>
 
-        <div class="main-content"
+        <div class="main-content pos-main-shell"
             style="padding: 0; height: 100vh; overflow: hidden; display: flex; flex-direction: column; width: 100%; min-height: 0;">
             
             <!-- Mobile Header for Burger Menu Injection -->
@@ -2368,8 +2407,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                             : htmlspecialchars($svc['price_label'] ?? 'Custom Pricing', ENT_QUOTES);
                                     ?>
                                         <button type="button" class="pos-catalog-card"
-                                            onclick="posOpenServiceFromCard(this, <?php echo (int) $svc['service_id']; ?>, <?php echo json_encode($svc['name'], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>)"
-                                            data-service="<?php echo $svc_name; ?>"
+                                            data-service-id="<?php echo (int) $svc['service_id']; ?>"
+                                            data-service-name="<?php echo $svc_name; ?>"
+                                            onclick="posOpenServiceFromCard(this, Number(this.dataset.serviceId), this.dataset.serviceName)"
                                             title="<?php echo $svc_name; ?>">
                                             <div class="pos-catalog-card__media">
                                                 <img src="<?php echo $svc_img; ?>" alt="" loading="lazy" decoding="async"
@@ -4340,7 +4380,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 qty: parseInt(customization.quantity || 1, 10),
                 customization: customization,
                 is_service: true
-            }, { silentErrors: true });
+            }, { silentErrors: true, fxSourceEl: posLastServiceCardEl });
 
             if (result.success) {
                 closeServiceModal();
@@ -4350,7 +4390,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     focusFirstInvalidField(Object.fromEntries(Object.entries(result.errors).map(([key, message]) => {
                         const body = document.getElementById('sm-fields-body');
                         const escapedKey = serviceSelectorEscape(key);
-                        const row = body ? (body.querySelector('.shopee-form-row[data-field-key="' + escapedKey + '"]') || body.querySelector('[name="' + escapedKey + '"]')?.closest('.shopee-form-row')) : null;
+                        let row = null;
+                        if (body) {
+                            row = body.querySelector('.shopee-form-row[data-field-key="' + escapedKey + '"]');
+                            if (!row) {
+                                const named = body.querySelector('[name="' + escapedKey + '"]');
+                                row = named && named.closest ? named.closest('.shopee-form-row') : null;
+                            }
+                        }
                         return [key, { row, message }];
                     })));
                 }
@@ -6219,6 +6266,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         window.redirectToSetPrice = redirectToSetPrice;
+        window.posOpenServiceFromCard = posOpenServiceFromCard;
+        window.openServiceModal = openServiceModal;
+        window.confirmServiceModal = confirmServiceModal;
     </script>
 
 </body>
