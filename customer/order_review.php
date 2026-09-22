@@ -104,6 +104,20 @@ function review_enrich_cart_item(array $item): array {
     return $item;
 }
 
+function review_is_ajax_confirm_request(): bool {
+    if (!empty($_POST['ajax_confirm'])) {
+        return true;
+    }
+    $requestedWith = strtolower(trim((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')));
+    return $requestedWith === 'xmlhttprequest';
+}
+
+function review_json_confirm_response(bool $ok, array $payload = []): void {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(array_merge(['ok' => $ok], $payload));
+    exit;
+}
+
 function review_render_item_summary(array $item): void {
     $name = trim((string)($item['name'] ?? 'Order Item'));
     $category = trim((string)($item['category'] ?? 'Service'));
@@ -350,6 +364,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
     error_log('Current URL: ' . $_SERVER['REQUEST_URI']);
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $order_error = 'Invalid request. Please try again.';
+        if (review_is_ajax_confirm_request()) {
+            review_json_confirm_response(false, ['error' => $order_error]);
+        }
     } else {
         // Validate branch selection
         $selected_branch_id = (int)($_POST['branch_id'] ?? 0);
@@ -928,6 +945,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                     if ($order_type === 'custom') {
                         error_log('Service order placed, redirecting to orders page: ' . $order_id);
                         $_SESSION['order_success'] = "Order #$order_id placed successfully! Our team will review and price your order shortly.";
+                        if (review_is_ajax_confirm_request()) {
+                            review_json_confirm_response(true, [
+                                'order_id' => (int)$order_id,
+                                'redirect' => 'orders.php',
+                            ]);
+                        }
                         header("Location: orders.php");
                         exit();
                     } else {
@@ -941,6 +964,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
             }
         }
     }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order']) && review_is_ajax_confirm_request()) {
+    review_json_confirm_response(false, [
+        'error' => $order_error ?? 'Failed to place order. Please try again.',
+    ]);
 }
 
 // Calculate total for all items
@@ -1935,6 +1964,146 @@ require_once __DIR__ . '/../includes/header.php';
             grid-template-columns: 1fr !important;
         }
     }
+
+    /* Inquire Now — full-screen success overlay */
+    .pf-order-success-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 12000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        background: rgba(10, 37, 48, 0.96);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.45s ease-in-out, visibility 0.45s ease-in-out;
+    }
+    .pf-order-success-overlay.is-visible {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+    }
+    .pf-order-success-overlay.is-leaving {
+        opacity: 0;
+        visibility: hidden;
+    }
+    .pf-order-success-stage {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        max-width: 22rem;
+        width: 100%;
+    }
+    .pf-order-success-icon {
+        width: clamp(72px, 18vw, 96px);
+        height: clamp(72px, 18vw, 96px);
+        margin-bottom: 1.25rem;
+    }
+    .pf-order-success-icon svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+        overflow: visible;
+    }
+    .pf-success-circle {
+        fill: none;
+        stroke: #53c5e0;
+        stroke-width: 2;
+        stroke-linecap: round;
+        transform-origin: 50% 50%;
+    }
+    .pf-order-success-stage[data-state="loading"] .pf-success-circle {
+        stroke-dasharray: 166;
+        stroke-dashoffset: 0;
+        animation: pf-order-success-pulse 1.1s ease-in-out infinite;
+    }
+    @keyframes pf-order-success-pulse {
+        0%, 100% { opacity: 0.45; transform: scale(0.92); }
+        50% { opacity: 1; transform: scale(1); }
+    }
+    .pf-success-check {
+        fill: none;
+        stroke: #53c5e0;
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-dasharray: 48;
+        stroke-dashoffset: 48;
+        opacity: 0;
+    }
+    .pf-order-success-stage[data-state="success"] .pf-success-circle {
+        stroke-dasharray: 166;
+        stroke-dashoffset: 166;
+        animation: none;
+        opacity: 1;
+        transform: scale(1);
+        transition: stroke-dashoffset 0.65s ease-in-out;
+    }
+    .pf-order-success-stage[data-state="success"].is-drawn .pf-success-circle {
+        stroke-dashoffset: 0;
+    }
+    .pf-order-success-stage[data-state="success"].is-drawn .pf-success-check {
+        opacity: 1;
+        stroke-dashoffset: 0;
+        transition: stroke-dashoffset 0.55s 0.45s ease-in-out, opacity 0.2s 0.45s ease-in-out;
+    }
+    .pf-order-success-msg {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 700;
+        color: #eaf6fb;
+        line-height: 1.45;
+        opacity: 0;
+        transform: translateY(10px);
+        transition: opacity 0.45s ease-in-out, transform 0.45s ease-in-out;
+    }
+    .pf-order-success-msg.is-visible {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    .pf-order-success-stage[data-state="error"] .pf-success-circle {
+        stroke: #f87171;
+        animation: none;
+        opacity: 1;
+    }
+    .pf-order-success-stage[data-state="error"] .pf-success-check {
+        display: none;
+    }
+    .pf-order-success-error-mark {
+        display: none;
+        fill: none;
+        stroke: #f87171;
+        stroke-width: 3;
+        stroke-linecap: round;
+    }
+    .pf-order-success-stage[data-state="error"] .pf-order-success-error-mark {
+        display: block;
+    }
+    .pf-order-success-retry {
+        margin-top: 1.25rem;
+        padding: 0.65rem 1.25rem;
+        border-radius: 10px;
+        border: 1px solid rgba(83, 197, 224, 0.45);
+        background: rgba(83, 197, 224, 0.12);
+        color: #eaf6fb;
+        font-weight: 700;
+        font-size: 0.9rem;
+        cursor: pointer;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.35s ease-in-out, background 0.2s ease;
+    }
+    .pf-order-success-retry.is-visible {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    .pf-order-success-retry:hover {
+        background: rgba(83, 197, 224, 0.22);
+    }
 </style>
 
 <!-- Success Modal -->
@@ -1985,7 +2154,7 @@ require_once __DIR__ . '/../includes/header.php';
             <h1 class="text-2xl font-bold text-gray-800 order-review-page-title">Review Your Order</h1>
         </div>
 
-        <form method="POST" action="order_review.php?item=<?php echo urlencode($item_key); ?>" novalidate data-pf-skip-guard class="review-checkout-form">
+        <form method="POST" action="order_review.php?item=<?php echo urlencode($item_key); ?>" novalidate data-pf-skip-guard class="review-checkout-form" data-service-inquire="<?php echo $is_product_order ? '0' : '1'; ?>">
             <input type="hidden" name="item" value="<?php echo htmlspecialchars($item_key); ?>">
             <?php echo csrf_field(); ?>
             
@@ -2123,11 +2292,154 @@ require_once __DIR__ . '/../includes/header.php';
     <?php endif; ?>
 </div>
 
+<?php if (!$is_product_order): ?>
+<div id="pfOrderSuccessOverlay" class="pf-order-success-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="pfOrderSuccessMsg">
+    <div class="pf-order-success-stage" id="pfOrderSuccessStage" data-state="loading">
+        <div class="pf-order-success-icon" aria-hidden="true">
+            <svg viewBox="0 0 52 52" xmlns="http://www.w3.org/2000/svg">
+                <circle class="pf-success-circle" cx="26" cy="26" r="25"/>
+                <path class="pf-success-check" d="M14.5 27.5 L22 35 L38 18"/>
+                <path class="pf-order-success-error-mark" d="M18 18 L34 34 M34 18 L18 34"/>
+            </svg>
+        </div>
+        <p class="pf-order-success-msg" id="pfOrderSuccessMsg"></p>
+        <button type="button" class="pf-order-success-retry" id="pfOrderSuccessRetry">Try again</button>
+    </div>
+</div>
+<?php endif; ?>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const form = document.querySelector('form');
+    const form = document.querySelector('form.review-checkout-form');
     const branchSelect = document.getElementById('branch_id');
     const branchError = document.getElementById('branch-error');
+    const isServiceInquire = form && form.getAttribute('data-service-inquire') === '1';
+    const overlay = document.getElementById('pfOrderSuccessOverlay');
+    const stage = document.getElementById('pfOrderSuccessStage');
+    const msgEl = document.getElementById('pfOrderSuccessMsg');
+    const retryBtn = document.getElementById('pfOrderSuccessRetry');
+    let submitInFlight = false;
+
+    function showOverlayLoading() {
+        if (!overlay || !stage) return;
+        stage.dataset.state = 'loading';
+        stage.classList.remove('is-drawn');
+        if (msgEl) {
+            msgEl.textContent = '';
+            msgEl.classList.remove('is-visible');
+        }
+        if (retryBtn) {
+            retryBtn.classList.remove('is-visible');
+        }
+        overlay.classList.remove('is-leaving');
+        overlay.classList.add('is-visible');
+        overlay.setAttribute('aria-hidden', 'false');
+    }
+
+    function hideOverlay() {
+        if (!overlay) return;
+        overlay.classList.remove('is-visible');
+        overlay.classList.add('is-leaving');
+        overlay.setAttribute('aria-hidden', 'true');
+    }
+
+    function showOverlayError(message) {
+        if (!overlay || !stage || !msgEl) return;
+        stage.dataset.state = 'error';
+        stage.classList.remove('is-drawn');
+        msgEl.textContent = message || 'Something went wrong. Please try again.';
+        msgEl.classList.add('is-visible');
+        if (retryBtn) {
+            retryBtn.classList.add('is-visible');
+        }
+        overlay.classList.add('is-visible');
+        overlay.setAttribute('aria-hidden', 'false');
+    }
+
+    function playSuccessAndRedirect(redirectUrl) {
+        if (!overlay || !stage || !msgEl) {
+            window.location.href = redirectUrl;
+            return;
+        }
+        stage.dataset.state = 'success';
+        requestAnimationFrame(function() {
+            requestAnimationFrame(function() {
+                stage.classList.add('is-drawn');
+            });
+        });
+        setTimeout(function() {
+            msgEl.textContent = 'Order placed successfully!';
+            msgEl.classList.add('is-visible');
+        }, 720);
+        setTimeout(function() {
+            overlay.classList.add('is-leaving');
+            setTimeout(function() {
+                window.location.href = redirectUrl;
+            }, 420);
+        }, 720 + 450 + 900);
+    }
+
+    if (retryBtn) {
+        retryBtn.addEventListener('click', function() {
+            submitInFlight = false;
+            hideOverlay();
+        });
+    }
+
+    if (form && isServiceInquire && overlay) {
+        form.addEventListener('submit', function(ev) {
+            const submitter = ev.submitter;
+            if (!submitter || submitter.name !== 'confirm_order') {
+                return;
+            }
+            if (submitInFlight) {
+                ev.preventDefault();
+                return;
+            }
+
+            if (branchSelect && branchSelect.required && !branchSelect.value) {
+                if (branchError) {
+                    branchError.style.display = 'flex';
+                }
+                return;
+            }
+
+            ev.preventDefault();
+            submitInFlight = true;
+            showOverlayLoading();
+
+            const formData = new FormData(form);
+            formData.set('confirm_order', '1');
+            formData.set('ajax_confirm', '1');
+
+            fetch(form.action, {
+                method: 'POST',
+                body: formData,
+                credentials: 'same-origin',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json',
+                },
+            })
+                .then(function(res) {
+                    return res.json().catch(function() {
+                        return { ok: false, error: 'Unexpected server response. Please try again.' };
+                    });
+                })
+                .then(function(data) {
+                    if (data && data.ok) {
+                        playSuccessAndRedirect(data.redirect || 'orders.php');
+                        return;
+                    }
+                    submitInFlight = false;
+                    showOverlayError((data && data.error) ? data.error : 'Failed to place order. Please try again.');
+                })
+                .catch(function() {
+                    submitInFlight = false;
+                    showOverlayError('Network error. Check your connection and try again.');
+                });
+        });
+    }
 
     if (form && branchSelect) {
         // Validation removed as branch is now always selected by default
