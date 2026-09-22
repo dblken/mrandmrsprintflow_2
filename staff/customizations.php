@@ -227,9 +227,14 @@ $online_closed_count = 0;
             transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
         }
 
+        .pf-staff-customizations-root .kpi-card--link .kpi-card-inner {
+            pointer-events: none;
+        }
+
         .pf-staff-customizations-root .kpi-card--link:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+            border-color: rgba(15, 23, 42, 0.14);
         }
 
         .pf-staff-customizations-root .kpi-card--link:active {
@@ -2258,62 +2263,63 @@ $online_closed_count = 0;
                         </thead>
                         <tbody class="divide-y divide-gray-100">
                             <template x-for="item in paginatedListItems" :key="item.key">
-                                <template x-if="item.kind === 'section'">
-                                    <tr class="pf-orders-section-row">
+                                <tr
+                                    :class="item.kind === 'section' ? 'pf-orders-section-row' : 'group transition-all relative cursor-pointer customization-row'"
+                                    @click="item.kind === 'row' ? viewDetails(item.jo.id, item.jo.order_type || 'JOB') : null"
+                                >
+                                    <template x-if="item.kind === 'section'">
                                         <td colspan="7" class="px-6 py-2">
                                             <div class="pf-orders-section-label" :class="item.label === 'Urgent Orders' ? 'pf-orders-section-label--urgent' : ''" x-text="item.label"></div>
                                         </td>
-                                    </tr>
-                                </template>
-                                <template x-if="item.kind === 'row'">
-                                <tr @click="viewDetails(item.jo.id, item.jo.order_type || 'JOB')" class="group transition-all relative cursor-pointer customization-row">
-                                    <td class="pl-6 pr-4 py-4 relative order-code-cell" data-label="Order">
-                                        <div class="row-indicator"></div>
-                                        <div class="pf-order-code-stack">
-                                            <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(item.jo)" x-text="getDisplayOrderCode(item.jo)"></span>
-                                            <span x-show="orderIsUrgentRequest(item.jo)" class="pf-urgent-request-badge">Urgent Request</span>
-                                            <span x-show="orderHasChangeItemBadge(item.jo)" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(item.jo)"></span>
-                                        </div>
-                                    </td>
-                                    <td class="px-4 py-4 customization-info-cell" data-label="Details">
-                                        <div class="flex items-center gap-3">
-                                            <div class="flex flex-col gap-0 min-w-0">
-                                                <div class="table-text-main truncate-ellipsis" :title="getRowDisplayName(item.jo)" x-text="getRowDisplayName(item.jo)"></div>
-                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type !== 'SERVICE'"><span x-text="item.jo.width_ft"></span>'×<span x-text="item.jo.height_ft"></span>' • <span x-text="item.jo.quantity"></span> pcs</div>
-                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="false && item.jo.order_type !== 'SERVICE'"><span x-text="item.jo.width_ft"></span>'Ã—<span x-text="item.jo.height_ft"></span>' â€¢ <span x-text="item.jo.quantity"></span> pcs</div>
-                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(item.jo)"></div>
-                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type === 'SERVICE'">Service purchase</div>
+                                    </template>
+                                    <template x-else-if="item.kind === 'row'">
+                                        <td class="pl-6 pr-4 py-4 relative order-code-cell" data-label="Order">
+                                            <div class="row-indicator"></div>
+                                            <div class="pf-order-code-stack">
+                                                <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(item.jo)" x-text="getDisplayOrderCode(item.jo)"></span>
+                                                <span x-show="orderIsUrgentRequest(item.jo)" class="pf-urgent-request-badge">Urgent Request</span>
+                                                <span x-show="orderHasChangeItemBadge(item.jo)" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(item.jo)"></span>
                                             </div>
-                                        </div>
-                                    </td>
-                                    <td class="px-4 py-4 needed-date-cell" data-label="Needed Date">
-                                        <div class="table-text-main truncate-ellipsis" :title="formatOrderNeededDate(item.jo, true)" x-text="formatOrderNeededDate(item.jo)"></div>
-                                    </td>
-                                    <td class="px-4 py-4 status-col-cell" data-label="Status">
-                                        <div class="status-col-inner">
-                                        <div :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(item.jo)">
+                                        </td>
+                                        <td class="px-4 py-4 customization-info-cell" data-label="Details">
+                                            <div class="flex items-center gap-3">
+                                                <div class="flex flex-col gap-0 min-w-0">
+                                                    <div class="table-text-main truncate-ellipsis" :title="getRowDisplayName(item.jo)" x-text="getRowDisplayName(item.jo)"></div>
+                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type !== 'SERVICE'"><span x-text="item.jo.width_ft"></span>'×<span x-text="item.jo.height_ft"></span>' • <span x-text="item.jo.quantity"></span> pcs</div>
+                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="false && item.jo.order_type !== 'SERVICE'"><span x-text="item.jo.width_ft"></span>'Ã—<span x-text="item.jo.height_ft"></span>' â€¢ <span x-text="item.jo.quantity"></span> pcs</div>
+                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(item.jo)"></div>
+                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type === 'SERVICE'">Service purchase</div>
+                                                </div>
                                             </div>
-                                        </div>
-                                    </td>
-                                    <td class="px-4 py-4 customer-cell" data-label="Customer">
-                                        <div class="table-text-main truncate-ellipsis" :title="(item.jo.first_name + ' ' + (item.jo.last_name || '')).trim()" x-text="item.jo.first_name + ' ' + (item.jo.last_name || '')"></div>
-                                    </td>
-                                    <td class="px-4 py-4 text-right created-cell" data-label="Created">
-                                        <div class="table-text-main truncate-ellipsis" :title="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''" x-text="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"></div>
-                                        <div class="table-text-sub uppercase truncate-ellipsis" :title="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''" x-text="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''"></div>
-                                    </td>
-                                    <td class="px-4 py-4 action-col-cell" data-label="Action">
-                                        <div class="action-btn-group">
-                                            <button
-                                                @click.stop="viewDetails(item.jo.id, item.jo.order_type || 'JOB')"
-                                                class="table-action-btn"
-                                                :disabled="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB')"
-                                                :style="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'opacity:0.65;cursor:wait;' : ''"
-                                                x-text="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'Loading...' : 'View'"></button>
-                                        </div>
-                                    </td>
+                                        </td>
+                                        <td class="px-4 py-4 needed-date-cell" data-label="Needed Date">
+                                            <div class="table-text-main truncate-ellipsis" :title="formatOrderNeededDate(item.jo, true)" x-text="formatOrderNeededDate(item.jo)"></div>
+                                        </td>
+                                        <td class="px-4 py-4 status-col-cell" data-label="Status">
+                                            <div class="status-col-inner">
+                                            <div :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(item.jo)">
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-4 customer-cell" data-label="Customer">
+                                            <div class="table-text-main truncate-ellipsis" :title="(item.jo.first_name + ' ' + (item.jo.last_name || '')).trim()" x-text="item.jo.first_name + ' ' + (item.jo.last_name || '')"></div>
+                                        </td>
+                                        <td class="px-4 py-4 text-right created-cell" data-label="Created">
+                                            <div class="table-text-main truncate-ellipsis" :title="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''" x-text="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"></div>
+                                            <div class="table-text-sub uppercase truncate-ellipsis" :title="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''" x-text="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''"></div>
+                                        </td>
+                                        <td class="px-4 py-4 action-col-cell" data-label="Action">
+                                            <div class="action-btn-group">
+                                                <button
+                                                    @click.stop="viewDetails(item.jo.id, item.jo.order_type || 'JOB')"
+                                                    class="table-action-btn"
+                                                    :disabled="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB')"
+                                                    :style="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'opacity:0.65;cursor:wait;' : ''"
+                                                    x-text="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'Loading...' : 'View'"></button>
+                                            </div>
+                                        </td>
+                                    </template>
                                 </tr>
-                                </template>
                             </template>
                             <template x-for="rowIndex in (loadingOrders && orders.length === 0 ? 6 : 0)" :key="'skeleton-' + rowIndex">
                                 <tr aria-hidden="true">
@@ -2344,15 +2350,15 @@ $online_closed_count = 0;
 
                 <div class="customizations-mobile-list" aria-label="Customization orders">
                     <template x-for="item in paginatedListItems" :key="'mobile-' + item.key">
-                        <template x-if="item.kind === 'section'">
-                            <div
-                                class="customizations-mobile-section-label"
-                                :class="item.label === 'All Orders' ? 'customizations-mobile-section-label--regular' : ''"
-                                x-text="item.label"
-                            ></div>
-                        </template>
-                        <template x-if="item.kind === 'row'">
+                        <div class="customizations-mobile-list-entry">
+                        <div
+                            x-show="item.kind === 'section'"
+                            class="customizations-mobile-section-label"
+                            :class="item.label === 'All Orders' ? 'customizations-mobile-section-label--regular' : ''"
+                            x-text="item.label"
+                        ></div>
                         <article
+                            x-show="item.kind === 'row'"
                             class="customization-mobile-card"
                             @click="viewDetails(item.jo.id, item.jo.order_type || 'JOB')"
                         >
@@ -2425,7 +2431,7 @@ $online_closed_count = 0;
                                 ></button>
                             </div>
                         </article>
-                        </template>
+                        </div>
                     </template>
 
                     <template x-for="rowIndex in (loadingOrders && orders.length === 0 ? 3 : 0)" :key="'mobile-skeleton-' + rowIndex">
