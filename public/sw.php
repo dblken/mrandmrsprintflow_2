@@ -23,7 +23,7 @@ header('X-Content-Type-Options: nosniff');
  */
 
 const BASE_PATH = '<?php echo $base_path; ?>';
-const CACHE_VERSION = 'v18';
+const CACHE_VERSION = 'v19';
 const SHELL_CACHE = 'printflow-shell-' + CACHE_VERSION;
 const PAGE_CACHE = 'printflow-pages-' + CACHE_VERSION;
 const IMG_CACHE = 'printflow-img-' + CACHE_VERSION;
@@ -210,6 +210,11 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
+    if (isPosCatalogImage(url)) {
+        event.respondWith(cacheFirst(request, IMG_CACHE));
+        return;
+    }
+
     if (request.destination === 'document' || url.pathname.endsWith('.php') || url.pathname.endsWith('/')) {
         event.respondWith(networkOnlyDocument(request));
         return;
@@ -265,6 +270,18 @@ function isTrustedStaticAsset(url) {
     if (url.origin !== self.location.origin || !url.pathname.startsWith(assetRoot)) return false;
     if (url.pathname.startsWith(assetRoot + 'uploads/')) return false;
     return /\.(css|js|png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot)$/i.test(url.pathname);
+}
+
+function isPosCatalogImage(url) {
+    if (url.origin !== self.location.origin) return false;
+    if (!/\.(png|jpe?g|gif|webp|svg|ico)$/i.test(url.pathname)) return false;
+    const bp = BASE_PATH || '';
+    const prefixes = [
+        bp + '/public/images/products/',
+        bp + '/public/images/services/',
+        bp + '/public/assets/uploads/products/',
+    ];
+    return prefixes.some((prefix) => url.pathname.startsWith(prefix));
 }
 
 function isCachePutEligible(request, response) {

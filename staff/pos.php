@@ -780,7 +780,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         .pos-catalog-card__price {
             font-size: 14px;
             font-weight: 800;
-            color: var(--staff-primary);
+            color: #0f172a;
             margin-top: auto;
         }
 
@@ -6306,6 +6306,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         window.openServiceModal = openServiceModal;
         window.confirmServiceModal = confirmServiceModal;
     </script>
+
+    <script>window.PFConfig = Object.assign({}, window.PFConfig || {}, { basePath: <?php echo json_encode(rtrim(defined('BASE_PATH') ? (string)BASE_PATH : '', '/')); ?> });</script>
+    <?php $pos_pwa_js_ver = @filemtime(__DIR__ . '/../public/assets/js/pwa.js') ?: time(); ?>
+    <script src="<?php echo htmlspecialchars(rtrim(defined('BASE_PATH') ? BASE_PATH : '', '/') . '/public/assets/js/pwa.js'); ?>?v=<?php echo (int)$pos_pwa_js_ver; ?>" defer></script>
 
 </body>
 
