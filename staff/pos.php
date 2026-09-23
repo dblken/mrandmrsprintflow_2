@@ -6316,8 +6316,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             btn.textContent = 'Creating customer...';
             btn.disabled = true;
 
+            let successAlert = null;
+            let errorAlert = null;
+
             try {
-                const res = await fetch(staffUrl('staff/api/pos_add_customer.php'), {
+                const apiUrl = staffUrl('staff/api/pos_add_customer.php');
+                console.log('[POS] saveCustomer: request start', apiUrl);
+
+                const res = await fetchWithTimeout(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'same-origin',
@@ -6327,7 +6333,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         email: email,
                         contact_number: phone
                     })
-                });
+                }, 45000);
+
+                console.log('[POS] saveCustomer: response status', res.status);
+
                 const raw = await res.text();
                 let data;
                 try {
@@ -6348,23 +6357,41 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     sel.val(String(data.customer_id)).trigger('change');
                     closeCustomerModal();
 
-                    // Clear form
                     document.getElementById('nc-first').value = '';
                     document.getElementById('nc-last').value = '';
                     document.getElementById('nc-email').value = '';
                     document.getElementById('nc-phone').value = '';
 
-                    // Show success message
-                    await showPOSAlert('Customer Created', `Customer created successfully!\n\nA password setup email has been sent to ${email}.\nThe customer can use this email to create their account password.`, 'success');
+                    const msg = data.message
+                        || `Customer created successfully!\n\nA password setup email will be sent to ${email}.\nThe customer can use this email to create their account password.`;
+                    successAlert = { title: 'Customer Created', message: msg, type: 'success' };
+                    console.log('[POS] saveCustomer: success', data.customer_id);
                 } else {
-                    await showPOSAlert('Could Not Create Customer', data.message || 'Unknown error', 'error');
+                    errorAlert = {
+                        title: 'Could Not Create Customer',
+                        message: data.message || 'Unknown error',
+                        type: 'error'
+                    };
                 }
             } catch (e) {
-                console.error('Error:', e);
-                await showPOSAlert('Network Error', e.message || 'Network error. Please try again.', 'error');
+                console.error('[POS] saveCustomer: error', e);
+                const isTimeout = e && (e.name === 'AbortError' || String(e.message || '').toLowerCase().includes('abort'));
+                errorAlert = {
+                    title: isTimeout ? 'Request Timed Out' : 'Network Error',
+                    message: isTimeout
+                        ? 'Creating the customer took too long. Check your connection and try again, or verify the customer was not already created.'
+                        : (e.message || 'Network error. Please try again.'),
+                    type: 'error'
+                };
             } finally {
                 btn.textContent = 'Create Customer & Send Email';
                 btn.disabled = false;
+            }
+
+            if (successAlert) {
+                await showPOSAlert(successAlert.title, successAlert.message, successAlert.type);
+            } else if (errorAlert) {
+                await showPOSAlert(errorAlert.title, errorAlert.message, errorAlert.type);
             }
         }
 

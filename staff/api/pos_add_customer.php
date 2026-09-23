@@ -170,22 +170,30 @@ try {
             </html>
         ";
         
-        $email_sent = send_email($email, $email_subject, $email_body);
-        
-        // Log activity with email info
-        log_activity(
-            $_SESSION['user_id'],
-            $_SESSION['user_type'],
-            'Customer Created',
-            "Created customer: {$first_name} {$last_name} (ID: {$customer_id}) via POS. Password setup email sent to: {$email}"
-        );
-        
         echo json_encode([
             'success' => true,
             'customer_id' => $customer_id,
-            'email_sent' => $email_sent,
-            'message' => 'Customer created successfully! Password setup email sent to ' . $email
+            'message' => 'Customer created successfully! A password setup email will be sent to ' . $email,
         ]);
+
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        } else {
+            while (ob_get_level() > 0) {
+                ob_end_flush();
+            }
+            flush();
+        }
+
+        $email_sent = send_email($email, $email_subject, $email_body);
+
+        log_activity(
+            (int) $_SESSION['user_id'],
+            'Customer Created',
+            "Created customer: {$first_name} {$last_name} (ID: {$customer_id}) via POS. Password setup email "
+            . ($email_sent ? 'sent' : 'failed to send')
+            . " to: {$email}"
+        );
     }
 } catch (Exception $e) {
     error_log('POS Add Customer Error: ' . $e->getMessage());
