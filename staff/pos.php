@@ -6345,6 +6345,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 console.log('[POS] saveCustomer: response status', res.status);
 
                 const raw = await res.text();
+                // TEMP DEBUG: remove after Add Customer failure is diagnosed
+                console.log('[POS] saveCustomer: raw response', raw);
+
                 let data;
                 try {
                     data = JSON.parse(raw);
