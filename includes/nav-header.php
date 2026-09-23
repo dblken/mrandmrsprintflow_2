@@ -142,6 +142,11 @@ if ($initials === '') {
         #main-header .pf-notif-item:hover { background: var(--pf-notif-item-hover); }
         #main-header .pf-notif-item.unread { background: var(--pf-notif-item-unread); border-left: 3px solid #53c5e0; padding-left: 17px; }
         #main-header .pf-notif-item-icon { width: 32px; height: 32px; border-radius: 8px; background: var(--pf-notif-item-icon-bg); display: flex; align-items: center; justify-content: center; color: #53c5e0; flex-shrink: 0; }
+        #main-header .pf-cart-dropdown-thumb { padding: 0; overflow: hidden; background: #f1f5f9; }
+        #main-header .pf-cart-dropdown-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 8px; }
+        #main-header .pf-cart-dropdown-thumb .pf-cart-dropdown-thumb-icon { width: 16px; height: 16px; flex-shrink: 0; }
+        #main-header .pf-cart-dropdown-thumb:not(.is-fallback) .pf-cart-dropdown-thumb-icon { display: none; }
+        #main-header .pf-cart-dropdown-thumb.is-fallback .pf-cart-dropdown-thumb-icon { display: block; }
         #main-header .pf-notif-item-content { flex: 1; min-width: 0; }
         #main-header .pf-notif-item-text { font-size: 0.8rem; color: var(--pf-notif-text); line-height: 1.4; margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         #main-header .pf-notif-item-time { font-size: 0.7rem; color: var(--pf-notif-time); font-weight: 600; }
@@ -789,16 +794,79 @@ if ($initials === '') {
                                 <div class="pf-notif-empty">Your cart is empty.</div>
                                 <?php else:
                                     $pf_header_cart_slice = array_slice($pf_header_cart, 0, 5, true);
-                                    foreach ($pf_header_cart_slice as $pf_cart_line):
+                                    $pf_cart_nav_base = function_exists('pf_app_base_path') ? pf_app_base_path() : (string)$base_url;
+                                    $pf_cart_nav_default = rtrim($pf_cart_nav_base, '/') . '/public/assets/images/services/default.png';
+                                    $pf_cart_image_map = [];
+                                    $pf_cart_product_ids = [];
+                                    foreach ($pf_header_cart_slice as $pf_cart_key => $pf_cart_line_probe) {
+                                        $probe_pid = (int)($pf_cart_line_probe['product_id'] ?? 0);
+                                        if ($probe_pid > 0) {
+                                            $pf_cart_product_ids[$probe_pid] = true;
+                                        }
+                                    }
+                                    if ($pf_cart_product_ids !== [] && function_exists('db_query')) {
+                                        $pf_cart_ids_list = array_keys($pf_cart_product_ids);
+                                        $pf_cart_ph = implode(',', array_fill(0, count($pf_cart_ids_list), '?'));
+                                        $pf_cart_types = str_repeat('i', count($pf_cart_ids_list));
+                                        $pf_cart_img_rows = db_query(
+                                            "SELECT product_id, photo_path, product_image FROM products WHERE product_id IN ($pf_cart_ph)",
+                                            $pf_cart_types,
+                                            $pf_cart_ids_list
+                                        );
+                                        foreach ($pf_cart_img_rows as $pf_cart_img_row) {
+                                            $pf_cart_raw = trim((string)($pf_cart_img_row['photo_path'] ?? ''));
+                                            if ($pf_cart_raw === '') {
+                                                $pf_cart_raw = trim((string)($pf_cart_img_row['product_image'] ?? ''));
+                                            }
+                                            if ($pf_cart_raw === '' || !function_exists('pf_normalize_service_image_path')) {
+                                                continue;
+                                            }
+                                            $pf_cart_url = pf_normalize_service_image_path($pf_cart_raw, $pf_cart_nav_base, $pf_cart_nav_default);
+                                            if ($pf_cart_url !== '' && $pf_cart_url !== $pf_cart_nav_default
+                                                && !(function_exists('printflow_is_video_media_path') && printflow_is_video_media_path($pf_cart_url))) {
+                                                $pf_cart_image_map[(int)$pf_cart_img_row['product_id']] = $pf_cart_url;
+                                            }
+                                        }
+                                    }
+                                    foreach ($pf_header_cart_slice as $pf_cart_key => $pf_cart_line):
                                         $pf_cart_name = trim((string)($pf_cart_line['name'] ?? $pf_cart_line['product_name'] ?? 'Item'));
                                         if ($pf_cart_name === '') {
                                             $pf_cart_name = 'Item';
                                         }
                                         $pf_cart_qty = max(1, (int)($pf_cart_line['quantity'] ?? 1));
+                                        $pf_cart_thumb = '';
+                                        $pf_cart_pid = (int)($pf_cart_line['product_id'] ?? 0);
+                                        if ($pf_cart_pid > 0 && isset($pf_cart_image_map[$pf_cart_pid])) {
+                                            $pf_cart_thumb = $pf_cart_image_map[$pf_cart_pid];
+                                        }
+                                        if ($pf_cart_thumb === '' && function_exists('printflow_cart_line_service_catalog_image_url')) {
+                                            $pf_cart_thumb = printflow_cart_line_service_catalog_image_url($pf_cart_line, (string)$pf_cart_key, $pf_cart_name);
+                                            if ($pf_cart_thumb !== '' && function_exists('printflow_is_video_media_path') && printflow_is_video_media_path($pf_cart_thumb)) {
+                                                $pf_cart_thumb = '';
+                                            }
+                                        }
+                                        if ($pf_cart_thumb === '' && function_exists('pf_normalize_service_image_path')) {
+                                            foreach (['photo_path', 'product_image', 'image_url', 'image'] as $pf_cart_img_field) {
+                                                $pf_cart_candidate = trim((string)($pf_cart_line[$pf_cart_img_field] ?? ''));
+                                                if ($pf_cart_candidate === '') {
+                                                    continue;
+                                                }
+                                                $pf_cart_try = pf_normalize_service_image_path($pf_cart_candidate, $pf_cart_nav_base, $pf_cart_nav_default);
+                                                if ($pf_cart_try !== '' && $pf_cart_try !== $pf_cart_nav_default
+                                                    && !(function_exists('printflow_is_video_media_path') && printflow_is_video_media_path($pf_cart_try))) {
+                                                    $pf_cart_thumb = $pf_cart_try;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        $pf_cart_thumb_fallback = ($pf_cart_thumb === '');
                                 ?>
                                 <a href="<?php echo htmlspecialchars($base_url . '/customer/cart.php'); ?>" class="pf-notif-item">
-                                    <div class="pf-notif-item-icon" aria-hidden="true">
-                                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                                    <div class="pf-notif-item-icon pf-cart-dropdown-thumb<?php echo $pf_cart_thumb_fallback ? ' is-fallback' : ''; ?>" aria-hidden="true">
+                                        <?php if (!$pf_cart_thumb_fallback): ?>
+                                        <img src="<?php echo htmlspecialchars($pf_cart_thumb); ?>" alt="" loading="lazy" decoding="async" onerror="this.remove(); this.parentElement.classList.add('is-fallback');">
+                                        <?php endif; ?>
+                                        <svg class="pf-cart-dropdown-thumb-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
                                     </div>
                                     <div class="pf-notif-item-content">
                                         <div class="pf-notif-item-text"><?php echo htmlspecialchars($pf_cart_name); ?></div>
