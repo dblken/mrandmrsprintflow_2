@@ -227,12 +227,13 @@
         // never buffer or consume the same keyboard events.
         if (isProductBarcodeTarget(event.target)) { reset(); return; }
         if (isProtectedEditingTarget(event.target)) { reset(); return; }
+        var key = typeof event.key === 'string' ? event.key : '';
         var now = Date.now();
-        var isTerminator = event.key === 'Enter' || event.key === 'Tab' || event.key === '\r' || event.key === '\n';
-        if (isTerminator) { finishScan(event.key === 'Tab' ? 'tab' : 'enter', event); return; }
-        if (event.key === 'Shift' || event.key === 'CapsLock' || event.key === 'NumLock' || event.key === 'Process') return;
-        if (event.key.length !== 1 || !/[\x20-\x7E]/.test(event.key)) {
-            if (buffer) debug('decode/input incomplete', { key: String(event.key || ''), characters: buffer.length });
+        var isTerminator = key === 'Enter' || key === 'Tab' || key === '\r' || key === '\n';
+        if (isTerminator) { finishScan(key === 'Tab' ? 'tab' : 'enter', event); return; }
+        if (key === 'Shift' || key === 'CapsLock' || key === 'NumLock' || key === 'Process') return;
+        if (key.length !== 1 || !/[\x20-\x7E]/.test(key)) {
+            if (buffer) debug('decode/input incomplete', { key: key || String(event.key || ''), characters: buffer.length });
             reset();
             return;
         }
@@ -242,7 +243,7 @@
             scanTarget = event.target || null;
             targetSnapshot = snapshotTarget(scanTarget);
         }
-        buffer += event.key;
+        buffer += key;
         lastKeyAt = now;
         if (buffer.length > 96) { debug('decode/input incomplete', { reason: 'buffer_limit' }); reset(); return; }
         scheduleSettledScan();
