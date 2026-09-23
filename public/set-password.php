@@ -5,6 +5,9 @@
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 
+$base_url = defined('BASE_URL') ? BASE_URL : (defined('BASE_PATH') ? BASE_PATH : '');
+$login_page_url = rtrim((string) $base_url, '/') . '/?auth_modal=login';
+
 $error = '';
 $success = '';
 $token = $_GET['token'] ?? '';
@@ -313,7 +316,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid_token) {
                 <?= htmlspecialchars($success) ?>
             </div>
             <div class="login-link">
-                <a href="login.php">Go to Login Page →</a>
+                <a href="<?= htmlspecialchars($login_page_url, ENT_QUOTES, 'UTF-8') ?>">Go to Login Page →</a>
             </div>
         <?php elseif (!$valid_token): ?>
             <h2>Invalid Link</h2>
@@ -321,7 +324,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid_token) {
                 <?= htmlspecialchars($error ?: 'This password setup link is invalid or has expired.') ?>
             </div>
             <div class="login-link">
-                <a href="login.php">Back to Login</a>
+                <a href="<?= htmlspecialchars($login_page_url, ENT_QUOTES, 'UTF-8') ?>">Back to Login</a>
             </div>
         <?php else: ?>
             <h2>Set Your Password</h2>
@@ -381,7 +384,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid_token) {
             </form>
 
             <div class="login-link">
-                Already have a password? <a href="login.php">Login here</a>
+                Already have a password? <a href="<?= htmlspecialchars($login_page_url, ENT_QUOTES, 'UTF-8') ?>">Login here</a>
             </div>
         <?php endif; ?>
     </div>
