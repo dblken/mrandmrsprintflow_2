@@ -1631,7 +1631,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             inset: 0;
             background: rgba(0, 0, 0, 0.4);
             backdrop-filter: blur(4px);
-            z-index: 3000;
+            z-index: 10100;
             align-items: center;
             justify-content: center;
             opacity: 0;
@@ -2918,7 +2918,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     onfocus="this.style.borderColor='var(--staff-primary)';this.style.background='#fff';this.style.boxShadow='0 0 0 3px rgba(var(--staff-accent-rgb),0.12)'"
                     onblur="this.style.borderColor='#e2e8f0';this.style.background='#f8fafc'">
             </div>
-            <button onclick="saveCustomer()" id="nc-save-btn"
+            <button type="button" onclick="saveCustomer()" id="nc-save-btn"
                 style="width:100%; background:var(--staff-pos-button-bg); color:white; padding:14px; border:none; border-radius:12px; font-weight:700; cursor:pointer; box-shadow:0 12px 24px rgba(15,23,42,0.14); transition:all 0.2s;"
                 onmouseover="this.style.filter='brightness(0.98)'" onmouseout="this.style.filter='none'">Create
                 Customer & Send Email</button>
@@ -3060,6 +3060,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         let pendingPayMongoPrintJob = null;
         let posPayMongoCheckoutPending = false;
         let posPayMongoCheckoutAttemptToken = null;
+        let posSaveCustomerInFlight = false;
         function staffUrl(path) {
             return (STAFF_BASE_PATH || '') + '/' + String(path || '').replace(/^\/+/, '');
         }
@@ -6312,9 +6313,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
+            if (posSaveCustomerInFlight) {
+                console.log('[POS] saveCustomer: ignored — request already in progress');
+                return;
+            }
+
             const btn = document.getElementById('nc-save-btn');
-            btn.textContent = 'Creating customer...';
+            posSaveCustomerInFlight = true;
             btn.disabled = true;
+            btn.textContent = 'Creating customer...';
 
             let successAlert = null;
             let errorAlert = null;
@@ -6384,14 +6391,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     type: 'error'
                 };
             } finally {
-                btn.textContent = 'Create Customer & Send Email';
-                btn.disabled = false;
+                posSaveCustomerInFlight = false;
             }
 
             if (successAlert) {
+                console.log('[POS] saveCustomer: showing success alert');
                 await showPOSAlert(successAlert.title, successAlert.message, successAlert.type);
             } else if (errorAlert) {
+                console.log('[POS] saveCustomer: showing error alert');
                 await showPOSAlert(errorAlert.title, errorAlert.message, errorAlert.type);
+            }
+
+            if (btn) {
+                btn.textContent = 'Create Customer & Send Email';
+                btn.disabled = false;
             }
         }
 
