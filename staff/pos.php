@@ -608,12 +608,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             position: relative;
         }
 
-        .pos-barcode-box i {
-            position: absolute;
-            left: 14px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #94a3b8;
+        .pos-barcode-box .pos-search-input {
+            padding-left: 16px;
         }
 
         .pos-search-box i {
@@ -2099,19 +2095,52 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
         }
 
-        /* Mobile: stack catalog above cart — no overlap */
-        @media (max-width: 767px) {
-            .pos-main-shell {
+        /* Mobile: stack catalog above cart — single page scroll */
+        @media (max-width: 768px) {
+            html:has(body.pf-pos-page),
+            body.pf-pos-page {
                 height: auto !important;
                 min-height: 100dvh;
+                min-height: 100svh;
                 overflow-x: hidden !important;
                 overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            body.pf-pos-page .dashboard-container {
+                height: auto !important;
+                min-height: 100dvh;
+                min-height: 100svh;
+                overflow: visible !important;
+            }
+
+            body.pf-pos-page .main-content.pos-main-shell {
+                height: auto !important;
+                min-height: 0 !important;
+                max-height: none !important;
+                overflow: visible !important;
+                overflow-y: visible !important;
+                padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+            }
+
+            .pos-main-shell > main {
+                flex: none !important;
+                height: auto !important;
+                min-height: 0 !important;
+                overflow: visible !important;
+            }
+
+            .pos-main-shell {
+                height: auto !important;
+                min-height: 0 !important;
+                overflow: visible !important;
             }
 
             .pos-wrapper {
                 grid-template-columns: 1fr !important;
                 height: auto !important;
                 min-height: 0 !important;
+                flex: none !important;
                 overflow: visible !important;
             }
 
@@ -2129,6 +2158,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             #services-view {
                 height: auto !important;
                 min-height: 0 !important;
+                flex: none !important;
+            }
+
+            #selection-view {
+                align-items: stretch !important;
+                justify-content: flex-start !important;
+                padding: 24px 16px 16px !important;
             }
 
             .pos-catalog-grid,
@@ -2157,15 +2193,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
 
             .pos-cart-list {
-                max-height: min(260px, 38vh);
-                overflow-y: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
             }
 
             .pos-checkout-section {
-                position: sticky;
-                bottom: 0;
-                z-index: 2;
-                box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.06);
+                position: static;
+                box-shadow: none;
+            }
+
+            .pos-cart-area {
+                padding-bottom: env(safe-area-inset-bottom, 0px);
             }
 
             .pos-search-header {
@@ -2240,7 +2278,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
     </style>
 </head>
 
-<body data-turbo="false" data-csrf="<?php echo htmlspecialchars($pos_csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
+<body class="pf-pos-page" data-turbo="false" data-csrf="<?php echo htmlspecialchars($pos_csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
 
     <div class="dashboard-container">
         <?php
@@ -2281,7 +2319,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                 <div class="pos-barcode-scan" style="max-width:none;width:100%;margin:0 0 18px;">
                                     <label for="pos-barcode-input-home">Scan Barcode or Enter SKU</label>
                                     <div class="pos-barcode-box">
-                                        <i class="fas fa-barcode"></i>
                                         <input type="text" id="pos-barcode-input-home" class="pos-search-input pos-barcode-entry"
                                             placeholder="Scan or type product SKU, then press Enter" autocomplete="off" inputmode="text">
                                     </div>
@@ -2347,7 +2384,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                     <div class="pos-barcode-scan">
                                         <label for="pos-barcode-input" class="pos-toolbar-sr-label">Scan Barcode or Enter SKU</label>
                                         <div class="pos-barcode-box">
-                                            <i class="fas fa-barcode"></i>
                                             <input type="text" id="pos-barcode-input" class="pos-search-input pos-barcode-entry"
                                                 placeholder="Scan or type SKU, then press Enter" autocomplete="off" inputmode="text">
                                         </div>
