@@ -700,6 +700,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             text-align: left;
             padding: 0;
             font: inherit;
+            font-family: var(--pf-ui-font-sans, inherit);
             color: inherit;
             width: 100%;
         }
@@ -762,6 +763,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             gap: 6px;
             flex: 1;
             min-height: 72px;
+        }
+
+        .pos-catalog-card__body,
+        .pos-catalog-card__name,
+        .pos-catalog-card__price,
+        .pos-catalog-card__meta,
+        .pos-catalog-card__badge {
+            font-family: inherit;
         }
 
         .pos-catalog-card__name {
@@ -1418,6 +1427,128 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         /* Select2 Custom Styling */
+        .pos-customer-select-wrap .select2-container {
+            width: 100% !important;
+        }
+
+        .pos-customer-select-wrap .select2-container--default .select2-selection--single {
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            height: 44px;
+            padding: 8px 40px 8px 12px;
+            background: #ffffff;
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            position: relative;
+        }
+
+        .pos-customer-select-wrap .select2-container--default .select2-selection--single .select2-selection__rendered {
+            line-height: 26px;
+            color: #1e293b;
+            padding-left: 28px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: block;
+            position: relative;
+        }
+
+        .pos-customer-select-wrap .select2-container--default .select2-selection--single .select2-selection__rendered::before {
+            content: '\f007';
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--staff-primary);
+            font-size: 13px;
+        }
+
+        .pos-customer-select-wrap .select2-container--default .select2-selection--single .select2-selection__arrow {
+            height: 42px;
+            right: 8px;
+        }
+
+        .pos-customer-select-wrap .select2-container--default.select2-container--focus .select2-selection--single,
+        .pos-customer-select-wrap .select2-container--default.select2-container--open .select2-selection--single {
+            border-color: var(--staff-primary);
+            box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12);
+        }
+
+        .select2-dropdown.pos-customer-select-dropdown {
+            border: 1px solid #cbd5e1;
+            border-radius: 12px;
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+            overflow: hidden;
+            z-index: 10060 !important;
+        }
+
+        .select2-dropdown.pos-customer-select-dropdown .select2-search--dropdown {
+            padding: 12px 12px 8px;
+            position: relative;
+        }
+
+        .select2-dropdown.pos-customer-select-dropdown .select2-search--dropdown::before {
+            content: '\f002';
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            position: absolute;
+            left: 22px;
+            top: calc(50% - 2px);
+            transform: translateY(-50%);
+            color: #94a3b8;
+            font-size: 13px;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .select2-dropdown.pos-customer-select-dropdown .select2-search__field {
+            width: 100% !important;
+            padding: 11px 12px 11px 36px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            background: #f8fafc;
+            color: #1e293b;
+            font-size: 14px;
+            outline: none;
+            box-sizing: border-box;
+        }
+
+        .select2-dropdown.pos-customer-select-dropdown .select2-search__field:focus {
+            border-color: var(--staff-primary);
+            background: #ffffff;
+            box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12);
+        }
+
+        .select2-dropdown.pos-customer-select-dropdown .select2-results__option {
+            padding: 10px 14px;
+        }
+
+        .pos-customer-option__name {
+            font-size: 14px;
+            font-weight: 700;
+            color: #0f172a;
+            line-height: 1.35;
+        }
+
+        .pos-customer-option__email {
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 2px;
+            line-height: 1.35;
+            word-break: break-word;
+        }
+
+        .pos-customer-option--guest .pos-customer-option__name {
+            font-weight: 600;
+        }
+
+        .select2-container--default .select2-results__option--highlighted[aria-selected] .pos-customer-option__name,
+        .select2-container--default .select2-results__option--highlighted[aria-selected] .pos-customer-option__email {
+            color: #ffffff;
+        }
+
         .select2-container--default .select2-selection--single {
             border: 1px solid #cbd5e1;
             border-radius: 8px;
@@ -1449,6 +1580,48 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         .select2-container--default .select2-results__option--highlighted[aria-selected] {
             background-color: var(--staff-primary);
+        }
+
+        #customer-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.75);
+            z-index: 10070;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            box-sizing: border-box;
+        }
+
+        #customer-modal .pos-customer-modal-card {
+            background: #ffffff;
+            width: min(450px, calc(100vw - 32px));
+            max-height: calc(100dvh - 32px);
+            overflow-y: auto;
+            border-radius: 20px;
+            padding: 28px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+            color: #1e293b;
+            border: 1px solid #e2e8f0;
+        }
+
+        #customer-modal .pos-customer-modal-lead {
+            margin: 0 0 8px;
+            font-size: 14px;
+            color: #475569;
+            line-height: 1.55;
+        }
+
+        #customer-modal .pos-customer-modal-help {
+            margin: 0 0 20px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            font-size: 12px;
+            color: #64748b;
+            line-height: 1.5;
         }
 
         /* Custom Alert/Confirm Modal */
@@ -2477,19 +2650,25 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         <div class="pos-customer-section">
                             <div class="pos-customer-label">
                                 <span class="pos-section-label"><i class="fas fa-user"></i> Customer *</span>
-                                <button class="pos-btn-link" onclick="openNewCustomerModal()">+ New</button>
+                                <button type="button" class="pos-btn-link" onclick="openNewCustomerModal()">+ New Customer</button>
                             </div>
+                            <div class="pos-customer-select-wrap">
                             <select id="pos-customer" class="pos-category-select" style="width: 100%; min-width: unset;"
                                 required>
                                 <option value="">-- Select Customer --</option>
-                                <option value="guest">Walk-in Customer (Guest)</option>
+                                <option value="guest" data-first="" data-last="" data-email="" data-phone="">Walk-in Customer (Guest)</option>
                                 <?php foreach ($customers as $c): ?>
-                                    <option value="<?= $c['customer_id'] ?>">
-                                        <?= htmlspecialchars($c['first_name'] . ' ' . $c['last_name']) ?>
+                                    <option value="<?= (int)$c['customer_id'] ?>"
+                                        data-first="<?= htmlspecialchars($c['first_name'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                                        data-last="<?= htmlspecialchars($c['last_name'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                                        data-email="<?= htmlspecialchars($c['email'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                                        data-phone="<?= htmlspecialchars($c['contact_number'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
+                                        <?= htmlspecialchars(trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? ''))) ?>
                                         <?= !empty($c['email']) ? ' - ' . htmlspecialchars($c['email']) : (!empty($c['contact_number']) ? ' - ' . htmlspecialchars($c['contact_number']) : ' - No contact') ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
+                            </div>
                         </div>
 
                         <div class="pos-cart-list" id="pos-cart-items">
@@ -2691,17 +2870,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
     </div>
 
     <!-- Modal for New Customer -->
-    <div id="customer-modal"
-        style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:999; align-items:center; justify-content:center;">
-        <div
-            style="background:#ffffff; width:450px; border-radius:20px; padding:28px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.15); color:#1e293b; border:1px solid #e2e8f0;">
-            <div style="display:flex; justify-content:space-between; margin-bottom:24px;">
-                <h3 style="margin:0; font-weight:800; color:#0f172a; font-size:20px; letter-spacing:-0.02em;">Add
-                    Customer</h3>
-                <button onclick="closeCustomerModal()"
-                    style="background:none; border:none; font-size:24px; cursor:pointer; color:#94a3b8; padding:4px;"
-                    onmouseover="this.style.color='#1e293b'" onmouseout="this.style.color='#94a3b8'">&times;</button>
+    <div id="customer-modal">
+        <div class="pos-customer-modal-card">
+            <div style="display:flex; justify-content:space-between; margin-bottom:12px; gap:12px;">
+                <h3 style="margin:0; font-weight:800; color:#0f172a; font-size:20px; letter-spacing:-0.02em;">Add Customer</h3>
+                <button type="button" onclick="closeCustomerModal()"
+                    style="background:none; border:none; font-size:24px; cursor:pointer; color:#94a3b8; padding:4px; line-height:1;"
+                    onmouseover="this.style.color='#1e293b'" onmouseout="this.style.color='#94a3b8'" aria-label="Close">&times;</button>
             </div>
+            <p class="pos-customer-modal-lead">Create a customer account for this walk-in customer.</p>
+            <p class="pos-customer-modal-help">Create an account so this customer can be selected for the POS order and receive their account setup email.</p>
             <div style="margin-bottom:16px;">
                 <label
                     style="display:block; font-size:12px; font-weight:700; color:#64748b; text-transform:uppercase; margin-bottom:6px;">First
@@ -3567,13 +3745,77 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }).from(element).save();
         }
 
+        function posCustomerSearchText(data) {
+            if (!data || !data.element) {
+                return (data && data.text) ? String(data.text).toLowerCase() : '';
+            }
+            const el = data.element;
+            return [
+                data.text,
+                el.getAttribute('data-first'),
+                el.getAttribute('data-last'),
+                el.getAttribute('data-email'),
+                el.getAttribute('data-phone'),
+            ].filter(Boolean).join(' ').toLowerCase();
+        }
+
+        function formatPosCustomerOption(customer) {
+            if (!customer.id) return customer.text;
+            if (customer.id === 'guest') {
+                return $('<div class="pos-customer-option pos-customer-option--guest"><div class="pos-customer-option__name">Walk-in Customer (Guest)</div></div>');
+            }
+            const el = customer.element;
+            const first = el ? (el.getAttribute('data-first') || '') : '';
+            const last = el ? (el.getAttribute('data-last') || '') : '';
+            const email = el ? (el.getAttribute('data-email') || '') : '';
+            const phone = el ? (el.getAttribute('data-phone') || '') : '';
+            const name = (first + ' ' + last).trim();
+            const primary = name || email || customer.text;
+            const secondary = name ? (email || phone || '') : (phone || '');
+            const wrap = $('<div class="pos-customer-option"><div class="pos-customer-option__name"></div></div>');
+            wrap.find('.pos-customer-option__name').text(primary);
+            if (secondary) {
+                wrap.append($('<div class="pos-customer-option__email"></div>').text(secondary));
+            }
+            return wrap;
+        }
+
+        function formatPosCustomerSelection(customer) {
+            if (!customer.id) return customer.text;
+            if (customer.id === 'guest') return 'Walk-in Customer (Guest)';
+            const el = customer.element;
+            const first = el ? (el.getAttribute('data-first') || '') : '';
+            const last = el ? (el.getAttribute('data-last') || '') : '';
+            const name = (first + ' ' + last).trim();
+            return name || customer.text;
+        }
+
         // Initialize Select2 for customer dropdown
         $(document).ready(function () {
             $('#pos-customer').select2({
-                placeholder: '-- Select Customer --',
+                placeholder: 'Select customer...',
                 allowClear: false,
                 width: '100%',
-                minimumResultsForSearch: 0 // Always show search box
+                minimumResultsForSearch: 0,
+                dropdownParent: $('body'),
+                dropdownCssClass: 'pos-customer-select-dropdown',
+                templateResult: formatPosCustomerOption,
+                templateSelection: formatPosCustomerSelection,
+                matcher: function(params, data) {
+                    if ($.trim(params.term) === '') return data;
+                    if (typeof data.text === 'undefined') return null;
+                    return posCustomerSearchText(data).indexOf(params.term.toLowerCase()) > -1 ? data : null;
+                },
+                language: {
+                    noResults: function() { return 'No matching customers'; }
+                }
+            }).on('select2:open', function() {
+                setTimeout(function() {
+                    var field = document.querySelector('.select2-container--open .select2-search__field');
+                    if (!field) return;
+                    field.setAttribute('placeholder', 'Search customer by name or email...');
+                    field.focus({ preventScroll: true });
+                }, 0);
             });
 
             // Set default to guest
@@ -4738,6 +4980,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         function isProtectedPosBarcodeTarget(target) {
             if (!target || target === document.body) return false;
+            if (target.closest && target.closest('.select2-container--open, .select2-dropdown, .select2-search__field')) return true;
+            if (target.closest && target.closest('#customer-modal')) return true;
             if (target.closest && target.closest('.pos-barcode-entry')) return true;
             if (target.isContentEditable) return true;
             const tag = String(target.tagName || '').toLowerCase();
@@ -6029,6 +6273,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         function openNewCustomerModal() {
             document.getElementById('customer-modal').style.display = 'flex';
+            setTimeout(function() {
+                var first = document.getElementById('nc-first');
+                if (first) first.focus();
+            }, 50);
         }
         function closeCustomerModal() {
             document.getElementById('customer-modal').style.display = 'none';
@@ -6072,6 +6320,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const res = await fetch(staffUrl('staff/api/pos_add_customer.php'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
                     body: JSON.stringify({
                         first_name: first,
                         last_name: last,
@@ -6079,13 +6328,24 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         contact_number: phone
                     })
                 });
-                const data = await res.json();
+                const raw = await res.text();
+                let data;
+                try {
+                    data = JSON.parse(raw);
+                } catch (parseErr) {
+                    throw new Error(raw && raw.trim() ? raw.trim().slice(0, 240) : 'Invalid server response.');
+                }
                 if (data.success) {
                     const sel = $('#pos-customer');
-                    const displayText = `${first} ${last} - ${email}`;
-                    const opt = $('<option></option>').attr('value', data.customer_id).text(displayText);
+                    const opt = $('<option></option>')
+                        .attr('value', data.customer_id)
+                        .attr('data-first', first)
+                        .attr('data-last', last)
+                        .attr('data-email', email)
+                        .attr('data-phone', phone);
+                    opt.text(first + ' ' + last + ' - ' + email);
                     sel.append(opt);
-                    sel.val(data.customer_id).trigger('change');
+                    sel.val(String(data.customer_id)).trigger('change');
                     closeCustomerModal();
 
                     // Clear form
@@ -6097,11 +6357,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     // Show success message
                     await showPOSAlert('Customer Created', `Customer created successfully!\n\nA password setup email has been sent to ${email}.\nThe customer can use this email to create their account password.`, 'success');
                 } else {
-                    await showPOSAlert('Error', 'Failed: ' + (data.message || 'Unknown error'), 'error');
+                    await showPOSAlert('Could Not Create Customer', data.message || 'Unknown error', 'error');
                 }
             } catch (e) {
                 console.error('Error:', e);
-                await showPOSAlert('Network Error', 'Network error. Please try again.', 'error');
+                await showPOSAlert('Network Error', e.message || 'Network error. Please try again.', 'error');
             } finally {
                 btn.textContent = 'Create Customer & Send Email';
                 btn.disabled = false;

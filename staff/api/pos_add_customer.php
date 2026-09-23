@@ -65,10 +65,24 @@ try {
 
     // Insert into customers table with all required fields
     $result = db_execute(
-        "INSERT INTO customers (first_name, last_name, email, contact_number, password_hash, status, created_at) VALUES (?, ?, ?, ?, ?, 'Active', NOW())",
+        "INSERT INTO customers (first_name, last_name, email, contact_number, password_hash, status, created_at) VALUES (?, ?, ?, ?, ?, 'Activated', NOW())",
         'sssss',
-        [$first_name, $last_name, $email, $contact ?: '', $temp_password_hash]
+        [$first_name, $last_name, $email, $contact !== null && $contact !== '' ? $contact : '', $temp_password_hash]
     );
+
+    if (!$result) {
+        $dbHint = '';
+        if (isset($GLOBALS['conn']) && $GLOBALS['conn'] instanceof mysqli && $GLOBALS['conn']->error) {
+            $dbHint = trim((string)$GLOBALS['conn']->error);
+        }
+        echo json_encode([
+            'success' => false,
+            'message' => $dbHint !== ''
+                ? ('Could not save customer: ' . $dbHint)
+                : 'Failed to create customer record. Please try again.',
+        ]);
+        exit;
+    }
 
     if ($result) {
         global $conn;
@@ -172,8 +186,6 @@ try {
             'email_sent' => $email_sent,
             'message' => 'Customer created successfully! Password setup email sent to ' . $email
         ]);
-    } else {
-        echo json_encode(['success' => false, 'message' => 'Failed to create customer record.']);
     }
 } catch (Exception $e) {
     error_log('POS Add Customer Error: ' . $e->getMessage());
