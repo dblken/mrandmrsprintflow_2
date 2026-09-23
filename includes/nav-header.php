@@ -86,9 +86,21 @@ if ($initials === '') {
         #main-header .pf-header-right { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: .6rem; }
         #main-header .pf-icon-btn { position: relative; width: 2.55rem; height: 2.55rem; border-radius: 9999px; display: inline-flex; align-items: center; justify-content: center; color: rgba(255,255,255,.86); background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.11); transition: all .2s ease; overflow: visible; cursor: pointer; z-index: 5; }
         #main-header .pf-icon-btn:hover { color: #53C5E0; border-color: rgba(83,197,224,.5); background: rgba(83,197,224,.12); transform: translateY(-1px); }
-        #main-header [data-pf-notif-wrap], #main-header [data-pf-profile-wrap] { position: relative; z-index: 1000 !important; }
+        #main-header [data-pf-notif-wrap], #main-header [data-pf-cart-wrap], #main-header [data-pf-profile-wrap] { position: relative; z-index: 1000 !important; }
         #main-header [data-pf-notif-toggle], #main-header [data-pf-profile-toggle] { pointer-events: auto !important; cursor: pointer !important; position: relative; z-index: 1001 !important; }
+        #main-header [data-pf-cart-wrap] > a.pf-icon-btn { pointer-events: auto !important; cursor: pointer !important; position: relative; z-index: 1001 !important; }
         #main-header .pf-notif-dropdown, #main-header .pf-dropdown-menu { z-index: 1002 !important; }
+        #main-header [data-pf-notif-wrap]::after,
+        #main-header [data-pf-cart-wrap]::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 100%;
+            height: 14px;
+            z-index: 1001;
+            pointer-events: auto;
+        }
         #main-header .pf-icon-btn svg { width: 1.2rem; height: 1.2rem; stroke-width: 1.9; }
         #main-header .pf-cart-icon,
         #main-header .pf-notif-icon { width: 1.2rem; height: 1.2rem; stroke-width: 1.9; }
@@ -96,6 +108,24 @@ if ($initials === '') {
         #main-header .pf-badge { position: absolute; top: -6px; right: -6px; background: #53C5E0; color: #0a2530; font-size: .65rem; font-weight: 900; border-radius: 9999px; min-width: 18px; height: 18px; padding: 0 4px; display: flex !important; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(83,197,224,.4); line-height: 1; border: 1.5px solid #0a2530; z-index: 10; pointer-events: none; }
         #main-header .pf-notif-dropdown { position: absolute; top: calc(100% + 10px); right: 0; width: 320px; max-height: 480px; background: var(--pf-notif-bg); border: 1px solid var(--pf-notif-border); border-radius: 16px; box-shadow: var(--pf-notif-shadow); display: none !important; flex-direction: column; overflow: hidden; z-index: 1002; }
         #main-header .pf-notif-dropdown.open { display: flex !important; }
+        @media (hover: hover) and (pointer: fine) and (min-width: 769px) {
+            #main-header .pf-notif-dropdown {
+                display: flex !important;
+                visibility: hidden;
+                opacity: 0;
+                transform: translateY(-8px) scale(0.985);
+                pointer-events: none;
+                transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+                transform-origin: top right;
+            }
+            #main-header .pf-notif-dropdown.open,
+            #main-header .pf-notif-dropdown.pf-hover-open {
+                visibility: visible;
+                opacity: 1;
+                transform: translateY(0) scale(1);
+                pointer-events: auto;
+            }
+        }
         /* Mobile: position notification dropdown to the viewport right edge */
         @media (max-width: 768px) {
             #main-header .pf-notif-dropdown { right: 12px; width: min(320px, calc(100vw - 24px)); max-width: calc(100vw - 24px); }
@@ -737,7 +767,7 @@ if ($initials === '') {
                     $cart_count = isset($_SESSION['cart']) ? array_sum(array_column($_SESSION['cart'], 'quantity')) : 0;
                     $cart_display = $cart_count > 99 ? '99+' : $cart_count;
                     ?>
-                    <div class="relative" style="display:inline-flex;">
+                    <div class="relative" data-pf-cart-wrap style="display:inline-flex;">
                         <a href="<?php echo $base_url; ?>/customer/cart.php" title="My Cart" class="pf-icon-btn nav-link" style="color:white;">
                             <svg class="pf-cart-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 3 1.5 1.5m0 0 2.07 10.358A2.25 2.25 0 0 0 8.027 16.5h8.946a2.25 2.25 0 0 0 2.206-1.642L21 8.25H6.375m-2.625-3.75H21M9 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm8.25 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z"/>
@@ -746,6 +776,46 @@ if ($initials === '') {
                         <?php if ($cart_count > 0): ?>
                         <span id="cart-count-badge" class="pf-badge"><?php echo $cart_display; ?></span>
                         <?php endif; ?>
+                        <div data-pf-cart-menu class="pf-notif-dropdown" style="position: absolute; top: calc(100% + 10px); right: 0; width: 320px; max-height: 480px; flex-direction: column; overflow: hidden;">
+                            <div class="pf-notif-header">
+                                <span>My Cart</span>
+                                <a href="<?php echo htmlspecialchars($base_url . '/customer/cart.php'); ?>" class="pf-notif-action-link" style="color:#0f6b93; text-decoration:none; font-weight:800;">View cart</a>
+                            </div>
+                            <div class="pf-notif-list">
+                                <?php
+                                $pf_header_cart = isset($_SESSION['cart']) && is_array($_SESSION['cart']) ? $_SESSION['cart'] : [];
+                                if (empty($pf_header_cart)):
+                                ?>
+                                <div class="pf-notif-empty">Your cart is empty.</div>
+                                <?php else:
+                                    $pf_header_cart_slice = array_slice($pf_header_cart, 0, 5, true);
+                                    foreach ($pf_header_cart_slice as $pf_cart_line):
+                                        $pf_cart_name = trim((string)($pf_cart_line['name'] ?? $pf_cart_line['product_name'] ?? 'Item'));
+                                        if ($pf_cart_name === '') {
+                                            $pf_cart_name = 'Item';
+                                        }
+                                        $pf_cart_qty = max(1, (int)($pf_cart_line['quantity'] ?? 1));
+                                ?>
+                                <a href="<?php echo htmlspecialchars($base_url . '/customer/cart.php'); ?>" class="pf-notif-item">
+                                    <div class="pf-notif-item-icon" aria-hidden="true">
+                                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                                    </div>
+                                    <div class="pf-notif-item-content">
+                                        <div class="pf-notif-item-text"><?php echo htmlspecialchars($pf_cart_name); ?></div>
+                                        <div class="pf-notif-item-time">Qty <?php echo (int)$pf_cart_qty; ?></div>
+                                    </div>
+                                </a>
+                                <?php
+                                    endforeach;
+                                    if (count($pf_header_cart) > 5):
+                                ?>
+                                <div class="pf-notif-empty" style="padding:12px 20px;">+<?php echo (int)(count($pf_header_cart) - 5); ?> more item(s)</div>
+                                <?php endif; endif; ?>
+                            </div>
+                            <div class="pf-notif-footer">
+                                <a href="<?php echo htmlspecialchars($base_url . '/customer/cart.php'); ?>" class="pf-notif-footer-link" style="color:#0f6b93; font-weight:800 !important; text-decoration:none;">Go to Cart</a>
+                            </div>
+                        </div>
                     </div>
                     <?php endif; ?>
                     <!-- Notifications -->
@@ -1073,8 +1143,10 @@ if ($initials === '') {
             btn.addEventListener('click', function(ev){
                 ev.preventDefault();
                 ev.stopPropagation();
-                var otherNotif = document.querySelector('[data-pf-notif-menu].open');
-                if (otherNotif) otherNotif.classList.remove('open');
+                var openFlyouts = document.querySelectorAll('[data-pf-notif-menu].open, [data-pf-cart-menu].open');
+                for (var oi = 0; oi < openFlyouts.length; oi++) {
+                    openFlyouts[oi].classList.remove('open', 'pf-hover-open');
+                }
                 var isOpen = menu.classList.toggle('open');
                 if (arrow) arrow.style.transform = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
             });
@@ -1084,8 +1156,12 @@ if ($initials === '') {
     }
 
     // ── Notifications dropdown ───────────────────────────────────
-    function positionNotifMenu(btn, menu) {
-        if (!btn || !menu) return;
+    function pfHeaderHoverCapable() {
+        return window.matchMedia('(hover: hover) and (pointer: fine) and (min-width: 769px)').matches;
+    }
+
+    function positionHeaderDropdown(anchor, menu) {
+        if (!anchor || !menu) return;
         if (window.innerWidth > 768) {
             menu.style.position = 'absolute';
             menu.style.top = 'calc(100% + 10px)';
@@ -1093,50 +1169,157 @@ if ($initials === '') {
             menu.style.left = 'auto';
             menu.style.width = '320px';
             menu.style.maxWidth = '';
+            var rect = anchor.getBoundingClientRect();
+            var menuWidth = 320;
+            if (rect.right - menuWidth < 8) {
+                menu.style.right = 'auto';
+                menu.style.left = '0';
+            } else {
+                menu.style.right = '0';
+                menu.style.left = 'auto';
+            }
             return;
         }
 
-        var rect = btn.getBoundingClientRect();
-        var menuWidth = Math.min(320, Math.max(260, window.innerWidth - 24));
-        var top = rect.bottom + 10;
+        var rectM = anchor.getBoundingClientRect();
+        var menuWidthM = Math.min(320, Math.max(260, window.innerWidth - 24));
+        var top = rectM.bottom + 10;
         menu.style.position = 'fixed';
         menu.style.top = Math.max(12, top) + 'px';
         menu.style.right = '12px';
         menu.style.left = 'auto';
-        menu.style.width = menuWidth + 'px';
+        menu.style.width = menuWidthM + 'px';
         menu.style.maxWidth = 'calc(100vw - 24px)';
+    }
+
+    function positionNotifMenu(btn, menu) {
+        positionHeaderDropdown(btn, menu);
+    }
+
+    function closeAllHeaderFlyouts(exceptMenu) {
+        var menus = document.querySelectorAll('[data-pf-notif-menu], [data-pf-cart-menu]');
+        for (var i = 0; i < menus.length; i++) {
+            if (exceptMenu && menus[i] === exceptMenu) continue;
+            menus[i].classList.remove('open', 'pf-hover-open');
+        }
+        var profileMenu = document.querySelector('[data-pf-profile-menu].open');
+        if (profileMenu) profileMenu.classList.remove('open');
+    }
+
+    function loadNotifDropdownForWrap(wrap) {
+        if (window.PFNotifications && typeof window.PFNotifications.loadDropdown === 'function') {
+            window.PFNotifications.loadDropdown();
+            return;
+        }
+        var list = wrap.querySelector('[data-pf-notif-list]');
+        if (list) list.innerHTML = '<div class="pf-notif-empty">System initializing...</div>';
+        setTimeout(function(){
+            if (window.PFNotifications && typeof window.PFNotifications.loadDropdown === 'function') {
+                window.PFNotifications.loadDropdown();
+            } else if (list) {
+                list.innerHTML = '<div class="pf-notif-empty">Failed to initialize notifications.</div>';
+            }
+        }, 1000);
+    }
+
+    function initHeaderFlyout(wrap, opts) {
+        var toggle = wrap.querySelector(opts.toggleSelector);
+        var menu = wrap.querySelector(opts.menuSelector);
+        if (!toggle || !menu) return;
+
+        var closeTimer = null;
+        var openTimer = null;
+        var CLOSE_DELAY = 130;
+        var OPEN_DELAY = 90;
+
+        function openFlyout(fromHover) {
+            clearTimeout(closeTimer);
+            clearTimeout(openTimer);
+            closeAllHeaderFlyouts(menu);
+            menu.classList.add('open');
+            if (fromHover) menu.classList.add('pf-hover-open');
+            positionHeaderDropdown(toggle, menu);
+            if (typeof opts.onOpen === 'function') opts.onOpen(wrap);
+        }
+
+        function closeFlyout() {
+            menu.classList.remove('open', 'pf-hover-open');
+        }
+
+        function scheduleClose() {
+            clearTimeout(closeTimer);
+            closeTimer = setTimeout(function() {
+                if (!wrap.matches(':hover')) closeFlyout();
+            }, CLOSE_DELAY);
+        }
+
+        function bindHover() {
+            wrap.addEventListener('mouseenter', function() {
+                if (!pfHeaderHoverCapable()) return;
+                clearTimeout(closeTimer);
+                clearTimeout(openTimer);
+                openTimer = setTimeout(function() {
+                    if (wrap.matches(':hover')) openFlyout(true);
+                }, OPEN_DELAY);
+            });
+            wrap.addEventListener('mouseleave', function() {
+                if (!pfHeaderHoverCapable()) return;
+                clearTimeout(openTimer);
+                scheduleClose();
+            });
+            menu.addEventListener('click', function(ev) { ev.stopPropagation(); });
+        }
+
+        bindHover();
+
+        if (!opts.linkNavigation) {
+            toggle.addEventListener('click', function(ev){
+                if (pfHeaderHoverCapable() && menu.classList.contains('pf-hover-open')) {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                ev.preventDefault();
+                ev.stopPropagation();
+                var isOpen = menu.classList.contains('open');
+                if (isOpen) {
+                    closeFlyout();
+                    return;
+                }
+                openFlyout(false);
+            });
+        }
+
+        document.addEventListener('click', function(ev){
+            if (!wrap.contains(ev.target)) closeFlyout();
+        });
+        window.addEventListener('resize', function() {
+            if (menu.classList.contains('open')) positionHeaderDropdown(toggle, menu);
+        });
     }
 
     var notifWraps = document.querySelectorAll('[data-pf-notif-wrap]');
     for (var k = 0; k < notifWraps.length; k++) {
         (function(wrap){
-            var btn = wrap.querySelector('[data-pf-notif-toggle]');
-            var menu = wrap.querySelector('[data-pf-notif-menu]');
-            if (!btn || !menu) return;
-            btn.addEventListener('click', function(ev){
-                ev.preventDefault(); ev.stopPropagation();
-                var otherProfile = document.querySelector('[data-pf-profile-menu].open');
-                if (otherProfile) otherProfile.classList.remove('open');
-                var isOpen = menu.classList.toggle('open');
-                if (isOpen) {
-                    positionNotifMenu(btn, menu);
-                    if (window.PFNotifications && typeof window.PFNotifications.loadDropdown === 'function') {
-                        window.PFNotifications.loadDropdown();
-                    } else {
-                        var list = wrap.querySelector('[data-pf-notif-list]');
-                        if (list) list.innerHTML = '<div class="pf-notif-empty">System initializing...</div>';
-                        setTimeout(function(){
-                            if (window.PFNotifications && typeof window.PFNotifications.loadDropdown === 'function') window.PFNotifications.loadDropdown();
-                            else if (list) list.innerHTML = '<div class="pf-notif-empty">Failed to initialize notifications.</div>';
-                        }, 1000);
-                    }
-                }
-            });
-            document.addEventListener('click', function(ev){ if (!wrap.contains(ev.target)) menu.classList.remove('open'); });
-            window.addEventListener('resize', function() {
-                if (menu.classList.contains('open')) positionNotifMenu(btn, menu);
+            initHeaderFlyout(wrap, {
+                toggleSelector: '[data-pf-notif-toggle]',
+                menuSelector: '[data-pf-notif-menu]',
+                onOpen: function(w) { loadNotifDropdownForWrap(w); }
             });
         })(notifWraps[k]);
+    }
+
+    var cartWraps = document.querySelectorAll('[data-pf-cart-wrap]');
+    for (var c = 0; c < cartWraps.length; c++) {
+        (function(wrap){
+            var cartLink = wrap.querySelector('a[href*="cart.php"]');
+            if (!cartLink) return;
+            initHeaderFlyout(wrap, {
+                toggleSelector: 'a[href*="cart.php"]',
+                menuSelector: '[data-pf-cart-menu]',
+                linkNavigation: true
+            });
+        })(cartWraps[c]);
     }
 
     // ── Mobile panel (legacy — burger panel is now used instead) ──
