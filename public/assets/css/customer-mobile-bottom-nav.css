@@ -183,9 +183,10 @@ nav.pf-mobile-bottom-nav {
         display: none !important;
     }
 
-    /* Notification badge: red on mobile header */
+    /* Cart + notification badges: red on mobile header */
     body.pf-has-mobile-bottom-nav #main-header [data-notif-badge].pf-badge,
-    body.pf-has-mobile-bottom-nav #main-header #nav-notif-badge.pf-badge {
+    body.pf-has-mobile-bottom-nav #main-header #nav-notif-badge.pf-badge,
+    body.pf-has-mobile-bottom-nav #main-header #cart-count-badge.pf-badge {
         background: #ef4444 !important;
         color: #ffffff !important;
         border-color: #ffffff !important;
