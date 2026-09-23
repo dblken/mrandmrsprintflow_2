@@ -931,6 +931,66 @@ require_once __DIR__ . '/../includes/header.php';
     vertical-align: middle;
 }
 
+.profile-nav-mobile-extra {
+    display: none;
+}
+
+.profile-nav-divider {
+    border: 0;
+    border-top: 1px solid var(--pf-border);
+    margin: 0.65rem 0.85rem;
+}
+
+.profile-nav-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: calc(100% - 1.7rem);
+    margin: 0.35rem 0.85rem;
+    padding: 0.65rem 0.85rem;
+    border-radius: 10px;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+    box-sizing: border-box;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.profile-nav-action-btn--install {
+    background: rgba(83, 197, 224, 0.1);
+    border: 1px solid rgba(83, 197, 224, 0.35);
+    color: #0a2530;
+}
+
+.profile-nav-action-btn--install:hover {
+    background: rgba(83, 197, 224, 0.18);
+}
+
+.profile-nav-action-btn--logout {
+    background: rgba(239, 68, 68, 0.06);
+    border: 1px solid rgba(239, 68, 68, 0.28);
+    color: #b91c1c;
+}
+
+.profile-nav-action-btn--logout:hover {
+    background: rgba(239, 68, 68, 0.12);
+}
+
+.profile-nav-action-btn svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+@media (max-width: 767px) {
+    .profile-nav-mobile-extra {
+        display: block;
+        padding-bottom: 0.35rem;
+    }
+}
+
 /* Alerts */
 .pf-alert {
     padding: 1rem 1.25rem;
@@ -1064,6 +1124,33 @@ require_once __DIR__ . '/../includes/header.php';
                         </li>
                         <?php endforeach; ?>
                     </ul>
+
+                    <div class="profile-nav-mobile-extra" aria-label="Account shortcuts">
+                        <hr class="profile-nav-divider">
+                        <ul class="profile-nav-list">
+                            <li class="profile-nav-item">
+                                <a href="<?php echo htmlspecialchars($base_url . '/customer/cart.php', ENT_QUOTES, 'UTF-8'); ?>">
+                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 0a2 2 0 100 4 2 2 0 000-4z"/></svg>
+                                    My Cart
+                                </a>
+                            </li>
+                            <li class="profile-nav-item">
+                                <a href="<?php echo htmlspecialchars($base_url . '/customer/notifications.php', ENT_QUOTES, 'UTF-8'); ?>">
+                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                                    Notifications
+                                </a>
+                            </li>
+                        </ul>
+                        <hr class="profile-nav-divider">
+                        <button type="button" id="pwa-install-btn-profile" class="profile-nav-action-btn profile-nav-action-btn--install" aria-label="Install PrintFlow app" style="display:none;">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                            Install App
+                        </button>
+                        <button type="button" class="profile-nav-action-btn profile-nav-action-btn--logout" onclick="document.getElementById('logout-confirm-modal').style.display='flex'">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                            Logout
+                        </button>
+                    </div>
                 </div>
 
 

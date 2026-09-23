@@ -513,6 +513,7 @@ if ($initials === '') {
         }
         @media (max-width: 1023px) {
             #main-header .pf-burger-btn { display: inline-flex !important; }
+            body.pf-has-mobile-bottom-nav #main-header .pf-burger-btn { display: none !important; }
             #main-header .pf-header-shell {
                 display: flex;
                 align-items: center;
@@ -876,7 +877,7 @@ if ($initials === '') {
     </div>
     
     <?php if ($is_logged_in && is_customer()): ?>
-    <!-- Logged-in Customer Navigation -->
+    <!-- Logged-in Customer: secondary links (header has cart/notifications; no install/logout here) -->
     <div class="pf-burger-section">
         <div class="pf-burger-section-title">More</div>
         <nav class="pf-burger-nav">
@@ -889,19 +890,6 @@ if ($initials === '') {
                 <span class="pf-burger-link__label">Notifications</span>
             </a>
         </nav>
-    </div>
-    <div class="pf-burger-actions">
-        <button type="button" id="pwa-install-btn-mobile" class="pf-burger-btn-install" aria-label="Install PrintFlow app" style="display:none;">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-            </svg>
-            Install App
-        </button>
-        <button onclick="closeBurgerMenu(); document.getElementById('logout-confirm-modal').style.display='flex'" type="button"
-                class="pf-burger-btn-login pf-burger-btn-logout" style="color:rgba(239,68,68,.9);border-color:rgba(239,68,68,.3);display:flex;align-items:center;justify-content:center;gap:10px;">
-            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
-            Logout
-        </button>
     </div>
     <?php elseif (!$is_logged_in): ?>
     <!-- Guest Navigation -->

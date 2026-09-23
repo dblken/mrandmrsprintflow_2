@@ -133,3 +133,35 @@ if ($pf_tab_services) {
         </a>
     <?php endforeach; ?>
 </nav>
+<script>
+(function () {
+    if (window.__pfMobileBottomNavMetrics) return;
+    window.__pfMobileBottomNavMetrics = true;
+    function pfSyncMobileBottomNavMetrics() {
+        if (!document.body || !document.body.classList.contains('pf-has-mobile-bottom-nav')) return;
+        if (window.innerWidth > 767) return;
+        var nav = document.querySelector('[data-pf-mobile-bottom-nav]');
+        if (!nav) return;
+        var h = nav.getBoundingClientRect().height;
+        if (h > 0) {
+            document.documentElement.style.setProperty('--pf-mobile-bottom-nav-offset', h + 'px');
+        }
+    }
+    window.addEventListener('resize', pfSyncMobileBottomNavMetrics);
+    window.addEventListener('orientationchange', pfSyncMobileBottomNavMetrics);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', pfSyncMobileBottomNavMetrics);
+    } else {
+        pfSyncMobileBottomNavMetrics();
+    }
+    window.addEventListener('load', pfSyncMobileBottomNavMetrics);
+    if (typeof ResizeObserver !== 'undefined') {
+        document.addEventListener('DOMContentLoaded', function () {
+            var nav = document.querySelector('[data-pf-mobile-bottom-nav]');
+            if (!nav) return;
+            var ro = new ResizeObserver(pfSyncMobileBottomNavMetrics);
+            ro.observe(nav);
+        });
+    }
+})();
+</script>

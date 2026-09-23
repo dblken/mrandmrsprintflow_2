@@ -5,6 +5,10 @@
 
 body.pf-has-mobile-bottom-nav {
     --pf-mobile-bottom-nav-height: 56px;
+    --pf-mobile-bottom-nav-offset: calc(var(--pf-mobile-bottom-nav-height) + env(safe-area-inset-bottom, 0px));
+    --pf-mobile-floating-gap: 10px;
+    --pf-mobile-fab-size: 40px;
+    --pf-mobile-fab-stack: calc(var(--pf-mobile-bottom-nav-offset) + var(--pf-mobile-floating-gap));
 }
 
 nav.pf-mobile-bottom-nav {
@@ -150,17 +154,42 @@ nav.pf-mobile-bottom-nav {
     }
 
     body.pf-has-mobile-bottom-nav #main-content {
-        padding-bottom: calc(var(--pf-mobile-bottom-nav-height) + env(safe-area-inset-bottom, 0px)) !important;
+        padding-bottom: var(--pf-mobile-bottom-nav-offset) !important;
     }
 
     body.pf-has-mobile-bottom-nav.chat-page .cs-footer {
-        padding-bottom: calc(0.75rem + var(--pf-mobile-bottom-nav-height) + env(safe-area-inset-bottom, 0px)) !important;
+        padding-bottom: calc(0.75rem + var(--pf-mobile-bottom-nav-offset)) !important;
     }
 
     body.pf-has-mobile-bottom-nav .review-actions-bar {
-        bottom: calc(var(--pf-mobile-bottom-nav-height) + env(safe-area-inset-bottom, 0px)) !important;
+        bottom: var(--pf-mobile-bottom-nav-offset) !important;
         padding-bottom: 0.35rem !important;
         z-index: 5 !important;
+    }
+
+    /* Floating scroll-top + support chat sit above bottom nav (not overlapping) */
+    body.pf-has-mobile-bottom-nav .ft-bubble {
+        bottom: var(--pf-mobile-fab-stack) !important;
+        z-index: 9100 !important;
+    }
+
+    body.pf-has-mobile-bottom-nav #chatbot-window {
+        bottom: calc(var(--pf-mobile-fab-stack) + var(--pf-mobile-fab-size) + 12px) !important;
+        z-index: 9200 !important;
+    }
+
+    /* Hide header hamburger on mobile — primary nav is bottom bar */
+    body.pf-has-mobile-bottom-nav #main-header .pf-burger-btn {
+        display: none !important;
+    }
+
+    /* Notification badge: red on mobile header */
+    body.pf-has-mobile-bottom-nav #main-header [data-notif-badge].pf-badge,
+    body.pf-has-mobile-bottom-nav #main-header #nav-notif-badge.pf-badge {
+        background: #ef4444 !important;
+        color: #ffffff !important;
+        border-color: #ffffff !important;
+        box-shadow: 0 0 8px rgba(239, 68, 68, 0.35) !important;
     }
 }
 

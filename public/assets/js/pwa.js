@@ -61,7 +61,8 @@ var _isStandalone = window.matchMedia('(display-mode: standalone)').matches || w
 function getInstallButtons() {
     return [
         document.getElementById('pwa-install-btn'),
-        document.getElementById('pwa-install-btn-mobile')
+        document.getElementById('pwa-install-btn-mobile'),
+        document.getElementById('pwa-install-btn-profile')
     ].filter(Boolean);
 }
 
