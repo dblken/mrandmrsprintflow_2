@@ -63,51 +63,54 @@ try {
     // Generate temporary password hash (will be replaced when user sets password)
     $temp_password_hash = password_hash(bin2hex(random_bytes(16)), PASSWORD_BCRYPT);
 
-    // Insert into customers table with all required fields
-    $result = db_execute(
-        "INSERT INTO customers (first_name, last_name, email, contact_number, password_hash, status, created_at) VALUES (?, ?, ?, ?, ?, 'Activated', NOW())",
-        'sssss',
-        [$first_name, $last_name, $email, $contact !== null && $contact !== '' ? $contact : '', $temp_password_hash]
-    );
+    printflow_ensure_customers_auth_provider_column();
+
+    $contactVal = ($contact !== null && $contact !== '') ? $contact : '';
+
+    // Same account-creation guard as register_customer() (trigger + created_by_system)
+    $result = printflow_run_guarded_account_insert(function () use (
+        $first_name,
+        $last_name,
+        $email,
+        $contactVal,
+        $temp_password_hash
+    ) {
+        return db_execute(
+            "INSERT INTO customers (first_name, last_name, email, contact_number, password_hash, status, auth_provider, created_by_system, created_at)
+             VALUES (?, ?, ?, ?, ?, 'Activated', 'local', 1, NOW())",
+            'sssss',
+            [$first_name, $last_name, $email, $contactVal, $temp_password_hash]
+        );
+    });
 
     if (!$result) {
-        $dbHint = '';
-        if (isset($GLOBALS['conn']) && $GLOBALS['conn'] instanceof mysqli && $GLOBALS['conn']->error) {
-            $dbHint = trim((string) $GLOBALS['conn']->error);
-        }
-
-        // TEMP DEBUG: remove after POS Add Customer insert failure is diagnosed
-        $debugDetail = $dbHint;
-        if ($debugDetail === ''
-            && !empty($GLOBALS['printflow_db_errors'])
-            && is_array($GLOBALS['printflow_db_errors'])) {
+        $logDetail = '';
+        if (!empty($GLOBALS['printflow_db_errors']) && is_array($GLOBALS['printflow_db_errors'])) {
             $lastDbErr = end($GLOBALS['printflow_db_errors']);
             if (is_array($lastDbErr)) {
                 $stage = trim((string) ($lastDbErr['stage'] ?? ''));
                 $errText = trim((string) ($lastDbErr['error'] ?? ''));
-                $errno = isset($lastDbErr['errno']) ? (string) $lastDbErr['errno'] : '';
-                $debugDetail = $stage !== '' ? ($stage . ': ' . $errText) : $errText;
-                if ($errno !== '' && $errno !== '0') {
-                    $debugDetail .= ' (errno ' . $errno . ')';
-                }
+                $logDetail = $stage !== '' ? ($stage . ': ' . $errText) : $errText;
             }
         }
-        if ($debugDetail === '') {
-            $debugDetail = 'db_execute returned false (no mysqli error text on $conn)';
+        if ($logDetail === '' && isset($GLOBALS['conn']) && $GLOBALS['conn'] instanceof mysqli && $GLOBALS['conn']->error) {
+            $logDetail = trim((string) $GLOBALS['conn']->error);
         }
-        error_log('[pos_add_customer] INSERT customers failed: ' . $debugDetail);
+        if ($logDetail === '') {
+            $logDetail = 'db_execute returned false';
+        }
+        error_log('[pos_add_customer] INSERT customers failed: ' . $logDetail);
 
         echo json_encode([
             'success' => false,
-            // TEMP DEBUG: exposes real DB error to staff console — revert before go-live hardening
-            'message' => 'Failed to create customer record: ' . $debugDetail,
+            'message' => 'Failed to create customer record. Please try again.',
         ]);
         exit;
     }
 
     if ($result) {
         global $conn;
-        $customer_id = $conn->insert_id;
+        $customer_id = is_numeric($result) ? (int) $result : (int) ($conn->insert_id ?? 0);
         
         // Store password reset token
         try {
@@ -217,11 +220,9 @@ try {
         );
     }
 } catch (Exception $e) {
-    // TEMP DEBUG: remove after POS Add Customer failure is diagnosed
     error_log('[pos_add_customer] Exception: ' . $e->getMessage());
     echo json_encode([
         'success' => false,
-        // TEMP DEBUG: keep detailed message until root cause fixed
-        'message' => 'Failed to create customer record: ' . $e->getMessage(),
+        'message' => 'Failed to create customer record. Please try again.',
     ]);
 }
