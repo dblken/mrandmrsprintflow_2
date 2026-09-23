@@ -272,8 +272,10 @@ body.customer-theme .shopee-grid .shopee-card {
     margin-bottom: 0 !important;
 }
 
-body.customer-theme .ct-product-grid .shopee-img,
-body.customer-theme .shopee-grid .shopee-img {
+body.customer-theme .ct-product-grid img.shopee-img,
+body.customer-theme .ct-product-grid video.shopee-img,
+body.customer-theme .shopee-grid img.shopee-img,
+body.customer-theme .shopee-grid video.shopee-img {
     width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -1364,139 +1366,5 @@ body.customer-theme select.input-field {
     .poc-empty svg {
         width: 48px !important;
         height: 48px !important;
-    }
-}
-
-/* ===== Mobile primary tab bar (logged-in customer) ===== */
-body.customer-theme .pf-mobile-tab-bar {
-    display: none;
-}
-
-body.customer-theme.pf-has-mobile-tab-bar {
-    --pf-mobile-tab-bar-height: 56px;
-}
-
-@media (max-width: 767px) {
-    body.customer-theme.pf-has-mobile-tab-bar .pf-mobile-tab-bar {
-        display: block;
-        position: fixed;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 850;
-        margin: 0;
-        padding: 0;
-        border: 0;
-        background: transparent;
-        -webkit-transform: translateZ(0);
-        transform: translateZ(0);
-    }
-
-    body.customer-theme.pf-has-mobile-tab-bar .pf-mobile-tab-bar__inner {
-        box-sizing: border-box;
-        display: flex;
-        align-items: stretch;
-        width: 100%;
-        max-width: 100%;
-        min-height: var(--pf-mobile-tab-bar-height);
-        padding-bottom: env(safe-area-inset-bottom, 0px);
-        background: #ffffff;
-        border-top: 1px solid var(--ct-border);
-        box-shadow: 0 -6px 20px rgba(15, 23, 42, 0.07);
-    }
-
-    body.customer-theme.pf-has-mobile-tab-bar .pf-mobile-tab-item {
-        flex: 1 1 20%;
-        min-width: 0;
-        max-width: 20%;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 2px;
-        padding: 5px 2px 4px;
-        text-decoration: none;
-        color: var(--ct-text-muted);
-        -webkit-tap-highlight-color: transparent;
-        transition: color 0.22s ease-out, background-color 0.22s ease-out;
-        border-radius: 10px 10px 0 0;
-        min-height: 44px;
-    }
-
-    body.customer-theme.pf-has-mobile-tab-bar .pf-mobile-tab-item__icon {
-        position: relative;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 26px;
-        height: 26px;
-        flex-shrink: 0;
-    }
-
-    body.customer-theme.pf-has-mobile-tab-bar .pf-mobile-tab-item__icon svg {
-        width: 22px;
-        height: 22px;
-        stroke-width: 2;
-        transition: transform 0.22s ease-out, color 0.22s ease-out;
-    }
-
-    body.customer-theme.pf-has-mobile-tab-bar .pf-mobile-tab-item__label {
-        font-size: 10px;
-        font-weight: 500;
-        line-height: 1.15;
-        max-width: 100%;
-        padding: 0 1px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        letter-spacing: -0.02em;
-    }
-
-    body.customer-theme.pf-has-mobile-tab-bar .pf-mobile-tab-item.is-active {
-        color: #0f6b93;
-        background: rgba(83, 197, 224, 0.14);
-    }
-
-    body.customer-theme.pf-has-mobile-tab-bar .pf-mobile-tab-item.is-active .pf-mobile-tab-item__icon svg {
-        color: #0f6b93;
-        transform: scale(1.06);
-    }
-
-    body.customer-theme.pf-has-mobile-tab-bar .pf-mobile-tab-item.is-active .pf-mobile-tab-item__label {
-        font-weight: 700;
-        color: #0a2530;
-    }
-
-    body.customer-theme.pf-has-mobile-tab-bar .pf-mobile-tab-item__badge.pf-chat-unread-badge {
-        position: absolute;
-        top: -3px;
-        right: -7px;
-        margin: 0 !important;
-        min-width: 16px;
-        height: 16px;
-        padding: 0 4px;
-        font-size: 9px;
-        line-height: 1;
-        box-shadow: 0 0 0 2px #ffffff;
-    }
-
-    body.customer-theme.pf-has-mobile-tab-bar #main-content {
-        padding-bottom: calc(var(--pf-mobile-tab-bar-height) + env(safe-area-inset-bottom, 0px));
-    }
-
-    body.customer-theme.chat-page.pf-has-mobile-tab-bar .cs-footer {
-        padding-bottom: calc(0.75rem + var(--pf-mobile-tab-bar-height) + env(safe-area-inset-bottom, 0px)) !important;
-    }
-
-    body.customer-theme.pf-has-mobile-tab-bar .review-actions-bar {
-        bottom: calc(var(--pf-mobile-tab-bar-height) + env(safe-area-inset-bottom, 0px));
-        padding-bottom: 0.35rem;
-        z-index: 5;
-    }
-}
-
-@media (min-width: 768px) {
-    body.customer-theme .pf-mobile-tab-bar {
-        display: none !important;
     }
 }

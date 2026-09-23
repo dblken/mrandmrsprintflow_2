@@ -1040,7 +1040,7 @@ if ($initials === '') {
     // ── Active nav link ──────────────────────────────────────────
     var p = window.location.pathname.toLowerCase().replace(/\/$/, '');
     var basePath = <?php echo json_encode($base_path ?? ''); ?>.toLowerCase().replace(/\/$/, '');
-    var navLinks = document.querySelectorAll('a.nav-link, a.pf-burger-link, a.pf-mobile-tab-item');
+    var navLinks = document.querySelectorAll('a.nav-link, a.pf-burger-link, a.pf-mobile-bottom-nav__item');
     for (var i = 0; i < navLinks.length; i++) {
         var a = navLinks[i];
         var rawHref = a.getAttribute('href') || '';
@@ -1054,16 +1054,22 @@ if ($initials === '') {
         var isHomeLink = (h === publicRoot || h === basePath || h === '' || h.endsWith('/index.php'));
         var isHomePage = (p === publicRoot || p === basePath || p === '' || p.endsWith('/index.php'));
         if (isHomeLink && isHomePage) {
-            a.classList.add('nav-active');
-            if (a.classList.contains('pf-burger-link')) a.classList.add('active');
-            if (a.classList.contains('pf-mobile-tab-item')) a.classList.add('is-active');
+            if (a.classList.contains('pf-mobile-bottom-nav__item')) {
+                a.classList.add('is-active');
+            } else {
+                a.classList.add('nav-active');
+                if (a.classList.contains('pf-burger-link')) a.classList.add('active');
+            }
         } else if (!isHomeLink) {
             var hFile = h.split('/').pop().replace('.php', '');
             var pFile = p.split('/').pop().replace('.php', '');
             if (hFile && pFile && hFile === pFile) {
-                a.classList.add('nav-active');
-                if (a.classList.contains('pf-burger-link')) a.classList.add('active');
-                if (a.classList.contains('pf-mobile-tab-item')) a.classList.add('is-active');
+                if (a.classList.contains('pf-mobile-bottom-nav__item')) {
+                    a.classList.add('is-active');
+                } else {
+                    a.classList.add('nav-active');
+                    if (a.classList.contains('pf-burger-link')) a.classList.add('active');
+                }
             }
         }
     }

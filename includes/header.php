@@ -78,6 +78,10 @@ $url_google_auth    = $base_url . '/public/google-auth.php';
     <?php endif; ?>
     <?php if (!empty($use_customer_css)): ?>
     <link rel="stylesheet" href="<?php echo $asset_base; ?>/assets/css/customer-theme.css?v=<?php echo $ver; ?>">
+    <?php if (empty($use_landing_css) && $is_logged_in && $user_type === 'Customer'): ?>
+    <?php $pf_mbottom_nav_css_ver = @filemtime(__DIR__ . '/../public/assets/css/customer-mobile-bottom-nav.css') ?: $ver; ?>
+    <link rel="stylesheet" href="<?php echo $asset_base; ?>/assets/css/customer-mobile-bottom-nav.css?v=<?php echo $pf_mbottom_nav_css_ver; ?>">
+    <?php endif; ?>
     <?php endif; ?>
 
     <!-- Customer Burger Menu (Landing & Customer Pages) -->
@@ -209,7 +213,7 @@ $url_google_auth    = $base_url . '/public/google-auth.php';
     </style>
     
 </head>
-<body class="bg-gray-50<?php echo !empty($use_landing_css) ? ' lp-page' : ''; ?><?php echo !empty($use_customer_css) ? ' customer-theme' : ''; ?><?php echo !empty($is_chat_page) ? ' chat-page' : ''; ?><?php echo !empty($pf_catalog_nav_page) ? ' pf-catalog-nav-page' : ''; ?><?php echo (!empty($use_customer_css) && empty($use_landing_css) && $is_logged_in && $user_type === 'Customer') ? ' pf-has-mobile-tab-bar' : ''; ?>" data-user-type="<?php echo htmlspecialchars(get_user_type() ?? 'Guest'); ?>">
+<body class="bg-gray-50<?php echo !empty($use_landing_css) ? ' lp-page' : ''; ?><?php echo !empty($use_customer_css) ? ' customer-theme' : ''; ?><?php echo !empty($is_chat_page) ? ' chat-page' : ''; ?><?php echo !empty($pf_catalog_nav_page) ? ' pf-catalog-nav-page' : ''; ?><?php echo (!empty($use_customer_css) && empty($use_landing_css) && $is_logged_in && $user_type === 'Customer') ? ' pf-has-mobile-bottom-nav' : ''; ?>" data-user-type="<?php echo htmlspecialchars(get_user_type() ?? 'Guest'); ?>">
     <!-- Skip to main content (accessibility) - hidden until focused -->
     <a href="#main-content" style="position:absolute;left:-9999px;z-index:9999;padding:0.5rem 1rem;background:#4F46E5;color:#fff;font-weight:500;" id="skip-link">Skip to main content</a>
     <script>document.getElementById('skip-link').addEventListener('focus',function(){ this.style.left='0'; }); document.getElementById('skip-link').addEventListener('blur',function(){ this.style.left='-9999px'; });</script>

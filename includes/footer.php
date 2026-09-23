@@ -73,6 +73,9 @@ function _ft_detect_social(string $url): array {
 }
 ?>
 </main>
+<?php if ($_ft_is_logged_in_customer && empty($use_landing_css) && !empty($use_customer_css)): ?>
+    <?php require __DIR__ . '/customer_mobile_bottom_nav.php'; ?>
+<?php endif; ?>
 
     <!-- Footer: layout and design (self-contained so it always displays correctly) -->
     <style>
@@ -1253,8 +1256,5 @@ function _ft_detect_social(string $url): array {
     <?php endif; ?>
     <?php $order_validation_js_ver = @filemtime(__DIR__ . '/../public/assets/js/order_validation.js') ?: time(); ?>
     <script src="<?php echo $base_url ?? '/printflow'; ?>/public/assets/js/order_validation.js?v=<?php echo $order_validation_js_ver; ?>" defer></script>
-    <?php if ($_ft_is_logged_in_customer && empty($use_landing_css) && !empty($use_customer_css)): ?>
-        <?php require __DIR__ . '/customer_mobile_bottom_nav.php'; ?>
-    <?php endif; ?>
 </body>
 </html>
