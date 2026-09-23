@@ -57,7 +57,7 @@ $url_google_auth    = $base_url . '/public/google-auth.php';
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0<?php echo (!empty($use_customer_css) && empty($use_landing_css)) ? ', viewport-fit=cover' : ''; ?>">
     <meta name="description" content="PrintFlow - Your trusted printing shop for tarpaulins, t-shirts, stickers, and more">
     <meta name="theme-color" content="#4F46E5">
     <title><?php echo $page_title ?? 'PrintFlow - Printing Shop'; ?></title>
@@ -209,7 +209,7 @@ $url_google_auth    = $base_url . '/public/google-auth.php';
     </style>
     
 </head>
-<body class="bg-gray-50<?php echo !empty($use_landing_css) ? ' lp-page' : ''; ?><?php echo !empty($use_customer_css) ? ' customer-theme' : ''; ?><?php echo !empty($is_chat_page) ? ' chat-page' : ''; ?><?php echo !empty($pf_catalog_nav_page) ? ' pf-catalog-nav-page' : ''; ?>" data-user-type="<?php echo htmlspecialchars(get_user_type() ?? 'Guest'); ?>">
+<body class="bg-gray-50<?php echo !empty($use_landing_css) ? ' lp-page' : ''; ?><?php echo !empty($use_customer_css) ? ' customer-theme' : ''; ?><?php echo !empty($is_chat_page) ? ' chat-page' : ''; ?><?php echo !empty($pf_catalog_nav_page) ? ' pf-catalog-nav-page' : ''; ?><?php echo (!empty($use_customer_css) && empty($use_landing_css) && $is_logged_in && $user_type === 'Customer') ? ' pf-has-mobile-tab-bar' : ''; ?>" data-user-type="<?php echo htmlspecialchars(get_user_type() ?? 'Guest'); ?>">
     <!-- Skip to main content (accessibility) - hidden until focused -->
     <a href="#main-content" style="position:absolute;left:-9999px;z-index:9999;padding:0.5rem 1rem;background:#4F46E5;color:#fff;font-weight:500;" id="skip-link">Skip to main content</a>
     <script>document.getElementById('skip-link').addEventListener('focus',function(){ this.style.left='0'; }); document.getElementById('skip-link').addEventListener('blur',function(){ this.style.left='-9999px'; });</script>

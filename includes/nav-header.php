@@ -878,36 +878,15 @@ if ($initials === '') {
     <?php if ($is_logged_in && is_customer()): ?>
     <!-- Logged-in Customer Navigation -->
     <div class="pf-burger-section">
-        <div class="pf-burger-section-title">Navigation</div>
+        <div class="pf-burger-section-title">More</div>
         <nav class="pf-burger-nav">
-            <a href="<?php echo $base_url; ?>/customer/services.php" class="pf-burger-link" onclick="closeBurgerMenu()">
-                <span class="pf-burger-link__icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg></span>
-                <span class="pf-burger-link__label">Services</span>
-            </a>
-            <a href="<?php echo $base_url; ?>/customer/products.php" class="pf-burger-link" onclick="closeBurgerMenu()">
-                <span class="pf-burger-link__icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg></span>
-                <span class="pf-burger-link__label">Products</span>
-            </a>
             <a href="<?php echo $base_url; ?>/customer/cart.php" class="pf-burger-link" onclick="closeBurgerMenu()">
                 <span class="pf-burger-link__icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 0a2 2 0 100 4 2 2 0 000-4z"/></svg></span>
                 <span class="pf-burger-link__label">My Cart</span>
             </a>
-            <a href="<?php echo $base_url; ?>/customer/orders.php" class="pf-burger-link" onclick="closeBurgerMenu()">
-                <span class="pf-burger-link__icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg></span>
-                <span class="pf-burger-link__label">Orders</span>
-            </a>
-            <a href="<?php echo $base_url; ?>/customer/messages.php" class="pf-burger-link" onclick="closeBurgerMenu()">
-                <span class="pf-burger-link__icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h8m-8 4h5m-7 6h12a2 2 0 002-2V8a2 2 0 00-2-2H6a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg></span>
-                <span class="pf-burger-link__label">Messages</span>
-                <span class="pf-chat-unread-badge" data-chat-unread-badge style="display:<?php echo $pf_customer_chat_unread > 0 ? 'inline-flex' : 'none'; ?>;"><?php echo $pf_customer_chat_unread > 99 ? '99+' : ($pf_customer_chat_unread > 0 ? (int)$pf_customer_chat_unread : ''); ?></span>
-            </a>
             <a href="<?php echo $base_url; ?>/customer/notifications.php" class="pf-burger-link" onclick="closeBurgerMenu()">
                 <span class="pf-burger-link__icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg></span>
                 <span class="pf-burger-link__label">Notifications</span>
-            </a>
-            <a href="<?php echo $base_url; ?>/customer/profile.php" class="pf-burger-link" onclick="closeBurgerMenu()">
-                <span class="pf-burger-link__icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg></span>
-                <span class="pf-burger-link__label">Profile</span>
             </a>
         </nav>
     </div>
@@ -1061,7 +1040,7 @@ if ($initials === '') {
     // ── Active nav link ──────────────────────────────────────────
     var p = window.location.pathname.toLowerCase().replace(/\/$/, '');
     var basePath = <?php echo json_encode($base_path ?? ''); ?>.toLowerCase().replace(/\/$/, '');
-    var navLinks = document.querySelectorAll('a.nav-link, a.pf-burger-link');
+    var navLinks = document.querySelectorAll('a.nav-link, a.pf-burger-link, a.pf-mobile-tab-item');
     for (var i = 0; i < navLinks.length; i++) {
         var a = navLinks[i];
         var rawHref = a.getAttribute('href') || '';
@@ -1077,12 +1056,14 @@ if ($initials === '') {
         if (isHomeLink && isHomePage) {
             a.classList.add('nav-active');
             if (a.classList.contains('pf-burger-link')) a.classList.add('active');
+            if (a.classList.contains('pf-mobile-tab-item')) a.classList.add('is-active');
         } else if (!isHomeLink) {
             var hFile = h.split('/').pop().replace('.php', '');
             var pFile = p.split('/').pop().replace('.php', '');
             if (hFile && pFile && hFile === pFile) {
                 a.classList.add('nav-active');
                 if (a.classList.contains('pf-burger-link')) a.classList.add('active');
+                if (a.classList.contains('pf-mobile-tab-item')) a.classList.add('is-active');
             }
         }
     }
