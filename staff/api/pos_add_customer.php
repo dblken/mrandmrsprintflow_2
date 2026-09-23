@@ -73,13 +73,34 @@ try {
     if (!$result) {
         $dbHint = '';
         if (isset($GLOBALS['conn']) && $GLOBALS['conn'] instanceof mysqli && $GLOBALS['conn']->error) {
-            $dbHint = trim((string)$GLOBALS['conn']->error);
+            $dbHint = trim((string) $GLOBALS['conn']->error);
         }
+
+        // TEMP DEBUG: remove after POS Add Customer insert failure is diagnosed
+        $debugDetail = $dbHint;
+        if ($debugDetail === ''
+            && !empty($GLOBALS['printflow_db_errors'])
+            && is_array($GLOBALS['printflow_db_errors'])) {
+            $lastDbErr = end($GLOBALS['printflow_db_errors']);
+            if (is_array($lastDbErr)) {
+                $stage = trim((string) ($lastDbErr['stage'] ?? ''));
+                $errText = trim((string) ($lastDbErr['error'] ?? ''));
+                $errno = isset($lastDbErr['errno']) ? (string) $lastDbErr['errno'] : '';
+                $debugDetail = $stage !== '' ? ($stage . ': ' . $errText) : $errText;
+                if ($errno !== '' && $errno !== '0') {
+                    $debugDetail .= ' (errno ' . $errno . ')';
+                }
+            }
+        }
+        if ($debugDetail === '') {
+            $debugDetail = 'db_execute returned false (no mysqli error text on $conn)';
+        }
+        error_log('[pos_add_customer] INSERT customers failed: ' . $debugDetail);
+
         echo json_encode([
             'success' => false,
-            'message' => $dbHint !== ''
-                ? ('Could not save customer: ' . $dbHint)
-                : 'Failed to create customer record. Please try again.',
+            // TEMP DEBUG: exposes real DB error to staff console — revert before go-live hardening
+            'message' => 'Failed to create customer record: ' . $debugDetail,
         ]);
         exit;
     }
@@ -196,6 +217,11 @@ try {
         );
     }
 } catch (Exception $e) {
-    error_log('POS Add Customer Error: ' . $e->getMessage());
-    echo json_encode(['success' => false, 'message' => 'System error: ' . $e->getMessage()]);
+    // TEMP DEBUG: remove after POS Add Customer failure is diagnosed
+    error_log('[pos_add_customer] Exception: ' . $e->getMessage());
+    echo json_encode([
+        'success' => false,
+        // TEMP DEBUG: keep detailed message until root cause fixed
+        'message' => 'Failed to create customer record: ' . $e->getMessage(),
+    ]);
 }
