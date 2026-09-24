@@ -5,6 +5,9 @@
 
 require_once __DIR__ . '/db.php';
 
+/** Max length for product_catalog_groups.description (admin + server validation). */
+const PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX = 1000;
+
 function printflow_ensure_product_catalog_groups_schema(): void
 {
     static $done = false;
@@ -157,8 +160,11 @@ function printflow_catalog_group_normalize_description(?string $raw): array
         return ['ok' => true, 'value' => null];
     }
     $length = function_exists('mb_strlen') ? mb_strlen($text, 'UTF-8') : strlen($text);
-    if ($length > 500) {
-        return ['ok' => false, 'message' => 'Description must be 500 characters or fewer.'];
+    if ($length > PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX) {
+        return [
+            'ok' => false,
+            'message' => 'Description must be ' . PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX . ' characters or fewer.',
+        ];
     }
     return ['ok' => true, 'value' => $text];
 }

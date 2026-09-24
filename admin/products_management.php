@@ -2685,8 +2685,8 @@ if (isset($_GET['ajax'])) {
                                     </div>
                                     <div class="form-group">
                                         <label for="pf-cg-desc-<?php echo $gid; ?>">Description / Notes</label>
-                                        <textarea id="pf-cg-desc-<?php echo $gid; ?>" name="group_description" maxlength="500" rows="4" data-pf-cg-desc="1" aria-describedby="pf-cg-desc-count-<?php echo $gid; ?>" placeholder="Optional notes for customers (pickup, payment, bulk orders, etc.)"><?php echo htmlspecialchars($cgDescription); ?></textarea>
-                                        <div class="pf-cg-char-count" id="pf-cg-desc-count-<?php echo $gid; ?>"><?php echo (int) $cgDescLen; ?> / 500 characters</div>
+                                        <textarea id="pf-cg-desc-<?php echo $gid; ?>" name="group_description" maxlength="<?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?>" rows="4" data-pf-cg-desc="1" aria-describedby="pf-cg-desc-count-<?php echo $gid; ?>" placeholder="Optional notes for customers (pickup, payment, bulk orders, etc.)"><?php echo htmlspecialchars($cgDescription); ?></textarea>
+                                        <div class="pf-cg-char-count" id="pf-cg-desc-count-<?php echo $gid; ?>"><?php echo (int) $cgDescLen; ?> / <?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?></div>
                                     </div>
                                 </form>
                                 <div class="pf-cg-modal-block">
@@ -2777,8 +2777,8 @@ if (isset($_GET['ajax'])) {
                             </div>
                             <div class="form-group">
                                 <label for="pf-cg-new-desc">Description / Notes</label>
-                                <textarea id="pf-cg-new-desc" name="group_description" maxlength="500" rows="4" data-pf-cg-desc="1" aria-describedby="pf-cg-new-desc-count" placeholder="Optional notes for customers"></textarea>
-                                <div class="pf-cg-char-count" id="pf-cg-new-desc-count">0 / 500 characters</div>
+                                <textarea id="pf-cg-new-desc" name="group_description" maxlength="<?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?>" rows="4" data-pf-cg-desc="1" aria-describedby="pf-cg-new-desc-count" placeholder="Optional notes for customers"></textarea>
+                                <div class="pf-cg-char-count" id="pf-cg-new-desc-count">0 / <?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?></div>
                             </div>
                         </div>
                         <div class="pf-cg-modal-footer">
@@ -2835,12 +2835,13 @@ if (isset($_GET['ajax'])) {
                 closeCatalogGroupCreate();
             }
         });
+        var pfCgDescMax = <?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?>;
         function pfCgUpdateDescCounter(textarea) {
             if (!textarea) return;
             var counterId = textarea.getAttribute('aria-describedby');
             var counter = counterId ? document.getElementById(counterId) : null;
             var len = textarea.value.length;
-            if (counter) counter.textContent = len + ' / 500 characters';
+            if (counter) counter.textContent = len + ' / ' + pfCgDescMax;
         }
         document.querySelectorAll('[data-pf-cg-desc]').forEach(function (ta) {
             pfCgUpdateDescCounter(ta);
