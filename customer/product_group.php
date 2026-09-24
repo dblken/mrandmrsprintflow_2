@@ -32,6 +32,7 @@ foreach ($members as $m) {
 
 $groupReviews = printflow_catalog_products_reviews_list($memberRows);
 $productStatsMap = printflow_catalog_product_card_stats_map($memberRows);
+$groupStats = printflow_catalog_products_aggregate_stats($memberRows);
 
 $base_path = pf_app_base_path();
 $default_product_img = $base_path . '/public/assets/images/services/default.png';
@@ -95,6 +96,8 @@ require_once __DIR__ . '/../includes/header.php';
         border-bottom: 1px solid rgba(126,164,184,0.16);
     }
     .pf-group-stats .rating-stars { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+    .pf-group-stats .rating-stars svg.pf-star-on { fill: #ffca11 !important; }
+    .pf-group-stats .rating-stars svg.pf-star-off { fill: #e5e7eb !important; }
     .pf-group-stats .rating-text { margin-left: 4px; font-weight: 600; font-size: 0.75rem; color: var(--shopee-muted); }
     .pf-group-option {
         display: inline-flex; gap: 6px; align-items: center; padding: 4px 8px 4px 4px; border-radius: 8px;
@@ -156,7 +159,25 @@ require_once __DIR__ . '/../includes/header.php';
                 <div id="pf-group-selected-name" style="font-size:0.95rem;font-weight:700;color:var(--shopee-text);margin-top:4px;">—</div>
 
                 <div class="pf-group-stats">
-                    <div class="rating-stars" id="pf-group-stats-stars"></div>
+                    <div class="rating-stars" id="pf-group-stats-stars">
+                        <?php
+                        $selPs = $productStatsMap[$selectedId] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
+                        $starAvg = (float) ($selPs['avg_rating'] ?? 0);
+                        $starRc = (int) ($selPs['review_count'] ?? 0);
+                        if ($starRc < 1 && (int) ($groupStats['review_count'] ?? 0) > 0) {
+                            $starAvg = (float) ($groupStats['avg_rating'] ?? 0);
+                            $starRc = (int) ($groupStats['review_count'] ?? 0);
+                        }
+                        $starRounded = (int) round($starAvg);
+                        for ($si = 1; $si <= 5; $si++):
+                            $starClass = $si <= $starRounded ? 'pf-star-on' : 'pf-star-off';
+                            ?>
+                            <svg class="<?php echo $starClass; ?>" style="width:14px;height:14px;" viewBox="0 0 20 20" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                        <?php endfor;
+                        if ($starRc > 0): ?>
+                            <span class="rating-text"><?php echo number_format($starAvg, 1); ?> (<?php echo (int) $starRc; ?>)</span>
+                        <?php endif; ?>
+                    </div>
                     <span id="pf-group-stats-sold">— sold</span>
                 </div>
 
@@ -246,6 +267,10 @@ require_once __DIR__ . '/../includes/header.php';
 <script>
 var PF_CSRF_TOKEN = '<?php echo generate_csrf_token(); ?>';
 var PF_GROUP_ID = <?php echo (int)$groupId; ?>;
+var PF_GROUP_STATS = <?php echo json_encode([
+    'avg_rating' => (float) ($groupStats['avg_rating'] ?? 0),
+    'review_count' => (int) ($groupStats['review_count'] ?? 0),
+], JSON_UNESCAPED_UNICODE); ?>;
 
 function pfFormatSold(count) {
     var n = parseInt(count || '0', 10);
@@ -256,13 +281,27 @@ function pfFormatSold(count) {
 function pfRenderStatsStars(avgRating, reviewCount) {
     var wrap = document.getElementById('pf-group-stats-stars');
     if (!wrap) return;
-    var avg = parseFloat(avgRating);
-    if (isNaN(avg)) avg = 0;
-    var rc = parseInt(reviewCount || '0', 10);
+    var productAvg = parseFloat(avgRating);
+    if (isNaN(productAvg)) productAvg = 0;
+    var productRc = parseInt(reviewCount || '0', 10);
+    if (isNaN(productRc) || productRc < 0) productRc = 0;
+
+    var avg = productAvg;
+    var rc = productRc;
+    if (productRc < 1 && PF_GROUP_STATS && parseInt(PF_GROUP_STATS.review_count || '0', 10) > 0) {
+        avg = parseFloat(PF_GROUP_STATS.avg_rating);
+        if (isNaN(avg)) avg = 0;
+        rc = parseInt(PF_GROUP_STATS.review_count, 10);
+    }
+
+    var rounded = Math.round(avg);
+    if (rounded < 0) rounded = 0;
+    if (rounded > 5) rounded = 5;
+
     var html = '';
     for (var i = 1; i <= 5; i++) {
-        var fill = i <= Math.round(avg) ? '#ffca11' : '#e5e7eb';
-        html += '<svg style="width:14px;height:14px;" fill="' + fill + '" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>';
+        var cls = i <= rounded ? 'pf-star-on' : 'pf-star-off';
+        html += '<svg class="' + cls + '" style="width:14px;height:14px;" viewBox="0 0 20 20" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>';
     }
     if (rc > 0) {
         html += '<span class="rating-text">' + avg.toFixed(1) + ' (' + rc + ')</span>';
