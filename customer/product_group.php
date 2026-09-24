@@ -31,10 +31,122 @@ foreach ($members as $m) {
 }
 
 $groupReviews = printflow_catalog_products_reviews_list($memberRows);
+$groupReviews = printflow_attach_review_media($groupReviews);
+
+$reviewIds = [];
+foreach ($groupReviews as $gr) {
+    $rid = (int) ($gr['id'] ?? 0);
+    if ($rid > 0) {
+        $reviewIds[$rid] = $rid;
+    }
+}
+$reviewIds = array_values($reviewIds);
+
+if ($reviewIds !== []) {
+    $reviewCols = array_flip(array_column(db_query('SHOW COLUMNS FROM reviews') ?: [], 'Field'));
+    if (isset($reviewCols['video_path'])) {
+        $ph = implode(',', array_fill(0, count($reviewIds), '?'));
+        $videoRows = db_query(
+            "SELECT id, video_path FROM reviews WHERE id IN ($ph)",
+            str_repeat('i', count($reviewIds)),
+            $reviewIds
+        ) ?: [];
+        $videoById = [];
+        foreach ($videoRows as $vr) {
+            $videoById[(int) ($vr['id'] ?? 0)] = (string) ($vr['video_path'] ?? '');
+        }
+        foreach ($groupReviews as $idx => $gr) {
+            $rid = (int) ($gr['id'] ?? 0);
+            if ($rid > 0 && isset($videoById[$rid])) {
+                $groupReviews[$idx]['video_path'] = $videoById[$rid];
+                $groupReviews[$idx]['has_video'] = $videoById[$rid] !== '';
+            }
+        }
+    }
+
+    $helpfulByReview = [];
+    $votedSet = [];
+    $helpfulTable = db_query("SHOW TABLES LIKE 'review_helpful'") ?: [];
+    if ($helpfulTable !== []) {
+        $ph = implode(',', array_fill(0, count($reviewIds), '?'));
+        $types = str_repeat('i', count($reviewIds));
+        $helpfulRows = db_query(
+            "SELECT review_id, COUNT(*) AS cnt FROM review_helpful WHERE review_id IN ($ph) GROUP BY review_id",
+            $types,
+            $reviewIds
+        ) ?: [];
+        foreach ($helpfulRows as $hr) {
+            $helpfulByReview[(int) ($hr['review_id'] ?? 0)] = (int) ($hr['cnt'] ?? 0);
+        }
+
+        $current_user_id = (int) (get_user_id() ?? 0);
+        if ($current_user_id > 0) {
+            $helpfulCols = array_flip(array_column(db_query('SHOW COLUMNS FROM review_helpful') ?: [], 'Field'));
+            if (isset($helpfulCols['customer_id'])) {
+                $votedRows = db_query(
+                    "SELECT review_id FROM review_helpful
+                     WHERE review_id IN ($ph)
+                       AND customer_id = ?
+                       AND COALESCE(user_type, 'Customer') = 'Customer'",
+                    $types . 'i',
+                    array_merge($reviewIds, [$current_user_id])
+                ) ?: [];
+            } else {
+                $votedRows = db_query(
+                    "SELECT review_id FROM review_helpful WHERE review_id IN ($ph) AND user_id = ?",
+                    $types . 'i',
+                    array_merge($reviewIds, [$current_user_id])
+                ) ?: [];
+            }
+            foreach ($votedRows as $vr) {
+                $votedSet[(int) ($vr['review_id'] ?? 0)] = true;
+            }
+        }
+    }
+
+    foreach ($groupReviews as $idx => $gr) {
+        $rid = (int) ($gr['id'] ?? 0);
+        $groupReviews[$idx]['helpful_count'] = (int) ($helpfulByReview[$rid] ?? 0);
+        $groupReviews[$idx]['user_voted'] = !empty($votedSet[$rid]);
+    }
+}
+
+$rating_counts = [5 => 0, 4 => 0, 3 => 0, 2 => 0, 1 => 0];
+$with_comments = 0;
+$with_media = 0;
+$rating_sum = 0;
+$total_reviews = count($groupReviews);
+foreach ($groupReviews as $gr) {
+    $rt = (int) ($gr['rating'] ?? 0);
+    if ($rt >= 1 && $rt <= 5) {
+        $rating_counts[$rt]++;
+        $rating_sum += $rt;
+    }
+    if (trim((string) ($gr['comment'] ?? '')) !== '') {
+        $with_comments++;
+    }
+    $hasVid = !empty($gr['video_path']);
+    $hasImgs = !empty($gr['images']);
+    if ($hasVid || $hasImgs) {
+        $with_media++;
+    }
+}
+$avg_rating = $total_reviews > 0 ? $rating_sum / $total_reviews : 0.0;
+
+$base_path = pf_app_base_path();
+
+$reviews_per_page = 10;
+$poc_page = max(1, (int) ($_GET['rpage'] ?? 1));
+$poc_total_pages = $total_reviews > 0 ? (int) ceil($total_reviews / $reviews_per_page) : 1;
+$poc_page = min($poc_page, $poc_total_pages);
+$poc_offset = ($poc_page - 1) * $reviews_per_page;
+$reviews_paged = array_slice($groupReviews, $poc_offset, $reviews_per_page);
+
+$profile_pic_fallback = rtrim($base_path, '/') . '/public/assets/uploads/profiles/default.png';
+
 $productStatsMap = printflow_catalog_product_card_stats_map($memberRows);
 $groupStats = printflow_catalog_products_aggregate_stats($memberRows);
 
-$base_path = pf_app_base_path();
 $default_product_img = $base_path . '/public/assets/images/services/default.png';
 $cover = printflow_catalog_group_cover_url($group, $base_path, $default_product_img);
 if ($cover === $default_product_img) {
@@ -135,13 +247,30 @@ require_once __DIR__ . '/../includes/header.php';
         .shopee-footer { display: flex; }
         .shopee-btn-buy { flex: 1; min-width: 0; }
     }
-    .pf-group-reviews { margin-top: 1.5rem; padding: 1.25rem 1.5rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; }
-    .pf-group-reviews h2 { font-size: 1.125rem; font-weight: 700; color: #111827; margin: 0 0 1rem; }
-    .pf-review-item { padding: 0.75rem 0; border-bottom: 1px solid #f3f4f6; }
-    .pf-review-item:last-child { border-bottom: none; }
-    .pf-review-product { font-size: 0.6875rem; font-weight: 700; color: #477089; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
-    .pf-staff-reply { margin-top: 0.75rem; padding: 0.75rem; background: #f9fafb; border-left: 3px solid #e5e7eb; border-radius: 6px; }
-    .pf-staff-reply-label { font-size: 0.75rem; font-weight: 700; color: #374151; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
+    .pf-group-reviews { margin-top: 1.5rem; padding: 1.5rem 2rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 4px; }
+    .poc-section-title { font-size: 1.1rem; font-weight: 700; color: #111827; margin: 0 0 0.75rem; }
+    .poc-filter-btn.active { background: #0a2530 !important; color: white !important; border-color: #0a2530 !important; }
+    .poc-filter-btn:hover { border-color: #0a2530; background: #f0f4f5; }
+    .poc-review-item { border-bottom: 1px solid #f3f4f6; padding: 1.25rem 0; color: #1f2937; }
+    .poc-review-item:last-child { border-bottom: none; }
+    .poc-empty { text-align: center; padding: 3rem 1rem; color: #6b7280; }
+    .helpful-btn { display: inline-flex; align-items: center; gap: 5px; padding: 4px 0; border: none; background: transparent; color: #9ca3af; font-size: 0.82rem; font-weight: 400; cursor: pointer; transition: color 0.2s; }
+    .helpful-btn:hover { color: #6b7280; }
+    .helpful-btn.voted { color: #f97316; }
+    .helpful-btn.voted svg { fill: #f97316; }
+    .poc-media-trigger { border: none; background: none; padding: 0; cursor: pointer; }
+    .poc-media-thumb { display: block; max-width: 100%; height: auto; }
+    .poc-video-thumb { position: relative; display: inline-block; max-width: 240px; border-radius: 8px; border: 1px solid #e5e7eb; overflow: hidden; background: #0f172a; }
+    .poc-video-preview { display: block; width: 100%; height: auto; background: #0f172a; }
+    .poc-media-modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); display: none; align-items: center; justify-content: center; padding: 1.5rem; z-index: 100000; }
+    .poc-media-modal.is-open { display: flex; }
+    .poc-media-modal-inner { position: relative; max-width: 90vw; max-height: 90vh; }
+    .poc-media-full { max-width: 90vw; max-height: 90vh; border-radius: 8px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); background: #0b1220; }
+    .poc-media-close { position: absolute; top: -12px; right: -12px; width: 36px; height: 36px; border-radius: 999px; border: none; background: #111827; color: #fff; font-size: 1.5rem; line-height: 1; cursor: pointer; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
+    .pf-review-product-label { font-size: 0.75rem; font-weight: 600; color: #477089; margin-bottom: 0.35rem; overflow-wrap: anywhere; word-break: break-word; }
+    @media (max-width: 640px) {
+        .pf-group-reviews { padding: 1.25rem 1rem; }
+    }
 </style>
 
 <div class="pf-group-page">
@@ -220,47 +349,169 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 
     <section class="pf-group-reviews" aria-labelledby="pf-group-reviews-heading">
-        <h2 id="pf-group-reviews-heading">Product ratings</h2>
-        <?php if (empty($groupReviews)): ?>
-            <p style="font-size:0.875rem;color:#6b7280;margin:0;">No reviews yet for products in this group.</p>
-        <?php endif; ?>
-        <?php foreach ($groupReviews as $review):
-            $reviewer = trim((string) (($review['first_name'] ?? '') . ' ' . ($review['last_name'] ?? '')));
-            $rating = (int) ($review['rating'] ?? 0);
-            $comment = trim((string) ($review['comment'] ?? ''));
-            ?>
-            <article class="pf-review-item">
-                <div class="pf-review-product"><?php echo htmlspecialchars($review['product_name'] ?? ''); ?></div>
-                <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
-                    <?php for ($i = 1; $i <= 5; $i++): ?>
-                        <svg width="14" height="14" fill="<?php echo $i <= $rating ? '#ffca11' : '#e5e7eb'; ?>" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
-                    <?php endfor; ?>
-                    <?php if ($reviewer !== ''): ?>
-                        <span style="font-size:0.8125rem;color:#374151;margin-left:6px;"><?php echo htmlspecialchars($reviewer); ?></span>
-                    <?php endif; ?>
-                </div>
-                <?php if ($comment !== ''): ?>
-                    <p style="margin:0;font-size:0.875rem;color:#4b5563;line-height:1.5;"><?php echo nl2br(htmlspecialchars($comment)); ?></p>
-                <?php endif; ?>
-                <?php if (!empty($review['replies'])): ?>
-                    <div class="pf-staff-reply">
-                        <div class="pf-staff-reply-label">Staff response</div>
-                        <?php foreach ($review['replies'] as $reply): ?>
-                            <div style="margin-bottom:0.35rem;">
-                                <div style="color:#374151;font-size:0.875rem;line-height:1.5;"><?php echo nl2br(htmlspecialchars($reply['reply_message'] ?? '')); ?></div>
-                                <div style="font-size:0.75rem;color:#6b7280;margin-top:0.25rem;">
-                                    <?php echo htmlspecialchars(trim(($reply['first_name'] ?? '') . ' ' . ($reply['last_name'] ?? ''))); ?>
-                                    <?php if (!empty($reply['created_at'])): ?>
-                                        · <?php echo htmlspecialchars(date('Y-m-d', strtotime((string) $reply['created_at']))); ?>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
+        <h2 id="pf-group-reviews-heading" class="poc-section-title">Product Ratings</h2>
+
+        <?php if ($total_reviews > 0): ?>
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;">
+            <div style="display:flex;gap:2rem;align-items:center;flex-wrap:wrap;">
+                <div style="text-align:center;">
+                    <div style="font-size:3rem;font-weight:700;color:#f97316;line-height:1;"><?php echo number_format($avg_rating, 1); ?></div>
+                    <div style="font-size:0.875rem;color:#6b7280;margin-top:0.25rem;">out of 5</div>
+                    <div style="display:flex;gap:2px;margin-top:0.5rem;justify-content:center;">
+                        <?php for ($i = 1; $i <= 5; $i++): ?>
+                            <svg width="22" height="22" fill="<?php echo ($i <= round($avg_rating)) ? '#f97316' : '#d1d5db'; ?>" viewBox="0 0 20 20" aria-hidden="true">
+                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                            </svg>
+                        <?php endfor; ?>
                     </div>
-                <?php endif; ?>
-            </article>
-        <?php endforeach; ?>
+                </div>
+                <div style="flex:1;min-width:260px;">
+                    <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+                        <button type="button" class="poc-filter-btn active" data-filter="all" style="padding:0.5rem 1rem;border:1px solid #e5e7eb;border-radius:6px;background:white;cursor:pointer;font-size:0.875rem;transition:all 0.2s;">All</button>
+                        <?php for ($i = 5; $i >= 1; $i--): ?>
+                            <button type="button" class="poc-filter-btn" data-filter="<?php echo $i; ?>" style="padding:0.5rem 1rem;border:1px solid #e5e7eb;border-radius:6px;background:white;cursor:pointer;font-size:0.875rem;transition:all 0.2s;"><?php echo $i; ?> Star (<?php echo (int) $rating_counts[$i]; ?>)</button>
+                        <?php endfor; ?>
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+                        <button type="button" class="poc-filter-btn" data-filter="comments" style="padding:0.5rem 1rem;border:1px solid #e5e7eb;border-radius:6px;background:white;cursor:pointer;font-size:0.875rem;transition:all 0.2s;">With Comments (<?php echo (int) $with_comments; ?>)</button>
+                        <button type="button" class="poc-filter-btn" data-filter="media" style="padding:0.5rem 1rem;border:1px solid #e5e7eb;border-radius:6px;background:white;cursor:pointer;font-size:0.875rem;transition:all 0.2s;">With Media (<?php echo (int) $with_media; ?>)</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="poc-reviews-container">
+            <?php foreach ($reviews_paged as $review):
+                $reviewer_name = htmlspecialchars(trim(($review['first_name'] ?? '') . ' ' . ($review['last_name'] ?? '')));
+                $profile_pic = !empty($review['profile_picture'])
+                    ? get_profile_image($review['profile_picture'])
+                    : '';
+                $rating = (int) ($review['rating'] ?? 0);
+                $comment = htmlspecialchars($review['comment'] ?? '');
+                $has_comment = trim((string) ($review['comment'] ?? '')) !== '';
+                $rev_imgs = $review['images'] ?? [];
+                $has_video = !empty($review['video_path']);
+                $has_media = !empty($rev_imgs) || $has_video;
+                $product_label = trim((string) ($review['product_name'] ?? ''));
+                ?>
+            <div id="review-<?php echo (int) $review['id']; ?>" class="poc-review-item" data-rating="<?php echo $rating; ?>" data-has-comment="<?php echo $has_comment ? '1' : '0'; ?>" data-has-media="<?php echo $has_media ? '1' : '0'; ?>" style="padding:1.5rem 0;border-bottom:1px solid #e5e7eb;">
+                <div style="display:flex;gap:1rem;align-items:flex-start;">
+                    <div style="flex-shrink:0;">
+                        <?php if ($profile_pic): ?>
+                            <img src="<?php echo htmlspecialchars($profile_pic); ?>" alt="<?php echo $reviewer_name; ?>" onerror="this.onerror=null;this.src='<?php echo htmlspecialchars($profile_pic_fallback); ?>';" style="width:48px;height:48px;border-radius:50%;object-fit:cover;">
+                        <?php else: ?>
+                            <div style="width:48px;height:48px;border-radius:50%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;font-weight:600;color:#6b7280;">
+                                <?php echo strtoupper(substr($reviewer_name, 0, 1) ?: '?'); ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                    <div style="flex:1;min-width:0;">
+                        <?php if ($product_label !== ''): ?>
+                            <div class="pf-review-product-label"><?php echo htmlspecialchars($product_label); ?></div>
+                        <?php endif; ?>
+                        <div style="font-weight:600;color:#1f2937;margin-bottom:0.25rem;overflow-wrap:anywhere;word-break:break-word;"><?php echo $reviewer_name !== '' ? $reviewer_name : 'Customer'; ?></div>
+                        <div style="display:flex;gap:2px;margin-bottom:0.5rem;flex-wrap:wrap;">
+                            <?php for ($i = 1; $i <= 5; $i++): ?>
+                                <svg width="16" height="16" fill="<?php echo ($i <= $rating) ? '#f97316' : '#d1d5db'; ?>" viewBox="0 0 20 20" aria-hidden="true">
+                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                                </svg>
+                            <?php endfor; ?>
+                        </div>
+                        <?php if (!empty($review['created_at'])): ?>
+                            <div style="font-size:0.875rem;color:#6b7280;margin-bottom:0.5rem;"><?php echo htmlspecialchars(date('Y-m-d H:i', strtotime((string) $review['created_at']))); ?></div>
+                        <?php endif; ?>
+                        <?php if ($has_comment): ?>
+                            <div style="color:#374151;line-height:1.6;margin-bottom:0.75rem;overflow-wrap:anywhere;word-break:break-word;"><?php echo nl2br($comment); ?></div>
+                        <?php endif; ?>
+
+                        <?php if (!empty($rev_imgs)): ?>
+                            <div style="margin-bottom:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem;">
+                                <?php foreach ($rev_imgs as $img):
+                                    $ipath = (string) ($img['image_path'] ?? '');
+                                    if ($ipath === '' || !preg_match('/\.(jpg|jpeg|png|webp|gif|svg)$/i', $ipath)) {
+                                        continue;
+                                    }
+                                    if (strpos($ipath, 'http') === false && (!isset($ipath[0]) || $ipath[0] !== '/')) {
+                                        $ipath = rtrim($base_path, '/') . '/' . ltrim($ipath, '/');
+                                    }
+                                    ?>
+                                    <button type="button" class="poc-media-trigger" data-media-type="image" data-media-src="<?php echo htmlspecialchars($ipath); ?>" aria-label="View review image">
+                                        <img src="<?php echo htmlspecialchars($ipath); ?>" alt="Review image" class="poc-media-thumb" style="max-width:200px;border-radius:8px;border:1px solid #e5e7eb;">
+                                    </button>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+
+                        <?php if ($has_video && preg_match('/\.(mp4|webm|ogg|mov)$/i', (string) $review['video_path'])):
+                            $vpath = (string) $review['video_path'];
+                            if (strpos($vpath, 'http') === false && (!isset($vpath[0]) || $vpath[0] !== '/')) {
+                                $vpath = rtrim($base_path, '/') . '/' . ltrim($vpath, '/');
+                            }
+                            ?>
+                            <div style="margin-bottom:0.75rem;">
+                                <button type="button" class="poc-media-trigger" data-media-type="video" data-media-src="<?php echo htmlspecialchars($vpath); ?>" aria-label="Play review video">
+                                    <div class="poc-video-thumb">
+                                        <video src="<?php echo htmlspecialchars($vpath); ?>" controls playsinline preload="metadata" class="poc-video-preview" onclick="event.stopPropagation();"></video>
+                                    </div>
+                                </button>
+                            </div>
+                        <?php endif; ?>
+
+                        <?php if (!empty($review['replies'])): ?>
+                            <div style="margin-top:1rem;padding:1rem;background:#f9fafb;border-left:3px solid #e5e7eb;border-radius:6px;">
+                                <div style="font-size:0.75rem;font-weight:700;color:#374151;text-transform:uppercase;margin-bottom:0.5rem;letter-spacing:0.05em;">Staff Response</div>
+                                <?php foreach ($review['replies'] as $reply): ?>
+                                    <div style="margin-bottom:0.5rem;">
+                                        <div style="color:#374151;font-size:0.875rem;line-height:1.5;overflow-wrap:anywhere;word-break:break-word;"><?php echo nl2br(htmlspecialchars($reply['reply_message'] ?? '')); ?></div>
+                                        <div style="font-size:0.75rem;color:#6b7280;margin-top:0.25rem;">
+                                            <?php echo htmlspecialchars(trim(($reply['first_name'] ?? '') . ' ' . ($reply['last_name'] ?? ''))); ?>
+                                            <?php if (!empty($reply['created_at'])): ?>
+                                                · <?php echo htmlspecialchars(date('Y-m-d', strtotime((string) $reply['created_at']))); ?>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+
+                        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                            <button type="button" onclick="markHelpful(<?php echo (int) $review['id']; ?>, this)" class="helpful-btn<?php echo !empty($review['user_voted']) ? ' voted' : ''; ?>" data-default-label="Helpful"<?php echo !empty($review['user_voted']) ? ' data-voted="1"' : ''; ?>>
+                                <svg width="15" height="15" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z"/></svg>
+                                <span class="helpful-label"><?php echo !empty($review['user_voted']) ? (int) ($review['helpful_count'] ?? 0) : 'Helpful'; ?></span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+
+        <?php
+        $pagination_params = ['group_id' => $groupId];
+        if ($selectedId > 0) {
+            $pagination_params['product_id'] = $selectedId;
+        }
+        echo render_pagination($poc_page, $poc_total_pages, $pagination_params, 'rpage');
+        ?>
+
+        <?php else: ?>
+        <div class="poc-empty">
+            <svg width="56" height="56" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
+            <p style="font-size:1rem;font-weight:600;margin:0.75rem 0 0.25rem;">No Reviews Yet</p>
+            <p style="font-size:0.875rem;color:#9ca3af;">Be the first to review products in this group!</p>
+        </div>
+        <?php endif; ?>
     </section>
+</div>
+
+<div id="pocMediaModal" class="poc-media-modal" aria-hidden="true">
+    <div class="poc-media-modal-inner" role="dialog" aria-modal="true" aria-label="Media viewer">
+        <button type="button" id="pocMediaClose" class="poc-media-close" aria-label="Close media viewer">&times;</button>
+        <img id="pocMediaImg" class="poc-media-full" alt="Media preview" hidden>
+        <video id="pocMediaVideo" class="poc-media-full" controls playsinline hidden>
+            <source id="pocMediaVideoSource" src="" type="video/mp4">
+        </video>
+    </div>
 </div>
 
 <script src="<?php echo htmlspecialchars($base_path); ?>/public/assets/js/add_to_cart_fx.js"></script>
@@ -413,6 +664,107 @@ document.getElementById('pf-group-add-cart').addEventListener('click', async fun
     var initial = document.querySelector('.pf-group-option.is-active') || document.querySelector('.pf-group-option');
     pfSelectGroupOption(initial);
 })();
+
+document.addEventListener('DOMContentLoaded', function () {
+    var filterBtns = document.querySelectorAll('.pf-group-reviews .poc-filter-btn');
+    var reviewItems = document.querySelectorAll('.pf-group-reviews .poc-review-item');
+    filterBtns.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            filterBtns.forEach(function (b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            var filter = btn.getAttribute('data-filter');
+            reviewItems.forEach(function (item) {
+                var show = filter === 'all'
+                    || (filter === 'comments' && item.getAttribute('data-has-comment') === '1')
+                    || (filter === 'media' && item.getAttribute('data-has-media') === '1')
+                    || item.getAttribute('data-rating') === filter;
+                item.style.display = show ? '' : 'none';
+            });
+        });
+    });
+});
+
+document.addEventListener('DOMContentLoaded', function () {
+    var modal = document.getElementById('pocMediaModal');
+    var modalImg = document.getElementById('pocMediaImg');
+    var modalVideo = document.getElementById('pocMediaVideo');
+    var modalVideoSource = document.getElementById('pocMediaVideoSource');
+    var closeBtn = document.getElementById('pocMediaClose');
+    if (!modal || !modalImg || !modalVideo || !modalVideoSource || !closeBtn) return;
+
+    var openMedia = function (type, src) {
+        if (!src) return;
+        if (type === 'video') {
+            modalImg.hidden = true;
+            modalVideo.hidden = false;
+            modalVideoSource.src = src;
+            modalVideo.load();
+        } else {
+            modalVideo.hidden = true;
+            modalImg.hidden = false;
+            modalImg.src = src;
+        }
+        modal.classList.add('is-open');
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+    };
+
+    var closeMedia = function () {
+        modal.classList.remove('is-open');
+        modal.setAttribute('aria-hidden', 'true');
+        modalImg.src = '';
+        modalVideo.pause();
+        modalVideoSource.src = '';
+        modalVideo.load();
+        document.body.style.overflow = '';
+    };
+
+    document.querySelectorAll('.pf-group-reviews .poc-media-trigger').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            openMedia(btn.getAttribute('data-media-type'), btn.getAttribute('data-media-src'));
+        });
+    });
+
+    closeBtn.addEventListener('click', closeMedia);
+    modal.addEventListener('click', function (e) {
+        if (e.target === modal) closeMedia();
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal.classList.contains('is-open')) closeMedia();
+    });
+});
+
+async function markHelpful(reviewId, btn) {
+    var basePath = <?php echo json_encode(rtrim($base_path, '/'), JSON_UNESCAPED_SLASHES); ?>;
+    var label = btn.querySelector('.helpful-label');
+    var originalLabel = btn.getAttribute('data-default-label') || 'Helpful';
+    var nextAction = btn.getAttribute('data-voted') === '1' ? 'unlike' : 'like';
+    btn.disabled = true;
+    try {
+        var res = await fetch(basePath + '/public/api/review_helpful.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'review_id=' + encodeURIComponent(reviewId) + '&action=' + encodeURIComponent(nextAction)
+        });
+        var data = await res.json().catch(function () { return { success: false, error: 'Invalid server response' }; });
+        if (data.success) {
+            if (data.voted) {
+                btn.setAttribute('data-voted', '1');
+                btn.classList.add('voted');
+                label.textContent = data.count;
+            } else {
+                btn.removeAttribute('data-voted');
+                btn.classList.remove('voted');
+                label.textContent = originalLabel;
+            }
+        }
+    } catch (e) {
+        console.error('Helpful vote failed:', e);
+    } finally {
+        btn.disabled = false;
+    }
+}
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>
