@@ -30,13 +30,8 @@ foreach ($members as $m) {
     ];
 }
 
-$groupStats = printflow_catalog_products_aggregate_stats($memberRows);
-$avg_rating = (float) ($groupStats['avg_rating'] ?? 0);
-$review_count = (int) ($groupStats['review_count'] ?? 0);
-$sold_count = (int) ($groupStats['sold_count'] ?? 0);
-$sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k' : (string) $sold_count;
-
 $groupReviews = printflow_catalog_products_reviews_list($memberRows);
+$productStatsMap = printflow_catalog_product_card_stats_map($memberRows);
 
 $base_path = pf_app_base_path();
 $default_product_img = $base_path . '/public/assets/images/services/default.png';
@@ -100,31 +95,40 @@ require_once __DIR__ . '/../includes/header.php';
         border-bottom: 1px solid rgba(126,164,184,0.16);
     }
     .pf-group-stats .rating-stars { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
-    .pf-group-stats .rating-text { margin-left: 4px; font-weight: 600; }
+    .pf-group-stats .rating-text { margin-left: 4px; font-weight: 600; font-size: 0.75rem; color: var(--shopee-muted); }
     .pf-group-option {
-        display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 10px;
+        display: flex; gap: 6px; align-items: center; padding: 4px 6px; border-radius: 8px;
         border: 1px solid var(--shopee-border); cursor: pointer; background: rgba(255,255,255,0.78);
         transition: border-color .2s, box-shadow .2s; min-height: 0;
     }
-    .pf-group-option.is-active { border-color: rgba(15,52,65,0.45); box-shadow: 0 6px 18px rgba(13,45,60,0.1); }
-    .pf-group-option img { width: 44px; height: 44px; object-fit: contain; border-radius: 8px; background: #f8fafc; flex-shrink: 0; }
-    .pf-group-options { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto; }
+    .pf-group-option.is-active { border-color: rgba(15,52,65,0.45); box-shadow: 0 4px 12px rgba(13,45,60,0.08); }
+    .pf-group-option img { width: 40px; height: 40px; object-fit: contain; border-radius: 6px; background: #f8fafc; flex-shrink: 0; }
+    .pf-group-options { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
     .pf-group-back { color: #0f3441; font-weight: 600; text-decoration: none; font-size: 0.875rem; }
-    .shopee-footer { padding: 5px 0 0; border-top: 1px solid rgba(126, 164, 184, 0.16); display: flex; gap: 4px; margin-top: 12px; }
-    .shopee-btn {
-        flex: 1; padding: 0.5rem 0.54rem; border-radius: 12px; font-size: 0.6rem; font-weight: 700;
-        text-align: center; text-transform: uppercase; border: 1px solid transparent; cursor: pointer;
-        display: flex; align-items: center; justify-content: center; text-decoration: none;
-        letter-spacing: 0.05em; white-space: nowrap; line-height: 1;
+    .shopee-footer {
+        padding: 8px 0 0; border-top: 1px solid rgba(126, 164, 184, 0.16);
+        display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; width: 100%;
     }
-    .shopee-btn-cart { background: rgba(255,255,255,0.85); color: #0f3441; border-color: var(--shopee-border); }
-    .shopee-btn-buy { background: linear-gradient(135deg, #123746 0%, #0f4958 100%); color: #fff; flex: 1.2; }
+    .shopee-btn {
+        padding: 0.5rem 0.75rem; border-radius: 12px; font-size: 0.6rem; font-weight: 700;
+        text-align: center; text-transform: uppercase; border: 1px solid transparent; cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center; text-decoration: none;
+        letter-spacing: 0.05em; white-space: nowrap; line-height: 1; flex: 0 0 auto;
+    }
+    .shopee-btn-cart { background: rgba(255,255,255,0.85); color: #0f3441; border-color: var(--shopee-border); width: 42px; height: 42px; padding: 0; }
+    .shopee-btn-buy { background: linear-gradient(135deg, #123746 0%, #0f4958 100%); color: #fff; min-width: 118px; height: 42px; }
     .shopee-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    @media (max-width: 480px) {
+        .shopee-footer { display: flex; }
+        .shopee-btn-buy { flex: 1; min-width: 0; }
+    }
     .pf-group-reviews { margin-top: 1.5rem; padding: 1.25rem 1.5rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; }
     .pf-group-reviews h2 { font-size: 1.125rem; font-weight: 700; color: #111827; margin: 0 0 1rem; }
-    .pf-review-item { padding: 1rem 0; border-bottom: 1px solid #f3f4f6; }
+    .pf-review-item { padding: 0.75rem 0; border-bottom: 1px solid #f3f4f6; }
     .pf-review-item:last-child { border-bottom: none; }
     .pf-review-product { font-size: 0.6875rem; font-weight: 700; color: #477089; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+    .pf-staff-reply { margin-top: 0.75rem; padding: 0.75rem; background: #f9fafb; border-left: 3px solid #e5e7eb; border-radius: 6px; }
+    .pf-staff-reply-label { font-size: 0.75rem; font-weight: 700; color: #374151; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
 </style>
 
 <div class="pf-group-page">
@@ -142,17 +146,8 @@ require_once __DIR__ . '/../includes/header.php';
                 <div id="pf-group-selected-name" style="font-size:0.95rem;font-weight:700;color:var(--shopee-text);margin-top:4px;">—</div>
 
                 <div class="pf-group-stats">
-                    <div class="rating-stars">
-                        <?php for ($i = 1; $i <= 5; $i++): ?>
-                            <svg style="width: 14px; height: 14px;" fill="<?php echo ($i <= round($avg_rating)) ? '#ffca11' : '#e5e7eb'; ?>" viewBox="0 0 20 20">
-                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path>
-                            </svg>
-                        <?php endfor; ?>
-                        <?php if ($review_count > 0): ?>
-                            <span class="rating-text"><?php echo number_format($avg_rating, 1); ?> (<?php echo (int) $review_count; ?> reviews)</span>
-                        <?php endif; ?>
-                    </div>
-                    <span><?php echo htmlspecialchars($sold_display); ?> sold</span>
+                    <div class="rating-stars" id="pf-group-stats-stars"></div>
+                    <span id="pf-group-stats-sold">— sold</span>
                 </div>
 
                 <div id="pf-group-selected-price" style="font-size:1.125rem;font-weight:800;color:#0f3441;">—</div>
@@ -169,17 +164,23 @@ require_once __DIR__ . '/../includes/header.php';
         <div>
             <div style="font-size:0.875rem;font-weight:700;color:#173042;margin-bottom:8px;">Available options</div>
             <div class="pf-group-options" id="pf-group-options">
-                <?php foreach ($options as $opt): ?>
-                    <div class="pf-group-option<?php echo (int)$opt['product_id'] === $selectedId ? ' is-active' : ''; ?>"
-                         data-product-id="<?php echo (int)$opt['product_id']; ?>"
+                <?php foreach ($options as $opt):
+                    $pid = (int) $opt['product_id'];
+                    $ps = $productStatsMap[$pid] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
+                    ?>
+                    <div class="pf-group-option<?php echo $pid === $selectedId ? ' is-active' : ''; ?>"
+                         data-product-id="<?php echo $pid; ?>"
                          data-name="<?php echo htmlspecialchars($opt['name'], ENT_QUOTES); ?>"
                          data-price="<?php echo htmlspecialchars(number_format($opt['price'], 2, '.', ''), ENT_QUOTES); ?>"
                          data-stock="<?php echo (int)$opt['stock_quantity']; ?>"
-                         data-image="<?php echo htmlspecialchars($opt['image_url'], ENT_QUOTES); ?>">
+                         data-image="<?php echo htmlspecialchars($opt['image_url'], ENT_QUOTES); ?>"
+                         data-avg-rating="<?php echo htmlspecialchars(number_format((float) $ps['avg_rating'], 2, '.', ''), ENT_QUOTES); ?>"
+                         data-review-count="<?php echo (int) ($ps['review_count'] ?? 0); ?>"
+                         data-sold-count="<?php echo (int) ($ps['sold_count'] ?? 0); ?>">
                         <img src="<?php echo htmlspecialchars($opt['image_url']); ?>" alt="">
-                        <div style="min-width:0;flex:1;">
-                            <div style="font-weight:700;font-size:0.8125rem;color:#173042;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($opt['name']); ?></div>
-                            <div style="font-size:0.72rem;color:#64748b;margin-top:2px;"><?php echo format_currency($opt['price']); ?> · <?php echo (int)$opt['stock_quantity']; ?> in stock</div>
+                        <div style="min-width:0;flex:1;line-height:1.25;">
+                            <div style="font-weight:700;font-size:0.78rem;color:#173042;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($opt['name']); ?></div>
+                            <div style="font-size:0.68rem;color:#64748b;margin-top:1px;"><?php echo format_currency($opt['price']); ?> · <?php echo (int)$opt['stock_quantity']; ?> in stock</div>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -189,12 +190,8 @@ require_once __DIR__ . '/../includes/header.php';
 
     <section class="pf-group-reviews" aria-labelledby="pf-group-reviews-heading">
         <h2 id="pf-group-reviews-heading">Product ratings</h2>
-        <?php if ($review_count > 0): ?>
-            <p style="font-size:0.875rem;color:#6b7280;margin:-0.5rem 0 1rem;">
-                <?php echo number_format($avg_rating, 1); ?> out of 5 · <?php echo (int) $review_count; ?> review<?php echo $review_count === 1 ? '' : 's'; ?> · <?php echo htmlspecialchars($sold_display); ?> sold
-            </p>
-        <?php else: ?>
-            <p style="font-size:0.875rem;color:#6b7280;margin:-0.5rem 0 1rem;">No reviews yet for products in this group.</p>
+        <?php if (empty($groupReviews)): ?>
+            <p style="font-size:0.875rem;color:#6b7280;margin:0;">No reviews yet for products in this group.</p>
         <?php endif; ?>
         <?php foreach ($groupReviews as $review):
             $reviewer = trim((string) (($review['first_name'] ?? '') . ' ' . ($review['last_name'] ?? '')));
@@ -214,6 +211,22 @@ require_once __DIR__ . '/../includes/header.php';
                 <?php if ($comment !== ''): ?>
                     <p style="margin:0;font-size:0.875rem;color:#4b5563;line-height:1.5;"><?php echo nl2br(htmlspecialchars($comment)); ?></p>
                 <?php endif; ?>
+                <?php if (!empty($review['replies'])): ?>
+                    <div class="pf-staff-reply">
+                        <div class="pf-staff-reply-label">Staff response</div>
+                        <?php foreach ($review['replies'] as $reply): ?>
+                            <div style="margin-bottom:0.35rem;">
+                                <div style="color:#374151;font-size:0.875rem;line-height:1.5;"><?php echo nl2br(htmlspecialchars($reply['reply_message'] ?? '')); ?></div>
+                                <div style="font-size:0.75rem;color:#6b7280;margin-top:0.25rem;">
+                                    <?php echo htmlspecialchars(trim(($reply['first_name'] ?? '') . ' ' . ($reply['last_name'] ?? ''))); ?>
+                                    <?php if (!empty($reply['created_at'])): ?>
+                                        · <?php echo htmlspecialchars(date('Y-m-d', strtotime((string) $reply['created_at']))); ?>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
             </article>
         <?php endforeach; ?>
     </section>
@@ -223,6 +236,29 @@ require_once __DIR__ . '/../includes/header.php';
 <script>
 var PF_CSRF_TOKEN = '<?php echo generate_csrf_token(); ?>';
 var PF_GROUP_ID = <?php echo (int)$groupId; ?>;
+
+function pfFormatSold(count) {
+    var n = parseInt(count || '0', 10);
+    if (isNaN(n) || n < 0) n = 0;
+    return n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : String(n);
+}
+
+function pfRenderStatsStars(avgRating, reviewCount) {
+    var wrap = document.getElementById('pf-group-stats-stars');
+    if (!wrap) return;
+    var avg = parseFloat(avgRating);
+    if (isNaN(avg)) avg = 0;
+    var rc = parseInt(reviewCount || '0', 10);
+    var html = '';
+    for (var i = 1; i <= 5; i++) {
+        var fill = i <= Math.round(avg) ? '#ffca11' : '#e5e7eb';
+        html += '<svg style="width:14px;height:14px;" fill="' + fill + '" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>';
+    }
+    if (rc > 0) {
+        html += '<span class="rating-text">' + avg.toFixed(1) + ' (' + rc + ')</span>';
+    }
+    wrap.innerHTML = html;
+}
 
 function pfFormatMoney(n) {
     var v = parseFloat(n);
@@ -239,10 +275,15 @@ function pfSelectGroupOption(el) {
     var price = el.getAttribute('data-price') || '0';
     var stock = parseInt(el.getAttribute('data-stock') || '0', 10);
     var img = el.getAttribute('data-image') || '';
+    var avgRating = el.getAttribute('data-avg-rating') || '0';
+    var reviewCount = el.getAttribute('data-review-count') || '0';
+    var soldCount = el.getAttribute('data-sold-count') || '0';
     document.getElementById('pf-group-main-image').src = img;
     document.getElementById('pf-group-selected-name').textContent = name;
     document.getElementById('pf-group-selected-price').textContent = pfFormatMoney(price);
     document.getElementById('pf-group-selected-stock').textContent = stock > 0 ? (stock + ' in stock') : 'Out of stock';
+    pfRenderStatsStars(avgRating, reviewCount);
+    document.getElementById('pf-group-stats-sold').textContent = pfFormatSold(soldCount) + ' sold';
     document.getElementById('pf-group-order-now').href = 'order_create.php?product_id=' + encodeURIComponent(pid) + '&buy_now=1';
     var cartBtn = document.getElementById('pf-group-add-cart');
     cartBtn.disabled = stock <= 0;

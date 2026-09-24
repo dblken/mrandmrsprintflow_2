@@ -277,7 +277,7 @@ require_once __DIR__ . '/../includes/header.php';
     }
 
     .shopee-body {
-        padding: 6px 8px 0;
+        padding: 6px 8px 8px;
         flex-grow: 0;
         display: flex;
         flex-direction: column;
@@ -568,12 +568,6 @@ require_once __DIR__ . '/../includes/header.php';
                                 <span class="shopee-price"><?php echo format_currency($product['price']); ?></span>
                             </div>
                         </div>
-                        <div class="shopee-footer" onclick="event.stopPropagation()">
-                            <button type="button" onclick="addToCartDirect(<?php echo (int)$product['product_id']; ?>, event)" class="shopee-btn shopee-btn-cart" title="Add to Cart">
-                                <svg style="width: 1.25rem; height: 1.25rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                            </button>
-                            <a href="order_create.php?product_id=<?php echo $product['product_id']; ?>&buy_now=1" class="shopee-btn shopee-btn-buy">Order Now</a>
-                        </div>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -585,98 +579,5 @@ require_once __DIR__ . '/../includes/header.php';
         <?php endif; ?>
     </div>
 </div>
-
-<script src="<?php echo htmlspecialchars($base_path); ?>/public/assets/js/add_to_cart_fx.js"></script>
-<script>
-var PF_CSRF_TOKEN = '<?php echo generate_csrf_token(); ?>';
-
-async function addToCartDirect(productId, ev) {
-    const btn = ev && ev.currentTarget ? ev.currentTarget : null;
-    const lockKey = 'product-' + String(productId);
-    if (window.PFAddToCartFx && PFAddToCartFx.isPending(lockKey)) {
-        return;
-    }
-
-    const runAdd = async function () {
-        const response = await fetch('api_cart.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'add',
-                product_id: productId,
-                quantity: 1,
-                csrf_token: PF_CSRF_TOKEN
-            })
-        });
-        const data = await response.json();
-        if (!data.success) {
-            showToast(data.message || 'Failed to add to cart.', true);
-            return;
-        }
-        const applyCartCount = function () {
-            if (window.updateCartBadge) {
-                updateCartBadge(data.cart_count);
-            }
-        };
-        if (window.PFAddToCartFx) {
-            await new Promise(function (resolve) {
-                PFAddToCartFx.run(btn, {
-                    message: 'Added to cart ✓',
-                    onComplete: function () {
-                        applyCartCount();
-                        resolve(true);
-                    }
-                });
-            });
-        } else {
-            applyCartCount();
-            showToast('Added to cart!');
-        }
-    };
-
-    try {
-        if (window.PFAddToCartFx) {
-            await PFAddToCartFx.withLock(lockKey, btn, runAdd);
-        } else {
-            await runAdd();
-        }
-    } catch (err) {
-        console.error('Cart Error:', err);
-        showToast('An error occurred. Please try again.', true);
-    }
-}
-
-function showToast(msg, isError) {
-    let toast = document.getElementById('shopee-toast');
-    if (!toast) {
-        toast = document.createElement('div');
-        toast.id = 'shopee-toast';
-        document.body.appendChild(toast);
-    }
-    
-    toast.textContent = msg;
-    toast.style.cssText = `
-        position: fixed;
-        bottom: 5rem;
-        left: 50%;
-        transform: translateX(-50%);
-        background: ${isError ? 'rgba(239,68,68,0.92)' : 'rgba(0,0,0,0.85)'};
-        color: white;
-        padding: 12px 24px;
-        border-radius: 0;
-        font-size: 0.9rem;
-        font-weight: 500;
-        z-index: 10000;
-        transition: opacity 0.3s;
-        pointer-events: none;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-    `;
-    
-    toast.style.opacity = '1';
-    setTimeout(() => {
-        toast.style.opacity = '0';
-    }, 2500);
-}
-</script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

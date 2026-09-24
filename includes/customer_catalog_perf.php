@@ -560,12 +560,34 @@ function printflow_catalog_products_reviews_list(array $product_rows): array
         $reviewIds
     ) ?: [];
 
+    $repliesByReview = [];
+    $replyTable = db_query("SHOW TABLES LIKE 'review_replies'") ?: [];
+    if ($replyTable !== []) {
+        $replyRows = db_query(
+            "SELECT rr.review_id, rr.reply_message, rr.created_at, u.first_name, u.last_name
+             FROM review_replies rr
+             INNER JOIN users u ON u.user_id = rr.staff_id
+             WHERE rr.review_id IN ($idPlaceholders)
+             ORDER BY rr.created_at ASC",
+            str_repeat('i', count($reviewIds)),
+            $reviewIds
+        ) ?: [];
+        foreach ($replyRows as $replyRow) {
+            $rid = (int) ($replyRow['review_id'] ?? 0);
+            if ($rid < 1) {
+                continue;
+            }
+            $repliesByReview[$rid][] = $replyRow;
+        }
+    }
+
     $out = [];
     foreach ($reviewRows as $row) {
         $reviewId = (int) ($row['id'] ?? 0);
         $productId = (int) ($reviewToProduct[$reviewId] ?? 0);
         $row['product_id'] = $productId;
         $row['product_name'] = $products[$productId] ?? '';
+        $row['replies'] = $repliesByReview[$reviewId] ?? [];
         $out[] = $row;
     }
     return $out;
