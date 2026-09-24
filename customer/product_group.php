@@ -186,8 +186,44 @@ require_once __DIR__ . '/../includes/header.php';
         --shopee-border: rgba(126, 164, 184, 0.24);
     }
     .pf-group-page { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
-    .pf-group-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
-    @media (max-width: 900px) { .pf-group-layout { grid-template-columns: 1fr; } }
+    .pf-group-selection {
+        border: 1px solid var(--shopee-border);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.88);
+        box-shadow: 0 22px 50px rgba(13, 45, 60, 0.1);
+        overflow: hidden;
+    }
+    .pf-group-selection-inner {
+        display: grid;
+        grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
+        align-items: stretch;
+    }
+    @media (max-width: 900px) {
+        .pf-group-selection-inner { grid-template-columns: 1fr; }
+    }
+    .pf-group-selection-main { min-width: 0; display: flex; flex-direction: column; }
+    .pf-group-selection-options {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 14px 16px 16px;
+        border-left: 1px solid rgba(126, 164, 184, 0.18);
+        background: rgba(248, 250, 252, 0.55);
+    }
+    @media (max-width: 900px) {
+        .pf-group-selection-options {
+            border-left: none;
+            border-top: 1px solid rgba(126, 164, 184, 0.18);
+        }
+    }
+    .pf-group-options-heading {
+        font-size: 0.58rem;
+        font-weight: 700;
+        color: #477089;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin: 0 0 10px;
+    }
     .pf-group-hero-img {
         width: 100%; height: 210px; max-height: 220px; object-fit: contain; background: #f1f5f9;
         border-radius: 0; border: none;
@@ -195,13 +231,10 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-group-img-wrap {
         width: 100%; height: 210px; max-height: 220px; overflow: hidden; background: #f1f5f9;
         display: flex; align-items: center; justify-content: center;
-        border: 1px solid var(--shopee-border); border-radius: 16px 16px 0 0;
+        border: none;
+        border-bottom: 1px solid rgba(126, 164, 184, 0.14);
     }
-    .pf-group-detail-card {
-        border: 1px solid var(--shopee-border); border-radius: 16px; background: rgba(255,255,255,0.78);
-        box-shadow: 0 22px 50px rgba(13, 45, 60, 0.12); overflow: hidden;
-    }
-    .pf-group-detail-body { padding: 12px 14px 14px; }
+    .pf-group-detail-body { padding: 12px 16px 16px; flex: 1; display: flex; flex-direction: column; min-width: 0; }
     .pf-group-stats {
         display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
         font-size: 0.75rem; color: var(--shopee-muted); margin: 8px 0 10px; padding-bottom: 10px;
@@ -212,22 +245,22 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-group-stats .rating-stars svg.pf-star-off { fill: #e5e7eb !important; }
     .pf-group-stats .rating-text { margin-left: 4px; font-weight: 600; font-size: 0.75rem; color: var(--shopee-muted); }
     .pf-group-option {
-        display: inline-flex; gap: 6px; align-items: center; padding: 4px 8px 4px 4px; border-radius: 8px;
-        border: 1px solid var(--shopee-border); cursor: pointer; background: rgba(255,255,255,0.78);
-        transition: border-color .2s, box-shadow .2s; min-height: 0;
-        width: max-content; max-width: 100%; box-sizing: border-box;
+        display: flex; gap: 8px; align-items: center; padding: 8px 10px 8px 8px; border-radius: 10px;
+        border: 1px solid var(--shopee-border); cursor: pointer; background: rgba(255, 255, 255, 0.92);
+        transition: border-color 0.2s, box-shadow 0.2s, background 0.2s; min-height: 0;
+        width: 100%; max-width: 100%; box-sizing: border-box;
     }
-    .pf-group-option.is-active { border-color: rgba(15,52,65,0.45); box-shadow: 0 4px 12px rgba(13,45,60,0.08); }
-    .pf-group-option img { width: 40px; height: 40px; object-fit: contain; border-radius: 6px; background: #f8fafc; flex-shrink: 0; }
-    .pf-group-option-text { flex: 0 1 auto; line-height: 1.25; white-space: nowrap; }
-    .pf-group-options-col { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
-    .pf-group-options { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; max-height: 260px; overflow-y: auto; width: max-content; max-width: 100%; }
-    @media (max-width: 600px) {
-        .pf-group-options-col { align-items: stretch; }
-        .pf-group-options { width: 100%; }
-        .pf-group-option { width: 100%; display: flex; }
-        .pf-group-option-text { white-space: normal; }
+    .pf-group-option:hover { border-color: rgba(15, 52, 65, 0.28); background: #fff; }
+    .pf-group-option.is-active {
+        border-color: rgba(15, 52, 65, 0.5);
+        background: rgba(255, 255, 255, 1);
+        box-shadow: 0 0 0 1px rgba(15, 52, 65, 0.12), 0 4px 14px rgba(13, 45, 60, 0.08);
     }
+    .pf-group-option img { width: 44px; height: 44px; object-fit: contain; border-radius: 8px; background: #f8fafc; flex-shrink: 0; border: 1px solid rgba(126, 164, 184, 0.12); }
+    .pf-group-option-text { flex: 1; min-width: 0; line-height: 1.3; }
+    .pf-group-option-name { font-weight: 700; font-size: 0.78rem; color: #173042; overflow-wrap: anywhere; word-break: break-word; }
+    .pf-group-option-meta { font-size: 0.68rem; color: #64748b; margin-top: 2px; }
+    .pf-group-options { display: flex; flex-direction: column; gap: 6px; max-height: min(320px, 50vh); overflow-y: auto; width: 100%; min-width: 0; }
     .pf-group-back { color: #0f3441; font-weight: 600; text-decoration: none; font-size: 0.875rem; }
     .shopee-footer {
         padding: 8px 0 0; border-top: 1px solid rgba(126, 164, 184, 0.16);
@@ -247,7 +280,7 @@ require_once __DIR__ . '/../includes/header.php';
         .shopee-footer { display: flex; }
         .shopee-btn-buy { flex: 1; min-width: 0; }
     }
-    .pf-group-reviews { margin-top: 1.5rem; padding: 1.5rem 2rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 4px; }
+    .pf-group-reviews { margin-top: 1.25rem; padding: 1.5rem 2rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 4px; }
     .poc-section-title { font-size: 1.1rem; font-weight: 700; color: #111827; margin: 0 0 0.75rem; }
     .poc-filter-btn.active { background: #0a2530 !important; color: white !important; border-color: #0a2530 !important; }
     .poc-filter-btn:hover { border-color: #0a2530; background: #f0f4f5; }
@@ -278,72 +311,76 @@ require_once __DIR__ . '/../includes/header.php';
     <h1 class="text-2xl font-bold text-gray-800" style="margin:1rem 0 0.25rem;"><?php echo htmlspecialchars($group['name']); ?></h1>
     <p style="color:#64748b;font-size:0.875rem;margin:0 0 1.25rem;">Choose an option, then order or add to cart.</p>
 
-    <div class="pf-group-layout">
-        <div class="pf-group-detail-card">
-            <div class="pf-group-img-wrap">
-                <img id="pf-group-main-image" class="pf-group-hero-img" src="<?php echo htmlspecialchars($cover); ?>" alt="">
-            </div>
-            <div class="pf-group-detail-body">
-                <div style="font-size:0.58rem;font-weight:700;color:#477089;text-transform:uppercase;letter-spacing:.08em;">Selected option</div>
-                <div id="pf-group-selected-name" style="font-size:0.95rem;font-weight:700;color:var(--shopee-text);margin-top:4px;">—</div>
-
-                <div class="pf-group-stats">
-                    <div class="rating-stars" id="pf-group-stats-stars">
-                        <?php
-                        $selPs = $productStatsMap[$selectedId] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
-                        $starAvg = (float) ($selPs['avg_rating'] ?? 0);
-                        $starRc = (int) ($selPs['review_count'] ?? 0);
-                        if ($starRc < 1 && (int) ($groupStats['review_count'] ?? 0) > 0) {
-                            $starAvg = (float) ($groupStats['avg_rating'] ?? 0);
-                            $starRc = (int) ($groupStats['review_count'] ?? 0);
-                        }
-                        $starRounded = (int) round($starAvg);
-                        for ($si = 1; $si <= 5; $si++):
-                            $starClass = $si <= $starRounded ? 'pf-star-on' : 'pf-star-off';
-                            ?>
-                            <svg class="<?php echo $starClass; ?>" style="width:14px;height:14px;" viewBox="0 0 20 20" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
-                        <?php endfor;
-                        if ($starRc > 0): ?>
-                            <span class="rating-text"><?php echo number_format($starAvg, 1); ?> (<?php echo (int) $starRc; ?>)</span>
-                        <?php endif; ?>
-                    </div>
-                    <span id="pf-group-stats-sold">— sold</span>
+    <div class="pf-group-selection" role="region" aria-label="Product selection">
+        <div class="pf-group-selection-inner">
+            <div class="pf-group-selection-main">
+                <div class="pf-group-img-wrap">
+                    <img id="pf-group-main-image" class="pf-group-hero-img" src="<?php echo htmlspecialchars($cover); ?>" alt="">
                 </div>
+                <div class="pf-group-detail-body">
+                    <div style="font-size:0.58rem;font-weight:700;color:#477089;text-transform:uppercase;letter-spacing:.08em;">Selected option</div>
+                    <div id="pf-group-selected-name" style="font-size:0.95rem;font-weight:700;color:var(--shopee-text);margin-top:4px;overflow-wrap:anywhere;word-break:break-word;">—</div>
 
-                <div id="pf-group-selected-price" style="font-size:1.125rem;font-weight:800;color:#0f3441;">—</div>
-                <div id="pf-group-selected-stock" style="font-size:0.75rem;color:#64748b;margin-top:4px;font-weight:600;">—</div>
-
-                <div class="shopee-footer">
-                    <button type="button" id="pf-group-add-cart" class="shopee-btn shopee-btn-cart" title="Add to Cart">
-                        <svg style="width: 1.25rem; height: 1.25rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                    </button>
-                    <a id="pf-group-order-now" href="#" class="shopee-btn shopee-btn-buy">Order Now</a>
-                </div>
-            </div>
-        </div>
-        <div class="pf-group-options-col">
-            <div style="font-size:0.875rem;font-weight:700;color:#173042;margin-bottom:8px;">Available options</div>
-            <div class="pf-group-options" id="pf-group-options">
-                <?php foreach ($options as $opt):
-                    $pid = (int) $opt['product_id'];
-                    $ps = $productStatsMap[$pid] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
-                    ?>
-                    <div class="pf-group-option<?php echo $pid === $selectedId ? ' is-active' : ''; ?>"
-                         data-product-id="<?php echo $pid; ?>"
-                         data-name="<?php echo htmlspecialchars($opt['name'], ENT_QUOTES); ?>"
-                         data-price="<?php echo htmlspecialchars(number_format($opt['price'], 2, '.', ''), ENT_QUOTES); ?>"
-                         data-stock="<?php echo (int)$opt['stock_quantity']; ?>"
-                         data-image="<?php echo htmlspecialchars($opt['image_url'], ENT_QUOTES); ?>"
-                         data-avg-rating="<?php echo htmlspecialchars(number_format((float) $ps['avg_rating'], 2, '.', ''), ENT_QUOTES); ?>"
-                         data-review-count="<?php echo (int) ($ps['review_count'] ?? 0); ?>"
-                         data-sold-count="<?php echo (int) ($ps['sold_count'] ?? 0); ?>">
-                        <img src="<?php echo htmlspecialchars($opt['image_url']); ?>" alt="">
-                        <div class="pf-group-option-text">
-                            <div style="font-weight:700;font-size:0.78rem;color:#173042;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($opt['name']); ?></div>
-                            <div style="font-size:0.68rem;color:#64748b;margin-top:1px;"><?php echo format_currency($opt['price']); ?> · <?php echo (int)$opt['stock_quantity']; ?> in stock</div>
+                    <div class="pf-group-stats">
+                        <div class="rating-stars" id="pf-group-stats-stars">
+                            <?php
+                            $selPs = $productStatsMap[$selectedId] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
+                            $starAvg = (float) ($selPs['avg_rating'] ?? 0);
+                            $starRc = (int) ($selPs['review_count'] ?? 0);
+                            if ($starRc < 1 && (int) ($groupStats['review_count'] ?? 0) > 0) {
+                                $starAvg = (float) ($groupStats['avg_rating'] ?? 0);
+                                $starRc = (int) ($groupStats['review_count'] ?? 0);
+                            }
+                            $starRounded = (int) round($starAvg);
+                            for ($si = 1; $si <= 5; $si++):
+                                $starClass = $si <= $starRounded ? 'pf-star-on' : 'pf-star-off';
+                                ?>
+                                <svg class="<?php echo $starClass; ?>" style="width:14px;height:14px;" viewBox="0 0 20 20" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                            <?php endfor;
+                            if ($starRc > 0): ?>
+                                <span class="rating-text"><?php echo number_format($starAvg, 1); ?> (<?php echo (int) $starRc; ?>)</span>
+                            <?php endif; ?>
                         </div>
+                        <span id="pf-group-stats-sold">— sold</span>
                     </div>
-                <?php endforeach; ?>
+
+                    <div id="pf-group-selected-price" style="font-size:1.125rem;font-weight:800;color:#0f3441;">—</div>
+                    <div id="pf-group-selected-stock" style="font-size:0.75rem;color:#64748b;margin-top:4px;font-weight:600;">—</div>
+
+                    <div class="shopee-footer" style="margin-top:auto;">
+                        <button type="button" id="pf-group-add-cart" class="shopee-btn shopee-btn-cart" title="Add to Cart">
+                            <svg style="width: 1.25rem; height: 1.25rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                        </button>
+                        <a id="pf-group-order-now" href="#" class="shopee-btn shopee-btn-buy">Order Now</a>
+                    </div>
+                </div>
+            </div>
+            <div class="pf-group-selection-options">
+                <h2 class="pf-group-options-heading">Available options</h2>
+                <div class="pf-group-options" id="pf-group-options">
+                    <?php foreach ($options as $opt):
+                        $pid = (int) $opt['product_id'];
+                        $ps = $productStatsMap[$pid] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
+                        $stockQty = (int) $opt['stock_quantity'];
+                        $stockLabel = $stockQty > 0 ? ($stockQty . ' in stock') : 'Out of stock';
+                        ?>
+                        <div class="pf-group-option<?php echo $pid === $selectedId ? ' is-active' : ''; ?>"
+                             data-product-id="<?php echo $pid; ?>"
+                             data-name="<?php echo htmlspecialchars($opt['name'], ENT_QUOTES); ?>"
+                             data-price="<?php echo htmlspecialchars(number_format($opt['price'], 2, '.', ''), ENT_QUOTES); ?>"
+                             data-stock="<?php echo $stockQty; ?>"
+                             data-image="<?php echo htmlspecialchars($opt['image_url'], ENT_QUOTES); ?>"
+                             data-avg-rating="<?php echo htmlspecialchars(number_format((float) $ps['avg_rating'], 2, '.', ''), ENT_QUOTES); ?>"
+                             data-review-count="<?php echo (int) ($ps['review_count'] ?? 0); ?>"
+                             data-sold-count="<?php echo (int) ($ps['sold_count'] ?? 0); ?>">
+                            <img src="<?php echo htmlspecialchars($opt['image_url']); ?>" alt="">
+                            <div class="pf-group-option-text">
+                                <div class="pf-group-option-name"><?php echo htmlspecialchars($opt['name']); ?></div>
+                                <div class="pf-group-option-meta"><?php echo format_currency($opt['price']); ?> · <?php echo htmlspecialchars($stockLabel); ?></div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
             </div>
         </div>
     </div>
