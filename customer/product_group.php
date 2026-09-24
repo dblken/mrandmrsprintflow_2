@@ -188,15 +188,15 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-group-page { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
     .pf-group-selection {
         border: 1px solid var(--shopee-border);
-        border-radius: 16px;
+        border-radius: 11px;
         background: rgba(255, 255, 255, 0.88);
-        box-shadow: 0 22px 50px rgba(13, 45, 60, 0.1);
+        box-shadow: 0 14px 32px rgba(13, 45, 60, 0.08);
         overflow: hidden;
     }
     .pf-group-selection-inner {
         display: grid;
         grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
-        align-items: stretch;
+        align-items: start;
     }
     @media (max-width: 900px) {
         .pf-group-selection-inner { grid-template-columns: 1fr; }
@@ -206,7 +206,7 @@ require_once __DIR__ . '/../includes/header.php';
         min-width: 0;
         display: flex;
         flex-direction: column;
-        padding: 14px 16px 16px;
+        padding: 9px 11px 10px;
         border-left: 1px solid rgba(126, 164, 184, 0.18);
         background: rgba(248, 250, 252, 0.55);
     }
@@ -217,35 +217,45 @@ require_once __DIR__ . '/../includes/header.php';
         }
     }
     .pf-group-options-heading {
-        font-size: 0.58rem;
+        font-size: 0.54rem;
         font-weight: 700;
         color: #477089;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        margin: 0 0 10px;
+        margin: 0 0 6px;
     }
     .pf-group-hero-img {
-        width: 100%; height: 210px; max-height: 220px; object-fit: contain; background: #f1f5f9;
+        width: 100%; height: 136px; max-height: 140px; object-fit: contain; background: #f1f5f9;
         border-radius: 0; border: none;
     }
     .pf-group-img-wrap {
-        width: 100%; height: 210px; max-height: 220px; overflow: hidden; background: #f1f5f9;
+        width: 100%; height: 136px; max-height: 140px; overflow: hidden; background: #f1f5f9;
         display: flex; align-items: center; justify-content: center;
         border: none;
         border-bottom: 1px solid rgba(126, 164, 184, 0.14);
     }
-    .pf-group-detail-body { padding: 12px 16px 16px; flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .pf-group-detail-body { padding: 8px 11px 10px; flex: 1; display: flex; flex-direction: column; min-width: 0; gap: 0; }
+    .pf-group-selected-label {
+        font-size: 0.54rem; font-weight: 700; color: #477089; text-transform: uppercase; letter-spacing: 0.08em; line-height: 1.2;
+    }
+    .pf-group-selected-name {
+        font-size: 0.82rem; font-weight: 700; color: var(--shopee-text); margin-top: 2px;
+        overflow-wrap: anywhere; word-break: break-word; line-height: 1.25;
+    }
+    .pf-group-selected-price { font-size: 0.95rem; font-weight: 800; color: #0f3441; margin-top: 2px; line-height: 1.2; }
+    .pf-group-selected-stock { font-size: 0.6875rem; color: #64748b; margin-top: 2px; font-weight: 600; line-height: 1.2; }
     .pf-group-stats {
-        display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
-        font-size: 0.75rem; color: var(--shopee-muted); margin: 8px 0 10px; padding-bottom: 10px;
+        display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
+        font-size: 0.6875rem; color: var(--shopee-muted); margin: 5px 0 6px; padding-bottom: 6px;
         border-bottom: 1px solid rgba(126,164,184,0.16);
     }
-    .pf-group-stats .rating-stars { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+    .pf-group-stats .rating-stars { display: flex; align-items: center; gap: 1px; flex-wrap: wrap; }
+    .pf-group-stats .rating-stars svg { width: 10px; height: 10px; }
     .pf-group-stats .rating-stars svg.pf-star-on { fill: #ffca11 !important; }
     .pf-group-stats .rating-stars svg.pf-star-off { fill: #e5e7eb !important; }
-    .pf-group-stats .rating-text { margin-left: 4px; font-weight: 600; font-size: 0.75rem; color: var(--shopee-muted); }
+    .pf-group-stats .rating-text { margin-left: 3px; font-weight: 600; font-size: 0.6875rem; color: var(--shopee-muted); }
     .pf-group-option {
-        display: flex; gap: 8px; align-items: center; padding: 8px 10px 8px 8px; border-radius: 10px;
+        display: flex; gap: 5px; align-items: center; padding: 5px 7px 5px 5px; border-radius: 7px;
         border: 1px solid var(--shopee-border); cursor: pointer; background: rgba(255, 255, 255, 0.92);
         transition: border-color 0.2s, box-shadow 0.2s, background 0.2s; min-height: 0;
         width: 100%; max-width: 100%; box-sizing: border-box;
@@ -254,31 +264,41 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-group-option.is-active {
         border-color: rgba(15, 52, 65, 0.5);
         background: rgba(255, 255, 255, 1);
-        box-shadow: 0 0 0 1px rgba(15, 52, 65, 0.12), 0 4px 14px rgba(13, 45, 60, 0.08);
+        box-shadow: 0 0 0 1px rgba(15, 52, 65, 0.12), 0 2px 8px rgba(13, 45, 60, 0.07);
     }
-    .pf-group-option img { width: 44px; height: 44px; object-fit: contain; border-radius: 8px; background: #f8fafc; flex-shrink: 0; border: 1px solid rgba(126, 164, 184, 0.12); }
-    .pf-group-option-text { flex: 1; min-width: 0; line-height: 1.3; }
-    .pf-group-option-name { font-weight: 700; font-size: 0.78rem; color: #173042; overflow-wrap: anywhere; word-break: break-word; }
-    .pf-group-option-meta { font-size: 0.68rem; color: #64748b; margin-top: 2px; }
-    .pf-group-options { display: flex; flex-direction: column; gap: 6px; max-height: min(320px, 50vh); overflow-y: auto; width: 100%; min-width: 0; }
+    .pf-group-option img { width: 30px; height: 30px; object-fit: contain; border-radius: 6px; background: #f8fafc; flex-shrink: 0; border: 1px solid rgba(126, 164, 184, 0.12); }
+    .pf-group-option-text { flex: 1; min-width: 0; line-height: 1.25; }
+    .pf-group-option-name { font-weight: 700; font-size: 0.72rem; color: #173042; overflow-wrap: anywhere; word-break: break-word; }
+    .pf-group-option-meta { font-size: 0.625rem; color: #64748b; margin-top: 1px; }
+    .pf-group-options { display: flex; flex-direction: column; gap: 4px; max-height: min(210px, 42vh); overflow-y: auto; width: 100%; min-width: 0; }
     .pf-group-back { color: #0f3441; font-weight: 600; text-decoration: none; font-size: 0.875rem; }
-    .shopee-footer {
-        padding: 8px 0 0; border-top: 1px solid rgba(126, 164, 184, 0.16);
-        display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px;
-        margin-top: 12px; width: 100%;
+    .pf-group-selection .shopee-footer {
+        padding: 4px 0 0; border-top: 1px solid rgba(126, 164, 184, 0.16);
+        display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 5px;
+        margin-top: 7px; width: 100%;
     }
-    .shopee-btn {
-        padding: 0.5rem 0.75rem; border-radius: 12px; font-size: 0.6rem; font-weight: 700;
+    .pf-group-selection .shopee-btn {
+        padding: 0.35rem 0.55rem; border-radius: 9px; font-size: 0.55rem; font-weight: 700;
         text-align: center; text-transform: uppercase; border: 1px solid transparent; cursor: pointer;
         display: inline-flex; align-items: center; justify-content: center; text-decoration: none;
         letter-spacing: 0.05em; white-space: nowrap; line-height: 1; flex: 0 0 auto;
     }
-    .shopee-btn-cart { background: rgba(255,255,255,0.85); color: #0f3441; border-color: var(--shopee-border); width: 42px; height: 42px; padding: 0; }
-    .shopee-btn-buy { background: linear-gradient(135deg, #123746 0%, #0f4958 100%); color: #fff; min-width: 118px; height: 42px; }
-    .shopee-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .pf-group-selection .shopee-btn-cart {
+        background: rgba(255,255,255,0.85); color: #0f3441; border-color: var(--shopee-border);
+        width: 30px; height: 30px; padding: 0;
+    }
+    .pf-group-selection .shopee-btn-cart svg { width: 1rem; height: 1rem; }
+    .pf-group-selection .shopee-btn-buy {
+        background: linear-gradient(135deg, #123746 0%, #0f4958 100%); color: #fff;
+        min-width: 82px; height: 30px;
+    }
+    .pf-group-selection .shopee-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     @media (max-width: 480px) {
-        .shopee-footer { display: flex; }
-        .shopee-btn-buy { flex: 1; min-width: 0; }
+        .pf-group-selection .shopee-footer { display: flex; }
+        .pf-group-selection .shopee-btn-buy { flex: 1; min-width: 0; }
+        .pf-group-selection .shopee-btn-cart { width: 36px; height: 36px; }
+        .pf-group-selection .shopee-btn-buy { height: 36px; min-height: 36px; }
+        .pf-group-img-wrap, .pf-group-hero-img { height: 150px; max-height: 150px; }
     }
     .pf-group-reviews { margin-top: 1.25rem; padding: 1.5rem 2rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 4px; }
     .poc-section-title { font-size: 1.1rem; font-weight: 700; color: #111827; margin: 0 0 0.75rem; }
@@ -318,8 +338,8 @@ require_once __DIR__ . '/../includes/header.php';
                     <img id="pf-group-main-image" class="pf-group-hero-img" src="<?php echo htmlspecialchars($cover); ?>" alt="">
                 </div>
                 <div class="pf-group-detail-body">
-                    <div style="font-size:0.58rem;font-weight:700;color:#477089;text-transform:uppercase;letter-spacing:.08em;">Selected option</div>
-                    <div id="pf-group-selected-name" style="font-size:0.95rem;font-weight:700;color:var(--shopee-text);margin-top:4px;overflow-wrap:anywhere;word-break:break-word;">—</div>
+                    <div class="pf-group-selected-label">Selected option</div>
+                    <div id="pf-group-selected-name" class="pf-group-selected-name">—</div>
 
                     <div class="pf-group-stats">
                         <div class="rating-stars" id="pf-group-stats-stars">
@@ -335,7 +355,7 @@ require_once __DIR__ . '/../includes/header.php';
                             for ($si = 1; $si <= 5; $si++):
                                 $starClass = $si <= $starRounded ? 'pf-star-on' : 'pf-star-off';
                                 ?>
-                                <svg class="<?php echo $starClass; ?>" style="width:14px;height:14px;" viewBox="0 0 20 20" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                                <svg class="<?php echo $starClass; ?>" viewBox="0 0 20 20" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
                             <?php endfor;
                             if ($starRc > 0): ?>
                                 <span class="rating-text"><?php echo number_format($starAvg, 1); ?> (<?php echo (int) $starRc; ?>)</span>
@@ -344,12 +364,12 @@ require_once __DIR__ . '/../includes/header.php';
                         <span id="pf-group-stats-sold">— sold</span>
                     </div>
 
-                    <div id="pf-group-selected-price" style="font-size:1.125rem;font-weight:800;color:#0f3441;">—</div>
-                    <div id="pf-group-selected-stock" style="font-size:0.75rem;color:#64748b;margin-top:4px;font-weight:600;">—</div>
+                    <div id="pf-group-selected-price" class="pf-group-selected-price">—</div>
+                    <div id="pf-group-selected-stock" class="pf-group-selected-stock">—</div>
 
                     <div class="shopee-footer" style="margin-top:auto;">
                         <button type="button" id="pf-group-add-cart" class="shopee-btn shopee-btn-cart" title="Add to Cart">
-                            <svg style="width: 1.25rem; height: 1.25rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                         </button>
                         <a id="pf-group-order-now" href="#" class="shopee-btn shopee-btn-buy">Order Now</a>
                     </div>
@@ -589,7 +609,7 @@ function pfRenderStatsStars(avgRating, reviewCount) {
     var html = '';
     for (var i = 1; i <= 5; i++) {
         var cls = i <= rounded ? 'pf-star-on' : 'pf-star-off';
-        html += '<svg class="' + cls + '" style="width:14px;height:14px;" viewBox="0 0 20 20" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>';
+        html += '<svg class="' + cls + '" viewBox="0 0 20 20" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>';
     }
     if (rc > 0) {
         html += '<span class="rating-text">' + avg.toFixed(1) + ' (' + rc + ')</span>';
