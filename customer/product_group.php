@@ -73,7 +73,7 @@ require_once __DIR__ . '/../includes/header.php';
         --shopee-border: rgba(126, 164, 184, 0.24);
     }
     .pf-group-page { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
-    .pf-group-layout { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 1.25rem; align-items: start; }
+    .pf-group-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
     @media (max-width: 900px) { .pf-group-layout { grid-template-columns: 1fr; } }
     .pf-group-hero-img {
         width: 100%; height: 210px; max-height: 220px; object-fit: contain; background: #f1f5f9;
@@ -97,20 +97,15 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-group-stats .rating-stars { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
     .pf-group-stats .rating-text { margin-left: 4px; font-weight: 600; font-size: 0.75rem; color: var(--shopee-muted); }
     .pf-group-option {
-        display: inline-flex; gap: 6px; align-items: center; padding: 4px 8px 4px 4px; border-radius: 8px;
+        display: flex; gap: 6px; align-items: center; padding: 4px 6px; border-radius: 8px;
         border: 1px solid var(--shopee-border); cursor: pointer; background: rgba(255,255,255,0.78);
-        transition: border-color .2s, box-shadow .2s; min-height: 0; width: auto; max-width: 100%;
+        transition: border-color .2s, box-shadow .2s; min-height: 0; width: 100%;
     }
     .pf-group-option.is-active { border-color: rgba(15,52,65,0.45); box-shadow: 0 4px 12px rgba(13,45,60,0.08); }
     .pf-group-option img { width: 40px; height: 40px; object-fit: contain; border-radius: 6px; background: #f8fafc; flex-shrink: 0; }
-    .pf-group-option-text { flex: 0 1 auto; line-height: 1.25; white-space: nowrap; }
-    .pf-group-options-col { max-width: 100%; }
-    .pf-group-options { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; max-height: 260px; overflow-y: auto; width: max-content; max-width: min(100%, 360px); }
-    @media (max-width: 900px) {
-        .pf-group-options { width: 100%; max-width: 100%; }
-        .pf-group-option { width: 100%; display: flex; }
-        .pf-group-option-text { white-space: normal; }
-    }
+    .pf-group-option-text { flex: 1; min-width: 0; line-height: 1.25; }
+    .pf-group-options-col { min-width: 0; }
+    .pf-group-options { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; width: 100%; }
     .pf-group-back { color: #0f3441; font-weight: 600; text-decoration: none; font-size: 0.875rem; }
     .shopee-footer {
         padding: 8px 0 0; border-top: 1px solid rgba(126, 164, 184, 0.16);
