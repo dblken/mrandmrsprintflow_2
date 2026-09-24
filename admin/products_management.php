@@ -1448,6 +1448,9 @@ foreach (db_query("SELECT product_id, group_id FROM product_catalog_group_member
     $catalog_member_map[(int) $cm['product_id']] = (int) $cm['group_id'];
 }
 $catalog_groups_admin = printflow_catalog_group_list_all(true);
+$catalog_group_product_picker = db_query(
+    "SELECT product_id, name, sku FROM products WHERE status != 'Archived' ORDER BY name ASC"
+) ?: [];
 
 foreach ($products as &$pfProduct) {
     $effectiveStock = printflow_get_branch_product_stock(
@@ -2306,6 +2309,187 @@ if (isset($_GET['ajax'])) {
         /* Add Product blue text */
         .toolbar-btn.btn-add-product { color: #3b82f6; border-color: #3b82f6; }
         .toolbar-btn.btn-add-product:hover { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+
+        /* Customer product groups (admin) — match orders-table / product-modal patterns */
+        .pf-cg-section {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 16px 18px;
+            margin-bottom: 20px;
+        }
+        .pf-cg-section-header { margin-bottom: 12px; }
+        .pf-cg-section-header h2 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 700;
+            color: #111827;
+        }
+        .pf-cg-section-header p {
+            margin: 4px 0 0;
+            font-size: 13px;
+            color: #6b7280;
+            line-height: 1.45;
+        }
+        .pf-cg-table-wrap {
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 14px;
+        }
+        .pf-cg-table { margin: 0; width: 100%; table-layout: fixed; }
+        .pf-cg-table .pf-cg-col-w-count { width: 72px; }
+        .pf-cg-table .pf-cg-col-w-status { width: 110px; }
+        .pf-cg-table .pf-cg-col-w-action { width: 96px; }
+        .pf-cg-table thead th { background: #f9fafb; }
+        .pf-cg-group tbody + tbody { border-top: 1px solid #e5e7eb; }
+        .pf-cg-details-cell { padding: 0 !important; border-bottom: none !important; vertical-align: top; }
+        .pf-cg-details { border: none; }
+        .pf-cg-summary {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 72px 110px 88px;
+            align-items: center;
+            gap: 8px 12px;
+            padding: 10px 16px;
+            cursor: pointer;
+            list-style: none;
+            background: #fff;
+            transition: background 0.1s;
+        }
+        .pf-cg-summary:hover { background: #f9fafb; }
+        .pf-cg-summary::-webkit-details-marker { display: none; }
+        .pf-cg-summary::marker { content: ''; }
+        .pf-cg-col-name { font-weight: 600; color: #1f2937; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .pf-cg-col-count { font-size: 13px; color: #374151; text-align: left; }
+        .pf-cg-col-status { font-size: 13px; }
+        .pf-cg-col-action { text-align: right; font-size: 13px; font-weight: 600; color: #3b82f6; white-space: nowrap; }
+        .pf-cg-details[open] .pf-cg-col-action { color: #0d9488; }
+        .pf-cg-panel {
+            padding: 14px 16px 16px;
+            border-top: 1px solid #f3f4f6;
+            background: #f9fafb;
+        }
+        .pf-cg-panel-block { margin-bottom: 14px; }
+        .pf-cg-panel-block:last-child { margin-bottom: 0; }
+        .pf-cg-panel-title {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #6b7280;
+            margin: 0 0 8px;
+        }
+        .pf-cg-panel .form-row {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px 14px;
+        }
+        .pf-cg-panel .form-row.pf-cg-form-actions {
+            grid-template-columns: 1fr;
+            margin-top: 4px;
+        }
+        @media (max-width: 768px) {
+            .pf-cg-summary {
+                grid-template-columns: 1fr 1fr;
+                grid-template-areas:
+                    "name name"
+                    "count status"
+                    "action action";
+            }
+            .pf-cg-col-name { grid-area: name; white-space: normal; }
+            .pf-cg-col-count { grid-area: count; }
+            .pf-cg-col-status { grid-area: status; text-align: right; }
+            .pf-cg-col-action { grid-area: action; text-align: left; padding-top: 4px; }
+            .pf-cg-panel .form-row { grid-template-columns: 1fr; }
+        }
+        .pf-cg-panel .form-group { margin-bottom: 0; }
+        .pf-cg-panel .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #374151;
+        }
+        .pf-cg-panel .form-group input,
+        .pf-cg-panel .form-group select {
+            width: 100%;
+            padding: 8px 11px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 14px;
+            box-sizing: border-box;
+            background: #fff;
+        }
+        .pf-cg-panel .form-group input[type="file"] { padding: 6px 8px; font-size: 13px; }
+        .pf-cg-panel .form-group input:focus,
+        .pf-cg-panel .form-group select:focus {
+            outline: none;
+            border-color: #0d9488;
+            box-shadow: 0 0 0 2px rgba(13,148,136,0.15);
+        }
+        .pf-cg-members {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            background: #fff;
+            overflow: hidden;
+        }
+        .pf-cg-member-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 8px 12px;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 13px;
+            color: #374151;
+        }
+        .pf-cg-member-row:last-child { border-bottom: none; }
+        .pf-cg-member-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .pf-cg-add-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            gap: 10px;
+        }
+        .pf-cg-add-row .form-group { flex: 1 1 220px; margin-bottom: 0; }
+        .pf-cg-add-row .btn-action { flex: 0 0 auto; margin-bottom: 0; }
+        .pf-cg-add-form { margin: 0; }
+        .pf-cg-inline-form { margin: 0; display: inline; }
+        .pf-cg-muted { margin: 0; font-size: 13px; color: #6b7280; }
+        .pf-cg-danger {
+            margin-top: 4px;
+            padding-top: 12px;
+            border-top: 1px solid #e5e7eb;
+        }
+        .pf-cg-actions-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+        .pf-cg-empty { padding: 20px 16px; text-align: center; color: #9ca3af; font-size: 14px; }
+        .pf-cg-create {
+            border-top: 1px solid #e5e7eb;
+            padding-top: 14px;
+        }
+        .pf-cg-create .form-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: end;
+        }
+        @media (max-width: 900px) {
+            .pf-cg-create .form-row { grid-template-columns: 1fr; }
+        }
+        .pf-cg-status-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .pf-cg-status-badge.is-on { background: #dcfce7; color: #166534; }
+        .pf-cg-status-badge.is-off { background: #fee2e2; color: #991b1b; }
     </style>
 </head>
 <body>
@@ -2320,116 +2504,172 @@ if (isset($_GET['ajax'])) {
         </header>
 
         <?php if (!$is_manager): ?>
-        <section style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px 22px;margin-bottom:22px;">
-            <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
-                <div>
-                    <h2 style="margin:0;font-size:17px;font-weight:700;color:#111827;">Customer product groups</h2>
-                    <p style="margin:6px 0 0;font-size:13px;color:#6b7280;">Group products for the customer catalog only. POS still lists every product individually.</p>
-                </div>
+        <section class="pf-cg-section" aria-labelledby="pf-cg-heading">
+            <div class="pf-cg-section-header">
+                <h2 id="pf-cg-heading">Customer product groups</h2>
+                <p>Group products for the customer catalog only. POS still lists every product individually.</p>
             </div>
-            <div style="overflow:auto;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:16px;">
-                <table style="width:100%;border-collapse:collapse;font-size:13px;">
-                    <thead style="background:#f9fafb;">
+
+            <div class="pf-cg-table-wrap">
+                <table class="orders-table pf-cg-table">
+                    <colgroup>
+                        <col>
+                        <col class="pf-cg-col-w-count">
+                        <col class="pf-cg-col-w-status">
+                        <col class="pf-cg-col-w-action">
+                    </colgroup>
+                    <thead>
                         <tr>
-                            <th style="text-align:left;padding:10px 12px;">Group</th>
-                            <th style="text-align:left;padding:10px 12px;">Options</th>
-                            <th style="text-align:left;padding:10px 12px;">Status</th>
-                            <th style="text-align:right;padding:10px 12px;">Actions</th>
+                            <th>Group</th>
+                            <th>Options</th>
+                            <th>Status</th>
+                            <th style="text-align:right;">Actions</th>
                         </tr>
                     </thead>
-                    <tbody>
                     <?php if (empty($catalog_groups_admin)): ?>
-                        <tr><td colspan="4" style="padding:16px;color:#9ca3af;">No customer product groups yet.</td></tr>
+                        <tbody>
+                            <tr>
+                                <td colspan="4" class="pf-cg-empty">No customer product groups yet. Create one below.</td>
+                            </tr>
+                        </tbody>
                     <?php else: ?>
                         <?php foreach ($catalog_groups_admin as $cg): ?>
-                            <?php $members = printflow_catalog_group_members((int)$cg['group_id'], false); ?>
-                            <tr>
-                                <td style="padding:10px 12px;font-weight:600;"><?php echo htmlspecialchars($cg['name']); ?></td>
-                                <td style="padding:10px 12px;"><?php echo count($members); ?></td>
-                                <td style="padding:10px 12px;"><?php echo htmlspecialchars($cg['status']); ?></td>
-                                <td style="padding:10px 12px;text-align:right;white-space:nowrap;">
-                                    <details style="display:inline-block;text-align:left;">
-                                        <summary style="cursor:pointer;color:#2563eb;font-weight:600;">Manage</summary>
-                                        <div style="margin-top:10px;padding:12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;min-width:280px;">
-                                            <form method="POST" enctype="multipart/form-data" style="margin-bottom:10px;">
-                                                <?php echo csrf_field(); ?>
-                                                <input type="hidden" name="group_id" value="<?php echo (int)$cg['group_id']; ?>">
-                                                <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Name</label>
-                                                <input type="text" name="group_name" value="<?php echo htmlspecialchars($cg['name']); ?>" maxlength="100" style="width:100%;margin-bottom:8px;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
-                                                <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Cover image (optional)</label>
-                                                <input type="file" name="group_cover" accept="image/*" style="width:100%;margin-bottom:8px;">
-                                                <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Status</label>
-                                                <select name="group_status" style="width:100%;margin-bottom:8px;padding:8px;">
-                                                    <option value="Activated" <?php echo ($cg['status'] ?? '') === 'Activated' ? 'selected' : ''; ?>>Activated</option>
-                                                    <option value="Deactivated" <?php echo ($cg['status'] ?? '') === 'Deactivated' ? 'selected' : ''; ?>>Deactivated</option>
-                                                </select>
-                                                <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Sort order</label>
-                                                <input type="number" name="group_sort_order" value="<?php echo (int)($cg['sort_order'] ?? 0); ?>" style="width:100%;margin-bottom:10px;padding:8px;">
-                                                <button type="submit" name="save_catalog_group" value="1" class="btn-action blue">Save group</button>
-                                            </form>
-                                            <form method="POST" onsubmit="return confirm('Remove this group? Products will stay in the system as standalone items.');" style="margin-bottom:12px;">
-                                                <?php echo csrf_field(); ?>
-                                                <input type="hidden" name="group_id" value="<?php echo (int)$cg['group_id']; ?>">
-                                                <button type="submit" name="delete_catalog_group" value="1" class="btn-action red">Delete group</button>
-                                            </form>
-                                            <?php if (!empty($members)): ?>
-                                                <ul style="margin:0 0 10px;padding-left:18px;font-size:12px;">
-                                                    <?php foreach ($members as $m): ?>
-                                                        <li style="margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;">
-                                                            <span><?php echo htmlspecialchars($m['name']); ?></span>
-                                                            <form method="POST" style="display:inline;">
-                                                                <?php echo csrf_field(); ?>
-                                                                <input type="hidden" name="group_id" value="<?php echo (int)$cg['group_id']; ?>">
-                                                                <input type="hidden" name="member_product_id" value="<?php echo (int)$m['product_id']; ?>">
-                                                                <button type="submit" name="catalog_group_remove_member" value="1" class="btn-action" style="padding:2px 8px;font-size:11px;">Remove</button>
-                                                            </form>
-                                                        </li>
-                                                    <?php endforeach; ?>
-                                                </ul>
-                                            <?php endif; ?>
-                                            <form method="POST">
-                                                <?php echo csrf_field(); ?>
-                                                <input type="hidden" name="group_id" value="<?php echo (int)$cg['group_id']; ?>">
-                                                <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Add product to group</label>
-                                                <select name="member_product_id" required style="width:100%;margin-bottom:8px;padding:8px;">
-                                                    <option value="">— Select product —</option>
-                                                    <?php
-                                                    $picker = db_query("SELECT product_id, name, sku FROM products WHERE status != 'Archived' ORDER BY name ASC") ?: [];
-                                                    foreach ($picker as $pp):
-                                                        $pid = (int)$pp['product_id'];
-                                                        $inOther = isset($catalog_member_map[$pid]) && (int)$catalog_member_map[$pid] !== (int)$cg['group_id'];
-                                                        if ($inOther) {
-                                                            continue;
-                                                        }
-                                                    ?>
-                                                        <option value="<?php echo $pid; ?>"><?php echo htmlspecialchars($pp['name'] . ($pp['sku'] ? ' (' . $pp['sku'] . ')' : '')); ?></option>
-                                                    <?php endforeach; ?>
-                                                </select>
-                                                <button type="submit" name="catalog_group_add_member" value="1" class="btn-action teal">Add to group</button>
-                                            </form>
-                                        </div>
-                                    </details>
-                                </td>
-                            </tr>
+                            <?php
+                            $members = printflow_catalog_group_members((int) $cg['group_id'], false);
+                            $memberCount = count($members);
+                            $cgStatus = (string) ($cg['status'] ?? 'Activated');
+                            $statusBadgeClass = $cgStatus === 'Activated' ? 'is-on' : 'is-off';
+                            ?>
+                            <tbody class="pf-cg-group">
+                                <tr>
+                                    <td colspan="4" class="pf-cg-details-cell">
+                                        <details class="pf-cg-details">
+                                            <summary class="pf-cg-summary">
+                                                <span class="pf-cg-col-name"><?php echo htmlspecialchars($cg['name']); ?></span>
+                                                <span class="pf-cg-col-count"><?php echo (int) $memberCount; ?></span>
+                                                <span class="pf-cg-col-status">
+                                                    <span class="pf-cg-status-badge <?php echo $statusBadgeClass; ?>"><?php echo htmlspecialchars($cgStatus); ?></span>
+                                                </span>
+                                                <span class="pf-cg-col-action">Manage</span>
+                                            </summary>
+                                            <div class="pf-cg-panel">
+                                                <form method="POST" enctype="multipart/form-data" class="pf-cg-save-form">
+                                                    <?php echo csrf_field(); ?>
+                                                    <input type="hidden" name="group_id" value="<?php echo (int) $cg['group_id']; ?>">
+
+                                                    <div class="pf-cg-panel-block">
+                                                        <p class="pf-cg-panel-title">Group settings</p>
+                                                        <div class="form-row">
+                                                            <div class="form-group">
+                                                                <label for="pf-cg-name-<?php echo (int) $cg['group_id']; ?>">Name</label>
+                                                                <input type="text" id="pf-cg-name-<?php echo (int) $cg['group_id']; ?>" name="group_name" value="<?php echo htmlspecialchars($cg['name']); ?>" maxlength="100" required>
+                                                            </div>
+                                                            <div class="form-group">
+                                                                <label for="pf-cg-sort-<?php echo (int) $cg['group_id']; ?>">Sort order</label>
+                                                                <input type="number" id="pf-cg-sort-<?php echo (int) $cg['group_id']; ?>" name="group_sort_order" value="<?php echo (int) ($cg['sort_order'] ?? 0); ?>" step="1">
+                                                            </div>
+                                                            <div class="form-group">
+                                                                <label for="pf-cg-status-<?php echo (int) $cg['group_id']; ?>">Status</label>
+                                                                <select id="pf-cg-status-<?php echo (int) $cg['group_id']; ?>" name="group_status">
+                                                                    <option value="Activated" <?php echo $cgStatus === 'Activated' ? 'selected' : ''; ?>>Activated</option>
+                                                                    <option value="Deactivated" <?php echo $cgStatus === 'Deactivated' ? 'selected' : ''; ?>>Deactivated</option>
+                                                                </select>
+                                                            </div>
+                                                            <div class="form-group">
+                                                                <label for="pf-cg-cover-<?php echo (int) $cg['group_id']; ?>">Cover image (optional)</label>
+                                                                <input type="file" id="pf-cg-cover-<?php echo (int) $cg['group_id']; ?>" name="group_cover" accept="image/jpeg,image/png,image/gif,image/webp">
+                                                            </div>
+                                                        </div>
+                                                        <div class="pf-cg-actions-row">
+                                                            <button type="submit" name="save_catalog_group" value="1" class="btn-action blue">Save group</button>
+                                                        </div>
+                                                    </div>
+                                                </form>
+
+                                                <div class="pf-cg-panel-block">
+                                                    <p class="pf-cg-panel-title">Products in this group</p>
+                                                    <?php if (empty($members)): ?>
+                                                        <p class="pf-cg-muted">No products assigned yet.</p>
+                                                    <?php else: ?>
+                                                        <div class="pf-cg-members">
+                                                            <?php foreach ($members as $m): ?>
+                                                                <div class="pf-cg-member-row">
+                                                                    <span class="pf-cg-member-name"><?php echo htmlspecialchars($m['name']); ?></span>
+                                                                    <form method="POST" class="pf-cg-inline-form">
+                                                                        <?php echo csrf_field(); ?>
+                                                                        <input type="hidden" name="group_id" value="<?php echo (int) $cg['group_id']; ?>">
+                                                                        <input type="hidden" name="member_product_id" value="<?php echo (int) $m['product_id']; ?>">
+                                                                        <button type="submit" name="catalog_group_remove_member" value="1" class="btn-action red">Remove</button>
+                                                                    </form>
+                                                                </div>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                </div>
+
+                                                <form method="POST" class="pf-cg-add-form">
+                                                    <?php echo csrf_field(); ?>
+                                                    <input type="hidden" name="group_id" value="<?php echo (int) $cg['group_id']; ?>">
+                                                    <div class="pf-cg-panel-block">
+                                                        <p class="pf-cg-panel-title">Add product to group</p>
+                                                        <div class="pf-cg-add-row">
+                                                            <div class="form-group pf-cg-add-select">
+                                                                <label for="pf-cg-add-<?php echo (int) $cg['group_id']; ?>">Product</label>
+                                                                <select id="pf-cg-add-<?php echo (int) $cg['group_id']; ?>" name="member_product_id" required>
+                                                                    <option value="">— Select product —</option>
+                                                                    <?php foreach ($catalog_group_product_picker as $pp):
+                                                                        $pid = (int) $pp['product_id'];
+                                                                        $inOther = isset($catalog_member_map[$pid]) && (int) $catalog_member_map[$pid] !== (int) $cg['group_id'];
+                                                                        if ($inOther) {
+                                                                            continue;
+                                                                        }
+                                                                        ?>
+                                                                        <option value="<?php echo $pid; ?>"><?php echo htmlspecialchars($pp['name'] . ($pp['sku'] ? ' (' . $pp['sku'] . ')' : '')); ?></option>
+                                                                    <?php endforeach; ?>
+                                                                </select>
+                                                            </div>
+                                                            <button type="submit" name="catalog_group_add_member" value="1" class="btn-action teal pf-cg-add-btn">Add to group</button>
+                                                        </div>
+                                                    </div>
+                                                </form>
+
+                                                <div class="pf-cg-panel-block pf-cg-danger">
+                                                    <p class="pf-cg-panel-title">Delete group</p>
+                                                    <form method="POST" class="pf-cg-inline-form" onsubmit="return confirm('Remove this group? Products will stay in the system as standalone items.');">
+                                                        <?php echo csrf_field(); ?>
+                                                        <input type="hidden" name="group_id" value="<?php echo (int) $cg['group_id']; ?>">
+                                                        <button type="submit" name="delete_catalog_group" value="1" class="btn-action red">Delete group</button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </details>
+                                    </td>
+                                </tr>
+                            </tbody>
                         <?php endforeach; ?>
                     <?php endif; ?>
-                    </tbody>
                 </table>
             </div>
-            <form method="POST" enctype="multipart/form-data" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:end;">
-                <?php echo csrf_field(); ?>
-                <div>
-                    <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">New group name</label>
-                    <input type="text" name="group_name" maxlength="100" required placeholder="e.g. Summer collection" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;">
-                </div>
-                <div>
-                    <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Cover image (optional)</label>
-                    <input type="file" name="group_cover" accept="image/*" style="width:100%;">
-                </div>
-                <div>
-                    <button type="submit" name="save_catalog_group" value="1" class="toolbar-btn btn-add-product" style="width:100%;">+ Create customer group</button>
-                </div>
-            </form>
+
+            <div class="pf-cg-create">
+                <p class="pf-cg-panel-title" style="margin-bottom:10px;">Create new group</p>
+                <form method="POST" enctype="multipart/form-data">
+                    <?php echo csrf_field(); ?>
+                    <div class="form-row pf-cg-create">
+                        <div class="form-group">
+                            <label for="pf-cg-new-name">Group name</label>
+                            <input type="text" id="pf-cg-new-name" name="group_name" maxlength="100" required placeholder="e.g. Summer collection">
+                        </div>
+                        <div class="form-group">
+                            <label for="pf-cg-new-cover">Cover image (optional)</label>
+                            <input type="file" id="pf-cg-new-cover" name="group_cover" accept="image/jpeg,image/png,image/gif,image/webp">
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <button type="submit" name="save_catalog_group" value="1" class="toolbar-btn btn-add-product">+ Create customer group</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
         </section>
         <?php endif; ?>
 
