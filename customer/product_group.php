@@ -205,19 +205,34 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-group-selection-inner {
         display: grid;
         grid-template-columns: minmax(0, 0.44fr) minmax(0, 0.56fr);
-        grid-template-rows: min-content;
-        align-items: start;
+        align-items: stretch;
     }
     @media (max-width: 900px) {
-        .pf-group-selection-inner { grid-template-columns: 1fr; }
+        .pf-group-selection-inner {
+            grid-template-columns: 1fr;
+            grid-template-rows: auto auto;
+        }
+        .pf-group-selection-options {
+            border-left: none;
+            border-top: 1px solid rgba(126, 164, 184, 0.18);
+            height: auto;
+            min-height: 0;
+        }
+        .pf-group-selection-main {
+            height: auto;
+            min-height: 0;
+        }
+        .pf-group-selection .pf-group-options-actions {
+            margin-top: 12px;
+        }
     }
     .pf-group-selection-main {
         min-width: 0;
         display: flex;
         flex-direction: column;
-        align-self: start;
         align-items: stretch;
-        height: auto;
+        height: 100%;
+        min-height: 100%;
     }
     .pf-group-selection-options {
         min-width: 0;
@@ -226,16 +241,10 @@ require_once __DIR__ . '/../includes/header.php';
         padding: 14px 16px 14px;
         border-left: 1px solid rgba(126, 164, 184, 0.18);
         background: rgba(248, 250, 252, 0.55);
-        align-self: start;
-        height: auto;
-        flex: 0 0 auto;
+        height: 100%;
+        min-height: 100%;
+        box-sizing: border-box;
         gap: 0;
-    }
-    @media (max-width: 900px) {
-        .pf-group-selection-options {
-            border-left: none;
-            border-top: 1px solid rgba(126, 164, 184, 0.18);
-        }
     }
     .pf-group-options-heading {
         font-size: 0.58rem;
@@ -331,13 +340,17 @@ require_once __DIR__ . '/../includes/header.php';
         padding: 10px 0 0;
         border-top: 1px solid rgba(126, 164, 184, 0.16);
         display: flex;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         align-items: center;
         justify-content: flex-end;
         gap: 8px;
-        margin-top: 10px;
         width: 100%;
         flex: 0 0 auto;
+        box-sizing: border-box;
+    }
+    .pf-group-selection .pf-group-options-actions {
+        margin-top: auto;
+        padding-top: 12px;
     }
     .pf-group-selection .shopee-btn {
         padding: 0.5rem 0.75rem; border-radius: 12px; font-size: 0.6rem; font-weight: 700;
