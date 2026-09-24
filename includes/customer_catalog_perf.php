@@ -308,6 +308,270 @@ function printflow_catalog_product_card_stats_map(array $product_rows): array {
 }
 
 /**
+ * Member products for catalog groups (batch).
+ *
+ * @param array<int, int|string> $groupIds
+ * @return array<int, array<int, array{product_id: int, name: string}>>
+ */
+function printflow_catalog_group_member_product_rows_batch(array $groupIds): array
+{
+    $groupIds = array_values(array_unique(array_filter(array_map('intval', $groupIds), static fn(int $id): bool => $id > 0)));
+    if ($groupIds === []) {
+        return [];
+    }
+    $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
+    $rows = db_query(
+        "SELECT m.group_id, m.product_id, p.name
+         FROM product_catalog_group_members m
+         INNER JOIN products p ON p.product_id = m.product_id
+         WHERE m.group_id IN ($placeholders)
+         ORDER BY m.group_id ASC, m.sort_order ASC, p.name ASC",
+        str_repeat('i', count($groupIds)),
+        $groupIds
+    ) ?: [];
+
+    $byGroup = [];
+    foreach ($rows as $row) {
+        $gid = (int) ($row['group_id'] ?? 0);
+        $pid = (int) ($row['product_id'] ?? 0);
+        if ($gid < 1 || $pid < 1) {
+            continue;
+        }
+        $byGroup[$gid][] = [
+            'product_id' => $pid,
+            'name' => trim((string) ($row['name'] ?? '')),
+        ];
+    }
+    return $byGroup;
+}
+
+/**
+ * Build UNION ALL subqueries matching product reviews (same rules as card stats).
+ *
+ * @param array<int, string> $products product_id => name
+ * @return array<int, string>
+ */
+function printflow_catalog_product_review_match_selects(array $products, string &$reviewTypes, array &$reviewParams): array
+{
+    $productIds = array_keys($products);
+    if ($productIds === []) {
+        return [];
+    }
+    $idPlaceholders = implode(',', array_fill(0, count($productIds), '?'));
+    $reviewCols = array_flip(array_column(db_query('SHOW COLUMNS FROM reviews') ?: [], 'Field'));
+    $reviewSelects = [];
+    $reviewTypes = '';
+    $reviewParams = [];
+
+    if (isset($reviewCols['reference_id'], $reviewCols['review_type'])) {
+        $reviewSelects[] = "SELECT r.reference_id AS product_id, r.id AS review_id, r.rating
+            FROM reviews r
+            WHERE r.review_type = 'product' AND r.reference_id IN ($idPlaceholders)";
+        $reviewTypes .= str_repeat('i', count($productIds));
+        array_push($reviewParams, ...$productIds);
+    }
+
+    if (isset($reviewCols['order_id'])) {
+        $reviewSelects[] = "SELECT order_products.product_id, r.id AS review_id, r.rating
+            FROM reviews r
+            INNER JOIN (
+                SELECT DISTINCT order_id, product_id
+                FROM order_items
+                WHERE product_id IN ($idPlaceholders)
+            ) order_products ON order_products.order_id = r.order_id";
+        $reviewTypes .= str_repeat('i', count($productIds));
+        array_push($reviewParams, ...$productIds);
+    }
+
+    if (isset($reviewCols['service_type'])) {
+        $productNameRows = [];
+        foreach ($products as $productId => $name) {
+            if ($name === '') {
+                continue;
+            }
+            $productNameRows[] = 'SELECT ? AS product_id, ? AS product_name';
+            $reviewTypes .= 'is';
+            array_push($reviewParams, (int) $productId, $name);
+        }
+        if ($productNameRows !== []) {
+            $reviewSelects[] = "SELECT product_names.product_id, r.id AS review_id, r.rating
+                FROM (" . implode(' UNION ALL ', $productNameRows) . ") product_names
+                INNER JOIN reviews r
+                    ON r.service_type COLLATE utf8mb4_unicode_ci = product_names.product_name COLLATE utf8mb4_unicode_ci";
+        }
+    }
+
+    return $reviewSelects;
+}
+
+/**
+ * @param array<int, array{product_id: int, name?: string}> $product_rows
+ * @return array{avg_rating: float, review_count: int, sold_count: int}
+ */
+function printflow_catalog_products_aggregate_stats(array $product_rows): array
+{
+    $defaults = ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
+    $products = [];
+    foreach ($product_rows as $row) {
+        $productId = (int) ($row['product_id'] ?? 0);
+        if ($productId < 1) {
+            continue;
+        }
+        $products[$productId] = trim((string) ($row['name'] ?? ''));
+    }
+    if ($products === []) {
+        return $defaults;
+    }
+
+    $cardRows = [];
+    foreach ($products as $productId => $name) {
+        $cardRows[] = ['product_id' => $productId, 'name' => $name];
+    }
+    $cardMap = printflow_catalog_product_card_stats_map($cardRows);
+    $soldTotal = 0;
+    foreach ($cardMap as $stats) {
+        $soldTotal += (int) ($stats['sold_count'] ?? 0);
+    }
+
+    $reviewTypes = '';
+    $reviewParams = [];
+    $reviewSelects = printflow_catalog_product_review_match_selects($products, $reviewTypes, $reviewParams);
+    $reviewCount = 0;
+    $ratingSum = 0.0;
+    if ($reviewSelects !== []) {
+        $aggRows = db_query(
+            "SELECT COALESCE(SUM(matched.rating), 0) AS rating_sum, COUNT(*) AS review_count
+             FROM (
+                SELECT raw_matches.review_id, MAX(raw_matches.rating) AS rating
+                FROM (" . implode(' UNION ALL ', $reviewSelects) . ") raw_matches
+                GROUP BY raw_matches.review_id
+             ) matched",
+            $reviewTypes,
+            $reviewParams
+        ) ?: [];
+        if (!empty($aggRows[0])) {
+            $reviewCount = (int) ($aggRows[0]['review_count'] ?? 0);
+            $ratingSum = (float) ($aggRows[0]['rating_sum'] ?? 0);
+        }
+    }
+
+    return [
+        'avg_rating' => $reviewCount > 0 ? $ratingSum / $reviewCount : 0.0,
+        'review_count' => $reviewCount,
+        'sold_count' => $soldTotal,
+    ];
+}
+
+/**
+ * @param array<int, int|string> $groupIds
+ * @return array<int, array{avg_rating: float, review_count: int, sold_count: int}>
+ */
+function printflow_catalog_group_card_stats_map(array $groupIds): array
+{
+    $groupIds = array_values(array_unique(array_filter(array_map('intval', $groupIds), static fn(int $id): bool => $id > 0)));
+    $map = [];
+    foreach ($groupIds as $gid) {
+        $map[$gid] = ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
+    }
+    if ($groupIds === []) {
+        return $map;
+    }
+
+    $membersByGroup = printflow_catalog_group_member_product_rows_batch($groupIds);
+    foreach ($groupIds as $gid) {
+        $members = $membersByGroup[$gid] ?? [];
+        if ($members === []) {
+            continue;
+        }
+        $map[$gid] = printflow_catalog_products_aggregate_stats($members);
+    }
+    return $map;
+}
+
+/**
+ * Reviews for catalog products (deduped by review id).
+ *
+ * @param array<int, array{product_id: int, name?: string}> $product_rows
+ * @return array<int, array<string, mixed>>
+ */
+function printflow_catalog_products_reviews_list(array $product_rows): array
+{
+    $products = [];
+    foreach ($product_rows as $row) {
+        $productId = (int) ($row['product_id'] ?? 0);
+        if ($productId < 1) {
+            continue;
+        }
+        $products[$productId] = trim((string) ($row['name'] ?? ''));
+    }
+    if ($products === []) {
+        return [];
+    }
+
+    $reviewTypes = '';
+    $reviewParams = [];
+    $reviewSelects = printflow_catalog_product_review_match_selects($products, $reviewTypes, $reviewParams);
+    if ($reviewSelects === []) {
+        return [];
+    }
+
+    $matchRows = db_query(
+        "SELECT matched.product_id, matched.review_id, matched.rating
+         FROM (
+            SELECT raw_matches.product_id, raw_matches.review_id, MAX(raw_matches.rating) AS rating
+            FROM (" . implode(' UNION ALL ', $reviewSelects) . ") raw_matches
+            GROUP BY raw_matches.product_id, raw_matches.review_id
+         ) matched",
+        $reviewTypes,
+        $reviewParams
+    ) ?: [];
+
+    $reviewToProduct = [];
+    $reviewIds = [];
+    foreach ($matchRows as $row) {
+        $reviewId = (int) ($row['review_id'] ?? 0);
+        $productId = (int) ($row['product_id'] ?? 0);
+        if ($reviewId < 1 || $productId < 1) {
+            continue;
+        }
+        if (!isset($reviewToProduct[$reviewId])) {
+            $reviewToProduct[$reviewId] = $productId;
+            $reviewIds[] = $reviewId;
+        }
+    }
+    if ($reviewIds === []) {
+        return [];
+    }
+
+    $reviewCols = array_flip(array_column(db_query('SHOW COLUMNS FROM reviews') ?: [], 'Field'));
+    $reviewCustomerExpr = isset($reviewCols['customer_id']) ? 'r.customer_id' : (isset($reviewCols['user_id']) ? 'r.user_id' : '0');
+    $reviewCommentExpr = isset($reviewCols['comment']) ? 'r.comment' : (isset($reviewCols['message']) ? 'r.message' : "''");
+    $reviewCreatedExpr = isset($reviewCols['created_at']) ? 'r.created_at' : 'NOW()';
+
+    $idPlaceholders = implode(',', array_fill(0, count($reviewIds), '?'));
+    $reviewRows = db_query(
+        "SELECT r.id, r.rating, {$reviewCommentExpr} AS comment, {$reviewCreatedExpr} AS created_at,
+                {$reviewCustomerExpr} AS customer_id, c.first_name, c.last_name, c.profile_picture
+         FROM reviews r
+         LEFT JOIN customers c ON {$reviewCustomerExpr} = c.customer_id
+         WHERE r.id IN ($idPlaceholders)
+         ORDER BY {$reviewCreatedExpr} DESC",
+        str_repeat('i', count($reviewIds)),
+        $reviewIds
+    ) ?: [];
+
+    $out = [];
+    foreach ($reviewRows as $row) {
+        $reviewId = (int) ($row['id'] ?? 0);
+        $productId = (int) ($reviewToProduct[$reviewId] ?? 0);
+        $row['product_id'] = $productId;
+        $row['product_name'] = $products[$productId] ?? '';
+        $out[] = $row;
+    }
+    return $out;
+}
+
+/**
  * @param array<int, int|string> $service_ids
  * @return array<int, true> service_id => true when field config exists
  */
