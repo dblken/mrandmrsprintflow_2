@@ -204,7 +204,7 @@ require_once __DIR__ . '/../includes/header.php';
     }
     .pf-group-selection-inner {
         display: grid;
-        grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
+        grid-template-columns: minmax(0, 0.44fr) minmax(0, 0.56fr);
         grid-template-rows: min-content;
         align-items: start;
     }
@@ -216,6 +216,7 @@ require_once __DIR__ . '/../includes/header.php';
         display: flex;
         flex-direction: column;
         align-self: start;
+        align-items: stretch;
         height: auto;
     }
     .pf-group-selection-options {
@@ -228,6 +229,7 @@ require_once __DIR__ . '/../includes/header.php';
         align-self: start;
         height: auto;
         flex: 0 0 auto;
+        gap: 0;
     }
     @media (max-width: 900px) {
         .pf-group-selection-options {
@@ -244,15 +246,32 @@ require_once __DIR__ . '/../includes/header.php';
         margin: 0 0 10px;
     }
     .pf-group-hero-img {
-        width: 100%; height: 200px; max-height: 200px; object-fit: contain; background: #f1f5f9;
-        border-radius: 0; border: none; display: block;
+        display: block;
+        max-width: 100%;
+        max-height: 100%;
+        width: auto;
+        height: auto;
+        object-fit: contain;
+        background: transparent;
+        border: none;
     }
     .pf-group-img-wrap {
-        width: 100%; height: 200px; max-height: 200px; min-height: 0; overflow: hidden; background: #f1f5f9;
-        display: flex; align-items: center; justify-content: center;
+        align-self: center;
+        width: min(100%, 240px);
+        max-width: 240px;
+        aspect-ratio: 3 / 4;
+        max-height: min(360px, 52vh);
+        min-height: 0;
+        overflow: hidden;
+        background: #f1f5f9;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         border: none;
         border-bottom: 1px solid rgba(126, 164, 184, 0.14);
         box-sizing: border-box;
+        padding: 8px;
+        margin: 0 auto;
     }
     .pf-group-detail-body {
         padding: 12px 16px 14px; flex: 0 0 auto; display: flex; flex-direction: column; min-width: 0; gap: 0;
@@ -309,9 +328,16 @@ require_once __DIR__ . '/../includes/header.php';
     }
     .pf-group-back { color: #0f3441; font-weight: 600; text-decoration: none; font-size: 0.875rem; }
     .pf-group-selection .shopee-footer {
-        padding: 8px 0 0; border-top: 1px solid rgba(126, 164, 184, 0.16);
-        display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px;
-        margin-top: 12px; width: 100%;
+        padding: 10px 0 0;
+        border-top: 1px solid rgba(126, 164, 184, 0.16);
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 10px;
+        width: 100%;
+        flex: 0 0 auto;
     }
     .pf-group-selection .shopee-btn {
         padding: 0.5rem 0.75rem; border-radius: 12px; font-size: 0.6rem; font-weight: 700;
@@ -334,7 +360,11 @@ require_once __DIR__ . '/../includes/header.php';
         .pf-group-selection .shopee-btn-buy { flex: 1; min-width: 0; }
         .pf-group-selection .shopee-btn-cart { width: 42px; height: 42px; }
         .pf-group-selection .shopee-btn-buy { height: 42px; min-height: 42px; }
-        .pf-group-img-wrap, .pf-group-hero-img { height: 180px; max-height: 180px; }
+        .pf-group-img-wrap {
+            width: min(100%, 220px);
+            max-width: 220px;
+            max-height: min(320px, 48vh);
+        }
     }
     .pf-group-reviews {
         margin-top: 1.25rem;
@@ -410,13 +440,6 @@ require_once __DIR__ . '/../includes/header.php';
 
                     <div id="pf-group-selected-price" class="pf-group-selected-price">—</div>
                     <div id="pf-group-selected-stock" class="pf-group-selected-stock">—</div>
-
-                    <div class="shopee-footer">
-                        <button type="button" id="pf-group-add-cart" class="shopee-btn shopee-btn-cart" title="Add to Cart">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                        </button>
-                        <a id="pf-group-order-now" href="#" class="shopee-btn shopee-btn-buy">Order Now</a>
-                    </div>
                 </div>
             </div>
             <div class="pf-group-selection-options">
@@ -444,6 +467,12 @@ require_once __DIR__ . '/../includes/header.php';
                             </div>
                         </div>
                     <?php endforeach; ?>
+                </div>
+                <div class="shopee-footer pf-group-options-actions">
+                    <button type="button" id="pf-group-add-cart" class="shopee-btn shopee-btn-cart" title="Add to Cart">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                    </button>
+                    <a id="pf-group-order-now" href="#" class="shopee-btn shopee-btn-buy">Order Now</a>
                 </div>
             </div>
         </div>
