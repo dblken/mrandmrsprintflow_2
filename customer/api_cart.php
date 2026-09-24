@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/product_catalog_groups.php';
+require_once __DIR__ . '/../includes/product_branch_stock.php';
 
 $session_user_type = trim((string)(get_user_type() ?? ''));
 if (!is_logged_in() || strcasecmp($session_user_type, 'Customer') !== 0) {
@@ -168,6 +169,87 @@ if ($action === 'add') {
     if ($customer_id) sync_cart_to_db($customer_id);
 
     echo json_encode(['success' => true, 'message' => 'Added to cart!', 'cart_count' => cart_count()]);
+    exit;
+}
+
+// -----------------------------------------------------------------------
+// BUY NOW (catalog group members → order review, same session item shape as order_create.php)
+// -----------------------------------------------------------------------
+if ($action === 'buy_now') {
+    $product_id = (int) ($input['product_id'] ?? 0);
+    $catalogGroupId = (int) ($input['catalog_group_id'] ?? 0);
+    $quantity = max(1, min(999, (int) ($input['quantity'] ?? 1)));
+    $branch_id = (int) ($input['branch_id'] ?? 0);
+
+    if ($product_id <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Invalid product.']);
+        exit;
+    }
+
+    if (!printflow_catalog_product_is_grouped($product_id)) {
+        echo json_encode(['success' => false, 'message' => 'This product uses the standard order page.']);
+        exit;
+    }
+
+    if ($catalogGroupId > 0 && !printflow_catalog_validate_member_in_group($catalogGroupId, $product_id)) {
+        echo json_encode(['success' => false, 'message' => 'This product is not available in the selected group.']);
+        exit;
+    }
+
+    $product = db_query(
+        "SELECT product_id, name, price, category FROM products WHERE product_id = ? AND status = 'Activated'",
+        'i',
+        [$product_id]
+    );
+    if (empty($product)) {
+        echo json_encode(['success' => false, 'message' => 'Product not available.']);
+        exit;
+    }
+    $product = $product[0];
+
+    if ($branch_id <= 0) {
+        $branch_id = function_exists('printflow_get_default_admin_branch_id')
+            ? (int) printflow_get_default_admin_branch_id()
+            : 1;
+    }
+
+    [$branch_stock_qty] = printflow_product_effective_stock($product_id, $branch_id);
+    $optionStockCheck = printflow_product_option_stock_validate($product_id, $branch_id, [], $quantity);
+    if (!empty($optionStockCheck['uses_option_stock']) && empty($optionStockCheck['ok'])) {
+        echo json_encode(['success' => false, 'message' => (string) ($optionStockCheck['message'] ?? 'Selected variant is out of stock.')]);
+        exit;
+    }
+    if ($quantity > (int) $branch_stock_qty && empty($optionStockCheck['uses_option_stock'])) {
+        echo json_encode(['success' => false, 'message' => 'Quantity exceeds available stock.']);
+        exit;
+    }
+    if ((int) $branch_stock_qty <= 0 && empty($optionStockCheck['uses_option_stock'])) {
+        echo json_encode(['success' => false, 'message' => 'This product is currently out of stock.']);
+        exit;
+    }
+
+    $item_key = 'product_' . $product_id . '_' . time() . '_' . rand(100, 999);
+    $_SESSION['cart'][$item_key] = [
+        'type'            => 'Product',
+        'source_page'     => 'products',
+        'product_id'      => $product_id,
+        'name'            => $product['name'],
+        'price'           => (float) $product['price'],
+        'quantity'        => $quantity,
+        'category'        => $product['category'],
+        'branch_id'       => $branch_id,
+        'design_tmp_path' => null,
+        'design_name'     => null,
+        'design_mime'     => null,
+        'uploaded_files'  => [],
+        'customization'   => [],
+    ];
+
+    echo json_encode([
+        'success' => true,
+        'item_key' => $item_key,
+        'redirect_url' => 'order_review.php?item=' . rawurlencode($item_key),
+    ]);
     exit;
 }
 

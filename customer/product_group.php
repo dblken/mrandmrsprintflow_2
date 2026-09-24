@@ -727,7 +727,15 @@ function pfSelectGroupOption(el) {
     document.getElementById('pf-group-selected-stock').textContent = stock > 0 ? (stock + ' in stock') : 'Out of stock';
     pfRenderStatsStars(avgRating, reviewCount);
     document.getElementById('pf-group-stats-sold').textContent = pfFormatSold(soldCount) + ' sold';
-    document.getElementById('pf-group-order-now').href = 'order_create.php?product_id=' + encodeURIComponent(pid) + '&buy_now=1';
+    var orderBtn = document.getElementById('pf-group-order-now');
+    if (orderBtn) {
+        orderBtn.href = '#';
+        orderBtn.setAttribute('data-product-id', pid);
+        orderBtn.setAttribute('data-stock', String(stock));
+        orderBtn.style.opacity = stock > 0 ? '1' : '0.5';
+        orderBtn.style.pointerEvents = stock > 0 ? 'auto' : 'none';
+        orderBtn.setAttribute('aria-disabled', stock > 0 ? 'false' : 'true');
+    }
     var cartBtn = document.getElementById('pf-group-add-cart');
     cartBtn.disabled = stock <= 0;
     cartBtn.setAttribute('data-product-id', pid);
@@ -800,6 +808,51 @@ document.getElementById('pf-group-add-cart').addEventListener('click', async fun
         }
     } catch (err) {
         showToast('Network error. Please try again.', true);
+    }
+});
+
+document.getElementById('pf-group-order-now').addEventListener('click', async function (ev) {
+    ev.preventDefault();
+    var btn = ev.currentTarget;
+    if (btn.getAttribute('aria-disabled') === 'true') return;
+    var productId = parseInt(btn.getAttribute('data-product-id') || '0', 10);
+    if (!productId) {
+        productId = parseInt(document.getElementById('pf-group-add-cart').getAttribute('data-product-id') || '0', 10);
+    }
+    if (!productId) return;
+    var stock = parseInt(btn.getAttribute('data-stock') || '0', 10);
+    if (stock <= 0) {
+        showToast('This option is out of stock.', true);
+        return;
+    }
+    if (btn.dataset.pending === '1') return;
+    btn.dataset.pending = '1';
+    try {
+        var response = await fetch('api_cart.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'buy_now',
+                product_id: productId,
+                quantity: 1,
+                catalog_group_id: PF_GROUP_ID,
+                csrf_token: PF_CSRF_TOKEN
+            })
+        });
+        var data = await response.json();
+        if (data.success && data.redirect_url) {
+            window.location.href = data.redirect_url;
+            return;
+        }
+        if (data.success && data.item_key) {
+            window.location.href = 'order_review.php?item=' + encodeURIComponent(data.item_key);
+            return;
+        }
+        showToast(data.message || 'Could not start checkout.', true);
+    } catch (err) {
+        showToast('Network error. Please try again.', true);
+    } finally {
+        delete btn.dataset.pending;
     }
 });
 
