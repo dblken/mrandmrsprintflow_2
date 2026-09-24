@@ -7,9 +7,12 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/customer_catalog_perf.php';
+require_once __DIR__ . '/../includes/product_catalog_groups.php';
 
 define('PF_CUSTOMER_CATALOG_NAV', true);
 require_role('Customer');
+
+printflow_ensure_product_catalog_groups_schema();
 
 function pf_product_media_is_video($path) {
     $path = strtolower(trim((string)$path));
@@ -19,55 +22,27 @@ function pf_product_media_is_video($path) {
 // Get filter parameters
 $category = $_GET['category'] ?? '';
 
-// Fetch paginated product rows first; card stats are resolved in one batched pass below.
-$sql = "SELECT p.*,
-    (SELECT COUNT(*) FROM product_variants pv WHERE pv.product_id = p.product_id AND pv.status = 'Active') as variant_count
-    FROM products p
-    WHERE p.status = 'Activated'";
-$params = [];
-$types = '';
-
-if (!empty($category)) {
-    $sql .= " AND category = ?";
-    $params[] = $category;
-    $types .= 's';
-}
-
 // Pagination settings
 $items_per_page = 12;
 $current_page = max(1, (int)($_GET['page'] ?? 1));
 $offset = ($current_page - 1) * $items_per_page;
 
-// Count total items for pagination
-$count_sql = "SELECT COUNT(*) as total FROM products WHERE status = 'Activated'";
-$count_params = [];
-$count_types = '';
+$catalogPage = printflow_customer_catalog_entries(
+    $category !== '' ? $category : null,
+    $offset,
+    $items_per_page
+);
+$catalog_entries = $catalogPage['entries'];
+$total_items = (int) ($catalogPage['total'] ?? 0);
+$total_pages = max(1, (int) ceil($total_items / $items_per_page));
 
-if (!empty($category)) {
-    $count_sql .= " AND category = ?";
-    $count_params[] = $category;
-    $count_types .= 's';
+$standalone_for_stats = [];
+foreach ($catalog_entries as $entry) {
+    if (($entry['type'] ?? '') === 'product' && !empty($entry['product'])) {
+        $standalone_for_stats[] = $entry['product'];
+    }
 }
-
-$total_result = db_query($count_sql, $count_types, $count_params);
-$total_items = $total_result[0]['total'] ?? 0;
-$total_pages = ceil($total_items / $items_per_page);
-
-$sql .= " ORDER BY name ASC LIMIT ? OFFSET ?";
-$params[] = $items_per_page;
-$params[] = $offset;
-$types .= 'ii';
-
-$products = db_query($sql, $types, $params) ?: [];
-$product_stats_map = printflow_catalog_product_card_stats_map($products);
-foreach ($products as &$product_row) {
-    $product_id = (int)($product_row['product_id'] ?? 0);
-    $card_stats = $product_stats_map[$product_id] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
-    $product_row['sold_count'] = (int)($card_stats['sold_count'] ?? 0);
-    $product_row['avg_rating'] = (float)($card_stats['avg_rating'] ?? 0);
-    $product_row['review_count'] = (int)($card_stats['review_count'] ?? 0);
-}
-unset($product_row);
+$product_stats_map = printflow_catalog_product_card_stats_map($standalone_for_stats);
 
 $base_path = pf_app_base_path();
 $default_product_img = $base_path . '/public/assets/images/services/default.png';
@@ -454,7 +429,7 @@ require_once __DIR__ . '/../includes/header.php';
         </div>
 
         <!-- Products Grid -->
-        <?php if (empty($products)): ?>
+        <?php if (empty($catalog_entries)): ?>
             <div class="bg-white rounded-lg p-12 text-center shadow-sm">
                 <div class="text-6xl mb-4">📦</div>
                 <p class="text-gray-500 text-lg">No products found.</p>
@@ -462,17 +437,64 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
         <?php else: ?>
             <div class="shopee-grid">
-                <?php foreach ($products as $product_index => $product): 
+                <?php foreach ($catalog_entries as $product_index => $entry):
+                    if (($entry['type'] ?? '') === 'group'):
+                        $groupId = (int) ($entry['group_id'] ?? 0);
+                        $cover = printflow_catalog_group_cover_url($entry, $base_path, $default_product_img);
+                        if ($cover === $default_product_img) {
+                            $cover = printflow_catalog_group_fallback_cover_from_members($groupId, $base_path, $default_product_img);
+                        }
+                        $minPrice = (float) ($entry['min_price'] ?? 0);
+                        $optCount = (int) ($entry['option_count'] ?? 0);
+                ?>
+                    <div class="shopee-card" onclick="window.location.href='product_group.php?group_id=<?php echo $groupId; ?>'">
+                        <div class="shopee-img-wrap">
+                            <?php
+                            echo pf_catalog_image_tag($cover, 'card', [
+                                'alt' => $entry['name'] ?? 'Product group',
+                                'class' => 'shopee-img',
+                                'loading' => $product_index < 4 ? 'eager' : 'lazy',
+                                'width' => 400,
+                                'height' => 348,
+                                'onerror' => "this.onerror=null;this.src='" . addslashes(htmlspecialchars($default_product_img, ENT_QUOTES)) . "';",
+                            ]);
+                            ?>
+                        </div>
+                        <div class="shopee-body">
+                            <div class="shopee-meta-row">
+                                <span class="shopee-category">Product group</span>
+                            </div>
+                            <h3 class="shopee-name"><?php echo htmlspecialchars($entry['name'] ?? ''); ?></h3>
+                            <div class="rating-stars">
+                                <span class="rating-text"><?php echo $optCount; ?> option<?php echo $optCount === 1 ? '' : 's'; ?></span>
+                            </div>
+                            <div class="shopee-price-row">
+                                <span class="shopee-price"><?php echo format_currency($minPrice); ?></span>
+                                <span style="font-size:0.65rem;color:var(--shopee-muted);margin-left:4px;">starting from</span>
+                            </div>
+                        </div>
+                        <div class="shopee-footer" onclick="event.stopPropagation()">
+                            <a href="product_group.php?group_id=<?php echo $groupId; ?>" class="shopee-btn shopee-btn-buy" style="flex:1;text-align:center;">Order Now</a>
+                        </div>
+                    </div>
+                <?php
+                        continue;
+                    endif;
+                    $product = $entry['product'] ?? null;
+                    if (!$product) {
+                        continue;
+                    }
+                    $product_id = (int) ($product['product_id'] ?? 0);
+                    $card_stats = $product_stats_map[$product_id] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
+                    $sold_count = (int) ($card_stats['sold_count'] ?? 0);
+                    $avg_rating = (float) ($card_stats['avg_rating'] ?? 0);
+                    $review_count = (int) ($card_stats['review_count'] ?? 0);
                     $raw_img = $product['photo_path'] ?: $product['product_image'] ?: $default_product_img;
                     $display_img = pf_normalize_service_image_path((string)$raw_img, $base_path, $default_product_img);
                     $is_video_media = pf_product_media_is_video($display_img);
-                    
-                    $sold_count = (int)$product['sold_count'];
-                    $avg_rating = (float)$product['avg_rating'];
-                    $review_count = (int)$product['review_count'];
+
                     $stock = (int)$product['stock_quantity'];
                     $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k' : $sold_count;
-                    $stock_display = $stock >= 1000 ? number_format($stock / 1000, 1) . 'k' : $stock;
                 ?>
                     <div class="shopee-card" onclick="window.location.href='order_create.php?product_id=<?php echo $product['product_id']; ?>'">
                         <?php if ($is_video_media): ?>

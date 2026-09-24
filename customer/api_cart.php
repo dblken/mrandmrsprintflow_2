@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
+require_once __DIR__ . '/../includes/product_catalog_groups.php';
 
 $session_user_type = trim((string)(get_user_type() ?? ''));
 if (!is_logged_in() || strcasecmp($session_user_type, 'Customer') !== 0) {
@@ -88,6 +89,13 @@ if ($action === 'add') {
         exit;
     }
     $product = $product[0];
+
+    $catalogGroupId = (int) ($input['catalog_group_id'] ?? 0);
+    if ($catalogGroupId > 0 && !printflow_catalog_validate_member_in_group($catalogGroupId, $product_id)) {
+        echo json_encode(['success' => false, 'message' => 'This product is not available in the selected group.']);
+        exit;
+    }
+
     $price        = (float)$product['price'];
     $variant_name = '';
 

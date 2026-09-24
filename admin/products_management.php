@@ -13,6 +13,9 @@ require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/product_field_config_helper.php';
 require_once __DIR__ . '/../includes/product_stock_status.php';
+require_once __DIR__ . '/../includes/product_catalog_groups.php';
+
+printflow_ensure_product_catalog_groups_schema();
 
 require_role(['Admin', 'Manager']);
 // Ensure $base_path is defined
@@ -493,6 +496,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     if ($result) {
                         if (!$product_stock_uses_base) {
                             printflow_product_branch_stock_upsert((int)$result, $product_stock_branch_id, $stock_quantity, $low_stock_level, $critical_level);
+                        }
+                        $newProductId = (int) (is_numeric($result) ? $result : 0);
+                        $catalogGroupId = (int)($_POST['catalog_group_id'] ?? 0);
+                        if ($newProductId > 0 && $catalogGroupId > 0) {
+                            $grpRes = printflow_catalog_group_set_product($newProductId, $catalogGroupId);
+                            if (!$grpRes['success']) {
+                                $error = $grpRes['message'] ?? 'Product created but could not assign to group.';
+                            }
                         }
                         if ($stock_quantity > 0) {
                             printflow_record_product_inventory_transaction(
@@ -1007,14 +1018,104 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                         );
                     }
                 }
-                $success = "Product '$name' updated successfully!";
+                if (array_key_exists('catalog_group_id', $_POST)) {
+                    $catalogGroupId = (int) $_POST['catalog_group_id'];
+                    $grpRes = printflow_catalog_group_set_product(
+                        $product_id,
+                        $catalogGroupId > 0 ? $catalogGroupId : null
+                    );
+                    if (!$grpRes['success']) {
+                        $error = $grpRes['message'] ?? 'Product saved but customer group assignment failed.';
+                    }
+                }
+                if (!$error) {
+                    $success = "Product '$name' updated successfully!";
+                }
             } else {
                 global $conn;
                 $error = "Failed to update product. DB error: " . $conn->error;
             }
         } catch (Exception $e) {
             $error = "Upload error: " . $e->getMessage();
+            }
         }
+    }
+} elseif (isset($_POST['save_catalog_group'])) {
+    if ($is_manager) {
+        $error = 'Only administrators can manage customer product groups.';
+    } else {
+        $groupId = (int) ($_POST['group_id'] ?? 0);
+        $gName = sanitize($_POST['group_name'] ?? '');
+        $gStatus = sanitize($_POST['group_status'] ?? 'Activated');
+        $gSort = (int) ($_POST['group_sort_order'] ?? 0);
+        $cover = null;
+        if (!empty($_FILES['group_cover']['name']) && ($_FILES['group_cover']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            try {
+                $cover = handle_product_photo_upload($_FILES['group_cover'] ?? null);
+            } catch (Exception $e) {
+                $error = $e->getMessage();
+            }
+        }
+        if (!$error) {
+            if ($groupId > 0) {
+                $existing = printflow_catalog_group_get($groupId);
+                if (!$existing) {
+                    $error = 'Product group not found.';
+                } else {
+                    $coverFinal = $cover ?? ($existing['cover_image'] ?? null);
+                    $res = printflow_catalog_group_update($groupId, $gName, $coverFinal, $gStatus, $gSort);
+                    if ($res['success']) {
+                        $success = 'Customer product group updated.';
+                    } else {
+                        $error = $res['message'] ?? 'Could not update product group.';
+                    }
+                }
+            } else {
+                $res = printflow_catalog_group_create($gName, $cover, $gSort);
+                if ($res['success']) {
+                    $success = 'Customer product group created.';
+                } else {
+                    $error = $res['message'] ?? 'Could not create product group.';
+                }
+            }
+        }
+    }
+} elseif (isset($_POST['delete_catalog_group'])) {
+    if ($is_manager) {
+        $error = 'Only administrators can manage customer product groups.';
+    } else {
+        $groupId = (int) ($_POST['group_id'] ?? 0);
+        $res = printflow_catalog_group_delete($groupId);
+        $success = $res['success'] ? 'Customer product group removed. Products remain in the catalog as standalone items.' : ($res['message'] ?? 'Could not delete group.');
+        if (!$res['success']) {
+            $error = $success;
+            $success = '';
+        }
+    }
+} elseif (isset($_POST['catalog_group_add_member'])) {
+    if ($is_manager) {
+        $error = 'Only administrators can manage customer product groups.';
+    } else {
+        $groupId = (int) ($_POST['group_id'] ?? 0);
+        $productId = (int) ($_POST['member_product_id'] ?? 0);
+        $res = printflow_catalog_group_add_member($groupId, $productId, (int) ($_POST['member_sort_order'] ?? 0));
+        if ($res['success']) {
+            $success = 'Product added to group.';
+        } else {
+            $error = $res['message'] ?? 'Could not add product to group.';
+        }
+    }
+} elseif (isset($_POST['catalog_group_remove_member'])) {
+    if ($is_manager) {
+        $error = 'Only administrators can manage customer product groups.';
+    } else {
+        $groupId = (int) ($_POST['group_id'] ?? 0);
+        $productId = (int) ($_POST['member_product_id'] ?? 0);
+        $res = printflow_catalog_group_remove_member($groupId, $productId);
+        if ($res['success']) {
+            $success = 'Product removed from group (still available as standalone).';
+        } else {
+            $error = $res['message'] ?? 'Could not remove product from group.';
         }
     }
 } elseif (isset($_POST['archive_product'])) {
@@ -1342,6 +1443,12 @@ $order_clause = match($sort_by) {
 $sql .= " ORDER BY $order_clause LIMIT $per_page OFFSET $offset";
 $products = db_query($sql, $types ?: null, $params ?: null) ?: [];
 
+$catalog_member_map = [];
+foreach (db_query("SELECT product_id, group_id FROM product_catalog_group_members") ?: [] as $cm) {
+    $catalog_member_map[(int) $cm['product_id']] = (int) $cm['group_id'];
+}
+$catalog_groups_admin = printflow_catalog_group_list_all(true);
+
 foreach ($products as &$pfProduct) {
     $effectiveStock = printflow_get_branch_product_stock(
         (int)($pfProduct['product_id'] ?? 0),
@@ -1356,6 +1463,7 @@ foreach ($products as &$pfProduct) {
     $pfProduct['critical_level'] = $product_stock_branch_id > 0 && !$product_stock_uses_base
         ? (int)($pfProduct['eff_critical'] ?? $pfProduct['critical_level'] ?? 0)
         : (int)($pfProduct['critical_level'] ?? 0);
+    $pfProduct['catalog_group_id'] = $catalog_member_map[(int) ($pfProduct['product_id'] ?? 0)] ?? 0;
     unset($pfProduct['eff_stock_qty'], $pfProduct['eff_low_stock'], $pfProduct['eff_critical']);
 }
 unset($pfProduct);
@@ -2211,6 +2319,120 @@ if (isset($_GET['ajax'])) {
             <h1 class="page-title">Products Management</h1>
         </header>
 
+        <?php if (!$is_manager): ?>
+        <section style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px 22px;margin-bottom:22px;">
+            <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
+                <div>
+                    <h2 style="margin:0;font-size:17px;font-weight:700;color:#111827;">Customer product groups</h2>
+                    <p style="margin:6px 0 0;font-size:13px;color:#6b7280;">Group products for the customer catalog only. POS still lists every product individually.</p>
+                </div>
+            </div>
+            <div style="overflow:auto;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:16px;">
+                <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead style="background:#f9fafb;">
+                        <tr>
+                            <th style="text-align:left;padding:10px 12px;">Group</th>
+                            <th style="text-align:left;padding:10px 12px;">Options</th>
+                            <th style="text-align:left;padding:10px 12px;">Status</th>
+                            <th style="text-align:right;padding:10px 12px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php if (empty($catalog_groups_admin)): ?>
+                        <tr><td colspan="4" style="padding:16px;color:#9ca3af;">No customer product groups yet.</td></tr>
+                    <?php else: ?>
+                        <?php foreach ($catalog_groups_admin as $cg): ?>
+                            <?php $members = printflow_catalog_group_members((int)$cg['group_id'], false); ?>
+                            <tr>
+                                <td style="padding:10px 12px;font-weight:600;"><?php echo htmlspecialchars($cg['name']); ?></td>
+                                <td style="padding:10px 12px;"><?php echo count($members); ?></td>
+                                <td style="padding:10px 12px;"><?php echo htmlspecialchars($cg['status']); ?></td>
+                                <td style="padding:10px 12px;text-align:right;white-space:nowrap;">
+                                    <details style="display:inline-block;text-align:left;">
+                                        <summary style="cursor:pointer;color:#2563eb;font-weight:600;">Manage</summary>
+                                        <div style="margin-top:10px;padding:12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;min-width:280px;">
+                                            <form method="POST" enctype="multipart/form-data" style="margin-bottom:10px;">
+                                                <?php echo csrf_field(); ?>
+                                                <input type="hidden" name="group_id" value="<?php echo (int)$cg['group_id']; ?>">
+                                                <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Name</label>
+                                                <input type="text" name="group_name" value="<?php echo htmlspecialchars($cg['name']); ?>" maxlength="100" style="width:100%;margin-bottom:8px;padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+                                                <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Cover image (optional)</label>
+                                                <input type="file" name="group_cover" accept="image/*" style="width:100%;margin-bottom:8px;">
+                                                <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Status</label>
+                                                <select name="group_status" style="width:100%;margin-bottom:8px;padding:8px;">
+                                                    <option value="Activated" <?php echo ($cg['status'] ?? '') === 'Activated' ? 'selected' : ''; ?>>Activated</option>
+                                                    <option value="Deactivated" <?php echo ($cg['status'] ?? '') === 'Deactivated' ? 'selected' : ''; ?>>Deactivated</option>
+                                                </select>
+                                                <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Sort order</label>
+                                                <input type="number" name="group_sort_order" value="<?php echo (int)($cg['sort_order'] ?? 0); ?>" style="width:100%;margin-bottom:10px;padding:8px;">
+                                                <button type="submit" name="save_catalog_group" value="1" class="btn-action blue">Save group</button>
+                                            </form>
+                                            <form method="POST" onsubmit="return confirm('Remove this group? Products will stay in the system as standalone items.');" style="margin-bottom:12px;">
+                                                <?php echo csrf_field(); ?>
+                                                <input type="hidden" name="group_id" value="<?php echo (int)$cg['group_id']; ?>">
+                                                <button type="submit" name="delete_catalog_group" value="1" class="btn-action red">Delete group</button>
+                                            </form>
+                                            <?php if (!empty($members)): ?>
+                                                <ul style="margin:0 0 10px;padding-left:18px;font-size:12px;">
+                                                    <?php foreach ($members as $m): ?>
+                                                        <li style="margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;">
+                                                            <span><?php echo htmlspecialchars($m['name']); ?></span>
+                                                            <form method="POST" style="display:inline;">
+                                                                <?php echo csrf_field(); ?>
+                                                                <input type="hidden" name="group_id" value="<?php echo (int)$cg['group_id']; ?>">
+                                                                <input type="hidden" name="member_product_id" value="<?php echo (int)$m['product_id']; ?>">
+                                                                <button type="submit" name="catalog_group_remove_member" value="1" class="btn-action" style="padding:2px 8px;font-size:11px;">Remove</button>
+                                                            </form>
+                                                        </li>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                            <?php endif; ?>
+                                            <form method="POST">
+                                                <?php echo csrf_field(); ?>
+                                                <input type="hidden" name="group_id" value="<?php echo (int)$cg['group_id']; ?>">
+                                                <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Add product to group</label>
+                                                <select name="member_product_id" required style="width:100%;margin-bottom:8px;padding:8px;">
+                                                    <option value="">— Select product —</option>
+                                                    <?php
+                                                    $picker = db_query("SELECT product_id, name, sku FROM products WHERE status != 'Archived' ORDER BY name ASC") ?: [];
+                                                    foreach ($picker as $pp):
+                                                        $pid = (int)$pp['product_id'];
+                                                        $inOther = isset($catalog_member_map[$pid]) && (int)$catalog_member_map[$pid] !== (int)$cg['group_id'];
+                                                        if ($inOther) {
+                                                            continue;
+                                                        }
+                                                    ?>
+                                                        <option value="<?php echo $pid; ?>"><?php echo htmlspecialchars($pp['name'] . ($pp['sku'] ? ' (' . $pp['sku'] . ')' : '')); ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                                <button type="submit" name="catalog_group_add_member" value="1" class="btn-action teal">Add to group</button>
+                                            </form>
+                                        </div>
+                                    </details>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+            <form method="POST" enctype="multipart/form-data" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:end;">
+                <?php echo csrf_field(); ?>
+                <div>
+                    <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">New group name</label>
+                    <input type="text" name="group_name" maxlength="100" required placeholder="e.g. Summer collection" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;">
+                </div>
+                <div>
+                    <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Cover image (optional)</label>
+                    <input type="file" name="group_cover" accept="image/*" style="width:100%;">
+                </div>
+                <div>
+                    <button type="submit" name="save_catalog_group" value="1" class="toolbar-btn btn-add-product" style="width:100%;">+ Create customer group</button>
+                </div>
+            </form>
+        </section>
+        <?php endif; ?>
+
         <script>
             // ── Alpine.js Data Components ───────────────────────────
             function filterPanel() {
@@ -2760,6 +2982,17 @@ if (isset($_GET['ajax'])) {
                             <?php endforeach; ?>
                         </select>
                         <span id="err-category" class="field-error"></span>
+                    </div>
+                    <div class="form-group" id="fg-catalog-group">
+                        <label for="modal-catalog-group">Customer product group <span style="font-weight:500;color:#6b7280;">(optional)</span></label>
+                        <select id="modal-catalog-group" name="catalog_group_id">
+                            <option value="0">— Standalone product —</option>
+                            <?php foreach ($catalog_groups_admin as $cg): ?>
+                                <?php if (($cg['status'] ?? '') !== 'Activated') { continue; } ?>
+                                <option value="<?php echo (int)$cg['group_id']; ?>"><?php echo htmlspecialchars($cg['name']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small style="display:block;margin-top:4px;color:#6b7280;">Customer catalog only — POS is unchanged.</small>
                     </div>
                     <div class="form-group" id="fg-price">
                         <label for="modal-price">Price (₱) <span style="color:red">*</span></label>
@@ -3610,6 +3843,10 @@ window.openProductModal = function openProductModal(mode, product) {
                     catEl.appendChild(o);
                 }
                 catEl.value = catVal;
+            }
+            var grpEl = document.getElementById('modal-catalog-group');
+            if (grpEl) {
+                grpEl.value = String(product.catalog_group_id != null ? product.catalog_group_id : 0);
             }
             var priceEl = document.getElementById('modal-price');
             if (priceEl) priceEl.value = product.price != null ? String(product.price) : '';

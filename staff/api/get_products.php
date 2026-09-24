@@ -67,7 +67,7 @@ try {
         {$join}
         WHERE p.status = 'Activated' 
         AND p.category IN ('Tarpaulin', 'T-Shirt', 'Stickers', 'Glass/Wall', 'Transparent Stickers', 'Reflectorized', 'Sintraboard', 'Standees', 'Souvenirs', 'Apparel', 'Signage', 'Merchandise', 'Decals & Stickers', 'T-Shirt Printing')
-        ORDER BY p.category ASC, p.name ASC
+        ORDER BY p.name ASC
     ",
         $types ?: null,
         $params ?: null

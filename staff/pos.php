@@ -4878,6 +4878,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
+            filtered.sort(function (a, b) {
+                return String(a.product_name || '').localeCompare(String(b.product_name || ''), undefined, { sensitivity: 'base' });
+            });
+
             filtered.forEach((p) => {
                 const outOfStock = p.stock_quantity <= 0;
                 const imgUrl = escapeHtml(posCatalogImageUrl(p));
