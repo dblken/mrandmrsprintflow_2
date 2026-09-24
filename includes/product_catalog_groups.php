@@ -45,6 +45,14 @@ function printflow_ensure_product_catalog_groups_schema(): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
+    $groupCols = array_flip(array_column(db_query('SHOW COLUMNS FROM product_catalog_groups') ?: [], 'Field'));
+    if (!isset($groupCols['description'])) {
+        db_execute(
+            "ALTER TABLE product_catalog_groups
+             ADD COLUMN description TEXT NULL AFTER cover_image"
+        );
+    }
+
     $done = true;
 }
 
@@ -139,7 +147,23 @@ function printflow_catalog_validate_member_in_group(int $groupId, int $productId
     return !empty($rows);
 }
 
-function printflow_catalog_group_create(string $name, ?string $coverImage = null, int $sortOrder = 0): array
+/**
+ * @return array{ok:bool,value:?string,message?:string}
+ */
+function printflow_catalog_group_normalize_description(?string $raw): array
+{
+    $text = str_replace(["\r\n", "\r"], "\n", trim((string) $raw));
+    if ($text === '') {
+        return ['ok' => true, 'value' => null];
+    }
+    $length = function_exists('mb_strlen') ? mb_strlen($text, 'UTF-8') : strlen($text);
+    if ($length > 500) {
+        return ['ok' => false, 'message' => 'Description must be 500 characters or fewer.'];
+    }
+    return ['ok' => true, 'value' => $text];
+}
+
+function printflow_catalog_group_create(string $name, ?string $coverImage = null, int $sortOrder = 0, ?string $description = null): array
 {
     printflow_ensure_product_catalog_groups_schema();
     $name = preg_replace('/\s+/', ' ', trim($name));
@@ -147,10 +171,10 @@ function printflow_catalog_group_create(string $name, ?string $coverImage = null
         return ['success' => false, 'message' => 'Group name is required (max 100 characters).'];
     }
     $id = db_execute(
-        "INSERT INTO product_catalog_groups (name, cover_image, status, sort_order, created_at, updated_at)
-         VALUES (?, ?, 'Activated', ?, NOW(), NOW())",
-        'ssi',
-        [$name, $coverImage, $sortOrder]
+        "INSERT INTO product_catalog_groups (name, cover_image, description, status, sort_order, created_at, updated_at)
+         VALUES (?, ?, ?, 'Activated', ?, NOW(), NOW())",
+        'sssi',
+        [$name, $coverImage, $description, $sortOrder]
     );
     if (!$id) {
         return ['success' => false, 'message' => 'Could not create product group.'];
@@ -158,7 +182,7 @@ function printflow_catalog_group_create(string $name, ?string $coverImage = null
     return ['success' => true, 'group_id' => (int) (is_numeric($id) ? $id : 0)];
 }
 
-function printflow_catalog_group_update(int $groupId, string $name, ?string $coverImage, string $status, int $sortOrder): array
+function printflow_catalog_group_update(int $groupId, string $name, ?string $coverImage, string $status, int $sortOrder, ?string $description = null): array
 {
     printflow_ensure_product_catalog_groups_schema();
     if ($groupId <= 0) {
@@ -172,9 +196,9 @@ function printflow_catalog_group_update(int $groupId, string $name, ?string $cov
         $status = 'Activated';
     }
     $ok = db_execute(
-        "UPDATE product_catalog_groups SET name = ?, cover_image = ?, status = ?, sort_order = ?, updated_at = NOW() WHERE group_id = ?",
-        'sssii',
-        [$name, $coverImage, $status, $sortOrder, $groupId]
+        "UPDATE product_catalog_groups SET name = ?, cover_image = ?, description = ?, status = ?, sort_order = ?, updated_at = NOW() WHERE group_id = ?",
+        'ssssii',
+        [$name, $coverImage, $description, $status, $sortOrder, $groupId]
     );
     return $ok ? ['success' => true] : ['success' => false, 'message' => 'Could not update product group.'];
 }

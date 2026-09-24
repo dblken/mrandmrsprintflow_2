@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS product_catalog_groups (
     group_id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     cover_image VARCHAR(255) NULL,
+    description TEXT NULL,
     status ENUM('Activated','Deactivated') NOT NULL DEFAULT 'Activated',
     sort_order INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,

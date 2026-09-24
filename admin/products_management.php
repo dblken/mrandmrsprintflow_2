@@ -1048,6 +1048,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $gName = sanitize($_POST['group_name'] ?? '');
         $gStatus = sanitize($_POST['group_status'] ?? 'Activated');
         $gSort = (int) ($_POST['group_sort_order'] ?? 0);
+        $descResult = printflow_catalog_group_normalize_description($_POST['group_description'] ?? '');
+        if (!$descResult['ok']) {
+            $error = $descResult['message'] ?? 'Invalid group description.';
+        }
+        $gDescription = $descResult['ok'] ? ($descResult['value'] ?? null) : null;
         $cover = null;
         if (!empty($_FILES['group_cover']['name']) && ($_FILES['group_cover']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
             try {
@@ -1063,7 +1068,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     $error = 'Product group not found.';
                 } else {
                     $coverFinal = $cover ?? ($existing['cover_image'] ?? null);
-                    $res = printflow_catalog_group_update($groupId, $gName, $coverFinal, $gStatus, $gSort);
+                    $res = printflow_catalog_group_update($groupId, $gName, $coverFinal, $gStatus, $gSort, $gDescription);
                     if ($res['success']) {
                         $success = 'Customer product group updated.';
                     } else {
@@ -1071,7 +1076,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     }
                 }
             } else {
-                $res = printflow_catalog_group_create($gName, $cover, $gSort);
+                $res = printflow_catalog_group_create($gName, $cover, $gSort, $gDescription);
                 if ($res['success']) {
                     $success = 'Customer product group created.';
                 } else {
@@ -2448,7 +2453,8 @@ if (isset($_GET['ajax'])) {
             color: #374151;
         }
         .pf-cg-modal .form-group input,
-        .pf-cg-modal .form-group select {
+        .pf-cg-modal .form-group select,
+        .pf-cg-modal .form-group textarea {
             width: 100%;
             padding: 8px 11px;
             border: 1px solid #d1d5db;
@@ -2457,9 +2463,21 @@ if (isset($_GET['ajax'])) {
             box-sizing: border-box;
             background: #fff;
         }
+        .pf-cg-modal .form-group textarea {
+            min-height: 96px;
+            resize: vertical;
+            line-height: 1.45;
+        }
+        .pf-cg-char-count {
+            margin-top: 4px;
+            font-size: 12px;
+            color: #6b7280;
+            text-align: right;
+        }
         .pf-cg-modal .form-group input[type="file"] { padding: 6px 8px; font-size: 13px; }
         .pf-cg-modal .form-group input:focus,
-        .pf-cg-modal .form-group select:focus {
+        .pf-cg-modal .form-group select:focus,
+        .pf-cg-modal .form-group textarea:focus {
             outline: none;
             border-color: #0d9488;
             box-shadow: 0 0 0 2px rgba(13,148,136,0.15);
@@ -2624,6 +2642,8 @@ if (isset($_GET['ajax'])) {
                         $gid = (int) $cg['group_id'];
                         $members = printflow_catalog_group_members($gid, false);
                         $cgStatus = (string) ($cg['status'] ?? 'Activated');
+                        $cgDescription = (string) ($cg['description'] ?? '');
+                        $cgDescLen = function_exists('mb_strlen') ? mb_strlen($cgDescription, 'UTF-8') : strlen($cgDescription);
                         $saveFormId = 'pf-cg-save-form-' . $gid;
                         ?>
                         <div class="pf-cg-manage-pane" data-group-id="<?php echo $gid; ?>" hidden>
@@ -2662,6 +2682,11 @@ if (isset($_GET['ajax'])) {
                                             <label for="pf-cg-cover-<?php echo $gid; ?>">Cover image</label>
                                             <input type="file" id="pf-cg-cover-<?php echo $gid; ?>" name="group_cover" accept="image/jpeg,image/png,image/gif,image/webp">
                                         </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="pf-cg-desc-<?php echo $gid; ?>">Description / Notes</label>
+                                        <textarea id="pf-cg-desc-<?php echo $gid; ?>" name="group_description" maxlength="500" rows="4" data-pf-cg-desc="1" aria-describedby="pf-cg-desc-count-<?php echo $gid; ?>" placeholder="Optional notes for customers (pickup, payment, bulk orders, etc.)"><?php echo htmlspecialchars($cgDescription); ?></textarea>
+                                        <div class="pf-cg-char-count" id="pf-cg-desc-count-<?php echo $gid; ?>"><?php echo (int) $cgDescLen; ?> / 500 characters</div>
                                     </div>
                                 </form>
                                 <div class="pf-cg-modal-block">
@@ -2750,6 +2775,11 @@ if (isset($_GET['ajax'])) {
                                 <label for="pf-cg-new-cover">Cover image (optional)</label>
                                 <input type="file" id="pf-cg-new-cover" name="group_cover" accept="image/jpeg,image/png,image/gif,image/webp">
                             </div>
+                            <div class="form-group">
+                                <label for="pf-cg-new-desc">Description / Notes</label>
+                                <textarea id="pf-cg-new-desc" name="group_description" maxlength="500" rows="4" data-pf-cg-desc="1" aria-describedby="pf-cg-new-desc-count" placeholder="Optional notes for customers"></textarea>
+                                <div class="pf-cg-char-count" id="pf-cg-new-desc-count">0 / 500 characters</div>
+                            </div>
                         </div>
                         <div class="pf-cg-modal-footer">
                             <span></span>
@@ -2804,6 +2834,17 @@ if (isset($_GET['ajax'])) {
             } else if (document.getElementById('pf-cg-create-overlay')?.classList.contains('active')) {
                 closeCatalogGroupCreate();
             }
+        });
+        function pfCgUpdateDescCounter(textarea) {
+            if (!textarea) return;
+            var counterId = textarea.getAttribute('aria-describedby');
+            var counter = counterId ? document.getElementById(counterId) : null;
+            var len = textarea.value.length;
+            if (counter) counter.textContent = len + ' / 500 characters';
+        }
+        document.querySelectorAll('[data-pf-cg-desc]').forEach(function (ta) {
+            pfCgUpdateDescCounter(ta);
+            ta.addEventListener('input', function () { pfCgUpdateDescCounter(ta); });
         });
         </script>
         <?php endif; ?>

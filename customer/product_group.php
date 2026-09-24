@@ -388,6 +388,24 @@ require_once __DIR__ . '/../includes/header.php';
         width: 100%;
         box-sizing: border-box;
     }
+    .pf-group-notes {
+        margin-top: 1.25rem;
+        padding: 1.5rem 2rem;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 4px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    .pf-group-notes-body {
+        margin: 0;
+        color: var(--shopee-text);
+        font-size: 0.9375rem;
+        line-height: 1.55;
+        white-space: pre-line;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
     .poc-section-title { font-size: 1.1rem; font-weight: 700; color: #111827; margin: 0 0 0.75rem; }
     .poc-filter-btn.active { background: #0a2530 !important; color: white !important; border-color: #0a2530 !important; }
     .poc-filter-btn:hover { border-color: #0a2530; background: #f0f4f5; }
@@ -490,6 +508,16 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
         </div>
     </div>
+
+    <?php
+    $groupNotes = trim((string) ($group['description'] ?? ''));
+    if ($groupNotes !== ''):
+    ?>
+    <section class="pf-group-notes" aria-labelledby="pf-group-notes-heading">
+        <h2 id="pf-group-notes-heading" class="poc-section-title">Description / Notes</h2>
+        <p class="pf-group-notes-body"><?php echo htmlspecialchars($groupNotes, ENT_QUOTES, 'UTF-8'); ?></p>
+    </section>
+    <?php endif; ?>
 
     <section class="pf-group-reviews" aria-labelledby="pf-group-reviews-heading">
         <h2 id="pf-group-reviews-heading" class="poc-section-title">Product Ratings</h2>
