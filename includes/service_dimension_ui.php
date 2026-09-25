@@ -81,6 +81,12 @@ function printflow_service_dimension_parse_pair(?string $saved): array
         $saved_width = trim($parts[0]);
         $saved_height = trim($parts[1]);
     }
+    if ($saved_width === '' && $saved_height === '') {
+        if (preg_match('/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/iu', (string) $saved, $m)) {
+            $saved_width = trim($m[1]);
+            $saved_height = trim($m[2]);
+        }
+    }
     return ['width' => $saved_width, 'height' => $saved_height];
 }
 
@@ -104,6 +110,8 @@ function printflow_service_dimension_is_preset(array $config, string $width, str
         }
         $w = trim($parts[0]);
         $h = trim($parts[1]);
+        $w = preg_replace('/\s*(?:ft|in|feet|foot|inch|inches)\s*$/iu', '', $w);
+        $h = preg_replace('/\s*(?:ft|in|feet|foot|inch|inches)\s*$/iu', '', $h);
         if ($w !== '' && $h !== '' && (float) $w === (float) $width && (float) $h === (float) $height) {
             return true;
         }
@@ -187,31 +195,221 @@ function printflow_service_field_uses_custom_size_panel(string $field_key, array
     return false;
 }
 
-function printflow_service_field_resolved_unit(string $field_key, array $config): string
+/**
+ * Normalize option/dimension label text for unit scanning.
+ */
+function printflow_service_dimension_normalize_label_text(string $text): string
 {
-    $label = strtolower(trim((string) ($config['label'] ?? '')));
-    if (str_contains($label, '(ft)') || str_contains($label, 'feet') || str_contains($label, 'foot')) {
+    $text = trim($text);
+    if ($text === '') {
+        return '';
+    }
+    $text = mb_strtolower($text, 'UTF-8');
+    $text = str_replace(["\xc3\x97", '×', '✕', 'x'], ' x ', $text);
+    $text = preg_replace('/\s+/u', ' ', $text);
+    return trim($text);
+}
+
+/**
+ * Detect ft/in signals in a single label (null = no unit words found).
+ *
+ * @return 'ft'|'in'|null
+ */
+function printflow_service_dimension_unit_in_text(string $text): ?string
+{
+    $norm = printflow_service_dimension_normalize_label_text($text);
+    if ($norm === '' || strcasecmp($norm, 'others') === 0 || strcasecmp($norm, 'custom size') === 0) {
+        return null;
+    }
+
+    $hasFt = (bool) preg_match(
+        '/(?:\d+(?:\.\d+)?\s*)?(?:ft|feet|foot)\b|\b(?:ft|feet|foot)\b/u',
+        $norm
+    );
+    $hasIn = (bool) preg_match(
+        '/(?:\d+(?:\.\d+)?\s*)?(?:in|inch|inches|")\b|\b(?:in|inch|inches)\b/u',
+        $norm
+    );
+
+    if ($hasFt && $hasIn) {
+        return null;
+    }
+    if ($hasFt) {
         return 'ft';
     }
-    if (str_contains($label, '(in)') || str_contains($label, 'inch')) {
+    if ($hasIn) {
         return 'in';
     }
+    return null;
+}
+
+/**
+ * Inspect configured dimension/size options and detect dominant measurement unit.
+ *
+ * @return array{unit:?string,ambiguous:bool,ft_count:int,in_count:int,example:?array{width:string,height:string}}
+ */
+function printflow_detect_dimension_unit_from_options(array $config): array
+{
+    $ftCount = 0;
+    $inCount = 0;
+    $example = null;
+
+    $labels = [];
+    $fieldLabel = trim((string) ($config['label'] ?? ''));
+    if ($fieldLabel !== '') {
+        $labels[] = $fieldLabel;
+    }
     foreach ($config['options'] ?? [] as $opt) {
-        $v = strtolower(trim(is_array($opt) ? (string) ($opt['value'] ?? '') : (string) $opt));
-        if ($v === '' || strcasecmp($v, 'others') === 0) {
-            continue;
-        }
-        if (preg_match('/\b(a4|a3|a5|letter|legal|pcs|mm)\b/', $v)) {
-            return 'in';
+        $v = is_array($opt) ? (string) ($opt['value'] ?? '') : (string) $opt;
+        $v = trim($v);
+        if ($v !== '') {
+            $labels[] = $v;
         }
     }
-    $fromConfig = printflow_service_dimension_normalize_unit($config['unit'] ?? 'ft');
-    if (printflow_service_field_uses_custom_size_panel($field_key, $config) && $fromConfig === 'ft') {
-        if (!str_contains($label, 'tarp') && !str_contains($label, 'large-format') && !str_contains($label, 'large format')) {
-            return 'in';
+
+    foreach ($labels as $label) {
+        $unit = printflow_service_dimension_unit_in_text($label);
+        if ($unit === 'ft') {
+            $ftCount++;
+        } elseif ($unit === 'in') {
+            $inCount++;
+        }
+        if ($example === null && preg_match('/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/u', printflow_service_dimension_normalize_label_text($label), $m)) {
+            $example = ['width' => $m[1], 'height' => $m[2]];
         }
     }
-    return $fromConfig;
+
+    $ambiguous = $ftCount > 0 && $inCount > 0;
+    $unit = null;
+    if (!$ambiguous) {
+        if ($ftCount > 0) {
+            $unit = 'ft';
+        } elseif ($inCount > 0) {
+            $unit = 'in';
+        }
+    }
+
+    return [
+        'unit' => $unit,
+        'ambiguous' => $ambiguous,
+        'ft_count' => $ftCount,
+        'in_count' => $inCount,
+        'example' => $example,
+    ];
+}
+
+/**
+ * Custom Size unit context for a field (single source of truth).
+ *
+ * @return array{unit:string,fixed_unit:bool,unit_field_name:string,example:?array{width:string,height:string}}
+ */
+function printflow_service_field_custom_size_unit_context(string $field_key, array $config): array
+{
+    $unitFieldName = $field_key . '_unit';
+    $type = (string) ($config['type'] ?? '');
+    $configUnit = printflow_service_dimension_normalize_unit($config['unit'] ?? 'ft');
+    $detection = printflow_detect_dimension_unit_from_options($config);
+    $label = strtolower(trim((string) ($config['label'] ?? '')));
+
+    // Priority 1: explicit field label unit hint, e.g. "Size (ft)"
+    if (preg_match('/\(ft\)|\bfeet\b|\bfoot\b/', $label)) {
+        return [
+            'unit' => 'ft',
+            'fixed_unit' => true,
+            'unit_field_name' => $unitFieldName,
+            'example' => $detection['example'],
+        ];
+    }
+    if (preg_match('/\(in\)|\binch|\binches\b/', $label)) {
+        return [
+            'unit' => 'in',
+            'fixed_unit' => true,
+            'unit_field_name' => $unitFieldName,
+            'example' => $detection['example'],
+        ];
+    }
+
+    // Priority 2: dimension field type — admin "unit" column (Feet/Inches in service field config)
+    if ($type === 'dimension' && !empty($config['unit'])) {
+        $adminUnit = $configUnit;
+        if (!$detection['ambiguous'] && $detection['unit'] !== null && $detection['unit'] !== $adminUnit) {
+            // Options clearly indicate a different unit than admin default — trust option labels.
+            return [
+                'unit' => $detection['unit'],
+                'fixed_unit' => true,
+                'unit_field_name' => $unitFieldName,
+                'example' => $detection['example'],
+            ];
+        }
+        return [
+            'unit' => $adminUnit,
+            'fixed_unit' => true,
+            'unit_field_name' => $unitFieldName,
+            'example' => $detection['example'],
+        ];
+    }
+
+    // Priority 3: read existing dropdown/radio option labels
+    if ($detection['ambiguous']) {
+        return [
+            'unit' => $configUnit,
+            'fixed_unit' => false,
+            'unit_field_name' => $unitFieldName,
+            'example' => $detection['example'],
+        ];
+    }
+    if ($detection['unit'] !== null) {
+        return [
+            'unit' => $detection['unit'],
+            'fixed_unit' => true,
+            'unit_field_name' => $unitFieldName,
+            'example' => $detection['example'],
+        ];
+    }
+
+    // Priority 4: configured unit when presets have no unit words (e.g. "3×4")
+    return [
+        'unit' => $configUnit,
+        'fixed_unit' => true,
+        'unit_field_name' => $unitFieldName,
+        'example' => $detection['example'],
+    ];
+}
+
+/**
+ * Resolved unit for validation/storage (POST unit wins when submitted).
+ */
+function printflow_service_dimension_unit_for_field(string $field_key, array $config, ?array $post = null): string
+{
+    $ctx = printflow_service_field_custom_size_unit_context($field_key, $config);
+    $unitField = $ctx['unit_field_name'];
+    if (is_array($post)) {
+        $posted = trim((string) ($post[$unitField] ?? ''));
+        if ($posted === '') {
+            $posted = trim((string) ($post['unit'] ?? ''));
+        }
+        if ($posted !== '') {
+            return printflow_service_dimension_normalize_unit($posted);
+        }
+    }
+    return printflow_service_dimension_normalize_unit($ctx['unit']);
+}
+
+/** @deprecated alias — use printflow_service_dimension_unit_for_field() */
+function printflow_service_field_resolved_unit(string $field_key, array $config): string
+{
+    return printflow_service_dimension_unit_for_field($field_key, $config, null);
+}
+
+function printflow_service_dimension_unit_meta_for_context(array $context, ?array $fieldConfig = null): array
+{
+    $unit = printflow_service_dimension_normalize_unit($context['unit'] ?? 'ft');
+    $meta = printflow_service_dimension_unit_meta($unit, $fieldConfig);
+    if (!empty($context['example']['width']) && !empty($context['example']['height'])) {
+        $meta['example_w'] = (string) $context['example']['width'];
+        $meta['example_h'] = (string) $context['example']['height'];
+    }
+    return $meta;
 }
 
 function printflow_service_custom_size_option_label(string $optionValue, string $field_key, array $config): string
@@ -245,9 +443,11 @@ function printflow_render_field_custom_size_others_wrap(
     string $wrapClass,
     string $wrapId
 ): string {
-    $unit = printflow_service_field_resolved_unit($field_key, $config);
-    $unitMeta = printflow_service_dimension_unit_meta($unit, $config);
+    $ctx = printflow_service_field_custom_size_unit_context($field_key, $config);
+    $unitMeta = printflow_service_dimension_unit_meta_for_context($ctx, $config);
     $parsed = printflow_service_parse_custom_size_saved_text($savedOtherText);
+    $maxFt = printflow_service_dimension_max_for_unit('ft', $config);
+    $maxIn = printflow_service_dimension_max_for_unit('in', $config);
     $html = '<div class="' . htmlspecialchars($wrapClass, ENT_QUOTES, 'UTF-8') . '" id="' . htmlspecialchars($wrapId, ENT_QUOTES, 'UTF-8') . '" style="margin-top:12px;display:' . ($show ? 'block' : 'none') . ';">';
     $html .= printflow_render_service_custom_size_panel([
         'field_key' => $field_key,
@@ -255,8 +455,11 @@ function printflow_render_field_custom_size_others_wrap(
         'visible' => true,
         'saved_width' => $parsed['width'],
         'saved_height' => $parsed['height'],
-        'fixed_unit' => true,
+        'fixed_unit' => $ctx['fixed_unit'],
         'selected_unit' => $unitMeta['code'],
+        'unit_field_name' => $ctx['unit_field_name'],
+        'max_ft' => $maxFt,
+        'max_in' => $maxIn,
         'container_class' => 'dim-others-inputs pf-custom-size-in-select',
         'width_input_class' => 'custom-dim-width pf-custom-size-width',
         'height_input_class' => 'custom-dim-height pf-custom-size-height',
@@ -278,7 +481,7 @@ function printflow_resolve_custom_size_from_post(string $field_key, array $confi
         $w = $parsed['width'];
         $h = $parsed['height'];
     }
-    $unit = printflow_service_field_resolved_unit($field_key, $config);
+    $unit = printflow_service_dimension_unit_for_field($field_key, $config, $_POST);
     $check = printflow_service_dimension_validate($w, $h, $unit, $config);
     if (!$check['ok']) {
         return $check;
@@ -315,14 +518,31 @@ function printflow_render_service_custom_size_panel(array $options): string
     $unitFieldName = trim((string) ($options['unit_field_name'] ?? 'unit'));
     $fixedUnit = !empty($options['fixed_unit']);
     $selectedUnit = printflow_service_dimension_normalize_unit((string) ($options['selected_unit'] ?? ($unitMeta['code'] ?? 'ft')));
+    $maxFt = (float) ($options['max_ft'] ?? printflow_service_dimension_max_for_unit('ft', null));
+    $maxIn = (float) ($options['max_in'] ?? printflow_service_dimension_max_for_unit('in', null));
 
-    $max = (float) ($unitMeta['max'] ?? PRINTFLOW_SERVICE_DIMENSION_MAX_FT);
+    $max = (float) ($unitMeta['max'] ?? ($selectedUnit === 'in' ? $maxIn : $maxFt));
     $short = htmlspecialchars((string) ($unitMeta['short'] ?? 'ft'), ENT_QUOTES, 'UTF-8');
+    $exampleSuffix = $selectedUnit === 'in' ? 'in' : 'ft';
     $example = htmlspecialchars(
-        ($unitMeta['example_w'] ?? '2') . ' × ' . ($unitMeta['example_h'] ?? '3') . ' ' . ($unitMeta['short'] ?? 'ft'),
+        ($unitMeta['example_w'] ?? '2') . ' × ' . ($unitMeta['example_h'] ?? '3') . ' ' . $exampleSuffix,
         ENT_QUOTES,
         'UTF-8'
     );
+    $defaultFtMeta = printflow_service_dimension_unit_meta('ft', null);
+    $defaultInMeta = printflow_service_dimension_unit_meta('in', null);
+    $exWFt = (string) ($defaultFtMeta['example_w'] ?? '2');
+    $exHFt = (string) ($defaultFtMeta['example_h'] ?? '3');
+    $exWIn = (string) ($defaultInMeta['example_w'] ?? '8');
+    $exHIn = (string) ($defaultInMeta['example_h'] ?? '11');
+    if ($selectedUnit === 'ft' && !empty($unitMeta['example_w']) && !empty($unitMeta['example_h'])) {
+        $exWFt = (string) $unitMeta['example_w'];
+        $exHFt = (string) $unitMeta['example_h'];
+    }
+    if ($selectedUnit === 'in' && !empty($unitMeta['example_w']) && !empty($unitMeta['example_h'])) {
+        $exWIn = (string) $unitMeta['example_w'];
+        $exHIn = (string) $unitMeta['example_h'];
+    }
 
     $idAttr = $containerId !== '' ? ' id="' . htmlspecialchars($containerId, ENT_QUOTES, 'UTF-8') . '"' : '';
     $display = $visible ? 'block' : 'none';
@@ -331,7 +551,13 @@ function printflow_render_service_custom_size_panel(array $options): string
     $html .= ' style="display:' . $display . ';"';
     $html .= ' data-dimension-key="' . htmlspecialchars($fieldKey, ENT_QUOTES, 'UTF-8') . '"';
     $html .= ' data-dimension-max="' . htmlspecialchars((string) $max, ENT_QUOTES, 'UTF-8') . '"';
-    $html .= ' data-dimension-unit="' . htmlspecialchars($selectedUnit, ENT_QUOTES, 'UTF-8') . '">';
+    $html .= ' data-dimension-max-ft="' . htmlspecialchars((string) $maxFt, ENT_QUOTES, 'UTF-8') . '"';
+    $html .= ' data-dimension-max-in="' . htmlspecialchars((string) $maxIn, ENT_QUOTES, 'UTF-8') . '"';
+    $html .= ' data-dimension-unit="' . htmlspecialchars($selectedUnit, ENT_QUOTES, 'UTF-8') . '"';
+    $html .= ' data-example-w-ft="' . htmlspecialchars($exWFt, ENT_QUOTES, 'UTF-8') . '"';
+    $html .= ' data-example-h-ft="' . htmlspecialchars($exHFt, ENT_QUOTES, 'UTF-8') . '"';
+    $html .= ' data-example-w-in="' . htmlspecialchars($exWIn, ENT_QUOTES, 'UTF-8') . '"';
+    $html .= ' data-example-h-in="' . htmlspecialchars($exHIn, ENT_QUOTES, 'UTF-8') . '">';
 
     $html .= '<div class="pf-custom-size-heading">' . htmlspecialchars(printflow_service_dimension_custom_size_label(), ENT_QUOTES, 'UTF-8') . '</div>';
     $html .= '<p class="pf-custom-size-lead">What size do you need?</p>';
@@ -354,7 +580,7 @@ function printflow_render_service_custom_size_panel(array $options): string
     $hId = $heightInputId !== '' ? ' id="' . htmlspecialchars($heightInputId, ENT_QUOTES, 'UTF-8') . '"' : '';
 
     $html .= '<div class="pf-custom-size-field">';
-    $html .= '<label class="pf-custom-size-label">Width (' . $short . ')</label>';
+    $html .= '<label class="pf-custom-size-label pf-custom-size-width-label">Width (' . $short . ')</label>';
     $html .= '<input type="text" inputmode="decimal"' . $wId;
     $html .= ' class="input-field ' . htmlspecialchars($widthInputClass, ENT_QUOTES, 'UTF-8') . '"';
     $html .= ' data-dimension-key="' . htmlspecialchars($fieldKey, ENT_QUOTES, 'UTF-8') . '"';
@@ -363,7 +589,7 @@ function printflow_render_service_custom_size_panel(array $options): string
     $html .= '</div>';
 
     $html .= '<div class="pf-custom-size-field">';
-    $html .= '<label class="pf-custom-size-label">Height (' . $short . ')</label>';
+    $html .= '<label class="pf-custom-size-label pf-custom-size-height-label">Height (' . $short . ')</label>';
     $html .= '<input type="text" inputmode="decimal"' . $hId;
     $html .= ' class="input-field ' . htmlspecialchars($heightInputClass, ENT_QUOTES, 'UTF-8') . '"';
     $html .= ' data-dimension-key="' . htmlspecialchars($fieldKey, ENT_QUOTES, 'UTF-8') . '"';

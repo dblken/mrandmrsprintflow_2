@@ -337,7 +337,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                                 break;
                                 
                             case 'dimension':
-                                $nUnit = $nestedField['unit'] ?? 'ft';
+                                $nCtx = printflow_service_field_custom_size_unit_context($nestedKey, $nestedField);
+                                $nUnitMeta = printflow_service_dimension_unit_meta_for_context($nCtx, $nestedField);
                                 $nAllowOthers = $nestedField['allow_others'] ?? true;
                                 
                                 $html .= '<div class="shopee-opt-group mb-3">';
@@ -361,14 +362,15 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                                 $html .= '</div>';
                                 
                                 if ($nAllowOthers) {
-                                    $nUnitMeta = printflow_service_dimension_unit_meta($nUnit);
                                     $html .= printflow_render_service_custom_size_panel([
                                         'field_key' => $nestedKey,
                                         'unit_meta' => $nUnitMeta,
                                         'visible' => false,
-                                        'fixed_unit' => true,
+                                        'fixed_unit' => $nCtx['fixed_unit'],
                                         'selected_unit' => $nUnitMeta['code'],
-                                        'unit_field_name' => $nestedKey . '_unit',
+                                        'unit_field_name' => $nCtx['unit_field_name'],
+                                        'max_ft' => printflow_service_dimension_max_for_unit('ft', $nestedField),
+                                        'max_in' => printflow_service_dimension_max_for_unit('in', $nestedField),
                                         'container_class' => 'dim-others-inputs pf-nested-custom-size',
                                         'container_id' => 'nested-dim-others-' . $nestedKey,
                                         'width_input_class' => 'custom-dim-width pf-nested-custom-w',
@@ -410,8 +412,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             break;
             
         case 'dimension':
-            $unit = $config['unit'] ?? 'ft';
-            $unitMeta = printflow_service_dimension_unit_meta($unit, $config);
+            $ctx = printflow_service_field_custom_size_unit_context($field_key, $config);
+            $unitMeta = printflow_service_dimension_unit_meta_for_context($ctx, $config);
             $allowOthers = $config['allow_others'] ?? true;
             
             $parsed = printflow_service_dimension_parse_pair($saved_value);
@@ -433,17 +435,14 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                     if ($option_value === '') {
                         continue;
                     }
-                    $normalized = str_replace(['x', 'X', '*', '-', '×'], '|', $option_value);
-                    $parts = explode('|', $normalized);
+                    $pairParsed = printflow_service_dimension_parse_pair($option_value);
+                    $w = $pairParsed['width'];
+                    $h = $pairParsed['height'];
                     
-                    if (count($parts) === 2) {
-                        $w = trim($parts[0]);
-                        $h = trim($parts[1]);
-                        if ($w && $h) {
-                            $displayLabel = $w . '×' . $h;
-                            $is_active = (!$is_custom_dimension && $saved_width == $w && $saved_height == $h) ? ' active' : '';
-                            $html .= '<button type="button" class="shopee-opt-btn pricing-field' . $is_active . '" data-price="' . htmlspecialchars((string)$option_price) . '" data-width="' . htmlspecialchars($w) . '" data-height="' . htmlspecialchars($h) . '" data-dimension-key="' . htmlspecialchars($field_key) . '" data-dimension-choice="1" onclick="var r=this.closest(\'.shopee-form-row\');if(r){r.querySelectorAll(\'.shopee-opt-btn\').forEach(function(b){b.classList.remove(\'active\')});this.classList.add(\'active\');var o=r.querySelector(\'.dim-others-inputs\');if(o)o.style.display=\'none\';var cw=r.querySelector(\'.custom-dim-width\');var ch=r.querySelector(\'.custom-dim-height\');if(cw)cw.value=\'\';if(ch)ch.value=\'\';var w=r.querySelector(\'[data-dimension-role=width]\')||r.querySelector(\'input[name=width]\');var h=r.querySelector(\'[data-dimension-role=height]\')||r.querySelector(\'input[name=height]\');if(w)w.value=this.dataset.width||\'\';if(h)h.value=this.dataset.height||\'\';var lw=r.querySelector(\'input[name=width]\');var lh=r.querySelector(\'input[name=height]\');if(lw)lw.value=this.dataset.width||\'\';if(lh)lh.value=this.dataset.height||\'\';}if(window.calculateEstimatedPrice)window.calculateEstimatedPrice();return false;">' . $displayLabel . '</button>';
-                        }
+                    if ($w !== '' && $h !== '') {
+                        $displayLabel = $w . '×' . $h;
+                        $is_active = (!$is_custom_dimension && $saved_width == $w && $saved_height == $h) ? ' active' : '';
+                        $html .= '<button type="button" class="shopee-opt-btn pricing-field' . $is_active . '" data-price="' . htmlspecialchars((string)$option_price) . '" data-width="' . htmlspecialchars($w) . '" data-height="' . htmlspecialchars($h) . '" data-dimension-key="' . htmlspecialchars($field_key) . '" data-dimension-choice="1" onclick="var r=this.closest(\'.shopee-form-row\');if(r){r.querySelectorAll(\'.shopee-opt-btn\').forEach(function(b){b.classList.remove(\'active\')});this.classList.add(\'active\');var o=r.querySelector(\'.dim-others-inputs\');if(o)o.style.display=\'none\';var cw=r.querySelector(\'.custom-dim-width\');var ch=r.querySelector(\'.custom-dim-height\');if(cw)cw.value=\'\';if(ch)ch.value=\'\';var w=r.querySelector(\'[data-dimension-role=width]\')||r.querySelector(\'input[name=width]\');var h=r.querySelector(\'[data-dimension-role=height]\')||r.querySelector(\'input[name=height]\');if(w)w.value=this.dataset.width||\'\';if(h)h.value=this.dataset.height||\'\';var lw=r.querySelector(\'input[name=width]\');var lh=r.querySelector(\'input[name=height]\');if(lw)lw.value=this.dataset.width||\'\';if(lh)lh.value=this.dataset.height||\'\';}if(window.calculateEstimatedPrice)window.calculateEstimatedPrice();return false;">' . htmlspecialchars($displayLabel) . '</button>';
                     }
                 }
             }
@@ -462,9 +461,11 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                     'visible' => $is_custom_dimension,
                     'saved_width' => $is_custom_dimension ? $saved_width : '',
                     'saved_height' => $is_custom_dimension ? $saved_height : '',
-                    'fixed_unit' => true,
+                    'fixed_unit' => $ctx['fixed_unit'],
                     'selected_unit' => $unitMeta['code'],
-                    'unit_field_name' => 'unit',
+                    'unit_field_name' => $ctx['unit_field_name'],
+                    'max_ft' => printflow_service_dimension_max_for_unit('ft', $config),
+                    'max_in' => printflow_service_dimension_max_for_unit('in', $config),
                 ]);
             }
             
@@ -473,7 +474,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $html .= '<input type="hidden" id="width_hidden" name="width" value="' . htmlspecialchars($saved_width) . '">';
             $html .= '<input type="hidden" id="height_hidden" name="height" value="' . htmlspecialchars($saved_height) . '">';
             if (!$allowOthers) {
-                $html .= '<input type="hidden" name="unit" value="' . htmlspecialchars($unitMeta['code']) . '">';
+                $html .= '<input type="hidden" name="' . htmlspecialchars($ctx['unit_field_name'], ENT_QUOTES, 'UTF-8') . '" value="' . htmlspecialchars($unitMeta['code'], ENT_QUOTES, 'UTF-8') . '">';
             }
             break;
             
@@ -750,6 +751,8 @@ function pfSyncSelectCustomSizeHidden(select) {
     if (!select || !select.name) return;
     const wrap = document.getElementById('select-others-' + select.name);
     if (!wrap || !wrap.querySelector('.pf-custom-size-panel')) return;
+    const panel = wrap.querySelector('.pf-custom-size-panel');
+    pfRefreshCustomSizePanelUnit(panel);
     const wEl = wrap.querySelector('.custom-dim-width');
     const hEl = wrap.querySelector('.custom-dim-height');
     const w = pfSanitizeDimensionInputValue(wEl ? wEl.value : '');
@@ -761,7 +764,7 @@ function pfSyncSelectCustomSizeHidden(select) {
     const otherHidden = wrap.querySelector('.pf-custom-size-other-hidden');
     if (wHidden) wHidden.value = w;
     if (hHidden) hHidden.value = h;
-    const unitShort = wrap.querySelector('.pf-custom-size-panel')?.getAttribute('data-dimension-unit') || 'in';
+    const unitShort = panel ? pfGetCustomSizePanelUnitShort(panel) : 'ft';
     if (otherHidden && w && h) {
         otherHidden.value = 'Custom Size — ' + w + ' × ' + h + ' ' + unitShort;
     } else if (otherHidden && (!w || !h)) {
@@ -855,6 +858,38 @@ function pfGetCustomSizePanelMax(panel) {
 function pfGetCustomSizePanelUnitShort(panel) {
     if (!panel) return 'ft';
     return panel.getAttribute('data-dimension-unit') || 'ft';
+}
+
+function pfRefreshCustomSizePanelUnit(panel) {
+    if (!panel) return;
+    const select = panel.querySelector('.pf-custom-size-unit-select');
+    let unit = panel.getAttribute('data-dimension-unit') || 'ft';
+    if (select) {
+        unit = select.value === 'in' ? 'in' : 'ft';
+    } else {
+        const hidden = panel.querySelector('.pf-custom-size-unit-input');
+        if (hidden && hidden.value) {
+            unit = hidden.value === 'in' ? 'in' : 'ft';
+        }
+    }
+    panel.setAttribute('data-dimension-unit', unit);
+    const maxFt = parseFloat(panel.getAttribute('data-dimension-max-ft') || '100');
+    const maxIn = parseFloat(panel.getAttribute('data-dimension-max-in') || '1200');
+    const max = unit === 'in' ? maxIn : maxFt;
+    panel.setAttribute('data-dimension-max', String(isNaN(max) ? 100 : max));
+    const short = unit === 'in' ? 'in' : 'ft';
+    const wLabel = panel.querySelector('.pf-custom-size-width-label');
+    const hLabel = panel.querySelector('.pf-custom-size-height-label');
+    if (wLabel) wLabel.textContent = 'Width (' + short + ')';
+    if (hLabel) hLabel.textContent = 'Height (' + short + ')';
+    const ew = panel.getAttribute('data-example-w-' + unit) || (unit === 'in' ? '8' : '2');
+    const eh = panel.getAttribute('data-example-h-' + unit) || (unit === 'in' ? '11' : '3');
+    const ex = panel.querySelector('.pf-custom-size-example');
+    if (ex) ex.textContent = 'Example: ' + ew + ' × ' + eh + ' ' + short;
+    const wInput = panel.querySelector('.custom-dim-width');
+    const hInput = panel.querySelector('.custom-dim-height');
+    if (wInput) wInput.placeholder = 'e.g. ' + ew;
+    if (hInput) hInput.placeholder = 'e.g. ' + eh;
 }
 
 function pfValidateCustomSizePanel(panel, showError) {
@@ -1092,6 +1127,7 @@ window.selectNestedDimension = selectNestedDimension;
 window.selectNestedDimensionOthers = selectNestedDimensionOthers;
 window.syncNestedDimension = syncNestedDimension;
 window.pfSyncSelectOthersWrap = pfSyncSelectOthersWrap;
+window.pfRefreshCustomSizePanelUnit = pfRefreshCustomSizePanelUnit;
 window.validateDimensionInput = validateDimensionInput;
 window.updateDimensionUnit = updateDimensionUnit;
 window.syncDimensionToHidden = syncDimensionToHidden;
@@ -1383,6 +1419,7 @@ function initServiceFieldRenderer() {
             input.value = pfSanitizeDimensionInputValue(input.value);
             const row = input.closest('.shopee-form-row');
             const panel = input.closest('.pf-custom-size-panel');
+            pfRefreshCustomSizePanelUnit(panel);
             pfValidateCustomSizePanel(panel, true);
             syncDimensionToHidden(row);
             const selectWrap = input.closest('.select-others-wrap, .radio-others-wrap');
@@ -1394,6 +1431,27 @@ function initServiceFieldRenderer() {
             const nestedPanel = input.closest('.pf-nested-custom-size, .pf-custom-size-panel');
             if (nestedPanel && nestedPanel.id && nestedPanel.id.indexOf('nested-dim-others-') === 0) {
                 syncNestedDimension(nestedPanel.id.replace('nested-dim-others-', ''));
+            }
+        });
+    });
+
+    document.querySelectorAll('.pf-custom-size-panel').forEach(function(panel) {
+        pfRefreshCustomSizePanelUnit(panel);
+    });
+    document.querySelectorAll('.pf-custom-size-unit-select').forEach(function(sel) {
+        if (sel.dataset.pfServiceFieldBound === '1') return;
+        sel.dataset.pfServiceFieldBound = '1';
+        sel.addEventListener('change', function() {
+            const panel = sel.closest('.pf-custom-size-panel');
+            pfRefreshCustomSizePanelUnit(panel);
+            pfValidateCustomSizePanel(panel, true);
+            const row = panel ? panel.closest('.shopee-form-row') : null;
+            if (row) syncDimensionToHidden(row);
+            const wrap = panel ? panel.closest('.select-others-wrap, .radio-others-wrap') : null;
+            if (wrap && wrap.id) {
+                const fieldKey = wrap.id.replace(/^(select|radio)-others-/, '');
+                const mainSel = document.querySelector('select[name="' + fieldKey + '"]');
+                if (mainSel) pfSyncSelectCustomSizeHidden(mainSel);
             }
         });
     });

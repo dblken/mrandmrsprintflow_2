@@ -403,10 +403,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     break;
                 }
                 if ($width !== '' || $height !== '') {
+                    $dimUnit = printflow_service_dimension_unit_for_field($key, $config, $_POST);
                     $dimCheck = printflow_service_dimension_validate(
                         $width,
                         $height,
-                        (string) ($config['unit'] ?? 'ft'),
+                        $dimUnit,
                         $config
                     );
                     if (!$dimCheck['ok']) {
@@ -539,10 +540,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     $height = trim($_POST[$key . '_height'] ?? $_POST['height'] ?? '');
                     if ($width !== '' && $height !== '') {
                         $isCustom = !printflow_service_dimension_is_preset($config, $width, $height);
+                        $dimUnit = printflow_service_dimension_unit_for_field($key, $config, $_POST);
                         $customization[$spec_label($config, $key)] = printflow_service_dimension_format_storage(
                             $width,
                             $height,
-                            (string) ($config['unit'] ?? 'ft'),
+                            $dimUnit,
                             $isCustom
                         );
                     }
