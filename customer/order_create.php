@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_field_config_helper.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
+require_once __DIR__ . '/../includes/service_dimension_ui.php';
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/customer_profile_completion.php';
@@ -124,17 +125,28 @@ function printflow_render_product_custom_field(string $field_key, array $config,
         }
         if (!array_key_exists('allow_others', $config) || !empty($config['allow_others'])) {
             $active = (!$savedIsPreset && $savedBase !== '') ? ' active' : '';
-            $html .= '<button type="button" class="shopee-opt-btn pricing-dimension-other' . $active . '" data-target="' . $name . '">Others</button>';
+            $html .= '<button type="button" class="shopee-opt-btn pricing-dimension-other' . $active . '" data-target="' . $name . '">' . htmlspecialchars(printflow_service_dimension_custom_size_label(), ENT_QUOTES, 'UTF-8') . '</button>';
         }
         $html .= '</div>';
         $html .= '<input type="hidden" name="' . $name . '" id="hidden-' . $name . '" value="' . htmlspecialchars($savedBase, ENT_QUOTES, 'UTF-8') . '" ' . $required_attr . '>';
         if (!array_key_exists('allow_others', $config) || !empty($config['allow_others'])) {
             $parts = preg_split('/[xX×]/', (string)$savedBase);
             $showCustom = !$savedIsPreset && $savedBase !== '';
-            $html .= '<div id="custom-dim-' . $name . '" style="display:' . ($showCustom ? 'flex' : 'none') . ';gap:12px;max-width:320px;margin-top:12px;">';
-            $html .= '<input type="text" id="width-' . $name . '" class="field-input dim-width" placeholder="Width" value="' . htmlspecialchars(trim((string)($parts[0] ?? '')), ENT_QUOTES, 'UTF-8') . '">';
-            $html .= '<input type="text" id="height-' . $name . '" class="field-input dim-height" placeholder="Height" value="' . htmlspecialchars(trim((string)($parts[1] ?? '')), ENT_QUOTES, 'UTF-8') . '">';
-            $html .= '</div>';
+            $prodUnit = printflow_service_dimension_unit_meta((string)($config['unit'] ?? 'in'), $config);
+            $html .= printflow_render_service_custom_size_panel([
+                'field_key' => $field_key,
+                'unit_meta' => $prodUnit,
+                'visible' => $showCustom,
+                'saved_width' => $showCustom ? trim((string)($parts[0] ?? '')) : '',
+                'saved_height' => $showCustom ? trim((string)($parts[1] ?? '')) : '',
+                'fixed_unit' => true,
+                'selected_unit' => $prodUnit['code'],
+                'container_id' => 'custom-dim-' . $name,
+                'width_input_id' => 'width-' . $name,
+                'height_input_id' => 'height-' . $name,
+                'width_input_class' => 'field-input dim-width custom-dim-width pf-custom-size-width',
+                'height_input_class' => 'field-input dim-height custom-dim-height pf-custom-size-height',
+            ]);
         }
     } elseif ($type === 'file') {
         $html .= '<input type="file" name="' . $name . '" class="field-input" ' . $required_attr . ' style="max-width:420px;">';
@@ -754,6 +766,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 <style>
 .dim-label { font-size:0.7rem;color:#94a3b8;font-weight:600;margin-bottom:4px;display:block;text-transform:uppercase; }
+<?php echo printflow_service_custom_size_styles(); ?>
 .need-qty-row { display:flex;gap:16px;width:100%; }
 @media (max-width:640px) { .need-qty-row { flex-direction:column; } }
 .shopee-opt-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0.5rem 1rem; border: 2px solid #e5e7eb; border-radius: 0.5rem; background: white; cursor: pointer; transition: all 0.2s; font-size: 0.875rem; font-weight: 500; color: #374151; min-height: 2.5rem; }
@@ -946,11 +959,19 @@ document.addEventListener('DOMContentLoaded', function() {
             this.classList.add('active');
             const customWrap = document.getElementById('custom-dim-' + target);
             if (customWrap) {
-                customWrap.style.display = 'flex';
+                customWrap.style.display = 'block';
             }
             const sync = () => {
-                const width = document.getElementById('width-' + target)?.value.trim() || '';
-                const height = document.getElementById('height-' + target)?.value.trim() || '';
+                const widthEl = document.getElementById('width-' + target);
+                const heightEl = document.getElementById('height-' + target);
+                let width = widthEl ? widthEl.value.trim() : '';
+                let height = heightEl ? heightEl.value.trim() : '';
+                if (window.pfCustomSize) {
+                    width = window.pfCustomSize.sanitize(width);
+                    height = window.pfCustomSize.sanitize(height);
+                    if (widthEl) widthEl.value = width;
+                    if (heightEl) heightEl.value = height;
+                }
                 const hidden = document.getElementById('hidden-' + target);
                 if (hidden) {
                     hidden.value = width && height ? `${width}×${height}` : '';
@@ -1122,5 +1143,6 @@ async function markHelpful(reviewId, btn) {
     }
 }
 </script>
+<script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/service-custom-size.js'); ?>"></script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

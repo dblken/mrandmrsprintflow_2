@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/service_field_config_helper.php';
+require_once __DIR__ . '/service_dimension_ui.php';
 
 function pf_format_service_time_label($value) {
     $value = trim((string)$value);
@@ -333,17 +334,26 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                                     }
                                 }
                                 if ($nAllowOthers) {
-                                    $html .= '<button type="button" class="shopee-opt-btn" data-price="0" onclick="selectNestedDimensionOthers(\'' . $nestedKey . '\', event)">Others</button>';
+                                    $html .= '<button type="button" class="shopee-opt-btn pf-dim-custom-size-btn" data-price="0" onclick="selectNestedDimensionOthers(\'' . $nestedKey . '\', event)">' . htmlspecialchars(printflow_service_dimension_custom_size_label(), ENT_QUOTES, 'UTF-8') . '</button>';
                                 }
                                 $html .= '</div>';
                                 
                                 if ($nAllowOthers) {
-                                    $html .= '<div id="nested-dim-others-' . $nestedKey . '" style="display:none;margin-top:12px;">';
-                                    $html .= '<div style="display:flex;gap:12px;max-width:300px;">';
-                                    $html .= '<input type="text" id="nested-w-' . $nestedKey . '" placeholder="Width" class="input-field" style="text-align:center;" oninput="syncNestedDimension(\'' . $nestedKey . '\')"> ';
-                                    $html .= '<span style="padding-top:8px;">×</span>';
-                                    $html .= '<input type="text" id="nested-h-' . $nestedKey . '" placeholder="Height" class="input-field" style="text-align:center;" oninput="syncNestedDimension(\'' . $nestedKey . '\')"> ';
-                                    $html .= '</div></div>';
+                                    $nUnitMeta = printflow_service_dimension_unit_meta($nUnit);
+                                    $html .= printflow_render_service_custom_size_panel([
+                                        'field_key' => $nestedKey,
+                                        'unit_meta' => $nUnitMeta,
+                                        'visible' => false,
+                                        'fixed_unit' => true,
+                                        'selected_unit' => $nUnitMeta['code'],
+                                        'unit_field_name' => $nestedKey . '_unit',
+                                        'container_class' => 'dim-others-inputs pf-nested-custom-size',
+                                        'container_id' => 'nested-dim-others-' . $nestedKey,
+                                        'width_input_class' => 'custom-dim-width pf-nested-custom-w',
+                                        'height_input_class' => 'custom-dim-height pf-nested-custom-h',
+                                        'width_input_id' => 'nested-w-' . $nestedKey,
+                                        'height_input_id' => 'nested-h-' . $nestedKey,
+                                    ]);
                                 }
                                 
                                 $html .= '<input type="hidden" name="' . htmlspecialchars($nestedKey) . '" id="nested-hidden-' . $nestedKey . '" ' . $nestedRequired . '>';
@@ -379,38 +389,16 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             
         case 'dimension':
             $unit = $config['unit'] ?? 'ft';
+            $unitMeta = printflow_service_dimension_unit_meta($unit, $config);
             $allowOthers = $config['allow_others'] ?? true;
             
-            // Parse saved dimension (e.g., "2×3 ft" or "2x3")
-            $saved_width = '';
-            $saved_height = '';
+            $parsed = printflow_service_dimension_parse_pair($saved_value);
+            $saved_width = $parsed['width'];
+            $saved_height = $parsed['height'];
             $is_custom_dimension = false;
             
-            if ($saved_value) {
-                // Remove unit and normalize separators
-                $dim_value = preg_replace('/\s*(ft|in|cm|m)\s*$/i', '', $saved_value);
-                $dim_value = str_replace(['×', 'X', '*', '-'], 'x', $dim_value);
-                $parts = explode('x', $dim_value);
-                if (count($parts) === 2) {
-                    $saved_width = trim($parts[0]);
-                    $saved_height = trim($parts[1]);
-                    
-                    // Check if it's a preset or custom
-                    $is_preset = false;
-                    foreach ($config['options'] ?? [] as $option) {
-                        $option_value = is_array($option) ? ($option['value'] ?? '') : $option;
-                        $option_value = trim((string)$option_value);
-                        if ($option_value === '') {
-                            continue;
-                        }
-                        $opt_normalized = str_replace(['×', 'X', '*', '-'], 'x', $option_value);
-                        if (strtolower($opt_normalized) === strtolower($saved_width . 'x' . $saved_height)) {
-                            $is_preset = true;
-                            break;
-                        }
-                    }
-                    $is_custom_dimension = !$is_preset;
-                }
+            if ($saved_width !== '' && $saved_height !== '') {
+                $is_custom_dimension = !printflow_service_dimension_is_preset($config, $saved_width, $saved_height);
             }
             
             $html .= '<div class="shopee-opt-group mb-3">';
@@ -440,32 +428,31 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             
             if ($allowOthers) {
                 $others_active = $is_custom_dimension ? ' active' : '';
-                $html .= '<button type="button" class="shopee-opt-btn dim-others-btn' . $others_active . '" data-dimension-key="' . htmlspecialchars($field_key) . '" data-dimension-others="1" onclick="var r=this.closest(\'.shopee-form-row\');if(r){r.querySelectorAll(\'.shopee-opt-btn\').forEach(function(b){b.classList.remove(\'active\')});this.classList.add(\'active\');var o=r.querySelector(\'.dim-others-inputs\');if(o)o.style.display=\'block\';var w=r.querySelector(\'[data-dimension-role=width]\')||r.querySelector(\'input[name=width]\');var h=r.querySelector(\'[data-dimension-role=height]\')||r.querySelector(\'input[name=height]\');if(w)w.value=\'\';if(h)h.value=\'\';var lw=r.querySelector(\'input[name=width]\');var lh=r.querySelector(\'input[name=height]\');if(lw)lw.value=\'\';if(lh)lh.value=\'\';}if(window.calculateEstimatedPrice)window.calculateEstimatedPrice();return false;">Others</button>';
+                $customLabel = htmlspecialchars(printflow_service_dimension_custom_size_label(), ENT_QUOTES, 'UTF-8');
+                $html .= '<button type="button" class="shopee-opt-btn dim-others-btn pf-dim-custom-size-btn' . $others_active . '" data-dimension-key="' . htmlspecialchars($field_key) . '" data-dimension-others="1" onclick="var r=this.closest(\'.shopee-form-row\');if(r){r.querySelectorAll(\'.shopee-opt-btn\').forEach(function(b){b.classList.remove(\'active\')});this.classList.add(\'active\');var o=r.querySelector(\'.dim-others-inputs\');if(o)o.style.display=\'block\';var w=r.querySelector(\'[data-dimension-role=width]\')||r.querySelector(\'input[name=width]\');var h=r.querySelector(\'[data-dimension-role=height]\')||r.querySelector(\'input[name=height]\');if(w)w.value=\'\';if(h)h.value=\'\';var lw=r.querySelector(\'input[name=width]\');var lh=r.querySelector(\'input[name=height]\');if(lw)lw.value=\'\';if(lh)lh.value=\'\';}if(window.calculateEstimatedPrice)window.calculateEstimatedPrice();return false;">' . $customLabel . '</button>';
             }
             $html .= '</div>';
             
             if ($allowOthers) {
-                $others_display = $is_custom_dimension ? 'block' : 'none';
-                $html .= '<div class="dim-others-inputs" style="display: ' . $others_display . '; border-top: 1px dashed #eee; padding-top: 1rem; margin-top: 1rem;">';
-                $html .= '<div style="display: flex; gap: 0.75rem; align-items: flex-start; max-width: 400px;">';
-                $html .= '<div style="flex: 1;">';
-                $html .= '<label class="dim-label" style="display: block; margin-bottom: 0.5rem; font-size: 0.75rem; color: #6b7280; font-weight: 600; text-transform: uppercase;">WIDTH</label>';
-                $html .= '<input type="text" inputmode="numeric" class="input-field custom-dim-width" data-dimension-key="' . htmlspecialchars($field_key) . '" placeholder="' . htmlspecialchars($unit) . '" maxlength="2" pattern="[0-9]*" value="' . ($is_custom_dimension ? htmlspecialchars($saved_width) : '') . '" style="text-align: center;">';
-                $html .= '</div>';
-                $html .= '<div style="padding-top: 1.75rem; color: #cbd5e1; font-weight: bold; font-size: 1.25rem;">×</div>';
-                $html .= '<div style="flex: 1;">';
-                $html .= '<label class="dim-label" style="display: block; margin-bottom: 0.5rem; font-size: 0.75rem; color: #6b7280; font-weight: 600; text-transform: uppercase;">HEIGHT</label>';
-                $html .= '<input type="text" inputmode="numeric" class="input-field custom-dim-height" data-dimension-key="' . htmlspecialchars($field_key) . '" placeholder="' . htmlspecialchars($unit) . '" maxlength="2" pattern="[0-9]*" value="' . ($is_custom_dimension ? htmlspecialchars($saved_height) : '') . '" style="text-align: center;">';
-                $html .= '</div>';
-                $html .= '</div>';
-                $html .= '</div>';
+                $html .= printflow_render_service_custom_size_panel([
+                    'field_key' => $field_key,
+                    'unit_meta' => $unitMeta,
+                    'visible' => $is_custom_dimension,
+                    'saved_width' => $is_custom_dimension ? $saved_width : '',
+                    'saved_height' => $is_custom_dimension ? $saved_height : '',
+                    'fixed_unit' => true,
+                    'selected_unit' => $unitMeta['code'],
+                    'unit_field_name' => 'unit',
+                ]);
             }
             
             $html .= '<input type="hidden" id="' . htmlspecialchars($field_key) . '_width_hidden" data-dimension-role="width" data-dimension-key="' . htmlspecialchars($field_key) . '" name="' . htmlspecialchars($field_key) . '_width" value="' . htmlspecialchars($saved_width) . '" ' . $required_attr . '>';
             $html .= '<input type="hidden" id="' . htmlspecialchars($field_key) . '_height_hidden" data-dimension-role="height" data-dimension-key="' . htmlspecialchars($field_key) . '" name="' . htmlspecialchars($field_key) . '_height" value="' . htmlspecialchars($saved_height) . '" ' . $required_attr . '>';
             $html .= '<input type="hidden" id="width_hidden" name="width" value="' . htmlspecialchars($saved_width) . '">';
             $html .= '<input type="hidden" id="height_hidden" name="height" value="' . htmlspecialchars($saved_height) . '">';
-            $html .= '<input type="hidden" name="unit" value="' . htmlspecialchars($unit) . '">';
+            if (!$allowOthers) {
+                $html .= '<input type="hidden" name="unit" value="' . htmlspecialchars($unitMeta['code']) . '">';
+            }
             break;
             
         case 'file':
@@ -604,8 +591,7 @@ function render_service_fields($service_id, $branches = [], $existing_data = [])
  * Get JavaScript for dynamic field behavior
  */
 function get_service_field_scripts() {
-    return <<<'JSEND'
-<style>
+    $css = <<<'CSS'
 .pf-file-upload-group {
     border: 1px solid #e5e7eb;
     border-radius: 10px;
@@ -667,8 +653,9 @@ function get_service_field_scripts() {
         padding: 10px 8px;
     }
 }
-</style>
-<script>
+CSS;
+    $css .= printflow_service_custom_size_styles();
+    $js = <<<'JS'
 var dimensionMode = window.__pfServiceDimensionMode || 'preset';
 
 function updateOptVisual(input) {
@@ -774,19 +761,89 @@ function selectNestedDimensionOthers(key, e) {
 }
 
 function syncNestedDimension(key) {
+    const panel = document.getElementById('nested-dim-others-' + key);
     const w = document.getElementById('nested-w-' + key)?.value || '';
     const h = document.getElementById('nested-h-' + key)?.value || '';
     const hidden = document.getElementById('nested-hidden-' + key);
     if (hidden && w && h) {
         hidden.value = w + 'x' + h;
+    } else if (hidden) {
+        hidden.value = '';
     }
+    pfClearCustomSizePanelError(panel);
     if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
 }
 
+function pfSanitizeDimensionInputValue(raw) {
+    let v = String(raw || '').replace(/[^\d.]/g, '');
+    const parts = v.split('.');
+    if (parts.length > 2) {
+        v = parts.shift() + '.' + parts.join('');
+    }
+    if (v.startsWith('.')) v = '0' + v;
+    return v;
+}
+
+function pfGetCustomSizePanelMax(panel) {
+    if (!panel) return 100;
+    const max = parseFloat(panel.getAttribute('data-dimension-max') || '100');
+    return isNaN(max) ? 100 : max;
+}
+
+function pfGetCustomSizePanelUnitShort(panel) {
+    if (!panel) return 'ft';
+    return panel.getAttribute('data-dimension-unit') || 'ft';
+}
+
+function pfValidateCustomSizePanel(panel, showError) {
+    if (!panel || panel.style.display === 'none') {
+        return { ok: true };
+    }
+    const wEl = panel.querySelector('.custom-dim-width, .pf-nested-custom-w');
+    const hEl = panel.querySelector('.custom-dim-height, .pf-nested-custom-h');
+    const w = pfSanitizeDimensionInputValue(wEl ? wEl.value : '');
+    const h = pfSanitizeDimensionInputValue(hEl ? hEl.value : '');
+    const errEl = panel.querySelector('.pf-custom-size-error');
+    const max = pfGetCustomSizePanelMax(panel);
+    const unitShort = pfGetCustomSizePanelUnitShort(panel);
+    let message = '';
+    if (!w || !h) {
+        message = 'Please enter width and height for your custom size.';
+    } else if (parseFloat(w) <= 0 || parseFloat(h) <= 0) {
+        message = 'Width and height must be positive numbers.';
+    } else if (parseFloat(w) > max || parseFloat(h) > max) {
+        message = 'Maximum allowed size is ' + max + ' ' + unitShort + '.';
+    }
+    if (message && showError && errEl) {
+        errEl.textContent = message;
+        errEl.hidden = false;
+    } else if (errEl) {
+        errEl.textContent = '';
+        errEl.hidden = true;
+    }
+    return message ? { ok: false, message: message } : { ok: true };
+}
+
+function pfClearCustomSizePanelError(panel) {
+    if (!panel) return;
+    const errEl = panel.querySelector('.pf-custom-size-error');
+    if (errEl) {
+        errEl.textContent = '';
+        errEl.hidden = true;
+    }
+}
+
 function validateDimensionInput(input) {
-    input.value = input.value.replace(/[^0-9]/g, '').substring(0, 2);
+    input.value = pfSanitizeDimensionInputValue(input.value);
     const row = input.closest('.shopee-form-row');
+    const panel = input.closest('.pf-custom-size-panel');
+    pfValidateCustomSizePanel(panel, true);
     syncDimensionToHidden(row);
+}
+
+function pfRowUsesCustomSize(row) {
+    if (!row) return false;
+    return !!row.querySelector('.dim-others-btn.active, .pf-dim-custom-size-btn.active');
 }
 
 function updateDimensionUnit(unit, row) {
@@ -808,7 +865,13 @@ function syncDimensionToHidden(row) {
     const legacyWidth = scope.querySelector('input[name="width"]');
     const legacyHeight = scope.querySelector('input[name="height"]');
     
-    if (dimensionMode === 'preset') {
+    if (pfRowUsesCustomSize(scope)) {
+        const panel = scope.querySelector('.dim-others-inputs.pf-custom-size-panel, .pf-custom-size-panel.dim-others-inputs, .pf-custom-size-panel');
+        const cw = panel ? panel.querySelector('.custom-dim-width') : scope.querySelector('.custom-dim-width');
+        const ch = panel ? panel.querySelector('.custom-dim-height') : scope.querySelector('.custom-dim-height');
+        wh.value = pfSanitizeDimensionInputValue(cw ? cw.value : '');
+        hh.value = pfSanitizeDimensionInputValue(ch ? ch.value : '');
+    } else {
         const btn = scope.querySelector('.shopee-opt-btn.active[data-width]');
         if (btn && btn.dataset.width) {
             wh.value = btn.dataset.width;
@@ -817,9 +880,6 @@ function syncDimensionToHidden(row) {
             wh.value = '';
             hh.value = '';
         }
-    } else {
-        wh.value = scope.querySelector('.custom-dim-width')?.value || '';
-        hh.value = scope.querySelector('.custom-dim-height')?.value || '';
     }
     if (legacyWidth && legacyWidth !== wh) legacyWidth.value = wh.value;
     if (legacyHeight && legacyHeight !== hh) legacyHeight.value = hh.value;
@@ -1258,8 +1318,15 @@ function initServiceFieldRenderer() {
         if (input.dataset.pfServiceFieldBound === '1') return;
         input.dataset.pfServiceFieldBound = '1';
         input.addEventListener('input', function() {
+            input.value = pfSanitizeDimensionInputValue(input.value);
             const row = input.closest('.shopee-form-row');
+            const panel = input.closest('.pf-custom-size-panel');
+            pfValidateCustomSizePanel(panel, true);
             syncDimensionToHidden(row);
+            const nestedPanel = input.closest('.pf-nested-custom-size, .pf-custom-size-panel');
+            if (nestedPanel && nestedPanel.id && nestedPanel.id.indexOf('nested-dim-others-') === 0) {
+                syncNestedDimension(nestedPanel.id.replace('nested-dim-others-', ''));
+            }
         });
     });
     
@@ -1274,6 +1341,6 @@ if (document.readyState === 'loading') {
     initServiceFieldRenderer();
 }
 document.addEventListener('turbo:load', initServiceFieldRenderer);
-</script>
-JSEND;
+JS;
+    return '<style>' . $css . '</style><script>' . $js . '</script>';
 }

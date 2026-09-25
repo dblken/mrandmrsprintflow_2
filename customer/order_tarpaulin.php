@@ -6,6 +6,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
+require_once __DIR__ . '/../includes/service_dimension_ui.php';
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
@@ -197,25 +198,27 @@ if ($sold_count >= 1000) {
                             <button type="button" class="shopee-opt-btn" data-width="4" data-height="6" onclick="selectDimension(4, 6, event)">4×6</button>
                             <button type="button" class="shopee-opt-btn" data-width="5" data-height="8" onclick="selectDimension(5, 8, event)">5×8</button>
                             <button type="button" class="shopee-opt-btn" data-width="6" data-height="8" onclick="selectDimension(6, 8, event)">6×8</button>
-                            <button type="button" class="shopee-opt-btn" id="dim-others-btn" onclick="selectDimensionOthers(event)">Others</button>
+                            <button type="button" class="shopee-opt-btn" id="dim-others-btn" onclick="selectDimensionOthers(event)"><?php echo htmlspecialchars(printflow_service_dimension_custom_size_label()); ?></button>
                         </div>
-                        
-                        <div id="dim-others-inputs" class="shopee-form-row" style="display: none; border-top: 1px dashed #eee; padding-top: 1rem; margin-top: 1rem;">
-                            <div class="flex-1">
-                                <label class="dim-label">Width</label>
-                                <input type="text" inputmode="numeric" id="custom_width" class="input-field" placeholder="ft">
-                            </div>
-                            <div class="dim-sep">×</div>
-                            <div class="flex-1">
-                                <label class="dim-label">Height</label>
-                                <input type="text" inputmode="numeric" id="custom_height" class="input-field" placeholder="ft">
-                            </div>
-                        </div>
-
+                        <?php
+                        $tarpUnitMeta = printflow_service_dimension_unit_meta('ft');
+                        echo printflow_render_service_custom_size_panel([
+                            'field_key' => 'tarp_dimensions',
+                            'unit_meta' => $tarpUnitMeta,
+                            'visible' => false,
+                            'fixed_unit' => true,
+                            'selected_unit' => 'ft',
+                            'unit_field_name' => 'unit',
+                            'container_id' => 'dim-others-inputs',
+                            'width_input_id' => 'custom_width',
+                            'height_input_id' => 'custom_height',
+                            'width_input_class' => 'custom-dim-width pf-custom-size-width',
+                            'height_input_class' => 'custom-dim-height pf-custom-size-height',
+                        ]);
+                        ?>
                     </div>
                     <input type="hidden" name="width" id="width_hidden">
                     <input type="hidden" name="height" id="height_hidden">
-                    <input type="hidden" name="unit" value="ft">
                 </div>
 
                 <div class="shopee-form-row">
@@ -314,12 +317,14 @@ if ($sold_count >= 1000) {
 .dim-sep { height: 40px; display: flex; align-items: center; color: #cbd5e1; font-weight: bold; }
 .dim-label { font-size: 0.7rem; color: #94a3b8; font-weight: 600; margin-bottom: 4px; display: block; text-transform: uppercase; }
 .need-qty-row { display: flex; gap: 16px; width: 100%; }
+<?php echo printflow_service_custom_size_styles(); ?>
 
 @media (max-width: 640px) {
     .need-qty-row { flex-direction: column; }
 }
 </style>
 
+<script src="<?php echo (defined('BASE_URL') ? BASE_URL : '/printflow'); ?>/public/assets/js/service-custom-size.js"></script>
 <script>
 let dimensionMode = 'preset';
 
@@ -353,9 +358,18 @@ function selectDimensionOthers(e) {
     dimensionMode = 'others';
     document.querySelectorAll('.shopee-opt-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('dim-others-btn').classList.add('active');
-    document.getElementById('dim-others-inputs').style.display = 'flex';
+    document.getElementById('dim-others-inputs').style.display = 'block';
     syncDimensionToHidden();
 }
+
+document.getElementById('custom_width')?.addEventListener('input', function() {
+    if (window.pfCustomSize) this.value = window.pfCustomSize.sanitize(this.value);
+    syncDimensionToHidden();
+});
+document.getElementById('custom_height')?.addEventListener('input', function() {
+    if (window.pfCustomSize) this.value = window.pfCustomSize.sanitize(this.value);
+    syncDimensionToHidden();
+});
 
 function increaseQty() { const i = document.getElementById('quantity-input'); i.value = Math.min(999, (parseInt(i.value) || 1) + 1); }
 function decreaseQty() { const i = document.getElementById('quantity-input'); if (parseInt(i.value) > 1) i.value = parseInt(i.value) - 1; }

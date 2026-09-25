@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
+require_once __DIR__ . '/../includes/service_dimension_ui.php';
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
@@ -180,7 +181,7 @@ if ($display_img !== '' && strpos($display_img, 'http') === false && $display_im
                                 <button type="button" class="shopee-opt-btn shopee-dim-btn" data-dim="2x3" onclick="selectDimPreset('2x3', event)">2×3 ft</button>
                                 <button type="button" class="shopee-opt-btn shopee-dim-btn" data-dim="3x4" onclick="selectDimPreset('3x4', event)">3×4 ft</button>
                                 <button type="button" class="shopee-opt-btn shopee-dim-btn" data-dim="4x6" onclick="selectDimPreset('4x6', event)">4×6 ft</button>
-                                <button type="button" class="shopee-opt-btn shopee-dim-btn" id="dim-others-btn" onclick="selectDimOthers(event)">Others</button>
+                                <button type="button" class="shopee-opt-btn shopee-dim-btn" id="dim-others-btn" onclick="selectDimOthers(event)"><?php echo htmlspecialchars(printflow_service_dimension_custom_size_label()); ?></button>
                             </div>
                             <input type="hidden" name="dimensions" id="dimensions_hidden">
                             <div id="dim-others-inputs" class="shopee-dim-custom-row" style="display: none; margin-top: 1rem;">

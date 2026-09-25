@@ -6,6 +6,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
+require_once __DIR__ . '/../includes/service_dimension_ui.php';
 require_role('Customer');
 require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
 $customer_id = get_user_id();
@@ -258,7 +259,7 @@ if (!empty($_POST['dimensions']) && preg_match('/^(\d+(?:\.\d+)?)\s*[x×]\s*(\d+
                             <?php endforeach; ?>
                             <label class="shopee-opt-btn sintra-dim-btn" data-others="1">
                                 <input type="radio" name="dimension_preset" value="Others" style="display:none;" onchange="sintraSelectDimensionOthers()">
-                                <span>Others</span>
+                                <span><?php echo htmlspecialchars(printflow_service_dimension_custom_size_label()); ?></span>
                             </label>
                         </div>
                         <input type="hidden" name="dimensions" id="sintra_dimensions" value="<?php echo htmlspecialchars($_POST['dimensions'] ?? ''); ?>">

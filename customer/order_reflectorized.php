@@ -6,6 +6,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
+require_once __DIR__ . '/../includes/service_dimension_ui.php';
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
@@ -214,7 +215,7 @@ $dimension_presets = [
                                     <?php endforeach; ?>
                                     <label class="shopee-opt-btn refl-dim-btn" data-others="1">
                                         <input type="radio" name="dimension_preset" value="Others" style="display:none;" onchange="reflSelectDimensionOthers()">
-                                        <span>Others</span>
+                                        <span><?php echo htmlspecialchars(printflow_service_dimension_custom_size_label()); ?></span>
                                     </label>
                                 </div>
                                 <input type="hidden" id="reflDimensionsHidden">

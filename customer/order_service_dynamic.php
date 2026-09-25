@@ -390,17 +390,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             } elseif ($config['type'] === 'dimension') {
                 $width = trim($_POST[$key . '_width'] ?? $_POST['width'] ?? '');
                 $height = trim($_POST[$key . '_height'] ?? $_POST['height'] ?? '');
-                if ($config['required'] && (empty($width) || empty($height))) {
+                if ($config['required'] && ($width === '' || $height === '')) {
                     $error = 'Please select dimensions.';
                     break;
                 }
-                if (!empty($width) && (!is_numeric($width) || $width <= 0)) {
-                    $error = 'Invalid width dimension.';
-                    break;
-                }
-                if (!empty($height) && (!is_numeric($height) || $height <= 0)) {
-                    $error = 'Invalid height dimension.';
-                    break;
+                if ($width !== '' || $height !== '') {
+                    $dimCheck = printflow_service_dimension_validate(
+                        $width,
+                        $height,
+                        (string) ($config['unit'] ?? 'ft'),
+                        $config
+                    );
+                    if (!$dimCheck['ok']) {
+                        $error = $dimCheck['message'] ?? 'Invalid dimensions.';
+                        break;
+                    }
                 }
             } elseif (in_array($config['type'], ['text', 'number'])) {
                 if ($config['required'] && empty(trim($_POST[$key] ?? ''))) {
@@ -526,7 +530,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     $width = trim($_POST[$key . '_width'] ?? $_POST['width'] ?? '');
                     $height = trim($_POST[$key . '_height'] ?? $_POST['height'] ?? '');
                     if ($width !== '' && $height !== '') {
-                        $customization[$spec_label($config, $key)] = $width . '×' . $height . ' ' . ($config['unit'] ?? 'ft');
+                        $isCustom = !printflow_service_dimension_is_preset($config, $width, $height);
+                        $customization[$spec_label($config, $key)] = printflow_service_dimension_format_storage(
+                            $width,
+                            $height,
+                            (string) ($config['unit'] ?? 'ft'),
+                            $isCustom
+                        );
                     }
                 } else {
                     if (!isset($_POST[$key])) {
@@ -1884,6 +1894,11 @@ document.addEventListener('DOMContentLoaded', function() {
             if (widthHidden && heightHidden) {
                 hasControls = true;
                 if (widthHidden.value && heightHidden.value) rowHasValue = true;
+                const customPanel = row.querySelector('.pf-custom-size-panel.dim-others-inputs, .dim-others-inputs.pf-custom-size-panel');
+                if (customPanel && customPanel.style.display !== 'none' && typeof pfValidateCustomSizePanel === 'function') {
+                    const dimCheck = pfValidateCustomSizePanel(customPanel, false);
+                    if (!dimCheck.ok) rowHasValue = false;
+                }
             }
             if (nestedDimension) {
                 hasControls = true;
@@ -1957,6 +1972,16 @@ document.addEventListener('DOMContentLoaded', function() {
             const rows = form.querySelectorAll('.shopee-form-row');
             rows.forEach(row => {
                 if (row.offsetParent === null) return;
+
+                row.querySelectorAll('.pf-custom-size-panel.dim-others-inputs, .dim-others-inputs.pf-custom-size-panel').forEach(panel => {
+                    if (panel.style.display === 'none') return;
+                    if (typeof pfValidateCustomSizePanel !== 'function') return;
+                    const dimCheck = pfValidateCustomSizePanel(panel, true);
+                    if (!dimCheck.ok) {
+                        const field = panel.querySelector('.custom-dim-width') || panel;
+                        setError(field, dimCheck.message || 'Invalid custom size.');
+                    }
+                });
 
                 const labelEl = row.querySelector('.shopee-form-label');
                 if (!labelEl) return;
