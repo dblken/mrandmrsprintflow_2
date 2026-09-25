@@ -382,10 +382,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     break;
                 }
                 
-                // If "Others" is selected, check specify input
-                if (($_POST[$key] ?? '') === 'Others' && !empty($config['allow_others']) && empty(trim($_POST[$key . '_other'] ?? ''))) {
-                    $error = 'Please specify ' . strtolower($config['label']) . '.';
-                    break;
+                // If "Others" is selected, check specify input or custom size panel
+                if (($_POST[$key] ?? '') === 'Others' && !empty($config['allow_others'])) {
+                    if (printflow_service_field_uses_custom_size_panel($key, $config)) {
+                        $dimResolved = printflow_resolve_custom_size_from_post($key, $config);
+                        if (!$dimResolved['ok']) {
+                            $error = $dimResolved['message'] ?? 'Invalid custom size.';
+                            break;
+                        }
+                    } elseif (empty(trim($_POST[$key . '_other'] ?? ''))) {
+                        $error = 'Please specify ' . strtolower($config['label']) . '.';
+                        break;
+                    }
                 }
             } elseif ($config['type'] === 'dimension') {
                 $width = trim($_POST[$key . '_width'] ?? $_POST['width'] ?? '');
@@ -559,9 +567,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                         }
                         $val = implode(', ', $parts);
                     }
-                    if ($val === 'Others' && !empty($config['allow_others']) && !empty($_POST[$key . '_other'])) {
-                        $val = trim((string)$_POST[$key . '_other']);
-                        $customization[$spec_label($config, $key) . ' (Other)'] = $val;
+                    if ($val === 'Others' && !empty($config['allow_others'])) {
+                        if (printflow_service_field_uses_custom_size_panel($key, $config)) {
+                            $dimResolved = printflow_resolve_custom_size_from_post($key, $config);
+                            if (!empty($dimResolved['ok'])) {
+                                $val = (string) ($dimResolved['value'] ?? $val);
+                            }
+                        } elseif (!empty($_POST[$key . '_other'])) {
+                            $val = trim((string)$_POST[$key . '_other']);
+                            $customization[$spec_label($config, $key) . ' (Other)'] = $val;
+                        }
                     }
                     $customization[$spec_label($config, $key)] = $val;
                     if (($config['type'] ?? '') === 'textarea' && $key === 'notes') {
@@ -1857,10 +1872,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 hasControls = true;
                 if (select.value && select.value !== '') {
                     const otherWrap = select.name ? document.getElementById('select-others-' + select.name) : null;
-                    const otherInput = otherWrap ? otherWrap.querySelector('input') : null;
                     const otherValue = select.getAttribute('data-other-option') || 'Others';
-                    if (select.value === otherValue && otherInput) {
-                        rowHasValue = otherInput.value.trim() !== '';
+                    if (select.value === otherValue && otherWrap) {
+                        if (otherWrap.querySelector('.pf-custom-size-panel')) {
+                            if (typeof pfSyncSelectCustomSizeHidden === 'function') {
+                                pfSyncSelectCustomSizeHidden(select);
+                            }
+                            const wH = otherWrap.querySelector('[data-dimension-role="width"]');
+                            const hH = otherWrap.querySelector('[data-dimension-role="height"]');
+                            rowHasValue = !!(wH && hH && wH.value && hH.value);
+                            if (typeof pfValidateCustomSizePanel === 'function') {
+                                const dimCheck = pfValidateCustomSizePanel(otherWrap.querySelector('.pf-custom-size-panel'), false);
+                                if (!dimCheck.ok) rowHasValue = false;
+                            }
+                        } else {
+                            const otherInput = otherWrap.querySelector('input');
+                            rowHasValue = otherInput ? otherInput.value.trim() !== '' : true;
+                        }
                     } else {
                         rowHasValue = true;
                     }
@@ -1873,8 +1901,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 const checkedRadio = row.querySelector('input[type="radio"]:checked');
                 if (checkedRadio) {
                     if (checkedRadio.value === 'Others') {
-                        const otherInput = row.querySelector('input[name="' + checkedRadio.name + '_other"]');
-                        rowHasValue = otherInput ? otherInput.value.trim() !== '' : true;
+                        const otherWrap = row.querySelector('#radio-others-' + checkedRadio.name);
+                        if (otherWrap && otherWrap.querySelector('.pf-custom-size-panel')) {
+                            const wH = otherWrap.querySelector('[data-dimension-role="width"]');
+                            const hH = otherWrap.querySelector('[data-dimension-role="height"]');
+                            rowHasValue = !!(wH && hH && wH.value && hH.value);
+                        } else {
+                            const otherInput = row.querySelector('input[name="' + checkedRadio.name + '_other"]');
+                            rowHasValue = otherInput ? otherInput.value.trim() !== '' : true;
+                        }
                     } else {
                         rowHasValue = true;
                     }
@@ -1955,6 +1990,11 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         form.addEventListener('submit', function(e) {
+            document.querySelectorAll('select.pf-select-custom-size').forEach(function(sel) {
+                if (typeof pfSyncSelectCustomSizeHidden === 'function') {
+                    pfSyncSelectCustomSizeHidden(sel);
+                }
+            });
             // Clear all previous field errors
             document.querySelectorAll('.field-error').forEach(el => el.remove());
             form.querySelectorAll('.field-invalid').forEach(el => el.classList.remove('field-invalid'));

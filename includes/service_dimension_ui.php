@@ -150,6 +150,148 @@ function printflow_service_dimension_format_storage(string $width, string $heigh
 }
 
 /**
+ * Select/radio fields labeled as dimensions/sizes with "Others" use the guided custom-size panel.
+ */
+function printflow_service_field_uses_custom_size_panel(string $field_key, array $config): bool
+{
+    $type = $config['type'] ?? '';
+    if (!in_array($type, ['select', 'radio'], true) || $field_key === 'branch') {
+        return false;
+    }
+    $hasOthers = !empty($config['allow_others']);
+    if (!$hasOthers) {
+        foreach ($config['options'] ?? [] as $opt) {
+            $v = is_array($opt) ? ($opt['value'] ?? '') : $opt;
+            if (strcasecmp(trim((string) $v), 'Others') === 0) {
+                $hasOthers = true;
+                break;
+            }
+        }
+    }
+    if (!$hasOthers) {
+        return false;
+    }
+    $key = strtolower($field_key);
+    $label = strtolower(trim((string) ($config['label'] ?? '')));
+    $blob = $key . ' ' . $label;
+    if (preg_match('/\b(finish|lamination|laminate|material|surface|color|colour)\b/', $blob)
+        && !preg_match('/\b(dimension|size)\b/', $blob)) {
+        return false;
+    }
+    if (preg_match('/\b(dimension|dimensions|size|sizes)\b/', $blob)) {
+        return true;
+    }
+    if (!empty($config['unit']) && ($type === 'select' || $type === 'radio')) {
+        return preg_match('/\b(dimension|size)\b/', $blob) === 1;
+    }
+    return false;
+}
+
+function printflow_service_field_resolved_unit(string $field_key, array $config): string
+{
+    $label = strtolower(trim((string) ($config['label'] ?? '')));
+    if (str_contains($label, '(ft)') || str_contains($label, 'feet') || str_contains($label, 'foot')) {
+        return 'ft';
+    }
+    if (str_contains($label, '(in)') || str_contains($label, 'inch')) {
+        return 'in';
+    }
+    foreach ($config['options'] ?? [] as $opt) {
+        $v = strtolower(trim(is_array($opt) ? (string) ($opt['value'] ?? '') : (string) $opt));
+        if ($v === '' || strcasecmp($v, 'others') === 0) {
+            continue;
+        }
+        if (preg_match('/\b(a4|a3|a5|letter|legal|pcs|mm)\b/', $v)) {
+            return 'in';
+        }
+    }
+    $fromConfig = printflow_service_dimension_normalize_unit($config['unit'] ?? 'ft');
+    if (printflow_service_field_uses_custom_size_panel($field_key, $config) && $fromConfig === 'ft') {
+        if (!str_contains($label, 'tarp') && !str_contains($label, 'large-format') && !str_contains($label, 'large format')) {
+            return 'in';
+        }
+    }
+    return $fromConfig;
+}
+
+function printflow_service_custom_size_option_label(string $optionValue, string $field_key, array $config): string
+{
+    if (strcasecmp(trim($optionValue), 'Others') === 0 && printflow_service_field_uses_custom_size_panel($field_key, $config)) {
+        return printflow_service_dimension_custom_size_label();
+    }
+    return $optionValue;
+}
+
+/**
+ * @return array{width:string,height:string}
+ */
+function printflow_service_parse_custom_size_saved_text(string $text): array
+{
+    $text = trim($text);
+    if ($text === '') {
+        return ['width' => '', 'height' => ''];
+    }
+    if (preg_match('/^Custom Size\s*[—–-]\s*(.+)$/iu', $text, $m)) {
+        $text = trim($m[1]);
+    }
+    return printflow_service_dimension_parse_pair($text);
+}
+
+function printflow_render_field_custom_size_others_wrap(
+    string $field_key,
+    array $config,
+    bool $show,
+    string $savedOtherText,
+    string $wrapClass,
+    string $wrapId
+): string {
+    $unit = printflow_service_field_resolved_unit($field_key, $config);
+    $unitMeta = printflow_service_dimension_unit_meta($unit, $config);
+    $parsed = printflow_service_parse_custom_size_saved_text($savedOtherText);
+    $html = '<div class="' . htmlspecialchars($wrapClass, ENT_QUOTES, 'UTF-8') . '" id="' . htmlspecialchars($wrapId, ENT_QUOTES, 'UTF-8') . '" style="margin-top:12px;display:' . ($show ? 'block' : 'none') . ';">';
+    $html .= printflow_render_service_custom_size_panel([
+        'field_key' => $field_key,
+        'unit_meta' => $unitMeta,
+        'visible' => true,
+        'saved_width' => $parsed['width'],
+        'saved_height' => $parsed['height'],
+        'fixed_unit' => true,
+        'selected_unit' => $unitMeta['code'],
+        'container_class' => 'dim-others-inputs pf-custom-size-in-select',
+        'width_input_class' => 'custom-dim-width pf-custom-size-width',
+        'height_input_class' => 'custom-dim-height pf-custom-size-height',
+    ]);
+    $html .= '<input type="hidden" name="' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '_other" class="pf-custom-size-other-hidden" value="' . htmlspecialchars($savedOtherText, ENT_QUOTES, 'UTF-8') . '">';
+    $html .= '<input type="hidden" name="' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '_width" data-dimension-role="width" data-dimension-key="' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '" value="' . htmlspecialchars($parsed['width'], ENT_QUOTES, 'UTF-8') . '">';
+    $html .= '<input type="hidden" name="' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '_height" data-dimension-role="height" data-dimension-key="' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '" value="' . htmlspecialchars($parsed['height'], ENT_QUOTES, 'UTF-8') . '">';
+    $html .= '</div>';
+    return $html;
+}
+
+function printflow_resolve_custom_size_from_post(string $field_key, array $config): array
+{
+    $w = trim((string) ($_POST[$field_key . '_width'] ?? ''));
+    $h = trim((string) ($_POST[$field_key . '_height'] ?? ''));
+    if ($w === '' && $h === '') {
+        $legacy = trim((string) ($_POST[$field_key . '_other'] ?? ''));
+        $parsed = printflow_service_parse_custom_size_saved_text($legacy);
+        $w = $parsed['width'];
+        $h = $parsed['height'];
+    }
+    $unit = printflow_service_field_resolved_unit($field_key, $config);
+    $check = printflow_service_dimension_validate($w, $h, $unit, $config);
+    if (!$check['ok']) {
+        return $check;
+    }
+    return [
+        'ok' => true,
+        'value' => printflow_service_dimension_format_storage($check['width'] ?? $w, $check['height'] ?? $h, $unit, true),
+        'width' => $check['width'] ?? $w,
+        'height' => $check['height'] ?? $h,
+    ];
+}
+
+/**
  * Guided custom-size panel HTML (hidden until Custom Size is selected).
  *
  * @param array<string,mixed> $options

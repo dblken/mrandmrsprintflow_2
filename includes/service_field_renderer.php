@@ -174,7 +174,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                     }
                 }
 
-                $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field pf-select-with-others" data-field-key="' . htmlspecialchars($field_key) . '" data-other-option="Others" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
+                $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field pf-select-with-others' . (printflow_service_field_uses_custom_size_panel($field_key, $config) ? ' pf-select-custom-size' : '') . '" data-field-key="' . htmlspecialchars($field_key) . '" data-other-option="Others" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
                 $html .= '<option value="">Select ' . $label . '</option>';
                 foreach ($selectOptions as $option) {
                     $optionValue = is_array($option) ? ($option['value'] ?? '') : $option;
@@ -185,7 +185,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                     if (isset($nestedValuesSet[strtolower(trim($optionValue))])) continue;
                     
                     $value = htmlspecialchars($optionValue);
-                    $displayValue = htmlspecialchars(pf_service_option_label($optionValue));
+                    $displayValue = htmlspecialchars(pf_service_option_label(printflow_service_custom_size_option_label((string)$optionValue, $field_key, $config)));
                     $selected = ($selectSaved === (string)$optionValue) ? ' selected' : '';
                     $html .= '<option value="' . $value . '" data-price="' . htmlspecialchars((string)$optionPrice) . '"' . $selected . '>' . $displayValue . '</option>';
                 }
@@ -193,10 +193,21 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
 
                 if ($othersAvailable) {
                     $showOthersInput = ($selectSaved === 'Others');
-                    $placeholder = 'Enter custom ' . strtolower(trim((string)($config['label'] ?? 'value')));
-                    $html .= '<div class="select-others-wrap" id="select-others-' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '" style="margin-top:12px;display:' . ($showOthersInput ? 'block' : 'none') . '">';
-                    $html .= '<input type="text" name="' . htmlspecialchars($field_key) . '_other" class="input-field select-others-input" placeholder="' . htmlspecialchars($placeholder, ENT_QUOTES, 'UTF-8') . '" value="' . htmlspecialchars($savedOtherText, ENT_QUOTES, 'UTF-8') . '" style="max-width:400px;" autocomplete="off">';
-                    $html .= '</div>';
+                    if (printflow_service_field_uses_custom_size_panel($field_key, $config)) {
+                        $html .= printflow_render_field_custom_size_others_wrap(
+                            $field_key,
+                            $config,
+                            $showOthersInput,
+                            $savedOtherText !== '' ? $savedOtherText : (string) $saved_value,
+                            'select-others-wrap',
+                            'select-others-' . $field_key
+                        );
+                    } else {
+                        $placeholder = 'Enter custom ' . strtolower(trim((string)($config['label'] ?? 'value')));
+                        $html .= '<div class="select-others-wrap" id="select-others-' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '" style="margin-top:12px;display:' . ($showOthersInput ? 'block' : 'none') . '">';
+                        $html .= '<input type="text" name="' . htmlspecialchars($field_key) . '_other" class="input-field select-others-input" placeholder="' . htmlspecialchars($placeholder, ENT_QUOTES, 'UTF-8') . '" value="' . htmlspecialchars($savedOtherText, ENT_QUOTES, 'UTF-8') . '" style="max-width:400px;" autocomplete="off">';
+                        $html .= '</div>';
+                    }
                 }
             }
             break;
@@ -240,7 +251,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                 }
 
                 $value = htmlspecialchars((string)$optionValue);
-                $displayValue = htmlspecialchars(pf_service_option_label((string)$optionValue));
+                $displayValue = htmlspecialchars(pf_service_option_label(printflow_service_custom_size_option_label((string)$optionValue, $field_key, $config)));
                 $is_checked = ($radioSaved === (string)$optionValue) ? ' checked' : '';
                 $optionPrice = is_array($option) ? ($option['price'] ?? 0) : 0;
                 $html .= '<label class="shopee-opt-btn' . ($is_checked ? ' active' : '') . '">';
@@ -252,9 +263,20 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
 
             if ($othersAvailable) {
                 $showOthersInput = ($radioSaved === 'Others');
-                $html .= '<div class="radio-others-wrap" id="radio-others-' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '" style="margin-top:12px;display:' . ($showOthersInput ? 'block' : 'none') . '">';
-                $html .= '<input type="text" name="' . htmlspecialchars($field_key) . '_other" class="input-field radio-others-input" placeholder="Please specify..." value="' . htmlspecialchars($savedOtherText, ENT_QUOTES, 'UTF-8') . '" style="max-width:400px;" autocomplete="off">';
-                $html .= '</div>';
+                if (printflow_service_field_uses_custom_size_panel($field_key, $config)) {
+                    $html .= printflow_render_field_custom_size_others_wrap(
+                        $field_key,
+                        $config,
+                        $showOthersInput,
+                        $savedOtherText !== '' ? $savedOtherText : (string) $saved_value,
+                        'radio-others-wrap',
+                        'radio-others-' . $field_key
+                    );
+                } else {
+                    $html .= '<div class="radio-others-wrap" id="radio-others-' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '" style="margin-top:12px;display:' . ($showOthersInput ? 'block' : 'none') . '">';
+                    $html .= '<input type="text" name="' . htmlspecialchars($field_key) . '_other" class="input-field radio-others-input" placeholder="Please specify..." value="' . htmlspecialchars($savedOtherText, ENT_QUOTES, 'UTF-8') . '" style="max-width:400px;" autocomplete="off">';
+                    $html .= '</div>';
+                }
             }
 
             // Render nested fields containers (initially hidden)
@@ -707,11 +729,43 @@ function pfSyncRadioOthersWrap(radio) {
     });
     const show = val === 'Others';
     wrap.style.display = show ? 'block' : 'none';
+    if (wrap.querySelector('.pf-custom-size-panel')) {
+        if (!show) {
+            wrap.querySelectorAll('.custom-dim-width, .custom-dim-height').forEach(function (el) { el.value = ''; });
+        }
+        const fakeSelect = { name: radio.name };
+        pfSyncSelectCustomSizeHidden(fakeSelect);
+        pfValidateCustomSizePanel(wrap.querySelector('.pf-custom-size-panel'), show);
+        return;
+    }
     const input = wrap.querySelector('input');
     if (input) {
         if (!show) input.value = '';
         const selectedRadio = row.querySelector('input[type="radio"].pricing-field[name="' + radio.name + '"]:checked');
         input.required = !!(show && selectedRadio && selectedRadio.hasAttribute('required'));
+    }
+}
+
+function pfSyncSelectCustomSizeHidden(select) {
+    if (!select || !select.name) return;
+    const wrap = document.getElementById('select-others-' + select.name);
+    if (!wrap || !wrap.querySelector('.pf-custom-size-panel')) return;
+    const wEl = wrap.querySelector('.custom-dim-width');
+    const hEl = wrap.querySelector('.custom-dim-height');
+    const w = pfSanitizeDimensionInputValue(wEl ? wEl.value : '');
+    const h = pfSanitizeDimensionInputValue(hEl ? hEl.value : '');
+    if (wEl) wEl.value = w;
+    if (hEl) hEl.value = h;
+    const wHidden = wrap.querySelector('[data-dimension-role="width"]');
+    const hHidden = wrap.querySelector('[data-dimension-role="height"]');
+    const otherHidden = wrap.querySelector('.pf-custom-size-other-hidden');
+    if (wHidden) wHidden.value = w;
+    if (hHidden) hHidden.value = h;
+    const unitShort = wrap.querySelector('.pf-custom-size-panel')?.getAttribute('data-dimension-unit') || 'in';
+    if (otherHidden && w && h) {
+        otherHidden.value = 'Custom Size — ' + w + ' × ' + h + ' ' + unitShort;
+    } else if (otherHidden && (!w || !h)) {
+        otherHidden.value = '';
     }
 }
 
@@ -722,6 +776,14 @@ function pfSyncSelectOthersWrap(select) {
     const otherValue = select.getAttribute('data-other-option') || 'Others';
     const show = select.value === otherValue;
     wrap.style.display = show ? 'block' : 'none';
+    if (wrap.querySelector('.pf-custom-size-panel')) {
+        if (!show) {
+            wrap.querySelectorAll('.custom-dim-width, .custom-dim-height').forEach(function (el) { el.value = ''; });
+            pfSyncSelectCustomSizeHidden(select);
+        }
+        pfValidateCustomSizePanel(wrap.querySelector('.pf-custom-size-panel'), show);
+        return;
+    }
     const input = wrap.querySelector('input');
     if (input) {
         if (!show) input.value = '';
@@ -1323,6 +1385,12 @@ function initServiceFieldRenderer() {
             const panel = input.closest('.pf-custom-size-panel');
             pfValidateCustomSizePanel(panel, true);
             syncDimensionToHidden(row);
+            const selectWrap = input.closest('.select-others-wrap, .radio-others-wrap');
+            if (selectWrap && selectWrap.id) {
+                const fieldKey = selectWrap.id.replace(/^(select|radio)-others-/, '');
+                const sel = document.querySelector('select[name="' + fieldKey + '"]');
+                if (sel) pfSyncSelectCustomSizeHidden(sel);
+            }
             const nestedPanel = input.closest('.pf-nested-custom-size, .pf-custom-size-panel');
             if (nestedPanel && nestedPanel.id && nestedPanel.id.indexOf('nested-dim-others-') === 0) {
                 syncNestedDimension(nestedPanel.id.replace('nested-dim-others-', ''));
