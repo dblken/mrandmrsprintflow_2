@@ -509,6 +509,11 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                 <label class="field-label">Field Label</label>
                 <input type="text" id="view-field-label" class="field-input" readonly style="background:#f9fafb;cursor:default;">
             </div>
+
+            <div class="field-group">
+                <label class="field-label">Help Text / Info Message</label>
+                <textarea id="view-field-help-text" class="field-input" rows="3" readonly style="background:#f9fafb;cursor:default;resize:none;"></textarea>
+            </div>
             
             <div class="field-group">
                 <label class="field-label">Field Type</label>
@@ -587,6 +592,12 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                 <label class="field-label">Field Label *</label>
                 <input type="text" id="edit-field-label" class="field-input" placeholder="e.g., Special Instructions (32 MAX CHARACTERS)" maxlength="32" oninput="formatTextToTitleCase(this)">
             </div>
+
+            <div class="field-group">
+                <label class="field-label">Help Text / Info Message <span style="font-weight:500;color:#6b7280;">(optional)</span></label>
+                <textarea id="edit-field-help-text" class="field-input" rows="3" maxlength="<?php echo (int) printflow_service_field_help_text_max_length(); ?>" placeholder="Shown to customers as an ⓘ tooltip next to this field label. Leave empty to hide the icon."></textarea>
+                <p style="margin:6px 0 0;font-size:12px;color:#6b7280;">Max <?php echo (int) printflow_service_field_help_text_max_length(); ?> characters. Example: Regular Order = standard processing; Urgent Order = faster processing, may include rush fee.</p>
+            </div>
             
             <div class="field-group">
                 <label class="field-label">Field Type *</label>
@@ -663,6 +674,11 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
             <div class="field-group">
                 <label class="field-label">Field Label *</label>
                 <input type="text" id="new-field-label" class="field-input" placeholder="e.g., Special Instructions (32 MAX CHARACTERS)" maxlength="32" oninput="formatTextToTitleCase(this)">
+            </div>
+
+            <div class="field-group">
+                <label class="field-label">Help Text / Info Message <span style="font-weight:500;color:#6b7280;">(optional)</span></label>
+                <textarea id="new-field-help-text" class="field-input" rows="3" maxlength="<?php echo (int) printflow_service_field_help_text_max_length(); ?>" placeholder="Optional customer tooltip text. Leave empty to hide the ⓘ icon."></textarea>
             </div>
             
             <div class="field-group">
@@ -814,6 +830,7 @@ window.showEditFieldModal = function(key) {
     
     document.getElementById('edit-field-key').value = key;
     document.getElementById('edit-field-label').value = config.label;
+    document.getElementById('edit-field-help-text').value = config.help_text || '';
     document.getElementById('edit-field-type').value = config.type;
     document.getElementById('edit-field-type-display').value = config.type.toUpperCase();
     document.getElementById('edit-field-required').checked = config.required;
@@ -1019,6 +1036,7 @@ window.addNewField = function() {
     }
     
     const config = { label, type, required, visible: true, order: Object.keys(window.fieldConfigurations).length };
+    config.help_text = (document.getElementById('new-field-help-text').value || '').trim();
     
     if (type === 'select' || type === 'radio') {
         const allowOthers = document.getElementById('new-field-options-allow-others').checked;
@@ -1177,6 +1195,7 @@ window.saveEditField = function() {
     
     const config = window.fieldConfigurations[key] || {};
     config.label = label;
+    config.help_text = (document.getElementById('edit-field-help-text').value || '').trim();
     config.required = required;
     config.type = type;
     config.visible = true;

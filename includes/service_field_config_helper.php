@@ -9,6 +9,44 @@ function printflow_service_field_option_max_length(): int {
     return 64;
 }
 
+/** Maximum length for optional per-field customer help tooltip text. */
+function printflow_service_field_help_text_max_length(): int {
+    return 500;
+}
+
+/**
+ * Ensure help_text column exists (idempotent; safe on repeated calls).
+ */
+function printflow_ensure_service_field_configs_help_text_column(): void {
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+    $checked = true;
+    $rows = db_query("SHOW COLUMNS FROM service_field_configs LIKE 'help_text'");
+    if (!empty($rows)) {
+        return;
+    }
+    db_execute(
+        "ALTER TABLE service_field_configs ADD COLUMN help_text TEXT NULL COMMENT 'Optional customer-facing info tooltip' AFTER field_label"
+    );
+}
+
+function printflow_normalize_service_field_help_text(?string $text): string {
+    $text = trim(preg_replace("/\r\n|\r/", "\n", (string) $text));
+    if ($text === '') {
+        return '';
+    }
+    $max = printflow_service_field_help_text_max_length();
+    if (function_exists('mb_strlen') && mb_strlen($text, 'UTF-8') > $max) {
+        return mb_substr($text, 0, $max, 'UTF-8');
+    }
+    if (strlen($text) > $max) {
+        return substr($text, 0, $max);
+    }
+    return $text;
+}
+
 /**
  * Enforce option label length when saving service field configs (presentation metadata only).
  *
@@ -146,6 +184,7 @@ function extract_service_fields_from_page($service_link) {
  * Get field configuration for a service
  */
 function get_service_field_config($service_id) {
+    printflow_ensure_service_field_configs_help_text_column();
     $configs = db_query(
         "SELECT * FROM service_field_configs WHERE service_id = ? ORDER BY display_order ASC",
         'i',
@@ -156,6 +195,7 @@ function get_service_field_config($service_id) {
     foreach ($configs as $config) {
         $result[$config['field_key']] = [
             'label' => $config['field_label'],
+            'help_text' => printflow_normalize_service_field_help_text($config['help_text'] ?? ''),
             'type' => $config['field_type'],
             'options' => $config['field_options'] ? json_decode($config['field_options'], true) : null,
             'visible' => (bool)$config['is_visible'],
@@ -176,6 +216,7 @@ function get_service_field_config($service_id) {
  * Save field configuration for a service
  */
 function save_service_field_config($service_id, $field_key, $config) {
+    printflow_ensure_service_field_configs_help_text_column();
     $existing = db_query(
         "SELECT config_id FROM service_field_configs WHERE service_id = ? AND field_key = ?",
         'is',
@@ -190,11 +231,13 @@ function save_service_field_config($service_id, $field_key, $config) {
     $allow_others = array_key_exists('allow_others', $config)
         ? ($config['allow_others'] ? 1 : 0)
         : 1;
+    $help_text = printflow_normalize_service_field_help_text($config['help_text'] ?? '');
     
     if (!empty($existing)) {
         db_execute(
             "UPDATE service_field_configs SET 
                 field_label = ?, 
+                help_text = ?,
                 field_type = ?, 
                 field_options = ?, 
                 is_visible = ?, 
@@ -207,9 +250,10 @@ function save_service_field_config($service_id, $field_key, $config) {
                 parent_value = ?,
                 updated_at = NOW()
             WHERE service_id = ? AND field_key = ?",
-            'sssiissiissis',
+            'ssssiissiissis',
             [
                 $config['label'],
+                $help_text !== '' ? $help_text : null,
                 $config['type'],
                 $options_json,
                 $config['visible'] ? 1 : 0,
@@ -227,13 +271,14 @@ function save_service_field_config($service_id, $field_key, $config) {
     } else {
         db_execute(
             "INSERT INTO service_field_configs 
-                (service_id, field_key, field_label, field_type, field_options, is_visible, is_required, default_value, unit, allow_others, display_order, parent_field_key, parent_value) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            'issssiissiiss',
+                (service_id, field_key, field_label, help_text, field_type, field_options, is_visible, is_required, default_value, unit, allow_others, display_order, parent_field_key, parent_value) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            'isssssiiisiiss',
             [
                 $service_id,
                 $field_key,
                 $config['label'],
+                $help_text !== '' ? $help_text : null,
                 $config['type'],
                 $options_json,
                 $config['visible'] ? 1 : 0,

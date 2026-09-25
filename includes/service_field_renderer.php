@@ -7,6 +7,104 @@
 require_once __DIR__ . '/service_field_config_helper.php';
 require_once __DIR__ . '/service_dimension_ui.php';
 
+/**
+ * Customer-facing ⓘ help control next to a field label (admin-configured help_text).
+ */
+function printflow_render_service_field_help_icon(string $field_key, string $help_text): string
+{
+    $help_text = printflow_normalize_service_field_help_text($help_text);
+    if ($help_text === '') {
+        return '';
+    }
+    $tipId = 'pf-field-help-tip-' . preg_replace('/[^a-z0-9_-]/i', '-', $field_key);
+    $safeTip = nl2br(htmlspecialchars($help_text, ENT_QUOTES, 'UTF-8'));
+    $html = '<span class="pf-field-help" data-pf-field-help="1">';
+    $html .= '<button type="button" class="pf-field-help-trigger pf-custom-size-info" aria-label="Field help" aria-expanded="false" aria-controls="' . htmlspecialchars($tipId, ENT_QUOTES, 'UTF-8') . '">ⓘ</button>';
+    $html .= '<span id="' . htmlspecialchars($tipId, ENT_QUOTES, 'UTF-8') . '" class="pf-field-help-tooltip" role="tooltip" hidden>' . $safeTip . '</span>';
+    $html .= '</span>';
+    return $html;
+}
+
+function printflow_service_field_help_styles(): string
+{
+    return <<<'CSS'
+.shopee-form-label {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+.pf-field-help {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+.pf-field-help-trigger {
+    border: none;
+    background: transparent;
+    padding: 0 0.15rem;
+    margin: 0;
+    line-height: 1;
+    font-size: 0.95rem;
+    cursor: help;
+    vertical-align: middle;
+}
+.pf-field-help-trigger:focus-visible {
+    outline: 2px solid #0d9488;
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+.pf-field-help-tooltip {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%);
+    z-index: 40;
+    min-width: 200px;
+    max-width: min(280px, calc(100vw - 32px));
+    padding: 10px 12px;
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: #64748b;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    text-align: left;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: normal;
+}
+.pf-field-help-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -6px;
+    border: 6px solid transparent;
+    border-top-color: #fff;
+    filter: drop-shadow(0 1px 0 #e2e8f0);
+}
+@media (hover: hover) and (pointer: fine) {
+    .pf-field-help:hover .pf-field-help-tooltip,
+    .pf-field-help:focus-within .pf-field-help-tooltip {
+        display: block !important;
+    }
+    .pf-field-help:hover .pf-field-help-tooltip[hidden],
+    .pf-field-help:focus-within .pf-field-help-tooltip[hidden] {
+        display: block !important;
+    }
+}
+.pf-field-help.is-open .pf-field-help-tooltip {
+    display: block !important;
+}
+.pf-field-help.is-open .pf-field-help-tooltip[hidden] {
+    display: block !important;
+}
+CSS;
+}
+
 function pf_format_service_time_label($value) {
     $value = trim((string)$value);
     if ($value === '') {
@@ -105,7 +203,13 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
     }
     
     $html = '<div class="shopee-form-row" id="card-' . htmlspecialchars($field_key) . '"' . $row_attrs . '>';
-    $html .= '<div class="shopee-form-label">' . $label . $required . '</div>';
+    $html .= '<div class="shopee-form-label">';
+    $html .= $label . $required;
+    $fieldHelp = trim((string) ($config['help_text'] ?? ''));
+    if ($fieldHelp !== '') {
+        $html .= printflow_render_service_field_help_icon($field_key, $fieldHelp);
+    }
+    $html .= '</div>';
     $html .= '<div class="shopee-form-field">';
     
     // Pre-scan for all values that appear inside nested fields to avoid duplication at the top level
@@ -678,7 +782,66 @@ function get_service_field_scripts() {
 }
 CSS;
     $css .= printflow_service_custom_size_styles();
+    $css .= printflow_service_field_help_styles();
     $js = <<<'JS'
+function initPfFieldHelpTooltips(root) {
+    const scope = root || document;
+    scope.querySelectorAll('[data-pf-field-help="1"]').forEach(function(wrap) {
+        if (wrap.dataset.pfFieldHelpBound === '1') return;
+        wrap.dataset.pfFieldHelpBound = '1';
+        const btn = wrap.querySelector('.pf-field-help-trigger');
+        const tip = wrap.querySelector('.pf-field-help-tooltip');
+        if (!btn || !tip) return;
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const open = wrap.classList.contains('is-open');
+            document.querySelectorAll('.pf-field-help.is-open').forEach(function(other) {
+                if (other === wrap) return;
+                other.classList.remove('is-open');
+                const ob = other.querySelector('.pf-field-help-trigger');
+                const ot = other.querySelector('.pf-field-help-tooltip');
+                if (ob) ob.setAttribute('aria-expanded', 'false');
+                if (ot) ot.hidden = true;
+            });
+            if (open) {
+                wrap.classList.remove('is-open');
+                btn.setAttribute('aria-expanded', 'false');
+                tip.hidden = true;
+            } else {
+                wrap.classList.add('is-open');
+                btn.setAttribute('aria-expanded', 'true');
+                tip.hidden = false;
+            }
+        });
+        wrap.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+    });
+    if (!document.body.dataset.pfFieldHelpDocBound) {
+        document.body.dataset.pfFieldHelpDocBound = '1';
+        document.addEventListener('click', function() {
+            document.querySelectorAll('.pf-field-help.is-open').forEach(function(wrap) {
+                wrap.classList.remove('is-open');
+                const btn = wrap.querySelector('.pf-field-help-trigger');
+                const tip = wrap.querySelector('.pf-field-help-tooltip');
+                if (btn) btn.setAttribute('aria-expanded', 'false');
+                if (tip) tip.hidden = true;
+            });
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key !== 'Escape') return;
+            document.querySelectorAll('.pf-field-help.is-open').forEach(function(wrap) {
+                wrap.classList.remove('is-open');
+                const btn = wrap.querySelector('.pf-field-help-trigger');
+                const tip = wrap.querySelector('.pf-field-help-tooltip');
+                if (btn) btn.setAttribute('aria-expanded', 'false');
+                if (tip) tip.hidden = true;
+            });
+        });
+    }
+}
+
 var dimensionMode = window.__pfServiceDimensionMode || 'preset';
 
 function updateOptVisual(input) {
@@ -1459,6 +1622,7 @@ function initServiceFieldRenderer() {
     // Run once on load to show initial state
     updateConditionalFields();
     initPfDesignUploadGroups();
+    initPfFieldHelpTooltips(document);
 }
 
 if (document.readyState === 'loading') {
