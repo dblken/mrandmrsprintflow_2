@@ -1922,7 +1922,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 hasControls = true;
                 if (widthHidden.value && heightHidden.value) rowHasValue = true;
                 const customPanel = row.querySelector('.pf-custom-size-panel.dim-others-inputs, .dim-others-inputs.pf-custom-size-panel');
-                if (customPanel && customPanel.style.display !== 'none' && typeof pfValidateCustomSizePanel === 'function') {
+                if (customPanel && typeof pfIsCustomSizePanelVisible === 'function' && pfIsCustomSizePanelVisible(customPanel) && typeof pfValidateCustomSizePanel === 'function') {
                     const dimCheck = pfValidateCustomSizePanel(customPanel, false);
                     if (!dimCheck.ok) rowHasValue = false;
                 }
@@ -2010,6 +2010,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (row.offsetParent === null) return;
 
                 row.querySelectorAll('.pf-custom-size-panel.dim-others-inputs, .dim-others-inputs.pf-custom-size-panel').forEach(panel => {
+                    if (typeof pfIsCustomSizePanelVisible === 'function' && !pfIsCustomSizePanelVisible(panel)) return;
                     if (panel.style.display === 'none') return;
                     if (typeof pfValidateCustomSizePanel !== 'function') return;
                     const dimCheck = pfValidateCustomSizePanel(panel, true);

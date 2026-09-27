@@ -1068,8 +1068,26 @@ function pfRefreshCustomSizePanelUnit(panel) {
     if (hInput) hInput.placeholder = 'e.g. ' + eh;
 }
 
+function pfIsCustomSizePanelVisible(panel) {
+    if (!panel) {
+        return false;
+    }
+    if (panel.style.display === 'none') {
+        return false;
+    }
+    const selectOrRadioWrap = panel.closest('.select-others-wrap, .radio-others-wrap');
+    if (selectOrRadioWrap && selectOrRadioWrap.style.display === 'none') {
+        return false;
+    }
+    const dimContainer = panel.closest('.dim-others-inputs');
+    if (dimContainer && dimContainer.style.display === 'none') {
+        return false;
+    }
+    return true;
+}
+
 function pfValidateCustomSizePanel(panel, showError) {
-    if (!panel || panel.style.display === 'none') {
+    if (!pfIsCustomSizePanelVisible(panel)) {
         return { ok: true };
     }
     const wEl = panel.querySelector('.custom-dim-width, .pf-nested-custom-w');
