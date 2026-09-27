@@ -151,7 +151,7 @@ function pf_service_option_label($value) {
 /**
  * Render a single field based on configuration
  */
-function render_service_field($field_key, $config, $branches = [], $existing_data = []) {
+function render_service_field($field_key, $config, $branches = [], $existing_data = [], $all_configs = []) {
     if (!$config['visible']) {
         return '';
     }
@@ -189,21 +189,27 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
         $label .= ' (' . htmlspecialchars($config['unit']) . ')';
     }
     
-    $parent_field = $config['parent_field_key'] ?? '';
-    $parent_value = $config['parent_value'] ?? '';
-    $conditional_mode = ($parent_field && $parent_value)
-        ? printflow_service_field_conditional_mode($config)
-        : '';
-    
+    $rules = ($all_configs !== [])
+        ? printflow_service_field_build_conditional_rules($field_key, $config, $all_configs)
+        : printflow_service_field_build_conditional_rules($field_key, $config, [$field_key => $config]);
+
     $row_attrs = ' data-field-key="' . htmlspecialchars($field_key) . '"';
-    if ($parent_field && $parent_value) {
-        $row_attrs .= ' data-parent-field="' . htmlspecialchars($parent_field) . '"';
-        $row_attrs .= ' data-parent-value="' . htmlspecialchars($parent_value) . '"';
-        $row_attrs .= ' data-conditional-mode="' . htmlspecialchars($conditional_mode) . '"';
-        if ($conditional_mode === 'hide_when') {
-            $row_attrs .= ' style="transition: all 0.3s ease;"';
-        } else {
+    if (!empty($rules)) {
+        $row_attrs .= ' data-pf-conditional-rules="' . htmlspecialchars(json_encode($rules, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8') . '"';
+        $initialValues = printflow_service_field_values_from_customization(
+            $saved_customization,
+            $all_configs !== [] ? $all_configs : [$field_key => $config]
+        );
+        $initialActive = printflow_service_field_is_active(
+            $config,
+            $initialValues,
+            $field_key,
+            $all_configs !== [] ? $all_configs : [$field_key => $config]
+        );
+        if (!$initialActive) {
             $row_attrs .= ' style="display: none; opacity: 0; transform: translateY(-10px); transition: all 0.3s ease;"';
+        } else {
+            $row_attrs .= ' style="transition: all 0.3s ease;"';
         }
     } else {
         $row_attrs .= ' style="transition: all 0.3s ease;"';
@@ -709,13 +715,13 @@ function render_service_fields($service_id, $branches = [], $existing_data = [])
     $html = '';
 
     foreach ($branch_field as $key => $config) {
-        $html .= render_service_field($key, $config, $branches, $existing_data);
+        $html .= render_service_field($key, $config, $branches, $existing_data, $configs);
     }
     foreach ($custom_fields as $key => $config) {
-        $html .= render_service_field($key, $config, $branches, $existing_data);
+        $html .= render_service_field($key, $config, $branches, $existing_data, $configs);
     }
     foreach ($default_bottom_fields as $key => $config) {
-        $html .= render_service_field($key, $config, $branches, $existing_data);
+        $html .= render_service_field($key, $config, $branches, $existing_data, $configs);
     }
 
     return $html;
@@ -1386,6 +1392,15 @@ function pfGetConditionalParentValue(parentField) {
 }
 
 function pfConditionalRowShouldShow(row) {
+    const rulesJson = row.getAttribute('data-pf-conditional-rules');
+    if (rulesJson) {
+        try {
+            const rules = JSON.parse(rulesJson);
+            return pfEvaluateConditionalRules(rules);
+        } catch (e) {
+            return true;
+        }
+    }
     const parentField = row.getAttribute('data-parent-field');
     const triggerValue = row.getAttribute('data-parent-value');
     if (!parentField || !triggerValue) {
@@ -1398,6 +1413,31 @@ function pfConditionalRowShouldShow(row) {
         return !matches;
     }
     return matches;
+}
+
+function pfEvaluateConditionalRules(rules) {
+    if (!Array.isArray(rules) || rules.length === 0) {
+        return true;
+    }
+    let hasShowWhen = false;
+    for (let i = 0; i < rules.length; i++) {
+        const rule = rules[i];
+        const currentVal = pfGetConditionalParentValue(rule.source);
+        const matches = pfConditionalValuesMatch(currentVal, rule.value);
+        if (rule.mode === 'hide_when' && matches) {
+            return false;
+        }
+        if (rule.mode === 'show_when') {
+            hasShowWhen = true;
+            if (matches) {
+                return true;
+            }
+        }
+    }
+    if (hasShowWhen) {
+        return false;
+    }
+    return true;
 }
 
 function pfSyncConditionalRowRequiredState(row, isVisible) {
@@ -1433,7 +1473,7 @@ function pfSyncConditionalRowRequiredState(row, isVisible) {
 }
 
 function updateConditionalFields() {
-    const allRows = document.querySelectorAll('.shopee-form-row[data-parent-field]');
+    const allRows = document.querySelectorAll('.shopee-form-row[data-pf-conditional-rules], .shopee-form-row[data-parent-field]');
     
     allRows.forEach(row => {
         const shouldShow = pfConditionalRowShouldShow(row);

@@ -316,7 +316,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         foreach ($field_configs as $key => $config) {
             if (!$config['visible']) continue;
 
-            if (!printflow_service_field_is_active($config, $field_values)) {
+            if (!printflow_service_field_is_active($config, $field_values, (string)$key, $field_configs)) {
                 continue;
             }
             
@@ -419,7 +419,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $field_values = printflow_service_field_values_from_post($_POST);
         $active_file_field_key = null;
         foreach ($field_configs as $fk => $fc) {
-            if (($fc['type'] ?? '') === 'file' && !empty($fc['visible']) && printflow_service_field_is_active($fc, $field_values)) {
+            if (($fc['type'] ?? '') === 'file' && !empty($fc['visible']) && printflow_service_field_is_active($fc, $field_values, (string)$fk, $field_configs)) {
                 $active_file_field_key = $fk;
                 break;
             }
@@ -453,7 +453,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 if (($fileConfig['type'] ?? '') !== 'file' || empty($fileConfig['visible'])) {
                     continue;
                 }
-                if (!printflow_service_field_is_active($fileConfig, $field_values)) {
+                if (!printflow_service_field_is_active($fileConfig, $field_values, (string)$fileKey, $field_configs)) {
                     continue;
                 }
                 $link_post_name = service_order_design_link_post_name($fileKey);
@@ -489,7 +489,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             foreach ($field_configs as $key => $config) {
                 if (!$config['visible']) continue;
                 
-                if (!printflow_service_field_is_active($config, $field_values)) {
+                if (!printflow_service_field_is_active($config, $field_values, (string)$key, $field_configs)) {
                     continue;
                 }
                 

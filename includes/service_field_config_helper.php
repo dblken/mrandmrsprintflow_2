@@ -126,6 +126,177 @@ function printflow_normalize_service_field_conditional_config(
     $config['conditional_mode'] = ($mode === 'hide_when') ? 'hide_when' : 'show_when';
 }
 
+/** Target field key hidden when a source option is selected (stored on the option in field_options JSON). */
+function printflow_service_field_option_hide_field_key(array $option): string
+{
+    return trim((string)($option['hide_field_key'] ?? ''));
+}
+
+/**
+ * Conditional visibility rules affecting a target field (option-based + legacy target-side config).
+ *
+ * @return list<array{source:string,value:string,mode:string}>
+ */
+function printflow_service_field_build_conditional_rules(string $targetFieldKey, array $targetConfig, array $allConfigs): array
+{
+    $rules = [];
+    foreach ($allConfigs as $sourceKey => $sourceCfg) {
+        if (!is_string($sourceKey) || $sourceKey === '' || !is_array($sourceCfg)) {
+            continue;
+        }
+        $sourceType = strtolower(trim((string)($sourceCfg['type'] ?? '')));
+        if (!in_array($sourceType, printflow_service_field_conditional_source_types(), true)) {
+            continue;
+        }
+        foreach (($sourceCfg['options'] ?? []) as $option) {
+            if (!is_array($option)) {
+                continue;
+            }
+            $hideKey = printflow_service_field_option_hide_field_key($option);
+            if ($hideKey === '' || $hideKey !== $targetFieldKey || $hideKey === $sourceKey) {
+                continue;
+            }
+            $optVal = trim((string)($option['value'] ?? ''));
+            if ($optVal === '') {
+                continue;
+            }
+            $rules[] = [
+                'source' => $sourceKey,
+                'value' => $optVal,
+                'mode' => 'hide_when',
+            ];
+        }
+    }
+
+    $parentKey = trim((string)($targetConfig['parent_field_key'] ?? ''));
+    $parentValue = trim((string)($targetConfig['parent_value'] ?? ''));
+    if ($parentKey !== '' && $parentValue !== '') {
+        $rules[] = [
+            'source' => $parentKey,
+            'value' => $parentValue,
+            'mode' => printflow_service_field_conditional_mode($targetConfig),
+        ];
+    }
+
+    return $rules;
+}
+
+function printflow_service_field_hidden_by_option_rules(string $targetFieldKey, array $allConfigs, array $values): bool
+{
+    foreach ($allConfigs as $sourceKey => $sourceCfg) {
+        if (!is_string($sourceKey) || $sourceKey === '' || !is_array($sourceCfg)) {
+            continue;
+        }
+        $sourceType = strtolower(trim((string)($sourceCfg['type'] ?? '')));
+        if (!in_array($sourceType, printflow_service_field_conditional_source_types(), true)) {
+            continue;
+        }
+        $selected = printflow_service_field_resolve_parent_value($sourceKey, $values);
+        if ($selected === '') {
+            continue;
+        }
+        foreach (($sourceCfg['options'] ?? []) as $option) {
+            if (!is_array($option)) {
+                continue;
+            }
+            $hideKey = printflow_service_field_option_hide_field_key($option);
+            if ($hideKey === '' || $hideKey !== $targetFieldKey) {
+                continue;
+            }
+            $optVal = trim((string)($option['value'] ?? ''));
+            if ($optVal === '') {
+                continue;
+            }
+            if (strcasecmp($selected, $optVal) === 0) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Validate hide_field_key on each option for radio/select source fields.
+ */
+function printflow_normalize_service_field_source_option_conditionals(string $sourceFieldKey, array &$config, array $allConfigs): void
+{
+    $type = strtolower(trim((string)($config['type'] ?? '')));
+    if (!in_array($type, printflow_service_field_conditional_source_types(), true)) {
+        return;
+    }
+    if (empty($config['options']) || !is_array($config['options'])) {
+        return;
+    }
+    foreach ($config['options'] as &$option) {
+        if (!is_array($option)) {
+            continue;
+        }
+        $hideKey = printflow_service_field_option_hide_field_key($option);
+        if ($hideKey === '' || $hideKey === $sourceFieldKey || !isset($allConfigs[$hideKey])) {
+            unset($option['hide_field_key']);
+            continue;
+        }
+        $targetCfg = $allConfigs[$hideKey];
+        if (!is_array($targetCfg) || empty($targetCfg['visible'])) {
+            unset($option['hide_field_key']);
+            continue;
+        }
+        $option['hide_field_key'] = $hideKey;
+    }
+    unset($option);
+}
+
+/**
+ * Drop legacy parent_field_key on targets when the same rule is stored on a source option.
+ */
+function printflow_clear_redundant_legacy_target_conditionals(array &$allConfigs): void
+{
+    $optionHideRules = [];
+    foreach ($allConfigs as $sourceKey => $sourceCfg) {
+        if (!is_array($sourceCfg)) {
+            continue;
+        }
+        foreach (($sourceCfg['options'] ?? []) as $option) {
+            if (!is_array($option)) {
+                continue;
+            }
+            $hideKey = printflow_service_field_option_hide_field_key($option);
+            $optVal = trim((string)($option['value'] ?? ''));
+            if ($hideKey === '' || $optVal === '') {
+                continue;
+            }
+            $optionHideRules[$hideKey][] = [
+                'source' => (string)$sourceKey,
+                'value' => $optVal,
+            ];
+        }
+    }
+
+    foreach ($allConfigs as $targetKey => &$targetCfg) {
+        if (!is_array($targetCfg)) {
+            continue;
+        }
+        $parentKey = trim((string)($targetCfg['parent_field_key'] ?? ''));
+        $parentValue = trim((string)($targetCfg['parent_value'] ?? ''));
+        if ($parentKey === '' || $parentValue === '') {
+            continue;
+        }
+        if (printflow_service_field_conditional_mode($targetCfg) !== 'hide_when') {
+            continue;
+        }
+        foreach ($optionHideRules[$targetKey] ?? [] as $rule) {
+            if ($rule['source'] === $parentKey && strcasecmp($rule['value'], $parentValue) === 0) {
+                $targetCfg['parent_field_key'] = null;
+                $targetCfg['parent_value'] = null;
+                $targetCfg['conditional_mode'] = null;
+                break;
+            }
+        }
+    }
+    unset($targetCfg);
+}
+
 /**
  * @return list<string>
  */
@@ -168,10 +339,17 @@ function printflow_service_field_resolve_parent_value(string $parentKey, array $
 
 /**
  * Whether a configured field is active (visible + subject to validation) for submitted values.
+ *
+ * @param array<string, array> $allConfigs Full service field map when evaluating option-based rules.
  */
-function printflow_service_field_is_active(array $config, array $values): bool {
+function printflow_service_field_is_active(array $config, array $values, string $fieldKey = '', array $allConfigs = []): bool {
     if (empty($config['visible'])) {
         return false;
+    }
+    if ($fieldKey !== '' && $allConfigs !== []) {
+        if (printflow_service_field_hidden_by_option_rules($fieldKey, $allConfigs, $values)) {
+            return false;
+        }
     }
     $parentKey = trim((string)($config['parent_field_key'] ?? ''));
     $triggerValue = trim((string)($config['parent_value'] ?? ''));

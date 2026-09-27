@@ -137,6 +137,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         
         // Save or update remaining fields
         foreach ($configs as $field_key => $config) {
+            printflow_normalize_service_field_source_option_conditionals((string)$field_key, $config, $configs);
+        }
+        printflow_clear_redundant_legacy_target_conditionals($configs);
+        foreach ($configs as $field_key => $config) {
             if (function_exists('printflow_normalize_service_field_conditional_config')) {
                 printflow_normalize_service_field_conditional_config($service_id, (string)$field_key, $config, $configs);
             }
@@ -150,6 +154,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
 }
 
 $field_configs = get_service_field_config($service_id);
+
+$pf_render_option_hide_select = static function (string $sourceFieldKey, string $selectedHideKey = '') use ($field_configs): string {
+    $html = '<select class="option-hide-field-key field-input" style="flex:1;padding:6px 10px;font-size:12px;" title="When this option is selected, hide another field">';
+    $html .= '<option value="">— No conditional action —</option>';
+    foreach ($field_configs as $targetKey => $targetCfg) {
+        if ($targetKey === $sourceFieldKey) {
+            continue;
+        }
+        if (empty($targetCfg['visible'])) {
+            continue;
+        }
+        $label = htmlspecialchars(trim((string)($targetCfg['label'] ?? $targetKey)), ENT_QUOTES, 'UTF-8');
+        $sel = ($selectedHideKey !== '' && $selectedHideKey === $targetKey) ? ' selected' : '';
+        $html .= '<option value="' . htmlspecialchars($targetKey, ENT_QUOTES, 'UTF-8') . '"' . $sel . '>Hide → ' . $label . '</option>';
+    }
+    $html .= '</select>';
+    return $html;
+};
 
 $page_title = 'Configure Input Fields - ' . $service['name'];
 ?>
@@ -370,6 +392,7 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                                                         $nestedFields = is_array($option) ? ($option['nested_fields'] ?? []) : [];
                                                         $optStaffFlags = is_array($option) ? ($option['staff_flags'] ?? []) : [];
                                                         $optUrgentFlag = in_array('urgent_request', $optStaffFlags, true) || in_array('urgent', $optStaffFlags, true);
+                                                        $optHideKey = is_array($option) ? printflow_service_field_option_hide_field_key($option) : '';
                                                     ?>
                                                         <div class="option-item radio-option-item" data-option-index="<?php echo $optIdx; ?>" style="flex-direction:column;align-items:stretch;">
                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -383,6 +406,10 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                                     +
                                 </button>
                                 <button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;padding:6px 0 2px 2px;width:100%;">
+                                <span style="font-size:11px;color:#6b7280;white-space:nowrap;">When selected:</span>
+                                <?php echo $pf_render_option_hide_select($key, $optHideKey); ?>
                             </div>
                                                         </div>
                                                     <?php endforeach; ?>
@@ -398,8 +425,10 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                                                         $optPrice = is_array($option) ? ($option['price'] ?? 0) : 0;
                                                         $optStaffFlags = is_array($option) ? ($option['staff_flags'] ?? []) : [];
                                                         $optUrgentFlag = in_array('urgent_request', $optStaffFlags, true) || in_array('urgent', $optStaffFlags, true);
+                                                        $optHideKey = is_array($option) ? printflow_service_field_option_hide_field_key($option) : '';
                                                     ?>
-                                                        <div class="option-item" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                                        <div class="option-item" style="display:flex;flex-direction:column;align-items:stretch;gap:6px;">
+                                                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                                                             <input type="text" class="option-input" value="<?php echo htmlspecialchars($optValue); ?>" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;min-width:160px;">
                                                             <input type="number" class="option-price-input" value="<?php echo $optPrice; ?>" placeholder="Price" min="0" step="0.01" style="flex:1;min-width:90px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option">
                                                             <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;white-space:nowrap;" title="Staff will see an urgent indicator when the customer selects this option">
@@ -407,6 +436,11 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                                                                 <span>Urgent request</span>
                                                             </label>
                                                             <button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button>
+                                                            </div>
+                                                            <div style="display:flex;align-items:center;gap:8px;padding:0 0 2px 2px;width:100%;">
+                                                                <span style="font-size:11px;color:#6b7280;white-space:nowrap;">When selected:</span>
+                                                                <?php echo $pf_render_option_hide_select($key, $optHideKey); ?>
+                                                            </div>
                                                         </div>
                                                     <?php endforeach; ?>
                                                 </div>
@@ -659,28 +693,6 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                 </label>
             </div>
 
-            <div class="field-group" style="padding:14px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
-                <label class="field-label" style="margin-bottom:10px;">Conditional Behavior (Optional)</label>
-                <div class="field-group" style="margin-bottom:12px;">
-                    <label class="field-label">Depends on field</label>
-                    <select id="edit-field-conditional-source" class="field-input" onchange="pfRefreshConditionalOptionSelect('edit', this.value, '')">
-                        <option value="">— No conditional behavior —</option>
-                    </select>
-                </div>
-                <div class="field-group" style="margin-bottom:12px;">
-                    <label class="field-label">When option is</label>
-                    <select id="edit-field-conditional-option" class="field-input">
-                        <option value="">— Select source field first —</option>
-                    </select>
-                </div>
-                <div class="field-group" style="margin-bottom:0;">
-                    <label class="field-label">Behavior</label>
-                    <select id="edit-field-conditional-mode" class="field-input">
-                        <option value="hide_when">Hide this field and make it optional</option>
-                        <option value="show_when">Show this field only when option is selected</option>
-                    </select>
-                </div>
-            </div>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn-modal-cancel" onclick="closeEditFieldModal()">Cancel</button>
@@ -817,28 +829,6 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                 </label>
             </div>
 
-            <div class="field-group" style="padding:14px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
-                <label class="field-label" style="margin-bottom:10px;">Conditional Behavior (Optional)</label>
-                <div class="field-group" style="margin-bottom:12px;">
-                    <label class="field-label">Depends on field</label>
-                    <select id="new-field-conditional-source" class="field-input" onchange="pfRefreshConditionalOptionSelect('new', this.value, '')">
-                        <option value="">— No conditional behavior —</option>
-                    </select>
-                </div>
-                <div class="field-group" style="margin-bottom:12px;">
-                    <label class="field-label">When option is</label>
-                    <select id="new-field-conditional-option" class="field-input">
-                        <option value="">— Select source field first —</option>
-                    </select>
-                </div>
-                <div class="field-group" style="margin-bottom:0;">
-                    <label class="field-label">Behavior</label>
-                    <select id="new-field-conditional-mode" class="field-input">
-                        <option value="hide_when">Hide this field and make it optional</option>
-                        <option value="show_when">Show this field only when option is selected</option>
-                    </select>
-                </div>
-            </div>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn-modal-cancel" onclick="closeAddFieldModal()">Cancel</button>
@@ -863,74 +853,31 @@ const PF_SERVICE_OPTION_MAX_LEN = <?php echo (int)$pf_service_option_max_length;
 const PF_SERVICE_OPTION_PLACEHOLDER = 'Enter option (' + PF_SERVICE_OPTION_MAX_LEN + ' MAX CHARACTERS)';
 window.fieldConfigurations = <?php echo json_encode($field_configs, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?> || {};
 
-window.pfConditionalSourceFieldTypes = ['radio', 'select'];
-
-window.pfPopulateConditionalSourceSelect = function(prefix, excludeFieldKey, selectedSource) {
-    const select = document.getElementById(prefix + '-field-conditional-source');
-    if (!select) return;
-    const prev = selectedSource || select.value || '';
-    select.innerHTML = '<option value="">— No conditional behavior —</option>';
+window.pfBuildHideFieldTargetOptionsHtml = function(excludeFieldKey, selectedKey) {
+    let html = '<option value="">— No conditional action —</option>';
     Object.keys(window.fieldConfigurations || {}).forEach(function(fieldKey) {
         if (fieldKey === excludeFieldKey) return;
         const cfg = window.fieldConfigurations[fieldKey];
-        if (!cfg || !window.pfConditionalSourceFieldTypes.includes(String(cfg.type || '').toLowerCase())) return;
-        const opt = document.createElement('option');
-        opt.value = fieldKey;
-        opt.textContent = (cfg.label || fieldKey) + ' (' + fieldKey + ')';
-        select.appendChild(opt);
+        if (!cfg || cfg.visible === false) return;
+        const label = (cfg.label || fieldKey).replace(/</g, '&lt;');
+        const sel = (selectedKey && selectedKey === fieldKey) ? ' selected' : '';
+        html += '<option value="' + fieldKey + '"' + sel + '>Hide → ' + label + '</option>';
     });
-    select.value = prev;
+    return html;
 };
 
-window.pfRefreshConditionalOptionSelect = function(prefix, sourceFieldKey, selectedOption) {
-    const optionSelect = document.getElementById(prefix + '-field-conditional-option');
-    if (!optionSelect) return;
-    optionSelect.innerHTML = '<option value="">— Select option —</option>';
-    if (!sourceFieldKey) {
-        optionSelect.innerHTML = '<option value="">— Select source field first —</option>';
-        return;
-    }
-    const sourceCfg = window.fieldConfigurations[sourceFieldKey];
-    if (!sourceCfg || !Array.isArray(sourceCfg.options)) return;
-    sourceCfg.options.forEach(function(option) {
-        const val = (typeof option === 'object' && option && option.value) ? option.value : option;
-        if (!val) return;
-        const opt = document.createElement('option');
-        opt.value = val;
-        opt.textContent = val;
-        optionSelect.appendChild(opt);
-    });
-    if (selectedOption) {
-        optionSelect.value = selectedOption;
-    }
-};
-
-window.pfReadConditionalConfigFromModal = function(prefix) {
-    const source = (document.getElementById(prefix + '-field-conditional-source')?.value || '').trim();
-    const option = (document.getElementById(prefix + '-field-conditional-option')?.value || '').trim();
-    const mode = (document.getElementById(prefix + '-field-conditional-mode')?.value || 'hide_when').trim();
-    if (!source || !option) {
-        return { parent_field_key: null, parent_value: null, conditional_mode: null };
-    }
-    return {
-        parent_field_key: source,
-        parent_value: option,
-        conditional_mode: mode === 'show_when' ? 'show_when' : 'hide_when'
-    };
-};
-
-window.pfApplyConditionalConfigToModal = function(prefix, config, excludeFieldKey) {
-    pfPopulateConditionalSourceSelect(prefix, excludeFieldKey, config.parent_field_key || '');
-    pfRefreshConditionalOptionSelect(prefix, config.parent_field_key || '', config.parent_value || '');
-    const modeEl = document.getElementById(prefix + '-field-conditional-mode');
-    if (modeEl) {
-        modeEl.value = (config.conditional_mode === 'show_when') ? 'show_when' : 'hide_when';
-    }
+window.pfAppendOptionHideFieldRow = function(optionItem, sourceFieldKey, selectedHideKey) {
+    if (!optionItem || optionItem.querySelector('.option-hide-field-key')) return;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0 2px 2px;width:100%;';
+    row.innerHTML = '<span style="font-size:11px;color:#6b7280;white-space:nowrap;">When selected:</span>'
+        + '<select class="option-hide-field-key field-input" style="flex:1;padding:6px 10px;font-size:12px;" title="When this option is selected, hide another field">'
+        + window.pfBuildHideFieldTargetOptionsHtml(sourceFieldKey, selectedHideKey || '')
+        + '</select>';
+    optionItem.appendChild(row);
 };
 
 window.showAddFieldModal = function() {
-    pfPopulateConditionalSourceSelect('new', '', '');
-    pfRefreshConditionalOptionSelect('new', '', '');
     document.getElementById('addFieldModal').classList.add('active');
     document.body.style.overflow = 'hidden';
 };
@@ -963,11 +910,13 @@ window.showEditFieldModal = function(key) {
         (config.options || []).forEach(option => {
             const optValue = (typeof option === 'object' && option.value) ? option.value : option;
             const optPrice = (typeof option === 'object' && option.price) ? option.price : 0;
+            const optHideKey = (typeof option === 'object' && option.hide_field_key) ? option.hide_field_key : '';
             const item = document.createElement('div');
             item.className = 'option-item';
-            item.style.cssText = 'display:flex;gap:8px;align-items:center;';
-            item.innerHTML = '<input type="text" class="option-input" value="' + optValue + '" maxlength="' + PF_SERVICE_OPTION_MAX_LEN + '" placeholder="' + PF_SERVICE_OPTION_PLACEHOLDER + '" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" value="' + optPrice + '" placeholder="Price" min="0" step="0.01" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeEditFieldOption(this)">Remove</button>';
+            item.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:6px;';
+            item.innerHTML = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="text" class="option-input" value="' + optValue + '" maxlength="' + PF_SERVICE_OPTION_MAX_LEN + '" placeholder="' + PF_SERVICE_OPTION_PLACEHOLDER + '" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" value="' + optPrice + '" placeholder="Price" min="0" step="0.01" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeEditFieldOption(this)">Remove</button></div>';
             list.appendChild(item);
+            pfAppendOptionHideFieldRow(item, key, optHideKey);
         });
     } else if (config.type === 'dimension') {
         optionsSection.style.display = 'none';
@@ -1001,8 +950,6 @@ window.showEditFieldModal = function(key) {
         dimensionSection.style.display = 'none';
     }
 
-    pfApplyConditionalConfigToModal('edit', config, key);
-    
     document.getElementById('editFieldModal').classList.add('active');
     document.body.style.overflow = 'hidden';
 };
@@ -1059,11 +1006,14 @@ window.toggleNewFieldOptions = function() {
 
 window.addOption = function(btn) {
     const list = btn.previousElementSibling;
+    const card = btn.closest('.section-card');
+    const sourceFieldKey = card ? card.getAttribute('data-field-key') : '';
     const item = document.createElement('div');
     item.className = 'option-item';
-    item.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
-    item.innerHTML = '<input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;min-width:160px;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;min-width:90px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;white-space:nowrap;" title="Staff will see an urgent indicator when the customer selects this option"><input type="checkbox" class="option-urgent-flag"><span>Urgent request</span></label><button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button>';
+    item.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:6px;';
+    item.innerHTML = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;min-width:160px;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;min-width:90px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;white-space:nowrap;" title="Staff will see an urgent indicator when the customer selects this option"><input type="checkbox" class="option-urgent-flag"><span>Urgent request</span></label><button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button></div>';
     list.appendChild(item);
+    pfAppendOptionHideFieldRow(item, sourceFieldKey, '');
 };
 
 window.removeOption = function(btn) {
@@ -1090,9 +1040,10 @@ window.addNewFieldOption = function() {
     const list = document.getElementById('new-field-options-list');
     const item = document.createElement('div');
     item.className = 'option-item';
-    item.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
-    item.innerHTML = '<input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;min-width:160px;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;min-width:90px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;white-space:nowrap;" title="Staff will see an urgent indicator when the customer selects this option"><input type="checkbox" class="option-urgent-flag"><span>Urgent request</span></label><button type="button" class="btn-remove" onclick="removeNewFieldOption(this)">Remove</button>';
+    item.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:6px;';
+    item.innerHTML = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;min-width:160px;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;min-width:90px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;white-space:nowrap;" title="Staff will see an urgent indicator when the customer selects this option"><input type="checkbox" class="option-urgent-flag"><span>Urgent request</span></label><button type="button" class="btn-remove" onclick="removeNewFieldOption(this)">Remove</button></div>';
     list.appendChild(item);
+    pfAppendOptionHideFieldRow(item, '', '');
 };
 
 window.toggleNewNestedFieldPanel = function(btn, optionIndex) {
@@ -1152,6 +1103,11 @@ window.addNewField = function() {
         key = baseKey + '_' + counter;
         counter++;
     }
+
+    document.querySelectorAll('#new-field-options-list .option-hide-field-key').forEach(function(sel) {
+        const prev = sel.value || '';
+        sel.innerHTML = pfBuildHideFieldTargetOptionsHtml(key, prev);
+    });
     
     const config = { label, type, required, visible: true, order: Object.keys(window.fieldConfigurations).length };
     config.help_text = (document.getElementById('new-field-help-text').value || '').trim();
@@ -1260,7 +1216,7 @@ window.addNewField = function() {
         config.allow_others = allowOthers;
     }
 
-    Object.assign(config, pfReadConditionalConfigFromModal('new'));
+    Object.assign(config, { parent_field_key: null, parent_value: null, conditional_mode: null });
     
     window.fieldConfigurations[key] = config;
     document.getElementById('fieldConfigsInput').value = JSON.stringify(window.fieldConfigurations);
@@ -1278,11 +1234,13 @@ window.addNewField = function() {
 
 window.addEditFieldOption = function() {
     const list = document.getElementById('edit-field-options-list');
+    const sourceFieldKey = document.getElementById('edit-field-key').value || '';
     const item = document.createElement('div');
     item.className = 'option-item';
-    item.style.cssText = 'display:flex;gap:8px;align-items:center;';
-    item.innerHTML = '<input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeEditFieldOption(this)">Remove</button>';
+    item.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:6px;';
+    item.innerHTML = '<div style="display:flex;gap:8px;align-items:center;"><input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeEditFieldOption(this)">Remove</button></div>';
     list.appendChild(item);
+    pfAppendOptionHideFieldRow(item, sourceFieldKey, '');
 };
 
 window.removeEditFieldOption = function(btn) {
@@ -1350,7 +1308,11 @@ window.saveEditField = function() {
         document.querySelectorAll('#edit-field-options-list .option-item').forEach(item => {
             const val = item.querySelector('.option-input')?.value.trim();
             const price = item.querySelector('.option-price-input') ? parseFloat(item.querySelector('.option-price-input').value) || 0 : 0;
-            if (val) options.push({ value: val, price: price });
+            if (!val) return;
+            const row = { value: val, price: price };
+            const hideKey = item.querySelector('.option-hide-field-key')?.value?.trim() || '';
+            if (hideKey) row.hide_field_key = hideKey;
+            options.push(row);
         });
         if (options.length === 0) {
             alert('Please add at least one option');
@@ -1383,7 +1345,9 @@ window.saveEditField = function() {
         config.allow_others = allowOthers;
     }
 
-    Object.assign(config, pfReadConditionalConfigFromModal('edit'));
+    config.parent_field_key = null;
+    config.parent_value = null;
+    config.conditional_mode = null;
 
     window.fieldConfigurations[key] = config;
     document.getElementById('fieldConfigsInput').value = JSON.stringify(window.fieldConfigurations);

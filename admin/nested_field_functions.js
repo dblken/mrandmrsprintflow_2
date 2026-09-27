@@ -20,6 +20,13 @@ window.printflowBuildServiceOptionPayload = function(optionItem, optionValue, op
     if (nestedFields && nestedFields.length > 0) {
         payload.nested_fields = nestedFields;
     }
+    const hideSelect = optionItem ? optionItem.querySelector('.option-hide-field-key') : null;
+    if (hideSelect) {
+        const hideKey = (hideSelect.value || '').trim();
+        if (hideKey) {
+            payload.hide_field_key = hideKey;
+        }
+    }
     return payload;
 };
 

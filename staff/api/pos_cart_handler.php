@@ -125,12 +125,12 @@ function pos_cart_required_message(string $key, string $label, string $type): st
     return 'Please enter ' . strtolower($label) . '.';
 }
 
-function pos_cart_config_applies(array $config, array $customization, array $fieldConfigs = []): bool
+function pos_cart_config_applies(array $config, array $customization, array $fieldConfigs = [], string $fieldKey = ''): bool
 {
     if (!empty($fieldConfigs)) {
         $customization = printflow_service_field_values_from_customization($customization, $fieldConfigs);
     }
-    return printflow_service_field_is_active($config, $customization);
+    return printflow_service_field_is_active($config, $customization, $fieldKey, $fieldConfigs);
 }
 
 function pos_cart_validate_nested_required(array $fieldConfig, array $customization, array &$errors): void
@@ -198,7 +198,7 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
     $fieldValues = printflow_service_field_values_from_customization($customization, $configs);
 
     foreach ($configs as $fieldKey => $config) {
-        if (empty($config['visible']) || empty($config['required']) || !printflow_service_field_is_active($config, $fieldValues)) {
+        if (empty($config['visible']) || empty($config['required']) || !printflow_service_field_is_active($config, $fieldValues, (string)$fieldKey, $configs)) {
             continue;
         }
 
