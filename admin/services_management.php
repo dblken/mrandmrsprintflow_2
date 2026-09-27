@@ -7,7 +7,11 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/customer_service_catalog.php';
 require_once __DIR__ . '/../includes/service_field_config_helper.php';
 
-require_role(['Admin', 'Manager']);
+if (defined('MANAGER_PANEL') && MANAGER_PANEL) {
+    require_role('Manager');
+} else {
+    require_role('Admin');
+}
 
 /** Manager: services list is read-only (view + filter/sort only), even on direct /admin URL access. */
 $pf_manager_services_readonly = (get_user_type() === 'Manager');
