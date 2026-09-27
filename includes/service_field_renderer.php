@@ -246,6 +246,9 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
     }
     $html .= '</div>';
     $html .= '<div class="shopee-form-field">';
+    if (!empty($rules)) {
+        $html .= '<div class="pf-conditional-controls">';
+    }
     
     // Pre-scan for all values that appear inside nested fields to avoid duplication at the top level
     $nestedValuesSet = [];
@@ -694,6 +697,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
     }
 
     if (!empty($rules)) {
+        $html .= '</div>';
         $html .= '<div class="pf-option-customer-note pf-conditional-info-callout" hidden aria-live="polite">'
             . '<div class="pf-conditional-info-callout-inner">'
             . '<div class="pf-conditional-info-callout-head">'
@@ -793,39 +797,41 @@ function get_service_field_scripts() {
     border-radius: 999px;
     line-height: 1.3;
 }
-.shopee-form-row.pf-field-conditionally-disabled .shopee-form-field {
+.pf-conditional-controls {
+    box-sizing: border-box;
+}
+.shopee-form-row.pf-field-conditionally-disabled .pf-conditional-controls {
     opacity: 0.6;
     background: #f3f4f6;
     border: 1px solid #e5e7eb;
     border-radius: 10px;
     padding: 12px 14px;
-    box-sizing: border-box;
+    pointer-events: none;
+    cursor: not-allowed;
     transition: opacity 0.2s ease, background 0.2s ease;
 }
-.shopee-form-row.pf-field-conditionally-disabled .pf-file-upload-group {
-    background: #eceff1;
-    border-color: #d1d5db;
-}
-.shopee-form-row.pf-field-conditionally-disabled .shopee-form-field,
-.shopee-form-row.pf-field-conditionally-disabled .shopee-form-field input:disabled,
-.shopee-form-row.pf-field-conditionally-disabled .shopee-form-field select:disabled,
-.shopee-form-row.pf-field-conditionally-disabled .shopee-form-field textarea:disabled,
-.shopee-form-row.pf-field-conditionally-disabled .shopee-form-field button:disabled,
-.shopee-form-row.pf-field-conditionally-disabled .pf-file-upload-group,
-.shopee-form-row.pf-field-conditionally-disabled .pf-design-mode-tabs,
-.shopee-form-row.pf-field-conditionally-disabled .pf-design-mode-panel,
-.shopee-form-row.pf-field-conditionally-disabled .pf-design-mode-tab,
-.shopee-form-row.pf-field-conditionally-disabled .shopee-opt-btn,
-.shopee-form-row.pf-field-conditionally-disabled .quantity-container {
-    pointer-events: none;
+.shopee-form-row.pf-field-conditionally-disabled .pf-conditional-controls,
+.shopee-form-row.pf-field-conditionally-disabled .pf-conditional-controls * {
     cursor: not-allowed !important;
 }
-.shopee-form-row.pf-field-conditionally-disabled .pf-design-mode-tab {
+.shopee-form-row.pf-field-conditionally-disabled .pf-conditional-controls .pf-file-upload-group {
+    background: #eceff1;
+    border-color: #d1d5db;
+    margin: 0;
+}
+.shopee-form-row.pf-field-conditionally-disabled .pf-conditional-controls .pf-design-mode-tab {
     opacity: 0.85;
 }
 .pf-conditional-info-callout {
     margin-top: 14px;
+    opacity: 1;
+    cursor: default;
+    pointer-events: auto;
     transition: opacity 0.2s ease;
+}
+.pf-conditional-info-callout,
+.pf-conditional-info-callout * {
+    cursor: default;
 }
 .pf-conditional-info-callout[hidden] {
     display: none !important;
