@@ -14,6 +14,14 @@ require_role(['Admin', 'Manager']);
 header('Content-Type: application/json');
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
+
+function printflow_inventory_api_require_csrf(): void {
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        http_response_code(419);
+        echo json_encode(['success' => false, 'error' => 'Invalid session token.']);
+        exit;
+    }
+}
 $user = get_logged_in_user();
 $branchCtx = init_branch_context(false);
 $selectedBranchId = $branchCtx['selected_branch_id'] ?? InventoryManager::getCurrentBranchId();
@@ -40,6 +48,7 @@ try {
             break;
 
         case 'create_category':
+            printflow_inventory_api_require_csrf();
             $name = sanitize($_POST['category_name'] ?? '');
             if (empty($name)) throw new Exception('Category name is required');
             $id = db_execute("INSERT INTO inv_categories (name) VALUES (?)", 's', [$name]);
@@ -47,6 +56,7 @@ try {
             break;
 
         case 'delete_category':
+            printflow_inventory_api_require_csrf();
             $id = (int)($_POST['category_id'] ?? 0);
             if (!$id) throw new Exception('Invalid category');
             db_execute("DELETE FROM inv_categories WHERE id = ?", 'i', [$id]);
@@ -70,6 +80,7 @@ try {
             break;
 
         case 'create_material':
+            printflow_inventory_api_require_csrf();
             $cat_id = (int)($_POST['category_id'] ?? 0);
             $name = sanitize($_POST['material_name'] ?? '');
             $opening = (float)($_POST['opening_stock'] ?? 0);
@@ -83,6 +94,7 @@ try {
             break;
 
         case 'update_material':
+            printflow_inventory_api_require_csrf();
             $mid = (int)($_POST['material_id'] ?? 0);
             $name = sanitize($_POST['material_name'] ?? '');
             $opening = (float)($_POST['opening_stock'] ?? 0);
@@ -96,6 +108,7 @@ try {
             break;
 
         case 'delete_material':
+            printflow_inventory_api_require_csrf();
             $mid = (int)($_POST['material_id'] ?? 0);
             if (!$mid) throw new Exception('Invalid material');
             db_execute("DELETE FROM materials WHERE material_id = ?", 'i', [$mid]);
@@ -160,6 +173,7 @@ try {
 
         // ─── Save Movement (Upsert) ──────────────────────
         case 'save_movement':
+            printflow_inventory_api_require_csrf();
             if ($branchId <= 0) {
                 throw new Exception('Please select a specific branch before saving an inventory movement.');
             }

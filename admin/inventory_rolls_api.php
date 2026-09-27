@@ -13,6 +13,14 @@ header('Content-Type: application/json');
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
+function printflow_inventory_rolls_require_csrf(): void {
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        http_response_code(419);
+        echo json_encode(['success' => false, 'error' => 'Invalid session token.']);
+        exit;
+    }
+}
+
 try {
     switch ($action) {
         case 'list':
@@ -59,6 +67,7 @@ try {
             break;
 
         case 'add_roll':
+            printflow_inventory_rolls_require_csrf();
             $itemId = (int)($_POST['item_id'] ?? 0);
             $len = (float)($_POST['total_length'] ?? 0);
             $code = sanitize($_POST['roll_code'] ?? '');
@@ -71,6 +80,7 @@ try {
             break;
 
         case 'void_roll':
+            printflow_inventory_rolls_require_csrf();
             $rollId = (int)($_POST['roll_id'] ?? 0);
             $notes = sanitize($_POST['notes'] ?? '');
             if (!$rollId) throw new Exception("Roll ID required.");

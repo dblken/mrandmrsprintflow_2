@@ -22,6 +22,15 @@ require_role(['Admin', 'Staff', 'Manager']);
 header('Content-Type: application/json');
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
+
+function printflow_inventory_items_require_csrf(): void {
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        http_response_code(419);
+        echo json_encode(['success' => false, 'error' => 'Invalid session token.']);
+        exit;
+    }
+}
+
 $branchId = null;
 if (is_admin() || is_manager()) {
     $branchCtx = init_branch_context(true);
@@ -145,6 +154,7 @@ try {
 
         case 'create_item':
         case 'update_item':
+            printflow_inventory_items_require_csrf();
             if ($inventory_master_read_only) {
                 http_response_code(403);
                 echo json_encode(['success' => false, 'error' => 'This branch is view-only. Inventory items cannot be created or edited here.']);
@@ -301,6 +311,7 @@ try {
             break;
 
         case 'reset_thresholds':
+            printflow_inventory_items_require_csrf();
             if ($inventory_master_read_only) {
                 http_response_code(403);
                 echo json_encode(['success' => false, 'error' => 'This branch is view-only. Inventory items cannot be edited here.']);
