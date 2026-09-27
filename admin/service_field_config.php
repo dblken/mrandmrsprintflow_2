@@ -155,23 +155,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
 
 $field_configs = get_service_field_config($service_id);
 
-$pf_render_option_hide_select = static function (string $sourceFieldKey, string $selectedHideKey = '') use ($field_configs): string {
-    $html = '<select class="option-hide-field-key field-input" style="flex:1;padding:6px 10px;font-size:12px;" title="When this option is selected, hide another field">';
-    $html .= '<option value="">— No conditional action —</option>';
-    foreach ($field_configs as $targetKey => $targetCfg) {
-        if ($targetKey === $sourceFieldKey) {
-            continue;
-        }
-        if (empty($targetCfg['visible'])) {
-            continue;
-        }
-        $label = htmlspecialchars(trim((string)($targetCfg['label'] ?? $targetKey)), ENT_QUOTES, 'UTF-8');
-        $sel = ($selectedHideKey !== '' && $selectedHideKey === $targetKey) ? ' selected' : '';
-        $html .= '<option value="' . htmlspecialchars($targetKey, ENT_QUOTES, 'UTF-8') . '"' . $sel . '>Hide → ' . $label . '</option>';
+$pf_primary_file_field_key = printflow_service_resolve_primary_file_field_key($field_configs);
+$pf_staff_layout_field_eligible = static function (string $fieldKey) use ($field_configs, $pf_primary_file_field_key): bool {
+    if (in_array($fieldKey, ['branch', 'needed_date', 'quantity', 'notes'], true)) {
+        return false;
     }
-    $html .= '</select>';
+    $cfg = $field_configs[$fieldKey] ?? null;
+    if (!is_array($cfg)) {
+        return false;
+    }
+    $type = strtolower((string)($cfg['type'] ?? ''));
+    return in_array($type, ['radio', 'select'], true) && $pf_primary_file_field_key !== null;
+};
+
+$pf_render_option_staff_layout_block = static function (array $option) use ($pf_primary_file_field_key): string {
+    if ($pf_primary_file_field_key === null) {
+        return '';
+    }
+    $hideKey = printflow_service_field_option_hide_field_key($option);
+    $staffOn = !empty($option['staff_creates_layout'])
+        || ($hideKey !== '' && $hideKey === $pf_primary_file_field_key);
+    $note = printflow_service_field_option_customer_note($option);
+    $max = printflow_service_field_help_text_max_length();
+    $html = '<div class="option-staff-layout-config" style="width:100%;padding:6px 0 2px 2px;display:flex;flex-direction:column;gap:8px;">';
+    $html .= '<label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:#374151;cursor:pointer;">';
+    $html .= '<input type="checkbox" class="option-staff-layout-flag"' . ($staffOn ? ' checked' : '') . ' style="margin-top:3px;">';
+    $html .= '<span>Staff creates layout / No customer design</span></label>';
+    $noteStyle = $staffOn ? '' : ' display:none;';
+    $html .= '<div class="option-customer-note-wrap" style="padding-left:24px;' . $noteStyle . '">';
+    $html .= '<label style="display:block;font-size:11px;font-weight:600;color:#6b7280;margin-bottom:4px;">Customer Note (optional)</label>';
+    $html .= '<textarea class="option-customer-note field-input" rows="2" maxlength="' . (int) $max . '" placeholder="Customer-facing instructions when this option is selected..." style="width:100%;font-size:12px;resize:vertical;">' . htmlspecialchars($note, ENT_QUOTES, 'UTF-8') . '</textarea>';
+    $html .= '</div></div>';
     return $html;
 };
+
+$pf_staff_layout_eligible_keys = [];
+foreach (array_keys($field_configs) as $_pf_field_key) {
+    if ($pf_staff_layout_field_eligible((string) $_pf_field_key)) {
+        $pf_staff_layout_eligible_keys[] = (string) $_pf_field_key;
+    }
+}
+unset($_pf_field_key);
 
 $page_title = 'Configure Input Fields - ' . $service['name'];
 ?>
@@ -392,7 +416,6 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                                                         $nestedFields = is_array($option) ? ($option['nested_fields'] ?? []) : [];
                                                         $optStaffFlags = is_array($option) ? ($option['staff_flags'] ?? []) : [];
                                                         $optUrgentFlag = in_array('urgent_request', $optStaffFlags, true) || in_array('urgent', $optStaffFlags, true);
-                                                        $optHideKey = is_array($option) ? printflow_service_field_option_hide_field_key($option) : '';
                                                     ?>
                                                         <div class="option-item radio-option-item" data-option-index="<?php echo $optIdx; ?>" style="flex-direction:column;align-items:stretch;">
                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -408,8 +431,7 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                                 <button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button>
                             </div>
                             <div style="display:flex;align-items:center;gap:8px;padding:6px 0 2px 2px;width:100%;">
-                                <span style="font-size:11px;color:#6b7280;white-space:nowrap;">When selected:</span>
-                                <?php echo $pf_render_option_hide_select($key, $optHideKey); ?>
+                                <?php if ($pf_staff_layout_field_eligible($key)) { echo $pf_render_option_staff_layout_block(is_array($option) ? $option : ['value' => $option]); } ?>
                             </div>
                                                         </div>
                                                     <?php endforeach; ?>
@@ -425,7 +447,6 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                                                         $optPrice = is_array($option) ? ($option['price'] ?? 0) : 0;
                                                         $optStaffFlags = is_array($option) ? ($option['staff_flags'] ?? []) : [];
                                                         $optUrgentFlag = in_array('urgent_request', $optStaffFlags, true) || in_array('urgent', $optStaffFlags, true);
-                                                        $optHideKey = is_array($option) ? printflow_service_field_option_hide_field_key($option) : '';
                                                     ?>
                                                         <div class="option-item" style="display:flex;flex-direction:column;align-items:stretch;gap:6px;">
                                                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -437,9 +458,8 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                                                             </label>
                                                             <button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button>
                                                             </div>
-                                                            <div style="display:flex;align-items:center;gap:8px;padding:0 0 2px 2px;width:100%;">
-                                                                <span style="font-size:11px;color:#6b7280;white-space:nowrap;">When selected:</span>
-                                                                <?php echo $pf_render_option_hide_select($key, $optHideKey); ?>
+                                                            <div style="padding:0 0 2px 2px;width:100%;">
+                                                                <?php if ($pf_staff_layout_field_eligible($key)) { echo $pf_render_option_staff_layout_block(is_array($option) ? $option : ['value' => $option]); } ?>
                                                             </div>
                                                         </div>
                                                     <?php endforeach; ?>
@@ -851,31 +871,48 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
 <script>
 const PF_SERVICE_OPTION_MAX_LEN = <?php echo (int)$pf_service_option_max_length; ?>;
 const PF_SERVICE_OPTION_PLACEHOLDER = 'Enter option (' + PF_SERVICE_OPTION_MAX_LEN + ' MAX CHARACTERS)';
+const PF_STAFF_LAYOUT_ELIGIBLE_KEYS = new Set(<?php echo json_encode($pf_staff_layout_eligible_keys, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>);
+window.pfShouldAppendStaffLayoutBlock = function(fieldKey) {
+    return PF_STAFF_LAYOUT_ELIGIBLE_KEYS.has(fieldKey);
+};
 window.fieldConfigurations = <?php echo json_encode($field_configs, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?> || {};
 
-window.pfBuildHideFieldTargetOptionsHtml = function(excludeFieldKey, selectedKey) {
-    let html = '<option value="">— No conditional action —</option>';
-    Object.keys(window.fieldConfigurations || {}).forEach(function(fieldKey) {
-        if (fieldKey === excludeFieldKey) return;
-        const cfg = window.fieldConfigurations[fieldKey];
-        if (!cfg || cfg.visible === false) return;
-        const label = (cfg.label || fieldKey).replace(/</g, '&lt;');
-        const sel = (selectedKey && selectedKey === fieldKey) ? ' selected' : '';
-        html += '<option value="' + fieldKey + '"' + sel + '>Hide → ' + label + '</option>';
-    });
-    return html;
+window.pfAppendOptionStaffLayoutBlock = function(optionItem, optionConfig) {
+    if (!optionItem || optionItem.querySelector('.option-staff-layout-config')) {
+        return;
+    }
+    const cfg = optionConfig || {};
+    const staffOn = !!(cfg.staff_creates_layout || cfg.hide_field_key);
+    const note = (cfg.customer_note || '').replace(/</g, '&lt;');
+    const maxLen = <?php echo (int) printflow_service_field_help_text_max_length(); ?>;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'width:100%;padding:6px 0 2px 2px;';
+    wrap.innerHTML = '<div class="option-staff-layout-config" style="display:flex;flex-direction:column;gap:8px;">'
+        + '<label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:#374151;cursor:pointer;">'
+        + '<input type="checkbox" class="option-staff-layout-flag"' + (staffOn ? ' checked' : '') + ' style="margin-top:3px;">'
+        + '<span>Staff creates layout / No customer design</span></label>'
+        + '<div class="option-customer-note-wrap" style="padding-left:24px;' + (staffOn ? '' : 'display:none;') + '">'
+        + '<label style="display:block;font-size:11px;font-weight:600;color:#6b7280;margin-bottom:4px;">Customer Note (optional)</label>'
+        + '<textarea class="option-customer-note field-input" rows="2" maxlength="' + maxLen + '" placeholder="Customer-facing instructions when this option is selected..." style="width:100%;font-size:12px;resize:vertical;">' + note + '</textarea>'
+        + '</div></div>';
+    optionItem.appendChild(wrap);
+    const flag = wrap.querySelector('.option-staff-layout-flag');
+    const noteWrap = wrap.querySelector('.option-customer-note-wrap');
+    if (flag && noteWrap) {
+        flag.addEventListener('change', function() {
+            noteWrap.style.display = flag.checked ? 'block' : 'none';
+        });
+    }
 };
 
-window.pfAppendOptionHideFieldRow = function(optionItem, sourceFieldKey, selectedHideKey) {
-    if (!optionItem || optionItem.querySelector('.option-hide-field-key')) return;
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0 2px 2px;width:100%;';
-    row.innerHTML = '<span style="font-size:11px;color:#6b7280;white-space:nowrap;">When selected:</span>'
-        + '<select class="option-hide-field-key field-input" style="flex:1;padding:6px 10px;font-size:12px;" title="When this option is selected, hide another field">'
-        + window.pfBuildHideFieldTargetOptionsHtml(sourceFieldKey, selectedHideKey || '')
-        + '</select>';
-    optionItem.appendChild(row);
-};
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.classList && e.target.classList.contains('option-staff-layout-flag')) {
+        const noteWrap = e.target.closest('.option-staff-layout-config')?.querySelector('.option-customer-note-wrap');
+        if (noteWrap) {
+            noteWrap.style.display = e.target.checked ? 'block' : 'none';
+        }
+    }
+});
 
 window.showAddFieldModal = function() {
     document.getElementById('addFieldModal').classList.add('active');
@@ -910,13 +947,15 @@ window.showEditFieldModal = function(key) {
         (config.options || []).forEach(option => {
             const optValue = (typeof option === 'object' && option.value) ? option.value : option;
             const optPrice = (typeof option === 'object' && option.price) ? option.price : 0;
-            const optHideKey = (typeof option === 'object' && option.hide_field_key) ? option.hide_field_key : '';
+            const optStaff = (typeof option === 'object' && option) ? option : {};
             const item = document.createElement('div');
             item.className = 'option-item';
             item.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:6px;';
             item.innerHTML = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="text" class="option-input" value="' + optValue + '" maxlength="' + PF_SERVICE_OPTION_MAX_LEN + '" placeholder="' + PF_SERVICE_OPTION_PLACEHOLDER + '" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" value="' + optPrice + '" placeholder="Price" min="0" step="0.01" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeEditFieldOption(this)">Remove</button></div>';
             list.appendChild(item);
-            pfAppendOptionHideFieldRow(item, key, optHideKey);
+            if (pfShouldAppendStaffLayoutBlock(key)) {
+                pfAppendOptionStaffLayoutBlock(item, optStaff);
+            }
         });
     } else if (config.type === 'dimension') {
         optionsSection.style.display = 'none';
@@ -1013,7 +1052,9 @@ window.addOption = function(btn) {
     item.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:6px;';
     item.innerHTML = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;min-width:160px;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;min-width:90px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;white-space:nowrap;" title="Staff will see an urgent indicator when the customer selects this option"><input type="checkbox" class="option-urgent-flag"><span>Urgent request</span></label><button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button></div>';
     list.appendChild(item);
-    pfAppendOptionHideFieldRow(item, sourceFieldKey, '');
+    if (pfShouldAppendStaffLayoutBlock(sourceFieldKey)) {
+        pfAppendOptionStaffLayoutBlock(item, {});
+    }
 };
 
 window.removeOption = function(btn) {
@@ -1043,7 +1084,7 @@ window.addNewFieldOption = function() {
     item.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:6px;';
     item.innerHTML = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;min-width:160px;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;min-width:90px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;white-space:nowrap;" title="Staff will see an urgent indicator when the customer selects this option"><input type="checkbox" class="option-urgent-flag"><span>Urgent request</span></label><button type="button" class="btn-remove" onclick="removeNewFieldOption(this)">Remove</button></div>';
     list.appendChild(item);
-    pfAppendOptionHideFieldRow(item, '', '');
+    pfAppendOptionStaffLayoutBlock(item, {});
 };
 
 window.toggleNewNestedFieldPanel = function(btn, optionIndex) {
@@ -1104,11 +1145,6 @@ window.addNewField = function() {
         counter++;
     }
 
-    document.querySelectorAll('#new-field-options-list .option-hide-field-key').forEach(function(sel) {
-        const prev = sel.value || '';
-        sel.innerHTML = pfBuildHideFieldTargetOptionsHtml(key, prev);
-    });
-    
     const config = { label, type, required, visible: true, order: Object.keys(window.fieldConfigurations).length };
     config.help_text = (document.getElementById('new-field-help-text').value || '').trim();
     
@@ -1240,7 +1276,9 @@ window.addEditFieldOption = function() {
     item.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:6px;';
     item.innerHTML = '<div style="display:flex;gap:8px;align-items:center;"><input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeEditFieldOption(this)">Remove</button></div>';
     list.appendChild(item);
-    pfAppendOptionHideFieldRow(item, sourceFieldKey, '');
+    if (pfShouldAppendStaffLayoutBlock(sourceFieldKey)) {
+        pfAppendOptionStaffLayoutBlock(item, {});
+    }
 };
 
 window.removeEditFieldOption = function(btn) {
@@ -1310,8 +1348,7 @@ window.saveEditField = function() {
             const price = item.querySelector('.option-price-input') ? parseFloat(item.querySelector('.option-price-input').value) || 0 : 0;
             if (!val) return;
             const row = { value: val, price: price };
-            const hideKey = item.querySelector('.option-hide-field-key')?.value?.trim() || '';
-            if (hideKey) row.hide_field_key = hideKey;
+            Object.assign(row, window.printflowReadOptionStaffLayoutPayload(item));
             options.push(row);
         });
         if (options.length === 0) {

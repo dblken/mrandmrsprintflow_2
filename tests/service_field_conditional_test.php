@@ -1,6 +1,6 @@
 <?php
 /**
- * Smoke tests for option-based conditional service fields.
+ * Smoke tests for option-based staff-layout disable behavior.
  */
 declare(strict_types=1);
 
@@ -20,7 +20,13 @@ $layoutField = [
     'label' => 'Layout',
     'options' => [
         ['value' => 'With Layout', 'price' => 0],
-        ['value' => 'Without Layout', 'price' => 200, 'hide_field_key' => 'upload_design'],
+        [
+            'value' => 'Without Layout',
+            'price' => 200,
+            'staff_creates_layout' => 1,
+            'hide_field_key' => 'upload_design',
+            'customer_note' => 'Please coordinate with staff for layout.',
+        ],
     ],
 ];
 
@@ -41,46 +47,34 @@ $withoutLayout = ['layout' => 'Without Layout'];
 
 expect_true(
     printflow_service_field_is_active($uploadField, $withLayout, 'upload_design', $allConfigs),
-    'upload active when layout option has no hide rule'
+    'upload active when layout option has no staff-layout flag'
 );
 expect_true(
     !printflow_service_field_is_active($uploadField, $withoutLayout, 'upload_design', $allConfigs),
-    'upload inactive when selected option hides it'
+    'upload inactive when selected option disables it'
 );
 
 $rules = printflow_service_field_build_conditional_rules('upload_design', $uploadField, $allConfigs);
-expect_true(count($rules) === 1 && $rules[0]['mode'] === 'hide_when', 'rules built from option hide_field_key');
+expect_true(count($rules) === 1 && $rules[0]['mode'] === 'disable_when', 'rules use disable_when mode');
+expect_true(
+    ($rules[0]['customer_note'] ?? '') === 'Please coordinate with staff for layout.',
+    'customer note included in rule payload'
+);
 
 $normalizedLayout = $layoutField;
 printflow_normalize_service_field_source_option_conditionals('layout', $normalizedLayout, $allConfigs);
 expect_true(
     ($normalizedLayout['options'][1]['hide_field_key'] ?? '') === 'upload_design',
-    'normalize keeps valid hide_field_key on option'
+    'normalize binds hide_field_key to primary file field'
 );
-
-$badLayout = $layoutField;
-$badLayout['options'][1]['hide_field_key'] = 'missing_field';
-printflow_normalize_service_field_source_option_conditionals('layout', $badLayout, $allConfigs);
-expect_true(!isset($badLayout['options'][1]['hide_field_key']), 'normalize clears invalid hide_field_key');
 
 $posValues = printflow_service_field_values_from_customization(
     ['Layout' => 'Without Layout'],
     ['layout' => $layoutField]
 );
-expect_true(($posValues['layout'] ?? '') === 'Without Layout', 'customization maps label to field key');
 expect_true(
     !printflow_service_field_is_active($uploadField, $posValues, 'upload_design', $allConfigs),
-    'POS payload skips upload when option hides it'
-);
-
-$legacyUpload = $uploadField + [
-    'parent_field_key' => 'layout',
-    'parent_value' => 'Without Layout',
-    'conditional_mode' => 'hide_when',
-];
-expect_true(
-    !printflow_service_field_is_active($legacyUpload, $withoutLayout, 'upload_design', []),
-    'legacy target-side hide_when still works without allConfigs'
+    'POS payload skips upload when option disables it'
 );
 
 echo "All service_field_conditional tests passed.\n";

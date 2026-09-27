@@ -1016,7 +1016,7 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                     <div class="text-sm text-gray-500"><?php echo $sold_display; ?> Sold</div>
                 </div>
 
-                <form action="" method="POST" enctype="multipart/form-data" id="serviceForm" data-pf-skip-validation="true" target="_top" novalidate>
+                <form action="" method="POST" enctype="multipart/form-data" id="serviceForm" data-pf-skip-validation="true" data-pf-show-option-customer-notes="1" target="_top" novalidate>
                     <?php echo csrf_field(); ?>
                     <input type="hidden" name="calculated_unit_price" id="calculated-unit-price" value="0">
                     <input type="hidden" name="calculated_estimated_price" id="calculated-estimated-price" value="0">
@@ -1964,6 +1964,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const clearRowErrorIfSatisfied = (row) => {
             if (!row || row.offsetParent === null) return;
+            if (row.dataset.pfFieldInactive === '1') {
+                removeRowErrors(row);
+                return;
+            }
             const labelEl = row.querySelector('.shopee-form-label');
             if (!labelEl || !labelEl.innerText.includes('*')) return;
             if (getRowValueState(row).rowHasValue) removeRowErrors(row);

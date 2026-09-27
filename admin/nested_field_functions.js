@@ -8,6 +8,25 @@ window.printflowCollectOptionStaffFlags = function(optionItem) {
     return [];
 };
 
+window.printflowReadOptionStaffLayoutPayload = function(optionItem) {
+    const flag = optionItem ? optionItem.querySelector('.option-staff-layout-flag') : null;
+    if (!flag || !flag.checked) {
+        return {};
+    }
+    const noteEl = optionItem.querySelector('.option-customer-note');
+    const payload = { staff_creates_layout: 1 };
+    const note = noteEl ? noteEl.value.trim() : '';
+    if (note) {
+        payload.customer_note = note;
+    }
+    return payload;
+};
+
+window.printflowMergeOptionStaffLayoutPayload = function(optionRow, basePayload) {
+    const extra = window.printflowReadOptionStaffLayoutPayload(optionRow);
+    return Object.assign(basePayload, extra);
+};
+
 window.printflowBuildServiceOptionPayload = function(optionItem, optionValue, optionPrice, nestedFields) {
     const payload = {
         value: optionValue,
@@ -20,13 +39,7 @@ window.printflowBuildServiceOptionPayload = function(optionItem, optionValue, op
     if (nestedFields && nestedFields.length > 0) {
         payload.nested_fields = nestedFields;
     }
-    const hideSelect = optionItem ? optionItem.querySelector('.option-hide-field-key') : null;
-    if (hideSelect) {
-        const hideKey = (hideSelect.value || '').trim();
-        if (hideKey) {
-            payload.hide_field_key = hideKey;
-        }
-    }
+    Object.assign(payload, window.printflowReadOptionStaffLayoutPayload(optionItem));
     return payload;
 };
 

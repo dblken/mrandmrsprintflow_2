@@ -126,10 +126,63 @@ function printflow_normalize_service_field_conditional_config(
     $config['conditional_mode'] = ($mode === 'hide_when') ? 'hide_when' : 'show_when';
 }
 
-/** Target field key hidden when a source option is selected (stored on the option in field_options JSON). */
+/** Target file field disabled when a source option is selected (stored on the option in field_options JSON). */
 function printflow_service_field_option_hide_field_key(array $option): string
 {
     return trim((string)($option['hide_field_key'] ?? ''));
+}
+
+function printflow_service_field_option_staff_creates_layout(array $option): bool
+{
+    if (!empty($option['staff_creates_layout'])) {
+        return true;
+    }
+    return printflow_service_field_option_hide_field_key($option) !== '';
+}
+
+function printflow_normalize_service_field_option_customer_note(?string $text): string
+{
+    $text = trim(preg_replace("/\r\n|\r/", "\n", (string) $text));
+    if ($text === '') {
+        return '';
+    }
+    $max = printflow_service_field_help_text_max_length();
+    if (function_exists('mb_strlen') && mb_strlen($text, 'UTF-8') > $max) {
+        return mb_substr($text, 0, $max, 'UTF-8');
+    }
+    if (strlen($text) > $max) {
+        return substr($text, 0, $max);
+    }
+    return $text;
+}
+
+function printflow_service_field_option_customer_note(array $option): string
+{
+    return printflow_normalize_service_field_option_customer_note($option['customer_note'] ?? '');
+}
+
+/**
+ * Primary visible file upload field for staff-layout disable behavior (first by display order).
+ */
+function printflow_service_resolve_primary_file_field_key(array $allConfigs): ?string
+{
+    $candidates = [];
+    foreach ($allConfigs as $key => $cfg) {
+        if (!is_string($key) || $key === '' || !is_array($cfg)) {
+            continue;
+        }
+        if (($cfg['type'] ?? '') !== 'file' || empty($cfg['visible'])) {
+            continue;
+        }
+        $candidates[] = ['key' => $key, 'order' => (int)($cfg['order'] ?? 0)];
+    }
+    if ($candidates === []) {
+        return null;
+    }
+    usort($candidates, static function ($a, $b) {
+        return $a['order'] <=> $b['order'];
+    });
+    return $candidates[0]['key'];
 }
 
 /**
@@ -160,11 +213,16 @@ function printflow_service_field_build_conditional_rules(string $targetFieldKey,
             if ($optVal === '') {
                 continue;
             }
-            $rules[] = [
+            $rule = [
                 'source' => $sourceKey,
                 'value' => $optVal,
-                'mode' => 'hide_when',
+                'mode' => 'disable_when',
             ];
+            $note = printflow_service_field_option_customer_note($option);
+            if ($note !== '') {
+                $rule['customer_note'] = $note;
+            }
+            $rules[] = $rule;
         }
     }
 
@@ -228,21 +286,33 @@ function printflow_normalize_service_field_source_option_conditionals(string $so
     if (empty($config['options']) || !is_array($config['options'])) {
         return;
     }
+    $primaryFileKey = printflow_service_resolve_primary_file_field_key($allConfigs);
     foreach ($config['options'] as &$option) {
         if (!is_array($option)) {
             continue;
         }
-        $hideKey = printflow_service_field_option_hide_field_key($option);
-        if ($hideKey === '' || $hideKey === $sourceFieldKey || !isset($allConfigs[$hideKey])) {
-            unset($option['hide_field_key']);
+        $staffLayout = !empty($option['staff_creates_layout']);
+        if (!$staffLayout && $primaryFileKey !== null
+            && printflow_service_field_option_hide_field_key($option) === $primaryFileKey) {
+            $staffLayout = true;
+        }
+        if (!$staffLayout || $primaryFileKey === null || $primaryFileKey === $sourceFieldKey) {
+            unset($option['staff_creates_layout'], $option['hide_field_key'], $option['customer_note']);
             continue;
         }
-        $targetCfg = $allConfigs[$hideKey];
-        if (!is_array($targetCfg) || empty($targetCfg['visible'])) {
-            unset($option['hide_field_key']);
+        $targetCfg = $allConfigs[$primaryFileKey] ?? null;
+        if (!is_array($targetCfg) || ($targetCfg['type'] ?? '') !== 'file' || empty($targetCfg['visible'])) {
+            unset($option['staff_creates_layout'], $option['hide_field_key'], $option['customer_note']);
             continue;
         }
-        $option['hide_field_key'] = $hideKey;
+        $option['staff_creates_layout'] = 1;
+        $option['hide_field_key'] = $primaryFileKey;
+        $note = printflow_normalize_service_field_option_customer_note($option['customer_note'] ?? '');
+        if ($note !== '') {
+            $option['customer_note'] = $note;
+        } else {
+            unset($option['customer_note']);
+        }
     }
     unset($option);
 }

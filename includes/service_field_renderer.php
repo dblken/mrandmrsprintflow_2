@@ -206,10 +206,19 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $field_key,
             $all_configs !== [] ? $all_configs : [$field_key => $config]
         );
-        if (!$initialActive) {
+        $disabledByOption = !$initialActive
+            && printflow_service_field_hidden_by_option_rules(
+                $field_key,
+                $all_configs !== [] ? $all_configs : [$field_key => $config],
+                $initialValues
+            );
+        if (!$initialActive && !$disabledByOption) {
             $row_attrs .= ' style="display: none; opacity: 0; transform: translateY(-10px); transition: all 0.3s ease;"';
         } else {
             $row_attrs .= ' style="transition: all 0.3s ease;"';
+            if ($disabledByOption) {
+                $row_attrs .= ' data-pf-initial-disabled="1"';
+            }
         }
     } else {
         $row_attrs .= ' style="transition: all 0.3s ease;"';
@@ -218,6 +227,9 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
     $html = '<div class="shopee-form-row" id="card-' . htmlspecialchars($field_key) . '"' . $row_attrs . '>';
     $html .= '<div class="shopee-form-label">';
     $html .= $label . $required;
+    if (($config['type'] ?? '') === 'file') {
+        $html .= '<span class="pf-conditional-not-required" hidden style="font-size:11px;font-weight:600;color:#6b7280;margin-left:8px;">Not required</span>';
+    }
     $fieldHelp = trim((string) ($config['help_text'] ?? ''));
     if ($fieldHelp !== '') {
         $html .= printflow_render_service_field_help_icon($field_key, $fieldHelp);
@@ -636,6 +648,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $html .= '<p style="margin:8px 0 0;font-size:12px;color:#9ca3af;line-height:1.5;">Paste a publicly accessible design, image, or Canva link.</p>';
             $html .= '</div>';
             $html .= '</div>';
+            $html .= '<div class="pf-option-customer-note" hidden style="margin-top:12px;padding:12px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:13px;color:#1e3a5f;line-height:1.5;white-space:pre-wrap;"></div>';
             break;
             
         case 'date':
@@ -738,6 +751,18 @@ function get_service_field_scripts() {
     padding: 14px 16px;
     background: #fafafa;
     box-sizing: border-box;
+}
+.shopee-form-row.pf-field-conditionally-disabled .shopee-form-field {
+    opacity: 0.55;
+}
+.shopee-form-row.pf-field-conditionally-disabled .pf-file-upload-group,
+.shopee-form-row.pf-field-conditionally-disabled .pf-design-mode-tabs,
+.shopee-form-row.pf-field-conditionally-disabled .pf-design-mode-panel {
+    pointer-events: none;
+    cursor: not-allowed;
+}
+.shopee-form-row.pf-field-conditionally-disabled .pf-design-mode-tab {
+    opacity: 0.85;
 }
 .pf-design-mode-question {
     margin: 0 0 10px;
@@ -1409,28 +1434,105 @@ function pfGetConditionalParentValue(parentField) {
     return '';
 }
 
-function pfConditionalRowShouldShow(row) {
+function pfParseRowConditionalRules(row) {
     const rulesJson = row.getAttribute('data-pf-conditional-rules');
-    if (rulesJson) {
-        try {
-            const rules = JSON.parse(rulesJson);
-            return pfEvaluateConditionalRules(rules);
-        } catch (e) {
-            return true;
+    if (!rulesJson) {
+        return [];
+    }
+    try {
+        const rules = JSON.parse(rulesJson);
+        return Array.isArray(rules) ? rules : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function pfShouldShowOptionCustomerNotes() {
+    const form = document.getElementById('serviceForm');
+    return !!(form && form.getAttribute('data-pf-show-option-customer-notes') === '1');
+}
+
+function pfRowConditionalUIState(row) {
+    const rules = pfParseRowConditionalRules(row);
+    let shouldHide = false;
+    let shouldDisable = false;
+    let customerNote = '';
+    let hasShowWhen = false;
+    for (let i = 0; i < rules.length; i++) {
+        const rule = rules[i];
+        const currentVal = pfGetConditionalParentValue(rule.source);
+        const matches = pfConditionalValuesMatch(currentVal, rule.value);
+        if (rule.mode === 'disable_when' && matches) {
+            shouldDisable = true;
+            if (rule.customer_note) {
+                customerNote = String(rule.customer_note);
+            }
+        } else if (rule.mode === 'hide_when' && matches) {
+            shouldHide = true;
+        } else if (rule.mode === 'show_when') {
+            hasShowWhen = true;
+            if (matches) {
+                shouldHide = false;
+            }
         }
     }
-    const parentField = row.getAttribute('data-parent-field');
-    const triggerValue = row.getAttribute('data-parent-value');
-    if (!parentField || !triggerValue) {
-        return true;
+    if (hasShowWhen) {
+        let anyShowMatch = false;
+        for (let j = 0; j < rules.length; j++) {
+            if (rules[j].mode !== 'show_when') {
+                continue;
+            }
+            const cv = pfGetConditionalParentValue(rules[j].source);
+            if (pfConditionalValuesMatch(cv, rules[j].value)) {
+                anyShowMatch = true;
+                break;
+            }
+        }
+        if (!anyShowMatch) {
+            shouldHide = true;
+        }
     }
-    const mode = row.getAttribute('data-conditional-mode') || 'show_when';
-    const currentVal = pfGetConditionalParentValue(parentField);
-    const matches = pfConditionalValuesMatch(currentVal, triggerValue);
-    if (mode === 'hide_when') {
-        return !matches;
+    return { shouldHide: shouldHide, shouldDisable: shouldDisable, customerNote: customerNote };
+}
+
+function pfConditionalRowShouldShow(row) {
+    return !pfRowConditionalUIState(row).shouldHide;
+}
+
+function pfApplyConditionalDisabledUI(row, disabled, customerNote) {
+    if (!row) {
+        return;
     }
-    return matches;
+    row.classList.toggle('pf-field-conditionally-disabled', !!disabled);
+    row.dataset.pfFieldInactive = disabled ? '1' : '0';
+    const notRequiredEl = row.querySelector('.pf-conditional-not-required');
+    if (notRequiredEl) {
+        notRequiredEl.hidden = !disabled;
+    }
+    const noteEl = row.querySelector('.pf-option-customer-note');
+    if (noteEl) {
+        const showNote = !!(disabled && customerNote && pfShouldShowOptionCustomerNotes());
+        if (showNote) {
+            noteEl.textContent = customerNote;
+            noteEl.hidden = false;
+        } else {
+            noteEl.textContent = '';
+            noteEl.hidden = true;
+        }
+    }
+    row.querySelectorAll('input, select, textarea, button').forEach(function(el) {
+        if (el.type === 'hidden') {
+            return;
+        }
+        if (disabled) {
+            el.disabled = true;
+            el.required = false;
+        }
+    });
+    if (disabled) {
+        row.querySelectorAll('.field-error').forEach(function(el) { el.remove(); });
+        row.querySelectorAll('.field-invalid').forEach(function(el) { el.classList.remove('field-invalid'); });
+    }
 }
 
 function pfEvaluateConditionalRules(rules) {
@@ -1458,16 +1560,16 @@ function pfEvaluateConditionalRules(rules) {
     return true;
 }
 
-function pfSyncConditionalRowRequiredState(row, isVisible) {
-    row.dataset.pfFieldInactive = isVisible ? '0' : '1';
+function pfSyncConditionalRowRequiredState(row, interactionEnabled) {
+    row.dataset.pfFieldInactive = interactionEnabled ? '0' : '1';
     const baseRequired = row.querySelector('.pf-file-upload-group[data-pf-required="1"]') !== null
         || row.querySelector('.shopee-form-label')?.innerText?.includes('*');
-    const shouldRequire = isVisible && baseRequired;
-    row.querySelectorAll('input, select, textarea').forEach(function(input) {
+    const shouldRequire = interactionEnabled && baseRequired;
+    row.querySelectorAll('input, select, textarea, button').forEach(function(input) {
         if (input.type === 'hidden') {
             return;
         }
-        if (isVisible) {
+        if (interactionEnabled) {
             input.disabled = false;
             if (shouldRequire && input.closest('.pf-file-upload-group')) {
                 return;
@@ -1494,13 +1596,20 @@ function updateConditionalFields() {
     const allRows = document.querySelectorAll('.shopee-form-row[data-pf-conditional-rules], .shopee-form-row[data-parent-field]');
     
     allRows.forEach(row => {
-        const shouldShow = pfConditionalRowShouldShow(row);
-        if (shouldShow) {
-            showFieldRow(row);
-            pfSyncConditionalRowRequiredState(row, true);
-        } else {
+        const uiState = pfRowConditionalUIState(row);
+        if (uiState.shouldHide) {
             hideFieldRow(row);
+            pfApplyConditionalDisabledUI(row, false, '');
             pfSyncConditionalRowRequiredState(row, false);
+            return;
+        }
+        showFieldRow(row);
+        if (uiState.shouldDisable) {
+            pfApplyConditionalDisabledUI(row, true, uiState.customerNote);
+            pfSyncConditionalRowRequiredState(row, false);
+        } else {
+            pfApplyConditionalDisabledUI(row, false, '');
+            pfSyncConditionalRowRequiredState(row, true);
         }
     });
 }
@@ -1526,11 +1635,12 @@ function hideFieldRow(row) {
         
         // Wait for transition to finish before hiding
         setTimeout(() => {
-            const shouldShow = pfConditionalRowShouldShow(row);
-            if (!shouldShow) {
+            const uiState = pfRowConditionalUIState(row);
+            if (uiState.shouldHide) {
                 row.style.display = 'none';
                 clearFieldRowValues(row);
                 pfSyncConditionalRowRequiredState(row, false);
+                pfApplyConditionalDisabledUI(row, false, '');
             }
         }, 300);
     }
@@ -1731,6 +1841,12 @@ function initServiceFieldRenderer() {
     
     // Run once on load to show initial state
     updateConditionalFields();
+    document.querySelectorAll('.shopee-form-row[data-pf-initial-disabled="1"]').forEach(function(row) {
+        const uiState = pfRowConditionalUIState(row);
+        showFieldRow(row);
+        pfApplyConditionalDisabledUI(row, true, uiState.customerNote);
+        pfSyncConditionalRowRequiredState(row, false);
+    });
     initPfDesignUploadGroups();
     initPfFieldHelpTooltips(document);
 }
