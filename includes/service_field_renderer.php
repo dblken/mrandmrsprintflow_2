@@ -181,8 +181,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
     }
     
     $label = htmlspecialchars($config['label']);
-    $required = $config['required'] ? ' *' : '';
-    $required_attr = $config['required'] ? 'required' : '';
+    $is_required = !empty($config['required']);
+    $required_attr = $is_required ? 'required' : '';
     
     // Add unit to label for dimension fields
     if ($config['type'] === 'dimension' && !empty($config['unit'])) {
@@ -193,7 +193,12 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
         ? printflow_service_field_build_conditional_rules($field_key, $config, $all_configs)
         : printflow_service_field_build_conditional_rules($field_key, $config, [$field_key => $config]);
 
+    $disabledByOption = false;
+    $row_class = 'shopee-form-row';
     $row_attrs = ' data-field-key="' . htmlspecialchars($field_key) . '"';
+    if ($is_required) {
+        $row_attrs .= ' data-pf-originally-required="1"';
+    }
     if (!empty($rules)) {
         $row_attrs .= ' data-pf-conditional-rules="' . htmlspecialchars(json_encode($rules, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8') . '"';
         $initialValues = printflow_service_field_values_from_customization(
@@ -218,17 +223,22 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $row_attrs .= ' style="transition: all 0.3s ease;"';
             if ($disabledByOption) {
                 $row_attrs .= ' data-pf-initial-disabled="1"';
+                $row_class .= ' pf-field-conditionally-disabled';
             }
         }
     } else {
         $row_attrs .= ' style="transition: all 0.3s ease;"';
     }
     
-    $html = '<div class="shopee-form-row" id="card-' . htmlspecialchars($field_key) . '"' . $row_attrs . '>';
-    $html .= '<div class="shopee-form-label">';
-    $html .= $label . $required;
-    if (($config['type'] ?? '') === 'file') {
-        $html .= '<span class="pf-conditional-not-required" hidden style="font-size:11px;font-weight:600;color:#6b7280;margin-left:8px;">Not required</span>';
+    $html = '<div class="' . $row_class . '" id="card-' . htmlspecialchars($field_key) . '"' . $row_attrs . '>';
+    $marker_hidden = ($disabledByOption ?? false) && $is_required;
+    $html .= '<div class="shopee-form-label pf-field-label-row">';
+    $html .= '<span class="pf-field-label-text">' . $label . '</span>';
+    if ($is_required) {
+        $html .= '<span class="pf-field-required-marker"' . ($marker_hidden ? ' hidden' : '') . ' aria-hidden="true">*</span>';
+    }
+    if (!empty($rules)) {
+        $html .= '<span class="pf-conditional-not-required"' . ($marker_hidden ? '' : ' hidden') . '>Not required</span>';
     }
     $fieldHelp = trim((string) ($config['help_text'] ?? ''));
     if ($fieldHelp !== '') {
@@ -648,7 +658,6 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $html .= '<p style="margin:8px 0 0;font-size:12px;color:#9ca3af;line-height:1.5;">Paste a publicly accessible design, image, or Canva link.</p>';
             $html .= '</div>';
             $html .= '</div>';
-            $html .= '<div class="pf-option-customer-note" hidden style="margin-top:12px;padding:12px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:13px;color:#1e3a5f;line-height:1.5;white-space:pre-wrap;"></div>';
             break;
             
         case 'date':
@@ -682,6 +691,17 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $type = $config['type'] === 'number' ? 'number' : 'text';
             $html .= '<input type="' . $type . '" name="' . htmlspecialchars($field_key) . '" class="input-field" value="' . htmlspecialchars($saved_value) . '" ' . $required_attr . ' style="max-width: 400px;">';
             break;
+    }
+
+    if (!empty($rules)) {
+        $html .= '<div class="pf-option-customer-note pf-conditional-info-callout" hidden aria-live="polite">'
+            . '<div class="pf-conditional-info-callout-inner">'
+            . '<div class="pf-conditional-info-callout-head">'
+            . '<span class="pf-conditional-info-callout-icon" aria-hidden="true">ⓘ</span>'
+            . '<span class="pf-conditional-info-callout-title">Important Information</span>'
+            . '</div>'
+            . '<div class="pf-option-customer-note-body"></div>'
+            . '</div></div>';
     }
     
     $html .= '</div>';
@@ -745,24 +765,110 @@ function render_service_fields($service_id, $branches = [], $existing_data = [])
  */
 function get_service_field_scripts() {
     $css = <<<'CSS'
+.shopee-form-label.pf-field-label-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+}
+.pf-field-required-marker {
+    color: #ef4444;
+    font-weight: 700;
+    line-height: 1;
+}
+.pf-field-required-marker[hidden],
+.pf-conditional-not-required[hidden] {
+    display: none !important;
+}
+.pf-conditional-not-required {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #0f766e;
+    background: #ecfdf5;
+    border: 1px solid #99f6e4;
+    border-radius: 999px;
+    line-height: 1.3;
+}
+.shopee-form-row.pf-field-conditionally-disabled .shopee-form-field {
+    opacity: 0.6;
+    background: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 12px 14px;
+    box-sizing: border-box;
+    transition: opacity 0.2s ease, background 0.2s ease;
+}
+.shopee-form-row.pf-field-conditionally-disabled .pf-file-upload-group {
+    background: #eceff1;
+    border-color: #d1d5db;
+}
+.shopee-form-row.pf-field-conditionally-disabled .shopee-form-field,
+.shopee-form-row.pf-field-conditionally-disabled .shopee-form-field input:disabled,
+.shopee-form-row.pf-field-conditionally-disabled .shopee-form-field select:disabled,
+.shopee-form-row.pf-field-conditionally-disabled .shopee-form-field textarea:disabled,
+.shopee-form-row.pf-field-conditionally-disabled .shopee-form-field button:disabled,
+.shopee-form-row.pf-field-conditionally-disabled .pf-file-upload-group,
+.shopee-form-row.pf-field-conditionally-disabled .pf-design-mode-tabs,
+.shopee-form-row.pf-field-conditionally-disabled .pf-design-mode-panel,
+.shopee-form-row.pf-field-conditionally-disabled .pf-design-mode-tab,
+.shopee-form-row.pf-field-conditionally-disabled .shopee-opt-btn,
+.shopee-form-row.pf-field-conditionally-disabled .quantity-container {
+    pointer-events: none;
+    cursor: not-allowed !important;
+}
+.shopee-form-row.pf-field-conditionally-disabled .pf-design-mode-tab {
+    opacity: 0.85;
+}
+.pf-conditional-info-callout {
+    margin-top: 14px;
+    transition: opacity 0.2s ease;
+}
+.pf-conditional-info-callout[hidden] {
+    display: none !important;
+}
+.pf-conditional-info-callout-inner {
+    background: #eff6ff;
+    border: 1px solid #93c5fd;
+    border-left: 4px solid #2563eb;
+    border-radius: 10px;
+    padding: 14px 16px;
+    box-sizing: border-box;
+}
+.pf-conditional-info-callout-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.pf-conditional-info-callout-icon {
+    font-size: 18px;
+    line-height: 1;
+    color: #2563eb;
+    flex-shrink: 0;
+}
+.pf-conditional-info-callout-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1e3a8a;
+    line-height: 1.3;
+}
+.pf-option-customer-note-body {
+    font-size: 13px;
+    color: #1e3a5f;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
 .pf-file-upload-group {
     border: 1px solid #e5e7eb;
     border-radius: 10px;
     padding: 14px 16px;
     background: #fafafa;
     box-sizing: border-box;
-}
-.shopee-form-row.pf-field-conditionally-disabled .shopee-form-field {
-    opacity: 0.55;
-}
-.shopee-form-row.pf-field-conditionally-disabled .pf-file-upload-group,
-.shopee-form-row.pf-field-conditionally-disabled .pf-design-mode-tabs,
-.shopee-form-row.pf-field-conditionally-disabled .pf-design-mode-panel {
-    pointer-events: none;
-    cursor: not-allowed;
-}
-.shopee-form-row.pf-field-conditionally-disabled .pf-design-mode-tab {
-    opacity: 0.85;
 }
 .pf-design-mode-question {
     margin: 0 0 10px;
@@ -1499,25 +1605,48 @@ function pfConditionalRowShouldShow(row) {
     return !pfRowConditionalUIState(row).shouldHide;
 }
 
+function pfSetConditionalRequiredIndicator(row, disabled) {
+    if (!row) {
+        return;
+    }
+    const originallyRequired = row.getAttribute('data-pf-originally-required') === '1';
+    const requiredMarker = row.querySelector('.pf-field-required-marker');
+    const notRequiredEl = row.querySelector('.pf-conditional-not-required');
+    if (requiredMarker) {
+        requiredMarker.hidden = disabled || !originallyRequired;
+    }
+    if (notRequiredEl) {
+        notRequiredEl.hidden = !disabled;
+    }
+}
+
 function pfApplyConditionalDisabledUI(row, disabled, customerNote) {
     if (!row) {
         return;
     }
     row.classList.toggle('pf-field-conditionally-disabled', !!disabled);
     row.dataset.pfFieldInactive = disabled ? '1' : '0';
-    const notRequiredEl = row.querySelector('.pf-conditional-not-required');
-    if (notRequiredEl) {
-        notRequiredEl.hidden = !disabled;
-    }
-    const noteEl = row.querySelector('.pf-option-customer-note');
-    if (noteEl) {
+    row.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+    pfSetConditionalRequiredIndicator(row, !!disabled);
+    const noteWrap = row.querySelector('.pf-option-customer-note');
+    const noteBody = row.querySelector('.pf-option-customer-note-body');
+    if (noteWrap && noteBody) {
         const showNote = !!(disabled && customerNote && pfShouldShowOptionCustomerNotes());
         if (showNote) {
-            noteEl.textContent = customerNote;
-            noteEl.hidden = false;
+            noteBody.textContent = customerNote;
+            noteWrap.hidden = false;
         } else {
-            noteEl.textContent = '';
-            noteEl.hidden = true;
+            noteBody.textContent = '';
+            noteWrap.hidden = true;
+        }
+    } else if (noteWrap && !noteBody) {
+        const showNote = !!(disabled && customerNote && pfShouldShowOptionCustomerNotes());
+        if (showNote) {
+            noteWrap.textContent = customerNote;
+            noteWrap.hidden = false;
+        } else {
+            noteWrap.textContent = '';
+            noteWrap.hidden = true;
         }
     }
     row.querySelectorAll('input, select, textarea, button').forEach(function(el) {
@@ -1526,6 +1655,7 @@ function pfApplyConditionalDisabledUI(row, disabled, customerNote) {
         }
         if (disabled) {
             el.disabled = true;
+            el.setAttribute('aria-disabled', 'true');
             el.required = false;
         }
     });
@@ -1562,15 +1692,16 @@ function pfEvaluateConditionalRules(rules) {
 
 function pfSyncConditionalRowRequiredState(row, interactionEnabled) {
     row.dataset.pfFieldInactive = interactionEnabled ? '0' : '1';
-    const baseRequired = row.querySelector('.pf-file-upload-group[data-pf-required="1"]') !== null
-        || row.querySelector('.shopee-form-label')?.innerText?.includes('*');
-    const shouldRequire = interactionEnabled && baseRequired;
+    const originallyRequired = row.getAttribute('data-pf-originally-required') === '1';
+    const shouldRequire = interactionEnabled && originallyRequired;
+    pfSetConditionalRequiredIndicator(row, !interactionEnabled);
     row.querySelectorAll('input, select, textarea, button').forEach(function(input) {
         if (input.type === 'hidden') {
             return;
         }
         if (interactionEnabled) {
             input.disabled = false;
+            input.removeAttribute('aria-disabled');
             if (shouldRequire && input.closest('.pf-file-upload-group')) {
                 return;
             }
@@ -1578,12 +1709,13 @@ function pfSyncConditionalRowRequiredState(row, interactionEnabled) {
                 input.required = false;
                 return;
             }
-            if (baseRequired && (input.type === 'radio' || input.tagName === 'SELECT' || input.type === 'date' || input.type === 'file' || input.tagName === 'TEXTAREA' || input.classList.contains('pf-service-quantity-input'))) {
+            if (originallyRequired && (input.type === 'radio' || input.tagName === 'SELECT' || input.type === 'date' || input.type === 'file' || input.tagName === 'TEXTAREA' || input.classList.contains('pf-service-quantity-input'))) {
                 input.required = shouldRequire;
             }
         } else {
             input.required = false;
             input.disabled = true;
+            input.setAttribute('aria-disabled', 'true');
         }
     });
     const uploadGroup = row.querySelector('.pf-file-upload-group[data-pf-required="1"]');
