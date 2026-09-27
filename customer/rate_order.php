@@ -239,7 +239,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
 
-                    $order_update = db_execute("UPDATE orders SET status = 'Rated' WHERE order_id = ?", 'i', [$order_id]);
+                    $order_update = db_execute("UPDATE orders SET status = 'Rated' WHERE order_id = ? AND customer_id = ?", 'ii', [$order_id, $customer_id]);
                     if ($order_update === false) {
                         throw new RuntimeException('Failed to update the order status.');
                     }

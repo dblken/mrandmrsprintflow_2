@@ -20,13 +20,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action']) && $_GET['act
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verify_csrf_token((string)($_POST['csrf_token'] ?? ''))) {
+        http_response_code(419);
+        echo json_encode(['success' => false, 'error' => 'Your session expired. Please refresh and try again.']);
+        exit;
+    }
     $action = $_POST['action'] ?? '';
 
     if ($action === 'update_profile') {
-        $first_name = sanitize($_POST['first_name'] ?? '');
-        $last_name = sanitize($_POST['last_name'] ?? '');
-        $contact_number = sanitize($_POST['contact_number'] ?? '');
-        $gender = sanitize($_POST['gender'] ?? '');
+        $first_name = trim((string)($_POST['first_name'] ?? ''));
+        $last_name = trim((string)($_POST['last_name'] ?? ''));
+        $contact_number = trim((string)($_POST['contact_number'] ?? ''));
+        $gender = trim((string)($_POST['gender'] ?? ''));
 
         if (empty($first_name) || empty($last_name)) {
             echo json_encode(['success' => false, 'error' => 'First and last name are required']);

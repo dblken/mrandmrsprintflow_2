@@ -137,6 +137,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         
         // Save or update remaining fields
         foreach ($configs as $field_key => $config) {
+            if (function_exists('printflow_normalize_service_field_conditional_config')) {
+                printflow_normalize_service_field_conditional_config($service_id, (string)$field_key, $config, $configs);
+            }
             error_log("Saving field {$field_key}: " . print_r($config, true));
             save_service_field_config($service_id, $field_key, $config);
         }
@@ -655,6 +658,29 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                     <span>Required Field</span>
                 </label>
             </div>
+
+            <div class="field-group" style="padding:14px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
+                <label class="field-label" style="margin-bottom:10px;">Conditional Behavior (Optional)</label>
+                <div class="field-group" style="margin-bottom:12px;">
+                    <label class="field-label">Depends on field</label>
+                    <select id="edit-field-conditional-source" class="field-input" onchange="pfRefreshConditionalOptionSelect('edit', this.value, '')">
+                        <option value="">— No conditional behavior —</option>
+                    </select>
+                </div>
+                <div class="field-group" style="margin-bottom:12px;">
+                    <label class="field-label">When option is</label>
+                    <select id="edit-field-conditional-option" class="field-input">
+                        <option value="">— Select source field first —</option>
+                    </select>
+                </div>
+                <div class="field-group" style="margin-bottom:0;">
+                    <label class="field-label">Behavior</label>
+                    <select id="edit-field-conditional-mode" class="field-input">
+                        <option value="hide_when">Hide this field and make it optional</option>
+                        <option value="show_when">Show this field only when option is selected</option>
+                    </select>
+                </div>
+            </div>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn-modal-cancel" onclick="closeEditFieldModal()">Cancel</button>
@@ -790,6 +816,29 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                     <span>Required Field</span>
                 </label>
             </div>
+
+            <div class="field-group" style="padding:14px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
+                <label class="field-label" style="margin-bottom:10px;">Conditional Behavior (Optional)</label>
+                <div class="field-group" style="margin-bottom:12px;">
+                    <label class="field-label">Depends on field</label>
+                    <select id="new-field-conditional-source" class="field-input" onchange="pfRefreshConditionalOptionSelect('new', this.value, '')">
+                        <option value="">— No conditional behavior —</option>
+                    </select>
+                </div>
+                <div class="field-group" style="margin-bottom:12px;">
+                    <label class="field-label">When option is</label>
+                    <select id="new-field-conditional-option" class="field-input">
+                        <option value="">— Select source field first —</option>
+                    </select>
+                </div>
+                <div class="field-group" style="margin-bottom:0;">
+                    <label class="field-label">Behavior</label>
+                    <select id="new-field-conditional-mode" class="field-input">
+                        <option value="hide_when">Hide this field and make it optional</option>
+                        <option value="show_when">Show this field only when option is selected</option>
+                    </select>
+                </div>
+            </div>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn-modal-cancel" onclick="closeAddFieldModal()">Cancel</button>
@@ -814,7 +863,74 @@ const PF_SERVICE_OPTION_MAX_LEN = <?php echo (int)$pf_service_option_max_length;
 const PF_SERVICE_OPTION_PLACEHOLDER = 'Enter option (' + PF_SERVICE_OPTION_MAX_LEN + ' MAX CHARACTERS)';
 window.fieldConfigurations = <?php echo json_encode($field_configs, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?> || {};
 
+window.pfConditionalSourceFieldTypes = ['radio', 'select'];
+
+window.pfPopulateConditionalSourceSelect = function(prefix, excludeFieldKey, selectedSource) {
+    const select = document.getElementById(prefix + '-field-conditional-source');
+    if (!select) return;
+    const prev = selectedSource || select.value || '';
+    select.innerHTML = '<option value="">— No conditional behavior —</option>';
+    Object.keys(window.fieldConfigurations || {}).forEach(function(fieldKey) {
+        if (fieldKey === excludeFieldKey) return;
+        const cfg = window.fieldConfigurations[fieldKey];
+        if (!cfg || !window.pfConditionalSourceFieldTypes.includes(String(cfg.type || '').toLowerCase())) return;
+        const opt = document.createElement('option');
+        opt.value = fieldKey;
+        opt.textContent = (cfg.label || fieldKey) + ' (' + fieldKey + ')';
+        select.appendChild(opt);
+    });
+    select.value = prev;
+};
+
+window.pfRefreshConditionalOptionSelect = function(prefix, sourceFieldKey, selectedOption) {
+    const optionSelect = document.getElementById(prefix + '-field-conditional-option');
+    if (!optionSelect) return;
+    optionSelect.innerHTML = '<option value="">— Select option —</option>';
+    if (!sourceFieldKey) {
+        optionSelect.innerHTML = '<option value="">— Select source field first —</option>';
+        return;
+    }
+    const sourceCfg = window.fieldConfigurations[sourceFieldKey];
+    if (!sourceCfg || !Array.isArray(sourceCfg.options)) return;
+    sourceCfg.options.forEach(function(option) {
+        const val = (typeof option === 'object' && option && option.value) ? option.value : option;
+        if (!val) return;
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = val;
+        optionSelect.appendChild(opt);
+    });
+    if (selectedOption) {
+        optionSelect.value = selectedOption;
+    }
+};
+
+window.pfReadConditionalConfigFromModal = function(prefix) {
+    const source = (document.getElementById(prefix + '-field-conditional-source')?.value || '').trim();
+    const option = (document.getElementById(prefix + '-field-conditional-option')?.value || '').trim();
+    const mode = (document.getElementById(prefix + '-field-conditional-mode')?.value || 'hide_when').trim();
+    if (!source || !option) {
+        return { parent_field_key: null, parent_value: null, conditional_mode: null };
+    }
+    return {
+        parent_field_key: source,
+        parent_value: option,
+        conditional_mode: mode === 'show_when' ? 'show_when' : 'hide_when'
+    };
+};
+
+window.pfApplyConditionalConfigToModal = function(prefix, config, excludeFieldKey) {
+    pfPopulateConditionalSourceSelect(prefix, excludeFieldKey, config.parent_field_key || '');
+    pfRefreshConditionalOptionSelect(prefix, config.parent_field_key || '', config.parent_value || '');
+    const modeEl = document.getElementById(prefix + '-field-conditional-mode');
+    if (modeEl) {
+        modeEl.value = (config.conditional_mode === 'show_when') ? 'show_when' : 'hide_when';
+    }
+};
+
 window.showAddFieldModal = function() {
+    pfPopulateConditionalSourceSelect('new', '', '');
+    pfRefreshConditionalOptionSelect('new', '', '');
     document.getElementById('addFieldModal').classList.add('active');
     document.body.style.overflow = 'hidden';
 };
@@ -884,6 +1000,8 @@ window.showEditFieldModal = function(key) {
         optionsSection.style.display = 'none';
         dimensionSection.style.display = 'none';
     }
+
+    pfApplyConditionalConfigToModal('edit', config, key);
     
     document.getElementById('editFieldModal').classList.add('active');
     document.body.style.overflow = 'hidden';
@@ -1141,6 +1259,8 @@ window.addNewField = function() {
         config.unit = unit;
         config.allow_others = allowOthers;
     }
+
+    Object.assign(config, pfReadConditionalConfigFromModal('new'));
     
     window.fieldConfigurations[key] = config;
     document.getElementById('fieldConfigsInput').value = JSON.stringify(window.fieldConfigurations);
@@ -1262,6 +1382,8 @@ window.saveEditField = function() {
         config.unit = unit;
         config.allow_others = allowOthers;
     }
+
+    Object.assign(config, pfReadConditionalConfigFromModal('edit'));
 
     window.fieldConfigurations[key] = config;
     document.getElementById('fieldConfigsInput').value = JSON.stringify(window.fieldConfigurations);

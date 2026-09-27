@@ -26,6 +26,10 @@ try {
 
         case 'create_order':
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') throw new Exception("Invalid request method.");
+            if (!verify_csrf_token((string)($_POST['csrf_token'] ?? ''))) {
+                http_response_code(419);
+                throw new Exception('Your session expired. Please refresh and try again.');
+            }
             
             // 1. Validate Basic Info
             $service = sanitize($_POST['service_type'] ?? '');

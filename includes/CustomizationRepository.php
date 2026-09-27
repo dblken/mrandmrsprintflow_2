@@ -294,6 +294,113 @@ class CustomizationRepository
         foreach ($rows as $row) {
             $grouped[(int)($row['order_id'] ?? 0)][] = $row;
         }
+
+        $missing = array_values(array_filter($ids, static fn(int $id): bool => empty($grouped[$id])));
+        if ($missing !== []) {
+            $missingSql = implode(',', $missing);
+            if ($this->hasTable('job_orders')) {
+                $jobs = db_query(
+                    "SELECT jo.order_id, MIN(jo.id) AS first_id,
+                            SUBSTRING_INDEX(GROUP_CONCAT(jo.job_title ORDER BY jo.id SEPARATOR '\n'), '\n', 1) AS job_title,
+                            SUBSTRING_INDEX(GROUP_CONCAT(jo.service_type ORDER BY jo.id SEPARATOR '\n'), '\n', 1) AS service_type,
+                            SUM(GREATEST(1, COALESCE(jo.quantity, 1))) AS quantity
+                     FROM job_orders jo
+                     WHERE jo.order_id IN ({$missingSql})
+                     GROUP BY jo.order_id"
+                ) ?: [];
+                foreach ($jobs as $job) {
+                    $orderId = (int)($job['order_id'] ?? 0);
+                    $grouped[$orderId][] = [
+                        'order_item_id' => 0, 'order_id' => $orderId, 'product_id' => 0,
+                        'quantity' => max(1, (int)($job['quantity'] ?? 1)), 'unit_price' => 0,
+                        'customization_data' => null, 'specifications' => null,
+                        'design_image_bytes' => 0, 'design_image_name' => null,
+                        'design_file' => null, 'reference_image_file' => null,
+                        'pf_product_name' => null, 'pf_category' => null,
+                        'photo_path' => null, 'product_image' => null,
+                        'pf_job_title' => (string)($job['job_title'] ?? ''),
+                        'pf_service_type' => (string)($job['service_type'] ?? ''),
+                    ];
+                }
+            }
+            if ($this->hasTable('customizations')) {
+                $stillMissing = array_values(array_filter($missing, static fn(int $id): bool => empty($grouped[$id])));
+                if ($stillMissing !== []) {
+                    $customRows = db_query(
+                        "SELECT order_id, MIN(customization_id) AS first_id,
+                                SUBSTRING_INDEX(GROUP_CONCAT(service_type ORDER BY customization_id SEPARATOR '\n'), '\n', 1) AS service_type
+                         FROM customizations
+                         WHERE order_id IN (" . implode(',', $stillMissing) . ")
+                         GROUP BY order_id"
+                    ) ?: [];
+                    foreach ($customRows as $customRow) {
+                        $orderId = (int)($customRow['order_id'] ?? 0);
+                        $grouped[$orderId][] = [
+                            'order_item_id' => 0, 'order_id' => $orderId, 'product_id' => 0,
+                            'quantity' => 1, 'unit_price' => 0, 'customization_data' => null,
+                            'specifications' => null, 'design_image_bytes' => 0,
+                            'design_image_name' => null, 'design_file' => null,
+                            'reference_image_file' => null, 'pf_product_name' => null,
+                            'pf_category' => null, 'photo_path' => null, 'product_image' => null,
+                            'pf_job_title' => null,
+                            'pf_service_type' => (string)($customRow['service_type'] ?? ''),
+                        ];
+                    }
+                }
+            }
+        }
+        return $grouped;
+    }
+
+    /**
+     * Fetch only list-card fields. Full customization JSON and design BLOBs are
+     * intentionally excluded and remain available through getOrderItems() when
+     * the user opens the detail view.
+     *
+     * @param array<int,int> $orderIds
+     * @return array<int,array<int,array<string,mixed>>>
+     */
+    public function getOrderItemSummariesForOrders(array $orderIds): array
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $orderIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        if ($ids === []) return [];
+
+        $designFile = $this->hasColumn('order_items', 'design_file')
+            ? 'oi.design_file' : 'NULL AS design_file';
+        $designName = $this->hasColumn('order_items', 'design_image_name')
+            ? 'oi.design_image_name' : 'NULL AS design_image_name';
+        $photoPath = $this->hasColumn('products', 'photo_path')
+            ? 'p.photo_path' : 'NULL AS photo_path';
+        $productImage = $this->hasColumn('products', 'product_image')
+            ? 'p.product_image' : 'NULL AS product_image';
+
+        $rows = db_query(
+            "SELECT oi.order_item_id, oi.order_id, oi.product_id, oi.quantity, oi.unit_price,
+                    NULL AS customization_data, NULL AS specifications,
+                    0 AS design_image_bytes, {$designName}, {$designFile},
+                    NULL AS reference_image_file,
+                    p.name AS pf_product_name, p.category AS pf_category,
+                    {$photoPath}, {$productImage},
+                    CASE WHEN JSON_VALID(oi.customization_data)
+                         THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_type'))
+                         ELSE NULL END AS pf_custom_service_type,
+                    (SELECT jo.job_title FROM job_orders jo
+                     WHERE jo.order_id = oi.order_id ORDER BY jo.id ASC LIMIT 1) AS pf_job_title,
+                    (SELECT jo.service_type FROM job_orders jo
+                     WHERE jo.order_id = oi.order_id ORDER BY jo.id ASC LIMIT 1) AS pf_service_type
+             FROM order_items oi
+             LEFT JOIN products p ON p.product_id = oi.product_id
+             WHERE oi.order_id IN (" . implode(',', $ids) . ")
+             ORDER BY oi.order_id ASC, oi.order_item_id ASC"
+        ) ?: [];
+
+        $grouped = [];
+        foreach ($rows as $row) {
+            $grouped[(int)($row['order_id'] ?? 0)][] = $row;
+        }
         return $grouped;
     }
 

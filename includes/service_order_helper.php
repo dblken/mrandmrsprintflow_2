@@ -471,6 +471,9 @@ function printflow_read_nested_service_post_value(string $nestedKey, array $nest
 function printflow_merge_nested_service_fields_into_customization(array $field_configs, array &$customization, ?array $post = null, ?array $files = null): void {
     $post = $post ?? $_POST;
     $files = $files ?? $_FILES;
+    if (!function_exists('printflow_service_field_is_active')) {
+        require_once __DIR__ . '/service_field_config_helper.php';
+    }
 
     foreach ($field_configs as $field_key => $config) {
         if (empty($config['visible'])) {
@@ -484,17 +487,8 @@ function printflow_merge_nested_service_fields_into_customization(array $field_c
             continue;
         }
 
-        if (!empty($config['parent_field_key']) && !empty($config['parent_value'])) {
-            $parent_key = $config['parent_field_key'];
-            $trigger_value = $config['parent_value'];
-            $parent_submitted_value = $post[$parent_key] ?? null;
-            if ($parent_key === 'branch') {
-                $parent_submitted_value = $post['branch_id'] ?? null;
-            }
-            // Match order_service_dynamic.php (uses !=) so numeric/string branch & option values still align.
-            if ($parent_submitted_value != $trigger_value) {
-                continue;
-            }
+        if (!printflow_service_field_is_active($config, $post)) {
+            continue;
         }
 
         $selected = trim((string)($post[$field_key] ?? ''));

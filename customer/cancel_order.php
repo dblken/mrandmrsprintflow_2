@@ -61,8 +61,8 @@ try {
         redirect("order_details.php?id=$order_id");
     }
 
-    $sql = "UPDATE orders SET status = 'Cancelled', cancelled_by = 'Customer', cancel_reason = ?, cancelled_at = NOW() WHERE order_id = ?";
-    $success = db_execute($sql, 'si', [$cancel_reason, $order_id]);
+    $sql = "UPDATE orders SET status = 'Cancelled', cancelled_by = 'Customer', cancel_reason = ?, cancelled_at = NOW() WHERE order_id = ? AND customer_id = ?";
+    $success = db_execute($sql, 'sii', [$cancel_reason, $order_id, $customer_id]);
 
     if (!$success) {
         if ($is_ajax) {

@@ -8452,7 +8452,8 @@ window.pfServiceFieldCatalog = (() => {
                                         body: JSON.stringify({
                                             action: 'update_price',
                                             index: state.item_index,
-                                            price: priceValue
+                                            price: priceValue,
+                                            csrf_token: document.body.getAttribute('data-csrf') || ''
                                         })
                                     });
                                     await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
@@ -8462,7 +8463,8 @@ window.pfServiceFieldCatalog = (() => {
                                             action: 'update_service_link',
                                             index: state.item_index,
                                             pending_order_id: parseInt(this.currentJo.order_id || this.deepLinkSourceOrderId || 0, 10) || 0,
-                                            customization_id: parseInt(this.currentJo.id || 0, 10) || 0
+                                            customization_id: parseInt(this.currentJo.id || 0, 10) || 0,
+                                            csrf_token: document.body.getAttribute('data-csrf') || ''
                                         })
                                     });
                                 } catch (e) {
@@ -8585,7 +8587,8 @@ window.pfServiceFieldCatalog = (() => {
                                     body: JSON.stringify({
                                         action: 'update_price',
                                         index: itemIndex,
-                                        price: userEnteredPrice
+                                        price: userEnteredPrice,
+                                        csrf_token: document.body.getAttribute('data-csrf') || ''
                                     })
                                 });
                                 await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
@@ -8595,7 +8598,8 @@ window.pfServiceFieldCatalog = (() => {
                                         action: 'update_service_link',
                                         index: itemIndex,
                                         pending_order_id: parseInt(this.currentJo.order_id || this.deepLinkSourceOrderId || 0, 10) || 0,
-                                        customization_id: parseInt(this.currentJo.id || 0, 10) || 0
+                                        customization_id: parseInt(this.currentJo.id || 0, 10) || 0,
+                                        csrf_token: document.body.getAttribute('data-csrf') || ''
                                     })
                                 });
                                 window.location.href = this.staffApiUrl('pos.php?from_customizations=1');
@@ -9548,6 +9552,7 @@ window.pfServiceFieldCatalog = (() => {
                 const fd = new FormData();
                 fd.append('order_id', orderId);
                 fd.append('status', 'Cancelled');
+                fd.append('expected_status', target.status || '');
                 fd.append('cancel_reason', 'Cancelled in-store after discussion with the customer.');
                 fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                 const res = await this.parseJsonResponse(
@@ -9581,6 +9586,7 @@ window.pfServiceFieldCatalog = (() => {
                         const fd = new FormData();
                         fd.append('order_id', orderId);
                         fd.append('status', 'Completed');
+                        fd.append('expected_status', this.currentJo.status || '');
                         fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
 
                         const endpoint = this.staffApiUrl('update_order_status_process.php');

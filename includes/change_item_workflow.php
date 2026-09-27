@@ -1255,6 +1255,14 @@ function printflow_change_item_process_inventory(int $changeItemId): bool
         return false;
     }
 
+    global $conn;
+    $startedTransaction = !printflow_db_in_transaction($conn);
+    if ($startedTransaction && !$conn->begin_transaction()) {
+        throw new RuntimeException('Unable to start Change Item inventory transaction.');
+    }
+
+    try {
+
     $rows = db_query(
         'SELECT * FROM change_item_requests WHERE change_item_id = ? LIMIT 1 FOR UPDATE',
         'i',
@@ -1265,6 +1273,7 @@ function printflow_change_item_process_inventory(int $changeItemId): bool
     }
     $change = $rows[0];
     if (!empty($change['inventory_recorded_at'])) {
+        if ($startedTransaction) $conn->commit();
         return true;
     }
 
@@ -1294,11 +1303,14 @@ function printflow_change_item_process_inventory(int $changeItemId): bool
         [$changeItemId]
     ) ?: [];
     if ($existing !== []) {
-        db_execute(
+        if (!db_execute(
             'UPDATE change_item_requests SET inventory_recorded_at = NOW() WHERE change_item_id = ?',
             'i',
             [$changeItemId]
-        );
+        )) {
+            throw new RuntimeException('Unable to finalize existing Change Item inventory state.');
+        }
+        if ($startedTransaction) $conn->commit();
         return true;
     }
 
@@ -1379,13 +1391,22 @@ function printflow_change_item_process_inventory(int $changeItemId): bool
         );
     }
 
-    db_execute(
+    if (!db_execute(
         'UPDATE change_item_requests SET inventory_recorded_at = NOW() WHERE change_item_id = ?',
         'i',
         [$changeItemId]
-    );
+    )) {
+        throw new RuntimeException('Unable to finalize Change Item inventory state.');
+    }
 
+    if ($startedTransaction) $conn->commit();
     return true;
+    } catch (Throwable $e) {
+        if ($startedTransaction && printflow_db_in_transaction($conn)) {
+            $conn->rollback();
+        }
+        throw $e;
+    }
 }
 
 function printflow_change_item_create(array $input): array

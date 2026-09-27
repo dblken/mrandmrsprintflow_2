@@ -716,7 +716,7 @@ const CV2 = (function () {
                 await fetch(`${STAFF_BASE}api/pos_cart_handler.php`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'update_price', index: itemIndex, price })
+                    body: JSON.stringify({ action: 'update_price', index: itemIndex, price, csrf_token: CSRF })
                 });
                 await fetch(`${STAFF_BASE}api/pos_cart_handler.php`, {
                     method: 'POST',
@@ -725,7 +725,8 @@ const CV2 = (function () {
                         action: 'update_service_link',
                         index: itemIndex,
                         pending_order_id: parseInt(currentDetail.order_id || 0, 10) || 0,
-                        customization_id: customizationId
+                        customization_id: customizationId,
+                        csrf_token: CSRF
                     })
                 });
             }

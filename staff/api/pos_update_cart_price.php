@@ -18,6 +18,12 @@ header('Content-Type: application/json');
 $json = file_get_contents('php://input');
 $data = json_decode($json, true);
 
+if (!is_array($data) || !verify_csrf_token((string)($data['csrf_token'] ?? ''))) {
+    http_response_code(419);
+    echo json_encode(['success' => false, 'message' => 'Your session expired. Please refresh and try again.']);
+    exit;
+}
+
 if (!isset($data['index']) || !isset($data['price'])) {
     echo json_encode(['success' => false, 'message' => 'Missing required parameters.']);
     exit;

@@ -191,13 +191,20 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
     
     $parent_field = $config['parent_field_key'] ?? '';
     $parent_value = $config['parent_value'] ?? '';
+    $conditional_mode = ($parent_field && $parent_value)
+        ? printflow_service_field_conditional_mode($config)
+        : '';
     
     $row_attrs = ' data-field-key="' . htmlspecialchars($field_key) . '"';
     if ($parent_field && $parent_value) {
         $row_attrs .= ' data-parent-field="' . htmlspecialchars($parent_field) . '"';
         $row_attrs .= ' data-parent-value="' . htmlspecialchars($parent_value) . '"';
-        // Initial state: hidden if it has a parent (will be shown by JS if condition met)
-        $row_attrs .= ' style="display: none; opacity: 0; transform: translateY(-10px); transition: all 0.3s ease;"';
+        $row_attrs .= ' data-conditional-mode="' . htmlspecialchars($conditional_mode) . '"';
+        if ($conditional_mode === 'hide_when') {
+            $row_attrs .= ' style="transition: all 0.3s ease;"';
+        } else {
+            $row_attrs .= ' style="display: none; opacity: 0; transform: translateY(-10px); transition: all 0.3s ease;"';
+        }
     } else {
         $row_attrs .= ' style="transition: all 0.3s ease;"';
     }
@@ -1357,40 +1364,97 @@ if (!window.__pfServiceFieldDelegatesBound) {
 
 // --- Conditional Fields Logic ---
 
+function pfConditionalValuesMatch(currentVal, triggerValue) {
+    return String(currentVal || '').trim().toLowerCase() === String(triggerValue || '').trim().toLowerCase();
+}
+
+function pfGetConditionalParentValue(parentField) {
+    if (!parentField) return '';
+    const radio = document.querySelector('input[name="' + parentField + '"]:checked');
+    if (radio) {
+        return radio.value;
+    }
+    const select = document.querySelector('select[name="' + parentField + '"]');
+    if (select) {
+        return select.value;
+    }
+    if (parentField === 'branch') {
+        const branchSelect = document.querySelector('select[name="branch_id"]');
+        if (branchSelect) return branchSelect.value;
+    }
+    return '';
+}
+
+function pfConditionalRowShouldShow(row) {
+    const parentField = row.getAttribute('data-parent-field');
+    const triggerValue = row.getAttribute('data-parent-value');
+    if (!parentField || !triggerValue) {
+        return true;
+    }
+    const mode = row.getAttribute('data-conditional-mode') || 'show_when';
+    const currentVal = pfGetConditionalParentValue(parentField);
+    const matches = pfConditionalValuesMatch(currentVal, triggerValue);
+    if (mode === 'hide_when') {
+        return !matches;
+    }
+    return matches;
+}
+
+function pfSyncConditionalRowRequiredState(row, isVisible) {
+    row.dataset.pfFieldInactive = isVisible ? '0' : '1';
+    const baseRequired = row.querySelector('.pf-file-upload-group[data-pf-required="1"]') !== null
+        || row.querySelector('.shopee-form-label')?.innerText?.includes('*');
+    const shouldRequire = isVisible && baseRequired;
+    row.querySelectorAll('input, select, textarea').forEach(function(input) {
+        if (input.type === 'hidden') {
+            return;
+        }
+        if (isVisible) {
+            input.disabled = false;
+            if (shouldRequire && input.closest('.pf-file-upload-group')) {
+                return;
+            }
+            if (input.classList.contains('pf-design-link-input') || input.classList.contains('pf-design-file-input') || input.name === 'design_file') {
+                input.required = false;
+                return;
+            }
+            if (baseRequired && (input.type === 'radio' || input.tagName === 'SELECT' || input.type === 'date' || input.type === 'file' || input.tagName === 'TEXTAREA' || input.classList.contains('pf-service-quantity-input'))) {
+                input.required = shouldRequire;
+            }
+        } else {
+            input.required = false;
+            input.disabled = true;
+        }
+    });
+    const uploadGroup = row.querySelector('.pf-file-upload-group[data-pf-required="1"]');
+    if (uploadGroup) {
+        uploadGroup.dataset.pfConditionallyRequired = shouldRequire ? '1' : '0';
+    }
+}
+
 function updateConditionalFields() {
     const allRows = document.querySelectorAll('.shopee-form-row[data-parent-field]');
     
-    // Create a map of current field values
-    const fieldValues = {};
-    
-    // Get values from all potential parent fields
-    // 1. Radios
-    document.querySelectorAll('input[type="radio"]:checked').forEach(radio => {
-        fieldValues[radio.name] = radio.value;
-    });
-    
-    // 2. Selects
-    document.querySelectorAll('select').forEach(select => {
-        fieldValues[select.name] = select.value;
-    });
-    
     allRows.forEach(row => {
-        const parentField = row.getAttribute('data-parent-field');
-        const triggerValue = row.getAttribute('data-parent-value');
-        const currentValue = fieldValues[parentField];
-        
-        if (currentValue === triggerValue) {
+        const shouldShow = pfConditionalRowShouldShow(row);
+        if (shouldShow) {
             showFieldRow(row);
+            pfSyncConditionalRowRequiredState(row, true);
         } else {
             hideFieldRow(row);
+            pfSyncConditionalRowRequiredState(row, false);
         }
     });
 }
 
 function showFieldRow(row) {
+    row.querySelectorAll('input, select, textarea').forEach(function(input) {
+        if (input.type !== 'hidden') {
+            input.disabled = false;
+        }
+    });
     if (row.style.display === 'none' || row.style.display === '') {
         row.style.display = 'flex';
-        // Force reflow for transition
         row.offsetHeight;
         row.style.opacity = '1';
         row.style.transform = 'translateY(0)';
@@ -1404,23 +1468,11 @@ function hideFieldRow(row) {
         
         // Wait for transition to finish before hiding
         setTimeout(() => {
-            // Re-check condition before hiding (in case user toggled back quickly)
-            const parentField = row.getAttribute('data-parent-field');
-            const triggerValue = row.getAttribute('data-parent-value');
-            
-            // Get current value again
-            let currentVal = '';
-            const radio = document.querySelector('input[name="' + parentField + '"]:checked');
-            if (radio) {
-                currentVal = radio.value;
-            } else {
-                const select = document.querySelector('select[name="' + parentField + '"]');
-                if (select) currentVal = select.value;
-            }
-            
-            if (currentVal !== triggerValue) {
+            const shouldShow = pfConditionalRowShouldShow(row);
+            if (!shouldShow) {
                 row.style.display = 'none';
                 clearFieldRowValues(row);
+                pfSyncConditionalRowRequiredState(row, false);
             }
         }, 300);
     }

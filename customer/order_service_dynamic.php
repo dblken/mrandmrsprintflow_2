@@ -312,29 +312,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     
     // Validate all required fields dynamically
     if (empty($error)) {
+        $field_values = printflow_service_field_values_from_post($_POST);
         foreach ($field_configs as $key => $config) {
             if (!$config['visible']) continue;
-            
-            // --- Conditional Logic Check ---
-            if (!empty($config['parent_field_key']) && !empty($config['parent_value'])) {
-                $parent_key = $config['parent_field_key'];
-                $trigger_value = $config['parent_value'];
-                
-                // Get the value of the parent field from POST
-                // For radio/select, it's just $_POST[$parent_key]
-                $parent_submitted_value = $_POST[$parent_key] ?? null;
-                
-                // Special case for 'branch' if it were possible, but here it's custom fields
-                if ($parent_key === 'branch') {
-                    $parent_submitted_value = $_POST['branch_id'] ?? null;
-                }
-                
-                // If parent condition not met, skip this field (it was hidden)
-                if ($parent_submitted_value != $trigger_value) {
-                    continue;
-                }
+
+            if (!printflow_service_field_is_active($config, $field_values)) {
+                continue;
             }
-            // --- End Conditional Logic Check ---
             
             if ($config['type'] === 'date') {
                 $date_val = trim((string)($_POST[$key] ?? ''));
@@ -358,7 +342,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 $has_design_field = true;
                 $link_post_name = service_order_design_link_post_name($key);
                 $design_link_raw = trim((string)($_POST[$link_post_name] ?? ''));
-                $has_uploaded_file = isset($_FILES['design_file']) && $_FILES['design_file']['error'] === UPLOAD_ERR_OK;
+                $file_input_name = 'design_file';
+                $has_uploaded_file = isset($_FILES[$file_input_name]) && $_FILES[$file_input_name]['error'] === UPLOAD_ERR_OK;
                 $has_design_link = $design_link_raw !== '';
 
                 if ($config['required'] && !$has_uploaded_file && !$has_design_link) {
@@ -431,7 +416,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $design_mime = null;
         $design_link_url = null;
         
-        if ($has_design_field && isset($_FILES['design_file']) && $_FILES['design_file']['error'] === UPLOAD_ERR_OK) {
+        $field_values = printflow_service_field_values_from_post($_POST);
+        $active_file_field_key = null;
+        foreach ($field_configs as $fk => $fc) {
+            if (($fc['type'] ?? '') === 'file' && !empty($fc['visible']) && printflow_service_field_is_active($fc, $field_values)) {
+                $active_file_field_key = $fk;
+                break;
+            }
+        }
+
+        if ($active_file_field_key !== null && isset($_FILES['design_file']) && $_FILES['design_file']['error'] === UPLOAD_ERR_OK) {
+            $has_design_field = true;
             $valid = service_order_validate_file($_FILES['design_file']);
             if (!$valid['ok']) {
                 $error = $valid['error'];
@@ -453,9 +448,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             }
         }
 
-        if ($has_design_field) {
+        if ($active_file_field_key !== null) {
             foreach ($field_configs as $fileKey => $fileConfig) {
                 if (($fileConfig['type'] ?? '') !== 'file' || empty($fileConfig['visible'])) {
+                    continue;
+                }
+                if (!printflow_service_field_is_active($fileConfig, $field_values)) {
                     continue;
                 }
                 $link_post_name = service_order_design_link_post_name($fileKey);
@@ -491,16 +489,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             foreach ($field_configs as $key => $config) {
                 if (!$config['visible']) continue;
                 
-                // Check conditional logic again for data collection
-                if (!empty($config['parent_field_key']) && !empty($config['parent_value'])) {
-                    $parent_key = $config['parent_field_key'];
-                    $trigger_value = $config['parent_value'];
-                    $parent_submitted_value = $_POST[$parent_key] ?? null;
-                    if ($parent_key === 'branch') $parent_submitted_value = $_POST['branch_id'] ?? null;
-                    
-                    if ($parent_submitted_value != $trigger_value) {
-                        continue;
-                    }
+                if (!printflow_service_field_is_active($config, $field_values)) {
+                    continue;
                 }
                 
                 if ($key === 'branch') {
@@ -1992,6 +1982,9 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         form.addEventListener('submit', function(e) {
+            if (typeof updateConditionalFields === 'function') {
+                updateConditionalFields();
+            }
             document.querySelectorAll('select.pf-select-custom-size').forEach(function(sel) {
                 if (typeof pfSyncSelectCustomSizeHidden === 'function') {
                     pfSyncSelectCustomSizeHidden(sel);
@@ -2013,6 +2006,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Process every form row to check for required fields (*)
             const rows = form.querySelectorAll('.shopee-form-row');
             rows.forEach(row => {
+                if (row.dataset.pfFieldInactive === '1') return;
                 if (row.offsetParent === null) return;
 
                 row.querySelectorAll('.pf-custom-size-panel.dim-others-inputs, .dim-others-inputs.pf-custom-size-panel').forEach(panel => {

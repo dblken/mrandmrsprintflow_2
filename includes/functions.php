@@ -1969,7 +1969,11 @@ function status_badge($status, $type = 'order') {
 
 
 /**
- * Sanitize input
+ * Legacy input normalizer that trims and HTML-escapes text.
+ *
+ * This is NOT SQL protection. SQL values must still use parameter binding,
+ * and new code should normally store trimmed plain text then escape it for the
+ * specific HTML/attribute/JSON output context.
  * @param string $input
  * @return string
  */

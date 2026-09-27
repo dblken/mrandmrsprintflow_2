@@ -31,6 +31,7 @@ if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') {
 
 $orderId = max(0, (int)($_POST['order_id'] ?? 0));
 $newStatus = trim((string)($_POST['status'] ?? ''));
+$expectedStatus = trim((string)($_POST['expected_status'] ?? ''));
 $cancelReason = trim((string)($_POST['cancel_reason'] ?? ''));
 
 if (!verify_csrf_token((string)($_POST['csrf_token'] ?? ''))) {
@@ -40,7 +41,7 @@ if (!verify_csrf_token((string)($_POST['csrf_token'] ?? ''))) {
         'csrf_token' => generate_csrf_token(),
     ], 419);
 }
-if ($orderId <= 0 || $newStatus === '') {
+if ($orderId <= 0 || $newStatus === '' || $expectedStatus === '') {
     printflow_json_response(['success' => false, 'error' => 'Missing required fields.'], 422);
 }
 
@@ -74,6 +75,22 @@ try {
 
     $order = $rows[0];
     $oldStatus = trim((string)($order['status'] ?? ''));
+    $canonicalStatus = static function (string $status): string {
+        $key = strtoupper(str_replace([' ', '-'], '_', trim($status)));
+        return match ($key) {
+            'TO_RECEIVE', 'READY_FOR_PICKUP', 'READY_FOR_COLLECTION' => 'READY_FOR_PICKUP',
+            'IN_PRODUCTION', 'PROCESSING', 'PRINTING' => $key,
+            default => $key,
+        };
+    };
+    if ($canonicalStatus($oldStatus) !== $canonicalStatus($expectedStatus)) {
+        if ($transactionStarted) $conn->rollback();
+        printflow_json_response([
+            'success' => false,
+            'error' => 'This order was updated by another staff member. Please refresh and review the latest status.',
+            'current_status' => $oldStatus,
+        ], 409);
+    }
     $customerId = (int)($order['customer_id'] ?? 0);
     $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
     $isProductOrder = $orderType === 'product';

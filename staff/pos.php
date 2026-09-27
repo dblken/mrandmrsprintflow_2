@@ -3920,7 +3920,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const response = await fetchWithTimeout(staffUrl('staff/api/pos_cart_handler.php'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action, ...payload })
+                    body: JSON.stringify({ action, ...payload, csrf_token: POS_CSRF_TOKEN })
                 }, Number(options.timeoutMs || 15000));
                 const responseText = await response.text();
                 let data;
@@ -4117,6 +4117,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         async function posStageMediaUpload(file, field = 'design') {
             const fd = new FormData();
             fd.append('field', field);
+            fd.append('csrf_token', POS_CSRF_TOKEN);
             fd.append(field === 'reference' ? 'reference_file' : 'design_file', file);
             const res = await fetch(staffUrl('staff/api/pos_upload_design.php'), {
                 method: 'POST',
@@ -6342,7 +6343,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         first_name: first,
                         last_name: last,
                         email: email,
-                        contact_number: phone
+                        contact_number: phone,
+                        csrf_token: POS_CSRF_TOKEN
                     })
                 }, 45000);
 
