@@ -514,7 +514,7 @@ require_once __DIR__ . '/../includes/header.php';
     if ($groupNotes !== ''):
     ?>
     <section class="pf-group-notes" aria-labelledby="pf-group-notes-heading">
-        <h2 id="pf-group-notes-heading" class="poc-section-title">Description / Notes</h2>
+        <h2 id="pf-group-notes-heading" class="poc-section-title">Description</h2>
         <p class="pf-group-notes-body"><?php echo htmlspecialchars($groupNotes, ENT_QUOTES, 'UTF-8'); ?></p>
     </section>
     <?php endif; ?>
