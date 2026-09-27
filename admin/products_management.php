@@ -2315,40 +2315,9 @@ if (isset($_GET['ajax'])) {
         .toolbar-btn.btn-add-product { color: #3b82f6; border-color: #3b82f6; }
         .toolbar-btn.btn-add-product:hover { background: #3b82f6; color: #fff; border-color: #3b82f6; }
 
-        /* Customer product groups (admin) — compact list + modals */
+        /* Customer product groups (admin) — matches Products List card + modals */
         .pf-cg-section {
-            background: #fff;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            padding: 16px 18px;
-            margin-bottom: 20px;
-        }
-        .pf-cg-section-header {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 12px 16px;
-            margin-bottom: 12px;
-        }
-        .pf-cg-section-header-text { flex: 1 1 220px; min-width: 0; }
-        .pf-cg-section-header h2 {
-            margin: 0;
-            font-size: 16px;
-            font-weight: 700;
-            color: #111827;
-        }
-        .pf-cg-section-header p {
-            margin: 4px 0 0;
-            font-size: 13px;
-            color: #6b7280;
-            line-height: 1.45;
-        }
-        .pf-cg-section-header .toolbar-btn { flex-shrink: 0; white-space: nowrap; }
-        .pf-cg-table-wrap {
-            border: 1px solid #e5e7eb;
-            border-radius: 10px;
-            overflow: hidden;
+            margin-top: 24px;
         }
         .pf-cg-table { margin: 0; width: 100%; table-layout: fixed; }
         .pf-cg-table .pf-cg-col-w-count { width: 100px; }
@@ -2585,238 +2554,6 @@ if (isset($_GET['ajax'])) {
         <header>
             <h1 class="page-title">Products Management</h1>
         </header>
-
-        <?php if (!$is_manager): ?>
-        <section class="pf-cg-section" aria-labelledby="pf-cg-heading">
-            <div class="pf-cg-section-header">
-                <div class="pf-cg-section-header-text">
-                    <h2 id="pf-cg-heading">Customer product groups</h2>
-                    <p>Group products for the customer catalog only. POS still lists every product individually.</p>
-                </div>
-            </div>
-
-            <div class="pf-cg-table-wrap">
-                <table class="orders-table pf-cg-table">
-                    <colgroup>
-                        <col>
-                        <col class="pf-cg-col-w-count">
-                        <col class="pf-cg-col-w-status">
-                        <col class="pf-cg-col-w-action">
-                    </colgroup>
-                    <thead>
-                        <tr>
-                            <th>Group</th>
-                            <th>Options</th>
-                            <th>Status</th>
-                            <th style="text-align:right;">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    <?php if (empty($catalog_groups_admin)): ?>
-                        <tr>
-                            <td colspan="4" class="pf-cg-empty">No customer product groups yet. Use <strong>Create Group</strong> in the Products List toolbar to add one.</td>
-                        </tr>
-                    <?php else: ?>
-                        <?php foreach ($catalog_groups_admin as $cg):
-                            $memberCount = count(printflow_catalog_group_members((int) $cg['group_id'], false));
-                            $cgStatus = (string) ($cg['status'] ?? 'Activated');
-                            $statusBadgeClass = $cgStatus === 'Activated' ? 'is-on' : 'is-off';
-                            $optionsLabel = (int) $memberCount . ' option' . ($memberCount === 1 ? '' : 's');
-                            ?>
-                            <tr>
-                                <td class="pf-cg-name-cell"><?php echo htmlspecialchars($cg['name']); ?></td>
-                                <td><?php echo htmlspecialchars($optionsLabel); ?></td>
-                                <td><span class="pf-cg-status-badge <?php echo $statusBadgeClass; ?>"><?php echo htmlspecialchars($cgStatus); ?></span></td>
-                                <td class="pf-cg-actions-cell">
-                                    <button type="button" class="btn-action blue" onclick="openCatalogGroupManage(<?php echo (int) $cg['group_id']; ?>)">Manage</button>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
-
-            <?php if (!empty($catalog_groups_admin)): ?>
-            <div id="pf-cg-manage-overlay" class="pf-cg-modal-overlay" onclick="pfCgManageOverlayClick(event)">
-                <div class="pf-cg-modal" onclick="event.stopPropagation()">
-                    <?php foreach ($catalog_groups_admin as $cg):
-                        $gid = (int) $cg['group_id'];
-                        $members = printflow_catalog_group_members($gid, false);
-                        $cgStatus = (string) ($cg['status'] ?? 'Activated');
-                        $cgDescription = (string) ($cg['description'] ?? '');
-                        $cgDescLen = function_exists('mb_strlen') ? mb_strlen($cgDescription, 'UTF-8') : strlen($cgDescription);
-                        $saveFormId = 'pf-cg-save-form-' . $gid;
-                        ?>
-                        <div class="pf-cg-manage-pane" data-group-id="<?php echo $gid; ?>" hidden>
-                            <div class="modal-header">
-                                <div>
-                                    <h3>Manage Product Group</h3>
-                                    <p class="modal-subtitle"><?php echo htmlspecialchars($cg['name']); ?></p>
-                                </div>
-                                <button type="button" class="pf-cg-modal-close" onclick="closeCatalogGroupManage()" aria-label="Close">
-                                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                                </button>
-                            </div>
-                            <div class="modal-body">
-                                <form method="POST" enctype="multipart/form-data" id="<?php echo htmlspecialchars($saveFormId, ENT_QUOTES, 'UTF-8'); ?>">
-                                    <?php echo csrf_field(); ?>
-                                    <input type="hidden" name="group_id" value="<?php echo $gid; ?>">
-                                    <div class="form-row">
-                                        <div class="form-group">
-                                            <label for="pf-cg-name-<?php echo $gid; ?>">Name</label>
-                                            <input type="text" id="pf-cg-name-<?php echo $gid; ?>" name="group_name" value="<?php echo htmlspecialchars($cg['name']); ?>" maxlength="100" required>
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="pf-cg-sort-<?php echo $gid; ?>">Sort order</label>
-                                            <input type="number" id="pf-cg-sort-<?php echo $gid; ?>" name="group_sort_order" value="<?php echo (int) ($cg['sort_order'] ?? 0); ?>" step="1">
-                                        </div>
-                                    </div>
-                                    <div class="form-row">
-                                        <div class="form-group">
-                                            <label for="pf-cg-status-<?php echo $gid; ?>">Status</label>
-                                            <select id="pf-cg-status-<?php echo $gid; ?>" name="group_status">
-                                                <option value="Activated" <?php echo $cgStatus === 'Activated' ? 'selected' : ''; ?>>Activated</option>
-                                                <option value="Deactivated" <?php echo $cgStatus === 'Deactivated' ? 'selected' : ''; ?>>Deactivated</option>
-                                            </select>
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="pf-cg-cover-<?php echo $gid; ?>">Cover image</label>
-                                            <input type="file" id="pf-cg-cover-<?php echo $gid; ?>" name="group_cover" accept="image/jpeg,image/png,image/gif,image/webp">
-                                        </div>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="pf-cg-desc-<?php echo $gid; ?>">Description / Notes</label>
-                                        <textarea id="pf-cg-desc-<?php echo $gid; ?>" name="group_description" maxlength="<?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?>" rows="4" data-pf-cg-desc="1" aria-describedby="pf-cg-desc-count-<?php echo $gid; ?>" placeholder="Optional notes for customers (pickup, payment, bulk orders, etc.)"><?php echo htmlspecialchars($cgDescription); ?></textarea>
-                                        <div class="pf-cg-char-count" id="pf-cg-desc-count-<?php echo $gid; ?>"><?php echo (int) $cgDescLen; ?> / <?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?></div>
-                                    </div>
-                                </form>
-                                <div class="pf-cg-modal-block">
-                                    <p class="pf-cg-modal-title">Products in this group</p>
-                                    <?php if (empty($members)): ?>
-                                        <p class="pf-cg-muted">No products assigned yet.</p>
-                                    <?php else: ?>
-                                        <div class="pf-cg-members">
-                                            <?php foreach ($members as $m): ?>
-                                                <div class="pf-cg-member-row">
-                                                    <span class="pf-cg-member-name"><?php echo htmlspecialchars($m['name']); ?></span>
-                                                    <form method="POST" class="pf-cg-inline-form">
-                                                        <?php echo csrf_field(); ?>
-                                                        <input type="hidden" name="group_id" value="<?php echo $gid; ?>">
-                                                        <input type="hidden" name="member_product_id" value="<?php echo (int) $m['product_id']; ?>">
-                                                        <button type="submit" name="catalog_group_remove_member" value="1" class="btn-action red">Remove</button>
-                                                    </form>
-                                                </div>
-                                            <?php endforeach; ?>
-                                        </div>
-                                    <?php endif; ?>
-                                </div>
-                                <div class="pf-cg-modal-block">
-                                    <p class="pf-cg-modal-title">Add product</p>
-                                    <form method="POST" class="pf-cg-inline-form">
-                                        <?php echo csrf_field(); ?>
-                                        <input type="hidden" name="group_id" value="<?php echo $gid; ?>">
-                                        <div class="pf-cg-add-row">
-                                            <div class="form-group">
-                                                <label for="pf-cg-add-<?php echo $gid; ?>">Product</label>
-                                                <select id="pf-cg-add-<?php echo $gid; ?>" name="member_product_id" required>
-                                                    <option value="">— Select product —</option>
-                                                    <?php foreach ($catalog_group_product_picker as $pp):
-                                                        $pid = (int) $pp['product_id'];
-                                                        $inOther = isset($catalog_member_map[$pid]) && (int) $catalog_member_map[$pid] !== $gid;
-                                                        if ($inOther) {
-                                                            continue;
-                                                        }
-                                                        ?>
-                                                        <option value="<?php echo $pid; ?>"><?php echo htmlspecialchars($pp['name'] . ($pp['sku'] ? ' (' . $pp['sku'] . ')' : '')); ?></option>
-                                                    <?php endforeach; ?>
-                                                </select>
-                                            </div>
-                                            <button type="submit" name="catalog_group_add_member" value="1" class="btn-action teal">Add product</button>
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
-                            <div class="pf-cg-modal-footer">
-                                <form method="POST" class="pf-cg-inline-form" onsubmit="return confirm('Remove this group? Products will stay in the system as standalone items.');">
-                                    <?php echo csrf_field(); ?>
-                                    <input type="hidden" name="group_id" value="<?php echo $gid; ?>">
-                                    <button type="submit" name="delete_catalog_group" value="1" class="btn-action red">Delete group</button>
-                                </form>
-                                <div class="pf-cg-modal-footer-right">
-                                    <button type="button" class="btn-cancel" onclick="closeCatalogGroupManage()">Cancel</button>
-                                    <button type="submit" class="btn-save" form="<?php echo htmlspecialchars($saveFormId, ENT_QUOTES, 'UTF-8'); ?>" name="save_catalog_group" value="1">Save Changes</button>
-                                </div>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-            <?php endif; ?>
-        </section>
-        <script>
-        function openCatalogGroupManage(groupId) {
-            var overlay = document.getElementById('pf-cg-manage-overlay');
-            if (!overlay) return;
-            var id = String(groupId);
-            overlay.querySelectorAll('.pf-cg-manage-pane').forEach(function (pane) {
-                pane.hidden = pane.getAttribute('data-group-id') !== id;
-            });
-            overlay.classList.add('active');
-            document.body.style.overflow = 'hidden';
-        }
-        function closeCatalogGroupManage() {
-            var overlay = document.getElementById('pf-cg-manage-overlay');
-            if (overlay) overlay.classList.remove('active');
-            document.body.style.overflow = '';
-        }
-        function pfCgManageOverlayClick(e) {
-            if (e.target.id === 'pf-cg-manage-overlay') closeCatalogGroupManage();
-        }
-        function openCatalogGroupCreate() {
-            var overlay = document.getElementById('pf-cg-create-overlay');
-            if (!overlay) return;
-            overlay.classList.add('active');
-            document.body.style.overflow = 'hidden';
-            var nameInput = document.getElementById('pf-cg-new-name');
-            if (nameInput) setTimeout(function () { nameInput.focus(); }, 50);
-        }
-        function closeCatalogGroupCreate() {
-            var overlay = document.getElementById('pf-cg-create-overlay');
-            if (overlay) overlay.classList.remove('active');
-            document.body.style.overflow = '';
-            var form = document.getElementById('pf-cg-create-form');
-            if (form) {
-                form.reset();
-                var desc = document.getElementById('pf-cg-new-desc');
-                if (desc) pfCgUpdateDescCounter(desc);
-            }
-        }
-        function pfCgCreateOverlayClick(e) {
-            if (e.target.id === 'pf-cg-create-overlay') closeCatalogGroupCreate();
-        }
-        document.addEventListener('keydown', function (e) {
-            if (e.key !== 'Escape') return;
-            if (document.getElementById('pf-cg-manage-overlay')?.classList.contains('active')) {
-                closeCatalogGroupManage();
-            } else if (document.getElementById('pf-cg-create-overlay')?.classList.contains('active')) {
-                closeCatalogGroupCreate();
-            }
-        });
-        var pfCgDescMax = <?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?>;
-        function pfCgUpdateDescCounter(textarea) {
-            if (!textarea) return;
-            var counterId = textarea.getAttribute('aria-describedby');
-            var counter = counterId ? document.getElementById(counterId) : null;
-            var len = textarea.value.length;
-            if (counter) counter.textContent = len + ' / ' + pfCgDescMax;
-        }
-        document.querySelectorAll('[data-pf-cg-desc]').forEach(function (ta) {
-            pfCgUpdateDescCounter(ta);
-            ta.addEventListener('input', function () { pfCgUpdateDescCounter(ta); });
-        });
-        </script>
-        <?php endif; ?>
 
         <script>
             // ── Alpine.js Data Components ───────────────────────────
@@ -3209,6 +2946,236 @@ if (isset($_GET['ajax'])) {
                 </div>
                 </div>
             </div>
+
+            <?php if (!$is_manager): ?>
+            <section class="card pf-cg-section" aria-labelledby="pf-cg-heading">
+                <div style="margin-bottom:20px;">
+                    <h3 id="pf-cg-heading" style="font-size:16px;font-weight:700;color:#1f2937;margin:0;">Customer product groups</h3>
+                    <p style="font-size:12px;color:#6b7280;margin:4px 0 0;line-height:1.45;">Group products for the customer catalog only. POS still lists every product individually.</p>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="orders-table pf-cg-table">
+                        <colgroup>
+                            <col>
+                            <col class="pf-cg-col-w-count">
+                            <col class="pf-cg-col-w-status">
+                            <col class="pf-cg-col-w-action">
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th>Group</th>
+                                <th>Options</th>
+                                <th>Status</th>
+                                <th style="text-align:right;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php if (empty($catalog_groups_admin)): ?>
+                            <tr>
+                                <td colspan="4" class="pf-cg-empty">No customer product groups yet. Use <strong>Create Group</strong> in the Products List toolbar to add one.</td>
+                            </tr>
+                        <?php else: ?>
+                            <?php foreach ($catalog_groups_admin as $cg):
+                                $memberCount = count(printflow_catalog_group_members((int) $cg['group_id'], false));
+                                $cgStatus = (string) ($cg['status'] ?? 'Activated');
+                                $statusBadgeClass = $cgStatus === 'Activated' ? 'is-on' : 'is-off';
+                                $optionsLabel = (int) $memberCount . ' option' . ($memberCount === 1 ? '' : 's');
+                                ?>
+                                <tr>
+                                    <td class="pf-cg-name-cell"><?php echo htmlspecialchars($cg['name']); ?></td>
+                                    <td><?php echo htmlspecialchars($optionsLabel); ?></td>
+                                    <td><span class="pf-cg-status-badge <?php echo $statusBadgeClass; ?>"><?php echo htmlspecialchars($cgStatus); ?></span></td>
+                                    <td class="pf-cg-actions-cell">
+                                        <button type="button" class="btn-action blue" onclick="openCatalogGroupManage(<?php echo (int) $cg['group_id']; ?>)">Manage</button>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+
+                <?php if (!empty($catalog_groups_admin)): ?>
+                <div id="pf-cg-manage-overlay" class="pf-cg-modal-overlay" onclick="pfCgManageOverlayClick(event)">
+                    <div class="pf-cg-modal" onclick="event.stopPropagation()">
+                        <?php foreach ($catalog_groups_admin as $cg):
+                            $gid = (int) $cg['group_id'];
+                            $members = printflow_catalog_group_members($gid, false);
+                            $cgStatus = (string) ($cg['status'] ?? 'Activated');
+                            $cgDescription = (string) ($cg['description'] ?? '');
+                            $cgDescLen = function_exists('mb_strlen') ? mb_strlen($cgDescription, 'UTF-8') : strlen($cgDescription);
+                            $saveFormId = 'pf-cg-save-form-' . $gid;
+                            ?>
+                            <div class="pf-cg-manage-pane" data-group-id="<?php echo $gid; ?>" hidden>
+                                <div class="modal-header">
+                                    <div>
+                                        <h3>Manage Product Group</h3>
+                                        <p class="modal-subtitle"><?php echo htmlspecialchars($cg['name']); ?></p>
+                                    </div>
+                                    <button type="button" class="pf-cg-modal-close" onclick="closeCatalogGroupManage()" aria-label="Close">
+                                        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                    </button>
+                                </div>
+                                <div class="modal-body">
+                                    <form method="POST" enctype="multipart/form-data" id="<?php echo htmlspecialchars($saveFormId, ENT_QUOTES, 'UTF-8'); ?>">
+                                        <?php echo csrf_field(); ?>
+                                        <input type="hidden" name="group_id" value="<?php echo $gid; ?>">
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label for="pf-cg-name-<?php echo $gid; ?>">Name</label>
+                                                <input type="text" id="pf-cg-name-<?php echo $gid; ?>" name="group_name" value="<?php echo htmlspecialchars($cg['name']); ?>" maxlength="100" required>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="pf-cg-sort-<?php echo $gid; ?>">Sort order</label>
+                                                <input type="number" id="pf-cg-sort-<?php echo $gid; ?>" name="group_sort_order" value="<?php echo (int) ($cg['sort_order'] ?? 0); ?>" step="1">
+                                            </div>
+                                        </div>
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label for="pf-cg-status-<?php echo $gid; ?>">Status</label>
+                                                <select id="pf-cg-status-<?php echo $gid; ?>" name="group_status">
+                                                    <option value="Activated" <?php echo $cgStatus === 'Activated' ? 'selected' : ''; ?>>Activated</option>
+                                                    <option value="Deactivated" <?php echo $cgStatus === 'Deactivated' ? 'selected' : ''; ?>>Deactivated</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="pf-cg-cover-<?php echo $gid; ?>">Cover image</label>
+                                                <input type="file" id="pf-cg-cover-<?php echo $gid; ?>" name="group_cover" accept="image/jpeg,image/png,image/gif,image/webp">
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="pf-cg-desc-<?php echo $gid; ?>">Description / Notes</label>
+                                            <textarea id="pf-cg-desc-<?php echo $gid; ?>" name="group_description" maxlength="<?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?>" rows="4" data-pf-cg-desc="1" aria-describedby="pf-cg-desc-count-<?php echo $gid; ?>" placeholder="Optional notes for customers (pickup, payment, bulk orders, etc.)"><?php echo htmlspecialchars($cgDescription); ?></textarea>
+                                            <div class="pf-cg-char-count" id="pf-cg-desc-count-<?php echo $gid; ?>"><?php echo (int) $cgDescLen; ?> / <?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?></div>
+                                        </div>
+                                    </form>
+                                    <div class="pf-cg-modal-block">
+                                        <p class="pf-cg-modal-title">Products in this group</p>
+                                        <?php if (empty($members)): ?>
+                                            <p class="pf-cg-muted">No products assigned yet.</p>
+                                        <?php else: ?>
+                                            <div class="pf-cg-members">
+                                                <?php foreach ($members as $m): ?>
+                                                    <div class="pf-cg-member-row">
+                                                        <span class="pf-cg-member-name"><?php echo htmlspecialchars($m['name']); ?></span>
+                                                        <form method="POST" class="pf-cg-inline-form">
+                                                            <?php echo csrf_field(); ?>
+                                                            <input type="hidden" name="group_id" value="<?php echo $gid; ?>">
+                                                            <input type="hidden" name="member_product_id" value="<?php echo (int) $m['product_id']; ?>">
+                                                            <button type="submit" name="catalog_group_remove_member" value="1" class="btn-action red">Remove</button>
+                                                        </form>
+                                                    </div>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="pf-cg-modal-block">
+                                        <p class="pf-cg-modal-title">Add product</p>
+                                        <form method="POST" class="pf-cg-inline-form">
+                                            <?php echo csrf_field(); ?>
+                                            <input type="hidden" name="group_id" value="<?php echo $gid; ?>">
+                                            <div class="pf-cg-add-row">
+                                                <div class="form-group">
+                                                    <label for="pf-cg-add-<?php echo $gid; ?>">Product</label>
+                                                    <select id="pf-cg-add-<?php echo $gid; ?>" name="member_product_id" required>
+                                                        <option value="">— Select product —</option>
+                                                        <?php foreach ($catalog_group_product_picker as $pp):
+                                                            $pid = (int) $pp['product_id'];
+                                                            $inOther = isset($catalog_member_map[$pid]) && (int) $catalog_member_map[$pid] !== $gid;
+                                                            if ($inOther) {
+                                                                continue;
+                                                            }
+                                                            ?>
+                                                            <option value="<?php echo $pid; ?>"><?php echo htmlspecialchars($pp['name'] . ($pp['sku'] ? ' (' . $pp['sku'] . ')' : '')); ?></option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </div>
+                                                <button type="submit" name="catalog_group_add_member" value="1" class="btn-action teal">Add product</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                                <div class="pf-cg-modal-footer">
+                                    <form method="POST" class="pf-cg-inline-form" onsubmit="return confirm('Remove this group? Products will stay in the system as standalone items.');">
+                                        <?php echo csrf_field(); ?>
+                                        <input type="hidden" name="group_id" value="<?php echo $gid; ?>">
+                                        <button type="submit" name="delete_catalog_group" value="1" class="btn-action red">Delete group</button>
+                                    </form>
+                                    <div class="pf-cg-modal-footer-right">
+                                        <button type="button" class="btn-cancel" onclick="closeCatalogGroupManage()">Cancel</button>
+                                        <button type="submit" class="btn-save" form="<?php echo htmlspecialchars($saveFormId, ENT_QUOTES, 'UTF-8'); ?>" name="save_catalog_group" value="1">Save Changes</button>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
+            </section>
+            <script>
+            function openCatalogGroupManage(groupId) {
+                var overlay = document.getElementById('pf-cg-manage-overlay');
+                if (!overlay) return;
+                var id = String(groupId);
+                overlay.querySelectorAll('.pf-cg-manage-pane').forEach(function (pane) {
+                    pane.hidden = pane.getAttribute('data-group-id') !== id;
+                });
+                overlay.classList.add('active');
+                document.body.style.overflow = 'hidden';
+            }
+            function closeCatalogGroupManage() {
+                var overlay = document.getElementById('pf-cg-manage-overlay');
+                if (overlay) overlay.classList.remove('active');
+                document.body.style.overflow = '';
+            }
+            function pfCgManageOverlayClick(e) {
+                if (e.target.id === 'pf-cg-manage-overlay') closeCatalogGroupManage();
+            }
+            function openCatalogGroupCreate() {
+                var overlay = document.getElementById('pf-cg-create-overlay');
+                if (!overlay) return;
+                overlay.classList.add('active');
+                document.body.style.overflow = 'hidden';
+                var nameInput = document.getElementById('pf-cg-new-name');
+                if (nameInput) setTimeout(function () { nameInput.focus(); }, 50);
+            }
+            function closeCatalogGroupCreate() {
+                var overlay = document.getElementById('pf-cg-create-overlay');
+                if (overlay) overlay.classList.remove('active');
+                document.body.style.overflow = '';
+                var form = document.getElementById('pf-cg-create-form');
+                if (form) {
+                    form.reset();
+                    var desc = document.getElementById('pf-cg-new-desc');
+                    if (desc) pfCgUpdateDescCounter(desc);
+                }
+            }
+            function pfCgCreateOverlayClick(e) {
+                if (e.target.id === 'pf-cg-create-overlay') closeCatalogGroupCreate();
+            }
+            document.addEventListener('keydown', function (e) {
+                if (e.key !== 'Escape') return;
+                if (document.getElementById('pf-cg-manage-overlay')?.classList.contains('active')) {
+                    closeCatalogGroupManage();
+                } else if (document.getElementById('pf-cg-create-overlay')?.classList.contains('active')) {
+                    closeCatalogGroupCreate();
+                }
+            });
+            var pfCgDescMax = <?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?>;
+            function pfCgUpdateDescCounter(textarea) {
+                if (!textarea) return;
+                var counterId = textarea.getAttribute('aria-describedby');
+                var counter = counterId ? document.getElementById(counterId) : null;
+                var len = textarea.value.length;
+                if (counter) counter.textContent = len + ' / ' + pfCgDescMax;
+            }
+            document.querySelectorAll('[data-pf-cg-desc]').forEach(function (ta) {
+                pfCgUpdateDescCounter(ta);
+                ta.addEventListener('input', function () { pfCgUpdateDescCounter(ta); });
+            });
+            </script>
+            <?php endif; ?>
         </main>
     </div>
 </div>
