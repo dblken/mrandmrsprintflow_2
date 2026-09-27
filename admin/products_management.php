@@ -3045,7 +3045,7 @@ if (isset($_GET['ajax'])) {
                                             </div>
                                         </div>
                                         <div class="form-group">
-                                            <label for="pf-cg-desc-<?php echo $gid; ?>">Description / Notes</label>
+                                            <label for="pf-cg-desc-<?php echo $gid; ?>">Description</label>
                                             <textarea id="pf-cg-desc-<?php echo $gid; ?>" name="group_description" maxlength="<?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?>" rows="4" data-pf-cg-desc="1" aria-describedby="pf-cg-desc-count-<?php echo $gid; ?>" placeholder="Optional notes for customers (pickup, payment, bulk orders, etc.)"><?php echo htmlspecialchars($cgDescription); ?></textarea>
                                             <div class="pf-cg-char-count" id="pf-cg-desc-count-<?php echo $gid; ?>"><?php echo (int) $cgDescLen; ?> / <?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?></div>
                                         </div>
