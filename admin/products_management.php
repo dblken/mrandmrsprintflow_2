@@ -2391,6 +2391,9 @@ if (isset($_GET['ajax'])) {
             display: flex;
             flex-direction: column;
         }
+        .pf-cg-modal.pf-cg-modal--create {
+            max-width: min(480px, calc(100vw - 32px));
+        }
         .pf-cg-manage-pane[hidden] { display: none !important; }
         .pf-cg-manage-pane:not([hidden]) {
             display: flex;
@@ -2590,7 +2593,6 @@ if (isset($_GET['ajax'])) {
                     <h2 id="pf-cg-heading">Customer product groups</h2>
                     <p>Group products for the customer catalog only. POS still lists every product individually.</p>
                 </div>
-                <button type="button" class="toolbar-btn btn-add-product" onclick="openCatalogGroupCreate()">+ Create Group</button>
             </div>
 
             <div class="pf-cg-table-wrap">
@@ -2612,7 +2614,7 @@ if (isset($_GET['ajax'])) {
                     <tbody>
                     <?php if (empty($catalog_groups_admin)): ?>
                         <tr>
-                            <td colspan="4" class="pf-cg-empty">No customer product groups yet. Click <strong>Create Group</strong> to add one.</td>
+                            <td colspan="4" class="pf-cg-empty">No customer product groups yet. Use <strong>Create Group</strong> in the Products List toolbar to add one.</td>
                         </tr>
                     <?php else: ?>
                         <?php foreach ($catalog_groups_admin as $cg):
@@ -2751,46 +2753,6 @@ if (isset($_GET['ajax'])) {
                 </div>
             </div>
             <?php endif; ?>
-
-            <div id="pf-cg-create-overlay" class="pf-cg-modal-overlay" onclick="pfCgCreateOverlayClick(event)">
-                <div class="pf-cg-modal" onclick="event.stopPropagation()">
-                    <div class="modal-header">
-                        <div>
-                            <h3>Create Customer Product Group</h3>
-                            <p class="modal-subtitle">Shown on the customer catalog only</p>
-                        </div>
-                        <button type="button" class="pf-cg-modal-close" onclick="closeCatalogGroupCreate()" aria-label="Close">
-                            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                        </button>
-                    </div>
-                    <form method="POST" enctype="multipart/form-data" id="pf-cg-create-form">
-                        <?php echo csrf_field(); ?>
-                        <input type="hidden" name="group_id" value="0">
-                        <div class="modal-body">
-                            <div class="form-group">
-                                <label for="pf-cg-new-name">Group name</label>
-                                <input type="text" id="pf-cg-new-name" name="group_name" maxlength="100" required placeholder="e.g. Summer collection">
-                            </div>
-                            <div class="form-group">
-                                <label for="pf-cg-new-cover">Cover image (optional)</label>
-                                <input type="file" id="pf-cg-new-cover" name="group_cover" accept="image/jpeg,image/png,image/gif,image/webp">
-                            </div>
-                            <div class="form-group">
-                                <label for="pf-cg-new-desc">Description / Notes</label>
-                                <textarea id="pf-cg-new-desc" name="group_description" maxlength="<?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?>" rows="4" data-pf-cg-desc="1" aria-describedby="pf-cg-new-desc-count" placeholder="Optional notes for customers"></textarea>
-                                <div class="pf-cg-char-count" id="pf-cg-new-desc-count">0 / <?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?></div>
-                            </div>
-                        </div>
-                        <div class="pf-cg-modal-footer">
-                            <span></span>
-                            <div class="pf-cg-modal-footer-right">
-                                <button type="button" class="btn-cancel" onclick="closeCatalogGroupCreate()">Cancel</button>
-                                <button type="submit" name="save_catalog_group" value="1" class="btn-save">Create Group</button>
-                            </div>
-                        </div>
-                    </form>
-                </div>
-            </div>
         </section>
         <script>
         function openCatalogGroupManage(groupId) {
@@ -2823,6 +2785,12 @@ if (isset($_GET['ajax'])) {
             var overlay = document.getElementById('pf-cg-create-overlay');
             if (overlay) overlay.classList.remove('active');
             document.body.style.overflow = '';
+            var form = document.getElementById('pf-cg-create-form');
+            if (form) {
+                form.reset();
+                var desc = document.getElementById('pf-cg-new-desc');
+                if (desc) pfCgUpdateDescCounter(desc);
+            }
         }
         function pfCgCreateOverlayClick(e) {
             if (e.target.id === 'pf-cg-create-overlay') closeCatalogGroupCreate();
@@ -2994,6 +2962,7 @@ if (isset($_GET['ajax'])) {
                     <div style="display:flex; align-items:center; gap:8px;">
                         <?php if (!$is_manager): ?>
                         <button class="toolbar-btn" type="button" onclick="openProductModal('create')" style="height:38px; border-color:#3b82f6; color:#3b82f6;">Add Item</button>
+                        <button class="toolbar-btn" type="button" onclick="openCatalogGroupCreate()" style="height:38px; border-color:#0d9488; color:#0d9488;">Create Group</button>
                         <button class="toolbar-btn" type="button" onclick="window.openArchiveModal()" style="height:38px; border-color:#6b7280; color:#6b7280; display:flex; align-items:center; gap:6px;">
                             <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
@@ -3601,6 +3570,49 @@ if (isset($_GET['ajax'])) {
 </div>
 
 
+
+<?php if (!$is_manager): ?>
+<!-- Create Customer Product Group (modal only — opened from Products List toolbar) -->
+<div id="pf-cg-create-overlay" class="pf-cg-modal-overlay" onclick="pfCgCreateOverlayClick(event)">
+    <div class="pf-cg-modal pf-cg-modal--create" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <div>
+                <h3>Create Customer Product Group</h3>
+                <p class="modal-subtitle">Shown on the customer catalog only</p>
+            </div>
+            <button type="button" class="pf-cg-modal-close" onclick="closeCatalogGroupCreate()" aria-label="Close">
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <form method="POST" enctype="multipart/form-data" id="pf-cg-create-form">
+            <?php echo csrf_field(); ?>
+            <input type="hidden" name="group_id" value="0">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="pf-cg-new-name">Group name</label>
+                    <input type="text" id="pf-cg-new-name" name="group_name" maxlength="100" required placeholder="e.g. Summer collection">
+                </div>
+                <div class="form-group">
+                    <label for="pf-cg-new-cover">Cover image (optional)</label>
+                    <input type="file" id="pf-cg-new-cover" name="group_cover" accept="image/jpeg,image/png,image/gif,image/webp">
+                </div>
+                <div class="form-group">
+                    <label for="pf-cg-new-desc">Description / Notes</label>
+                    <textarea id="pf-cg-new-desc" name="group_description" maxlength="<?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?>" rows="4" data-pf-cg-desc="1" aria-describedby="pf-cg-new-desc-count" placeholder="Optional notes for customers"></textarea>
+                    <div class="pf-cg-char-count" id="pf-cg-new-desc-count">0 / <?php echo (int) PRINTFLOW_CATALOG_GROUP_DESCRIPTION_MAX; ?></div>
+                </div>
+            </div>
+            <div class="pf-cg-modal-footer">
+                <span></span>
+                <div class="pf-cg-modal-footer-right">
+                    <button type="button" class="btn-cancel" onclick="closeCatalogGroupCreate()">Cancel</button>
+                    <button type="submit" name="save_catalog_group" value="1" class="btn-save">Create Group</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- Archived Items Modal (z-index above status modal 10000, logout 9999, pf-fg portal 10030+) -->
 <div id="archive-storage-overlay" role="dialog" aria-modal="true" aria-labelledby="archive-storage-title" onclick="if (event.target === this) window.closeArchiveModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10090;align-items:center;justify-content:center;padding:16px;pointer-events:auto;">
