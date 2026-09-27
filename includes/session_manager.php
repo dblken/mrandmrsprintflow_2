@@ -10,7 +10,7 @@
  *   setNoCacheHeaders() — prevent browser caching of protected pages
  *   wasTimedOut()       — true if this request's session was just expired
  *
- * PRODUCTION NOTE: Change SESSION_HMAC_SECRET to a strong random value unique per deployment.
+ * PRODUCTION NOTE: Set PRINTFLOW_SESSION_HMAC_SECRET to a strong random value unique per deployment.
  */
 
 require_once __DIR__ . '/env.php';
@@ -40,8 +40,7 @@ if (!defined('PRINTFLOW_ENFORCE_FINGERPRINT')) {
 
 if (!defined('SESSION_HMAC_SECRET')) {
     if ($printflowSessionSecret === '' && $printflowSessionIsProduction) {
-        error_log('[session] CRITICAL: PRINTFLOW_SESSION_HMAC_SECRET is not configured in production. Using legacy default so the site remains available; set PRINTFLOW_SESSION_HMAC_SECRET in the server environment.');
-        $printflowSessionSecret = 'PrintFlow-Session-HMAC-Secret-Change-In-Production-2024';
+        throw new RuntimeException('PRINTFLOW_SESSION_HMAC_SECRET must be configured in production.');
     }
     if ($printflowSessionSecret === '') {
         $printflowSessionSecret = 'PrintFlow-Development-Only-Session-Secret';

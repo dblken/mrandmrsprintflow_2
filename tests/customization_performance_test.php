@@ -83,7 +83,7 @@ $assert(strpos($apiSource, '$countRowsByKey') !== false, 'count candidates must 
 $assert(strpos($apiSource, 'jo_api_attach_provider_payments($countRows)') !== false, 'counts must apply the same provider-payment status adjustment as rows');
 
 $swSource = (string)file_get_contents(__DIR__ . '/../public/sw.php');
-$assert(strpos($swSource, "const CACHE_VERSION = 'v18'") !== false, 'service-worker cache policy change must invalidate old caches');
+$assert(strpos($swSource, "const CACHE_VERSION = 'v19'") !== false, 'service-worker cache policy change must invalidate old caches');
 $assert(strpos($swSource, 'isTrustedStaticAsset(url)') !== false, 'service worker must use an explicit static-asset allowlist');
 $assert(strpos($swSource, "url.pathname.startsWith(assetRoot + 'uploads/')") !== false, 'uploaded media must be excluded from the shell cache');
 $assert(strpos($swSource, 'isCachePutEligible(request, response)') !== false, 'Cache.put must be guarded by request and response eligibility');
@@ -94,7 +94,15 @@ $assert(strpos($ordersPageSource, 'ordersMinimumRefreshAgeMs') !== false, 'order
 $assert(strpos($ordersPageSource, 'if (silent && ordersFetchController) return;') !== false, 'orders background refreshes must be single-flight');
 
 $v2ServiceSource = (string)file_get_contents(__DIR__ . '/../includes/CustomizationService.php');
-$assert(strpos($v2ServiceSource, 'JobOrderService::getStoreOrderItemSummariesBatch($missing, false)') !== false, 'V2 list preloading must use compact store payloads');
+$assert(strpos($v2ServiceSource, 'getOrderItemSummariesForOrders($orderIds)') !== false, 'V2 list preloading must use the lean repository summary query');
+$assert(strpos($v2ServiceSource, 'buildSummaryItemView') !== false, 'V2 list preloading must build compact row item views');
+$listMethodStart = strpos($v2ServiceSource, 'public function listOrderSummaries');
+$listMethodEnd = strpos($v2ServiceSource, 'private function buildSummaryItemView', $listMethodStart ?: 0);
+$listMethodSource = $listMethodStart !== false && $listMethodEnd !== false
+    ? substr($v2ServiceSource, $listMethodStart, $listMethodEnd - $listMethodStart)
+    : '';
+$assert($listMethodSource !== '', 'V2 list summary method is missing');
+$assert(strpos($listMethodSource, 'resolveRawItems(') === false, 'V2 list summaries must not fall back to detail payload parsing');
 
 echo sprintf(
     "Customization performance contract tests passed. Synthetic legacy=%d bytes, summary=%d bytes.\n",
