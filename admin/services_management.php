@@ -9,8 +9,8 @@ require_once __DIR__ . '/../includes/service_field_config_helper.php';
 
 require_role(['Admin', 'Manager']);
 
-/** Manager: services list is read-only (view + filter/sort only). */
-$pf_manager_services_readonly = defined('MANAGER_PANEL') && MANAGER_PANEL;
+/** Manager: services list is read-only (view + filter/sort only), even on direct /admin URL access. */
+$pf_manager_services_readonly = (get_user_type() === 'Manager');
 
 $base_path = pf_app_base_path();
 $current_user = get_logged_in_user();
@@ -447,7 +447,7 @@ function pf_admin_service_row_json(array $svc): string {
 }
 
 function render_services_table_rows(array $services): void {
-    $readonly = defined('MANAGER_PANEL') && MANAGER_PANEL;
+    $readonly = (get_user_type() === 'Manager');
     ?>
     <table class="orders-table">
         <thead>
