@@ -13,6 +13,9 @@ require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/ensure_customer_checkout_idempotency_schema.php';
+
+printflow_ensure_customer_checkout_idempotency_schema();
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
@@ -452,7 +455,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
         if (review_is_ajax_confirm_request()) {
             review_json_confirm_response(false, ['error' => $order_error]);
         }
-    } elseif (!db_table_has_column('orders', 'checkout_token')) {
+    } elseif (!printflow_customer_checkout_idempotency_schema_ready()) {
+        error_log('[order_review] checkout blocked: orders.checkout_token schema not ready ref=' . $request_reference);
         $order_error = 'Checkout is temporarily unavailable while a required database update is applied.';
     } elseif (!review_checkout_token_is_valid($posted_checkout_token)
         || !hash_equals($checkout_token, $posted_checkout_token)) {

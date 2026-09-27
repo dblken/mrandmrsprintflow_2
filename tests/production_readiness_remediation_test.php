@@ -16,7 +16,9 @@ $repository = $source('includes/CustomizationRepository.php');
 $service = $source('includes/CustomizationService.php');
 $session = $source('includes/session_manager.php');
 
-$check(str_contains($migration, 'uq_orders_customer_checkout_token'), 'checkout token has a database unique constraint');
+$check(str_contains($source('includes/ensure_customer_checkout_idempotency_schema.php'), 'uq_orders_customer_checkout_token'), 'checkout token has a database unique constraint');
+$check(str_contains($migration, 'printflow_ensure_customer_checkout_idempotency_schema'), 'checkout migration delegates to shared ensure helper');
+$check(str_contains($review, 'printflow_ensure_customer_checkout_idempotency_schema'), 'order review applies checkout schema ensure on load');
 $check(str_contains($review, 'review_checkout_existing_order'), 'duplicate checkout can recover the original order');
 $check(str_contains($review, 'checkout_token'), 'checkout token is submitted and persisted');
 $check(str_contains($review, '$conn->begin_transaction()') && str_contains($review, '$conn->commit()'), 'checkout owns an order transaction');
