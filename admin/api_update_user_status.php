@@ -7,7 +7,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/staff_access.php';
 
-require_role(['Admin', 'Manager']);
+require_role('Admin');
 // Ensure $base_path is defined
 if (!isset($base_path)) {
     if (file_exists(__DIR__ . '/../config.php')) {

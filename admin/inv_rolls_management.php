@@ -132,6 +132,8 @@ $rollItems = db_query("SELECT id, name FROM inv_items WHERE track_by_roll = 1 AN
 </div>
 
 <script>
+    window.PF_INVENTORY_CSRF = <?php echo json_encode(generate_csrf_token(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+
     function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
     function rollColor(pct) {
@@ -238,6 +240,7 @@ $rollItems = db_query("SELECT id, name FROM inv_items WHERE track_by_roll = 1 AN
     async function saveRoll(e) {
         e.preventDefault();
         const fd = new FormData(e.target);
+        fd.set('csrf_token', window.PF_INVENTORY_CSRF || '');
         const res = await fetch('inventory_rolls_api.php', { method: 'POST', body: fd });
         const data = await res.json();
         if(data.success) {
@@ -251,6 +254,7 @@ $rollItems = db_query("SELECT id, name FROM inv_items WHERE track_by_roll = 1 AN
         const fd = new FormData();
         fd.append('action', 'void_roll');
         fd.append('roll_id', id);
+        fd.set('csrf_token', window.PF_INVENTORY_CSRF || '');
         const res = await fetch('inventory_rolls_api.php', { method: 'POST', body: fd });
         if((await res.json()).success) loadRolls();
     }

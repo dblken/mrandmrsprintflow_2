@@ -55,6 +55,11 @@ $per_page = 15;
 // Inventory Archive/Restore (AJAX)
 if (isset($_POST['archive_item']) || isset($_POST['restore_item'])) {
     header('Content-Type: application/json');
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        http_response_code(419);
+        echo json_encode(['success' => false, 'error' => 'Invalid session token.']);
+        exit;
+    }
     if (!$can_manage_item_master) {
         http_response_code(403);
         echo json_encode(['success' => false, 'error' => 'This branch is view-only. Inventory items cannot be changed here.']);
@@ -1556,6 +1561,7 @@ if (isset($_GET['ajax'])) {
 
   <script>
     /* var: Turbo re-executes this block; let/const would throw "already been declared". */
+    window.PF_INVENTORY_CSRF = <?php echo json_encode(generate_csrf_token(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
     var ADMIN_API_BASE = '<?php echo $base_path; ?>/admin/';
     var currentItems = <?php echo $items_js; ?>;
     var usageChart = null;
@@ -1827,6 +1833,7 @@ if (isset($_GET['ajax'])) {
             var formData = new FormData();
             formData.append('action', 'reset_thresholds');
             formData.append('id', itemId);
+            formData.append('csrf_token', window.PF_INVENTORY_CSRF || '');
             var branchParam = scGetCurrentBranchParam();
             if (String(branchParam).toLowerCase() === 'all') {
                 alert('Select a specific branch before resetting thresholds.');
@@ -3427,6 +3434,7 @@ if (isset($_GET['ajax'])) {
                 try {
                     const fd = new FormData();
                     fd.set('item_id', String(pending.itemId));
+                    fd.set('csrf_token', window.PF_INVENTORY_CSRF || '');
                     if (pending.targetStatus === 'INACTIVE') fd.set('archive_item', '1');
                     else fd.set('restore_item', '1');
 
@@ -3526,6 +3534,7 @@ if (isset($_GET['ajax'])) {
         btn.disabled = true; btn.textContent = 'Saving...';
         const fd = new FormData();
         fd.set('action', 'record_transaction');
+        fd.set('csrf_token', window.PF_INVENTORY_CSRF || '');
         fd.set('item_id', document.getElementById('deductStockItemId').value);
         fd.set('transaction_type', 'issue');
         fd.set('quantity', document.getElementById('deductStockQty').value);
@@ -3645,6 +3654,7 @@ if (isset($_GET['ajax'])) {
         
         const fd = new FormData();
         fd.set('action', 'record_transaction');
+        fd.set('csrf_token', window.PF_INVENTORY_CSRF || '');
         fd.set('item_id', itemId);
         fd.set('transaction_type', 'purchase');
         const qtyNum = qtyCheck.qtyNum;
@@ -3744,6 +3754,7 @@ if (isset($_GET['ajax'])) {
         trackEl.disabled = false;
         catEl.disabled = false;
         const formData = new FormData(document.getElementById('itemForm'));
+        formData.set('csrf_token', window.PF_INVENTORY_CSRF || '');
         uomEl.disabled = uomWasDisabled;
         trackEl.disabled = trackWasDisabled;
         catEl.disabled = catWasDisabled;
