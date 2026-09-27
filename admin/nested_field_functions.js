@@ -8,23 +8,42 @@ window.printflowCollectOptionStaffFlags = function(optionItem) {
     return [];
 };
 
-window.printflowReadOptionStaffLayoutPayload = function(optionItem) {
-    const flag = optionItem ? optionItem.querySelector('.option-staff-layout-flag') : null;
-    if (!flag || !flag.checked) {
+window.printflowReadOptionConditionalPayload = function(optionItem) {
+    const wrap = optionItem ? optionItem.querySelector('.option-conditional-wrap') : null;
+    if (!wrap) {
         return {};
     }
-    const noteEl = optionItem.querySelector('.option-customer-note');
-    const payload = { staff_creates_layout: 1 };
+    const panel = wrap.querySelector('.option-conditional-panel');
+    const panelOpen = panel && panel.style.display !== 'none';
+    const hasRuleFlag = wrap.dataset.hasRule === '1';
+    const targetSelect = wrap.querySelector('.option-conditional-target');
+    const targetKey = targetSelect ? (targetSelect.value || '').trim() : '';
+    const noteEl = wrap.querySelector('.option-conditional-note');
     const note = noteEl ? noteEl.value.trim() : '';
+
+    if (wrap.dataset.hasRule === '0' && !panelOpen) {
+        return { option_conditional: null };
+    }
+    if (!panelOpen && !hasRuleFlag) {
+        return {};
+    }
+    if (!targetKey) {
+        return { option_conditional: null };
+    }
+    const payload = {
+        option_conditional: {
+            action: 'disable_field',
+            target_field_key: targetKey,
+        },
+    };
     if (note) {
-        payload.customer_note = note;
+        payload.option_conditional.customer_note = note;
     }
     return payload;
 };
 
 window.printflowMergeOptionStaffLayoutPayload = function(optionRow, basePayload) {
-    const extra = window.printflowReadOptionStaffLayoutPayload(optionRow);
-    return Object.assign(basePayload, extra);
+    return Object.assign(basePayload, window.printflowReadOptionConditionalPayload(optionRow));
 };
 
 window.printflowBuildServiceOptionPayload = function(optionItem, optionValue, optionPrice, nestedFields) {
@@ -39,7 +58,10 @@ window.printflowBuildServiceOptionPayload = function(optionItem, optionValue, op
     if (nestedFields && nestedFields.length > 0) {
         payload.nested_fields = nestedFields;
     }
-    Object.assign(payload, window.printflowReadOptionStaffLayoutPayload(optionItem));
+    Object.assign(payload, window.printflowReadOptionConditionalPayload(optionItem));
+    if (payload.option_conditional === null) {
+        delete payload.option_conditional;
+    }
     return payload;
 };
 

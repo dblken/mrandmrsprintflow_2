@@ -155,47 +155,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
 
 $field_configs = get_service_field_config($service_id);
 
-$pf_primary_file_field_key = printflow_service_resolve_primary_file_field_key($field_configs);
-$pf_staff_layout_field_eligible = static function (string $fieldKey) use ($field_configs, $pf_primary_file_field_key): bool {
-    if (in_array($fieldKey, ['branch', 'needed_date', 'quantity', 'notes'], true)) {
-        return false;
-    }
-    $cfg = $field_configs[$fieldKey] ?? null;
-    if (!is_array($cfg)) {
-        return false;
-    }
-    $type = strtolower((string)($cfg['type'] ?? ''));
-    return in_array($type, ['radio', 'select'], true) && $pf_primary_file_field_key !== null;
-};
-
-$pf_render_option_staff_layout_block = static function (array $option) use ($pf_primary_file_field_key): string {
-    if ($pf_primary_file_field_key === null) {
-        return '';
-    }
-    $hideKey = printflow_service_field_option_hide_field_key($option);
-    $staffOn = !empty($option['staff_creates_layout'])
-        || ($hideKey !== '' && $hideKey === $pf_primary_file_field_key);
-    $note = printflow_service_field_option_customer_note($option);
+$pf_render_option_conditional_controls = static function (string $sourceFieldKey, array $option) use ($field_configs): string {
+    $rule = printflow_service_field_option_conditional_rule($option);
+    $hasRule = $rule !== null;
+    $targetKey = $hasRule ? trim((string)($rule['target_field_key'] ?? '')) : '';
+    $targetLabel = $targetKey !== '' ? trim((string)($field_configs[$targetKey]['label'] ?? $targetKey)) : '';
+    $note = $hasRule ? trim((string)($rule['customer_note'] ?? '')) : '';
     $max = printflow_service_field_help_text_max_length();
-    $html = '<div class="option-staff-layout-config" style="width:100%;padding:6px 0 2px 2px;display:flex;flex-direction:column;gap:8px;">';
-    $html .= '<label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:#374151;cursor:pointer;">';
-    $html .= '<input type="checkbox" class="option-staff-layout-flag"' . ($staffOn ? ' checked' : '') . ' style="margin-top:3px;">';
-    $html .= '<span>Staff creates layout / No customer design</span></label>';
-    $noteStyle = $staffOn ? '' : ' display:none;';
-    $html .= '<div class="option-customer-note-wrap" style="padding-left:24px;' . $noteStyle . '">';
-    $html .= '<label style="display:block;font-size:11px;font-weight:600;color:#6b7280;margin-bottom:4px;">Customer Note (optional)</label>';
-    $html .= '<textarea class="option-customer-note field-input" rows="2" maxlength="' . (int) $max . '" placeholder="Customer-facing instructions when this option is selected..." style="width:100%;font-size:12px;resize:vertical;">' . htmlspecialchars($note, ENT_QUOTES, 'UTF-8') . '</textarea>';
-    $html .= '</div></div>';
-    return $html;
-};
 
-$pf_staff_layout_eligible_keys = [];
-foreach (array_keys($field_configs) as $_pf_field_key) {
-    if ($pf_staff_layout_field_eligible((string) $_pf_field_key)) {
-        $pf_staff_layout_eligible_keys[] = (string) $_pf_field_key;
+    $targetOptions = '<option value="">— Select target field —</option>';
+    foreach ($field_configs as $targetFieldKey => $targetCfg) {
+        if ($targetFieldKey === $sourceFieldKey || empty($targetCfg['visible'])) {
+            continue;
+        }
+        $lbl = htmlspecialchars(trim((string)($targetCfg['label'] ?? $targetFieldKey)), ENT_QUOTES, 'UTF-8');
+        $sel = ($targetKey === $targetFieldKey) ? ' selected' : '';
+        $targetOptions .= '<option value="' . htmlspecialchars($targetFieldKey, ENT_QUOTES, 'UTF-8') . '"' . $sel . '>' . $lbl . '</option>';
     }
-}
-unset($_pf_field_key);
+
+    $summaryDisplay = $hasRule ? 'block' : 'none';
+    $addDisplay = $hasRule ? 'none' : 'inline-flex';
+
+    return '<div class="option-conditional-wrap" style="width:100%;padding:4px 0 0 2px;" data-has-rule="' . ($hasRule ? '1' : '0') . '">'
+        . '<div class="option-conditional-summary" style="display:' . $summaryDisplay . ';font-size:12px;color:#374151;margin-top:4px;">'
+        . 'Conditional behavior: Disable → <strong class="option-conditional-summary-target">' . htmlspecialchars($targetLabel, ENT_QUOTES, 'UTF-8') . '</strong> '
+        . '<button type="button" class="btn-action blue option-conditional-edit" style="margin-left:6px;padding:2px 8px;min-width:auto;">Edit condition</button>'
+        . '</div>'
+        . '<button type="button" class="btn-add option-conditional-add" style="margin-top:6px;display:' . $addDisplay . ';padding:4px 10px;font-size:12px;">+ Add conditional behavior</button>'
+        . '<div class="option-conditional-panel" style="display:none;margin-top:8px;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">'
+        . '<div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">Conditional Behavior</div>'
+        . '<label style="display:block;font-size:11px;font-weight:600;color:#6b7280;margin-bottom:4px;">Action</label>'
+        . '<select class="option-conditional-action field-input" style="width:100%;margin-bottom:10px;padding:6px 10px;font-size:12px;"><option value="disable_field" selected>Disable field</option></select>'
+        . '<label style="display:block;font-size:11px;font-weight:600;color:#6b7280;margin-bottom:4px;">Target Field</label>'
+        . '<select class="option-conditional-target field-input" style="width:100%;margin-bottom:10px;padding:6px 10px;font-size:12px;">' . $targetOptions . '</select>'
+        . '<label style="display:block;font-size:11px;font-weight:600;color:#6b7280;margin-bottom:4px;">Customer Note (optional)</label>'
+        . '<textarea class="option-conditional-note field-input" rows="2" maxlength="' . (int) $max . '" placeholder="Customer-facing instructions when this rule is active..." style="width:100%;font-size:12px;resize:vertical;">' . htmlspecialchars($note, ENT_QUOTES, 'UTF-8') . '</textarea>'
+        . '<button type="button" class="btn-remove option-conditional-remove" style="margin-top:10px;">Remove condition</button>'
+        . '</div></div>';
+};
 
 $page_title = 'Configure Input Fields - ' . $service['name'];
 ?>
@@ -430,8 +427,8 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                                 </button>
                                 <button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button>
                             </div>
-                            <div style="display:flex;align-items:center;gap:8px;padding:6px 0 2px 2px;width:100%;">
-                                <?php if ($pf_staff_layout_field_eligible($key)) { echo $pf_render_option_staff_layout_block(is_array($option) ? $option : ['value' => $option]); } ?>
+                            <div style="padding:4px 0 2px 2px;width:100%;">
+                                <?php echo $pf_render_option_conditional_controls($key, is_array($option) ? $option : ['value' => $option]); ?>
                             </div>
                                                         </div>
                                                     <?php endforeach; ?>
@@ -458,8 +455,8 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                                                             </label>
                                                             <button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button>
                                                             </div>
-                                                            <div style="padding:0 0 2px 2px;width:100%;">
-                                                                <?php if ($pf_staff_layout_field_eligible($key)) { echo $pf_render_option_staff_layout_block(is_array($option) ? $option : ['value' => $option]); } ?>
+                                                            <div style="padding:4px 0 2px 2px;width:100%;">
+                                                                <?php echo $pf_render_option_conditional_controls($key, is_array($option) ? $option : ['value' => $option]); ?>
                                                             </div>
                                                         </div>
                                                     <?php endforeach; ?>
@@ -871,46 +868,116 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
 <script>
 const PF_SERVICE_OPTION_MAX_LEN = <?php echo (int)$pf_service_option_max_length; ?>;
 const PF_SERVICE_OPTION_PLACEHOLDER = 'Enter option (' + PF_SERVICE_OPTION_MAX_LEN + ' MAX CHARACTERS)';
-const PF_STAFF_LAYOUT_ELIGIBLE_KEYS = new Set(<?php echo json_encode($pf_staff_layout_eligible_keys, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>);
-window.pfShouldAppendStaffLayoutBlock = function(fieldKey) {
-    return PF_STAFF_LAYOUT_ELIGIBLE_KEYS.has(fieldKey);
-};
 window.fieldConfigurations = <?php echo json_encode($field_configs, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?> || {};
 
-window.pfAppendOptionStaffLayoutBlock = function(optionItem, optionConfig) {
-    if (!optionItem || optionItem.querySelector('.option-staff-layout-config')) {
-        return;
-    }
-    const cfg = optionConfig || {};
-    const staffOn = !!(cfg.staff_creates_layout || cfg.hide_field_key);
-    const note = (cfg.customer_note || '').replace(/</g, '&lt;');
-    const maxLen = <?php echo (int) printflow_service_field_help_text_max_length(); ?>;
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'width:100%;padding:6px 0 2px 2px;';
-    wrap.innerHTML = '<div class="option-staff-layout-config" style="display:flex;flex-direction:column;gap:8px;">'
-        + '<label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:#374151;cursor:pointer;">'
-        + '<input type="checkbox" class="option-staff-layout-flag"' + (staffOn ? ' checked' : '') + ' style="margin-top:3px;">'
-        + '<span>Staff creates layout / No customer design</span></label>'
-        + '<div class="option-customer-note-wrap" style="padding-left:24px;' + (staffOn ? '' : 'display:none;') + '">'
-        + '<label style="display:block;font-size:11px;font-weight:600;color:#6b7280;margin-bottom:4px;">Customer Note (optional)</label>'
-        + '<textarea class="option-customer-note field-input" rows="2" maxlength="' + maxLen + '" placeholder="Customer-facing instructions when this option is selected..." style="width:100%;font-size:12px;resize:vertical;">' + note + '</textarea>'
-        + '</div></div>';
-    optionItem.appendChild(wrap);
-    const flag = wrap.querySelector('.option-staff-layout-flag');
-    const noteWrap = wrap.querySelector('.option-customer-note-wrap');
-    if (flag && noteWrap) {
-        flag.addEventListener('change', function() {
-            noteWrap.style.display = flag.checked ? 'block' : 'none';
-        });
-    }
+window.pfBuildConditionalTargetOptionsHtml = function(sourceFieldKey, selectedTarget) {
+    let html = '<option value="">— Select target field —</option>';
+    Object.keys(window.fieldConfigurations || {}).forEach(function(fieldKey) {
+        if (fieldKey === sourceFieldKey) return;
+        const cfg = window.fieldConfigurations[fieldKey];
+        if (!cfg || cfg.visible === false) return;
+        const label = (cfg.label || fieldKey).replace(/</g, '&lt;');
+        const sel = (selectedTarget && selectedTarget === fieldKey) ? ' selected' : '';
+        html += '<option value="' + fieldKey + '"' + sel + '>' + label + '</option>';
+    });
+    return html;
 };
 
-document.addEventListener('change', function(e) {
-    if (e.target && e.target.classList && e.target.classList.contains('option-staff-layout-flag')) {
-        const noteWrap = e.target.closest('.option-staff-layout-config')?.querySelector('.option-customer-note-wrap');
-        if (noteWrap) {
-            noteWrap.style.display = e.target.checked ? 'block' : 'none';
+window.pfRefreshOptionConditionalSummary = function(wrap) {
+    if (!wrap) return;
+    const targetSelect = wrap.querySelector('.option-conditional-target');
+    const summaryTarget = wrap.querySelector('.option-conditional-summary-target');
+    if (!targetSelect || !summaryTarget) return;
+    const key = targetSelect.value || '';
+    const cfg = window.fieldConfigurations[key];
+    summaryTarget.textContent = cfg ? (cfg.label || key) : '';
+};
+
+window.pfSetOptionConditionalHasRule = function(wrap, hasRule) {
+    if (!wrap) return;
+    wrap.dataset.hasRule = hasRule ? '1' : '0';
+    const summary = wrap.querySelector('.option-conditional-summary');
+    const addBtn = wrap.querySelector('.option-conditional-add');
+    const panel = wrap.querySelector('.option-conditional-panel');
+    if (summary) summary.style.display = hasRule ? 'block' : 'none';
+    if (addBtn) addBtn.style.display = hasRule ? 'none' : 'inline-flex';
+    if (panel && hasRule) panel.style.display = 'none';
+};
+
+window.pfAppendOptionConditionalControls = function(optionItem, sourceFieldKey, optionConfig) {
+    if (!optionItem || optionItem.querySelector('.option-conditional-wrap')) return;
+    const cfg = optionConfig || {};
+    const rule = cfg.option_conditional || (cfg.hide_field_key ? {
+        action: 'disable_field',
+        target_field_key: cfg.hide_field_key,
+        customer_note: cfg.customer_note || ''
+    } : null);
+    const hasRule = !!(rule && rule.target_field_key);
+    const targetKey = hasRule ? rule.target_field_key : '';
+    const note = hasRule ? (rule.customer_note || '') : '';
+    const maxLen = <?php echo (int) printflow_service_field_help_text_max_length(); ?>;
+    const targetLabel = (window.fieldConfigurations[targetKey] || {}).label || targetKey;
+    const wrap = document.createElement('div');
+    wrap.className = 'option-conditional-wrap';
+    wrap.style.cssText = 'width:100%;padding:4px 0 0 2px;';
+    wrap.dataset.hasRule = hasRule ? '1' : '0';
+    wrap.innerHTML = '<div class="option-conditional-summary" style="display:' + (hasRule ? 'block' : 'none') + ';font-size:12px;color:#374151;margin-top:4px;">'
+        + 'Conditional behavior: Disable → <strong class="option-conditional-summary-target">' + String(targetLabel).replace(/</g, '&lt;') + '</strong> '
+        + '<button type="button" class="btn-action blue option-conditional-edit" style="margin-left:6px;padding:2px 8px;min-width:auto;">Edit condition</button></div>'
+        + '<button type="button" class="btn-add option-conditional-add" style="margin-top:6px;display:' + (hasRule ? 'none' : 'inline-flex') + ';padding:4px 10px;font-size:12px;">+ Add conditional behavior</button>'
+        + '<div class="option-conditional-panel" style="display:none;margin-top:8px;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">'
+        + '<div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">Conditional Behavior</div>'
+        + '<label style="display:block;font-size:11px;font-weight:600;color:#6b7280;margin-bottom:4px;">Action</label>'
+        + '<select class="option-conditional-action field-input" style="width:100%;margin-bottom:10px;padding:6px 10px;font-size:12px;"><option value="disable_field" selected>Disable field</option></select>'
+        + '<label style="display:block;font-size:11px;font-weight:600;color:#6b7280;margin-bottom:4px;">Target Field</label>'
+        + '<select class="option-conditional-target field-input" style="width:100%;margin-bottom:10px;padding:6px 10px;font-size:12px;">'
+        + window.pfBuildConditionalTargetOptionsHtml(sourceFieldKey, targetKey) + '</select>'
+        + '<label style="display:block;font-size:11px;font-weight:600;color:#6b7280;margin-bottom:4px;">Customer Note (optional)</label>'
+        + '<textarea class="option-conditional-note field-input" rows="2" maxlength="' + maxLen + '" placeholder="Customer-facing instructions when this rule is active..." style="width:100%;font-size:12px;resize:vertical;">'
+        + String(note).replace(/</g, '&lt;') + '</textarea>'
+        + '<button type="button" class="btn-remove option-conditional-remove" style="margin-top:10px;">Remove condition</button></div>';
+    optionItem.appendChild(wrap);
+};
+
+document.addEventListener('click', function(e) {
+    const addBtn = e.target.closest('.option-conditional-add');
+    if (addBtn) {
+        const wrap = addBtn.closest('.option-conditional-wrap');
+        const panel = wrap ? wrap.querySelector('.option-conditional-panel') : null;
+        if (panel) {
+            panel.style.display = 'block';
+            addBtn.style.display = 'none';
         }
+        return;
+    }
+    const editBtn = e.target.closest('.option-conditional-edit');
+    if (editBtn) {
+        const wrap = editBtn.closest('.option-conditional-wrap');
+        const panel = wrap ? wrap.querySelector('.option-conditional-panel') : null;
+        const summary = wrap ? wrap.querySelector('.option-conditional-summary') : null;
+        if (panel) panel.style.display = 'block';
+        if (summary) summary.style.display = 'none';
+        return;
+    }
+    const removeBtn = e.target.closest('.option-conditional-remove');
+    if (removeBtn) {
+        const wrap = removeBtn.closest('.option-conditional-wrap');
+        if (!wrap) return;
+        const target = wrap.querySelector('.option-conditional-target');
+        const note = wrap.querySelector('.option-conditional-note');
+        if (target) target.value = '';
+        if (note) note.value = '';
+        wrap.dataset.hasRule = '0';
+        const panel = wrap.querySelector('.option-conditional-panel');
+        if (panel) panel.style.display = 'none';
+        pfSetOptionConditionalHasRule(wrap, false);
+        return;
+    }
+});
+
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.classList && e.target.classList.contains('option-conditional-target')) {
+        pfRefreshOptionConditionalSummary(e.target.closest('.option-conditional-wrap'));
     }
 });
 
@@ -953,9 +1020,7 @@ window.showEditFieldModal = function(key) {
             item.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:6px;';
             item.innerHTML = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="text" class="option-input" value="' + optValue + '" maxlength="' + PF_SERVICE_OPTION_MAX_LEN + '" placeholder="' + PF_SERVICE_OPTION_PLACEHOLDER + '" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" value="' + optPrice + '" placeholder="Price" min="0" step="0.01" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeEditFieldOption(this)">Remove</button></div>';
             list.appendChild(item);
-            if (pfShouldAppendStaffLayoutBlock(key)) {
-                pfAppendOptionStaffLayoutBlock(item, optStaff);
-            }
+            pfAppendOptionConditionalControls(item, key, optStaff);
         });
     } else if (config.type === 'dimension') {
         optionsSection.style.display = 'none';
@@ -1052,9 +1117,7 @@ window.addOption = function(btn) {
     item.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:6px;';
     item.innerHTML = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;min-width:160px;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;min-width:90px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;white-space:nowrap;" title="Staff will see an urgent indicator when the customer selects this option"><input type="checkbox" class="option-urgent-flag"><span>Urgent request</span></label><button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button></div>';
     list.appendChild(item);
-    if (pfShouldAppendStaffLayoutBlock(sourceFieldKey)) {
-        pfAppendOptionStaffLayoutBlock(item, {});
-    }
+    pfAppendOptionConditionalControls(item, sourceFieldKey, {});
 };
 
 window.removeOption = function(btn) {
@@ -1084,7 +1147,7 @@ window.addNewFieldOption = function() {
     item.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:6px;';
     item.innerHTML = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;min-width:160px;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;min-width:90px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;white-space:nowrap;" title="Staff will see an urgent indicator when the customer selects this option"><input type="checkbox" class="option-urgent-flag"><span>Urgent request</span></label><button type="button" class="btn-remove" onclick="removeNewFieldOption(this)">Remove</button></div>';
     list.appendChild(item);
-    pfAppendOptionStaffLayoutBlock(item, {});
+    pfAppendOptionConditionalControls(item, '', {});
 };
 
 window.toggleNewNestedFieldPanel = function(btn, optionIndex) {
@@ -1276,9 +1339,7 @@ window.addEditFieldOption = function() {
     item.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:6px;';
     item.innerHTML = '<div style="display:flex;gap:8px;align-items:center;"><input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeEditFieldOption(this)">Remove</button></div>';
     list.appendChild(item);
-    if (pfShouldAppendStaffLayoutBlock(sourceFieldKey)) {
-        pfAppendOptionStaffLayoutBlock(item, {});
-    }
+    pfAppendOptionConditionalControls(item, sourceFieldKey, {});
 };
 
 window.removeEditFieldOption = function(btn) {
@@ -1348,7 +1409,10 @@ window.saveEditField = function() {
             const price = item.querySelector('.option-price-input') ? parseFloat(item.querySelector('.option-price-input').value) || 0 : 0;
             if (!val) return;
             const row = { value: val, price: price };
-            Object.assign(row, window.printflowReadOptionStaffLayoutPayload(item));
+            Object.assign(row, window.printflowReadOptionConditionalPayload(item));
+            if (row.option_conditional === null) {
+                delete row.option_conditional;
+            }
             options.push(row);
         });
         if (options.length === 0) {

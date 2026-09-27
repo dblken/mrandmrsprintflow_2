@@ -126,18 +126,78 @@ function printflow_normalize_service_field_conditional_config(
     $config['conditional_mode'] = ($mode === 'hide_when') ? 'hide_when' : 'show_when';
 }
 
-/** Target file field disabled when a source option is selected (stored on the option in field_options JSON). */
+/** @deprecated Read via printflow_service_field_option_conditional_rule(). */
 function printflow_service_field_option_hide_field_key(array $option): string
 {
+    $rule = printflow_service_field_option_conditional_rule($option);
+    if ($rule !== null && ($rule['action'] ?? '') === 'disable_field') {
+        return trim((string)($rule['target_field_key'] ?? ''));
+    }
     return trim((string)($option['hide_field_key'] ?? ''));
+}
+
+/** @return list<string> */
+function printflow_service_field_option_conditional_actions(): array
+{
+    return ['disable_field'];
+}
+
+/**
+ * Resolved conditional rule for an option (canonical + legacy migration read).
+ *
+ * @return array{action:string,target_field_key:string,customer_note?:string}|null
+ */
+function printflow_service_field_option_conditional_rule(array $option): ?array
+{
+    if (isset($option['option_conditional']) && is_array($option['option_conditional'])) {
+        $action = strtolower(trim((string)($option['option_conditional']['action'] ?? '')));
+        $target = trim((string)($option['option_conditional']['target_field_key'] ?? ''));
+        if ($action === 'disable_field' && $target !== '') {
+            $rule = [
+                'action' => 'disable_field',
+                'target_field_key' => $target,
+            ];
+            $note = printflow_service_field_option_customer_note($option['option_conditional']);
+            if ($note === '') {
+                $note = printflow_service_field_option_customer_note($option);
+            }
+            if ($note !== '') {
+                $rule['customer_note'] = $note;
+            }
+            return $rule;
+        }
+    }
+
+    $legacyTarget = trim((string)($option['hide_field_key'] ?? ''));
+    if ($legacyTarget === '' && empty($option['staff_creates_layout'])) {
+        return null;
+    }
+    if ($legacyTarget === '') {
+        return null;
+    }
+    $rule = [
+        'action' => 'disable_field',
+        'target_field_key' => $legacyTarget,
+    ];
+    $note = printflow_service_field_option_customer_note($option);
+    if ($note !== '') {
+        $rule['customer_note'] = $note;
+    }
+    return $rule;
+}
+
+function printflow_service_field_conditional_target_eligible(string $sourceFieldKey, string $targetFieldKey, array $allConfigs): bool
+{
+    if ($targetFieldKey === '' || $targetFieldKey === $sourceFieldKey) {
+        return false;
+    }
+    $targetCfg = $allConfigs[$targetFieldKey] ?? null;
+    return is_array($targetCfg) && !empty($targetCfg['visible']);
 }
 
 function printflow_service_field_option_staff_creates_layout(array $option): bool
 {
-    if (!empty($option['staff_creates_layout'])) {
-        return true;
-    }
-    return printflow_service_field_option_hide_field_key($option) !== '';
+    return printflow_service_field_option_conditional_rule($option) !== null;
 }
 
 function printflow_normalize_service_field_option_customer_note(?string $text): string
@@ -158,11 +218,14 @@ function printflow_normalize_service_field_option_customer_note(?string $text): 
 
 function printflow_service_field_option_customer_note(array $option): string
 {
+    if (isset($option['option_conditional']) && is_array($option['option_conditional'])) {
+        return printflow_normalize_service_field_option_customer_note($option['option_conditional']['customer_note'] ?? '');
+    }
     return printflow_normalize_service_field_option_customer_note($option['customer_note'] ?? '');
 }
 
 /**
- * Primary visible file upload field for staff-layout disable behavior (first by display order).
+ * Primary visible file upload field (legacy migration helper only).
  */
 function printflow_service_resolve_primary_file_field_key(array $allConfigs): ?string
 {
@@ -205,24 +268,30 @@ function printflow_service_field_build_conditional_rules(string $targetFieldKey,
             if (!is_array($option)) {
                 continue;
             }
-            $hideKey = printflow_service_field_option_hide_field_key($option);
-            if ($hideKey === '' || $hideKey !== $targetFieldKey || $hideKey === $sourceKey) {
+            $rule = printflow_service_field_option_conditional_rule($option);
+            if ($rule === null || ($rule['action'] ?? '') !== 'disable_field') {
+                continue;
+            }
+            $targetKey = trim((string)($rule['target_field_key'] ?? ''));
+            if ($targetKey === '' || $targetKey !== $targetFieldKey || $targetKey === $sourceKey) {
                 continue;
             }
             $optVal = trim((string)($option['value'] ?? ''));
             if ($optVal === '') {
                 continue;
             }
-            $rule = [
+            $outRule = [
                 'source' => $sourceKey,
                 'value' => $optVal,
                 'mode' => 'disable_when',
+                'action' => 'disable_field',
+                'target_field_key' => $targetKey,
             ];
-            $note = printflow_service_field_option_customer_note($option);
+            $note = trim((string)($rule['customer_note'] ?? ''));
             if ($note !== '') {
-                $rule['customer_note'] = $note;
+                $outRule['customer_note'] = $note;
             }
-            $rules[] = $rule;
+            $rules[] = $outRule;
         }
     }
 
@@ -257,8 +326,12 @@ function printflow_service_field_hidden_by_option_rules(string $targetFieldKey, 
             if (!is_array($option)) {
                 continue;
             }
-            $hideKey = printflow_service_field_option_hide_field_key($option);
-            if ($hideKey === '' || $hideKey !== $targetFieldKey) {
+            $rule = printflow_service_field_option_conditional_rule($option);
+            if ($rule === null || ($rule['action'] ?? '') !== 'disable_field') {
+                continue;
+            }
+            $targetKey = trim((string)($rule['target_field_key'] ?? ''));
+            if ($targetKey === '' || $targetKey !== $targetFieldKey) {
                 continue;
             }
             $optVal = trim((string)($option['value'] ?? ''));
@@ -275,7 +348,7 @@ function printflow_service_field_hidden_by_option_rules(string $targetFieldKey, 
 }
 
 /**
- * Validate hide_field_key on each option for radio/select source fields.
+ * Validate option_conditional rules on radio/select source fields.
  */
 function printflow_normalize_service_field_source_option_conditionals(string $sourceFieldKey, array &$config, array $allConfigs): void
 {
@@ -286,33 +359,42 @@ function printflow_normalize_service_field_source_option_conditionals(string $so
     if (empty($config['options']) || !is_array($config['options'])) {
         return;
     }
-    $primaryFileKey = printflow_service_resolve_primary_file_field_key($allConfigs);
     foreach ($config['options'] as &$option) {
         if (!is_array($option)) {
             continue;
         }
-        $staffLayout = !empty($option['staff_creates_layout']);
-        if (!$staffLayout && $primaryFileKey !== null
-            && printflow_service_field_option_hide_field_key($option) === $primaryFileKey) {
-            $staffLayout = true;
-        }
-        if (!$staffLayout || $primaryFileKey === null || $primaryFileKey === $sourceFieldKey) {
-            unset($option['staff_creates_layout'], $option['hide_field_key'], $option['customer_note']);
-            continue;
-        }
-        $targetCfg = $allConfigs[$primaryFileKey] ?? null;
-        if (!is_array($targetCfg) || ($targetCfg['type'] ?? '') !== 'file' || empty($targetCfg['visible'])) {
-            unset($option['staff_creates_layout'], $option['hide_field_key'], $option['customer_note']);
-            continue;
-        }
-        $option['staff_creates_layout'] = 1;
-        $option['hide_field_key'] = $primaryFileKey;
-        $note = printflow_normalize_service_field_option_customer_note($option['customer_note'] ?? '');
-        if ($note !== '') {
-            $option['customer_note'] = $note;
+
+        $incoming = null;
+        if (isset($option['option_conditional']) && is_array($option['option_conditional'])) {
+            $incoming = $option['option_conditional'];
         } else {
-            unset($option['customer_note']);
+            $incoming = printflow_service_field_option_conditional_rule($option);
         }
+
+        unset($option['staff_creates_layout'], $option['hide_field_key']);
+
+        if (!is_array($incoming) || strtolower(trim((string)($incoming['action'] ?? ''))) !== 'disable_field') {
+            unset($option['option_conditional'], $option['customer_note']);
+            continue;
+        }
+
+        $targetKey = trim((string)($incoming['target_field_key'] ?? ''));
+        if (!printflow_service_field_conditional_target_eligible($sourceFieldKey, $targetKey, $allConfigs)) {
+            unset($option['option_conditional'], $option['customer_note']);
+            continue;
+        }
+
+        $note = printflow_normalize_service_field_option_customer_note(
+            $incoming['customer_note'] ?? ($option['customer_note'] ?? '')
+        );
+        $option['option_conditional'] = [
+            'action' => 'disable_field',
+            'target_field_key' => $targetKey,
+        ];
+        if ($note !== '') {
+            $option['option_conditional']['customer_note'] = $note;
+        }
+        unset($option['customer_note']);
     }
     unset($option);
 }
@@ -331,12 +413,16 @@ function printflow_clear_redundant_legacy_target_conditionals(array &$allConfigs
             if (!is_array($option)) {
                 continue;
             }
-            $hideKey = printflow_service_field_option_hide_field_key($option);
-            $optVal = trim((string)($option['value'] ?? ''));
-            if ($hideKey === '' || $optVal === '') {
+            $rule = printflow_service_field_option_conditional_rule($option);
+            if ($rule === null || ($rule['action'] ?? '') !== 'disable_field') {
                 continue;
             }
-            $optionHideRules[$hideKey][] = [
+            $targetKey = trim((string)($rule['target_field_key'] ?? ''));
+            $optVal = trim((string)($option['value'] ?? ''));
+            if ($targetKey === '' || $optVal === '') {
+                continue;
+            }
+            $optionHideRules[$targetKey][] = [
                 'source' => (string)$sourceKey,
                 'value' => $optVal,
             ];

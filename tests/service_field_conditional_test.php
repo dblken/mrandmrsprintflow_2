@@ -1,6 +1,6 @@
 <?php
 /**
- * Smoke tests for option-based staff-layout disable behavior.
+ * Smoke tests for generic option conditional (disable_field) behavior.
  */
 declare(strict_types=1);
 
@@ -23,9 +23,11 @@ $layoutField = [
         [
             'value' => 'Without Layout',
             'price' => 200,
-            'staff_creates_layout' => 1,
-            'hide_field_key' => 'upload_design',
-            'customer_note' => 'Please coordinate with staff for layout.',
+            'option_conditional' => [
+                'action' => 'disable_field',
+                'target_field_key' => 'upload_design',
+                'customer_note' => 'Please coordinate with staff for layout.',
+            ],
         ],
     ],
 ];
@@ -47,7 +49,7 @@ $withoutLayout = ['layout' => 'Without Layout'];
 
 expect_true(
     printflow_service_field_is_active($uploadField, $withLayout, 'upload_design', $allConfigs),
-    'upload active when layout option has no staff-layout flag'
+    'upload active when source option has no conditional rule'
 );
 expect_true(
     !printflow_service_field_is_active($uploadField, $withoutLayout, 'upload_design', $allConfigs),
@@ -61,11 +63,33 @@ expect_true(
     'customer note included in rule payload'
 );
 
-$normalizedLayout = $layoutField;
-printflow_normalize_service_field_source_option_conditionals('layout', $normalizedLayout, $allConfigs);
+$legacyLayout = [
+    'visible' => true,
+    'type' => 'radio',
+    'options' => [
+        [
+            'value' => 'Without Layout',
+            'staff_creates_layout' => 1,
+            'hide_field_key' => 'upload_design',
+            'customer_note' => 'Legacy note.',
+        ],
+    ],
+];
+$legacyAll = ['layout' => $legacyLayout, 'upload_design' => $uploadField];
+$normalizedLegacy = $legacyLayout;
+printflow_normalize_service_field_source_option_conditionals('layout', $normalizedLegacy, $legacyAll);
+$stored = $normalizedLegacy['options'][0]['option_conditional'] ?? null;
 expect_true(
-    ($normalizedLayout['options'][1]['hide_field_key'] ?? '') === 'upload_design',
-    'normalize binds hide_field_key to primary file field'
+    is_array($stored)
+    && ($stored['action'] ?? '') === 'disable_field'
+    && ($stored['target_field_key'] ?? '') === 'upload_design'
+    && ($stored['customer_note'] ?? '') === 'Legacy note.',
+    'normalize migrates legacy hide_field_key to option_conditional'
+);
+expect_true(
+    !isset($normalizedLegacy['options'][0]['staff_creates_layout'])
+    && !isset($normalizedLegacy['options'][0]['hide_field_key']),
+    'normalize strips legacy keys after migration'
 );
 
 $posValues = printflow_service_field_values_from_customization(
