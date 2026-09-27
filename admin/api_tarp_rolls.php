@@ -34,6 +34,10 @@ switch ($action) {
             echo json_encode(['success' => false, 'error' => 'Invalid data']);
             break;
         }
+        if (!verify_csrf_token($input['csrf_token'] ?? '')) {
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            break;
+        }
         
         $item_id = (int)$input['item_id'];
         $roll_code = sanitize($input['roll_code']);

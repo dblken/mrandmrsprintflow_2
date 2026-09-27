@@ -183,6 +183,7 @@ $page_title = 'Monthly Inventory - Admin';
 <script>
 /* var: Turbo re-runs this script on visits; let/const would throw "already been declared". */
 var API_URL = '<?php echo $base_path; ?>/admin/inventory_api.php';
+var PF_INVENTORY_MONTHLY_CSRF = <?php echo json_encode(generate_csrf_token(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 var DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 var monthlyData = null;   // cached data from API
@@ -369,6 +370,7 @@ async function saveMovement(input) {
         formData.append('movement_date', date);
         formData.append('quantity_change', qty);
         formData.append('notes', 'Manual entry');
+        formData.append('csrf_token', PF_INVENTORY_MONTHLY_CSRF || '');
 
         const res = await fetch(API_URL, { method: 'POST', body: formData });
         const data = await res.json();
