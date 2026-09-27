@@ -475,7 +475,7 @@ function save_service_field_config($service_id, $field_key, $config) {
             "INSERT INTO service_field_configs 
                 (service_id, field_key, field_label, help_text, field_type, field_options, is_visible, is_required, default_value, unit, allow_others, display_order, parent_field_key, parent_value, conditional_mode) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            'isssssiiisiisss',
+            'isssssiissiisss',
             [
                 $service_id,
                 $field_key,

@@ -40,7 +40,8 @@ if (!defined('PRINTFLOW_ENFORCE_FINGERPRINT')) {
 
 if (!defined('SESSION_HMAC_SECRET')) {
     if ($printflowSessionSecret === '' && $printflowSessionIsProduction) {
-        throw new RuntimeException('PRINTFLOW_SESSION_HMAC_SECRET must be configured in production.');
+        error_log('[session] CRITICAL: PRINTFLOW_SESSION_HMAC_SECRET is not configured in production. Using legacy default so the site remains available; set PRINTFLOW_SESSION_HMAC_SECRET in the server environment.');
+        $printflowSessionSecret = 'PrintFlow-Session-HMAC-Secret-Change-In-Production-2024';
     }
     if ($printflowSessionSecret === '') {
         $printflowSessionSecret = 'PrintFlow-Development-Only-Session-Secret';

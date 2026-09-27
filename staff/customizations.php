@@ -3537,8 +3537,20 @@ $preloaded_customization_rows_b64 = base64_encode($preloaded_customization_rows_
 
 // Canonical POS/online service form definitions (service_field_configs) for modal spec whitelisting.
 $pf_service_field_catalog = [];
+$catalogSelect = 'service_id, field_key, field_label, field_type, display_order';
+if (function_exists('db_table_has_column')) {
+    if (db_table_has_column('service_field_configs', 'parent_field_key')) {
+        $catalogSelect .= ', parent_field_key';
+    }
+    if (db_table_has_column('service_field_configs', 'parent_value')) {
+        $catalogSelect .= ', parent_value';
+    }
+    if (db_table_has_column('service_field_configs', 'conditional_mode')) {
+        $catalogSelect .= ', conditional_mode';
+    }
+}
 $config_rows = db_query(
-    "SELECT service_id, field_key, field_label, field_type, display_order, parent_field_key, parent_value
+    "SELECT {$catalogSelect}
      FROM service_field_configs
      WHERE is_visible = 1
      ORDER BY service_id ASC, display_order ASC"
@@ -3563,6 +3575,7 @@ foreach ($config_rows as $config_row) {
         'order' => (int)($config_row['display_order'] ?? 0),
         'parent_field_key' => trim((string)($config_row['parent_field_key'] ?? '')),
         'parent_value' => trim((string)($config_row['parent_value'] ?? '')),
+        'conditional_mode' => trim((string)($config_row['conditional_mode'] ?? '')),
     ];
 }
 $pf_service_field_catalog_json = json_encode(
