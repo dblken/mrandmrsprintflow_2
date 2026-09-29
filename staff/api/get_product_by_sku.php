@@ -82,7 +82,8 @@ try {
             p.status,
             ({$stockSel}) as stock_quantity,
             ({$lowSel}) as low_stock_level,
-            p.product_image
+            p.product_image,
+            p.photo_path
         FROM products p
         {$join}
         WHERE LOWER(TRIM(p.sku)) = LOWER(?)
@@ -129,6 +130,10 @@ try {
 
     $product['stock_status'] = get_stock_status($product['stock_quantity'], $product['low_stock_level']);
     $product['quantity'] = (int)($product['stock_quantity'] ?? 0);
+    $base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
+    $default_product_img = $base_path . '/public/assets/images/services/default.png';
+    $raw_img = ($product['photo_path'] ?? '') ?: ($product['product_image'] ?? '');
+    $product['image_url'] = pf_normalize_service_image_path((string)$raw_img, $base_path, $default_product_img);
 
     echo json_encode([
         'success' => true,

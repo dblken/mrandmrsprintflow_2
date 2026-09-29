@@ -101,9 +101,7 @@ foreach ($rows as &$row) {
             : $target;
     } else {
         $base = defined('BASE_URL') ? BASE_URL : '/printflow';
-        $fallback = function_exists('printflow_catalog_placeholder_image_url')
-            ? printflow_catalog_placeholder_image_url()
-            : $base . '/public/assets/images/services/catalog-placeholder.svg';
+        $fallback = $base . '/public/assets/images/services/default.png';
         $row['message'] = printflow_notification_display_message($row);
         $row['image'] = staff_admin_notification_image_url($row, $fallback);
         $row['fallback'] = $fallback;

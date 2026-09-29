@@ -2597,7 +2597,7 @@ function printflow_notification_placeholder_image_url(): string {
         return $memo;
     }
     $base = printflow_notification_base_path();
-    foreach (['/public/assets/uploads/profiles/default.png', '/public/assets/images/services/catalog-placeholder.svg'] as $suffix) {
+    foreach (['/public/assets/uploads/profiles/default.png', '/public/assets/images/services/default.png'] as $suffix) {
         $url = printflow_notification_normalize_media_url($base . $suffix);
         if ($url !== '' && printflow_notification_local_media_exists($url)) {
             return $memo = $url;
@@ -2605,30 +2605,6 @@ function printflow_notification_placeholder_image_url(): string {
     }
 
     return $memo = '';
-}
-
-/**
- * Neutral catalog fallback for product/service thumbnails.
- *
- * The legacy services/default.png is a 1x1 semi-transparent green pixel. When
- * it is stretched in product cards it looks like a broken green product photo,
- * so staff-facing dynamic UIs should use this full-size placeholder instead.
- */
-function printflow_catalog_placeholder_image_url(): string {
-    static $memo = null;
-    if ($memo !== null) {
-        return $memo;
-    }
-
-    $base = printflow_notification_base_path();
-    foreach (['/public/assets/images/services/catalog-placeholder.svg', '/public/assets/uploads/profiles/default.png'] as $suffix) {
-        $url = printflow_notification_normalize_media_url($base . $suffix);
-        if ($url !== '' && printflow_notification_local_media_exists($url)) {
-            return $memo = $url;
-        }
-    }
-
-    return $memo = printflow_notification_normalize_media_url($base . '/public/assets/images/services/catalog-placeholder.svg');
 }
 
 /**
@@ -6916,9 +6892,7 @@ function pf_service_card_primary_image(string $display_csv, string $hero, string
 function printflow_service_catalog_image_from_row(array $svcRow, string $default_img = ''): string {
     $base = function_exists('pf_app_base_path') ? pf_app_base_path() : printflow_notification_base_path();
     if ($default_img === '') {
-        $default_img = function_exists('printflow_catalog_placeholder_image_url')
-            ? printflow_catalog_placeholder_image_url()
-            : rtrim($base, '/') . '/public/assets/images/services/catalog-placeholder.svg';
+        $default_img = rtrim($base, '/') . '/public/assets/images/services/default.png';
     }
 
     return pf_service_card_primary_image(
@@ -6979,9 +6953,7 @@ function printflow_resolve_active_service_catalog_id(string $serviceName): int {
  */
 function printflow_order_list_thumbnail_url(array $order, string $displayName = ''): string {
     $appBase = pf_app_base_path();
-    $defaultImg = function_exists('printflow_catalog_placeholder_image_url')
-        ? printflow_catalog_placeholder_image_url()
-        : rtrim($appBase, '/') . '/public/assets/images/services/catalog-placeholder.svg';
+    $defaultImg = rtrim($appBase, '/') . '/public/assets/images/services/default.png';
 
     // Ready-made orders already select the first catalog image in
     // customer/orders.php. Prefer that trusted product value before the
@@ -7139,9 +7111,7 @@ function printflow_live_service_catalog_image_url(int $serviceId): string {
     }
 
     $appBase = function_exists('pf_app_base_path') ? pf_app_base_path() : '';
-    $defaultImg = function_exists('printflow_catalog_placeholder_image_url')
-        ? printflow_catalog_placeholder_image_url()
-        : rtrim($appBase, '/') . '/public/assets/images/services/catalog-placeholder.svg';
+    $defaultImg = rtrim($appBase, '/') . '/public/assets/images/services/default.png';
 
     $rows = db_query(
         "SELECT display_image, hero_image, updated_at
@@ -7299,10 +7269,7 @@ function get_service_image_url($service_type_or_name, $service_id = 0) {
 
     $cat = strtolower(trim(preg_replace('/\s+/', ' ', $name)));
     $base = defined('BASE_PATH') ? BASE_PATH : (defined('BASE_URL') ? BASE_URL : '/printflow');
-    $fallback = function_exists('printflow_catalog_placeholder_image_url')
-        ? printflow_catalog_placeholder_image_url()
-        : $base . '/public/assets/images/services/catalog-placeholder.svg';
-    if ($cat === '') return $fallback;
+    if ($cat === '') return $base . '/public/assets/images/services/default.png';
 
     $map = get_services_image_map();
     foreach ($map as $keyword => $img) {
@@ -7311,7 +7278,7 @@ function get_service_image_url($service_type_or_name, $service_id = 0) {
         }
     }
 
-    return $fallback;
+    return $base . '/public/assets/images/services/default.png';
 }
 
 /**
@@ -7686,9 +7653,7 @@ function printflow_send_order_update_legacy($order_id, $step, $custom_text = '',
                 $thumbnail = $base . '/' . ltrim($thumbnail, '/');
             }
         } else {
-            $thumbnail = function_exists('printflow_catalog_placeholder_image_url')
-                ? printflow_catalog_placeholder_image_url()
-                : $base . '/public/assets/images/services/catalog-placeholder.svg';
+            $thumbnail = $base . '/public/assets/images/services/default.png';
         }
     }
 

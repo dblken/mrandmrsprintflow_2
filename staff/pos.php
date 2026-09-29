@@ -55,9 +55,7 @@ try {
 
 // Fetch active services from DB (same catalog fields as customer/services.php)
 $pos_services = [];
-$pos_default_catalog_img = function_exists('printflow_catalog_placeholder_image_url')
-    ? printflow_catalog_placeholder_image_url()
-    : (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/assets/images/services/catalog-placeholder.svg';
+$pos_default_catalog_img = (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/assets/images/services/default.png';
 $pos_base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 try {
     require_once __DIR__ . '/../includes/customer_service_catalog.php';
@@ -3023,14 +3021,25 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         function posCatalogImageUrl(product) {
             if (!product) return POS_DEFAULT_CATALOG_IMG;
-            if (product.image_url && !/\/public\/assets\/images\/services\/default\.png(?:[?#].*)?$/i.test(String(product.image_url))) {
-                return product.image_url;
-            }
+            if (product.image_url) return product.image_url;
             const raw = String(product.photo_path || product.product_image || '').trim();
             if (!raw) return POS_DEFAULT_CATALOG_IMG;
             if (/^https?:\/\//i.test(raw)) return raw;
             const path = raw.startsWith('/') ? raw : '/' + raw;
             return STAFF_BASE_PATH + path;
+        }
+
+        function mergePosProductRecord(existing, incoming) {
+            if (!existing) return incoming || null;
+            if (!incoming) return existing;
+
+            const merged = { ...existing, ...incoming };
+            ['image_url', 'photo_path', 'product_image'].forEach(function(key) {
+                if (!String(merged[key] || '').trim() && String(existing[key] || '').trim()) {
+                    merged[key] = existing[key];
+                }
+            });
+            return merged;
         }
 
         function posPlayAddAnimation(sourceEl) {
@@ -5165,8 +5174,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     availability = data.availability || (product ? 'available' : null);
                     if (product && availability === 'available') {
                         const existingIndex = products.findIndex(p => String(p.product_id) === String(product.product_id));
-                        if (existingIndex >= 0) products[existingIndex] = product;
-                        else products.push(product);
+                        if (existingIndex >= 0) {
+                            product = mergePosProductRecord(products[existingIndex], product);
+                            products[existingIndex] = product;
+                        } else {
+                            products.push(product);
+                        }
                     }
                 } catch (e) {
                     showPOSScanNotice('Network Error', 'Network error while scanning barcode.', 'error');
