@@ -1044,7 +1044,7 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                                 </svg>
                                 <span>Add to Cart</span>
                             </button>
-                            <button type="submit" name="action" value="inquire_now" class="shopee-btn-primary" style="min-width: 160px; display: flex; align-items: center; justify-content: center; padding: 0.5rem 1.25rem;">
+                            <button type="submit" name="action" value="inquire_now" class="shopee-btn-primary" style="min-width: 190px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; padding: 0.5rem 1.25rem;">
                                 <svg style="width: 1.125rem; height: 1.125rem; flex-shrink: 0; margin-right: 0.5rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
                                 </svg>
@@ -1453,7 +1453,13 @@ textarea.notes-textarea::-webkit-resizer { display: none !important; }
 .service-action-buttons { flex: 1; display: flex; justify-content: flex-start; align-items: center; gap: 0.75rem; flex-wrap: nowrap; min-width: 0; }
 .service-action-buttons > a,
 .service-action-buttons > button { flex: 0 0 auto; }
-.service-action-buttons > button[name="action"][value="inquire_now"] { flex: 1 1 auto; }
+.service-action-buttons > button[name="action"][value="inquire_now"] { flex: 1 1 auto; white-space: nowrap; }
+.service-action-buttons > button[name="action"][value="inquire_now"] span {
+    display: inline-block;
+    white-space: nowrap;
+    overflow-wrap: normal;
+    word-break: keep-all;
+}
 @media (max-width: 760px) {
     .service-action-row > div:first-child { display: none; }
     .service-action-buttons { justify-content: stretch; flex-wrap: wrap; width: 100%; }
