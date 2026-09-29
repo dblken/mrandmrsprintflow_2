@@ -374,64 +374,25 @@ require_once __DIR__ . '/../includes/header.php';
         margin-right: 4px;
         white-space: nowrap;
     }
-    .pf-stock-modal {
-        position: fixed;
-        inset: 0;
-        z-index: 100001;
-        display: none;
-        align-items: center;
-        justify-content: center;
-        padding: 1rem;
-        background: rgba(15, 23, 42, 0.42);
-    }
-    .pf-stock-modal.is-open { display: flex; }
-    .pf-stock-modal-card {
-        width: min(100%, 340px);
-        background: #fff;
-        border: 1px solid rgba(226, 232, 240, 0.95);
-        border-radius: 16px;
-        padding: 1.35rem 1.25rem 1.15rem;
-        text-align: center;
-        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
-    }
-    .pf-stock-modal-icon {
-        width: 38px;
-        height: 38px;
-        border-radius: 999px;
-        margin: 0 auto 0.75rem;
+    .pf-group-options-error.field-error {
         display: flex;
         align-items: center;
-        justify-content: center;
-        background: #fef2f2;
-        color: #dc2626;
-        font-weight: 900;
-        font-size: 1.1rem;
+        justify-content: flex-end;
+        gap: 0.375rem;
+        width: 100%;
+        margin: 0.5rem 0 0;
+        color: #ef4444;
+        font-size: 0.875rem;
+        line-height: 1.35;
+        font-weight: 600;
     }
-    .pf-stock-modal-title {
-        margin: 0;
-        color: #0f172a;
-        font-size: 1.05rem;
-        font-weight: 800;
+    .pf-group-options-error.field-error::before {
+        content: "⚠";
+        font-size: 1rem;
+        flex-shrink: 0;
     }
-    .pf-stock-modal-message {
-        margin: 0.55rem 0 1rem;
-        color: #475569;
-        font-size: 0.88rem;
-        line-height: 1.5;
-    }
-    .pf-stock-modal-ok {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 92px;
-        height: 38px;
-        border: none;
-        border-radius: 12px;
-        background: #0f3441;
-        color: #fff;
-        font-size: 0.78rem;
-        font-weight: 800;
-        cursor: pointer;
+    .pf-group-options-error[hidden] {
+        display: none;
     }
     @media (max-width: 480px) {
         .pf-group-selection .shopee-footer {
@@ -459,6 +420,10 @@ require_once __DIR__ . '/../includes/header.php';
             text-transform: none;
         }
         .pf-group-cart-text { display: inline; }
+        .pf-group-options-error.field-error {
+            justify-content: center;
+            text-align: center;
+        }
         .pf-group-img-wrap {
             width: min(100%, 220px);
             max-width: 220px;
@@ -591,6 +556,7 @@ require_once __DIR__ . '/../includes/header.php';
                     </button>
                     <a id="pf-group-order-now" href="#" class="shopee-btn shopee-btn-buy">Order Now</a>
                 </div>
+                <div id="pf-group-stock-error" class="field-error pf-group-options-error" role="alert" aria-live="polite" hidden>This product is currently out of stock.</div>
             </div>
         </div>
     </div>
@@ -761,15 +727,6 @@ require_once __DIR__ . '/../includes/header.php';
     </section>
 </div>
 
-<div id="pfOutOfStockModal" class="pf-stock-modal" aria-hidden="true">
-    <div class="pf-stock-modal-card" role="dialog" aria-modal="true" aria-labelledby="pfOutOfStockTitle">
-        <div class="pf-stock-modal-icon" aria-hidden="true">!</div>
-        <h2 id="pfOutOfStockTitle" class="pf-stock-modal-title">Out of Stock</h2>
-        <p class="pf-stock-modal-message">This product is currently unavailable. Please select another option.</p>
-        <button type="button" id="pfOutOfStockOk" class="pf-stock-modal-ok">OK</button>
-    </div>
-</div>
-
 <div id="pocMediaModal" class="poc-media-modal" aria-hidden="true">
     <div class="poc-media-modal-inner" role="dialog" aria-modal="true" aria-label="Media viewer">
         <button type="button" id="pocMediaClose" class="poc-media-close" aria-label="Close media viewer">&times;</button>
@@ -834,6 +791,7 @@ function pfFormatMoney(n) {
 
 function pfSelectGroupOption(el) {
     if (!el) return;
+    pfClearOutOfStockError();
     document.querySelectorAll('.pf-group-option').forEach(function (row) { row.classList.remove('is-active'); });
     el.classList.add('is-active');
     var pid = el.getAttribute('data-product-id');
@@ -892,34 +850,17 @@ function pfIsOutOfStockMessage(msg) {
         || text.indexOf('stock left') !== -1;
 }
 
-function pfShowOutOfStockModal() {
-    var modal = document.getElementById('pfOutOfStockModal');
-    var okBtn = document.getElementById('pfOutOfStockOk');
-    if (!modal) return;
-    if (modal.classList.contains('is-open')) return;
-    modal.classList.add('is-open');
-    modal.setAttribute('aria-hidden', 'false');
-    document.body.style.overflow = 'hidden';
-    if (okBtn) okBtn.focus();
+function pfShowOutOfStockError() {
+    var error = document.getElementById('pf-group-stock-error');
+    if (!error) return;
+    error.hidden = false;
 }
 
-function pfCloseOutOfStockModal() {
-    var modal = document.getElementById('pfOutOfStockModal');
-    if (!modal) return;
-    if (!modal.classList.contains('is-open')) return;
-    modal.classList.remove('is-open');
-    modal.setAttribute('aria-hidden', 'true');
-    document.body.style.overflow = '';
+function pfClearOutOfStockError() {
+    var error = document.getElementById('pf-group-stock-error');
+    if (!error) return;
+    error.hidden = true;
 }
-
-document.getElementById('pfOutOfStockOk').addEventListener('click', pfCloseOutOfStockModal);
-document.getElementById('pfOutOfStockModal').addEventListener('click', function (e) {
-    if (e.target === e.currentTarget) pfCloseOutOfStockModal();
-});
-document.addEventListener('keydown', function (e) {
-    var modal = document.getElementById('pfOutOfStockModal');
-    if (e.key === 'Escape' && modal && modal.classList.contains('is-open')) pfCloseOutOfStockModal();
-});
 
 document.getElementById('pf-group-add-cart').addEventListener('click', async function (ev) {
     var btn = ev.currentTarget;
@@ -927,9 +868,10 @@ document.getElementById('pf-group-add-cart').addEventListener('click', async fun
     if (!productId) return;
     var stock = parseInt(btn.getAttribute('data-stock') || '0', 10);
     if (stock <= 0) {
-        pfShowOutOfStockModal();
+        pfShowOutOfStockError();
         return;
     }
+    pfClearOutOfStockError();
     var lockKey = 'product-' + String(productId);
     if (window.PFAddToCartFx && PFAddToCartFx.isPending(lockKey)) return;
 
@@ -948,7 +890,7 @@ document.getElementById('pf-group-add-cart').addEventListener('click', async fun
         var data = await response.json();
         if (!data.success) {
             if (pfIsOutOfStockMessage(data.message)) {
-                pfShowOutOfStockModal();
+                pfShowOutOfStockError();
                 return;
             }
             showToast(data.message || 'Could not add to cart.', true);
@@ -991,9 +933,10 @@ document.getElementById('pf-group-order-now').addEventListener('click', async fu
     if (!productId) return;
     var stock = parseInt(btn.getAttribute('data-stock') || '0', 10);
     if (stock <= 0) {
-        pfShowOutOfStockModal();
+        pfShowOutOfStockError();
         return;
     }
+    pfClearOutOfStockError();
     if (btn.dataset.pending === '1') return;
     btn.dataset.pending = '1';
     try {
@@ -1018,7 +961,7 @@ document.getElementById('pf-group-order-now').addEventListener('click', async fu
             return;
         }
         if (pfIsOutOfStockMessage(data.message)) {
-            pfShowOutOfStockModal();
+            pfShowOutOfStockError();
             return;
         }
         showToast(data.message || 'Could not start checkout.', true);
