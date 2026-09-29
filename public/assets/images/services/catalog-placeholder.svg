@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="360" viewBox="0 0 480 360" role="img" aria-label="Printflow product image placeholder">
+  <rect width="480" height="360" fill="#f1f5f9"/>
+  <rect x="120" y="78" width="240" height="204" rx="18" fill="#ffffff" stroke="#cbd5e1" stroke-width="8"/>
+  <path d="M154 238l58-66 42 48 29-34 43 52" fill="none" stroke="#94a3b8" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="304" cy="132" r="24" fill="#cbd5e1"/>
+  <text x="240" y="316" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#475569">Printflow</text>
+</svg>

@@ -673,7 +673,9 @@ $page_title = 'Notifications - Staff';
                                 $target_url = staff_notification_target_url($notif);
 
                                 $base_path_val = defined('BASE_PATH') ? rtrim(BASE_PATH, '/') : '/printflow';
-                                $defaultNotifImage = $base_path_val . '/public/assets/images/services/default.png';
+                                $defaultNotifImage = function_exists('printflow_catalog_placeholder_image_url')
+                                    ? printflow_catalog_placeholder_image_url()
+                                    : $base_path_val . '/public/assets/images/services/catalog-placeholder.svg';
                                 $notifImage = staff_admin_notification_image_url($notif, $defaultNotifImage);
                                 $displayMessage = printflow_notification_display_message($notif);
                                 $itemKind = strtolower(printflow_notification_item_kind($notif));

@@ -55,7 +55,9 @@ try {
 
 // Fetch active services from DB (same catalog fields as customer/services.php)
 $pos_services = [];
-$pos_default_catalog_img = (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/assets/images/services/default.png';
+$pos_default_catalog_img = function_exists('printflow_catalog_placeholder_image_url')
+    ? printflow_catalog_placeholder_image_url()
+    : (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/assets/images/services/catalog-placeholder.svg';
 $pos_base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 try {
     require_once __DIR__ . '/../includes/customer_service_catalog.php';
@@ -3021,7 +3023,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         function posCatalogImageUrl(product) {
             if (!product) return POS_DEFAULT_CATALOG_IMG;
-            if (product.image_url) return product.image_url;
+            if (product.image_url && !/\/public\/assets\/images\/services\/default\.png(?:[?#].*)?$/i.test(String(product.image_url))) {
+                return product.image_url;
+            }
             const raw = String(product.photo_path || product.product_image || '').trim();
             if (!raw) return POS_DEFAULT_CATALOG_IMG;
             if (/^https?:\/\//i.test(raw)) return raw;

@@ -73,7 +73,9 @@ try {
         $params ?: null
     );
     $base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
-    $default_product_img = $base_path . '/public/assets/images/services/default.png';
+    $default_product_img = function_exists('printflow_catalog_placeholder_image_url')
+        ? printflow_catalog_placeholder_image_url()
+        : $base_path . '/public/assets/images/services/catalog-placeholder.svg';
     $products = [];
     foreach ($rows ?: [] as $p) {
         $optionStock = $staffBranch > 0 ? printflow_product_option_stock_total((int)$p['product_id'], $staffBranch) : null;
