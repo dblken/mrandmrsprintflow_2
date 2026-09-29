@@ -292,12 +292,9 @@ require_once __DIR__ . '/../includes/header.php';
         font-size: 0.95rem; font-weight: 700; color: var(--shopee-text); margin-top: 4px;
         overflow-wrap: anywhere; word-break: break-word; line-height: 1.3;
     }
-    .pf-group-selected-price { font-size: 1.125rem; font-weight: 800; color: #0f3441; margin-top: 4px; line-height: 1.2; }
-    .pf-group-selected-stock { font-size: 0.75rem; color: #64748b; margin-top: 4px; font-weight: 600; line-height: 1.2; }
     .pf-group-stats {
         display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
-        font-size: 0.75rem; color: var(--shopee-muted); margin: 8px 0 10px; padding-bottom: 10px;
-        border-bottom: 1px solid rgba(126,164,184,0.16);
+        font-size: 0.75rem; color: var(--shopee-muted); margin: 8px 0 0;
     }
     .pf-group-stats .rating-stars { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
     .pf-group-stats .rating-stars svg { width: 14px; height: 14px; }
@@ -340,7 +337,7 @@ require_once __DIR__ . '/../includes/header.php';
         padding: 10px 0 0;
         border-top: 1px solid rgba(126, 164, 184, 0.16);
         display: flex;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         align-items: center;
         justify-content: flex-end;
         gap: 8px;
@@ -368,31 +365,76 @@ require_once __DIR__ . '/../includes/header.php';
         min-width: 118px; height: 42px;
     }
     .pf-group-selection .shopee-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .pf-group-stock-status {
+    .pf-group-action-price {
+        color: #0f3441;
+        font-size: 1rem;
+        font-weight: 800;
+        line-height: 1;
+        margin-right: 4px;
+        white-space: nowrap;
+    }
+    .pf-stock-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 100001;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: rgba(15, 23, 42, 0.42);
+    }
+    .pf-stock-modal.is-open { display: flex; }
+    .pf-stock-modal-card {
+        width: min(100%, 340px);
+        background: #fff;
+        border: 1px solid rgba(226, 232, 240, 0.95);
+        border-radius: 16px;
+        padding: 1.35rem 1.25rem 1.15rem;
+        text-align: center;
+        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+    }
+    .pf-stock-modal-icon {
+        width: 38px;
+        height: 38px;
+        border-radius: 999px;
+        margin: 0 auto 0.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #fef2f2;
+        color: #dc2626;
+        font-weight: 900;
+        font-size: 1.1rem;
+    }
+    .pf-stock-modal-title {
+        margin: 0;
+        color: #0f172a;
+        font-size: 1.05rem;
+        font-weight: 800;
+    }
+    .pf-stock-modal-message {
+        margin: 0.55rem 0 1rem;
+        color: #475569;
+        font-size: 0.88rem;
+        line-height: 1.5;
+    }
+    .pf-stock-modal-ok {
         display: inline-flex;
         align-items: center;
-        gap: 7px;
-        min-height: 34px;
-        padding: 0.42rem 0.7rem;
-        border-radius: 999px;
-        border: 1px solid rgba(220, 38, 38, 0.18);
-        background: #fef2f2;
-        color: #b91c1c;
-        font-size: 0.75rem;
-        font-weight: 700;
-        line-height: 1;
-    }
-    .pf-group-stock-status[hidden] { display: none; }
-    .pf-group-stock-status::before {
-        content: "";
-        width: 7px;
-        height: 7px;
-        border-radius: 999px;
-        background: #dc2626;
-        flex: 0 0 auto;
+        justify-content: center;
+        min-width: 92px;
+        height: 38px;
+        border: none;
+        border-radius: 12px;
+        background: #0f3441;
+        color: #fff;
+        font-size: 0.78rem;
+        font-weight: 800;
+        cursor: pointer;
     }
     @media (max-width: 480px) {
         .pf-group-selection .shopee-footer { display: flex; }
+        .pf-group-action-price { width: 100%; text-align: right; margin: 0 0 2px; }
         .pf-group-selection .shopee-btn-buy { flex: 1; min-width: 0; }
         .pf-group-selection .shopee-btn-cart { width: 42px; height: 42px; }
         .pf-group-selection .shopee-btn-buy { height: 42px; min-height: 42px; }
@@ -492,8 +534,6 @@ require_once __DIR__ . '/../includes/header.php';
                         <span id="pf-group-stats-sold">— sold</span>
                     </div>
 
-                    <div id="pf-group-selected-price" class="pf-group-selected-price">—</div>
-                    <div id="pf-group-selected-stock" class="pf-group-selected-stock">—</div>
                 </div>
             </div>
             <div class="pf-group-selection-options">
@@ -523,7 +563,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <?php endforeach; ?>
                 </div>
                 <div class="shopee-footer pf-group-options-actions">
-                    <span id="pf-group-out-stock-status" class="pf-group-stock-status" role="status" aria-live="polite" hidden>Out of stock</span>
+                    <span id="pf-group-action-price" class="pf-group-action-price">&mdash;</span>
                     <button type="button" id="pf-group-add-cart" class="shopee-btn shopee-btn-cart" title="Add to Cart">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                     </button>
@@ -699,6 +739,15 @@ require_once __DIR__ . '/../includes/header.php';
     </section>
 </div>
 
+<div id="pfOutOfStockModal" class="pf-stock-modal" aria-hidden="true">
+    <div class="pf-stock-modal-card" role="dialog" aria-modal="true" aria-labelledby="pfOutOfStockTitle">
+        <div class="pf-stock-modal-icon" aria-hidden="true">!</div>
+        <h2 id="pfOutOfStockTitle" class="pf-stock-modal-title">Out of Stock</h2>
+        <p class="pf-stock-modal-message">This product is currently unavailable. Please select another option.</p>
+        <button type="button" id="pfOutOfStockOk" class="pf-stock-modal-ok">OK</button>
+    </div>
+</div>
+
 <div id="pocMediaModal" class="poc-media-modal" aria-hidden="true">
     <div class="poc-media-modal-inner" role="dialog" aria-modal="true" aria-label="Media viewer">
         <button type="button" id="pocMediaClose" class="poc-media-close" aria-label="Close media viewer">&times;</button>
@@ -773,30 +822,24 @@ function pfSelectGroupOption(el) {
     var avgRating = el.getAttribute('data-avg-rating') || '0';
     var reviewCount = el.getAttribute('data-review-count') || '0';
     var soldCount = el.getAttribute('data-sold-count') || '0';
+    var formattedPrice = pfFormatMoney(price);
     document.getElementById('pf-group-main-image').src = img;
     document.getElementById('pf-group-selected-name').textContent = name;
-    document.getElementById('pf-group-selected-price').textContent = pfFormatMoney(price);
-    document.getElementById('pf-group-selected-stock').textContent = stock > 0 ? (stock + ' in stock') : 'Out of stock';
+    document.getElementById('pf-group-action-price').textContent = formattedPrice;
     pfRenderStatsStars(avgRating, reviewCount);
     document.getElementById('pf-group-stats-sold').textContent = pfFormatSold(soldCount) + ' sold';
     var orderBtn = document.getElementById('pf-group-order-now');
-    var isInStock = stock > 0;
     if (orderBtn) {
         orderBtn.href = '#';
         orderBtn.setAttribute('data-product-id', pid);
         orderBtn.setAttribute('data-stock', String(stock));
-        orderBtn.hidden = !isInStock;
-        orderBtn.setAttribute('aria-disabled', isInStock ? 'false' : 'true');
+        orderBtn.setAttribute('aria-disabled', 'false');
     }
     var cartBtn = document.getElementById('pf-group-add-cart');
     if (cartBtn) {
-        cartBtn.hidden = !isInStock;
-        cartBtn.disabled = !isInStock;
+        cartBtn.disabled = false;
+        cartBtn.setAttribute('data-stock', String(stock));
         cartBtn.setAttribute('data-product-id', pid);
-    }
-    var stockStatus = document.getElementById('pf-group-out-stock-status');
-    if (stockStatus) {
-        stockStatus.hidden = isInStock;
     }
 }
 
@@ -818,11 +861,53 @@ function showToast(msg, isError) {
     setTimeout(function () { toast.style.display = 'none'; }, 2800);
 }
 
+function pfIsOutOfStockMessage(msg) {
+    var text = String(msg || '').toLowerCase();
+    return text.indexOf('out of stock') !== -1
+        || text.indexOf('unavailable') !== -1
+        || text.indexOf('insufficient stock') !== -1
+        || text.indexOf('available stock') !== -1
+        || text.indexOf('stock left') !== -1;
+}
+
+function pfShowOutOfStockModal() {
+    var modal = document.getElementById('pfOutOfStockModal');
+    var okBtn = document.getElementById('pfOutOfStockOk');
+    if (!modal) return;
+    if (modal.classList.contains('is-open')) return;
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    if (okBtn) okBtn.focus();
+}
+
+function pfCloseOutOfStockModal() {
+    var modal = document.getElementById('pfOutOfStockModal');
+    if (!modal) return;
+    if (!modal.classList.contains('is-open')) return;
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+}
+
+document.getElementById('pfOutOfStockOk').addEventListener('click', pfCloseOutOfStockModal);
+document.getElementById('pfOutOfStockModal').addEventListener('click', function (e) {
+    if (e.target === e.currentTarget) pfCloseOutOfStockModal();
+});
+document.addEventListener('keydown', function (e) {
+    var modal = document.getElementById('pfOutOfStockModal');
+    if (e.key === 'Escape' && modal && modal.classList.contains('is-open')) pfCloseOutOfStockModal();
+});
+
 document.getElementById('pf-group-add-cart').addEventListener('click', async function (ev) {
     var btn = ev.currentTarget;
-    if (btn.disabled) return;
     var productId = parseInt(btn.getAttribute('data-product-id') || '0', 10);
     if (!productId) return;
+    var stock = parseInt(btn.getAttribute('data-stock') || '0', 10);
+    if (stock <= 0) {
+        pfShowOutOfStockModal();
+        return;
+    }
     var lockKey = 'product-' + String(productId);
     if (window.PFAddToCartFx && PFAddToCartFx.isPending(lockKey)) return;
 
@@ -840,6 +925,10 @@ document.getElementById('pf-group-add-cart').addEventListener('click', async fun
         });
         var data = await response.json();
         if (!data.success) {
+            if (pfIsOutOfStockMessage(data.message)) {
+                pfShowOutOfStockModal();
+                return;
+            }
             showToast(data.message || 'Could not add to cart.', true);
             return;
         }
@@ -873,7 +962,6 @@ document.getElementById('pf-group-add-cart').addEventListener('click', async fun
 document.getElementById('pf-group-order-now').addEventListener('click', async function (ev) {
     ev.preventDefault();
     var btn = ev.currentTarget;
-    if (btn.getAttribute('aria-disabled') === 'true') return;
     var productId = parseInt(btn.getAttribute('data-product-id') || '0', 10);
     if (!productId) {
         productId = parseInt(document.getElementById('pf-group-add-cart').getAttribute('data-product-id') || '0', 10);
@@ -881,7 +969,7 @@ document.getElementById('pf-group-order-now').addEventListener('click', async fu
     if (!productId) return;
     var stock = parseInt(btn.getAttribute('data-stock') || '0', 10);
     if (stock <= 0) {
-        showToast('This option is out of stock.', true);
+        pfShowOutOfStockModal();
         return;
     }
     if (btn.dataset.pending === '1') return;
@@ -905,6 +993,10 @@ document.getElementById('pf-group-order-now').addEventListener('click', async fu
         }
         if (data.success && data.item_key) {
             window.location.href = 'order_review.php?item=' + encodeURIComponent(data.item_key);
+            return;
+        }
+        if (pfIsOutOfStockMessage(data.message)) {
+            pfShowOutOfStockModal();
             return;
         }
         showToast(data.message || 'Could not start checkout.', true);
