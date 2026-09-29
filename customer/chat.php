@@ -742,7 +742,10 @@ require_once __DIR__ . '/../includes/header.php';
     <!-- ══ Sidebar ══ -->
     <aside class="cs-sidebar">
         <div class="cs-sidebar-top">
-            <h2 style="display:flex;align-items:center;gap:8px;">My Messages <span class="pf-chat-unread-badge" data-chat-unread-badge style="display:none;"></span></h2>
+            <div class="pf-chat-sidebar-heading">
+                <h2>My Messages <span class="pf-chat-unread-badge" data-chat-unread-badge style="display:none;"></span></h2>
+                <button type="button" class="pf-chat-mark-all" data-chat-mark-all style="display:none;">Mark All as Read</button>
+            </div>
             <div class="cs-search"><i class="bi bi-search"></i><input type="text" id="convSearch" placeholder="Search orders…"></div>
         </div>
         <div class="cs-list" id="convList"></div>

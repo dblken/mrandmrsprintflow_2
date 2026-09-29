@@ -1214,7 +1214,10 @@ $current_user = get_logged_in_user();
             <!-- Sidebar -->
             <aside class="chat-sidebar" id="sidebar">
                 <div class="sidebar-top">
-                    <div class="sidebar-title">Conversations</div>
+                    <div class="pf-chat-sidebar-heading">
+                        <div class="sidebar-title">Conversations</div>
+                        <button type="button" class="pf-chat-mark-all" data-chat-mark-all style="display:none;">Mark All as Read</button>
+                    </div>
                     <div class="search-box">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z" stroke-width="2.5"/></svg>
                         <input type="text" id="searchInput" placeholder="Search customer or order..." autocomplete="off">

@@ -1181,7 +1181,7 @@ function printflow_change_item_notify_customer(int $customerId, int $orderId, st
 
     create_notification($customerId, 'Customer', $message, 'Order', false, false, $orderId);
     if (function_exists('printflow_send_order_update')) {
-        printflow_send_order_update($orderId, 'view_status', 'view_status', '', '', [
+        printflow_send_order_update($orderId, $message, 'view_status', '', '', [
             'change_item_event' => $event,
             'change_item_message' => $message,
         ]);

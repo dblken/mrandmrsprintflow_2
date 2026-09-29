@@ -131,7 +131,11 @@ try {
     }
 
     // 1. Fetch a bounded initial window, older page, or incremental delta.
-    $where_sql = 'm.order_id = ?';
+    $where_sql = "m.order_id = ? AND NOT (
+        TRIM(COALESCE(m.message, '')) = 'view_status'
+        AND COALESCE(m.action_type, '') = 'view_status'
+        AND COALESCE(m.message_type, '') = 'order_update'
+    )";
     $query_types = 'i';
     $query_params = [$order_id];
     $descending = false;
