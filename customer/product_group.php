@@ -360,6 +360,7 @@ require_once __DIR__ . '/../includes/header.php';
         width: 42px; height: 42px; padding: 0;
     }
     .pf-group-selection .shopee-btn-cart svg { width: 1.25rem; height: 1.25rem; }
+    .pf-group-cart-text { display: none; }
     .pf-group-selection .shopee-btn-buy {
         background: linear-gradient(135deg, #123746 0%, #0f4958 100%); color: #fff;
         min-width: 118px; height: 42px;
@@ -433,11 +434,31 @@ require_once __DIR__ . '/../includes/header.php';
         cursor: pointer;
     }
     @media (max-width: 480px) {
-        .pf-group-selection .shopee-footer { display: flex; }
-        .pf-group-action-price { width: 100%; text-align: right; margin: 0 0 2px; }
-        .pf-group-selection .shopee-btn-buy { flex: 1; min-width: 0; }
-        .pf-group-selection .shopee-btn-cart { width: 42px; height: 42px; }
-        .pf-group-selection .shopee-btn-buy { height: 42px; min-height: 42px; }
+        .pf-group-selection .shopee-footer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .pf-group-action-price {
+            width: auto;
+            text-align: center;
+            margin: 0;
+        }
+        .pf-group-selection .shopee-btn-cart,
+        .pf-group-selection .shopee-btn-buy {
+            width: min(100%, 210px);
+            min-width: 0;
+            height: 42px;
+            min-height: 42px;
+        }
+        .pf-group-selection .shopee-btn-cart {
+            gap: 0.45rem;
+            padding: 0.5rem 0.75rem;
+            text-transform: none;
+        }
+        .pf-group-cart-text { display: inline; }
         .pf-group-img-wrap {
             width: min(100%, 220px);
             max-width: 220px;
@@ -566,6 +587,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <span id="pf-group-action-price" class="pf-group-action-price">&mdash;</span>
                     <button type="button" id="pf-group-add-cart" class="shopee-btn shopee-btn-cart" title="Add to Cart">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                        <span class="pf-group-cart-text">Add to Cart</span>
                     </button>
                     <a id="pf-group-order-now" href="#" class="shopee-btn shopee-btn-buy">Order Now</a>
                 </div>

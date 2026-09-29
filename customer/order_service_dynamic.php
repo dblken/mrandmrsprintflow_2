@@ -1456,9 +1456,22 @@ textarea.notes-textarea::-webkit-resizer { display: none !important; }
 .service-action-buttons > button[name="action"][value="inquire_now"] { flex: 1 1 auto; }
 @media (max-width: 760px) {
     .service-action-row > div:first-child { display: none; }
-    .service-action-buttons { justify-content: stretch; flex-wrap: wrap; }
+    .service-action-buttons { justify-content: stretch; flex-wrap: wrap; width: 100%; }
     .service-action-buttons > a,
     .service-action-buttons > button { flex: 1 1 100%; width: 100%; }
+    .service-action-buttons > button {
+        min-width: 0 !important;
+        gap: 0.45rem;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        white-space: nowrap;
+    }
+    .service-action-buttons > button svg {
+        margin-right: 0.25rem !important;
+    }
+    .service-action-buttons > button span {
+        white-space: nowrap;
+    }
 }
 @media (max-width: 640px) {
     .sticky-image-container,
