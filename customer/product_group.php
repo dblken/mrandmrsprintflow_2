@@ -368,6 +368,29 @@ require_once __DIR__ . '/../includes/header.php';
         min-width: 118px; height: 42px;
     }
     .pf-group-selection .shopee-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .pf-group-stock-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 34px;
+        padding: 0.42rem 0.7rem;
+        border-radius: 999px;
+        border: 1px solid rgba(220, 38, 38, 0.18);
+        background: #fef2f2;
+        color: #b91c1c;
+        font-size: 0.75rem;
+        font-weight: 700;
+        line-height: 1;
+    }
+    .pf-group-stock-status[hidden] { display: none; }
+    .pf-group-stock-status::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: #dc2626;
+        flex: 0 0 auto;
+    }
     @media (max-width: 480px) {
         .pf-group-selection .shopee-footer { display: flex; }
         .pf-group-selection .shopee-btn-buy { flex: 1; min-width: 0; }
@@ -500,6 +523,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <?php endforeach; ?>
                 </div>
                 <div class="shopee-footer pf-group-options-actions">
+                    <span id="pf-group-out-stock-status" class="pf-group-stock-status" role="status" aria-live="polite" hidden>Out of stock</span>
                     <button type="button" id="pf-group-add-cart" class="shopee-btn shopee-btn-cart" title="Add to Cart">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                     </button>
@@ -756,17 +780,24 @@ function pfSelectGroupOption(el) {
     pfRenderStatsStars(avgRating, reviewCount);
     document.getElementById('pf-group-stats-sold').textContent = pfFormatSold(soldCount) + ' sold';
     var orderBtn = document.getElementById('pf-group-order-now');
+    var isInStock = stock > 0;
     if (orderBtn) {
         orderBtn.href = '#';
         orderBtn.setAttribute('data-product-id', pid);
         orderBtn.setAttribute('data-stock', String(stock));
-        orderBtn.style.opacity = stock > 0 ? '1' : '0.5';
-        orderBtn.style.pointerEvents = stock > 0 ? 'auto' : 'none';
-        orderBtn.setAttribute('aria-disabled', stock > 0 ? 'false' : 'true');
+        orderBtn.hidden = !isInStock;
+        orderBtn.setAttribute('aria-disabled', isInStock ? 'false' : 'true');
     }
     var cartBtn = document.getElementById('pf-group-add-cart');
-    cartBtn.disabled = stock <= 0;
-    cartBtn.setAttribute('data-product-id', pid);
+    if (cartBtn) {
+        cartBtn.hidden = !isInStock;
+        cartBtn.disabled = !isInStock;
+        cartBtn.setAttribute('data-product-id', pid);
+    }
+    var stockStatus = document.getElementById('pf-group-out-stock-status');
+    if (stockStatus) {
+        stockStatus.hidden = isInStock;
+    }
 }
 
 document.getElementById('pf-group-options').addEventListener('click', function (e) {
