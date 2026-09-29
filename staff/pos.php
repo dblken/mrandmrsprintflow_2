@@ -618,6 +618,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             top: 50%;
             transform: translateY(-50%);
             color: #94a3b8;
+            width: 16px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 1;
         }
 
         .pos-search-input {
@@ -632,6 +636,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             box-sizing: border-box;
             background: #ffffff;
             color: #334155;
+        }
+
+        .pos-search-box .pos-search-input {
+            padding-left: 44px;
         }
 
         .pos-search-input:focus {
@@ -2856,6 +2864,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 <div class="receipt-modal-actions">
                     <button type="button" class="receipt-action-btn" onclick="closeReceiptModal()">Close</button>
                     <button id="pos-print-receipt-btn" type="button" class="receipt-action-btn receipt-action-btn--primary" onclick="printReceipt()">Print Receipt</button>
+                    <button id="pos-reprint-receipt-btn" type="button" class="receipt-action-btn receipt-action-btn--primary" onclick="confirmReprintReceipt()" style="display:none;">Reprint Receipt</button>
                 </div>
             </div>
             <div class="receipt-modal-body">
@@ -3348,6 +3357,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         ${company.contact ? `<div>${escapeHtml(company.contact)}</div>` : ''}
                     </div>
                     <div class="receipt-pill">Official POS Receipt</div>
+                    ${receipt?.reprint ? '<div class="receipt-pill">REPRINT COPY</div>' : ''}
                 </div>
 
                 <div class="receipt-section">
@@ -3428,6 +3438,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         let activePosReceipt = null;
         let activePosPrintJob = null;
         let posReceiptPrintProcessing = false;
+        let posReceiptPrintAttempted = false;
 
         const POS_RECEIPT_PRINTER_SPEC = {
             speedMmPerSec: 50,
@@ -3527,13 +3538,19 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function setPosReceiptPrintState(message = '', failed = false) {
             const status = document.getElementById('receipt-print-result');
             const button = document.getElementById('pos-print-receipt-btn');
+            const reprintButton = document.getElementById('pos-reprint-receipt-btn');
             if (status) {
                 status.textContent = message;
-                status.style.color = failed ? '#b91c1c' : '#0f766e';
+                status.style.color = failed ? '#b91c1c' : (posReceiptPrintAttempted ? '#0f766e' : '#475569');
             }
             if (button) {
-                button.disabled = false;
-                button.textContent = failed ? 'Retry Print' : 'Print Receipt';
+                button.disabled = posReceiptPrintProcessing;
+                button.style.display = (!failed && posReceiptPrintAttempted && !posReceiptPrintProcessing) ? 'none' : '';
+                button.textContent = posReceiptPrintProcessing ? 'Printing...' : (failed ? 'Retry Print' : 'Print Receipt');
+            }
+            if (reprintButton) {
+                reprintButton.disabled = posReceiptPrintProcessing;
+                reprintButton.style.display = (!failed && posReceiptPrintAttempted && !posReceiptPrintProcessing) ? '' : 'none';
             }
         }
 
@@ -3544,6 +3561,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             activePosReceipt = receipt || {};
             activePosPrintJob = null;
             posReceiptPrintProcessing = false;
+            posReceiptPrintAttempted = false;
             setPosReceiptPrintState('No physical receipt has been printed yet.');
             printArea.innerHTML = buildReceiptHtml(activePosReceipt);
             resetReceiptFeedAnimation(printArea);
@@ -3603,20 +3621,90 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         throw new Error(result.message || 'Receipt printing failed.');
                     }
                     activePosPrintJob = result.print_job;
-                    await monitorReceiptPrintJob(result.print_job, { silentSuccess: true });
+                    const confirmed = await monitorReceiptPrintJob(result.print_job, { silentSuccess: true });
+                    if (confirmed === false) {
+                        throw new Error('Receipt printing failed.');
+                    }
                 })();
 
             try {
                 await animationPromise;
-                setPosReceiptPrintState('Receipt printed successfully.');
-                showPOSScanNotice('Transaction completed', 'Receipt printed successfully.', 'success');
-                posReceiptPrintProcessing = false;
                 await printTaskPromise;
+                posReceiptPrintAttempted = true;
+                activePosPrintJob = null;
+                posReceiptPrintProcessing = false;
+                setPosReceiptPrintState('Print attempt completed. If the physical copy failed, use Reprint Receipt.');
+                showPOSScanNotice('Transaction completed', 'Receipt print attempt completed.', 'success');
             } catch (error) {
                 console.error('Receipt printing failed:', error);
                 posReceiptPrintProcessing = false;
                 resetReceiptFeedAnimation(printArea);
                 setPosReceiptPrintState('Receipt printing failed.', true);
+            }
+        }
+
+        async function confirmReprintReceipt() {
+            if (posReceiptPrintProcessing || !activePosReceipt?.order_id) return;
+            const confirmed = await showPOSConfirm(
+                'Reprint Receipt?',
+                'Are you sure you want to reprint this receipt?',
+                'Reprint',
+                'confirm'
+            );
+            if (!confirmed) return;
+            await reprintReceipt();
+        }
+
+        async function reprintReceipt() {
+            if (posReceiptPrintProcessing || !activePosReceipt?.order_id) return;
+            const printArea = document.getElementById('receipt-print-area');
+            const receiptForDisplay = { ...activePosReceipt, reprint: true };
+            resetReceiptFeedAnimation(printArea);
+            if (printArea) {
+                printArea.innerHTML = buildReceiptHtml(receiptForDisplay);
+            }
+            renderPosReceiptQr(activePosReceipt?.qr_payload);
+            renderPosOnlineStoreQr();
+            void printArea.offsetHeight;
+
+            const durationMs = estimatePosReceiptPrintDurationMs(printArea);
+            posReceiptPrintProcessing = true;
+            setPosReceiptPrintState('Reprinting receipt...');
+
+            const animationPromise = runReceiptFeedAnimation(printArea, durationMs);
+            const reprintTaskPromise = (async () => {
+                const response = await fetch(staffUrl('staff/api/pos_receipt_print.php'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action: 'reprint',
+                        order_id: Number(activePosReceipt.order_id),
+                        csrf_token: POS_CSRF_TOKEN
+                    })
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success || !result.print_job?.ok) {
+                    throw new Error(result.message || 'Receipt reprint failed.');
+                }
+                activePosPrintJob = result.print_job;
+                const confirmed = await monitorReceiptPrintJob(result.print_job, { silentSuccess: true });
+                if (confirmed === false) {
+                    throw new Error('Receipt reprint failed.');
+                }
+            })();
+
+            try {
+                await animationPromise;
+                await reprintTaskPromise;
+                activePosPrintJob = null;
+                posReceiptPrintProcessing = false;
+                setPosReceiptPrintState('Reprint attempt completed. If the physical copy failed, you can reprint again.');
+                showPOSScanNotice('Receipt reprint', 'Receipt reprint attempt completed.', 'success');
+            } catch (error) {
+                console.error('Receipt reprint failed:', error);
+                posReceiptPrintProcessing = false;
+                resetReceiptFeedAnimation(printArea);
+                setPosReceiptPrintState('Receipt reprint failed.', true);
             }
         }
 
@@ -3644,7 +3732,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     throw new Error(result.message || 'Receipt print job could not be retried.');
                 }
                 activePosPrintJob = result.print_job || {ok: true, job_id: jobId};
-                await monitorReceiptPrintJob(activePosPrintJob, { silentSuccess: silentStatus });
+                const confirmed = await monitorReceiptPrintJob(activePosPrintJob, { silentSuccess: silentStatus });
+                if (confirmed === false) {
+                    throw new Error('Receipt print job failed.');
+                }
             } catch (error) {
                 console.error('Receipt print retry failed:', error);
                 if (!silentStatus) {
@@ -3691,7 +3782,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const silentSuccess = !!options.silentSuccess;
             if (!printJob?.ok || !printJob?.job_id) {
                 await showReceiptPrintFailure(printJob, printJob?.message || 'The receipt could not be queued for the configured printer.');
-                return;
+                return false;
             }
 
             if (!silentSuccess) {
@@ -3715,7 +3806,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             setPosReceiptPrintState('Receipt printed successfully.');
                             showPOSScanNotice('Transaction completed', 'Receipt printed successfully.', 'success');
                         }
-                        return;
+                        return true;
                     }
                     if (response.ok && status === 'failed') {
                         await showReceiptPrintFailure(
@@ -3723,7 +3814,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             result?.job?.error_message || 'PushPrinter reported that the receipt could not be printed.',
                             lastStatusResult
                         );
-                        return;
+                        return false;
                     }
                 } catch (error) {
                     lastStatusResult = {
@@ -3744,6 +3835,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 'PushPrinter did not confirm the receipt in time.',
                 lastStatusResult
             );
+            return false;
         }
 
         async function downloadReceiptPdf() {
