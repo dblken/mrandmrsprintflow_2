@@ -828,6 +828,174 @@ require_once __DIR__ . '/../includes/header.php';
     border-radius: 6px !important; border: 1px solid #fde68a;
 }
 
+@media (max-width: 640px) {
+    .orders-theme-page .ct-order-card {
+        padding: 12px 14px !important;
+        max-width: 100%;
+        overflow: hidden;
+    }
+    .orders-theme-page .ct-order-card + .ct-order-card {
+        border-top-color: #e5edf3 !important;
+    }
+    .orders-theme-page .card-top-row {
+        align-items: flex-start;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+        padding-bottom: 10px;
+    }
+    .orders-theme-page .card-top-row .card-top-badges {
+        flex-direction: row;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 6px;
+        margin-left: auto;
+        max-width: 100%;
+        flex-wrap: wrap;
+    }
+    .orders-theme-page .order-id-chip,
+    .orders-theme-page .ct-change-item-badge,
+    .orders-theme-page .status-pill {
+        max-width: 100%;
+        padding: 4px 8px;
+        font-size: 0.66rem;
+        line-height: 1.15;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+    .orders-theme-page .card-content {
+        display: grid;
+        grid-template-columns: 56px minmax(0, 1fr);
+        align-items: start;
+        gap: 8px 10px;
+    }
+    .orders-theme-page .img-preview-box {
+        grid-column: 1;
+        grid-row: 1;
+        width: 56px !important;
+        height: 56px !important;
+    }
+    .orders-theme-page .details-column {
+        grid-column: 2;
+        width: auto;
+        min-width: 0;
+    }
+    .orders-theme-page .order-title {
+        margin: 0;
+        font-size: 0.96rem;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+    }
+    .orders-theme-page .qty-tag,
+    .orders-theme-page .timestamp-text,
+    .orders-theme-page .ct-change-item-subtitle,
+    .orders-theme-page .rejected-reason-text {
+        margin-top: 4px;
+        font-size: 0.72rem;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+    }
+    .orders-theme-page .pricing-column {
+        grid-column: 1 / -1;
+        width: 100%;
+        min-width: 0;
+        margin-top: 8px;
+        gap: 8px;
+        text-align: left;
+        align-items: stretch;
+    }
+    .orders-theme-page .pricing-column > .mb-1 {
+        width: 100%;
+        margin-bottom: 0;
+    }
+    .orders-theme-page .final-price {
+        margin: 0 0 6px;
+        font-size: 1.18rem;
+        line-height: 1.2;
+    }
+    .orders-theme-page .hidden-price-msg {
+        margin: 0;
+        font-size: 0.74rem;
+        line-height: 1.35;
+    }
+    .orders-theme-page .payment-received-summary {
+        width: 100%;
+        margin-top: 6px;
+        padding: 8px 10px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #f8fafc;
+        grid-template-columns: 1fr;
+        justify-content: start;
+        gap: 3px;
+        font-size: 0.72rem;
+        line-height: 1.35;
+    }
+    .orders-theme-page .payment-received-summary span {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+    .orders-theme-page .card-actions-inline {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        width: 100%;
+        margin-top: 0;
+    }
+    .orders-theme-page .card-actions-inline .action-button {
+        width: 100%;
+        min-width: 0;
+        min-height: 42px;
+        padding: 0 8px !important;
+        font-size: 0.67rem !important;
+        line-height: 1.15;
+        white-space: normal !important;
+        text-align: center;
+        justify-content: center;
+    }
+    .orders-theme-page .card-actions-inline .btn-chat {
+        order: 1;
+    }
+    .orders-theme-page .card-actions-inline .btn-main-blue {
+        order: 2;
+    }
+    .orders-theme-page .card-actions-inline .btn-main {
+        order: 3;
+        grid-column: 1 / -1;
+    }
+    .orders-theme-page .card-actions-inline .btn-rate-order {
+        order: 4;
+        grid-column: 1 / -1;
+        justify-self: start;
+        width: auto;
+        min-height: 32px;
+        padding: 0 10px !important;
+        border-radius: 999px !important;
+    }
+}
+
+@media (max-width: 340px) {
+    .orders-theme-page .ct-order-card {
+        padding: 12px !important;
+    }
+    .orders-theme-page .card-content {
+        grid-template-columns: 50px minmax(0, 1fr);
+        gap: 8px;
+    }
+    .orders-theme-page .img-preview-box {
+        width: 50px !important;
+        height: 50px !important;
+    }
+    .orders-theme-page .card-actions-inline {
+        gap: 6px;
+    }
+    .orders-theme-page .card-actions-inline .action-button {
+        min-height: 40px;
+        font-size: 0.64rem !important;
+    }
+}
+
 .empty-view {
     text-align: center;
     padding: 5.5rem 2rem;
