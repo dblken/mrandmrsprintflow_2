@@ -6919,8 +6919,8 @@ window.pfServiceFieldCatalog = (() => {
                     per_page: String(this.ordersSummaryPageSize),
                     _: String(Date.now())
                 });
-                const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&include_pagination=1&query_version=demo_seed_visibility_fix_20260930_v2&${query.toString()}`;
-                const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&query_version=demo_seed_visibility_fix_20260930_v2&${query.toString()}`;
+                const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&include_pagination=1&debug=1&query_version=demo_seed_visibility_fix_20260930_v2&${query.toString()}`;
+                const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&debug=1&query_version=demo_seed_visibility_fix_20260930_v2&${query.toString()}`;
                 const requestOptions = {
                     cache: 'no-store',
                     signal,
@@ -6956,7 +6956,7 @@ window.pfServiceFieldCatalog = (() => {
                 const sourceFilter = <?php echo json_encode(
                     $staffCustomizationRole === 'pos' ? 'pos' : ($staffCustomizationRole === 'online' ? 'online' : 'all')
                 ); ?>;
-                const endpoint = `../admin/job_orders_api.php?action=customization_counts&source=${encodeURIComponent(sourceFilter)}&query_version=demo_seed_visibility_fix_20260930_v2`;
+                const endpoint = `../admin/job_orders_api.php?action=customization_counts&source=${encodeURIComponent(sourceFilter)}&debug=1&query_version=demo_seed_visibility_fix_20260930_v2`;
                 const controller = new AbortController();
                 countsAbortController = controller;
                 const timeoutId = window.setTimeout(() => controller.abort(), 10000);

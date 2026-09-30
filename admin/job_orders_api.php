@@ -138,6 +138,28 @@ function jo_api_json_response(array $payload, int $statusCode = 200): never {
     if (!isset($payload['query_version'])) {
         $payload['query_version'] = PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION;
     }
+    $debugAction = (string)($_GET['action'] ?? $_POST['action'] ?? '');
+    if (in_array($debugAction, ['list_orders', 'list_pending_orders', 'customization_counts'], true)
+        && in_array(strtolower((string)($_GET['debug'] ?? '')), ['1', 'true', 'yes'], true)) {
+        $rows = is_array($payload['data'] ?? null) ? $payload['data'] : [];
+        $rowIds = [];
+        foreach ($rows as $row) {
+            if (is_array($row)) {
+                $rowIds[] = (int)($row['order_id'] ?? $row['id'] ?? 0);
+            }
+        }
+        $payload['debug'] = [
+            'endpoint_action' => $debugAction,
+            'query_version' => PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION,
+            'branch_id' => $GLOBALS['joStaffBranch'] ?? null,
+            'date_from' => (string)($_GET['date_from'] ?? ''),
+            'date_to' => (string)($_GET['date_to'] ?? ''),
+            'status' => (string)($_GET['status'] ?? ''),
+            'total_count' => $payload['pagination']['total_items'] ?? ($payload['data']['ALL'] ?? null),
+            'returned_row_count' => array_is_list($rows) ? count($rows) : null,
+            'includes_order_11528' => in_array(11528, $rowIds, true),
+        ];
+    }
     $json = json_encode(
         $payload,
         JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
@@ -1364,7 +1386,21 @@ try {
                     $counts['URGENT']++;
                 }
             }
-            jo_api_json_response(['success' => true, 'data' => $counts]);
+            $countResponse = ['success' => true, 'data' => $counts];
+            if (in_array(strtolower((string)($_GET['debug'] ?? '')), ['1', 'true', 'yes'], true)) {
+                $countResponse['debug'] = [
+                    'endpoint_action' => 'customization_counts',
+                    'query_version' => PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION,
+                    'branch_id' => $joStaffBranch,
+                    'date_from' => (string)($_GET['date_from'] ?? ''),
+                    'date_to' => (string)($_GET['date_to'] ?? ''),
+                    'status' => (string)($_GET['status'] ?? ''),
+                    'total_count' => count($countRows),
+                    'returned_row_count' => count($countRows),
+                    'includes_order_11528' => count(array_filter($countRows, static fn(array $row): bool => (int)($row['order_id'] ?? 0) === 11528)) > 0,
+                ];
+            }
+            jo_api_json_response($countResponse);
             break;
 
         case 'list_orders':
@@ -1385,7 +1421,7 @@ try {
                            COALESCE(o.order_date, jo.created_at) AS order_business_date
                     FROM job_orders jo 
                     LEFT JOIN orders o ON o.order_id = jo.order_id
-                    LEFT JOIN customers c ON c.customer_id = COALESCE(NULLIF(jo.customer_id, 0), o.customer_id)
+                    LEFT JOIN customers c ON c.customer_id = COALESCE(NULLIF(o.customer_id, 0), NULLIF(jo.customer_id, 0))
                     WHERE 1=1";
             $params = []; $types = '';
             if ($status) {
@@ -1857,8 +1893,8 @@ try {
                     0 AS estimated_total,
                     'pos' AS order_source
                 FROM customizations cust
-                LEFT JOIN customers c ON cust.customer_id = c.customer_id
                 LEFT JOIN orders o ON cust.order_id = o.order_id
+                LEFT JOIN customers c ON c.customer_id = COALESCE(NULLIF(o.customer_id, 0), NULLIF(cust.customer_id, 0))
                 WHERE cust.status IN ('Pending Review', 'Pending', 'Pending Approval', 'For Revision', 'Approved', 'To Pay', 'Payment Confirmed', 'Pending Verification', 'Downpayment Submitted', 'To Verify', 'Processing', 'In Production', 'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled')
                 AND cust.order_id IS NOT NULL
                 AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
