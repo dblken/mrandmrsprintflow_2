@@ -938,39 +938,40 @@ require_once __DIR__ . '/../includes/header.php';
     }
     .orders-theme-page .card-actions-inline {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
+        grid-template-columns: minmax(64px, 0.72fr) minmax(86px, 1fr) minmax(96px, 1.08fr);
+        gap: 6px;
         width: 100%;
         margin-top: 0;
     }
     .orders-theme-page .card-actions-inline .action-button {
         width: 100%;
         min-width: 0;
-        min-height: 42px;
-        padding: 0 8px !important;
-        font-size: 0.67rem !important;
+        min-height: 40px;
+        padding: 0 6px !important;
+        font-size: 0.62rem !important;
         line-height: 1.15;
-        white-space: normal !important;
+        white-space: nowrap !important;
         text-align: center;
         justify-content: center;
+        gap: 0.24rem;
     }
     .orders-theme-page .card-actions-inline .btn-chat {
-        order: 1;
-    }
-    .orders-theme-page .card-actions-inline .btn-main-blue {
         order: 2;
     }
-    .orders-theme-page .card-actions-inline .btn-main {
+    .orders-theme-page .card-actions-inline .btn-main-blue {
         order: 3;
+    }
+    .orders-theme-page .card-actions-inline .btn-main {
+        order: 4;
         grid-column: 1 / -1;
     }
     .orders-theme-page .card-actions-inline .btn-rate-order {
-        order: 4;
-        grid-column: 1 / -1;
-        justify-self: start;
-        width: auto;
-        min-height: 32px;
-        padding: 0 10px !important;
+        order: 1;
+        grid-column: auto;
+        justify-self: stretch;
+        width: 100%;
+        min-height: 40px;
+        padding: 0 6px !important;
         border-radius: 999px !important;
     }
 }
@@ -992,7 +993,9 @@ require_once __DIR__ . '/../includes/header.php';
     }
     .orders-theme-page .card-actions-inline .action-button {
         min-height: 40px;
-        font-size: 0.64rem !important;
+        font-size: 0.58rem !important;
+        padding-left: 4px !important;
+        padding-right: 4px !important;
     }
 }
 
