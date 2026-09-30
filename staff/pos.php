@@ -827,13 +827,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             flex-shrink: 0;
             border-left: 1px solid #e2e8f0;
             min-height: 0;
+            height: 100%;
+            max-height: 100%;
+            overflow: hidden;
         }
 
         .pos-cart-main {
-            flex: 1;
+            flex: 1 1 0;
             min-height: 0;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
         }
 
         .pos-cart-header {
@@ -842,6 +846,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-shrink: 0;
         }
 
         .pos-cart-header h2 {
@@ -872,6 +877,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             padding: 16px 20px;
             border-bottom: 1px solid #e2e8f0;
             background: #f8fafc;
+            flex-shrink: 0;
         }
 
         .pos-customer-label {
@@ -915,9 +921,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-cart-list {
-            flex: 1 1 auto;
-            min-height: 0;
-            max-height: min(320px, 36vh);
+            flex: 1 1 0;
+            min-height: 140px;
             overflow-y: auto;
             overflow-x: hidden;
             padding: 12px 18px 14px;
@@ -1106,22 +1111,43 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-checkout-section {
-            padding: 18px 20px 20px;
+            padding: 14px 20px 16px;
             background: #f8fafc;
             border-top: 1px solid #e2e8f0;
             flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            max-height: min(48vh, 400px);
+            overflow: hidden;
         }
 
         .pos-payment-summary {
             display: flex;
             flex-direction: column;
-            gap: 14px;
-            margin-bottom: 16px;
+            gap: 10px;
+            margin-bottom: 0;
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding-right: 2px;
+        }
+
+        .pos-checkout-footer {
+            flex-shrink: 0;
+            padding-top: 8px;
+            margin-top: 8px;
+            border-top: 1px solid #e2e8f0;
         }
 
         @media (max-height: 800px) {
             .pos-checkout-section {
-                padding: 12px 20px;
+                padding: 10px 16px 12px;
+                max-height: min(42vh, 340px);
+            }
+
+            .pos-cart-list {
+                min-height: 120px;
             }
 
             .pos-payment-tabs {
@@ -1246,30 +1272,29 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-checkout-datetime-bar {
-            margin-bottom: 12px;
-            padding: 10px 12px;
-            border: 1px solid #cbd5e1;
-            border-radius: 12px;
-            background: #ffffff;
-            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+            margin-bottom: 8px;
+            padding: 0;
+            border: none;
+            background: transparent;
+            box-shadow: none;
         }
 
         .pos-transaction-datetime-compact {
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 6px;
             align-items: stretch;
         }
 
         .pos-transaction-datetime-open-btn {
             width: 100%;
-            padding: 10px 14px;
-            border: 2px solid var(--staff-primary);
-            border-radius: 10px;
+            padding: 8px 12px;
+            border: 1px solid var(--staff-primary);
+            border-radius: 8px;
             background: #ffffff;
             color: var(--staff-primary);
-            font-size: 13px;
-            font-weight: 800;
+            font-size: 12px;
+            font-weight: 700;
             cursor: pointer;
             font-family: inherit;
             text-align: center;
@@ -2617,12 +2642,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             .pos-cart-list {
                 max-height: none !important;
-                overflow: visible !important;
+                overflow-y: auto !important;
+                min-height: 160px;
             }
 
             .pos-checkout-section {
                 position: static;
                 box-shadow: none;
+                max-height: none;
+                overflow: visible;
             }
 
             .pos-cart-area {
@@ -2981,6 +3009,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                             </div>
 
+                            <div class="pos-checkout-footer">
                             <?php if ($pos_can_custom_transaction_datetime): ?>
                             <div id="pos-checkout-transaction-datetime-compact" class="pos-checkout-datetime-bar">
                                 <div class="pos-transaction-datetime-compact">
@@ -2999,6 +3028,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                 <i class="fas fa-lock" id="checkout-icon"></i> <span id="checkout-text">Select
                                     Items</span>
                             </button>
+                            </div>
                         </div>
                     </div>
 
