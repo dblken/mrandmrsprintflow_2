@@ -65,7 +65,7 @@ $joApiStartedAt = microtime(true);
 $joStaffBranch = null;
 // Keep the page-query contract visible while the staff/admin deployment is
 // being verified.  This is deliberately a response marker, not a cache key.
-const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'demo_seed_visibility_fix_20260930_v2';
+const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'demo_seed_visibility_fix_20261001_v3';
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -139,7 +139,8 @@ function jo_api_json_response(array $payload, int $statusCode = 200): never {
         $payload['query_version'] = PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION;
     }
     $debugAction = (string)($_GET['action'] ?? $_POST['action'] ?? '');
-    if (in_array($debugAction, ['list_orders', 'list_pending_orders', 'customization_counts'], true)
+    if (!isset($payload['debug'])
+        && in_array($debugAction, ['list_orders', 'list_pending_orders', 'customization_counts'], true)
         && in_array(strtolower((string)($_GET['debug'] ?? '')), ['1', 'true', 'yes'], true)) {
         $rows = is_array($payload['data'] ?? null) ? $payload['data'] : [];
         $rowIds = [];
@@ -159,6 +160,18 @@ function jo_api_json_response(array $payload, int $statusCode = 200): never {
             'returned_row_count' => array_is_list($rows) ? count($rows) : null,
             'includes_order_11528' => in_array(11528, $rowIds, true),
         ];
+        error_log('[customizations_debug] ' . json_encode([
+            'endpoint_action' => $debugAction,
+            'user_id' => function_exists('get_user_id') ? (int)get_user_id() : (int)($_SESSION['user_id'] ?? 0),
+            'staff_role' => (string)($_SESSION['user_type'] ?? ''),
+            'branch_id' => $GLOBALS['joStaffBranch'] ?? null,
+            'date_from' => (string)($_GET['date_from'] ?? ''),
+            'date_to' => (string)($_GET['date_to'] ?? ''),
+            'status' => (string)($_GET['status'] ?? ''),
+            'order_id_11528_match' => in_array(11528, $rowIds, true),
+            'total_count' => $payload['debug']['total_count'],
+            'returned_row_count' => $payload['debug']['returned_row_count'],
+        ], JSON_UNESCAPED_SLASHES));
     }
     $json = json_encode(
         $payload,
@@ -1113,8 +1126,9 @@ try {
                 jo_api_json_response(['success' => false, 'error' => 'Forbidden'], 403);
             }
             $seedKey = trim((string)($_GET['seed_row_key'] ?? $_POST['seed_row_key'] ?? ''));
-            if ($seedKey === '') {
-                jo_api_json_response(['success' => false, 'error' => 'seed_row_key is required'], 400);
+            $traceOrderId = (int)($_GET['order_id'] ?? $_POST['order_id'] ?? 0);
+            if ($seedKey === '' && $traceOrderId <= 0) {
+                jo_api_json_response(['success' => false, 'error' => 'seed_row_key or order_id is required'], 400);
             }
             $seedRows = db_query(
                 'SELECT dsr.seed_row_key, dsr.order_id, dsr.customization_id, dsr.job_order_id,
@@ -1127,8 +1141,8 @@ try {
                  LEFT JOIN customizations cust ON cust.customization_id = dsr.customization_id
                  LEFT JOIN job_orders jo ON jo.id = dsr.job_order_id
                  LEFT JOIN customers c ON c.customer_id = COALESCE(cust.customer_id, o.customer_id)
-                 WHERE dsr.seed_row_key = ? LIMIT 1',
-                's', [$seedKey]
+                 WHERE ' . ($seedKey !== '' ? 'dsr.seed_row_key = ?' : 'dsr.order_id = ?') . ' LIMIT 1',
+                $seedKey !== '' ? 's' : 'i', [$seedKey !== '' ? $seedKey : $traceOrderId]
             ) ?: [];
             $seed = $seedRows[0] ?? null;
             if (!$seed) {
@@ -1156,14 +1170,19 @@ try {
             $listRows = $oid > 0 ? (db_query(
                 "SELECT jo.id, jo.order_id, o.order_date, o.branch_id,
                         o.status AS page_status, c.first_name, c.last_name,
-                        c.email AS customer_email, c.contact_number AS customer_phone
+                        c.email AS customer_email, c.contact_number AS customer_phone,
+                        COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), '')) AS page_service_name
                  FROM job_orders jo LEFT JOIN orders o ON o.order_id = jo.order_id
                  LEFT JOIN customers c ON c.customer_id = o.customer_id
                  WHERE jo.order_id = ?
                    AND COALESCE(jo.branch_id, o.branch_id) = ?
                    AND o.order_type = 'custom'
                    AND LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
-                   AND LOWER(TRIM(COALESCE(o.status, ''))) <> 'draft'
+                   AND LOWER(TRIM(COALESCE(o.status, ''))) NOT IN ('draft', 'cancelled')
+                   AND (
+                       EXISTS (SELECT 1 FROM customizations c_trace WHERE c_trace.order_id = o.order_id)
+                       OR EXISTS (SELECT 1 FROM order_items oi_trace WHERE oi_trace.order_id = o.order_id)
+                   )
                  LIMIT 1", 'ii', [$oid, $joStaffBranch ?? (int)($seed['branch_id'] ?? 0)]
             ) ?: []) : [];
             $listIncludes = !empty($listRows);
@@ -1187,6 +1206,8 @@ try {
                 'actual_sept_7_filter_includes' => $listIncludes && str_starts_with((string)($seed['order_date'] ?? ''), '2026-09-07'),
                 'actual_query_row' => $pageRow ?: null,
                 'customer_name_returned_by_query' => trim((string)($pageRow['first_name'] ?? '') . ' ' . (string)($pageRow['last_name'] ?? '')),
+                'customer_email_returned_by_query' => (string)($pageRow['customer_email'] ?? ''),
+                'service_name_returned_by_query' => (string)($pageRow['page_service_name'] ?? ''),
                 'order_date_returned_by_query' => (string)($pageRow['order_date'] ?? ''),
                 'branch_result' => (int)($pageRow['branch_id'] ?? 0),
                 'active_tab' => $requestedStatus,
