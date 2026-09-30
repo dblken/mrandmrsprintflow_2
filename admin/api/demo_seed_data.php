@@ -186,9 +186,27 @@ try {
     throw new RuntimeException('Unknown action.');
 } catch (Throwable $e) {
     http_response_code(400);
+    $message = $e->getMessage();
+    if ($message === '') {
+        $message = 'The demo data request failed.';
+    }
+    if ($action === 'delete_batch' || $action === 'delete_preview') {
+        if (!str_starts_with($message, 'Demo batch')) {
+            $message = 'Demo batch delete failed: ' . $message;
+        }
+    } elseif ($action === 'import_csv') {
+        if (!str_contains($message, 'import') && !str_contains($message, 'Import') && !str_contains($message, 'Demo')) {
+            $message = 'Demo import failed: ' . $message;
+        }
+    } elseif ($action === 'validate_csv') {
+        if (!str_contains($message, 'valid') && !str_contains($message, 'CSV') && !str_contains($message, 'Demo')) {
+            $message = 'CSV validation failed: ' . $message;
+        }
+    }
     echo json_encode([
         'success' => false,
-        'message' => 'Request could not be completed. Please review the CSV and try again.',
+        'message' => $message,
+        'action' => $action,
     ]);
-    error_log('[demo_seed_data API] ' . $e->getMessage());
+    error_log('[demo_seed_data API] action=' . $action . ' ' . $e->getMessage());
 }

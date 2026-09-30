@@ -61,10 +61,14 @@ $about_cfg  = printflow_load_runtime_config('about', $logo_dir . 'about_config.j
 
 $demo_active_batch = null;
 $demo_cabuyao_branch_id = 1;
+$demo_delete_preview = null;
 try {
     demo_seed_ensure_tables();
     $demo_active_batch = demo_seed_active_batch();
     $demo_cabuyao_branch_id = demo_seed_cabuyao_branch_id();
+    if ($demo_active_batch) {
+        $demo_delete_preview = demo_seed_delete_preview((string)($demo_active_batch['batch_id'] ?? ''));
+    }
 } catch (Throwable $demoSeedInitError) {
     error_log('[demo_seed] settings init: ' . $demoSeedInitError->getMessage());
 }
@@ -1077,7 +1081,16 @@ Stickers &amp; Decals"><?php
                     <div class="demo-panel">
                         <h3>4. Delete Demo Data</h3>
                         <p style="font-size:12px;color:#64748b;margin:0 0 10px;">Type <code>DELETE MEETING DATA</code> to confirm. Deletion uses the batch registry only.</p>
-                        <div id="demo-seed-delete-preview" class="demo-summary-grid" style="margin-bottom:12px;"></div>
+                        <div id="demo-seed-delete-preview" class="demo-summary-grid" style="margin-bottom:12px;">
+                            <?php if ($demo_delete_preview && !empty($demo_delete_preview['counts'])): ?>
+                                <?php foreach ($demo_delete_preview['counts'] as $key => $val): ?>
+                                    <div><strong><?php echo demo_seed_h(str_replace('_', ' ', (string)$key)); ?></strong><br><?php echo demo_seed_h((string)$val); ?></div>
+                                <?php endforeach; ?>
+                                <?php if (!empty($demo_delete_preview['recovery_mode'])): ?>
+                                    <div style="grid-column:1/-1;font-size:12px;color:#92400e;">Broken batch recovery: delete uses <code>demo_seed_rows</code> IDs, then removes remaining rows on those registered order ids only. Inventory is never touched.</div>
+                                <?php endif; ?>
+                            <?php endif; ?>
+                        </div>
                         <div class="f-group" style="max-width:420px;">
                             <label>Confirmation</label>
                             <input type="text" id="demo-seed-delete-confirm" placeholder="DELETE MEETING DATA" autocomplete="off">
@@ -1929,7 +1942,15 @@ function printflowInitDemoSeedTools() {
         grid.innerHTML = Object.keys(preview.counts).map(function (key) {
             return '<div><strong>' + key.replace(/_/g, ' ') + '</strong><br>' + preview.counts[key] + '</div>';
         }).join('');
-        if (preview.integrity && preview.integrity.ok === false) {
+        if (preview.recovery_mode) {
+            grid.innerHTML += '<div style="grid-column:1/-1;font-size:12px;color:#92400e;">Broken batch recovery: delete uses demo_seed_rows IDs, then removes remaining rows on those registered order ids only. Inventory is never touched.</div>';
+        }
+        if (preview.registry_gaps && preview.registry_gaps.length) {
+            grid.innerHTML += '<div style="grid-column:1/-1;font-size:12px;color:#b91c1c;"><strong>Registry gaps:</strong> ' + preview.registry_gaps.map(function (g) {
+                return (g.seed_row_key || '?') + ' missing ' + (g.missing || []).join(', ');
+            }).join('; ') + '</div>';
+        }
+        if (preview.integrity && preview.integrity.ok === false && preview.recovery_mode !== true) {
             grid.innerHTML += '<div style="grid-column:1/-1;color:#b91c1c;font-size:12px;"><strong>Integrity warnings:</strong> ' + (preview.integrity.errors || []).join(' ') + '</div>';
         }
     }
