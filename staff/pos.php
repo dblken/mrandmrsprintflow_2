@@ -1245,6 +1245,108 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             color: var(--staff-primary);
         }
 
+        .pos-transaction-datetime-block {
+            padding-top: 14px;
+            margin-top: 2px;
+            border-top: 1px dashed #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .pos-transaction-datetime-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #64748b;
+        }
+
+        .pos-transaction-datetime-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #334155;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .pos-transaction-datetime-toggle input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--staff-primary);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .pos-transaction-datetime-fields {
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .pos-transaction-datetime-fields.is-visible {
+            display: flex;
+        }
+
+        .pos-transaction-datetime-fields .pos-tender-group {
+            grid-template-columns: minmax(0, 1fr) minmax(148px, 180px);
+        }
+
+        .pos-datetime-input {
+            min-width: 148px;
+            width: 100%;
+            max-width: 180px;
+            height: 44px;
+            padding: 0 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            background: #ffffff;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1e293b;
+            box-sizing: border-box;
+            outline: none;
+            cursor: pointer;
+            justify-self: end;
+            font-family: inherit;
+        }
+
+        .pos-datetime-input:focus {
+            border-color: var(--staff-primary);
+            box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12);
+        }
+
+        .pos-datetime-input:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            background: #f1f5f9;
+            color: #94a3b8;
+        }
+
+        .pos-transaction-datetime-hint {
+            margin: 0;
+            font-size: 11px;
+            color: #94a3b8;
+            line-height: 1.45;
+        }
+
+        .pos-transaction-datetime-error {
+            margin: 0;
+            color: #b91c1c;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .pos-transaction-datetime-error[hidden] {
+            display: none !important;
+        }
+
         .pos-tender-group {
             display: grid;
             grid-template-columns: minmax(0, 1fr) auto;
@@ -2740,22 +2842,33 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                 </div>
 
                                 <?php if ($pos_can_custom_transaction_datetime): ?>
-                                <div id="pos-checkout-transaction-datetime" class="pos-tender-group pos-admin-transaction-datetime" style="margin-top:4px;padding:12px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc;">
-                                    <div class="pos-summary-label" style="margin-bottom:8px;font-weight:800;color:#0f172a;">Transaction Date &amp; Time</div>
-                                    <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#334155;cursor:pointer;">
+                                <div id="pos-checkout-transaction-datetime" class="pos-transaction-datetime-block">
+                                    <div class="pos-transaction-datetime-title">
+                                        <span class="pos-summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="16" r="2"/></svg></span>
+                                        Transaction Date &amp; Time
+                                    </div>
+                                    <label class="pos-transaction-datetime-toggle" for="pos-confirm-use-custom-date">
                                         <input type="checkbox" id="pos-confirm-use-custom-date" onchange="toggleConfirmTransactionDate()">
                                         Use custom date and time
                                     </label>
-                                    <div id="pos-confirm-transaction-date-fields" hidden style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
-                                        <label style="flex:1;min-width:120px;font-size:11px;color:#64748b;font-weight:600;">Date
-                                            <input type="date" id="pos-confirm-transaction-date" disabled class="pos-payment-field" max="<?php echo date('Y-m-d'); ?>" style="display:block;width:100%;margin-top:4px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;">
-                                        </label>
-                                        <label style="flex:1;min-width:120px;font-size:11px;color:#64748b;font-weight:600;">Time
-                                            <input type="time" id="pos-confirm-transaction-time" disabled class="pos-payment-field" style="display:block;width:100%;margin-top:4px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;">
-                                        </label>
+                                    <div id="pos-confirm-transaction-date-fields" class="pos-transaction-datetime-fields">
+                                        <div class="pos-tender-group">
+                                            <label class="pos-summary-label" for="pos-confirm-transaction-date">
+                                                <span class="pos-summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                                                Date
+                                            </label>
+                                            <input type="date" id="pos-confirm-transaction-date" disabled class="pos-datetime-input" max="<?php echo date('Y-m-d'); ?>" aria-label="Transaction date">
+                                        </div>
+                                        <div class="pos-tender-group">
+                                            <label class="pos-summary-label" for="pos-confirm-transaction-time">
+                                                <span class="pos-summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg></span>
+                                                Time
+                                            </label>
+                                            <input type="time" id="pos-confirm-transaction-time" disabled class="pos-datetime-input" step="60" aria-label="Transaction time">
+                                        </div>
                                     </div>
-                                    <p style="margin:8px 0 0;font-size:11px;color:#64748b;line-height:1.4;">When enabled, order, receipt, and inventory use this date/time instead of now.</p>
-                                    <div id="pos-confirm-transaction-date-error" hidden style="margin-top:8px;color:#b91c1c;font-size:11px;font-weight:700;">Date and time are required when custom date/time is enabled.</div>
+                                    <p class="pos-transaction-datetime-hint">When enabled, order, receipt, and inventory use this date and time instead of now.</p>
+                                    <p id="pos-confirm-transaction-date-error" class="pos-transaction-datetime-error" hidden role="alert">Choose both date and time, or turn off custom date/time.</p>
                                 </div>
                                 <?php endif; ?>
                             </div>
@@ -5928,13 +6041,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const toggle = document.getElementById('pos-confirm-use-custom-date');
             const fields = document.getElementById('pos-confirm-transaction-date-fields');
             const err = document.getElementById('pos-confirm-transaction-date-error');
+            const enabled = !!toggle?.checked;
             if (fields) {
-                fields.hidden = !toggle?.checked;
+                fields.classList.toggle('is-visible', enabled);
+                fields.hidden = !enabled;
             }
             ['pos-confirm-transaction-date', 'pos-confirm-transaction-time'].forEach(function(id) {
                 const input = document.getElementById(id);
                 if (input) {
-                    input.disabled = !toggle?.checked;
+                    input.disabled = !enabled;
                 }
             });
             if (err) {
