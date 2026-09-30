@@ -1250,13 +1250,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             margin-top: 2px;
             border-top: 1px dashed #e2e8f0;
             display: flex;
-            flex-direction: column;
-            gap: 6px;
-            align-items: stretch;
+            flex-direction: row;
+            flex-wrap: wrap;
+            gap: 8px 10px;
+            align-items: center;
         }
 
         .pos-transaction-datetime-open-btn {
-            width: 100%;
+            flex: 0 0 auto;
             padding: 8px 12px;
             border: 1px solid #cbd5e1;
             border-radius: 10px;
@@ -1277,15 +1278,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         .pos-transaction-datetime-summary {
             margin: 0;
+            flex: 1 1 160px;
             font-size: 11px;
             font-weight: 600;
-            color: #0f766e;
+            color: #475569;
             line-height: 1.35;
             word-break: break-word;
         }
 
-        .pos-transaction-datetime-summary[hidden] {
-            display: none !important;
+        .pos-transaction-datetime-summary.is-custom {
+            color: #0f766e;
         }
 
         .pos-tx-datetime-modal-overlay {
@@ -2969,8 +2971,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                                 <?php if ($pos_can_custom_transaction_datetime): ?>
                                 <div id="pos-checkout-transaction-datetime-compact" class="pos-transaction-datetime-compact">
-                                    <button type="button" id="pos-open-transaction-datetime-btn" class="pos-transaction-datetime-open-btn" onclick="openPosTransactionDateTimeModal()">Set Transaction Date/Time</button>
-                                    <p id="pos-transaction-datetime-summary" class="pos-transaction-datetime-summary" hidden></p>
+                                    <button type="button" id="pos-open-transaction-datetime-btn" class="pos-transaction-datetime-open-btn" onclick="openPosTransactionDateTimeModal()">Set Date &amp; Time</button>
+                                    <p id="pos-transaction-datetime-summary" class="pos-transaction-datetime-summary" aria-live="polite">Date/Time: Current server time</p>
                                 </div>
                                 <?php endif; ?>
                             </div>
@@ -2992,13 +2994,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         onclick="if(event.target===this)closePosTransactionDateTimeModal(true)">
         <div class="pos-tx-datetime-modal" role="dialog" aria-modal="true" aria-labelledby="pos-tx-datetime-modal-title">
             <div class="pos-tx-datetime-modal-head">
-                <h3 id="pos-tx-datetime-modal-title">Transaction Date &amp; Time</h3>
+                <h3 id="pos-tx-datetime-modal-title">Date &amp; Time</h3>
                 <button type="button" class="pos-tx-datetime-modal-close" aria-label="Close" onclick="closePosTransactionDateTimeModal(true)">&times;</button>
             </div>
             <div class="pos-tx-datetime-modal-body">
                 <label class="pos-transaction-datetime-toggle" for="pos-confirm-use-custom-date">
                     <input type="checkbox" id="pos-confirm-use-custom-date" onchange="toggleConfirmTransactionDate()">
-                    Use custom transaction date/time
+                    Use custom date/time
                 </label>
                 <div id="pos-confirm-transaction-date-fields" class="pos-transaction-datetime-fields">
                     <div class="pos-tender-group">
@@ -4235,6 +4237,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
+            updatePosTransactionDateTimeSummaryUI();
             fetchProducts();
             refreshCart(); // Initialize cart from session
             const pendingPayMongo = sessionStorage.getItem('pos_paymongo_pending');
@@ -6214,7 +6217,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
         }
 
-        function formatPosTransactionDateTimeSummary(dateStr, timeStr) {
+        function formatPosCustomTransactionDateTimeLabel(dateStr, timeStr) {
             if (!dateStr || !timeStr) {
                 return '';
             }
@@ -6227,7 +6230,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (Number.isNaN(d.getTime())) {
                 return '';
             }
-            const formatted = d.toLocaleString('en-US', {
+            return d.toLocaleString('en-US', {
                 month: 'short',
                 day: 'numeric',
                 year: 'numeric',
@@ -6235,7 +6238,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 minute: '2-digit',
                 hour12: true
             });
-            return 'Selected: ' + formatted;
         }
 
         function updatePosTransactionDateTimeSummaryUI() {
@@ -6244,11 +6246,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
             if (posCustomTransactionState.enabled && posCustomTransactionState.date && posCustomTransactionState.time) {
-                summary.textContent = formatPosTransactionDateTimeSummary(posCustomTransactionState.date, posCustomTransactionState.time);
-                summary.hidden = false;
+                const label = formatPosCustomTransactionDateTimeLabel(posCustomTransactionState.date, posCustomTransactionState.time);
+                summary.textContent = label ? ('Date/Time: ' + label) : 'Date/Time: Current server time';
+                summary.classList.toggle('is-custom', !!label);
             } else {
-                summary.textContent = '';
-                summary.hidden = true;
+                summary.textContent = 'Date/Time: Current server time';
+                summary.classList.remove('is-custom');
             }
         }
 
