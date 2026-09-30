@@ -174,6 +174,20 @@ function printflow_ensure_product_inventory_transaction_schema(): void {
             // The atomic order-line helper verifies this capability before use.
         }
 
+        // Older installations created this column as DATE.  A POS transaction
+        // date is an audit timestamp, so migrate it without touching its rows.
+        // Existing midnight values remain valid timestamps after this change.
+        try {
+            $dateCols = db_query("SHOW COLUMNS FROM inventory_transactions LIKE 'transaction_date'") ?: [];
+            $dateType = strtolower((string)($dateCols[0]['Type'] ?? ''));
+            if ($dateType !== '' && !str_starts_with($dateType, 'timestamp') && !str_starts_with($dateType, 'datetime')) {
+                db_execute("ALTER TABLE inventory_transactions MODIFY transaction_date TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP");
+            }
+        } catch (Throwable $e) {
+            // Do not block legacy screens if a host temporarily disallows DDL.
+            // The POS writer still supplies the full timestamp to capable schemas.
+        }
+
         try {
             $productIdx = db_query("SHOW INDEX FROM inventory_transactions WHERE Key_name = 'idx_inv_tx_product_date'") ?: [];
             if (empty($productIdx)) {
@@ -333,7 +347,9 @@ function printflow_record_product_inventory_transaction(
         return false;
     }
 
-    $date = $date ?: date('Y-m-d');
+    // Preserve the caller's full timestamp. POS passes its selected canonical
+    // transaction datetime here; reducing it to a date loses audit ordering.
+    $date = $date ?: date('Y-m-d H:i:s');
     $userId = $userId ?: (int)($_SESSION['user_id'] ?? 0);
     $qty = abs((float)$quantity);
     $normalizedRefType = strtoupper(trim($refType ?: 'PRODUCT'));
@@ -608,10 +624,8 @@ function printflow_apply_product_order_item_inventory(
             : '';
         $notes = trim($sourceLabel) . ": {$orderLabel} - {$productName}{$optionNote}";
 
-        $transactionDateForLedger = $transactionDate ?: date('Y-m-d');
-        if (strlen($transactionDateForLedger) > 10) {
-            $transactionDateForLedger = substr($transactionDateForLedger, 0, 10);
-        }
+        // Keep the selected POS datetime intact for the ledger.
+        $transactionDateForLedger = $transactionDate ?: date('Y-m-d H:i:s');
 
         $ledgerResult = printflow_record_product_inventory_transaction(
             $productId,

@@ -6595,7 +6595,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             console.log('[POS CHECKOUT] custom transaction datetime', {
                 use_custom_transaction_datetime: payload.use_custom_transaction_datetime,
                 custom_transaction_date: payload.custom_transaction_date,
-                custom_transaction_time: payload.custom_transaction_time
+                custom_transaction_time: payload.custom_transaction_time,
+                selected_transaction_at: payload.use_custom_transaction_datetime
+                    ? `${payload.custom_transaction_date} ${payload.custom_transaction_time}:00`
+                    : null
             });
 
             let checkoutData = null;

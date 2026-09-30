@@ -354,14 +354,6 @@ function pos_checkout_selected_transaction_datetime(array $data): string {
     return $custom ?? date('Y-m-d H:i:s');
 }
 
-function pos_checkout_inventory_ledger_date(string $selectedTransactionAt): string {
-    $selectedTransactionAt = trim($selectedTransactionAt);
-    if ($selectedTransactionAt === '') {
-        return date('Y-m-d');
-    }
-    return strlen($selectedTransactionAt) >= 10 ? substr($selectedTransactionAt, 0, 10) : $selectedTransactionAt;
-}
-
 function pos_checkout_align_pos_order_timestamps(array $orderIds, string $selectedTransactionAt): void {
     $selectedTransactionAt = trim($selectedTransactionAt);
     if ($selectedTransactionAt === '') {
@@ -1269,7 +1261,7 @@ pos_checkout_log_stage('transaction_datetime', [
     'custom_transaction_date' => (string) ($data['custom_transaction_date'] ?? ''),
     'custom_transaction_time' => (string) ($data['custom_transaction_time'] ?? ''),
     'selected' => $selectedTransactionAt,
-    'inventory_ledger_date' => pos_checkout_inventory_ledger_date($selectedTransactionAt),
+    'inventory_transaction_date' => $selectedTransactionAt,
 ]);
 $payment_method = sanitize($data['payment_method'] ?? 'Cash');
 $reference_number = sanitize($data['reference_number'] ?? '');
@@ -1846,7 +1838,7 @@ try {
                     (int)$branch_id,
                     $current_user_id,
                     'POS sale',
-                    pos_checkout_inventory_ledger_date($selectedTransactionAt)
+                    $selectedTransactionAt
                 );
                 $checkout_stage = 'inventory_deducted';
             } catch (Throwable $inventoryError) {
@@ -1945,6 +1937,10 @@ try {
     echo json_encode([
         'success' => true,
         'order_id' => $order_id,
+        // This is the one canonical POS transaction timestamp.  Receipt data
+        // is built from the saved order_date using the same value.
+        'order_date' => $selectedTransactionAt,
+        'transaction_date' => $selectedTransactionAt,
         'customization_id' => $last_customization_id ?? null,
         'message' => 'Sale completed successfully.',
         'warning' => $sync_warning,
@@ -1977,6 +1973,8 @@ try {
             echo json_encode([
                 'success' => true,
                 'order_id' => (int)$order_id,
+                'order_date' => $selectedTransactionAt,
+                'transaction_date' => $selectedTransactionAt,
                 'customization_id' => $last_customization_id ?? null,
                 'message' => 'Sale completed successfully.',
                 'warning' => 'Production sync needs follow-up.',

@@ -99,7 +99,9 @@ function printflow_pos_build_receipt(int $orderId, float $amountTendered = 0.0, 
         : '';
     $isGuest = strtolower(trim((string)($order['email'] ?? ''))) === 'walkin@pos.local';
 
-    $receiptDateTime = (string)($providerPayment['paid_at'] ?? $order['order_date']);
+    // A receipt represents the sale's transaction timestamp, not the later
+    // confirmation time returned by an online payment provider.
+    $receiptDateTime = (string)($order['order_date'] ?? '');
     $storedAmountPaid = isset($order['amount_paid']) ? (float)$order['amount_paid'] : 0.0;
     $amountPaid = $providerPayment
         ? round(((int)($providerPayment['amount_centavos'] ?? 0)) / 100, 2)
