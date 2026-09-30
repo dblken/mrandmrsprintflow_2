@@ -4283,6 +4283,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
                 overlay.dataset.csrfToken = data.csrf_token;
                 body.innerHTML = data.fields_html;
+                posAllowPastNeededDateInputs(body);
                 footerActions.style.display = 'block';
                 isAddingToOrder = false;
                 setServiceAddButtonBusy(false);
@@ -5554,8 +5555,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 inputHtml = `<input type="file" id="custom_field_${idx}" name="${reqName}" accept="${(req.accept || '').replace(/"/g, '&quot;')}" style="${baseStyle}" data-field-name="${reqName}">`;
                 div.innerHTML = label + inputHtml;
             } else if (req.type === 'date') {
-                const minDate = new Date().toISOString().split('T')[0];
-                inputHtml = `<input type="date" id="custom_field_${idx}" name="${reqName}" min="${minDate}" style="${baseStyle}" data-field-name="${reqName}">`;
+                const isNeededDate = (reqName && reqName.includes('needed_date'))
+                    || (req.label && String(req.label).toLowerCase().includes('needed date'));
+                const minAttr = isNeededDate ? '' : ` min="${new Date().toISOString().split('T')[0]}"`;
+                inputHtml = `<input type="date" id="custom_field_${idx}" name="${reqName}"${minAttr} style="${baseStyle}" data-field-name="${reqName}">`;
                 div.innerHTML = label + inputHtml;
             } else {
                 const ph = (req.placeholder || '').replace(/"/g, '&quot;');
@@ -6035,6 +6038,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             document.getElementById('tender-group').style.display = isPayMongo ? 'none' : '';
             document.getElementById('change-group').style.display = isPayMongo ? 'none' : '';
             updateCheckoutState();
+        }
+
+        function posAllowPastNeededDateInputs(root) {
+            const scope = root || document;
+            scope.querySelectorAll('input[type="date"]').forEach(function(input) {
+                const name = String(input.name || '').toLowerCase();
+                const id = String(input.id || '').toLowerCase();
+                if (name === 'needed_date' || id === 'needed_date' || name.indexOf('needed_date') !== -1) {
+                    input.removeAttribute('min');
+                }
+            });
         }
 
         function toggleConfirmTransactionDate() {

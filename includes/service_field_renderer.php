@@ -151,6 +151,17 @@ function pf_service_option_label($value) {
 /**
  * Render a single field based on configuration
  */
+/**
+ * HTML min attribute for service date fields (Needed Date may allow past dates in POS).
+ */
+function printflow_service_field_date_min_attr(string $fieldKey): string
+{
+    if ($fieldKey === 'needed_date' && !empty($GLOBALS['printflow_allow_past_needed_date'])) {
+        return '';
+    }
+    return ' min="' . date('Y-m-d') . '"';
+}
+
 function render_service_field($field_key, $config, $branches = [], $existing_data = [], $all_configs = []) {
     if (!$config['visible']) {
         return '';
@@ -534,7 +545,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                                 break;
                                 
                             case 'date':
-                                $html .= '<input type="date" name="' . htmlspecialchars($nestedKey) . '" class="input-field" ' . $nestedRequired . ' min="' . date('Y-m-d') . '" style="max-width:200px;">';
+                                $html .= '<input type="date" name="' . htmlspecialchars($nestedKey) . '" class="input-field" ' . $nestedRequired . printflow_service_field_date_min_attr($nestedKey) . ' style="max-width:200px;">';
                                 break;
                                 
                             case 'number':
@@ -665,7 +676,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             
         case 'date':
             $html .= '<div class="shopee-opt-group">';
-            $html .= '<input type="date" name="' . htmlspecialchars($field_key) . '" id="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn" ' . $required_attr . ' min="' . date('Y-m-d') . '" value="' . htmlspecialchars($saved_value) . '" style="cursor: pointer; width: 175px;">';
+            $html .= '<input type="date" name="' . htmlspecialchars($field_key) . '" id="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn" ' . $required_attr . printflow_service_field_date_min_attr($field_key) . ' value="' . htmlspecialchars($saved_value) . '" style="cursor: pointer; width: 175px;">';
             $html .= '</div>';
             break;
             
