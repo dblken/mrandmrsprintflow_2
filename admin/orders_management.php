@@ -770,6 +770,31 @@ if (isset($_GET['ajax'])) {
                 justify-content: center !important;
             }
         }
+
+        @media (max-width: 768px) {
+            main[x-data="ordersPage()"] .orders-list-header {
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) auto !important;
+                align-items: center !important;
+                column-gap: 8px !important;
+                width: 100% !important;
+            }
+            main[x-data="ordersPage()"] .orders-list-header h3 {
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+                white-space: nowrap !important;
+            }
+            main[x-data="ordersPage()"] .orders-list-actions {
+                display: flex !important;
+                flex-direction: row !important;
+                flex: 0 0 auto !important;
+                flex-wrap: nowrap !important;
+                align-items: center !important;
+                justify-content: flex-end !important;
+                margin-left: auto !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1261,11 +1286,11 @@ if (isset($_GET['ajax'])) {
 
             <!-- Orders List & Filters -->
             <div class="card">
-                <div class="orders-list-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+                <div class="orders-list-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:nowrap;gap:8px;">
                     <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;">
                         Orders List
                     </h3>
-                    <div class="orders-list-actions" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                    <div class="orders-list-actions" style="display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:nowrap;margin-left:auto;">
                         <!-- Sort Button -->
                         <div style="position:relative;">
                             <button class="toolbar-btn" :class="{ active: sortOpen || (activeSort !== 'newest') }" @click="sortOpen = !sortOpen; filterOpen = false" id="sortBtn" style="height:38px;">
