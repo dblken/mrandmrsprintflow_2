@@ -166,6 +166,23 @@ try {
         exit;
     }
 
+    if ($action === 'trace_seed_row') {
+        $batchId = trim((string)($_POST['batch_id'] ?? ''));
+        if ($batchId === '') {
+            $active = demo_seed_active_batch();
+            $batchId = (string)($active['batch_id'] ?? '');
+        }
+        $seedRowKey = trim((string)($_POST['seed_row_key'] ?? ''));
+        if ($batchId === '' || $seedRowKey === '') {
+            throw new RuntimeException('batch_id and seed_row_key are required.');
+        }
+        echo json_encode([
+            'success' => true,
+            'trace' => demo_seed_trace_seed_row($batchId, $seedRowKey),
+        ]);
+        exit;
+    }
+
     throw new RuntimeException('Unknown action.');
 } catch (Throwable $e) {
     http_response_code(400);

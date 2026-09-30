@@ -1088,6 +1088,19 @@ Stickers &amp; Decals"><?php
                         </div>
                         <div id="demo-seed-delete-status" style="font-size:13px;margin-top:10px;"></div>
                     </div>
+
+                    <div class="demo-panel">
+                        <h3>5. Trace imported row (debug)</h3>
+                        <p style="font-size:12px;color:#64748b;margin:0 0 10px;">Enter a <code>seed_row_key</code> from the CSV to inspect linked customer/order/job rows and date fields used by filters.</p>
+                        <div class="f-group" style="max-width:420px;">
+                            <label>Seed row key</label>
+                            <input type="text" id="demo-seed-trace-key" placeholder="e.g. 20260907-001" autocomplete="off">
+                        </div>
+                        <div class="demo-actions" style="margin-top:10px;">
+                            <button type="button" id="demo-seed-trace-btn" class="btn-demo btn-demo-secondary">Trace row</button>
+                        </div>
+                        <pre id="demo-seed-trace-output" style="display:none;margin-top:10px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;max-height:320px;overflow:auto;white-space:pre-wrap;"></pre>
+                    </div>
                 </div>
 
             </div>
@@ -1916,6 +1929,9 @@ function printflowInitDemoSeedTools() {
         grid.innerHTML = Object.keys(preview.counts).map(function (key) {
             return '<div><strong>' + key.replace(/_/g, ' ') + '</strong><br>' + preview.counts[key] + '</div>';
         }).join('');
+        if (preview.integrity && preview.integrity.ok === false) {
+            grid.innerHTML += '<div style="grid-column:1/-1;color:#b91c1c;font-size:12px;"><strong>Integrity warnings:</strong> ' + (preview.integrity.errors || []).join(' ') + '</div>';
+        }
     }
 
     validateBtn.addEventListener('click', function () {
@@ -2023,6 +2039,34 @@ function printflowInitDemoSeedTools() {
                 .catch(function () {
                     if (status) status.textContent = 'Delete request failed.';
                     deleteBtn.disabled = false;
+                });
+        });
+    }
+
+    const traceBtn = document.getElementById('demo-seed-trace-btn');
+    if (traceBtn) {
+        traceBtn.addEventListener('click', function () {
+            const keyInput = document.getElementById('demo-seed-trace-key');
+            const out = document.getElementById('demo-seed-trace-output');
+            const seedRowKey = keyInput ? keyInput.value.trim() : '';
+            if (!seedRowKey) {
+                if (out) { out.style.display = 'block'; out.textContent = 'Enter a seed_row_key.'; }
+                return;
+            }
+            const fd = new FormData();
+            fd.append('action', 'trace_seed_row');
+            fd.append('csrf_token', csrf);
+            fd.append('seed_row_key', seedRowKey);
+            fetch(apiUrl, { method: 'POST', body: fd })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (out) {
+                        out.style.display = 'block';
+                        out.textContent = JSON.stringify(data.trace || data, null, 2);
+                    }
+                })
+                .catch(function () {
+                    if (out) { out.style.display = 'block'; out.textContent = 'Trace request failed.'; }
                 });
         });
     }

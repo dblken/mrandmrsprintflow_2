@@ -27,5 +27,8 @@ $assert(str_contains($source, 'demo_seed_resolve_job_service_enum'), 'job enum a
 $assert(str_contains($source, 'demo_seed_resolve_branch_id'), 'branch auto-resolution helper exists');
 $assert(str_contains($source, 'demo_seed_resolve_staff_user_id'), 'staff auto-resolution helper exists');
 $assert(str_contains($source, 'row_resolutions'), 'validation returns row resolution preview payload');
+$assert(str_contains($source, 'demo_seed_require_insert_id'), 'import uses strict insert id checks');
+$assert(str_contains($source, 'demo_seed_verify_batch_integrity'), 'post-import integrity verification exists');
+$assert(!str_contains($source, 'DELETE FROM inventory_transactions'), 'demo delete must not touch inventory ledger');
 
 echo "Demo seed validation rules test: {$passed} passed.\n";
