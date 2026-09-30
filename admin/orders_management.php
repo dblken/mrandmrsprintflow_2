@@ -655,10 +655,11 @@ if (isset($_GET['ajax'])) {
 
         @media (max-width: 768px) {
             .orders-list-header {
+                display: flex !important;
                 flex-wrap: nowrap !important;
                 align-items: center !important;
                 justify-content: space-between !important;
-                gap: 10px !important;
+                gap: 8px !important;
             }
             .orders-list-header h3 {
                 flex: 1 1 auto !important;
@@ -666,17 +667,22 @@ if (isset($_GET['ajax'])) {
                 white-space: nowrap !important;
             }
             .orders-list-actions {
+                display: flex !important;
                 flex: 0 0 auto !important;
                 flex-wrap: nowrap !important;
+                align-items: center !important;
                 justify-content: flex-end !important;
                 margin-left: auto !important;
-                gap: 8px !important;
+                gap: 6px !important;
+            }
+            .orders-list-actions > div {
+                flex: 0 0 auto !important;
             }
             .orders-list-actions .toolbar-btn {
                 width: auto !important;
                 min-width: 0 !important;
-                padding-left: 12px !important;
-                padding-right: 12px !important;
+                padding-left: 10px !important;
+                padding-right: 10px !important;
             }
             main[x-data="ordersPage()"] .modal-overlay {
                 align-items: flex-start !important;

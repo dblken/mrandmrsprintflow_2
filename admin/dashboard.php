@@ -717,15 +717,22 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         .filter-btn-reset:hover { background: #f9fafb; }
         @media (max-width: 768px) {
             #pf-dashboard-toolbar {
-                justify-content: flex-end !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                flex-wrap: nowrap !important;
+                gap: 8px !important;
             }
             #pf-dashboard-toolbar-summary {
-                order: 2 !important;
-                flex: 1 0 100% !important;
-                width: 100% !important;
+                flex: 1 1 auto !important;
+                width: auto !important;
+                min-width: 0 !important;
+            }
+            #pf-dashboard-toolbar-summary-text {
+                min-width: 0 !important;
+                overflow-wrap: anywhere !important;
             }
             #pf-dashboard-toolbar > div:last-child {
-                order: 1 !important;
+                flex: 0 0 auto !important;
                 margin-left: auto !important;
             }
         }
