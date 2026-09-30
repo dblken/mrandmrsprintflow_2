@@ -292,7 +292,7 @@ function pos_checkout_verify_csrf(string $token, array $sessionContext): bool {
 }
 
 function pos_checkout_user_may_set_custom_transaction_datetime(): bool {
-    return in_array(get_user_type(), ['Admin', 'Manager', 'Staff'], true);
+    return get_user_type() === 'Admin';
 }
 
 function pos_checkout_resolve_transaction_datetime(array $data): ?string {
