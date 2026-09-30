@@ -1298,6 +1298,21 @@ class JobOrderService {
         if ($branchId === null || $branchId <= 0) {
             throw new RuntimeException("Job #{$orderId} does not identify an inventory branch.");
         }
+        $jobOrderRows = db_query(
+            'SELECT order_id FROM job_orders WHERE id = ? LIMIT 1',
+            'i',
+            [(int)$orderId]
+        ) ?: [];
+        $storeOrderId = (int)($jobOrderRows[0]['order_id'] ?? 0);
+        $ledgerTransactionDate = null;
+        if (!empty($options['transaction_date'])) {
+            $ledgerTransactionDate = (string)$options['transaction_date'];
+        } elseif ($storeOrderId > 0 && function_exists('printflow_store_order_ledger_date')) {
+            $ledgerTransactionDate = printflow_store_order_ledger_date($storeOrderId);
+        }
+        if ($ledgerTransactionDate !== null && strlen($ledgerTransactionDate) > 10) {
+            $ledgerTransactionDate = substr($ledgerTransactionDate, 0, 10);
+        }
         db_query('SELECT id FROM job_orders WHERE id = ? FOR UPDATE', 'i', [(int)$orderId]);
         $jobRef = printflow_get_job_inventory_reference((int)$orderId);
         $jobLabel = $jobRef['label'] ?? ('Job #' . printflow_format_job_code((int)$orderId));
@@ -1330,7 +1345,8 @@ class JobOrderService {
                             'JOB_ORDER',
                             $orderId,
                             "Deducted for {$jobLabel}",
-                            $branchId
+                            $branchId,
+                            $ledgerTransactionDate
                         );
                     } catch (Exception $e) {
                         // FIFO failed (e.g. insufficient rolls) — propagate error to prevent
@@ -1355,7 +1371,8 @@ class JobOrderService {
                                         'JOB_ORDER',
                                         $orderId,
                                         "Lamination deducted for {$jobLabel}",
-                                        $branchId
+                                        $branchId,
+                                        $ledgerTransactionDate
                                     );
                                 } else {
                                     InventoryManager::issueStock(
@@ -1367,7 +1384,8 @@ class JobOrderService {
                                         "Lamination deducted for {$jobLabel}",
                                         false,
                                         false,
-                                        $branchId
+                                        $branchId,
+                                        $ledgerTransactionDate
                                     );
                                 }
                             } catch (Exception $e) {
@@ -1393,7 +1411,8 @@ class JobOrderService {
                         "Deducted for {$jobLabel}",
                         false,
                         false,
-                        $branchId
+                        $branchId,
+                        $ledgerTransactionDate
                     );
                     // Mark as deducted
                     if (db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')", 'i', [$m['id']]) === false) {
@@ -1424,7 +1443,8 @@ class JobOrderService {
                     "{$ink['ink_color']} ink used for {$jobLabel}",
                     false,
                     false,
-                    $branchId
+                    $branchId,
+                    $ledgerTransactionDate
                 );
                 if (db_execute(
                     "UPDATE job_order_ink_usage

@@ -1648,6 +1648,26 @@ function printflow_format_inventory_reference_note(string $notes, string $refere
 }
 
 /**
+ * Resolve the business transaction date for inventory ledger rows tied to a store order.
+ */
+function printflow_store_order_ledger_date(int $order_id): ?string {
+    $order_id = (int) $order_id;
+    if ($order_id <= 0) {
+        return null;
+    }
+    $rows = db_query(
+        'SELECT order_date FROM orders WHERE order_id = ? LIMIT 1',
+        'i',
+        [$order_id]
+    ) ?: [];
+    $raw = trim((string) ($rows[0]['order_date'] ?? ''));
+    if ($raw === '' || str_starts_with($raw, '0000-')) {
+        return null;
+    }
+    return strlen($raw) >= 10 ? substr($raw, 0, 10) : $raw;
+}
+
+/**
  * Resolve a store order's visible code using the same SKU-based pattern as the order pages.
  *
  * @return array{type:string,id:int,code:string,label:string}

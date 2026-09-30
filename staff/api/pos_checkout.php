@@ -354,6 +354,32 @@ function pos_checkout_selected_transaction_datetime(array $data): string {
     return $custom ?? date('Y-m-d H:i:s');
 }
 
+function pos_checkout_inventory_ledger_date(string $selectedTransactionAt): string {
+    $selectedTransactionAt = trim($selectedTransactionAt);
+    if ($selectedTransactionAt === '') {
+        return date('Y-m-d');
+    }
+    return strlen($selectedTransactionAt) >= 10 ? substr($selectedTransactionAt, 0, 10) : $selectedTransactionAt;
+}
+
+function pos_checkout_align_pos_order_timestamps(array $orderIds, string $selectedTransactionAt): void {
+    $selectedTransactionAt = trim($selectedTransactionAt);
+    if ($selectedTransactionAt === '') {
+        return;
+    }
+    foreach ($orderIds as $orderId) {
+        $orderId = (int) $orderId;
+        if ($orderId <= 0) {
+            continue;
+        }
+        db_execute(
+            'UPDATE customizations SET created_at = ? WHERE order_id = ?',
+            'si',
+            [$selectedTransactionAt, $orderId]
+        );
+    }
+}
+
 function pos_checkout_reopen_session(): void {
     if (session_status() !== PHP_SESSION_ACTIVE) {
         SessionManager::start();
@@ -1239,7 +1265,11 @@ try {
 }
 pos_checkout_log_stage('transaction_datetime', [
     'custom' => pos_checkout_custom_datetime_enabled($data) ? 1 : 0,
+    'use_custom_transaction_datetime' => (string) ($data['use_custom_transaction_datetime'] ?? ''),
+    'custom_transaction_date' => (string) ($data['custom_transaction_date'] ?? ''),
+    'custom_transaction_time' => (string) ($data['custom_transaction_time'] ?? ''),
     'selected' => $selectedTransactionAt,
+    'inventory_ledger_date' => pos_checkout_inventory_ledger_date($selectedTransactionAt),
 ]);
 $payment_method = sanitize($data['payment_method'] ?? 'Cash');
 $reference_number = sanitize($data['reference_number'] ?? '');
@@ -1532,6 +1562,10 @@ try {
         }
 
         $order_id = (int)$conn->insert_id;
+        pos_checkout_log_stage('order_inserted', [
+            'order_id' => $order_id,
+            'order_date' => $selectedTransactionAt,
+        ]);
         $linkedOrderIds[] = $order_id;
         if ($primaryOrderId === null || $order_type === 'product') {
             $primaryOrderId = $order_id;
@@ -1740,9 +1774,9 @@ try {
             if (!$customization_result) {
                 $customizationStatus = $isPayMongo ? 'Awaiting Payment' : 'In Production';
                 $customization_result = db_execute(
-                    "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())",
-                    'iiisss',
-                    [$order_id, $order_item_id, $customer_id, $name, $details_json, $customizationStatus]
+                    "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())",
+                    'iiissss',
+                    [$order_id, $order_item_id, $customer_id, $name, $details_json, $customizationStatus, $selectedTransactionAt]
                 );
                 if ($customization_result) {
                     $last_customization_id = $conn->insert_id;
@@ -1812,7 +1846,7 @@ try {
                     (int)$branch_id,
                     $current_user_id,
                     'POS sale',
-                    $selectedTransactionAt
+                    pos_checkout_inventory_ledger_date($selectedTransactionAt)
                 );
                 $checkout_stage = 'inventory_deducted';
             } catch (Throwable $inventoryError) {
@@ -1844,6 +1878,7 @@ try {
     $transaction_open = false;
     $checkout_committed = true;
     $checkout_stage = 'committed';
+    pos_checkout_align_pos_order_timestamps($linkedOrderIds, $selectedTransactionAt);
     $sync_warning = '';
     foreach ($post_commit_job_sync as $syncMeta) {
         if (!is_array($syncMeta)) {

@@ -123,6 +123,9 @@ class InventoryManager {
         self::ensureBranchScopedSchema();
 
         $date = $date ?: date('Y-m-d');
+        if (strlen($date) > 10) {
+            $date = substr($date, 0, 10);
+        }
         $quantity = abs((float)$quantity);
         $userId = $userId ?: ($_SESSION['user_id'] ?? null);
         $branchId = $branchId ?: self::getCurrentBranchId();
