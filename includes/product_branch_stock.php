@@ -509,7 +509,8 @@ function printflow_apply_product_order_item_inventory(
     int $orderItemId,
     int $branchId = 0,
     int $actorId = 0,
-    string $sourceLabel = 'Order'
+    string $sourceLabel = 'Order',
+    ?string $transactionDate = null
 ): array {
     global $conn;
 
@@ -615,7 +616,7 @@ function printflow_apply_product_order_item_inventory(
             $orderId,
             $notes,
             $actorId,
-            date('Y-m-d'),
+            $transactionDate ?: date('Y-m-d'),
             $branchId,
             $transactionId
         );

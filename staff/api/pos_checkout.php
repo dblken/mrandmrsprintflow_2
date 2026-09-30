@@ -291,6 +291,33 @@ function pos_checkout_verify_csrf(string $token, array $sessionContext): bool {
     return $expected !== '' && hash_equals($expected, (string)$token);
 }
 
+function pos_checkout_resolve_transaction_datetime(array $data): ?string {
+    $date = trim((string)($data['custom_transaction_date'] ?? ''));
+    $time = trim((string)($data['custom_transaction_time'] ?? ''));
+    $toggle = filter_var($data['use_custom_transaction_datetime'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    $submitted = $toggle || $date !== '' || $time !== '';
+    if (!$submitted) return null;
+    if (get_user_type() !== 'Admin') {
+        throw new RuntimeException('Only Admin users may set a custom transaction date/time.', 403);
+    }
+    if (!$toggle || $date === '' || $time === '') {
+        throw new RuntimeException('A transaction date and time are required when custom date/time is enabled.', 400);
+    }
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !preg_match('/^\d{2}:\d{2}$/', $time)) {
+        throw new RuntimeException('Invalid transaction date/time.', 400);
+    }
+    $parsed = DateTimeImmutable::createFromFormat('!Y-m-d H:i', $date . ' ' . $time);
+    $errors = DateTimeImmutable::getLastErrors();
+    if (!$parsed || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
+        || $parsed->format('Y-m-d H:i') !== $date . ' ' . $time) {
+        throw new RuntimeException('Invalid transaction date/time.', 400);
+    }
+    if ($parsed > new DateTimeImmutable('now')) {
+        throw new RuntimeException('Future transaction dates are not allowed.', 400);
+    }
+    return $parsed->format('Y-m-d H:i:s');
+}
+
 function pos_checkout_reopen_session(): void {
     if (session_status() !== PHP_SESSION_ACTIVE) {
         SessionManager::start();
@@ -1167,6 +1194,13 @@ if (!pos_checkout_verify_csrf((string)($data['csrf_token'] ?? ''), $sessionConte
     echo json_encode(['success' => false, 'message' => 'Invalid security token.']);
     exit;
 }
+try {
+    $transactionDateTime = pos_checkout_resolve_transaction_datetime($data);
+} catch (Throwable $dateError) {
+    http_response_code((int)$dateError->getCode() >= 400 && (int)$dateError->getCode() < 500 ? (int)$dateError->getCode() : 400);
+    echo json_encode(['success' => false, 'message' => $dateError->getMessage()]);
+    exit;
+}
 $payment_method = sanitize($data['payment_method'] ?? 'Cash');
 $reference_number = sanitize($data['reference_number'] ?? '');
 $amount_tendered = (float)($data['amount_tendered'] ?? 0);
@@ -1442,10 +1476,10 @@ try {
 
         $order_result = db_execute(
             "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source{$amountPaidColumns}{$priceFinalColumns})
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",
-            'iiidsssss' . $amountPaidTypes . $priceFinalTypes,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, NOW()), NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",
+            'iiidssssss' . $amountPaidTypes . $priceFinalTypes,
             array_merge(
-                [$customer_id, $branch_id, $reference_id, $groupTotal, $order_status, $initial_payment_status, $payment_method, $posBundleReference, $order_type],
+                [$customer_id, $branch_id, $reference_id, $groupTotal, $order_status, $initial_payment_status, $payment_method, $posBundleReference, $transactionDateTime, $order_type],
                 $amountPaidParams,
                 $priceFinalParams
             )
@@ -1736,7 +1770,8 @@ try {
                     (int)$order_item_id,
                     (int)$branch_id,
                     $current_user_id,
-                    'POS sale'
+                    'POS sale',
+                    $transactionDateTime
                 );
                 $checkout_stage = 'inventory_deducted';
             } catch (Throwable $inventoryError) {

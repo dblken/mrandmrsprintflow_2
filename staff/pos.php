@@ -31,6 +31,7 @@ if ($pos_staff_branch_id > 0) {
 $page_title = "Point of Sale (POS)";
 $current_page = "pos";
 $user_name = $_SESSION['user_name'] ?? 'Staff';
+$pos_is_admin = get_user_type() === 'Admin';
 
 // Fetch Categories
 $categories = [];
@@ -2737,6 +2738,23 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                     <span class="pos-summary-amount" id="pos-change">₱0.00</span>
                                 </div>
                             </div>
+
+                            <?php if ($pos_is_admin): ?>
+                            <div class="pos-custom-date-panel" style="margin:12px 0;padding:10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;">
+                                <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#334155;">
+                                    <input type="checkbox" id="pos-use-custom-date" onchange="toggleCustomTransactionDate()">
+                                    Use Custom Transaction Date/Time
+                                </label>
+                                <div id="pos-custom-date-fields" hidden style="display:flex;gap:8px;margin-top:8px;">
+                                    <label style="flex:1;font-size:11px;color:#64748b;">Date
+                                        <input type="date" id="pos-transaction-date" style="display:block;width:100%;margin-top:3px;padding:6px;border:1px solid #cbd5e1;border-radius:5px;">
+                                    </label>
+                                    <label style="flex:1;font-size:11px;color:#64748b;">Time
+                                        <input type="time" id="pos-transaction-time" style="display:block;width:100%;margin-top:3px;padding:6px;border:1px solid #cbd5e1;border-radius:5px;">
+                                    </label>
+                                </div>
+                            </div>
+                            <?php endif; ?>
 
                             <button class="pos-btn-checkout" id="pos-checkout-btn" disabled onclick="processCheckout()">
                                 <i class="fas fa-lock" id="checkout-icon"></i> <span id="checkout-text">Select
@@ -5901,6 +5919,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             updateCheckoutState();
         }
 
+        function toggleCustomTransactionDate() {
+            const toggle = document.getElementById('pos-use-custom-date');
+            const fields = document.getElementById('pos-custom-date-fields');
+            if (fields) fields.hidden = !toggle?.checked;
+        }
+
         function isPayMongoPaymentMethod(method) {
             return String(method || '').trim() === 'PayMongo QRPh';
         }
@@ -6050,7 +6074,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 amount_tendered: tendered,
                 csrf_token: POS_CSRF_TOKEN,
                 checkout_token: checkoutToken,
-                items: cart.map(posCheckoutItemPayload)
+                items: cart.map(posCheckoutItemPayload),
+                use_custom_transaction_datetime: !!document.getElementById('pos-use-custom-date')?.checked,
+                custom_transaction_date: document.getElementById('pos-transaction-date')?.value || '',
+                custom_transaction_time: document.getElementById('pos-transaction-time')?.value || ''
             };
 
             let checkoutData = null;

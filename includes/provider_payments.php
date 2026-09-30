@@ -506,7 +506,7 @@ function printflow_provider_payment_load_subject(string $subjectType, int $subje
             "SELECT order_id AS subject_id, order_id, NULL AS job_order_id,
                     customer_id, branch_id, total_amount, payment_status,
                     {$priceAuditSelect}
-                    status AS order_status, order_type, order_source
+                    status AS order_status, order_type, order_source, order_date
              FROM orders WHERE order_id = ? LIMIT 1",
             'i',
             [$subjectId]
@@ -2033,7 +2033,8 @@ function printflow_provider_payment_complete_pos(int $ledgerId, int $staffId): a
                     (int)$item['order_item_id'],
                     (int)$payment['branch_id'],
                     $staffId,
-                    'PayMongo POS sale'
+                    'PayMongo POS sale',
+                    (string)($subject['order_date'] ?? '') ?: null
                 );
             }
             if (!db_execute(
