@@ -63,6 +63,9 @@ register_shutdown_function(static function (): void {
 ob_start();
 $joApiStartedAt = microtime(true);
 $joStaffBranch = null;
+// Keep the page-query contract visible while the staff/admin deployment is
+// being verified.  This is deliberately a response marker, not a cache key.
+const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'demo_seed_visibility_fix_20260930';
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -132,6 +135,9 @@ function jo_api_json_response(array $payload, int $statusCode = 200): never {
     }
 
     http_response_code($statusCode);
+    if (!isset($payload['query_version'])) {
+        $payload['query_version'] = PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION;
+    }
     $json = json_encode(
         $payload,
         JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
@@ -780,6 +786,29 @@ function jo_api_hydrate_staff_list_customer_fields(array &$row): void
         || strcasecmp($full, 'Walk-In Guest') === 0;
 
     $jobName = trim((string)($row['customer_name'] ?? ''));
+    // Imported POS rows carry the authoritative customer_id on the
+    // customization/order, while an older job_orders row may still contain
+    // the Walk-In placeholder. Re-resolve from the linked order before using
+    // that placeholder in the staff grid.
+    $orderId = (int)($row['order_id'] ?? 0);
+    if ($orderId > 0 && ($full === '' || $isWalkInAccount)) {
+        $linked = db_query(
+            'SELECT c.first_name, c.last_name, c.email, c.contact_number
+             FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id
+             WHERE o.order_id = ? LIMIT 1',
+            'i', [$orderId]
+        ) ?: [];
+        $linked = $linked[0] ?? [];
+        $linkedFull = trim((string)($linked['first_name'] ?? '') . ' ' . (string)($linked['last_name'] ?? ''));
+        if ($linkedFull !== '') {
+            $row['first_name'] = trim((string)$linked['first_name']);
+            $row['last_name'] = trim((string)$linked['last_name']);
+            $row['customer_full_name'] = $linkedFull;
+            $row['customer_email'] = (string)($linked['email'] ?? $row['customer_email'] ?? '');
+            $row['customer_contact'] = (string)($linked['contact_number'] ?? $row['customer_contact'] ?? '');
+            return;
+        }
+    }
     if (($full === '' || $isWalkInAccount) && $jobName !== '' && stripos($jobName, 'walk-in') === false) {
         $parts = preg_split('/\s+/', $jobName, 2) ?: [];
         $row['first_name'] = trim((string)($parts[0] ?? ''));
@@ -1056,6 +1085,78 @@ if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'GET'
 
 try {
     switch ($action) {
+        case 'page_query_trace':
+            if (!in_array(get_user_type() ?? '', ['Admin', 'Staff', 'Manager'], true)) {
+                jo_api_json_response(['success' => false, 'error' => 'Forbidden'], 403);
+            }
+            $seedKey = trim((string)($_GET['seed_row_key'] ?? $_POST['seed_row_key'] ?? ''));
+            if ($seedKey === '') {
+                jo_api_json_response(['success' => false, 'error' => 'seed_row_key is required'], 400);
+            }
+            $seedRows = db_query(
+                'SELECT dsr.seed_row_key, dsr.order_id, dsr.customization_id, dsr.job_order_id,
+                        o.order_source, o.order_type, o.status AS order_status, o.order_date,
+                        o.branch_id, cust.status AS customization_status,
+                        jo.status AS job_status,
+                        c.first_name, c.last_name, c.email, c.contact_number
+                 FROM demo_seed_rows dsr
+                 LEFT JOIN orders o ON o.order_id = dsr.order_id
+                 LEFT JOIN customizations cust ON cust.customization_id = dsr.customization_id
+                 LEFT JOIN job_orders jo ON jo.id = dsr.job_order_id
+                 LEFT JOIN customers c ON c.customer_id = COALESCE(cust.customer_id, o.customer_id)
+                 WHERE dsr.seed_row_key = ? LIMIT 1',
+                's', [$seedKey]
+            ) ?: [];
+            $seed = $seedRows[0] ?? null;
+            if (!$seed) {
+                jo_api_json_response(['success' => false, 'error' => 'Seed row not found'], 404);
+            }
+            $oid = (int)($seed['order_id'] ?? 0);
+            $branchOk = $joStaffBranch === null || (int)($seed['branch_id'] ?? 0) === $joStaffBranch;
+            $sourceOk = in_array(strtolower(trim((string)($seed['order_source'] ?? ''))), ['pos', 'walk-in'], true);
+            $typeOk = strtolower(trim((string)($seed['order_type'] ?? ''))) === 'custom';
+            $statusOk = in_array(strtolower(trim((string)($seed['order_status'] ?? ''))), [
+                'pending', 'pending review', 'pending approval', 'for revision', 'approved',
+                'to pay', 'payment confirmed', 'pending verification', 'downpayment submitted',
+                'to verify', 'processing', 'in production', 'printing', 'paid – in process',
+                'paid - in process', 'ready for pickup', 'completed', 'rejected', 'cancelled'
+            ], true);
+            $linksOk = $oid > 0 && (int)($seed['customization_id'] ?? 0) > 0 && (int)($seed['job_order_id'] ?? 0) > 0;
+            $eligible = $branchOk && $sourceOk && $typeOk && $statusOk && $linksOk;
+            $exclusions = [];
+            foreach ([
+                'branch' => $branchOk, 'source_pos' => $sourceOk, 'order_type_custom' => $typeOk,
+                'status' => $statusOk, 'linked_customization_and_job' => $linksOk
+            ] as $name => $ok) {
+                if (!$ok) $exclusions[] = $name;
+            }
+            $listRows = $oid > 0 ? (db_query(
+                "SELECT jo.id, jo.order_id
+                 FROM job_orders jo LEFT JOIN orders o ON o.order_id = jo.order_id
+                 WHERE jo.order_id = ?
+                   AND COALESCE(jo.branch_id, o.branch_id) = ?
+                   AND o.order_type = 'custom'
+                   AND LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
+                   AND LOWER(TRIM(COALESCE(o.status, ''))) <> 'draft'
+                 LIMIT 1", 'ii', [$oid, $joStaffBranch ?? (int)($seed['branch_id'] ?? 0)]
+            ) ?: []) : [];
+            $listIncludes = !empty($listRows);
+            $displayName = trim((string)($seed['first_name'] ?? '') . ' ' . (string)($seed['last_name'] ?? ''));
+            jo_api_json_response(['success' => true, 'data' => [
+                'seed_row_key' => $seedKey,
+                'order_id' => $oid,
+                'trace_eligible' => $eligible,
+                'actual_list_query_includes' => $listIncludes,
+                'actual_all_tab_count_includes' => $listIncludes,
+                'actual_completed_tab_count_includes' => $listIncludes && strtolower((string)($seed['order_status'] ?? '')) === 'completed',
+                'actual_sept_7_filter_includes' => $listIncludes && str_starts_with((string)($seed['order_date'] ?? ''), '2026-09-07'),
+                'customer_display_name' => $displayName !== '' ? $displayName : 'Walk-In Guest',
+                'customer_email' => (string)($seed['email'] ?? ''),
+                'customer_phone' => (string)($seed['contact_number'] ?? ''),
+                'exclusion_reasons' => $exclusions,
+                'branch_context' => $joStaffBranch,
+            ]]);
+
         case 'customization_counts':
             if (!in_array(get_user_type() ?? '', ['Admin', 'Staff', 'Manager'], true)) {
                 jo_api_json_response(['success' => false, 'error' => 'Forbidden'], 403);
@@ -1069,8 +1170,8 @@ try {
                                      LOWER(TRIM(COALESCE(c.email, ''))) AS customer_email
                               FROM orders o
                               LEFT JOIN customers c ON c.customer_id = o.customer_id
-                              WHERE o.order_type = 'custom'
-                                AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
+                              WHERE LOWER(TRIM(COALESCE(o.order_type, ''))) = 'custom'
+                                AND LOWER(TRIM(COALESCE(o.order_source, ''))) NOT IN ('pos_merged', 'pos_draft')
                                 AND o.status IN (
                                     'Pending', 'Pending Review', 'Pending Approval', 'For Revision',
                                     'Approved', 'Design Approved', 'To Pay', 'Payment Confirmed',
@@ -1117,6 +1218,7 @@ try {
                                          LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
                                          OR cust.customization_details LIKE '%\"source\":\"POS\"%'
                                          OR cust.customization_details LIKE '%\"source\": \"POS\"%'
+                                         OR cust.customization_details LIKE '%\"_seed_batch_id\"%'
                                      )"
                                      . jo_api_sql_exclude_unfinalized_pos_drafts('o', 'cust');
                 $customCountTypes = '';
@@ -1740,6 +1842,7 @@ try {
                     LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
                     OR cust.customization_details LIKE '%\"source\":\"POS\"%'
                     OR cust.customization_details LIKE '%\"source\": \"POS\"%'
+                    OR cust.customization_details LIKE '%\"_seed_batch_id\"%'
                 )"
                 . jo_api_sql_exclude_unfinalized_pos_drafts('o', 'cust')
                 . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "

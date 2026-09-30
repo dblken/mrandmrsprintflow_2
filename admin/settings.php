@@ -1104,7 +1104,7 @@ Stickers &amp; Decals"><?php
 
                     <div class="demo-panel">
                         <h3>5. Trace imported row (debug)</h3>
-                        <p style="font-size:12px;color:#64748b;margin:0 0 10px;">Enter a <code>seed_row_key</code> from the CSV to inspect linked customer/order/job rows and date fields used by filters.</p>
+                        <p style="font-size:12px;color:#64748b;margin:0 0 10px;">Enter a <code>seed_row_key</code> from the CSV to inspect linked records, then compare the exact Staff Customizations page query, tabs, date filter, customer display, and deployed query version.</p>
                         <div class="f-group" style="max-width:420px;">
                             <label>Seed row key</label>
                             <input type="text" id="demo-seed-trace-key" placeholder="e.g. 20260907-001" autocomplete="off">
@@ -2095,6 +2095,12 @@ function printflowInitDemoSeedTools() {
             fd.append('seed_row_key', seedRowKey);
             fetch(apiUrl, { method: 'POST', body: fd })
                 .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    var pageTraceUrl = <?php echo json_encode(rtrim($base_path, '/') . '/admin/job_orders_api.php?action=page_query_trace&seed_row_key='); ?> + encodeURIComponent(seedRowKey) + '&_=' + Date.now();
+                    return fetch(pageTraceUrl, { cache: 'no-store', headers: { 'Accept': 'application/json' } })
+                        .then(function (res) { return res.json(); })
+                        .then(function (pageTrace) { data.page_query_trace = pageTrace; return data; });
+                })
                 .then(function (data) {
                     if (out) {
                         out.style.display = 'block';
