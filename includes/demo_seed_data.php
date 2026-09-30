@@ -1432,6 +1432,62 @@ function demo_seed_get_last_import_debug(): ?array
 }
 
 /**
+ * @param list<string> $columns
+ * @param list<mixed> $params
+ * @param array<string,mixed> $context
+ * @param array<string,mixed> $resolvedValues
+ * @return array<string,mixed>
+ */
+function demo_seed_bind_param_debug(
+    string $step,
+    array $columns,
+    string $types,
+    array $params,
+    array $resolvedValues = []
+): array {
+    $placeholderCount = count($columns);
+    return [
+        $step . '_columns' => $columns,
+        $step . '_placeholder_count' => $placeholderCount,
+        $step . '_bind_types' => $types,
+        $step . '_bind_types_length' => strlen($types),
+        $step . '_bind_param_count' => count($params),
+        $step . '_values' => $resolvedValues,
+    ];
+}
+
+/**
+ * @param list<string> $columns
+ * @param list<mixed> $params
+ * @param array<string,mixed> $context
+ */
+function demo_seed_require_bind_match(
+    string $step,
+    array $columns,
+    string $types,
+    array $params,
+    array $context = []
+): void {
+    $n = count($columns);
+    $typeLen = strlen($types);
+    $paramCount = count($params);
+    if ($n === $typeLen && $n === $paramCount) {
+        return;
+    }
+    $bindDebug = demo_seed_bind_param_debug($step, $columns, $types, $params);
+    demo_seed_fail(
+        $step,
+        sprintf(
+            'bind_param mismatch: placeholders=%d bind_types_length=%d bind_param_count=%d',
+            $n,
+            $typeLen,
+            $paramCount
+        ),
+        array_merge($context, ['bind_debug' => $bindDebug])
+    );
+}
+
+/**
  * @param array<string,mixed> $row
  */
 function demo_seed_insert_job_order_for_row(
@@ -1489,6 +1545,13 @@ function demo_seed_insert_job_order_for_row(
     }
 
     $placeholders = implode(', ', array_fill(0, count($cols), '?'));
+    demo_seed_require_bind_match(
+        'job_order_insert',
+        $cols,
+        $types,
+        $params,
+        ['seed_row_key' => $seedRowKey]
+    );
     return demo_seed_require_insert_id(
         'INSERT INTO job_orders (' . implode(', ', $cols) . ') VALUES (' . $placeholders . ')',
         $types,
@@ -1652,15 +1715,15 @@ function demo_seed_import_single_row(array $row, string $batchId, int $adminId, 
     $staffId = (int)$row['staff_user_id'];
 
     $orderCols = ['customer_id', 'branch_id', 'reference_id', 'total_amount', 'status', 'payment_status', 'payment_method', 'order_date', 'updated_at', 'order_type', 'order_source'];
-    $orderTypes = 'iiidssssss';
+    $orderTypes = 'iiidsssssss';
     $orderParams = [
         $customerId,
         $branchId,
         $catalogId,
         $amountPaid,
         (string)$row['order_status'],
-        'Paid',
-        'Cash',
+        (string)($row['payment_status'] ?? 'Paid'),
+        (string)($row['payment_method'] ?? 'Cash'),
         $orderAt,
         $updatedAt,
         'custom',
@@ -1694,6 +1757,41 @@ function demo_seed_import_single_row(array $row, string $batchId, int $adminId, 
     }
 
     $placeholders = implode(', ', array_fill(0, count($orderCols), '?'));
+    $orderResolved = [
+        'customer_id' => $customerId,
+        'branch_id' => $branchId,
+        'reference_id' => $catalogId,
+        'total_amount' => $amountPaid,
+        'status' => (string)$row['order_status'],
+        'payment_status' => (string)($row['payment_status'] ?? 'Paid'),
+        'payment_method' => (string)($row['payment_method'] ?? 'Cash'),
+        'order_date' => $orderAt,
+        'updated_at' => $updatedAt,
+        'order_type' => 'custom',
+        'order_source' => 'pos',
+    ];
+    if (in_array('created_at', $orderCols, true)) {
+        $orderResolved['created_at'] = $orderAt;
+    }
+    if (in_array('amount_paid', $orderCols, true)) {
+        $orderResolved['amount_paid'] = $amountPaid;
+    }
+    if (in_array('price_finalized_at', $orderCols, true)) {
+        $orderResolved['price_finalized_at'] = $orderAt;
+    }
+    if (in_array('price_finalized_by', $orderCols, true)) {
+        $orderResolved['price_finalized_by'] = $staffId;
+    }
+    if (in_array('payment_type', $orderCols, true)) {
+        $orderResolved['payment_type'] = 'full_payment';
+    }
+    $importDebug = array_merge(
+        $importDebug,
+        demo_seed_bind_param_debug('order_insert', $orderCols, $orderTypes, $orderParams, $orderResolved)
+    );
+    demo_seed_set_last_import_debug($importDebug);
+    demo_seed_require_bind_match('order_insert', $orderCols, $orderTypes, $orderParams, $ctx);
+
     $orderId = demo_seed_require_insert_id(
         'INSERT INTO orders (' . implode(', ', $orderCols) . ') VALUES (' . $placeholders . ')',
         $orderTypes,
