@@ -65,7 +65,7 @@ $joApiStartedAt = microtime(true);
 $joStaffBranch = null;
 // Keep the page-query contract visible while the staff/admin deployment is
 // being verified.  This is deliberately a response marker, not a cache key.
-const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'demo_seed_visibility_fix_20261001_v3';
+const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'demo_seed_visibility_fix_20261001_live';
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';

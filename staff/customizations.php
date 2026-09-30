@@ -114,8 +114,8 @@ $online_closed_count = 0;
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="turbo-visit-control" content="reload">
     <title><?php echo $page_title; ?></title>
-    <!-- customizations_query_version: demo_seed_visibility_fix_20261001_v3 -->
-    <meta name="customizations-query-version" content="demo_seed_visibility_fix_20261001_v3">
+    <!-- customizations_query_version: demo_seed_visibility_fix_20261001_live -->
+    <meta name="customizations-query-version" content="demo_seed_visibility_fix_20261001_live">
     <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/output.css'); ?>">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
@@ -3645,9 +3645,12 @@ window.pfServiceFieldCatalog = (() => {
             modalCache: {},
             modalCacheLoadedAt: {},
             modalCacheTtlMs: 60000,
-            // Two scoped summary sources are merged; 15 each caps the initial
-            // response set at roughly 30 rows before de-duplication.
-            ordersSummaryPageSize: 15,
+            // The Staff table applies status/date/search filters locally. Load
+            // the complete bounded summary set once so valid imported rows are
+            // present before the client-side pagination is calculated. The API
+            // caps each source at 500 rows, which is well above the current
+            // branch workload and still keeps detail payloads out of this call.
+            ordersSummaryPageSize: 500,
             ordersApiPage: 1,
             ordersHasMore: false,
             loadingMoreOrders: false,
@@ -6919,8 +6922,8 @@ window.pfServiceFieldCatalog = (() => {
                     per_page: String(this.ordersSummaryPageSize),
                     _: String(Date.now())
                 });
-                const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&include_pagination=1&debug=1&query_version=demo_seed_visibility_fix_20261001_v3&${query.toString()}`;
-                const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&debug=1&query_version=demo_seed_visibility_fix_20261001_v3&${query.toString()}`;
+                const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&include_pagination=1&debug=1&query_version=demo_seed_visibility_fix_20261001_live&${query.toString()}`;
+                const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&debug=1&query_version=demo_seed_visibility_fix_20261001_live&${query.toString()}`;
                 const requestOptions = {
                     cache: 'no-store',
                     signal,
@@ -6956,7 +6959,7 @@ window.pfServiceFieldCatalog = (() => {
                 const sourceFilter = <?php echo json_encode(
                     $staffCustomizationRole === 'pos' ? 'pos' : ($staffCustomizationRole === 'online' ? 'online' : 'all')
                 ); ?>;
-                const endpoint = `../admin/job_orders_api.php?action=customization_counts&source=${encodeURIComponent(sourceFilter)}&debug=1&query_version=demo_seed_visibility_fix_20261001_v3`;
+                const endpoint = `../admin/job_orders_api.php?action=customization_counts&source=${encodeURIComponent(sourceFilter)}&debug=1&query_version=demo_seed_visibility_fix_20261001_live`;
                 const controller = new AbortController();
                 countsAbortController = controller;
                 const timeoutId = window.setTimeout(() => controller.abort(), 10000);
