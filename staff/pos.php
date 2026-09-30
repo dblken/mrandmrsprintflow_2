@@ -31,7 +31,7 @@ if ($pos_staff_branch_id > 0) {
 $page_title = "Point of Sale (POS)";
 $current_page = "pos";
 $user_name = $_SESSION['user_name'] ?? 'Staff';
-$pos_is_admin = get_user_type() === 'Admin';
+$pos_is_admin = is_admin();
 $pos_can_custom_transaction_datetime = $pos_is_admin;
 
 // Fetch Categories
@@ -1245,35 +1245,45 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             color: var(--staff-primary);
         }
 
+        .pos-checkout-datetime-bar {
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 12px;
+            background: #ffffff;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+        }
+
         .pos-transaction-datetime-compact {
-            padding-top: 10px;
-            margin-top: 2px;
-            border-top: 1px dashed #e2e8f0;
             display: flex;
-            flex-direction: row;
-            flex-wrap: wrap;
-            gap: 8px 10px;
-            align-items: center;
+            flex-direction: column;
+            gap: 8px;
+            align-items: stretch;
         }
 
         .pos-transaction-datetime-open-btn {
-            flex: 0 0 auto;
-            padding: 8px 12px;
-            border: 1px solid #cbd5e1;
+            width: 100%;
+            padding: 10px 14px;
+            border: 2px solid var(--staff-primary);
             border-radius: 10px;
-            background: #f8fafc;
-            color: #334155;
-            font-size: 12px;
-            font-weight: 700;
+            background: #ffffff;
+            color: var(--staff-primary);
+            font-size: 13px;
+            font-weight: 800;
             cursor: pointer;
             font-family: inherit;
             text-align: center;
-            transition: border-color 0.15s, background 0.15s;
+            transition: border-color 0.15s, background 0.15s, color 0.15s;
         }
 
         .pos-transaction-datetime-open-btn:hover {
-            border-color: var(--staff-primary);
-            background: #fff;
+            background: var(--staff-primary);
+            color: #ffffff;
+        }
+
+        .pos-transaction-datetime-open-btn:focus-visible {
+            outline: 2px solid var(--staff-primary);
+            outline-offset: 2px;
         }
 
         .pos-transaction-datetime-summary {
@@ -2969,13 +2979,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                     <span class="pos-summary-amount" id="pos-change">₱0.00</span>
                                 </div>
 
-                                <?php if ($pos_can_custom_transaction_datetime): ?>
-                                <div id="pos-checkout-transaction-datetime-compact" class="pos-transaction-datetime-compact">
-                                    <button type="button" id="pos-open-transaction-datetime-btn" class="pos-transaction-datetime-open-btn" onclick="openPosTransactionDateTimeModal()">Set Date &amp; Time</button>
+                            </div>
+
+                            <?php if ($pos_can_custom_transaction_datetime): ?>
+                            <div id="pos-checkout-transaction-datetime-compact" class="pos-checkout-datetime-bar">
+                                <div class="pos-transaction-datetime-compact">
+                                    <button type="button" id="pos-open-transaction-datetime-btn" class="pos-transaction-datetime-open-btn" onclick="openPosTransactionDateTimeModal()">
+                                        <i class="fas fa-calendar-alt" aria-hidden="true"></i> Set Date &amp; Time
+                                    </button>
                                     <p id="pos-transaction-datetime-summary" class="pos-transaction-datetime-summary" aria-live="polite">Date/Time: Current server time</p>
                                 </div>
-                                <?php endif; ?>
+                                <input type="hidden" id="pos-hidden-use-custom-transaction-datetime" value="0">
+                                <input type="hidden" id="pos-hidden-custom-transaction-date" value="">
+                                <input type="hidden" id="pos-hidden-custom-transaction-time" value="">
                             </div>
+                            <?php endif; ?>
 
                             <button class="pos-btn-checkout" id="pos-checkout-btn" disabled onclick="processCheckout()">
                                 <i class="fas fa-lock" id="checkout-icon"></i> <span id="checkout-text">Select
@@ -6240,9 +6258,26 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
         }
 
+        function syncPosCustomTransactionHiddenFields() {
+            const useEl = document.getElementById('pos-hidden-use-custom-transaction-datetime');
+            const dateEl = document.getElementById('pos-hidden-custom-transaction-date');
+            const timeEl = document.getElementById('pos-hidden-custom-transaction-time');
+            const useCustom = posCustomTransactionState.enabled ? 1 : 0;
+            if (useEl) {
+                useEl.value = String(useCustom);
+            }
+            if (dateEl) {
+                dateEl.value = useCustom ? (posCustomTransactionState.date || '') : '';
+            }
+            if (timeEl) {
+                timeEl.value = useCustom ? (posCustomTransactionState.time || '') : '';
+            }
+        }
+
         function updatePosTransactionDateTimeSummaryUI() {
             const summary = document.getElementById('pos-transaction-datetime-summary');
             if (!summary) {
+                syncPosCustomTransactionHiddenFields();
                 return;
             }
             if (posCustomTransactionState.enabled && posCustomTransactionState.date && posCustomTransactionState.time) {
@@ -6253,6 +6288,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 summary.textContent = 'Date/Time: Current server time';
                 summary.classList.remove('is-custom');
             }
+            syncPosCustomTransactionHiddenFields();
         }
 
         function openPosTransactionDateTimeModal() {
@@ -6353,11 +6389,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     custom_transaction_time: ''
                 };
             }
+            syncPosCustomTransactionHiddenFields();
             const useCustom = posCustomTransactionState.enabled ? 1 : 0;
             return {
                 use_custom_transaction_datetime: useCustom,
-                custom_transaction_date: useCustom ? posCustomTransactionState.date : '',
-                custom_transaction_time: useCustom ? posCustomTransactionState.time : ''
+                custom_transaction_date: useCustom ? (posCustomTransactionState.date || '') : '',
+                custom_transaction_time: useCustom ? (posCustomTransactionState.time || '') : ''
             };
         }
 
