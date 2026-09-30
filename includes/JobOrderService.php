@@ -1314,6 +1314,15 @@ class JobOrderService {
         // RollService accept this optional final parameter as a full ledger
         // timestamp, preserving the original POS transaction time.
         db_query('SELECT id FROM job_orders WHERE id = ? FOR UPDATE', 'i', [(int)$orderId]);
+        if (getenv('PRINTFLOW_POS_DATETIME_DEBUG') === '1') {
+            error_log(sprintf(
+                '[PrintFlow material deduction] job_id=%d store_order_id=%d branch_id=%d transaction_date=%s',
+                (int)$orderId,
+                $storeOrderId,
+                $branchId,
+                (string)$ledgerTransactionDate
+            ));
+        }
         $jobRef = printflow_get_job_inventory_reference((int)$orderId);
         $jobLabel = $jobRef['label'] ?? ('Job #' . printflow_format_job_code((int)$orderId));
         $materials = $processMaterials ? self::getScopedMaterials((int)$orderId, true, true) : [];

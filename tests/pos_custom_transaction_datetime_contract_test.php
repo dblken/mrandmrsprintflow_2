@@ -9,6 +9,7 @@ $inventory = $read('includes/product_branch_stock.php');
 $inventoryManager = $read('includes/InventoryManager.php');
 $jobs = $read('includes/JobOrderService.php');
 $functions = $read('includes/functions.php');
+$trace = $read('staff/api/pos_transaction_trace.php');
 $receipt = $read('includes/pos_receipt.php');
 $migration = $read('migrate_db.php');
 
@@ -77,6 +78,13 @@ $assert(
 $assert(
     str_contains($checkout, "'transaction_date' => \$selectedTransactionAt"),
     'checkout response exposes the saved transaction timestamp'
+);
+$assert(
+    str_contains($trace, "'order' => \$order")
+        && str_contains($trace, "'material_assignments' => \$materials")
+        && str_contains($trace, "'inventory_transactions' => \$ledger")
+        && str_contains($trace, "UPPER(ref_type) = 'JOB_ORDER'"),
+    'staff-only trace endpoint exposes saved order, material, and ledger evidence'
 );
 
 echo "POS custom transaction datetime contract: {$passed} assertions passed.\n";
