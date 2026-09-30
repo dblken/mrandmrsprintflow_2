@@ -106,6 +106,15 @@ if ($initials === '') {
         #main-header .pf-notif-icon { width: 1.2rem; height: 1.2rem; stroke-width: 1.9; }
         #main-header .pf-notif-icon { width: 1.35rem; height: 1.35rem; }
         #main-header .pf-badge { position: absolute; top: -6px; right: -6px; background: #53C5E0; color: #0a2530; font-size: .65rem; font-weight: 900; border-radius: 9999px; min-width: 18px; height: 18px; padding: 0 4px; display: flex !important; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(83,197,224,.4); line-height: 1; border: 1.5px solid #0a2530; z-index: 10; pointer-events: none; }
+        <?php if (function_exists('is_customer') && is_customer()): ?>
+        #main-header #cart-count-badge.pf-badge,
+        #main-header #nav-notif-badge.pf-badge {
+            background: #ef4444;
+            color: #ffffff;
+            border-color: #ffffff;
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.35);
+        }
+        <?php endif; ?>
         #main-header .pf-notif-dropdown { position: absolute; top: calc(100% + 10px); right: 0; width: 320px; max-height: 480px; background: var(--pf-notif-bg); border: 1px solid var(--pf-notif-border); border-radius: 16px; box-shadow: var(--pf-notif-shadow); display: none !important; flex-direction: column; overflow: hidden; z-index: 1002; }
         #main-header .pf-notif-dropdown.open { display: flex !important; }
         @media (hover: hover) and (pointer: fine) and (min-width: 769px) {
