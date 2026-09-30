@@ -18,11 +18,36 @@ const DEMO_SEED_SESSION_KEY = 'demo_seed_validated_preview';
 function demo_seed_last_db_error(): string
 {
     global $conn;
+    if (function_exists('printflow_db_errors')) {
+        $logged = printflow_db_errors();
+        if ($logged !== []) {
+            $last = $logged[count($logged) - 1];
+            $parts = array_filter([
+                trim((string)($last['error'] ?? '')),
+                isset($last['errno']) && (int)$last['errno'] !== 0 ? ('errno=' . (int)$last['errno']) : '',
+                trim((string)($last['sqlstate'] ?? '')),
+                trim((string)($last['stage'] ?? '')),
+            ]);
+            $msg = implode(' ', $parts);
+            if ($msg !== '' && $msg !== '00000') {
+                return $msg;
+            }
+            $errOnly = trim((string)($last['error'] ?? ''));
+            if ($errOnly !== '') {
+                return $errOnly;
+            }
+            if (isset($last['errno']) && (int)$last['errno'] !== 0) {
+                return 'errno=' . (int)$last['errno'] . (isset($last['sqlstate']) ? (' sqlstate=' . trim((string)$last['sqlstate'])) : '');
+            }
+        }
+    }
     $parts = array_filter([
         trim((string)($conn->error ?? '')),
+        (int)($conn->errno ?? 0) !== 0 ? ('errno=' . (int)$conn->errno) : '',
         trim((string)($conn->sqlstate ?? '')),
     ]);
-    return $parts !== [] ? implode(' ', $parts) : '';
+    $msg = implode(' ', $parts);
+    return ($msg !== '' && $msg !== '00000') ? $msg : '';
 }
 
 /**
@@ -34,7 +59,7 @@ function demo_seed_fail(string $step, string $message, array $context = []): nev
     $prefix = $seedRowKey !== '' ? ('[' . $seedRowKey . '] ') : '';
     $detail = demo_seed_last_db_error();
     $full = $prefix . $step . ': ' . $message;
-    if ($detail !== '' && !str_contains($message, $detail)) {
+    if ($detail !== '') {
         $full .= ' (' . $detail . ')';
     }
     throw new RuntimeException($full);
@@ -158,10 +183,17 @@ function demo_seed_require_insert_id(string $sql, string $types = '', array $par
         return $result;
     }
     $id = (int)($conn->insert_id ?? 0);
-    if ($id <= 0) {
-        demo_seed_fail($step, 'Insert did not return a new row id.', $context);
+    if ($id > 0) {
+        return $id;
     }
-    return $id;
+    if ($result === true) {
+        demo_seed_fail(
+            $step,
+            'Insert reported success but no insert_id was returned (possible duplicate key or schema trigger).',
+            $context
+        );
+    }
+    demo_seed_fail($step, 'Insert did not return a new row id.', $context);
 }
 
 /**
@@ -1523,7 +1555,17 @@ function demo_seed_import_rows(array $rows, int $adminId, string $sourceFileName
             $lastDebug = demo_seed_import_row_debug_context($row);
             demo_seed_set_last_import_debug($lastDebug);
             try {
-                demo_seed_import_single_row($row, $batchId, $adminId, $placeholderProductId);
+                $rowResult = demo_seed_import_single_row($row, $batchId, $adminId, $placeholderProductId);
+                $lastDebug = array_merge($lastDebug ?? [], [
+                    'customer_insert' => (string)($rowResult['customer_insert'] ?? ''),
+                    'customer_id' => (int)($rowResult['customer_id'] ?? 0),
+                    'order_insert' => 'success',
+                    'order_item_insert' => 'success',
+                    'customization_insert' => 'success',
+                    'job_order_insert' => 'success',
+                    'demo_seed_rows_insert' => 'success',
+                ]);
+                demo_seed_set_last_import_debug($lastDebug);
             } catch (RuntimeException $e) {
                 throw $e;
             }
@@ -1595,7 +1637,14 @@ function demo_seed_import_single_row(array $row, string $batchId, int $adminId, 
         'phone' => (string)$customer['phone'],
         'password_hash' => $passwordHash,
     ];
-    $customerId = demo_seed_insert_customer_return_id($customerPayload, $customer, $orderAt, $ctx);
+    $customerResult = demo_seed_resolve_or_insert_customer($customerPayload, $customer, $orderAt, $ctx);
+    $customerId = (int)$customerResult['customer_id'];
+    $customerCreated = (int)$customerResult['customer_created'];
+
+    $importDebug = demo_seed_get_last_import_debug() ?? [];
+    $importDebug['customer_insert'] = (string)$customerResult['method'];
+    $importDebug['customer_id'] = $customerId;
+    demo_seed_set_last_import_debug($importDebug);
 
     $branchId = (int)$row['branch_id'];
     $amountPaid = (float)$row['amount_paid'];
@@ -1710,9 +1759,9 @@ function demo_seed_import_single_row(array $row, string $batchId, int $adminId, 
 
     demo_seed_require_execute(
         'INSERT INTO ' . DEMO_SEED_ROW_TABLE . ' (batch_id, seed_row_key, order_id, order_item_id, customization_id, job_order_id, customer_id, customer_created)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
-        'ssiiiii',
-        [$batchId, $seedRowKey, $orderId, $orderItemId, $customizationId, $jobOrderId, $customerId],
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'ssiiiiii',
+        [$batchId, $seedRowKey, $orderId, $orderItemId, $customizationId, $jobOrderId, $customerId, $customerCreated],
         'demo_seed_rows_insert',
         $ctx
     );
@@ -1723,7 +1772,210 @@ function demo_seed_import_single_row(array $row, string $batchId, int $adminId, 
         'customization_id' => $customizationId,
         'job_order_id' => $jobOrderId,
         'customer_id' => $customerId,
+        'customer_insert' => (string)$customerResult['method'],
     ];
+}
+
+/**
+ * @return list<array<string,mixed>>
+ */
+function demo_seed_customers_show_columns(): array
+{
+    static $cache = null;
+    if ($cache === null) {
+        if (!demo_seed_table_exists('customers')) {
+            $cache = [];
+        } else {
+            $cache = db_query('SHOW COLUMNS FROM customers') ?: [];
+        }
+    }
+    return $cache;
+}
+
+function demo_seed_customers_has_column(string $name): bool
+{
+    foreach (demo_seed_customers_show_columns() as $col) {
+        if (strcasecmp((string)($col['Field'] ?? ''), $name) === 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function demo_seed_customer_status_value(): string
+{
+    foreach (demo_seed_customers_show_columns() as $col) {
+        if (strcasecmp((string)($col['Field'] ?? ''), 'status') !== 0) {
+            continue;
+        }
+        $type = strtolower((string)($col['Type'] ?? ''));
+        if (str_contains($type, "'active'") && !str_contains($type, 'activated')) {
+            return 'Active';
+        }
+        break;
+    }
+    return 'Activated';
+}
+
+function demo_seed_update_customer_from_csv(int $customerId, array $customerPayload, array $address): void
+{
+    $map = [
+        'first_name' => (string)($customerPayload['first_name'] ?? ''),
+        'last_name' => (string)($customerPayload['last_name'] ?? ''),
+        'contact_number' => (string)($customerPayload['phone'] ?? ''),
+        'street_address' => (string)($address['street'] ?? ''),
+        'barangay' => (string)($address['barangay'] ?? ''),
+        'city' => (string)($address['city'] ?? ''),
+        'province' => (string)($address['province'] ?? ''),
+        'postal_code' => (string)($address['postal'] ?? ''),
+    ];
+    $sets = [];
+    $types = '';
+    $params = [];
+    foreach ($map as $col => $val) {
+        if (!demo_seed_customers_has_column($col)) {
+            continue;
+        }
+        $sets[] = $col . ' = ?';
+        $types .= 's';
+        $params[] = $val;
+    }
+    if ($sets === []) {
+        return;
+    }
+    $types .= 'i';
+    $params[] = $customerId;
+    db_execute('UPDATE customers SET ' . implode(', ', $sets) . ' WHERE customer_id = ?', $types, $params);
+}
+
+/**
+ * @return array{customer_id:int,method:string,customer_created:int}
+ */
+function demo_seed_resolve_or_insert_customer(array $customerPayload, array $address, string $createdAt, array $context = []): array
+{
+    $email = strtolower(trim((string)($customerPayload['email'] ?? '')));
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        demo_seed_fail('customer_insert', 'Invalid customer email.', $context);
+    }
+    if ($email === 'walkin@pos.local') {
+        demo_seed_fail('customer_insert', 'Cannot attach demo import to walk-in guest account.', $context);
+    }
+
+    $existing = db_query(
+        'SELECT customer_id FROM customers WHERE LOWER(TRIM(email)) = ? LIMIT 1',
+        's',
+        [$email]
+    ) ?: [];
+    if ($existing !== []) {
+        $customerId = (int)$existing[0]['customer_id'];
+        demo_seed_update_customer_from_csv($customerId, $customerPayload, $address);
+        return [
+            'customer_id' => $customerId,
+            'method' => 'reused_existing',
+            'customer_created' => 0,
+        ];
+    }
+
+    return [
+        'customer_id' => demo_seed_insert_new_customer_row($customerPayload, $address, $createdAt, $context),
+        'method' => 'inserted',
+        'customer_created' => 1,
+    ];
+}
+
+function demo_seed_insert_new_customer_row(array $customerPayload, array $address, string $createdAt, array $context = []): int
+{
+    if (function_exists('printflow_ensure_customers_auth_provider_column')) {
+        printflow_ensure_customers_auth_provider_column();
+    }
+
+    $email = strtolower(trim((string)($customerPayload['email'] ?? '')));
+    $passwordHash = (string)($customerPayload['password_hash'] ?? '');
+    if ($passwordHash === '') {
+        $passwordHash = password_hash(bin2hex(random_bytes(12)), PASSWORD_BCRYPT);
+    }
+
+    $addressLine = trim(implode(', ', array_filter([
+        (string)($address['street'] ?? ''),
+        (string)($address['barangay'] ?? ''),
+        (string)($address['city'] ?? ''),
+    ])));
+
+    $candidates = [
+        'first_name' => [(string)($customerPayload['first_name'] ?? ''), 's'],
+        'middle_name' => ['', 's'],
+        'last_name' => [(string)($customerPayload['last_name'] ?? ''), 's'],
+        'email' => [$email, 's'],
+        'contact_number' => [(string)($customerPayload['phone'] ?? ''), 's'],
+        'password_hash' => [$passwordHash, 's'],
+        'status' => [demo_seed_customer_status_value(), 's'],
+        'street_address' => [(string)($address['street'] ?? ''), 's'],
+        'barangay' => [(string)($address['barangay'] ?? ''), 's'],
+        'city' => [(string)($address['city'] ?? ''), 's'],
+        'province' => [(string)($address['province'] ?? ''), 's'],
+        'postal_code' => [(string)($address['postal'] ?? ''), 's'],
+        'address' => [$addressLine, 's'],
+        'auth_provider' => ['local', 's'],
+        'created_by_system' => [1, 'i'],
+        'email_verified' => [1, 'i'],
+        'is_profile_complete' => [1, 'i'],
+        'id_status' => ['None', 's'],
+        'created_at' => [$createdAt, 's'],
+        'updated_at' => [$createdAt, 's'],
+        'terms_accepted_at' => [$createdAt, 's'],
+        'terms_version' => ['demo_seed', 's'],
+    ];
+
+    $cols = [];
+    $types = '';
+    $params = [];
+    foreach ($candidates as $col => [$val, $type]) {
+        if (!demo_seed_customers_has_column($col)) {
+            continue;
+        }
+        $cols[] = $col;
+        $types .= $type;
+        $params[] = $val;
+    }
+
+    if (!in_array('first_name', $cols, true) || !in_array('last_name', $cols, true) || !in_array('email', $cols, true)) {
+        demo_seed_fail('customer_insert', 'customers table is missing first_name, last_name, or email.', $context);
+    }
+    if (!in_array('password_hash', $cols, true)) {
+        demo_seed_fail('customer_insert', 'customers.password_hash is required for new demo customers.', $context);
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($cols), '?'));
+    $sql = 'INSERT INTO customers (' . implode(', ', $cols) . ') VALUES (' . $placeholders . ')';
+
+    if (!function_exists('printflow_run_guarded_account_insert')) {
+        return demo_seed_require_insert_id($sql, $types, $params, 'customer_insert', $context);
+    }
+
+    $insertId = printflow_run_guarded_account_insert(static function () use ($sql, $types, $params, $context): int {
+        global $conn;
+        $result = db_execute($sql, $types, $params);
+        if ($result === false) {
+            demo_seed_fail('customer_insert', 'Insert failed.', $context);
+        }
+        if (is_int($result) && $result > 0) {
+            return $result;
+        }
+        $id = (int)($conn->insert_id ?? 0);
+        if ($id > 0) {
+            return $id;
+        }
+        if ($result === true) {
+            demo_seed_fail(
+                'customer_insert',
+                'Insert reported success but no insert_id was returned (possible duplicate key or schema trigger).',
+                $context
+            );
+        }
+        demo_seed_fail('customer_insert', 'Insert did not return a new row id.', $context);
+    });
+
+    return (int)$insertId;
 }
 
 /**
@@ -1732,70 +1984,8 @@ function demo_seed_import_single_row(array $row, string $batchId, int $adminId, 
  */
 function demo_seed_insert_customer_return_id(array $customerPayload, array $address, string $createdAt, array $context = []): int
 {
-    $cols = ['first_name', 'last_name', 'email', 'contact_number', 'password_hash'];
-    $types = 'sssss';
-    $params = [
-        $customerPayload['first_name'],
-        $customerPayload['last_name'],
-        $customerPayload['email'],
-        $customerPayload['phone'],
-        $customerPayload['password_hash'],
-    ];
-
-    if (db_table_has_column('customers', 'status')) {
-        $cols[] = 'status';
-        $types .= 's';
-        $params[] = 'Activated';
-    }
-    if (db_table_has_column('customers', 'street_address')) {
-        $cols[] = 'street_address';
-        $types .= 's';
-        $params[] = (string)($address['street'] ?? '');
-    }
-    if (db_table_has_column('customers', 'barangay')) {
-        $cols[] = 'barangay';
-        $types .= 's';
-        $params[] = (string)($address['barangay'] ?? '');
-    }
-    if (db_table_has_column('customers', 'city')) {
-        $cols[] = 'city';
-        $types .= 's';
-        $params[] = (string)($address['city'] ?? '');
-    }
-    if (db_table_has_column('customers', 'province')) {
-        $cols[] = 'province';
-        $types .= 's';
-        $params[] = (string)($address['province'] ?? '');
-    }
-    if (db_table_has_column('customers', 'postal_code')) {
-        $cols[] = 'postal_code';
-        $types .= 's';
-        $params[] = (string)($address['postal'] ?? '');
-    }
-    if (db_table_has_column('customers', 'created_by_system')) {
-        $cols[] = 'created_by_system';
-        $types .= 'i';
-        $params[] = 1;
-    }
-    if (db_table_has_column('customers', 'created_at')) {
-        $cols[] = 'created_at';
-        $types .= 's';
-        $params[] = $createdAt;
-    }
-    if (db_table_has_column('customers', 'updated_at')) {
-        $cols[] = 'updated_at';
-        $types .= 's';
-        $params[] = $createdAt;
-    }
-
-    $placeholders = implode(', ', array_fill(0, count($cols), '?'));
-    return demo_seed_require_insert_id(
-        'INSERT INTO customers (' . implode(', ', $cols) . ') VALUES (' . $placeholders . ')',
-        $types,
-        $params,
-        'customer_insert',
-        $context
-    );
+    $result = demo_seed_resolve_or_insert_customer($customerPayload, $address, $createdAt, $context);
+    return (int)$result['customer_id'];
 }
 
 /** @deprecated Use demo_seed_insert_customer_return_id() */
