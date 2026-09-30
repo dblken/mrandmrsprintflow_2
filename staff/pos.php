@@ -2741,16 +2741,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                             <?php if ($pos_is_admin): ?>
                             <div class="pos-custom-date-panel" style="margin:12px 0;padding:10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;">
+                                <div style="margin-bottom:8px;font-size:12px;font-weight:800;color:#0f172a;">Custom Transaction Date &amp; Time</div>
                                 <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#334155;">
                                     <input type="checkbox" id="pos-use-custom-date" onchange="toggleCustomTransactionDate()">
                                     Use Custom Transaction Date/Time
                                 </label>
                                 <div id="pos-custom-date-fields" hidden style="display:flex;gap:8px;margin-top:8px;">
                                     <label style="flex:1;font-size:11px;color:#64748b;">Date
-                                        <input type="date" id="pos-transaction-date" style="display:block;width:100%;margin-top:3px;padding:6px;border:1px solid #cbd5e1;border-radius:5px;">
+                                        <input type="date" id="pos-transaction-date" disabled style="display:block;width:100%;margin-top:3px;padding:6px;border:1px solid #cbd5e1;border-radius:5px;">
                                     </label>
                                     <label style="flex:1;font-size:11px;color:#64748b;">Time
-                                        <input type="time" id="pos-transaction-time" style="display:block;width:100%;margin-top:3px;padding:6px;border:1px solid #cbd5e1;border-radius:5px;">
+                                        <input type="time" id="pos-transaction-time" disabled style="display:block;width:100%;margin-top:3px;padding:6px;border:1px solid #cbd5e1;border-radius:5px;">
                                     </label>
                                 </div>
                             </div>
@@ -5923,6 +5924,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const toggle = document.getElementById('pos-use-custom-date');
             const fields = document.getElementById('pos-custom-date-fields');
             if (fields) fields.hidden = !toggle?.checked;
+            ['pos-transaction-date', 'pos-transaction-time'].forEach(function(id) {
+                const input = document.getElementById(id);
+                if (input) input.disabled = !toggle?.checked;
+            });
         }
 
         function isPayMongoPaymentMethod(method) {
