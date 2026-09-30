@@ -1833,15 +1833,42 @@ try {
         $current_user_id = $checkout_actor_user_id;
         if (!$isPayMongo && !$is_service && $is_actual_product) {
             try {
-                printflow_apply_product_order_item_inventory(
+                pos_checkout_log_stage('inventory_deduction_started', [
+                    'order_id' => $order_id,
+                    'order_item_id' => $order_item_id,
+                    'product_id' => $product_id,
+                    'quantity' => $qty,
+                    'branch_id' => $branch_id,
+                    'transaction_date' => $selectedTransactionAt,
+                ]);
+                $inventoryResult = printflow_apply_product_order_item_inventory(
                     (int)$order_item_id,
                     (int)$branch_id,
                     $current_user_id,
                     'POS sale',
                     $selectedTransactionAt
                 );
+                pos_checkout_log_stage('inventory_deduction_finished', [
+                    'order_id' => $order_id,
+                    'order_item_id' => $order_item_id,
+                    'product_id' => $product_id,
+                    'quantity' => $qty,
+                    'branch_id' => $branch_id,
+                    'transaction_date' => $selectedTransactionAt,
+                    'applied' => !empty($inventoryResult['applied']) ? 1 : 0,
+                    'already_applied' => !empty($inventoryResult['already_applied']) ? 1 : 0,
+                ]);
                 $checkout_stage = 'inventory_deducted';
             } catch (Throwable $inventoryError) {
+                pos_checkout_log_stage('inventory_deduction_failed', [
+                    'order_id' => $order_id,
+                    'order_item_id' => $order_item_id,
+                    'product_id' => $product_id,
+                    'quantity' => $qty,
+                    'branch_id' => $branch_id,
+                    'transaction_date' => $selectedTransactionAt,
+                    'error' => $inventoryError->getMessage(),
+                ]);
                 throw new RuntimeException('Failed to deduct stock for ' . $prod_name . ': ' . $inventoryError->getMessage(), 409, $inventoryError);
             }
         }
@@ -1927,6 +1954,11 @@ try {
     }
 
     $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered, $linkedOrderIds);
+    pos_checkout_log_stage('receipt_built', [
+        'order_id' => (int)$order_id,
+        'order_date' => $selectedTransactionAt,
+        'receipt_date' => (string)($receipt['date_time'] ?? ''),
+    ]);
     pos_checkout_persist_session_state(
         $checkoutToken,
         (int)$order_id,

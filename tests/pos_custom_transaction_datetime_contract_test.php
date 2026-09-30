@@ -6,6 +6,9 @@ $read = static fn(string $path): string => (string)file_get_contents($root . '/'
 $pos = $read('staff/pos.php');
 $checkout = $read('staff/api/pos_checkout.php');
 $inventory = $read('includes/product_branch_stock.php');
+$inventoryManager = $read('includes/InventoryManager.php');
+$jobs = $read('includes/JobOrderService.php');
+$functions = $read('includes/functions.php');
 $receipt = $read('includes/pos_receipt.php');
 $migration = $read('migrate_db.php');
 
@@ -53,6 +56,18 @@ $assert(
     str_contains($inventory, 'MODIFY transaction_date TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP')
         && str_contains($migration, '`transaction_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP'),
     'new and existing inventory schemas retain transaction time'
+);
+$assert(
+    str_contains($functions, 'function printflow_store_order_ledger_date(int $order_id): ?string')
+        && str_contains($functions, 'return $raw;')
+        && !str_contains($functions, "return strlen(\$raw) >= 10 ? substr(\$raw, 0, 10) : \$raw;"),
+    'material deductions inherit the complete saved order timestamp'
+);
+$assert(
+    str_contains($inventoryManager, "\$date = \$date ?: date('Y-m-d H:i:s');")
+        && !str_contains($inventoryManager, 'substr($date, 0, 10)')
+        && !str_contains($jobs, 'substr($ledgerTransactionDate, 0, 10)'),
+    'material, ink, and roll ledger writers preserve a supplied timestamp'
 );
 $assert(
     str_contains($receipt, "\$receiptDateTime = (string)(\$order['order_date'] ?? '');")

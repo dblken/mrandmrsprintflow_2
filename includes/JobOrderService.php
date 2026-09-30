@@ -1310,9 +1310,9 @@ class JobOrderService {
         } elseif ($storeOrderId > 0 && function_exists('printflow_store_order_ledger_date')) {
             $ledgerTransactionDate = printflow_store_order_ledger_date($storeOrderId);
         }
-        if ($ledgerTransactionDate !== null && strlen($ledgerTransactionDate) > 10) {
-            $ledgerTransactionDate = substr($ledgerTransactionDate, 0, 10);
-        }
+        // Do not reduce order_date to a calendar date: InventoryManager and
+        // RollService accept this optional final parameter as a full ledger
+        // timestamp, preserving the original POS transaction time.
         db_query('SELECT id FROM job_orders WHERE id = ? FOR UPDATE', 'i', [(int)$orderId]);
         $jobRef = printflow_get_job_inventory_reference((int)$orderId);
         $jobLabel = $jobRef['label'] ?? ('Job #' . printflow_format_job_code((int)$orderId));

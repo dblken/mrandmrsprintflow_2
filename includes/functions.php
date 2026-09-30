@@ -1648,7 +1648,7 @@ function printflow_format_inventory_reference_note(string $notes, string $refere
 }
 
 /**
- * Resolve the business transaction date for inventory ledger rows tied to a store order.
+ * Resolve the business transaction timestamp for inventory ledger rows tied to a store order.
  */
 function printflow_store_order_ledger_date(int $order_id): ?string {
     $order_id = (int) $order_id;
@@ -1664,7 +1664,10 @@ function printflow_store_order_ledger_date(int $order_id): ?string {
     if ($raw === '' || str_starts_with($raw, '0000-')) {
         return null;
     }
-    return strlen($raw) >= 10 ? substr($raw, 0, 10) : $raw;
+    // Keep the exact POS-selected timestamp. Material and roll deductions can
+    // occur later in the workflow, but their ledger business date belongs to
+    // the originating sale.
+    return $raw;
 }
 
 /**

@@ -122,10 +122,10 @@ class InventoryManager {
 
         self::ensureBranchScopedSchema();
 
-        $date = $date ?: date('Y-m-d');
-        if (strlen($date) > 10) {
-            $date = substr($date, 0, 10);
-        }
+        // $date is an optional final parameter on all public inventory calls.
+        // Preserve a supplied POS transaction timestamp; legacy callers still
+        // receive the current server timestamp by default.
+        $date = $date ?: date('Y-m-d H:i:s');
         $quantity = abs((float)$quantity);
         $userId = $userId ?: ($_SESSION['user_id'] ?? null);
         $branchId = $branchId ?: self::getCurrentBranchId();
