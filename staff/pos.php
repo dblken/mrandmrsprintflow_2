@@ -6374,7 +6374,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             posCustomTransactionState = {
                 enabled: enabled,
                 date: enabled ? date : '',
-                time: enabled ? time : ''
+                time: enabled ? normalizePosCustomTransactionTime(time) : ''
             };
             updatePosTransactionDateTimeSummaryUI();
             closePosTransactionDateTimeModal();
@@ -6406,6 +6406,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             updatePosTransactionDateTimeSummaryUI();
         }
 
+        function normalizePosCustomTransactionTime(timeStr) {
+            const raw = String(timeStr || '').trim();
+            if (/^\d{2}:\d{2}$/.test(raw)) {
+                return raw;
+            }
+            if (/^\d{2}:\d{2}:\d{2}$/.test(raw)) {
+                return raw.slice(0, 5);
+            }
+            return raw;
+        }
+
         function posCheckoutCustomTransactionPayload() {
             if (!POS_CAN_CUSTOM_TRANSACTION_DATETIME) {
                 return {
@@ -6416,11 +6427,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
             syncPosCustomTransactionHiddenFields();
             const useCustom = posCustomTransactionState.enabled ? 1 : 0;
-            return {
+            const payload = {
                 use_custom_transaction_datetime: useCustom,
-                custom_transaction_date: useCustom ? (posCustomTransactionState.date || '') : '',
-                custom_transaction_time: useCustom ? (posCustomTransactionState.time || '') : ''
+                custom_transaction_date: useCustom ? String(posCustomTransactionState.date || '') : '',
+                custom_transaction_time: useCustom ? normalizePosCustomTransactionTime(posCustomTransactionState.time) : ''
             };
+            return payload;
         }
 
         function isPayMongoPaymentMethod(method) {
@@ -6580,6 +6592,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 items: cart.map(posCheckoutItemPayload),
                 ...posCheckoutCustomTransactionPayload()
             };
+            console.log('[POS CHECKOUT] custom transaction datetime', {
+                use_custom_transaction_datetime: payload.use_custom_transaction_datetime,
+                custom_transaction_date: payload.custom_transaction_date,
+                custom_transaction_time: payload.custom_transaction_time
+            });
 
             let checkoutData = null;
             let checkoutErrorMessage = '';

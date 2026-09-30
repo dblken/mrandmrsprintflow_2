@@ -295,9 +295,34 @@ function pos_checkout_user_may_set_custom_transaction_datetime(): bool {
     return has_role(['Admin', 'Staff']);
 }
 
+function pos_checkout_custom_datetime_enabled(array $data): bool {
+    if (!array_key_exists('use_custom_transaction_datetime', $data)) {
+        return false;
+    }
+    $raw = $data['use_custom_transaction_datetime'];
+    if (is_bool($raw)) {
+        return $raw;
+    }
+    if (is_int($raw) || is_float($raw)) {
+        return (int) $raw === 1;
+    }
+    $normalized = strtolower(trim((string) $raw));
+    return in_array($normalized, ['1', 'true', 'yes', 'on'], true);
+}
+
+function pos_checkout_normalize_transaction_time(string $time): string {
+    $time = trim($time);
+    if (preg_match('/^\d{2}:\d{2}$/', $time)) {
+        return $time . ':00';
+    }
+    if (preg_match('/^\d{2}:\d{2}:\d{2}$/', $time)) {
+        return $time;
+    }
+    throw new RuntimeException('Invalid transaction date/time.', 400);
+}
+
 function pos_checkout_resolve_transaction_datetime(array $data): ?string {
-    $toggle = filter_var($data['use_custom_transaction_datetime'] ?? false, FILTER_VALIDATE_BOOLEAN);
-    if (!$toggle) {
+    if (!pos_checkout_custom_datetime_enabled($data)) {
         return null;
     }
     $date = trim((string)($data['custom_transaction_date'] ?? ''));
@@ -308,19 +333,25 @@ function pos_checkout_resolve_transaction_datetime(array $data): ?string {
     if ($date === '' || $time === '') {
         throw new RuntimeException('A transaction date and time are required when custom date/time is enabled.', 400);
     }
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !preg_match('/^\d{2}:\d{2}$/', $time)) {
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
         throw new RuntimeException('Invalid transaction date/time.', 400);
     }
-    $parsed = DateTimeImmutable::createFromFormat('!Y-m-d H:i', $date . ' ' . $time);
+    $time = pos_checkout_normalize_transaction_time($time);
+    $parsed = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $date . ' ' . $time);
     $errors = DateTimeImmutable::getLastErrors();
     if (!$parsed || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
-        || $parsed->format('Y-m-d H:i') !== $date . ' ' . $time) {
+        || $parsed->format('Y-m-d H:i:s') !== $date . ' ' . $time) {
         throw new RuntimeException('Invalid transaction date/time.', 400);
     }
     if ($parsed > new DateTimeImmutable('now')) {
         throw new RuntimeException('Future transaction dates are not allowed.', 400);
     }
     return $parsed->format('Y-m-d H:i:s');
+}
+
+function pos_checkout_selected_transaction_datetime(array $data): string {
+    $custom = pos_checkout_resolve_transaction_datetime($data);
+    return $custom ?? date('Y-m-d H:i:s');
 }
 
 function pos_checkout_reopen_session(): void {
@@ -1200,12 +1231,16 @@ if (!pos_checkout_verify_csrf((string)($data['csrf_token'] ?? ''), $sessionConte
     exit;
 }
 try {
-    $transactionDateTime = pos_checkout_resolve_transaction_datetime($data);
+    $selectedTransactionAt = pos_checkout_selected_transaction_datetime($data);
 } catch (Throwable $dateError) {
     http_response_code((int)$dateError->getCode() >= 400 && (int)$dateError->getCode() < 500 ? (int)$dateError->getCode() : 400);
     echo json_encode(['success' => false, 'message' => $dateError->getMessage()]);
     exit;
 }
+pos_checkout_log_stage('transaction_datetime', [
+    'custom' => pos_checkout_custom_datetime_enabled($data) ? 1 : 0,
+    'selected' => $selectedTransactionAt,
+]);
 $payment_method = sanitize($data['payment_method'] ?? 'Cash');
 $reference_number = sanitize($data['reference_number'] ?? '');
 $amount_tendered = (float)($data['amount_tendered'] ?? 0);
@@ -1481,10 +1516,10 @@ try {
 
         $order_result = db_execute(
             "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source{$amountPaidColumns}{$priceFinalColumns})
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, NOW()), NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",
             'iiidssssss' . $amountPaidTypes . $priceFinalTypes,
             array_merge(
-                [$customer_id, $branch_id, $reference_id, $groupTotal, $order_status, $initial_payment_status, $payment_method, $posBundleReference, $transactionDateTime, $order_type],
+                [$customer_id, $branch_id, $reference_id, $groupTotal, $order_status, $initial_payment_status, $payment_method, $posBundleReference, $selectedTransactionAt, $order_type],
                 $amountPaidParams,
                 $priceFinalParams
             )
@@ -1751,12 +1786,13 @@ try {
                          total_amount = ?,
                          status = 'Pending',
                          order_source = 'pos_merged',
+                         order_date = ?,
                          updated_at = NOW()
                          {$pendingPriceFinalSql}
                      WHERE order_id = ?",
-                    'ssd' . $pendingPriceFinalTypes . 'i',
+                    'ssds' . $pendingPriceFinalTypes . 'i',
                     array_merge(
-                        [$initial_payment_status, $payment_method, $price * $qty],
+                        [$initial_payment_status, $payment_method, $price * $qty, $selectedTransactionAt],
                         $pendingPriceFinalParams,
                         [$pendingOrderId]
                     )
@@ -1776,7 +1812,7 @@ try {
                     (int)$branch_id,
                     $current_user_id,
                     'POS sale',
-                    $transactionDateTime
+                    $selectedTransactionAt
                 );
                 $checkout_stage = 'inventory_deducted';
             } catch (Throwable $inventoryError) {

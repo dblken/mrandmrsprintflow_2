@@ -608,6 +608,11 @@ function printflow_apply_product_order_item_inventory(
             : '';
         $notes = trim($sourceLabel) . ": {$orderLabel} - {$productName}{$optionNote}";
 
+        $transactionDateForLedger = $transactionDate ?: date('Y-m-d');
+        if (strlen($transactionDateForLedger) > 10) {
+            $transactionDateForLedger = substr($transactionDateForLedger, 0, 10);
+        }
+
         $ledgerResult = printflow_record_product_inventory_transaction(
             $productId,
             'OUT',
@@ -616,7 +621,7 @@ function printflow_apply_product_order_item_inventory(
             $orderId,
             $notes,
             $actorId,
-            $transactionDate ?: date('Y-m-d'),
+            $transactionDateForLedger,
             $branchId,
             $transactionId
         );
