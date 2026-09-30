@@ -32,6 +32,7 @@ $page_title = "Point of Sale (POS)";
 $current_page = "pos";
 $user_name = $_SESSION['user_name'] ?? 'Staff';
 $pos_is_admin = get_user_type() === 'Admin';
+$pos_can_custom_transaction_datetime = in_array(get_user_type(), ['Admin', 'Manager', 'Staff'], true);
 
 // Fetch Categories
 $categories = [];
@@ -2738,7 +2739,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                     <span class="pos-summary-amount" id="pos-change">₱0.00</span>
                                 </div>
 
-                                <?php if ($pos_is_admin): ?>
+                                <?php if ($pos_can_custom_transaction_datetime): ?>
                                 <div id="pos-checkout-transaction-datetime" class="pos-tender-group pos-admin-transaction-datetime" style="margin-top:4px;padding:12px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc;">
                                     <div class="pos-summary-label" style="margin-bottom:8px;font-weight:800;color:#0f172a;">Transaction Date &amp; Time</div>
                                     <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#334155;cursor:pointer;">
@@ -2747,12 +2748,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                     </label>
                                     <div id="pos-confirm-transaction-date-fields" hidden style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
                                         <label style="flex:1;min-width:120px;font-size:11px;color:#64748b;font-weight:600;">Date
-                                            <input type="date" id="pos-confirm-transaction-date" disabled class="pos-payment-field" style="display:block;width:100%;margin-top:4px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;">
+                                            <input type="date" id="pos-confirm-transaction-date" disabled class="pos-payment-field" max="<?php echo date('Y-m-d'); ?>" style="display:block;width:100%;margin-top:4px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;">
                                         </label>
                                         <label style="flex:1;min-width:120px;font-size:11px;color:#64748b;font-weight:600;">Time
                                             <input type="time" id="pos-confirm-transaction-time" disabled class="pos-payment-field" style="display:block;width:100%;margin-top:4px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;">
                                         </label>
                                     </div>
+                                    <p style="margin:8px 0 0;font-size:11px;color:#64748b;line-height:1.4;">When enabled, order, receipt, and inventory use this date/time instead of now.</p>
                                     <div id="pos-confirm-transaction-date-error" hidden style="margin-top:8px;color:#b91c1c;font-size:11px;font-weight:700;">Date and time are required when custom date/time is enabled.</div>
                                 </div>
                                 <?php endif; ?>
@@ -3047,7 +3049,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         };
         let posLastServiceCardEl = null;
         const POS_CSRF_TOKEN = document.body.dataset.csrf || '';
-        const POS_IS_ADMIN = <?php echo $pos_is_admin ? 'true' : 'false'; ?>;
+        const POS_CAN_CUSTOM_TRANSACTION_DATETIME = <?php echo $pos_can_custom_transaction_datetime ? 'true' : 'false'; ?>;
 
         function posCatalogImageUrl(product) {
             if (!product) return POS_DEFAULT_CATALOG_IMG;
@@ -5941,7 +5943,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         function validatePosCheckoutTransactionDateTime() {
-            if (!POS_IS_ADMIN) {
+            if (!POS_CAN_CUSTOM_TRANSACTION_DATETIME) {
                 return true;
             }
             const toggle = document.getElementById('pos-confirm-use-custom-date');
@@ -5968,7 +5970,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         function resetPosCheckoutTransactionDateTime() {
-            if (!POS_IS_ADMIN) {
+            if (!POS_CAN_CUSTOM_TRANSACTION_DATETIME) {
                 return;
             }
             const toggle = document.getElementById('pos-confirm-use-custom-date');
@@ -5987,7 +5989,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         function posCheckoutCustomTransactionPayload() {
-            if (!POS_IS_ADMIN) {
+            if (!POS_CAN_CUSTOM_TRANSACTION_DATETIME) {
                 return {
                     use_custom_transaction_datetime: 0,
                     custom_transaction_date: '',

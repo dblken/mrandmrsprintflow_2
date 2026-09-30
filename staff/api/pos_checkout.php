@@ -291,6 +291,10 @@ function pos_checkout_verify_csrf(string $token, array $sessionContext): bool {
     return $expected !== '' && hash_equals($expected, (string)$token);
 }
 
+function pos_checkout_user_may_set_custom_transaction_datetime(): bool {
+    return in_array(get_user_type(), ['Admin', 'Manager', 'Staff'], true);
+}
+
 function pos_checkout_resolve_transaction_datetime(array $data): ?string {
     $toggle = filter_var($data['use_custom_transaction_datetime'] ?? false, FILTER_VALIDATE_BOOLEAN);
     if (!$toggle) {
@@ -298,8 +302,8 @@ function pos_checkout_resolve_transaction_datetime(array $data): ?string {
     }
     $date = trim((string)($data['custom_transaction_date'] ?? ''));
     $time = trim((string)($data['custom_transaction_time'] ?? ''));
-    if (get_user_type() !== 'Admin') {
-        throw new RuntimeException('Only Admin users may set a custom transaction date/time.', 403);
+    if (!pos_checkout_user_may_set_custom_transaction_datetime()) {
+        throw new RuntimeException('You are not allowed to set a custom transaction date/time.', 403);
     }
     if ($date === '' || $time === '') {
         throw new RuntimeException('A transaction date and time are required when custom date/time is enabled.', 400);
