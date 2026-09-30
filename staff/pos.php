@@ -2739,24 +2739,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                 </div>
                             </div>
 
-                            <?php if ($pos_is_admin): ?>
-                            <div class="pos-custom-date-panel" style="margin:12px 0;padding:10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;">
-                                <div style="margin-bottom:8px;font-size:12px;font-weight:800;color:#0f172a;">Custom Transaction Date &amp; Time</div>
-                                <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#334155;">
-                                    <input type="checkbox" id="pos-use-custom-date" onchange="toggleCustomTransactionDate()">
-                                    Use Custom Transaction Date/Time
-                                </label>
-                                <div id="pos-custom-date-fields" hidden style="display:flex;gap:8px;margin-top:8px;">
-                                    <label style="flex:1;font-size:11px;color:#64748b;">Date
-                                        <input type="date" id="pos-transaction-date" disabled style="display:block;width:100%;margin-top:3px;padding:6px;border:1px solid #cbd5e1;border-radius:5px;">
-                                    </label>
-                                    <label style="flex:1;font-size:11px;color:#64748b;">Time
-                                        <input type="time" id="pos-transaction-time" disabled style="display:block;width:100%;margin-top:3px;padding:6px;border:1px solid #cbd5e1;border-radius:5px;">
-                                    </label>
-                                </div>
-                            </div>
-                            <?php endif; ?>
-
                             <button class="pos-btn-checkout" id="pos-checkout-btn" disabled onclick="processCheckout()">
                                 <i class="fas fa-lock" id="checkout-icon"></i> <span id="checkout-text">Select
                                     Items</span>
@@ -2851,6 +2833,24 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             </div>
             <h3 id="pos-alert-title" class="pos-alert-title">Alert</h3>
             <p id="pos-alert-message" class="pos-alert-message"></p>
+            <?php if ($pos_is_admin): ?>
+            <div id="pos-confirm-transaction-date-section" hidden style="margin:0 0 20px;padding:12px;text-align:left;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;">
+                <div style="margin-bottom:8px;font-size:12px;font-weight:800;color:#0f172a;">Transaction Date &amp; Time</div>
+                <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#334155;">
+                    <input type="checkbox" id="pos-confirm-use-custom-date" onchange="toggleConfirmTransactionDate()">
+                    Use custom date and time
+                </label>
+                <div id="pos-confirm-transaction-date-fields" hidden style="display:flex;gap:8px;margin-top:8px;">
+                    <label style="flex:1;font-size:11px;color:#64748b;">Date
+                        <input type="date" id="pos-confirm-transaction-date" disabled style="display:block;width:100%;margin-top:3px;padding:6px;border:1px solid #cbd5e1;border-radius:5px;">
+                    </label>
+                    <label style="flex:1;font-size:11px;color:#64748b;">Time
+                        <input type="time" id="pos-confirm-transaction-time" disabled style="display:block;width:100%;margin-top:3px;padding:6px;border:1px solid #cbd5e1;border-radius:5px;">
+                    </label>
+                </div>
+                <div id="pos-confirm-transaction-date-error" hidden style="margin-top:7px;color:#b91c1c;font-size:11px;font-weight:700;">Date and time are required.</div>
+            </div>
+            <?php endif; ?>
             <div id="pos-alert-actions" style="display:flex; gap:12px; justify-content:center;">
                 <button id="pos-alert-cancel" class="pos-alert-btn"
                     style="display:none; border:1px solid #e2e8f0; background:#f8fafc; color:#64748b;"
@@ -5920,11 +5920,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             updateCheckoutState();
         }
 
-        function toggleCustomTransactionDate() {
-            const toggle = document.getElementById('pos-use-custom-date');
-            const fields = document.getElementById('pos-custom-date-fields');
+        function toggleConfirmTransactionDate() {
+            const toggle = document.getElementById('pos-confirm-use-custom-date');
+            const fields = document.getElementById('pos-confirm-transaction-date-fields');
             if (fields) fields.hidden = !toggle?.checked;
             ['pos-transaction-date', 'pos-transaction-time'].forEach(function(id) {
+                const input = document.getElementById(id);
+                if (input) input.disabled = !toggle?.checked;
+            });
+            ['pos-confirm-transaction-date', 'pos-confirm-transaction-time'].forEach(function(id) {
                 const input = document.getElementById(id);
                 if (input) input.disabled = !toggle?.checked;
             });
@@ -6061,7 +6065,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 : `Confirm sale of ${formatMoney(currentTotal)} using ${pm}?\nChange due: ${formatMoney(changeAmount)}`;
 
             posCheckoutConfirmOpen = true;
-            const confirmed = await showPOSConfirm('Confirm Transaction', confirmMsg);
+            const confirmed = await showPOSConfirm('Confirm Transaction', confirmMsg, 'Confirm', 'confirm', true);
             posCheckoutConfirmOpen = false;
             if (!confirmed) return;
 
@@ -6080,9 +6084,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 csrf_token: POS_CSRF_TOKEN,
                 checkout_token: checkoutToken,
                 items: cart.map(posCheckoutItemPayload),
-                use_custom_transaction_datetime: !!document.getElementById('pos-use-custom-date')?.checked,
-                custom_transaction_date: document.getElementById('pos-transaction-date')?.value || '',
-                custom_transaction_time: document.getElementById('pos-transaction-time')?.value || ''
+                use_custom_transaction_datetime: document.getElementById('pos-confirm-use-custom-date')?.checked ? 1 : 0,
+                custom_transaction_date: document.getElementById('pos-confirm-transaction-date')?.value || '',
+                custom_transaction_time: document.getElementById('pos-confirm-transaction-time')?.value || ''
             };
 
             let checkoutData = null;
@@ -6700,7 +6704,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
         }
 
-        async function showPOSConfirm(title, message, confirmLabel = 'Confirm', variant = 'confirm') {
+        async function showPOSConfirm(title, message, confirmLabel = 'Confirm', variant = 'confirm', showTransactionDateTime = false) {
             return new Promise(resolve => {
                 const overlay = document.getElementById('pos-alert-overlay');
                 const box = document.getElementById('pos-alert-box');
@@ -6708,9 +6712,22 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const msgEl = document.getElementById('pos-alert-message');
                 const cancelBtn = document.getElementById('pos-alert-cancel');
                 const confirmBtn = document.getElementById('pos-alert-confirm');
+                const transactionDateSection = document.getElementById('pos-confirm-transaction-date-section');
+                const transactionDateToggle = document.getElementById('pos-confirm-use-custom-date');
+                const transactionDateError = document.getElementById('pos-confirm-transaction-date-error');
 
                 titleEl.textContent = title;
                 msgEl.innerHTML = (message || "").replace(/\n/g, '<br>');
+                if (transactionDateSection) transactionDateSection.hidden = !showTransactionDateTime;
+                if (transactionDateToggle) {
+                    transactionDateToggle.checked = false;
+                    const transactionDateInput = document.getElementById('pos-confirm-transaction-date');
+                    const transactionTimeInput = document.getElementById('pos-confirm-transaction-time');
+                    if (transactionDateInput) transactionDateInput.value = '';
+                    if (transactionTimeInput) transactionTimeInput.value = '';
+                    toggleConfirmTransactionDate();
+                }
+                if (transactionDateError) transactionDateError.hidden = true;
                 cancelBtn.style.display = 'block';
                 cancelBtn.disabled = false;
                 confirmBtn.disabled = false;
@@ -6733,6 +6750,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     resolve(false);
                 };
                 confirmBtn.onclick = () => {
+                    if (showTransactionDateTime && transactionDateToggle?.checked) {
+                        const date = document.getElementById('pos-confirm-transaction-date')?.value || '';
+                        const time = document.getElementById('pos-confirm-transaction-time')?.value || '';
+                        if (!date || !time) {
+                            if (transactionDateError) transactionDateError.hidden = false;
+                            return;
+                        }
+                    }
                     confirmBtn.disabled = true;
                     cancelBtn.disabled = true;
                     closePOSAlert();
