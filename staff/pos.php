@@ -31,8 +31,8 @@ if ($pos_staff_branch_id > 0) {
 $page_title = "Point of Sale (POS)";
 $current_page = "pos";
 $user_name = $_SESSION['user_name'] ?? 'Staff';
-$pos_is_admin = is_admin();
-$pos_can_custom_transaction_datetime = $pos_is_admin;
+// Same roles as POS checkout (staff/api/pos_checkout.php): Admin + Staff (Counter Staff).
+$pos_can_custom_transaction_datetime = has_role(['Admin', 'Staff']);
 
 // Fetch Categories
 $categories = [];
