@@ -2334,10 +2334,25 @@ class CustomizationService
             return ['success' => false, 'message' => 'Order not found.'];
         }
 
-        $this->repo->updateCustomizationStatus($orderId, 'Completed');
-        printflow_revision_close_active($orderId, 'Closed - Completed');
-        $this->repo->updateOrderStatus($orderId, 'Completed');
-        $this->syncJobs($orderId, 'COMPLETED');
+        global $conn;
+        require_once __DIR__ . '/JobOrderService.php';
+        $startedTransaction = !printflow_db_in_transaction($conn);
+        if ($startedTransaction && !$conn->begin_transaction()) {
+            throw new RuntimeException('Unable to start customization completion.');
+        }
+        try {
+            // Deduction failures must reach the caller and roll back completion.
+            // Include completed jobs so pending assignments can be recovered.
+            JobOrderService::syncStoreOrderToStatus($orderId, 'COMPLETED');
+            $this->repo->updateCustomizationStatus($orderId, 'Completed');
+            printflow_revision_close_active($orderId, 'Closed - Completed');
+            $this->repo->updateOrderStatus($orderId, 'Completed');
+            if ($startedTransaction) $conn->commit();
+        } catch (Throwable $e) {
+            if ($startedTransaction) $conn->rollback();
+            error_log('Customization completion failed for order #' . $orderId . ': ' . $e->getMessage());
+            throw $e;
+        }
         $this->sendChat($orderId, 'completed');
 
         return ['success' => true, 'message' => 'Order closed.'];

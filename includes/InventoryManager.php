@@ -171,7 +171,7 @@ class InventoryManager {
             $error = $stmt->error ?: $conn->error;
             $errno = $stmt->errno ?: $conn->errno;
             $stmt->close();
-            if ($errno == 1062) {
+            if ($errno == 1062 && strtoupper((string)$refType) !== 'JOB_ORDER') {
                 return true;
             }
             throw new Exception("Ledger insert failed: " . $error);
@@ -180,7 +180,7 @@ class InventoryManager {
                 @$stmt->close();
             }
             // Error 1062 is Duplicate Entry
-            if (isset($conn->errno) && $conn->errno == 1062) {
+            if (isset($conn->errno) && $conn->errno == 1062 && strtoupper((string)$refType) !== 'JOB_ORDER') {
                 return true; 
             }
             throw new Exception("Ledger recording failed: " . $e->getMessage());

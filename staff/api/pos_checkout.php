@@ -364,11 +364,16 @@ function pos_checkout_align_pos_order_timestamps(array $orderIds, string $select
         if ($orderId <= 0) {
             continue;
         }
-        db_execute(
-            'UPDATE customizations SET created_at = ? WHERE order_id = ?',
-            'si',
-            [$selectedTransactionAt, $orderId]
-        );
+        // created_at is the actual creation time. Consumers resolve the
+        // business timestamp through customizations.order_id -> orders.
+        if (getenv('PRINTFLOW_POS_DATETIME_DEBUG') === '1') {
+            $saved = db_query('SELECT order_id, order_date FROM orders WHERE order_id = ?', 'i', [$orderId]);
+            error_log('[PrintFlow POS datetime] saved_order ' . json_encode([
+                'expected_transaction_date' => $selectedTransactionAt,
+                'saved' => $saved,
+                'customizations' => db_query('SELECT customization_id, order_id, created_at FROM customizations WHERE order_id = ?', 'i', [$orderId]),
+            ]));
+        }
     }
 }
 
@@ -1766,9 +1771,9 @@ try {
             if (!$customization_result) {
                 $customizationStatus = $isPayMongo ? 'Awaiting Payment' : 'In Production';
                 $customization_result = db_execute(
-                    "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())",
-                    'iiissss',
-                    [$order_id, $order_item_id, $customer_id, $name, $details_json, $customizationStatus, $selectedTransactionAt]
+                    "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())",
+                    'iiisss',
+                    [$order_id, $order_item_id, $customer_id, $name, $details_json, $customizationStatus]
                 );
                 if ($customization_result) {
                     $last_customization_id = $conn->insert_id;

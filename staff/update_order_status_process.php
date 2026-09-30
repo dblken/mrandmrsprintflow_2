@@ -103,6 +103,11 @@ try {
     }
 
     if (strcasecmp($oldStatus, $newStatus) === 0) {
+        // A previous completion can predate material assignment or have left
+        // pending materials. The service locks and deducts only pending rows.
+        if ($isServiceOrder && strcasecmp($newStatus, 'Completed') === 0) {
+            JobOrderService::syncStoreOrderToStatus($orderId, 'COMPLETED');
+        }
         if ($transactionStarted) $conn->commit();
         printflow_json_response([
             'success' => true,
@@ -229,6 +234,9 @@ try {
         $reference, $orderId, preg_replace('/[^A-Za-z ]/', '', $newStatus),
         get_class($exception), (string)$exception->getCode()
     ));
+    if (getenv('PRINTFLOW_MATERIAL_DEDUCTION_DEBUG') === '1') {
+        error_log('[order-status][' . $reference . '] rolled back: ' . $exception->getMessage());
+    }
     printflow_json_response([
         'success' => false,
         'error' => 'The order status could not be updated.',

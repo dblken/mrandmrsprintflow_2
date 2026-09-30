@@ -2110,7 +2110,7 @@ $online_closed_count = 0;
                                 <th class="px-4 py-4 border-b border-gray-100">Needed Date</th>
                                 <th class="px-4 py-4 border-b border-gray-100 text-center">Status</th>
                                 <th class="px-4 py-4 border-b border-gray-100">Customer</th>
-                                <th class="px-4 py-4 border-b border-gray-100">Created</th>
+                                <th class="px-4 py-4 border-b border-gray-100">Order Date</th>
                                 <th class="px-4 py-4 border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
                             </tr>
                         </thead>
@@ -2165,7 +2165,7 @@ $online_closed_count = 0;
                                     </template>
                                     <template x-if="isValidOrderListRow(item)">
                                         <td class="px-4 py-4 text-right created-cell" data-label="Created">
-                                            <div class="table-text-main truncate-ellipsis" :title="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''" x-text="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"></div>
+                                            <div class="table-text-main truncate-ellipsis" :title="formatOrderBusinessDate(item.jo)" x-text="formatOrderBusinessDate(item.jo)"></div>
                                             <div class="table-text-sub uppercase truncate-ellipsis" :title="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''" x-text="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''"></div>
                                         </td>
                                     </template>
@@ -2271,11 +2271,11 @@ $online_closed_count = 0;
                                     ></span>
                                 </div>
                                 <div class="customization-mobile-card__meta-row">
-                                    <span class="customization-mobile-card__label">Created</span>
+                                    <span class="customization-mobile-card__label">Order Date</span>
                                     <span
                                         class="customization-mobile-card__value"
-                                        :title="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"
-                                        x-text="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"
+                                        :title="formatOrderBusinessDate(item.jo)"
+                                        x-text="formatOrderBusinessDate(item.jo)"
                                     ></span>
                                 </div>
                             </div>
@@ -4429,7 +4429,7 @@ window.pfServiceFieldCatalog = (() => {
 
                 const customer = String(row.customer_full_name || row.customer_name || '').trim().toLowerCase();
                 const status = String(row.status || '').trim().toUpperCase();
-                const created = String(row.created_at || row.order_date || '').trim().slice(0, 10);
+                const created = String(row.order_business_date || row.order_date || row.created_at || '').trim().slice(0, 10);
                 const rawLabel = String(row.service_type || row.job_title || '').trim().toLowerCase();
                 const normalizedLabel = rawLabel
                     .replace(/\s+-\s+\d+\s*pcs?$/i, '')
@@ -7369,7 +7369,7 @@ window.pfServiceFieldCatalog = (() => {
                 }
 
                 if (this.dateFilter !== 'ALL') {
-                    const orderDate = new Date(jo.created_at || jo.order_date);
+                    const orderDate = new Date(jo.order_business_date || jo.order_date || jo.created_at);
                     const now = new Date();
 
                     if (this.dateFilter === 'TODAY') {
@@ -9598,6 +9598,14 @@ window.pfServiceFieldCatalog = (() => {
                 }
             },
 
+            formatOrderBusinessDate(row) {
+                const value = String(row.order_business_date || row.order_date || row.created_at || '').trim();
+                if (!value) return '';
+                const parsed = new Date(value.replace(' ', 'T'));
+                return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString(undefined, {
+                    month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
+                });
+            },
             async completeOrder(machineId = null) {
                 if (!this.beginModalAction()) return;
                 try {

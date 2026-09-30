@@ -1229,7 +1229,8 @@ try {
                            c.profile_picture AS customer_profile_picture,
                            TRIM(CONCAT_WS(', ', NULLIF(TRIM(c.street_address), ''), NULLIF(TRIM(c.barangay), ''), NULLIF(TRIM(c.city), ''))) AS customer_address,
                            COALESCE(NULLIF(TRIM(c.contact_number), ''), NULLIF(TRIM(c.email), '')) AS customer_contact,
-                           o.order_source
+                           o.order_source, o.order_date,
+                           COALESCE(o.order_date, jo.created_at) AS order_business_date
                     FROM job_orders jo 
                     LEFT JOIN orders o ON o.order_id = jo.order_id
                     LEFT JOIN customers c ON jo.customer_id = c.customer_id 
@@ -1300,6 +1301,17 @@ try {
             $params[] = $per_page; $params[] = $offset; $types .= 'ii';
             $orders = db_query($sql, $types ?: null, $params ?: null) ?: [];
             $fetchedOrderCount = count($orders);
+            if (getenv('PRINTFLOW_POS_DATETIME_DEBUG') === '1') {
+                foreach ($orders as $dateRow) {
+                    error_log('[PrintFlow customization date] ' . json_encode([
+                        'job_order_id' => $dateRow['id'],
+                        'order_id' => $dateRow['order_id'],
+                        'order_date' => $dateRow['order_date'],
+                        'created_at' => $dateRow['created_at'],
+                        'displayed_business_date' => $dateRow['order_business_date'],
+                    ]));
+                }
+            }
 
             $orderSourceMap = jo_api_resolve_order_sources_batch($orders);
             if ($listSource !== 'all') {
@@ -1650,7 +1662,8 @@ try {
                     '' AS materials,
                     cust.created_at AS created_at,
                     cust.updated_at AS updated_at,
-                    cust.created_at AS order_date,
+                    COALESCE(o.order_date, cust.created_at) AS order_date,
+                    COALESCE(o.order_date, cust.created_at) AS order_business_date,
                     NULL AS due_date,
                     NULL AS priority,
                     0 AS estimated_total,

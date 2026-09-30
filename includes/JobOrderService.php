@@ -1382,16 +1382,12 @@ class JobOrderService {
                     $lengthNeeded = (float)($m['computed_required_length_ft'] ?: $m['quantity']);
 
                     if ($lengthNeeded <= 0) {
-                        // Nothing to deduct — mark as processed and continue
-                        if (db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')", 'i', [$m['id']]) === false) {
-                            throw new RuntimeException('Failed to mark the zero-quantity material as processed.');
-                        }
                         $debugLog('material_skipped_zero_quantity', [
                             'assignment_id' => (int)($m['id'] ?? 0),
                             'item_id' => $itemId,
                             'length_needed' => $lengthNeeded,
                         ]);
-                        continue;
+                        throw new RuntimeException('Assigned roll material requires a positive length.');
                     }
 
                     try {
@@ -1473,15 +1469,12 @@ class JobOrderService {
                     // Non-roll deduction
                     $quantityNeeded = (float)($m['quantity'] ?? 0);
                     if ($quantityNeeded <= 0) {
-                        if (db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')", 'i', [$m['id']]) === false) {
-                            throw new RuntimeException('Failed to mark the zero-quantity material as processed.');
-                        }
                         $debugLog('material_skipped_zero_quantity', [
                             'assignment_id' => (int)($m['id'] ?? 0),
                             'item_id' => $itemId,
                             'quantity' => $quantityNeeded,
                         ]);
-                        continue;
+                        throw new RuntimeException('Assigned material requires a positive quantity.');
                     }
                     $deductionResult = InventoryManager::issueStock(
                         $m['item_id'], 
@@ -1560,6 +1553,9 @@ class JobOrderService {
         } catch (Throwable $e) {
             if ($startedTransaction && printflow_db_in_transaction($conn)) {
                 $conn->rollback();
+            }
+            if (getenv('PRINTFLOW_MATERIAL_DEDUCTION_DEBUG') === '1' || getenv('PRINTFLOW_POS_DATETIME_DEBUG') === '1') {
+                error_log('[PrintFlow material deduction] failed job=' . (int)$orderId . ' error=' . $e->getMessage());
             }
             throw $e;
         }

@@ -5,6 +5,7 @@
  */
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
+require_once __DIR__ . '/../../includes/InventoryManager.php';
 
 header('Content-Type: application/json');
 if (!has_role(['Admin', 'Staff', 'Manager'])) {
@@ -23,6 +24,14 @@ if ($orderId <= 0) {
 $branchFilter = function_exists('printflow_branch_filter_for_user')
     ? printflow_branch_filter_for_user()
     : null;
+// Stock helpers detect this transaction and skip their legacy schema setup.
+// Keep every diagnostic query read-only and in one consistent snapshot.
+global $conn;
+if (!$conn->begin_transaction(MYSQLI_TRANS_START_READ_ONLY | MYSQLI_TRANS_START_WITH_CONSISTENT_SNAPSHOT)) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Unable to start read-only trace.']);
+    exit;
+}
 $orderSql = 'SELECT order_id, branch_id, order_source, order_type, order_date, created_at, updated_at, status, payment_status, total_amount
              FROM orders WHERE order_id = ?';
 $orderTypes = 'i';
@@ -45,12 +54,12 @@ $items = db_query(
     [$orderId]
 ) ?: [];
 $customizations = db_query(
-    'SELECT customization_id, order_item_id, status, created_at, updated_at FROM customizations WHERE order_id = ? ORDER BY customization_id',
+    'SELECT customization_id, order_id, order_item_id, status, created_at, updated_at FROM customizations WHERE order_id = ? ORDER BY customization_id',
     'i',
     [$orderId]
 ) ?: [];
 $jobs = db_query(
-    'SELECT id, order_item_id, branch_id, status, created_at, updated_at FROM job_orders WHERE order_id = ? ORDER BY id',
+    'SELECT id, order_id, order_item_id, branch_id, status, created_at, updated_at FROM job_orders WHERE order_id = ? ORDER BY id',
     'i',
     [$orderId]
 ) ?: [];
@@ -79,6 +88,10 @@ if ($jobIds !== []) {
         array_merge($jobIds, [$orderId])
     ) ?: [];
 } else {
+    $materials = db_query(
+        'SELECT id, job_order_id, std_order_id, item_id, quantity, uom, deducted_at FROM job_order_materials WHERE std_order_id = ? ORDER BY id',
+        'i', [$orderId]
+    ) ?: [];
     $ledger = db_query(
         "SELECT id, transaction_id, item_id, product_id, branch_id, direction, quantity, uom, ref_type, ref_id, transaction_date, created_at, notes
          FROM inventory_transactions
@@ -87,6 +100,34 @@ if ($jobIds !== []) {
         'i',
         [$orderId]
     ) ?: [];
+}
+
+$stock = [];
+foreach ($materials as $material) {
+    $itemId = (int)$material['item_id'];
+    $branchId = (int)$order['branch_id'];
+    foreach ($jobs as $job) {
+        if ((int)$job['id'] === (int)$material['job_order_id'] && (int)$job['branch_id'] > 0) {
+            $branchId = (int)$job['branch_id'];
+            break;
+        }
+    }
+    $key = $itemId . ':' . $branchId;
+    if (!isset($stock[$key])) {
+        $stock[$key] = [
+            'item_id' => $itemId,
+            'branch_id' => $branchId,
+            'current_stock' => InventoryManager::getStockOnHand($itemId, $branchId),
+        ];
+    }
+}
+$queryErrors = function_exists('printflow_db_errors') ? printflow_db_errors() : [];
+// Never report an empty result as proof that no rows exist if a query failed.
+if ($queryErrors !== []) {
+    error_log('[PrintFlow POS trace] order=' . $orderId . ' query_errors=' . json_encode($queryErrors));
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Trace query failed; inspect PHP error log for this order ID.']);
+    exit;
 }
 
 echo json_encode([
@@ -98,4 +139,8 @@ echo json_encode([
     'job_orders' => $jobs,
     'material_assignments' => $materials,
     'inventory_transactions' => $ledger,
+    'order_business_date' => $order['order_date'],
+    'material_stock_snapshot' => array_values($stock),
+    'stock_snapshot_note' => 'Current stock only. Capture before and after completion to prove the change.',
 ], JSON_UNESCAPED_SLASHES);
+$conn->rollback();
