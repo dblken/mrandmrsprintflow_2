@@ -715,6 +715,20 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         .filter-actions { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid #f3f4f6; }
         .filter-btn-reset { flex: 1; height: 36px; border: 1px solid #e5e7eb; background: #fff; border-radius: 8px; font-size: 13px; font-weight: 500; color: #374151; cursor: pointer; }
         .filter-btn-reset:hover { background: #f9fafb; }
+        @media (max-width: 768px) {
+            #pf-dashboard-toolbar {
+                justify-content: flex-end !important;
+            }
+            #pf-dashboard-toolbar-summary {
+                order: 2 !important;
+                flex: 1 0 100% !important;
+                width: 100% !important;
+            }
+            #pf-dashboard-toolbar > div:last-child {
+                order: 1 !important;
+                margin-left: auto !important;
+            }
+        }
         .fp-preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 8px; }
         .fp-preset-btn {
             display: inline-flex; align-items: center; justify-content: center;
@@ -2442,3 +2456,4 @@ function dashboardFilterPanel(initialPreset) {
 </script>
 </body>
 </html>
+

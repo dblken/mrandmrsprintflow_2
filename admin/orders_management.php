@@ -654,6 +654,30 @@ if (isset($_GET['ajax'])) {
         .history-item:last-child { border-bottom: none; }
 
         @media (max-width: 768px) {
+            .orders-list-header {
+                flex-wrap: nowrap !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                gap: 10px !important;
+            }
+            .orders-list-header h3 {
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+                white-space: nowrap !important;
+            }
+            .orders-list-actions {
+                flex: 0 0 auto !important;
+                flex-wrap: nowrap !important;
+                justify-content: flex-end !important;
+                margin-left: auto !important;
+                gap: 8px !important;
+            }
+            .orders-list-actions .toolbar-btn {
+                width: auto !important;
+                min-width: 0 !important;
+                padding-left: 12px !important;
+                padding-right: 12px !important;
+            }
             main[x-data="ordersPage()"] .modal-overlay {
                 align-items: flex-start !important;
                 padding: 10px !important;
@@ -1231,11 +1255,11 @@ if (isset($_GET['ajax'])) {
 
             <!-- Orders List & Filters -->
             <div class="card">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+                <div class="orders-list-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
                     <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;">
                         Orders List
                     </h3>
-                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                    <div class="orders-list-actions" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
                         <!-- Sort Button -->
                         <div style="position:relative;">
                             <button class="toolbar-btn" :class="{ active: sortOpen || (activeSort !== 'newest') }" @click="sortOpen = !sortOpen; filterOpen = false" id="sortBtn" style="height:38px;">
@@ -1612,3 +1636,4 @@ if (isset($_GET['ajax'])) {
 <?php include __DIR__ . '/../includes/footer.php'; ?>
 </body>
 </html>
+
