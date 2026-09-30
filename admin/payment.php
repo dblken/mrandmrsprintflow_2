@@ -302,6 +302,11 @@ $page_title = 'Payments - PrintFlow';
 .filter-input, .filter-select { width: 100%; height: 34px; border: 1px solid #e5e7eb; border-radius: 7px; font-size: 13px; padding: 0 10px; box-sizing: border-box; color: #1f2937; background: #fff; }
 .filter-date-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .filter-date-label { font-size: 11px; color: #6b7280; margin-bottom: 4px; }
+.fp-preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+.fp-preset-btn { height: 34px; border: 1px solid #e5e7eb; border-radius: 7px; background: #fff; color: #374151; font-size: 12px; font-weight: 500; cursor: pointer; }
+.fp-preset-btn:hover, .fp-preset-btn.active { border-color: #00232b; background: #ecf8fb; color: #00232b; font-weight: 700; }
+.filter-panel-close { border: 0; background: transparent; color: #374151; cursor: pointer; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; }
+.filter-panel-close:hover { background: #f3f4f6; }
 .filter-actions { padding: 14px 18px; border-top: 1px solid #f3f4f6; }
 .filter-btn-reset { width: 100%; height: 36px; border: 1px solid #e5e7eb; background: #fff; border-radius: 8px; font-size: 13px; font-weight: 500; color: #374151; cursor: pointer; }
 .filter-btn-reset:hover { background: #f9fafb; }
@@ -390,24 +395,28 @@ $page_title = 'Payments - PrintFlow';
                         </button>
                         <form class="filter-panel" id="paymentFilterForm" x-show="filterOpen" x-cloak @click.outside="filterOpen = false" method="get">
                             <div class="filter-panel-header">
-                                Filter
-                                <button type="button" class="filter-reset-link" @click="filterOpen = false">✕</button>
+                                <span>Filter</span>
+                                <button type="button" class="filter-panel-close" aria-label="Close filter" @click="filterOpen = false">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                                </button>
                             </div>
                             <input type="hidden" name="branch_id" value="<?php echo printflow_branch_value_is_all($branchId) ? 'all' : (int)$branchId; ?>">
                             <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sortBy); ?>">
+                            <input type="hidden" name="period" value="<?php echo htmlspecialchars($period); ?>">
+                            <div class="filter-section">
+                                <div class="filter-section-head"><span class="filter-section-label">Period</span></div>
+                                <div class="fp-preset-grid">
+                                    <button type="button" class="fp-preset-btn <?php echo $period === 'today' ? 'active' : ''; ?>" data-payment-period="today">Today</button>
+                                    <button type="button" class="fp-preset-btn <?php echo $period === 'week' ? 'active' : ''; ?>" data-payment-period="week">This Week</button>
+                                    <button type="button" class="fp-preset-btn <?php echo $period === 'month' ? 'active' : ''; ?>" data-payment-period="month">This Month</button>
+                                </div>
+                            </div>
                             <div class="filter-section">
                                 <div class="filter-section-head">
                                     <span class="filter-section-label">Date range</span>
-                                    <button class="filter-reset-link" type="button" onclick="pfReset(['period', 'from', 'to'])">Reset</button>
+                                    <button class="filter-reset-link" type="button" onclick="pfReset(['from', 'to'])">Reset</button>
                                 </div>
-                                <select class="filter-select" name="period">
-                                    <option value="today"<?php echo $period === 'today' ? ' selected' : ''; ?>>Today</option>
-                                    <option value="week"<?php echo $period === 'week' ? ' selected' : ''; ?>>This Week</option>
-                                    <option value="month"<?php echo $period === 'month' ? ' selected' : ''; ?>>This Month</option>
-                                    <option value="all"<?php echo $period === 'all' ? ' selected' : ''; ?>>All Time</option>
-                                    <option value="custom"<?php echo $period === 'custom' ? ' selected' : ''; ?>>Custom Range</option>
-                                </select>
-                                <div class="filter-date-row" style="margin-top:9px;">
+                                <div class="filter-date-row">
                                     <div>
                                         <div class="filter-date-label">From</div>
                                         <input class="filter-input" type="date" name="from" value="<?php echo htmlspecialchars($from); ?>">
@@ -530,10 +539,16 @@ function pfReset(fields) {
 document.addEventListener('DOMContentLoaded', function () {
     const f = document.getElementById('paymentFilterForm');
     if (!f) return;
-
-    ['period', 'method', 'source', 'status'].forEach(function (name) {
+    ['method', 'source', 'status'].forEach(function (name) {
         const el = f.elements[name];
         if (el) el.addEventListener('change', pfPaymentSubmitFilter);
+    });
+
+    document.querySelectorAll('[data-payment-period]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            if (f.elements.period) f.elements.period.value = button.getAttribute('data-payment-period') || 'today';
+            pfPaymentSubmitFilter();
+        });
     });
 
     ['from', 'to'].forEach(function (name) {

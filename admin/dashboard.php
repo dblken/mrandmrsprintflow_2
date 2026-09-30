@@ -715,6 +715,33 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         .filter-actions { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid #f3f4f6; }
         .filter-btn-reset { flex: 1; height: 36px; border: 1px solid #e5e7eb; background: #fff; border-radius: 8px; font-size: 13px; font-weight: 500; color: #374151; cursor: pointer; }
         .filter-btn-reset:hover { background: #f9fafb; }
+        @media (max-width: 768px) {
+            #pf-dashboard-toolbar {
+                align-items: stretch !important;
+                justify-content: space-between !important;
+                flex-wrap: nowrap !important;
+                gap: 8px !important;
+            }
+            #pf-dashboard-toolbar-summary {
+                flex: 1 1 auto !important;
+                width: auto !important;
+                min-width: 0 !important;
+            }
+            #pf-dashboard-toolbar-summary-text {
+                min-width: 0 !important;
+                overflow-wrap: anywhere !important;
+            }
+            #pf-dashboard-toolbar > div:last-child {
+                display: flex !important;
+                flex: 0 0 auto !important;
+                align-self: stretch !important;
+                margin-left: auto !important;
+            }
+            #pf-dashboard-toolbar > div:last-child .toolbar-btn {
+                height: auto !important;
+                min-height: 100% !important;
+            }
+        }
         .fp-preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 8px; }
         .fp-preset-btn {
             display: inline-flex; align-items: center; justify-content: center;
@@ -2442,3 +2469,4 @@ function dashboardFilterPanel(initialPreset) {
 </script>
 </body>
 </html>
+

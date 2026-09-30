@@ -517,6 +517,33 @@ $page_title = 'Dashboard - Manager | PrintFlow';
         .filter-actions { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid #f3f4f6; }
         .filter-btn-reset { flex: 1; height: 36px; border: 1px solid #e5e7eb; background: #fff; border-radius: 8px; font-size: 13px; font-weight: 500; color: #374151; cursor: pointer; }
         .filter-btn-reset:hover { background: #f9fafb; }
+        @media (max-width: 768px) {
+            #pf-dashboard-toolbar {
+                align-items: stretch !important;
+                justify-content: space-between !important;
+                flex-wrap: nowrap !important;
+                gap: 8px !important;
+            }
+            #pf-dashboard-toolbar-summary {
+                flex: 1 1 auto !important;
+                width: auto !important;
+                min-width: 0 !important;
+            }
+            #pf-dashboard-toolbar-summary-text {
+                min-width: 0 !important;
+                overflow-wrap: anywhere !important;
+            }
+            #pf-dashboard-toolbar > div:last-child {
+                display: flex !important;
+                flex: 0 0 auto !important;
+                align-self: stretch !important;
+                margin-left: auto !important;
+            }
+            #pf-dashboard-toolbar > div:last-child .toolbar-btn {
+                height: auto !important;
+                min-height: 100% !important;
+            }
+        }
         .fp-preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 8px; }
         .fp-preset-btn {
             display: inline-flex; align-items: center; justify-content: center;
@@ -554,6 +581,55 @@ $page_title = 'Dashboard - Manager | PrintFlow';
         .performer-btn { padding:4px 12px; font-size:12px; font-weight:600; border-radius:6px; border:none; cursor:pointer; transition:all 0.2s; color:#6b7280; background:transparent; }
         .performer-btn.is-active { background:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.05); color:#00232b; }
         .performer-panel[hidden] { display:none !important; }
+
+        @media (max-width:768px) {
+            header.manager-dashboard-header {
+                display: flex !important;
+                flex-direction: row !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                flex-wrap: nowrap !important;
+                gap: 10px !important;
+                padding: 12px 14px !important;
+                min-height: 64px !important;
+            }
+            header.manager-dashboard-header .page-title {
+                flex: 1 1 0 !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+                font-size: 20px !important;
+                line-height: 1.15 !important;
+                text-align: left !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+            header.manager-dashboard-header .branch-selector-wrap {
+                display: flex !important;
+                justify-content: flex-end !important;
+                flex: 0 1 auto !important;
+                max-width: 46vw !important;
+                margin-left: auto !important;
+            }
+            header.manager-dashboard-header .branch-selector-btn,
+            header.manager-dashboard-header .branch-selector-static {
+                min-width: 0 !important;
+                width: auto !important;
+                max-width: 46vw !important;
+                padding: 7px 10px !important;
+            }
+            header.manager-dashboard-header #branchSelectorLabel,
+            header.manager-dashboard-header .branch-selector-static span:last-child {
+                min-width: 0 !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                white-space: nowrap !important;
+            }
+            header.manager-dashboard-header .branch-dropdown {
+                right: 0 !important;
+                min-width: min(260px, calc(100vw - 32px)) !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -562,7 +638,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
     <?php include __DIR__ . '/../includes/manager_sidebar.php'; ?>
 
     <div class="main-content">
-        <header>
+        <header class="manager-dashboard-header">
             <h1 class="page-title">Dashboard</h1>
             <?php render_branch_selector($branchCtx); ?>
         </header>
@@ -1325,3 +1401,4 @@ function dashboardFilterPanel(initialPreset) {
 </script>
 </body>
 </html>
+

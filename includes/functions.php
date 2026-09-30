@@ -2044,7 +2044,7 @@ function get_unread_notification_count($user_id, $user_type) {
         $rows = db_query(
             "SELECT notification_id, user_id, message, type, data_id, is_read, created_at
              FROM notifications
-             WHERE user_id = ? AND is_read = 0
+             WHERE user_id = ? AND is_read = 0 AND type != 'Message'
              ORDER BY created_at DESC, notification_id DESC",
             'i',
             [$user_id]
@@ -7910,3 +7910,4 @@ function printflow_send_order_update_legacy($order_id, $step, $custom_text = '',
         $meta,
     ]);
 }
+

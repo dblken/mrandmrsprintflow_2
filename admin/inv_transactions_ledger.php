@@ -686,6 +686,34 @@ if (isset($_GET['ajax'])) {
             font-weight: 700;
         }
         [x-cloak] { display: none !important; }
+        @media (max-width: 768px) {
+            .ledger-page-header {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                flex-wrap: nowrap !important;
+                gap: 10px !important;
+            }
+            .ledger-page-title-wrap {
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+            }
+            .ledger-page-title-wrap .page-title {
+                text-align: left !important;
+                margin: 0 !important;
+                white-space: nowrap !important;
+            }
+            .ledger-page-branch-wrap {
+                display: flex !important;
+                flex: 0 0 auto !important;
+                align-items: center !important;
+                justify-content: flex-end !important;
+                min-width: 0 !important;
+            }
+            .ledger-page-branch-wrap .branch-selector-wrap {
+                max-width: 48vw !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -694,11 +722,11 @@ if (isset($_GET['ajax'])) {
     <?php include __DIR__ . '/../includes/' . ($current_user['role'] === 'Admin' ? 'admin_sidebar.php' : 'manager_sidebar.php'); ?>
 
     <div class="main-content">
-        <header>
-            <div>
-                <h1 class="page-title" style="margin-bottom: 4px;">Stock Movement Ledger</h1>
+        <header class="ledger-page-header">
+            <div class="ledger-page-title-wrap">
+                <h1 class="page-title" style="margin-bottom: 4px;">Ledger</h1>
             </div>
-            <div style="display:flex; align-items:center; gap:12px;">
+            <div class="ledger-page-branch-wrap" style="display:flex; align-items:center; gap:12px;">
                 <?php render_branch_selector($branchCtx); ?>
             </div>
         </header>
@@ -1211,3 +1239,4 @@ if (isset($_GET['ajax'])) {
 </script>
 </body>
 </html>
+
