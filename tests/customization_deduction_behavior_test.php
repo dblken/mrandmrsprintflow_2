@@ -49,8 +49,34 @@ function db_execute($sql, $types, $params): bool {
 }
 eval('class DeductionUnderTest {
     private static function getJobBranchId($id) { return 2; }
-    private static function getScopedMaterials($id, $undeducted = true, $lock = true) {
-        return array_values(array_filter($GLOBALS["materials"], fn($row) => $row["deducted_at"] === null));
+    private static function assignmentIsMarkedDeducted($assignment) {
+        $stamp = trim((string)($assignment["deducted_at"] ?? ""));
+        return $stamp !== "" && $stamp !== "0000-00-00 00:00:00";
+    }
+    private static function findJobMaterialLedgerMovements($jobOrderId, $itemId, $branchId) {
+        foreach (InventoryManager::$ledger as $row) {
+            if ((int)$row["refId"] === (int)$jobOrderId && (int)$row["id"] === 42) {
+                return [["id" => 1, "transaction_date" => $row["date"]]];
+            }
+        }
+        return [];
+    }
+    private static function assertMaterialAssignmentsDeductionIntegrity($jobOrderId, $branchId) {
+        foreach ($GLOBALS["materials"] as $assignment) {
+            if (!self::assignmentIsMarkedDeducted($assignment)) {
+                continue;
+            }
+            if (self::findJobMaterialLedgerMovements($jobOrderId, (int)$assignment["item_id"], $branchId) === []) {
+                throw new RuntimeException("inconsistent deducted_at without ledger");
+            }
+        }
+    }
+    private static function getScopedMaterials($id, $onlyUndeducted = true, $lock = true) {
+        $rows = $GLOBALS["materials"];
+        if ($onlyUndeducted) {
+            return array_values(array_filter($rows, fn($row) => $row["deducted_at"] === null));
+        }
+        return $rows;
     }
 ' . $method . '}');
 
@@ -81,3 +107,9 @@ foreach ([[2, 20], [0]] as $quantities) {
     catch (RuntimeException $e) { $failed = true; }
     check($failed && InventoryManager::$stock === 10.0 && InventoryManager::$ledger === [] && $materials[0]['deducted_at'] === null, 'invalid/insufficient quantity rolls back stock, ledger and deduction marker');
 }
+fixture([2]);
+$materials[0]['deducted_at'] = '2026-09-30 12:00:00';
+$failed = false;
+try { DeductionUnderTest::processDeductions(9, ['materials' => true, 'inks' => false]); }
+catch (RuntimeException $e) { $failed = true; }
+check($failed && InventoryManager::$stock === 10.0 && InventoryManager::$ledger === [], 'inconsistent deducted_at without ledger blocks completion without double deduct');

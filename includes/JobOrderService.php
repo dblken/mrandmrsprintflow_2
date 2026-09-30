@@ -246,6 +246,7 @@ class JobOrderService {
     }
 
     private static function getScopedMaterials(int $jobId, bool $onlyUndeducted = false, bool $forUpdate = false): array {
+        $errorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
         $storeOrderId = self::getLinkedStoreOrderId($jobId);
         $sql = "SELECT *
                 FROM job_order_materials
@@ -268,10 +269,72 @@ class JobOrderService {
             $sql .= " FOR UPDATE";
         }
 
-        return db_query($sql, $types, $params) ?: [];
+        $rows = db_query($sql, $types, $params);
+        if ($rows === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $errorCount)) {
+            throw new RuntimeException('Unable to load material assignments for job #' . $jobId . '; deduction was not completed.');
+        }
+        return $rows ?: [];
+    }
+
+    private static function assignmentIsMarkedDeducted(array $assignment): bool {
+        $stamp = trim((string)($assignment['deducted_at'] ?? ''));
+        return $stamp !== '' && $stamp !== '0000-00-00 00:00:00';
+    }
+
+    /**
+     * @return list<array{id:int, transaction_date:string}>
+     */
+    private static function findJobMaterialLedgerMovements(int $jobOrderId, int $itemId, int $branchId): array {
+        $errorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+        $rows = db_query(
+            "SELECT id, transaction_date
+             FROM inventory_transactions
+             WHERE UPPER(ref_type) = 'JOB_ORDER'
+               AND ref_id = ?
+               AND item_id = ?
+               AND branch_id = ?
+               AND UPPER(direction) = 'OUT'
+             ORDER BY id ASC",
+            'iii',
+            [$jobOrderId, $itemId, $branchId]
+        );
+        if ($rows === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $errorCount)) {
+            throw new RuntimeException(
+                'Unable to verify inventory ledger for job #' . $jobOrderId . '; deduction was not completed.'
+            );
+        }
+        return $rows ?: [];
+    }
+
+    /**
+     * Prevent silent completion when deducted_at was set without a matching ledger OUT row.
+     */
+    private static function assertMaterialAssignmentsDeductionIntegrity(int $jobOrderId, int $branchId): void {
+        $all = self::getScopedMaterials($jobOrderId, false, false);
+        $issues = [];
+        foreach ($all as $assignment) {
+            if (!self::assignmentIsMarkedDeducted($assignment)) {
+                continue;
+            }
+            $itemId = (int)($assignment['item_id'] ?? 0);
+            if ($itemId <= 0) {
+                continue;
+            }
+            if (self::findJobMaterialLedgerMovements($jobOrderId, $itemId, $branchId) === []) {
+                $issues[] = (int)($assignment['id'] ?? 0);
+            }
+        }
+        if ($issues !== []) {
+            throw new RuntimeException(
+                'Material assignment(s) #' . implode(', #', $issues) .
+                ' are marked deducted but have no matching JOB_ORDER inventory ledger. ' .
+                'Reconcile before completing (see staff/api/pos_transaction_trace.php?order_id=...).'
+            );
+        }
     }
 
     private static function getScopedInkUsage(int $jobId, bool $onlyUndeducted = false, bool $forUpdate = false): array {
+        $errorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
         $storeOrderId = self::getLinkedStoreOrderId($jobId);
         $sql = "SELECT *
                 FROM job_order_ink_usage
@@ -298,7 +361,11 @@ class JobOrderService {
             $sql .= " FOR UPDATE";
         }
 
-        return db_query($sql, $types, $params) ?: [];
+        $rows = db_query($sql, $types, $params);
+        if ($rows === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $errorCount)) {
+            throw new RuntimeException('Unable to load ink usage for job #' . $jobId . '; deduction was not completed.');
+        }
+        return $rows ?: [];
     }
 
     private static function syncStoreOrderAssignmentsIfNeeded(int $storeOrderId, array $options = []): void {
@@ -1336,6 +1403,7 @@ class JobOrderService {
                 'store_order_id' => $storeOrderId,
                 'branch_id' => $branchId,
                 'transaction_date' => (string)$ledgerTransactionDate,
+                'processing_at' => date('Y-m-d H:i:s'),
                 'process_materials' => (bool)$processMaterials,
                 'process_inks' => (bool)$processInks,
             ]);
@@ -1348,11 +1416,28 @@ class JobOrderService {
         }
         $jobRef = printflow_get_job_inventory_reference((int)$orderId);
         $jobLabel = $jobRef['label'] ?? ('Job #' . printflow_format_job_code((int)$orderId));
+        if ($processMaterials) {
+            self::assertMaterialAssignmentsDeductionIntegrity((int)$orderId, $branchId);
+        }
         $materials = $processMaterials ? self::getScopedMaterials((int)$orderId, true, true) : [];
         $debugLog('materials_loaded', [
             'job_order_id' => (int)$orderId,
             'count' => count($materials),
         ]);
+        if ($debugDeductions && $processMaterials) {
+            foreach (self::getScopedMaterials((int)$orderId) as $assignment) {
+                $stamp = trim((string)($assignment['deducted_at'] ?? ''));
+                if ($stamp !== '' && $stamp !== '0000-00-00 00:00:00') {
+                    $debugLog('material_skipped', [
+                        'job_order_id' => (int)$orderId,
+                        'assignment_id' => (int)$assignment['id'],
+                        'item_id' => (int)$assignment['item_id'],
+                        'reason' => 'deducted_at_already_set',
+                        'deducted_at' => $stamp,
+                    ]);
+                }
+            }
+        }
         
         if ($materials) {
             foreach ($materials as $m) {
@@ -1488,6 +1573,11 @@ class JobOrderService {
                         $branchId,
                         $ledgerTransactionDate
                     );
+                    if ($deductionResult === false) {
+                        throw new RuntimeException(
+                            'Material inventory deduction failed to record a ledger entry for assignment #' . (int)($m['id'] ?? 0) . '.'
+                        );
+                    }
                     $debugLog('material_deducted', [
                         'assignment_id' => (int)($m['id'] ?? 0),
                         'item_id' => $itemId,

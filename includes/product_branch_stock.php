@@ -550,7 +550,7 @@ function printflow_apply_product_order_item_inventory(
     try {
         $rows = db_query(
             "SELECT oi.order_item_id, oi.order_id, oi.product_id, oi.quantity, oi.customization_data,
-                    o.branch_id AS order_branch_id, o.status AS order_status, p.name AS product_name
+                    o.branch_id AS order_branch_id, o.status AS order_status, o.order_date, p.name AS product_name
              FROM order_items oi
              INNER JOIN orders o ON o.order_id = oi.order_id
              INNER JOIN products p ON p.product_id = oi.product_id
@@ -625,6 +625,7 @@ function printflow_apply_product_order_item_inventory(
         $notes = trim($sourceLabel) . ": {$orderLabel} - {$productName}{$optionNote}";
 
         // Keep the selected POS datetime intact for the ledger.
+        $transactionDate = $transactionDate ?: trim((string)($item['order_date'] ?? ''));
         $transactionDateForLedger = $transactionDate ?: date('Y-m-d H:i:s');
 
         $ledgerResult = printflow_record_product_inventory_transaction(

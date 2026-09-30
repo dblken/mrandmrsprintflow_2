@@ -103,6 +103,13 @@ if ($jobIds !== []) {
 }
 
 $stock = [];
+$deductionAudit = [];
+$expectedLedgerDateRaw = function_exists('printflow_store_order_ledger_date')
+    ? printflow_store_order_ledger_date($orderId)
+    : trim((string)($order['order_date'] ?? ''));
+$expectedLedgerDate = $expectedLedgerDateRaw !== '' && $expectedLedgerDateRaw !== null
+    ? substr((string)$expectedLedgerDateRaw, 0, 10)
+    : '';
 foreach ($materials as $material) {
     $itemId = (int)$material['item_id'];
     $branchId = (int)$order['branch_id'];
@@ -113,6 +120,47 @@ foreach ($materials as $material) {
         }
     }
     $key = $itemId . ':' . $branchId;
+    $matchingLedgerIds = [];
+    $wrongDateLedgerIds = [];
+    foreach ($ledger as $movement) {
+        $jobMatches = (int)$material['job_order_id'] > 0
+            ? (int)$movement['ref_id'] === (int)$material['job_order_id']
+            : in_array((int)$movement['ref_id'], $jobIds, true);
+        if (strtoupper((string)$movement['ref_type']) === 'JOB_ORDER'
+            && strtoupper((string)$movement['direction']) === 'OUT'
+            && $jobMatches && (int)$movement['item_id'] === $itemId
+            && (int)$movement['branch_id'] === $branchId) {
+            $matchingLedgerIds[] = (int)$movement['id'];
+            $movementBusinessDate = substr(trim((string)$movement['transaction_date']), 0, 10);
+            if ($expectedLedgerDate !== '' && $movementBusinessDate !== $expectedLedgerDate) {
+                $wrongDateLedgerIds[] = (int)$movement['id'];
+            }
+        }
+    }
+    $stamp = trim((string)($material['deducted_at'] ?? ''));
+    $markedDeducted = $stamp !== '' && $stamp !== '0000-00-00 00:00:00';
+    if ($markedDeducted && $matchingLedgerIds === []) {
+        $finding = 'Marked deducted without matching job/item/branch ledger evidence. Manual reconciliation required; do not clear deducted_at or automatically reissue.';
+    } elseif ($wrongDateLedgerIds !== []) {
+        $finding = 'Matching ledger OUT row(s) exist but transaction_date does not match the order business date.';
+    } elseif ($markedDeducted) {
+        $finding = 'Marked deducted with matching JOB_ORDER ledger evidence.';
+    } else {
+        $finding = 'Assignment not yet marked deducted; stock should deduct on completion.';
+    }
+    $deductionAudit[] = [
+        'assignment_id' => (int)$material['id'],
+        'job_order_id' => (int)($material['job_order_id'] ?? 0),
+        'item_id' => $itemId,
+        'branch_id' => $branchId,
+        'deducted_at' => $markedDeducted ? $stamp : null,
+        'expected_ledger_date' => $expectedLedgerDate !== '' ? $expectedLedgerDate : null,
+        'marked_deducted' => $markedDeducted,
+        'candidate_ledger_ids' => $matchingLedgerIds,
+        'wrong_business_date_ledger_ids' => $wrongDateLedgerIds,
+        'requires_review' => ($markedDeducted && $matchingLedgerIds === []) || $wrongDateLedgerIds !== [],
+        'finding' => $finding,
+    ];
     if (!isset($stock[$key])) {
         $stock[$key] = [
             'item_id' => $itemId,
@@ -140,7 +188,9 @@ echo json_encode([
     'material_assignments' => $materials,
     'inventory_transactions' => $ledger,
     'order_business_date' => $order['order_date'],
+    'expected_ledger_business_date' => $expectedLedgerDate !== '' ? $expectedLedgerDate : null,
     'material_stock_snapshot' => array_values($stock),
+    'material_deduction_audit' => $deductionAudit,
     'stock_snapshot_note' => 'Current stock only. Capture before and after completion to prove the change.',
 ], JSON_UNESCAPED_SLASHES);
 $conn->rollback();
