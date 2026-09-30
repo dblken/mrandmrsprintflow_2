@@ -6562,6 +6562,19 @@ window.pfServiceFieldCatalog = (() => {
                     if (deliberateKeyboardAction) this.requestMaterialOverride(item);
                     return;
                 }
+                const selectedId = String(item.id);
+                const pendingIndex = this.pendingMaterials.findIndex(material => String(material.item_id || '') === selectedId);
+                if (pendingIndex >= 0) {
+                    this.removePendingMaterial(pendingIndex);
+                    this.materialListExpanded = true;
+                    return;
+                }
+                const assigned = (Array.isArray(this.currentJo && this.currentJo.materials) ? this.currentJo.materials : [])
+                    .some(material => String(material.item_id || '') === selectedId);
+                if (assigned) {
+                    this.showStaffAlert('Material Locked', 'Assigned materials can no longer be removed once they have been set.');
+                    return;
+                }
                 if (this.isMaterialSelected(item.id)) return;
                 this.handleMaterialSelection(String(item.id));
                 this.productionErrors.material = '';
