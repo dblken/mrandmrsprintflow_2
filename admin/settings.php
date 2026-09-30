@@ -1107,12 +1107,25 @@ Stickers &amp; Decals"><?php
                         <p style="font-size:12px;color:#64748b;margin:0 0 10px;">Enter a <code>seed_row_key</code> from the CSV to inspect linked records, then compare the exact Staff Customizations page query, tabs, date filter, customer display, and deployed query version.</p>
                         <div class="f-group" style="max-width:420px;">
                             <label>Seed row key</label>
-                            <input type="text" id="demo-seed-trace-key" placeholder="e.g. 20260907-001" autocomplete="off">
+                            <input type="text" id="demo-seed-trace-key" placeholder="e.g. 20260908-V2-001" autocomplete="off">
                         </div>
                         <div class="demo-actions" style="margin-top:10px;">
                             <button type="button" id="demo-seed-trace-btn" class="btn-demo btn-demo-secondary">Trace row</button>
                         </div>
                         <pre id="demo-seed-trace-output" style="display:none;margin-top:10px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;max-height:320px;overflow:auto;white-space:pre-wrap;"></pre>
+                    </div>
+
+                    <div class="demo-panel">
+                        <h3>6. Trace Staff page batch</h3>
+                        <p style="font-size:12px;color:#64748b;margin:0 0 10px;">Inspect every registry row and its actual Staff Customizations eligibility for the current test batch.</p>
+                        <div class="f-group" style="max-width:420px;">
+                            <label>Seed batch ID</label>
+                            <input type="text" id="demo-seed-batch-trace-key" value="meet_20261001_v2" autocomplete="off">
+                        </div>
+                        <div class="demo-actions" style="margin-top:10px;">
+                            <button type="button" id="demo-seed-batch-trace-btn" class="btn-demo btn-demo-secondary">Trace batch</button>
+                        </div>
+                        <pre id="demo-seed-batch-trace-output" style="display:none;margin-top:10px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;max-height:320px;overflow:auto;white-space:pre-wrap;"></pre>
                     </div>
                 </div>
 
@@ -2096,7 +2109,7 @@ function printflowInitDemoSeedTools() {
             fetch(apiUrl, { method: 'POST', body: fd })
                 .then(function (res) { return res.json(); })
                 .then(function (data) {
-                    var pageTraceUrl = <?php echo json_encode(rtrim($base_path, '/') . '/admin/job_orders_api.php?action=page_query_trace&seed_row_key='); ?> + encodeURIComponent(seedRowKey) + '&_=' + Date.now();
+                    var pageTraceUrl = <?php echo json_encode(rtrim($base_path, '/') . '/admin/job_orders_api.php?action=page_query_row_trace&seed_row_key='); ?> + encodeURIComponent(seedRowKey) + '&debug=1&_=' + Date.now();
                     return fetch(pageTraceUrl, { cache: 'no-store', headers: { 'Accept': 'application/json' } })
                         .then(function (res) { return res.json(); })
                         .then(function (pageTrace) { data.page_query_trace = pageTrace; return data; });
@@ -2109,6 +2122,31 @@ function printflowInitDemoSeedTools() {
                 })
                 .catch(function () {
                     if (out) { out.style.display = 'block'; out.textContent = 'Trace request failed.'; }
+                });
+        });
+    }
+
+    const batchTraceBtn = document.getElementById('demo-seed-batch-trace-btn');
+    if (batchTraceBtn) {
+        batchTraceBtn.addEventListener('click', function () {
+            const keyInput = document.getElementById('demo-seed-batch-trace-key');
+            const out = document.getElementById('demo-seed-batch-trace-output');
+            const batchId = keyInput ? keyInput.value.trim() : '';
+            if (!batchId) {
+                if (out) { out.style.display = 'block'; out.textContent = 'Enter a batch_id.'; }
+                return;
+            }
+            const url = <?php echo json_encode(rtrim($base_path, '/') . '/admin/job_orders_api.php?action=page_query_batch_trace&batch_id='); ?> + encodeURIComponent(batchId) + '&debug=1&_=' + Date.now();
+            fetch(url, { cache: 'no-store', headers: { 'Accept': 'application/json' } })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (out) {
+                        out.style.display = 'block';
+                        out.textContent = JSON.stringify(data, null, 2);
+                    }
+                })
+                .catch(function () {
+                    if (out) { out.style.display = 'block'; out.textContent = 'Batch trace request failed.'; }
                 });
         });
     }

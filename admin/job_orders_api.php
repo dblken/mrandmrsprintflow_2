@@ -149,6 +149,7 @@ function jo_api_json_response(array $payload, int $statusCode = 200): never {
                 $rowIds[] = (int)($row['order_id'] ?? $row['id'] ?? 0);
             }
         }
+        $debugOrderId = (int)($_GET['order_id'] ?? $_POST['order_id'] ?? 0);
         $payload['debug'] = [
             'endpoint_action' => $debugAction,
             'query_version' => PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION,
@@ -158,7 +159,8 @@ function jo_api_json_response(array $payload, int $statusCode = 200): never {
             'status' => (string)($_GET['status'] ?? ''),
             'total_count' => $payload['pagination']['total_items'] ?? ($payload['data']['ALL'] ?? null),
             'returned_row_count' => array_is_list($rows) ? count($rows) : null,
-            'includes_order_11528' => in_array(11528, $rowIds, true),
+            'target_order_id' => $debugOrderId > 0 ? $debugOrderId : null,
+            'includes_target_order' => $debugOrderId > 0 ? in_array($debugOrderId, $rowIds, true) : null,
         ];
         error_log('[customizations_debug] ' . json_encode([
             'endpoint_action' => $debugAction,
@@ -168,7 +170,8 @@ function jo_api_json_response(array $payload, int $statusCode = 200): never {
             'date_from' => (string)($_GET['date_from'] ?? ''),
             'date_to' => (string)($_GET['date_to'] ?? ''),
             'status' => (string)($_GET['status'] ?? ''),
-            'order_id_11528_match' => in_array(11528, $rowIds, true),
+            'target_order_id' => $debugOrderId > 0 ? $debugOrderId : null,
+            'target_order_match' => $debugOrderId > 0 ? in_array($debugOrderId, $rowIds, true) : null,
             'total_count' => $payload['debug']['total_count'],
             'returned_row_count' => $payload['debug']['returned_row_count'],
         ], JSON_UNESCAPED_SLASHES));
@@ -1222,6 +1225,81 @@ try {
                 'branch_context' => $joStaffBranch,
             ]]);
 
+        case 'page_query_batch_trace':
+            if (!in_array(get_user_type() ?? '', ['Admin', 'Staff', 'Manager'], true)) {
+                jo_api_json_response(['success' => false, 'error' => 'Forbidden'], 403);
+            }
+            $batchId = trim((string)($_GET['batch_id'] ?? $_GET['seed_batch_id'] ?? $_POST['batch_id'] ?? $_POST['seed_batch_id'] ?? ''));
+            if ($batchId === '') {
+                jo_api_json_response(['success' => false, 'error' => 'batch_id is required'], 400);
+            }
+            $batchRows = db_query(
+                "SELECT r.seed_row_key, r.batch_id, r.order_id, r.order_item_id,
+                        r.customization_id, r.job_order_id, r.customer_id,
+                        o.order_date, o.status AS order_status, o.order_source,
+                        o.order_type, o.branch_id,
+                        cust.status AS customization_status,
+                        COALESCE(NULLIF(TRIM(o_customer.first_name), ''), NULLIF(TRIM(cust_customer.first_name), '')) AS first_name,
+                        COALESCE(NULLIF(TRIM(o_customer.last_name), ''), NULLIF(TRIM(cust_customer.last_name), '')) AS last_name,
+                        COALESCE(NULLIF(TRIM(o_customer.email), ''), NULLIF(TRIM(cust_customer.email), '')) AS email,
+                        COALESCE(NULLIF(TRIM(o_customer.contact_number), ''), NULLIF(TRIM(cust_customer.contact_number), '')) AS phone,
+                        COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), NULLIF(TRIM(cust.service_type), '')) AS service_name
+                 FROM demo_seed_rows r
+                 LEFT JOIN orders o ON o.order_id = r.order_id
+                 LEFT JOIN customers o_customer ON o_customer.customer_id = o.customer_id
+                 LEFT JOIN customizations cust ON cust.customization_id = r.customization_id
+                 LEFT JOIN customers cust_customer ON cust_customer.customer_id = cust.customer_id
+                 LEFT JOIN job_orders jo ON jo.id = r.job_order_id
+                 WHERE r.batch_id = ? ORDER BY r.id ASC",
+                's', [$batchId]
+            ) ?: [];
+            $resultRows = [];
+            foreach ($batchRows as $row) {
+                $rowOrderId = (int)($row['order_id'] ?? 0);
+                $branchId = (int)($row['branch_id'] ?? 0);
+                $branchOk = $joStaffBranch === null || $branchId === $joStaffBranch;
+                $eligible = $rowOrderId > 0
+                    && strtolower(trim((string)($row['order_source'] ?? ''))) === 'pos'
+                    && strtolower(trim((string)($row['order_type'] ?? ''))) === 'custom'
+                    && $branchOk
+                    && (int)($row['customization_id'] ?? 0) > 0
+                    && (int)($row['job_order_id'] ?? 0) > 0
+                    && strtolower(trim((string)($row['order_status'] ?? ''))) !== 'draft';
+                $reasons = [];
+                if (!$branchOk) $reasons[] = 'branch_mismatch';
+                if (strtolower(trim((string)($row['order_source'] ?? ''))) !== 'pos') $reasons[] = 'order_source_not_pos';
+                if (strtolower(trim((string)($row['order_type'] ?? ''))) !== 'custom') $reasons[] = 'order_type_not_custom';
+                if ((int)($row['customization_id'] ?? 0) <= 0) $reasons[] = 'missing_customization';
+                if ((int)($row['job_order_id'] ?? 0) <= 0) $reasons[] = 'missing_job_order';
+                if (strtolower(trim((string)($row['order_status'] ?? ''))) === 'draft') $reasons[] = 'draft_order';
+                $resultRows[] = [
+                    'seed_row_key' => (string)($row['seed_row_key'] ?? ''),
+                    'batch_id' => (string)($row['batch_id'] ?? ''),
+                    'order_id' => $rowOrderId,
+                    'order_item_id' => (int)($row['order_item_id'] ?? 0),
+                    'customization_id' => (int)($row['customization_id'] ?? 0),
+                    'job_order_id' => (int)($row['job_order_id'] ?? 0),
+                    'customer_id' => (int)($row['customer_id'] ?? 0),
+                    'customer_name' => trim((string)($row['first_name'] ?? '') . ' ' . (string)($row['last_name'] ?? '')),
+                    'customer_email' => (string)($row['email'] ?? ''),
+                    'customer_phone' => (string)($row['phone'] ?? ''),
+                    'service_name' => (string)($row['service_name'] ?? ''),
+                    'order_date' => (string)($row['order_date'] ?? ''),
+                    'order_status' => (string)($row['order_status'] ?? ''),
+                    'customization_status' => (string)($row['customization_status'] ?? ''),
+                    'branch_id' => $branchId,
+                    'staff_list_query_eligible' => $eligible,
+                    'exclusion_reasons' => $reasons,
+                ];
+            }
+            jo_api_json_response(['success' => true, 'data' => [
+                'batch_id' => $batchId,
+                'registry_row_count' => count($resultRows),
+                'linked_order_ids' => array_values(array_unique(array_column($resultRows, 'order_id'))),
+                'eligible_row_count' => count(array_filter($resultRows, static fn(array $row): bool => !empty($row['staff_list_query_eligible']))),
+                'rows' => $resultRows,
+            ]]);
+
         case 'customization_counts':
             if (!in_array(get_user_type() ?? '', ['Admin', 'Staff', 'Manager'], true)) {
                 jo_api_json_response(['success' => false, 'error' => 'Forbidden'], 403);
@@ -1409,6 +1487,17 @@ try {
             }
             $countResponse = ['success' => true, 'data' => $counts];
             if (in_array(strtolower((string)($_GET['debug'] ?? '')), ['1', 'true', 'yes'], true)) {
+                $debugTargetOrderId = (int)($_GET['order_id'] ?? $_POST['order_id'] ?? 0);
+                $debugTargetMatched = null;
+                if ($debugTargetOrderId > 0) {
+                    $debugTargetMatched = false;
+                    foreach ($countRows as $debugCountRow) {
+                        if ((int)($debugCountRow['order_id'] ?? 0) === $debugTargetOrderId) {
+                            $debugTargetMatched = true;
+                            break;
+                        }
+                    }
+                }
                 $countResponse['debug'] = [
                     'endpoint_action' => 'customization_counts',
                     'query_version' => PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION,
@@ -1418,7 +1507,8 @@ try {
                     'status' => (string)($_GET['status'] ?? ''),
                     'total_count' => count($countRows),
                     'returned_row_count' => count($countRows),
-                    'includes_order_11528' => count(array_filter($countRows, static fn(array $row): bool => (int)($row['order_id'] ?? 0) === 11528)) > 0,
+                    'target_order_id' => $debugTargetOrderId > 0 ? $debugTargetOrderId : null,
+                    'includes_target_order' => $debugTargetMatched,
                 ];
             }
             jo_api_json_response($countResponse);
