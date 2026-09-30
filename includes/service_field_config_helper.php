@@ -32,6 +32,531 @@ function printflow_ensure_service_field_configs_help_text_column(): void {
     );
 }
 
+/** Conditional field modes (used with parent_field_key + parent_value). */
+function printflow_service_field_conditional_modes(): array {
+    return ['show_when', 'hide_when'];
+}
+
+function printflow_ensure_service_field_conditional_mode_column(): void {
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+    $checked = true;
+    $rows = db_query("SHOW COLUMNS FROM service_field_configs LIKE 'conditional_mode'");
+    if (!empty($rows)) {
+        return;
+    }
+    db_execute(
+        "ALTER TABLE service_field_configs ADD COLUMN conditional_mode VARCHAR(20) NULL DEFAULT NULL COMMENT 'show_when|hide_when with parent_field_key' AFTER parent_value"
+    );
+}
+
+function printflow_service_field_conditional_mode(array $config): string {
+    $mode = strtolower(trim((string)($config['conditional_mode'] ?? '')));
+    if ($mode === 'hide_when') {
+        return 'hide_when';
+    }
+    return 'show_when';
+}
+
+/**
+ * Field types allowed to drive conditional visibility.
+ *
+ * @return list<string>
+ */
+function printflow_service_field_conditional_source_types(): array {
+    return ['radio', 'select'];
+}
+
+/**
+ * Normalize conditional config on save; clears invalid combinations.
+ */
+function printflow_normalize_service_field_conditional_config(
+    int $serviceId,
+    string $fieldKey,
+    array &$config,
+    array $allConfigs
+): void {
+    unset($serviceId);
+    $parentKey = trim((string)($config['parent_field_key'] ?? ''));
+    $parentValue = trim((string)($config['parent_value'] ?? ''));
+    if ($parentKey === '' || $parentValue === '') {
+        $config['parent_field_key'] = null;
+        $config['parent_value'] = null;
+        $config['conditional_mode'] = null;
+        return;
+    }
+    if ($parentKey === $fieldKey) {
+        $config['parent_field_key'] = null;
+        $config['parent_value'] = null;
+        $config['conditional_mode'] = null;
+        return;
+    }
+    $source = $allConfigs[$parentKey] ?? null;
+    if (!is_array($source)) {
+        $config['parent_field_key'] = null;
+        $config['parent_value'] = null;
+        $config['conditional_mode'] = null;
+        return;
+    }
+    $sourceType = strtolower(trim((string)($source['type'] ?? '')));
+    if (!in_array($sourceType, printflow_service_field_conditional_source_types(), true)) {
+        $config['parent_field_key'] = null;
+        $config['parent_value'] = null;
+        $config['conditional_mode'] = null;
+        return;
+    }
+    $optionValues = printflow_service_field_option_values_list($source);
+    $matched = false;
+    foreach ($optionValues as $optVal) {
+        if (strcasecmp($optVal, $parentValue) === 0) {
+            $config['parent_value'] = $optVal;
+            $matched = true;
+            break;
+        }
+    }
+    if (!$matched) {
+        $config['parent_field_key'] = null;
+        $config['parent_value'] = null;
+        $config['conditional_mode'] = null;
+        return;
+    }
+    $mode = strtolower(trim((string)($config['conditional_mode'] ?? '')));
+    $config['conditional_mode'] = ($mode === 'hide_when') ? 'hide_when' : 'show_when';
+}
+
+/** @deprecated Read via printflow_service_field_option_conditional_rule(). */
+function printflow_service_field_option_hide_field_key(array $option): string
+{
+    $rule = printflow_service_field_option_conditional_rule($option);
+    if ($rule !== null && ($rule['action'] ?? '') === 'disable_field') {
+        return trim((string)($rule['target_field_key'] ?? ''));
+    }
+    return trim((string)($option['hide_field_key'] ?? ''));
+}
+
+/** @return list<string> */
+function printflow_service_field_option_conditional_actions(): array
+{
+    return ['disable_field'];
+}
+
+/**
+ * Resolved conditional rule for an option (canonical + legacy migration read).
+ *
+ * @return array{action:string,target_field_key:string,customer_note?:string}|null
+ */
+function printflow_service_field_option_conditional_rule(array $option): ?array
+{
+    if (isset($option['option_conditional']) && is_array($option['option_conditional'])) {
+        $action = strtolower(trim((string)($option['option_conditional']['action'] ?? '')));
+        $target = trim((string)($option['option_conditional']['target_field_key'] ?? ''));
+        if ($action === 'disable_field' && $target !== '') {
+            $rule = [
+                'action' => 'disable_field',
+                'target_field_key' => $target,
+            ];
+            $note = printflow_service_field_option_customer_note($option['option_conditional']);
+            if ($note === '') {
+                $note = printflow_service_field_option_customer_note($option);
+            }
+            if ($note !== '') {
+                $rule['customer_note'] = $note;
+            }
+            return $rule;
+        }
+    }
+
+    $legacyTarget = trim((string)($option['hide_field_key'] ?? ''));
+    if ($legacyTarget === '' && empty($option['staff_creates_layout'])) {
+        return null;
+    }
+    if ($legacyTarget === '') {
+        return null;
+    }
+    $rule = [
+        'action' => 'disable_field',
+        'target_field_key' => $legacyTarget,
+    ];
+    $note = printflow_service_field_option_customer_note($option);
+    if ($note !== '') {
+        $rule['customer_note'] = $note;
+    }
+    return $rule;
+}
+
+function printflow_service_field_conditional_target_eligible(string $sourceFieldKey, string $targetFieldKey, array $allConfigs): bool
+{
+    if ($targetFieldKey === '' || $targetFieldKey === $sourceFieldKey) {
+        return false;
+    }
+    $targetCfg = $allConfigs[$targetFieldKey] ?? null;
+    return is_array($targetCfg) && !empty($targetCfg['visible']);
+}
+
+function printflow_service_field_option_staff_creates_layout(array $option): bool
+{
+    return printflow_service_field_option_conditional_rule($option) !== null;
+}
+
+function printflow_normalize_service_field_option_customer_note(?string $text): string
+{
+    $text = trim(preg_replace("/\r\n|\r/", "\n", (string) $text));
+    if ($text === '') {
+        return '';
+    }
+    $max = printflow_service_field_help_text_max_length();
+    if (function_exists('mb_strlen') && mb_strlen($text, 'UTF-8') > $max) {
+        return mb_substr($text, 0, $max, 'UTF-8');
+    }
+    if (strlen($text) > $max) {
+        return substr($text, 0, $max);
+    }
+    return $text;
+}
+
+function printflow_service_field_option_customer_note(array $option): string
+{
+    if (isset($option['option_conditional']) && is_array($option['option_conditional'])) {
+        return printflow_normalize_service_field_option_customer_note($option['option_conditional']['customer_note'] ?? '');
+    }
+    return printflow_normalize_service_field_option_customer_note($option['customer_note'] ?? '');
+}
+
+/**
+ * Primary visible file upload field (legacy migration helper only).
+ */
+function printflow_service_resolve_primary_file_field_key(array $allConfigs): ?string
+{
+    $candidates = [];
+    foreach ($allConfigs as $key => $cfg) {
+        if (!is_string($key) || $key === '' || !is_array($cfg)) {
+            continue;
+        }
+        if (($cfg['type'] ?? '') !== 'file' || empty($cfg['visible'])) {
+            continue;
+        }
+        $candidates[] = ['key' => $key, 'order' => (int)($cfg['order'] ?? 0)];
+    }
+    if ($candidates === []) {
+        return null;
+    }
+    usort($candidates, static function ($a, $b) {
+        return $a['order'] <=> $b['order'];
+    });
+    return $candidates[0]['key'];
+}
+
+/**
+ * Conditional visibility rules affecting a target field (option-based + legacy target-side config).
+ *
+ * @return list<array{source:string,value:string,mode:string}>
+ */
+function printflow_service_field_build_conditional_rules(string $targetFieldKey, array $targetConfig, array $allConfigs): array
+{
+    $rules = [];
+    foreach ($allConfigs as $sourceKey => $sourceCfg) {
+        if (!is_string($sourceKey) || $sourceKey === '' || !is_array($sourceCfg)) {
+            continue;
+        }
+        $sourceType = strtolower(trim((string)($sourceCfg['type'] ?? '')));
+        if (!in_array($sourceType, printflow_service_field_conditional_source_types(), true)) {
+            continue;
+        }
+        foreach (($sourceCfg['options'] ?? []) as $option) {
+            if (!is_array($option)) {
+                continue;
+            }
+            $rule = printflow_service_field_option_conditional_rule($option);
+            if ($rule === null || ($rule['action'] ?? '') !== 'disable_field') {
+                continue;
+            }
+            $targetKey = trim((string)($rule['target_field_key'] ?? ''));
+            if ($targetKey === '' || $targetKey !== $targetFieldKey || $targetKey === $sourceKey) {
+                continue;
+            }
+            $optVal = trim((string)($option['value'] ?? ''));
+            if ($optVal === '') {
+                continue;
+            }
+            $outRule = [
+                'source' => $sourceKey,
+                'value' => $optVal,
+                'mode' => 'disable_when',
+                'action' => 'disable_field',
+                'target_field_key' => $targetKey,
+            ];
+            $note = trim((string)($rule['customer_note'] ?? ''));
+            if ($note !== '') {
+                $outRule['customer_note'] = $note;
+            }
+            $rules[] = $outRule;
+        }
+    }
+
+    $parentKey = trim((string)($targetConfig['parent_field_key'] ?? ''));
+    $parentValue = trim((string)($targetConfig['parent_value'] ?? ''));
+    if ($parentKey !== '' && $parentValue !== '') {
+        $rules[] = [
+            'source' => $parentKey,
+            'value' => $parentValue,
+            'mode' => printflow_service_field_conditional_mode($targetConfig),
+        ];
+    }
+
+    return $rules;
+}
+
+function printflow_service_field_hidden_by_option_rules(string $targetFieldKey, array $allConfigs, array $values): bool
+{
+    foreach ($allConfigs as $sourceKey => $sourceCfg) {
+        if (!is_string($sourceKey) || $sourceKey === '' || !is_array($sourceCfg)) {
+            continue;
+        }
+        $sourceType = strtolower(trim((string)($sourceCfg['type'] ?? '')));
+        if (!in_array($sourceType, printflow_service_field_conditional_source_types(), true)) {
+            continue;
+        }
+        $selected = printflow_service_field_resolve_parent_value($sourceKey, $values);
+        if ($selected === '') {
+            continue;
+        }
+        foreach (($sourceCfg['options'] ?? []) as $option) {
+            if (!is_array($option)) {
+                continue;
+            }
+            $rule = printflow_service_field_option_conditional_rule($option);
+            if ($rule === null || ($rule['action'] ?? '') !== 'disable_field') {
+                continue;
+            }
+            $targetKey = trim((string)($rule['target_field_key'] ?? ''));
+            if ($targetKey === '' || $targetKey !== $targetFieldKey) {
+                continue;
+            }
+            $optVal = trim((string)($option['value'] ?? ''));
+            if ($optVal === '') {
+                continue;
+            }
+            if (strcasecmp($selected, $optVal) === 0) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Validate option_conditional rules on radio/select source fields.
+ */
+function printflow_normalize_service_field_source_option_conditionals(string $sourceFieldKey, array &$config, array $allConfigs): void
+{
+    $type = strtolower(trim((string)($config['type'] ?? '')));
+    if (!in_array($type, printflow_service_field_conditional_source_types(), true)) {
+        return;
+    }
+    if (empty($config['options']) || !is_array($config['options'])) {
+        return;
+    }
+    foreach ($config['options'] as &$option) {
+        if (!is_array($option)) {
+            continue;
+        }
+
+        $incoming = null;
+        if (isset($option['option_conditional']) && is_array($option['option_conditional'])) {
+            $incoming = $option['option_conditional'];
+        } else {
+            $incoming = printflow_service_field_option_conditional_rule($option);
+        }
+
+        unset($option['staff_creates_layout'], $option['hide_field_key']);
+
+        if (!is_array($incoming) || strtolower(trim((string)($incoming['action'] ?? ''))) !== 'disable_field') {
+            unset($option['option_conditional'], $option['customer_note']);
+            continue;
+        }
+
+        $targetKey = trim((string)($incoming['target_field_key'] ?? ''));
+        if (!printflow_service_field_conditional_target_eligible($sourceFieldKey, $targetKey, $allConfigs)) {
+            unset($option['option_conditional'], $option['customer_note']);
+            continue;
+        }
+
+        $note = printflow_normalize_service_field_option_customer_note(
+            $incoming['customer_note'] ?? ($option['customer_note'] ?? '')
+        );
+        $option['option_conditional'] = [
+            'action' => 'disable_field',
+            'target_field_key' => $targetKey,
+        ];
+        if ($note !== '') {
+            $option['option_conditional']['customer_note'] = $note;
+        }
+        unset($option['customer_note']);
+    }
+    unset($option);
+}
+
+/**
+ * Drop legacy parent_field_key on targets when the same rule is stored on a source option.
+ */
+function printflow_clear_redundant_legacy_target_conditionals(array &$allConfigs): void
+{
+    $optionHideRules = [];
+    foreach ($allConfigs as $sourceKey => $sourceCfg) {
+        if (!is_array($sourceCfg)) {
+            continue;
+        }
+        foreach (($sourceCfg['options'] ?? []) as $option) {
+            if (!is_array($option)) {
+                continue;
+            }
+            $rule = printflow_service_field_option_conditional_rule($option);
+            if ($rule === null || ($rule['action'] ?? '') !== 'disable_field') {
+                continue;
+            }
+            $targetKey = trim((string)($rule['target_field_key'] ?? ''));
+            $optVal = trim((string)($option['value'] ?? ''));
+            if ($targetKey === '' || $optVal === '') {
+                continue;
+            }
+            $optionHideRules[$targetKey][] = [
+                'source' => (string)$sourceKey,
+                'value' => $optVal,
+            ];
+        }
+    }
+
+    foreach ($allConfigs as $targetKey => &$targetCfg) {
+        if (!is_array($targetCfg)) {
+            continue;
+        }
+        $parentKey = trim((string)($targetCfg['parent_field_key'] ?? ''));
+        $parentValue = trim((string)($targetCfg['parent_value'] ?? ''));
+        if ($parentKey === '' || $parentValue === '') {
+            continue;
+        }
+        if (printflow_service_field_conditional_mode($targetCfg) !== 'hide_when') {
+            continue;
+        }
+        foreach ($optionHideRules[$targetKey] ?? [] as $rule) {
+            if ($rule['source'] === $parentKey && strcasecmp($rule['value'], $parentValue) === 0) {
+                $targetCfg['parent_field_key'] = null;
+                $targetCfg['parent_value'] = null;
+                $targetCfg['conditional_mode'] = null;
+                break;
+            }
+        }
+    }
+    unset($targetCfg);
+}
+
+/**
+ * @return list<string>
+ */
+function printflow_service_field_option_values_list(array $fieldConfig): array {
+    $out = [];
+    foreach (($fieldConfig['options'] ?? []) as $option) {
+        if (is_array($option)) {
+            $val = trim((string)($option['value'] ?? ''));
+        } else {
+            $val = trim((string)$option);
+        }
+        if ($val !== '') {
+            $out[] = $val;
+        }
+    }
+    return $out;
+}
+
+/**
+ * Read a parent/source field value from POST or customization payload.
+ */
+function printflow_service_field_resolve_parent_value(string $parentKey, array $values): string {
+    if ($parentKey === 'branch') {
+        $branch = $values['branch_id'] ?? $values['branch'] ?? '';
+        return trim((string)$branch);
+    }
+    if (array_key_exists($parentKey, $values)) {
+        return trim((string)$values[$parentKey]);
+    }
+    foreach ($values as $label => $val) {
+        if (!is_string($label) || !is_scalar($val)) {
+            continue;
+        }
+        if (strcasecmp(trim($label), $parentKey) === 0) {
+            return trim((string)$val);
+        }
+    }
+    return '';
+}
+
+/**
+ * Whether a configured field is active (visible + subject to validation) for submitted values.
+ *
+ * @param array<string, array> $allConfigs Full service field map when evaluating option-based rules.
+ */
+function printflow_service_field_is_active(array $config, array $values, string $fieldKey = '', array $allConfigs = []): bool {
+    if (empty($config['visible'])) {
+        return false;
+    }
+    if ($fieldKey !== '' && $allConfigs !== []) {
+        if (printflow_service_field_hidden_by_option_rules($fieldKey, $allConfigs, $values)) {
+            return false;
+        }
+    }
+    $parentKey = trim((string)($config['parent_field_key'] ?? ''));
+    $triggerValue = trim((string)($config['parent_value'] ?? ''));
+    if ($parentKey === '' || $triggerValue === '') {
+        return true;
+    }
+    $parentVal = printflow_service_field_resolve_parent_value($parentKey, $values);
+    if ($parentVal === '') {
+        if (printflow_service_field_conditional_mode($config) === 'hide_when') {
+            return true;
+        }
+        return false;
+    }
+    $matches = strcasecmp($parentVal, $triggerValue) === 0;
+    if (printflow_service_field_conditional_mode($config) === 'hide_when') {
+        return !$matches;
+    }
+    return $matches;
+}
+
+function printflow_service_field_values_from_post(array $post): array {
+    $values = $post;
+    if (isset($post['branch_id'])) {
+        $values['branch'] = $post['branch_id'];
+    }
+    return $values;
+}
+
+/**
+ * Map customization payload (often label-keyed) back to field keys for conditional rules.
+ */
+function printflow_service_field_values_from_customization(array $customization, array $fieldConfigs): array {
+    $values = $customization;
+    foreach ($fieldConfigs as $fieldKey => $config) {
+        if (!is_string($fieldKey) || $fieldKey === '') {
+            continue;
+        }
+        if (isset($values[$fieldKey]) && trim((string)$values[$fieldKey]) !== '') {
+            continue;
+        }
+        $label = trim((string)($config['label'] ?? ''));
+        if ($label !== '' && array_key_exists($label, $customization)) {
+            $values[$fieldKey] = $customization[$label];
+        }
+    }
+    if (isset($customization['branch_id'])) {
+        $values['branch'] = $customization['branch_id'];
+    }
+    return $values;
+}
+
 function printflow_normalize_service_field_help_text(?string $text): string {
     $text = trim(preg_replace("/\r\n|\r/", "\n", (string) $text));
     if ($text === '') {
@@ -185,6 +710,7 @@ function extract_service_fields_from_page($service_link) {
  */
 function get_service_field_config($service_id) {
     printflow_ensure_service_field_configs_help_text_column();
+    printflow_ensure_service_field_conditional_mode_column();
     $configs = db_query(
         "SELECT * FROM service_field_configs WHERE service_id = ? ORDER BY display_order ASC",
         'i',
@@ -205,7 +731,8 @@ function get_service_field_config($service_id) {
             'allow_others' => isset($config['allow_others']) ? (bool)$config['allow_others'] : true,
             'order' => (int)$config['display_order'],
             'parent_field_key' => $config['parent_field_key'] ?? null,
-            'parent_value' => $config['parent_value'] ?? null
+            'parent_value' => $config['parent_value'] ?? null,
+            'conditional_mode' => $config['conditional_mode'] ?? null,
         ];
     }
     
@@ -217,6 +744,7 @@ function get_service_field_config($service_id) {
  */
 function save_service_field_config($service_id, $field_key, $config) {
     printflow_ensure_service_field_configs_help_text_column();
+    printflow_ensure_service_field_conditional_mode_column();
     $existing = db_query(
         "SELECT config_id FROM service_field_configs WHERE service_id = ? AND field_key = ?",
         'is',
@@ -232,6 +760,12 @@ function save_service_field_config($service_id, $field_key, $config) {
         ? ($config['allow_others'] ? 1 : 0)
         : 1;
     $help_text = printflow_normalize_service_field_help_text($config['help_text'] ?? '');
+    $conditional_mode = $config['conditional_mode'] ?? null;
+    if ($conditional_mode !== null && $conditional_mode !== '') {
+        $conditional_mode = printflow_service_field_conditional_mode(['conditional_mode' => $conditional_mode]);
+    } else {
+        $conditional_mode = null;
+    }
     
     if (!empty($existing)) {
         db_execute(
@@ -248,9 +782,10 @@ function save_service_field_config($service_id, $field_key, $config) {
                 display_order = ?,
                 parent_field_key = ?,
                 parent_value = ?,
+                conditional_mode = ?,
                 updated_at = NOW()
             WHERE service_id = ? AND field_key = ?",
-            'ssssiissiissis',
+            'ssssiissiisssis',
             [
                 $config['label'],
                 $help_text !== '' ? $help_text : null,
@@ -264,6 +799,7 @@ function save_service_field_config($service_id, $field_key, $config) {
                 $config['order'] ?? 0,
                 $config['parent_field_key'] ?? null,
                 $config['parent_value'] ?? null,
+                $conditional_mode,
                 $service_id,
                 $field_key
             ]
@@ -271,9 +807,9 @@ function save_service_field_config($service_id, $field_key, $config) {
     } else {
         db_execute(
             "INSERT INTO service_field_configs 
-                (service_id, field_key, field_label, help_text, field_type, field_options, is_visible, is_required, default_value, unit, allow_others, display_order, parent_field_key, parent_value) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            'isssssiiisiiss',
+                (service_id, field_key, field_label, help_text, field_type, field_options, is_visible, is_required, default_value, unit, allow_others, display_order, parent_field_key, parent_value, conditional_mode) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            'isssssiissiisss',
             [
                 $service_id,
                 $field_key,
@@ -288,7 +824,8 @@ function save_service_field_config($service_id, $field_key, $config) {
                 $allow_others,
                 $config['order'] ?? 0,
                 $config['parent_field_key'] ?? null,
-                $config['parent_value'] ?? null
+                $config['parent_value'] ?? null,
+                $conditional_mode
             ]
         );
     }

@@ -59,8 +59,8 @@ try {
                     WHEN m.message_type = 'voice' THEN '🎤 Voice message'
                     WHEN m.message_type = 'order_update' THEN '📦 Order Update'
                     ELSE 'Attachment'
-                END FROM order_messages m WHERE m.order_id = o.order_id ORDER BY m.message_id DESC LIMIT 1) AS last_message,
-               (SELECT m.created_at FROM order_messages m WHERE m.order_id = o.order_id ORDER BY m.message_id DESC LIMIT 1) AS last_message_at,
+                END FROM order_messages m WHERE m.order_id = o.order_id AND NOT (TRIM(COALESCE(m.message, '')) = 'view_status' AND COALESCE(m.action_type, '') = 'view_status' AND COALESCE(m.message_type, '') = 'order_update') ORDER BY m.message_id DESC LIMIT 1) AS last_message,
+               (SELECT m.created_at FROM order_messages m WHERE m.order_id = o.order_id AND NOT (TRIM(COALESCE(m.message, '')) = 'view_status' AND COALESCE(m.action_type, '') = 'view_status' AND COALESCE(m.message_type, '') = 'order_update') ORDER BY m.message_id DESC LIMIT 1) AS last_message_at,
                (SELECT COUNT(*) FROM order_messages m WHERE m.order_id = o.order_id AND m.sender = 'Staff' AND m.read_receipt < 2) AS unread_count,
                EXISTS(SELECT 1 FROM order_messages pm WHERE pm.order_id = o.order_id AND pm.is_pinned = 1) AS has_pinned,
                (SELECT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_type')), p.name, 'Order') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id LIMIT 1) AS product_name,
@@ -157,8 +157,8 @@ try {
                     WHEN m.message_type = 'voice' THEN '🎤 Voice message'
                     WHEN m.message_type = 'order_update' THEN '📦 Order Update'
                     ELSE 'Attachment'
-                END FROM order_messages m WHERE m.order_id = o.order_id ORDER BY m.message_id DESC LIMIT 1) AS last_message,
-               (SELECT m.created_at FROM order_messages m WHERE m.order_id = o.order_id ORDER BY m.message_id DESC LIMIT 1) AS last_message_at,
+                END FROM order_messages m WHERE m.order_id = o.order_id AND NOT (TRIM(COALESCE(m.message, '')) = 'view_status' AND COALESCE(m.action_type, '') = 'view_status' AND COALESCE(m.message_type, '') = 'order_update') ORDER BY m.message_id DESC LIMIT 1) AS last_message,
+               (SELECT m.created_at FROM order_messages m WHERE m.order_id = o.order_id AND NOT (TRIM(COALESCE(m.message, '')) = 'view_status' AND COALESCE(m.action_type, '') = 'view_status' AND COALESCE(m.message_type, '') = 'order_update') ORDER BY m.message_id DESC LIMIT 1) AS last_message_at,
                (SELECT COUNT(*) FROM order_messages m WHERE m.order_id = o.order_id AND m.sender = 'Customer' AND m.read_receipt < 2) AS unread_count,
                EXISTS(SELECT 1 FROM order_messages pm WHERE pm.order_id = o.order_id AND pm.is_pinned = 1) AS has_pinned,
                (SELECT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_type')), p.name, 'Order') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id LIMIT 1) AS product_name

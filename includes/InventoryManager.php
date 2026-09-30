@@ -122,7 +122,10 @@ class InventoryManager {
 
         self::ensureBranchScopedSchema();
 
-        $date = $date ?: date('Y-m-d');
+        // $date is an optional final parameter on all public inventory calls.
+        // Preserve a supplied POS transaction timestamp; legacy callers still
+        // receive the current server timestamp by default.
+        $date = $date ?: date('Y-m-d H:i:s');
         $quantity = abs((float)$quantity);
         $userId = $userId ?: ($_SESSION['user_id'] ?? null);
         $branchId = $branchId ?: self::getCurrentBranchId();
@@ -168,7 +171,7 @@ class InventoryManager {
             $error = $stmt->error ?: $conn->error;
             $errno = $stmt->errno ?: $conn->errno;
             $stmt->close();
-            if ($errno == 1062) {
+            if ($errno == 1062 && strtoupper((string)$refType) !== 'JOB_ORDER') {
                 return true;
             }
             throw new Exception("Ledger insert failed: " . $error);
@@ -177,7 +180,7 @@ class InventoryManager {
                 @$stmt->close();
             }
             // Error 1062 is Duplicate Entry
-            if (isset($conn->errno) && $conn->errno == 1062) {
+            if (isset($conn->errno) && $conn->errno == 1062 && strtoupper((string)$refType) !== 'JOB_ORDER') {
                 return true; 
             }
             throw new Exception("Ledger recording failed: " . $e->getMessage());

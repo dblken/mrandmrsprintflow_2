@@ -458,7 +458,7 @@ function printflow_receipt_format_text(array $receipt, int $columns = 32): strin
     }
     if (!empty($company['contact'])) $out[] = printflow_receipt_center((string)$company['contact'], $columns);
     $out[] = printflow_receipt_center('OFFICIAL POS RECEIPT', $columns);
-    if (!empty($receipt['reprint'])) $out[] = printflow_receipt_center('REPRINT', $columns);
+    if (!empty($receipt['reprint'])) $out[] = printflow_receipt_center('REPRINT COPY', $columns);
     $out[] = $eq;
     $out[] = printflow_receipt_center('RECEIPT INFO', $columns);
     $out[] = printflow_receipt_pair('Receipt No.', (string)($receipt['receipt_number'] ?? ''), $columns);

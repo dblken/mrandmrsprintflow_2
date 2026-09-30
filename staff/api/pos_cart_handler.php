@@ -125,15 +125,12 @@ function pos_cart_required_message(string $key, string $label, string $type): st
     return 'Please enter ' . strtolower($label) . '.';
 }
 
-function pos_cart_config_applies(array $config, array $customization): bool
+function pos_cart_config_applies(array $config, array $customization, array $fieldConfigs = [], string $fieldKey = ''): bool
 {
-    $parentKey = trim((string)($config['parent_field_key'] ?? ''));
-    $parentValue = trim((string)($config['parent_value'] ?? ''));
-    if ($parentKey === '' || $parentValue === '') {
-        return true;
+    if (!empty($fieldConfigs)) {
+        $customization = printflow_service_field_values_from_customization($customization, $fieldConfigs);
     }
-    $actual = pos_cart_custom_value($customization, $parentKey, $parentKey);
-    return strcasecmp($actual, $parentValue) === 0;
+    return printflow_service_field_is_active($config, $customization, $fieldKey, $fieldConfigs);
 }
 
 function pos_cart_validate_nested_required(array $fieldConfig, array $customization, array &$errors): void
@@ -198,8 +195,10 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
         return $errors;
     }
 
+    $fieldValues = printflow_service_field_values_from_customization($customization, $configs);
+
     foreach ($configs as $fieldKey => $config) {
-        if (empty($config['visible']) || empty($config['required']) || !pos_cart_config_applies($config, $customization)) {
+        if (empty($config['visible']) || empty($config['required']) || !printflow_service_field_is_active($config, $fieldValues, (string)$fieldKey, $configs)) {
             continue;
         }
 
@@ -244,15 +243,6 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
         pos_cart_validate_nested_required($fieldConfigForNested, $customization, $errors);
     }
 
-    $layout = strtolower(pos_cart_custom_value($customization, 'layout', 'Layout'));
-    if ($layout === 'with layout') {
-        $designValue = pos_cart_custom_value($customization, 'design_file', 'Upload Design');
-        $designLink = pos_cart_custom_value($customization, 'design_file_link', 'Upload Design Link');
-        if ($designValue === '' && $designLink === '') {
-            $errors['design_file'] = 'Please upload a design or paste a design link.';
-        }
-    }
-
     return $errors;
 }
 
@@ -273,6 +263,11 @@ if (!is_array($data)) {
     $data = [];
 }
 $action = $data['action'] ?? 'get';
+if ($action !== 'get' && !verify_csrf_token((string)($data['csrf_token'] ?? ''))) {
+    http_response_code(419);
+    echo json_encode(['success' => false, 'message' => 'Your session expired. Please refresh and try again.']);
+    exit;
+}
 
 try {
     switch ($action) {

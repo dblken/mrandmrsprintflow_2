@@ -2110,7 +2110,7 @@ $online_closed_count = 0;
                                 <th class="px-4 py-4 border-b border-gray-100">Needed Date</th>
                                 <th class="px-4 py-4 border-b border-gray-100 text-center">Status</th>
                                 <th class="px-4 py-4 border-b border-gray-100">Customer</th>
-                                <th class="px-4 py-4 border-b border-gray-100">Created</th>
+                                <th class="px-4 py-4 border-b border-gray-100">Order Date</th>
                                 <th class="px-4 py-4 border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
                             </tr>
                         </thead>
@@ -2165,7 +2165,7 @@ $online_closed_count = 0;
                                     </template>
                                     <template x-if="isValidOrderListRow(item)">
                                         <td class="px-4 py-4 text-right created-cell" data-label="Created">
-                                            <div class="table-text-main truncate-ellipsis" :title="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''" x-text="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"></div>
+                                            <div class="table-text-main truncate-ellipsis" :title="formatOrderBusinessDate(item.jo)" x-text="formatOrderBusinessDate(item.jo)"></div>
                                             <div class="table-text-sub uppercase truncate-ellipsis" :title="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''" x-text="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''"></div>
                                         </td>
                                     </template>
@@ -2271,11 +2271,11 @@ $online_closed_count = 0;
                                     ></span>
                                 </div>
                                 <div class="customization-mobile-card__meta-row">
-                                    <span class="customization-mobile-card__label">Created</span>
+                                    <span class="customization-mobile-card__label">Order Date</span>
                                     <span
                                         class="customization-mobile-card__value"
-                                        :title="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"
-                                        x-text="item.jo.created_at ? new Date(item.jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"
+                                        :title="formatOrderBusinessDate(item.jo)"
+                                        x-text="formatOrderBusinessDate(item.jo)"
                                     ></span>
                                 </div>
                             </div>
@@ -3537,8 +3537,20 @@ $preloaded_customization_rows_b64 = base64_encode($preloaded_customization_rows_
 
 // Canonical POS/online service form definitions (service_field_configs) for modal spec whitelisting.
 $pf_service_field_catalog = [];
+$catalogSelect = 'service_id, field_key, field_label, field_type, display_order';
+if (function_exists('db_table_has_column')) {
+    if (db_table_has_column('service_field_configs', 'parent_field_key')) {
+        $catalogSelect .= ', parent_field_key';
+    }
+    if (db_table_has_column('service_field_configs', 'parent_value')) {
+        $catalogSelect .= ', parent_value';
+    }
+    if (db_table_has_column('service_field_configs', 'conditional_mode')) {
+        $catalogSelect .= ', conditional_mode';
+    }
+}
 $config_rows = db_query(
-    "SELECT service_id, field_key, field_label, field_type, display_order, parent_field_key, parent_value
+    "SELECT {$catalogSelect}
      FROM service_field_configs
      WHERE is_visible = 1
      ORDER BY service_id ASC, display_order ASC"
@@ -3563,6 +3575,7 @@ foreach ($config_rows as $config_row) {
         'order' => (int)($config_row['display_order'] ?? 0),
         'parent_field_key' => trim((string)($config_row['parent_field_key'] ?? '')),
         'parent_value' => trim((string)($config_row['parent_value'] ?? '')),
+        'conditional_mode' => trim((string)($config_row['conditional_mode'] ?? '')),
     ];
 }
 $pf_service_field_catalog_json = json_encode(
@@ -4416,7 +4429,7 @@ window.pfServiceFieldCatalog = (() => {
 
                 const customer = String(row.customer_full_name || row.customer_name || '').trim().toLowerCase();
                 const status = String(row.status || '').trim().toUpperCase();
-                const created = String(row.created_at || row.order_date || '').trim().slice(0, 10);
+                const created = String(row.order_business_date || row.order_date || row.created_at || '').trim().slice(0, 10);
                 const rawLabel = String(row.service_type || row.job_title || '').trim().toLowerCase();
                 const normalizedLabel = rawLabel
                     .replace(/\s+-\s+\d+\s*pcs?$/i, '')
@@ -6549,6 +6562,19 @@ window.pfServiceFieldCatalog = (() => {
                     if (deliberateKeyboardAction) this.requestMaterialOverride(item);
                     return;
                 }
+                const selectedId = String(item.id);
+                const pendingIndex = this.pendingMaterials.findIndex(material => String(material.item_id || '') === selectedId);
+                if (pendingIndex >= 0) {
+                    this.removePendingMaterial(pendingIndex);
+                    this.materialListExpanded = true;
+                    return;
+                }
+                const assigned = (Array.isArray(this.currentJo && this.currentJo.materials) ? this.currentJo.materials : [])
+                    .some(material => String(material.item_id || '') === selectedId);
+                if (assigned) {
+                    this.showStaffAlert('Material Locked', 'Assigned materials can no longer be removed once they have been set.');
+                    return;
+                }
                 if (this.isMaterialSelected(item.id)) return;
                 this.handleMaterialSelection(String(item.id));
                 this.productionErrors.material = '';
@@ -7343,7 +7369,7 @@ window.pfServiceFieldCatalog = (() => {
                 }
 
                 if (this.dateFilter !== 'ALL') {
-                    const orderDate = new Date(jo.created_at || jo.order_date);
+                    const orderDate = new Date(jo.order_business_date || jo.order_date || jo.created_at);
                     const now = new Date();
 
                     if (this.dateFilter === 'TODAY') {
@@ -8452,7 +8478,8 @@ window.pfServiceFieldCatalog = (() => {
                                         body: JSON.stringify({
                                             action: 'update_price',
                                             index: state.item_index,
-                                            price: priceValue
+                                            price: priceValue,
+                                            csrf_token: document.body.getAttribute('data-csrf') || ''
                                         })
                                     });
                                     await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
@@ -8462,7 +8489,8 @@ window.pfServiceFieldCatalog = (() => {
                                             action: 'update_service_link',
                                             index: state.item_index,
                                             pending_order_id: parseInt(this.currentJo.order_id || this.deepLinkSourceOrderId || 0, 10) || 0,
-                                            customization_id: parseInt(this.currentJo.id || 0, 10) || 0
+                                            customization_id: parseInt(this.currentJo.id || 0, 10) || 0,
+                                            csrf_token: document.body.getAttribute('data-csrf') || ''
                                         })
                                     });
                                 } catch (e) {
@@ -8585,7 +8613,8 @@ window.pfServiceFieldCatalog = (() => {
                                     body: JSON.stringify({
                                         action: 'update_price',
                                         index: itemIndex,
-                                        price: userEnteredPrice
+                                        price: userEnteredPrice,
+                                        csrf_token: document.body.getAttribute('data-csrf') || ''
                                     })
                                 });
                                 await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
@@ -8595,7 +8624,8 @@ window.pfServiceFieldCatalog = (() => {
                                         action: 'update_service_link',
                                         index: itemIndex,
                                         pending_order_id: parseInt(this.currentJo.order_id || this.deepLinkSourceOrderId || 0, 10) || 0,
-                                        customization_id: parseInt(this.currentJo.id || 0, 10) || 0
+                                        customization_id: parseInt(this.currentJo.id || 0, 10) || 0,
+                                        csrf_token: document.body.getAttribute('data-csrf') || ''
                                     })
                                 });
                                 window.location.href = this.staffApiUrl('pos.php?from_customizations=1');
@@ -9548,6 +9578,7 @@ window.pfServiceFieldCatalog = (() => {
                 const fd = new FormData();
                 fd.append('order_id', orderId);
                 fd.append('status', 'Cancelled');
+                fd.append('expected_status', target.status || '');
                 fd.append('cancel_reason', 'Cancelled in-store after discussion with the customer.');
                 fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                 const res = await this.parseJsonResponse(
@@ -9567,6 +9598,14 @@ window.pfServiceFieldCatalog = (() => {
                 }
             },
 
+            formatOrderBusinessDate(row) {
+                const value = String(row.order_business_date || row.order_date || row.created_at || '').trim();
+                if (!value) return '';
+                const parsed = new Date(value.replace(' ', 'T'));
+                return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString(undefined, {
+                    month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
+                });
+            },
             async completeOrder(machineId = null) {
                 if (!this.beginModalAction()) return;
                 try {
@@ -9581,6 +9620,7 @@ window.pfServiceFieldCatalog = (() => {
                         const fd = new FormData();
                         fd.append('order_id', orderId);
                         fd.append('status', 'Completed');
+                        fd.append('expected_status', this.currentJo.status || '');
                         fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
 
                         const endpoint = this.staffApiUrl('update_order_status_process.php');

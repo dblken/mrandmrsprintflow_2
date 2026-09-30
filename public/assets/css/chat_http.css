@@ -46,6 +46,20 @@
 .conv-bottom, .conv-prev, .conv-preview { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .unread-badge { flex: 0 0 auto; min-width: 19px; height: 19px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 0 5px; background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; }
 .pf-chat-unread-badge { flex: 0 0 auto; min-width: 19px; height: 19px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 999px; background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; line-height: 1; }
+.pf-chat-sidebar-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: .9rem; min-width: 0; }
+body .pf-chat-sidebar-heading h2,
+body .pf-chat-sidebar-heading .sidebar-title { margin: 0; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.pf-chat-mark-all { flex: 0 0 auto; border: 1px solid #dbe7ee; border-radius: 999px; background: #fff; color: #0a2530; padding: 6px 10px; font-size: 11px; font-weight: 800; cursor: pointer; line-height: 1; }
+.pf-chat-mark-all:hover { background: #f8fafc; border-color: #b9cad5; }
+.pf-chat-mark-all:disabled { opacity: .55; cursor: not-allowed; }
+.pf-chat-confirm-overlay { position: fixed; inset: 0; z-index: 20001; display: none; align-items: center; justify-content: center; padding: 1rem; background: rgba(15,23,42,.42); }
+.pf-chat-confirm-overlay.is-open { display: flex; }
+.pf-chat-confirm-card { width: min(100%, 360px); background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 1.25rem; box-shadow: 0 24px 60px rgba(15,23,42,.22); }
+.pf-chat-confirm-title { margin: 0; color: #0f172a; font-size: 1rem; font-weight: 900; }
+.pf-chat-confirm-message { margin: .55rem 0 1rem; color: #475569; font-size: .88rem; line-height: 1.45; }
+.pf-chat-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.pf-chat-confirm-btn { border: 1px solid #e2e8f0; border-radius: 10px; padding: 9px 12px; background: #fff; color: #0f172a; font-size: .8rem; font-weight: 800; cursor: pointer; }
+.pf-chat-confirm-btn.primary { background: #0a2530; border-color: #0a2530; color: #fff; }
 .pf-empty { padding: 28px 18px; text-align: center; color: #64748b; }
 .pf-toast { position: fixed; z-index: 20000; left: 50%; bottom: max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%); max-width: calc(100vw - 28px); padding: 10px 14px; border-radius: 10px; color: #fff; background: #0f172a; box-shadow: 0 12px 30px rgba(15,23,42,.3); font-size: 13px; }
 
@@ -61,4 +75,5 @@
   .cs-footer, .window-footer { padding-bottom: env(safe-area-inset-bottom) !important; }
   .chat-input-area { gap: 6px !important; min-width: 0; }
   .input-bar { min-width: 0; }
+  .pf-chat-sidebar-heading { align-items: flex-start; flex-direction: column; }
 }

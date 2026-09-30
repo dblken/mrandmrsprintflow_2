@@ -3002,6 +3002,10 @@ if (isset($_GET['ajax'])) {
                         <?php foreach ($catalog_groups_admin as $cg):
                             $gid = (int) $cg['group_id'];
                             $members = printflow_catalog_group_members($gid, false);
+                            $memberProductIds = [];
+                            foreach ($members as $memberRow) {
+                                $memberProductIds[(int) ($memberRow['product_id'] ?? 0)] = true;
+                            }
                             $cgStatus = (string) ($cg['status'] ?? 'Activated');
                             $cgDescription = (string) ($cg['description'] ?? '');
                             $cgDescLen = function_exists('mb_strlen') ? mb_strlen($cgDescription, 'UTF-8') : strlen($cgDescription);
@@ -3057,7 +3061,7 @@ if (isset($_GET['ajax'])) {
                                         <?php else: ?>
                                             <div class="pf-cg-members">
                                                 <?php foreach ($members as $m): ?>
-                                                    <div class="pf-cg-member-row">
+                                                    <div class="pf-cg-member-row" data-member-product-id="<?php echo (int) $m['product_id']; ?>">
                                                         <span class="pf-cg-member-name"><?php echo htmlspecialchars($m['name']); ?></span>
                                                         <form method="POST" class="pf-cg-inline-form">
                                                             <?php echo csrf_field(); ?>
@@ -3086,8 +3090,10 @@ if (isset($_GET['ajax'])) {
                                                             if ($inOther) {
                                                                 continue;
                                                             }
+                                                            $optionLabel = $pp['name'] . ($pp['sku'] ? ' (' . $pp['sku'] . ')' : '');
+                                                            $isInCurrentGroup = isset($memberProductIds[$pid]);
                                                             ?>
-                                                            <option value="<?php echo $pid; ?>"><?php echo htmlspecialchars($pp['name'] . ($pp['sku'] ? ' (' . $pp['sku'] . ')' : '')); ?></option>
+                                                            <option value="<?php echo $pid; ?>" data-base-label="<?php echo htmlspecialchars($optionLabel, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($optionLabel); ?><?php echo $isInCurrentGroup ? ' &#8212; &#10003; Added' : ''; ?></option>
                                                         <?php endforeach; ?>
                                                     </select>
                                                 </div>
@@ -3118,9 +3124,13 @@ if (isset($_GET['ajax'])) {
                 var overlay = document.getElementById('pf-cg-manage-overlay');
                 if (!overlay) return;
                 var id = String(groupId);
+                var activePane = null;
                 overlay.querySelectorAll('.pf-cg-manage-pane').forEach(function (pane) {
-                    pane.hidden = pane.getAttribute('data-group-id') !== id;
+                    var isActive = pane.getAttribute('data-group-id') === id;
+                    pane.hidden = !isActive;
+                    if (isActive) activePane = pane;
                 });
+                pfCgRefreshProductOptionIndicators(activePane);
                 overlay.classList.add('active');
                 document.body.style.overflow = 'hidden';
             }
@@ -3131,6 +3141,19 @@ if (isset($_GET['ajax'])) {
             }
             function pfCgManageOverlayClick(e) {
                 if (e.target.id === 'pf-cg-manage-overlay') closeCatalogGroupManage();
+            }
+            function pfCgRefreshProductOptionIndicators(pane) {
+                if (!pane) return;
+                var memberIds = new Set();
+                pane.querySelectorAll('[data-member-product-id]').forEach(function (row) {
+                    var id = row.getAttribute('data-member-product-id');
+                    if (id) memberIds.add(String(id));
+                });
+                pane.querySelectorAll('select[name="member_product_id"] option').forEach(function (option) {
+                    var baseLabel = option.getAttribute('data-base-label');
+                    if (!baseLabel) return;
+                    option.textContent = memberIds.has(String(option.value)) ? baseLabel + ' \u2014 \u2713 Added' : baseLabel;
+                });
             }
             function openCatalogGroupCreate() {
                 var overlay = document.getElementById('pf-cg-create-overlay');

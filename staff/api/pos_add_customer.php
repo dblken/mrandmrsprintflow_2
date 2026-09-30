@@ -19,15 +19,21 @@ header('Content-Type: application/json');
 $json = file_get_contents('php://input');
 $data = json_decode($json, true);
 
-if (!$data || empty($data['first_name']) || empty($data['last_name']) || empty($data['email'])) {
+if (!is_array($data) || !verify_csrf_token((string)($data['csrf_token'] ?? ''))) {
+    http_response_code(419);
+    echo json_encode(['success' => false, 'message' => 'Your session expired. Please refresh and try again.']);
+    exit;
+}
+
+if (empty($data['first_name']) || empty($data['last_name']) || empty($data['email'])) {
     echo json_encode(['success' => false, 'message' => 'First name, last name, and email are required.']);
     exit;
 }
 
-$first_name = sanitize($data['first_name']);
-$last_name = sanitize($data['last_name']);
-$email = sanitize($data['email']);
-$contact = !empty($data['contact_number']) ? sanitize($data['contact_number']) : null;
+$first_name = trim((string)$data['first_name']);
+$last_name = trim((string)$data['last_name']);
+$email = trim((string)$data['email']);
+$contact = !empty($data['contact_number']) ? trim((string)$data['contact_number']) : null;
 
 // Validate email format
 if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {

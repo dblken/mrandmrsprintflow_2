@@ -1648,6 +1648,29 @@ function printflow_format_inventory_reference_note(string $notes, string $refere
 }
 
 /**
+ * Resolve the business transaction timestamp for inventory ledger rows tied to a store order.
+ */
+function printflow_store_order_ledger_date(int $order_id): ?string {
+    $order_id = (int) $order_id;
+    if ($order_id <= 0) {
+        return null;
+    }
+    $rows = db_query(
+        'SELECT order_date FROM orders WHERE order_id = ? LIMIT 1',
+        'i',
+        [$order_id]
+    ) ?: [];
+    $raw = trim((string) ($rows[0]['order_date'] ?? ''));
+    if ($raw === '' || str_starts_with($raw, '0000-')) {
+        return null;
+    }
+    // Keep the exact POS-selected timestamp. Material and roll deductions can
+    // occur later in the workflow, but their ledger business date belongs to
+    // the originating sale.
+    return $raw;
+}
+
+/**
  * Resolve a store order's visible code using the same SKU-based pattern as the order pages.
  *
  * @return array{type:string,id:int,code:string,label:string}
@@ -1969,7 +1992,11 @@ function status_badge($status, $type = 'order') {
 
 
 /**
- * Sanitize input
+ * Legacy input normalizer that trims and HTML-escapes text.
+ *
+ * This is NOT SQL protection. SQL values must still use parameter binding,
+ * and new code should normally store trimmed plain text then escape it for the
+ * specific HTML/attribute/JSON output context.
  * @param string $input
  * @return string
  */

@@ -291,6 +291,92 @@ function pos_checkout_verify_csrf(string $token, array $sessionContext): bool {
     return $expected !== '' && hash_equals($expected, (string)$token);
 }
 
+function pos_checkout_user_may_set_custom_transaction_datetime(): bool {
+    return has_role(['Admin', 'Staff']);
+}
+
+function pos_checkout_custom_datetime_enabled(array $data): bool {
+    if (!array_key_exists('use_custom_transaction_datetime', $data)) {
+        return false;
+    }
+    $raw = $data['use_custom_transaction_datetime'];
+    if (is_bool($raw)) {
+        return $raw;
+    }
+    if (is_int($raw) || is_float($raw)) {
+        return (int) $raw === 1;
+    }
+    $normalized = strtolower(trim((string) $raw));
+    return in_array($normalized, ['1', 'true', 'yes', 'on'], true);
+}
+
+function pos_checkout_normalize_transaction_time(string $time): string {
+    $time = trim($time);
+    if (preg_match('/^\d{2}:\d{2}$/', $time)) {
+        return $time . ':00';
+    }
+    if (preg_match('/^\d{2}:\d{2}:\d{2}$/', $time)) {
+        return $time;
+    }
+    throw new RuntimeException('Invalid transaction date/time.', 400);
+}
+
+function pos_checkout_resolve_transaction_datetime(array $data): ?string {
+    if (!pos_checkout_custom_datetime_enabled($data)) {
+        return null;
+    }
+    $date = trim((string)($data['custom_transaction_date'] ?? ''));
+    $time = trim((string)($data['custom_transaction_time'] ?? ''));
+    if (!pos_checkout_user_may_set_custom_transaction_datetime()) {
+        throw new RuntimeException('You are not allowed to set a custom transaction date/time.', 403);
+    }
+    if ($date === '' || $time === '') {
+        throw new RuntimeException('A transaction date and time are required when custom date/time is enabled.', 400);
+    }
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        throw new RuntimeException('Invalid transaction date/time.', 400);
+    }
+    $time = pos_checkout_normalize_transaction_time($time);
+    $parsed = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $date . ' ' . $time);
+    $errors = DateTimeImmutable::getLastErrors();
+    if (!$parsed || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
+        || $parsed->format('Y-m-d H:i:s') !== $date . ' ' . $time) {
+        throw new RuntimeException('Invalid transaction date/time.', 400);
+    }
+    if ($parsed > new DateTimeImmutable('now')) {
+        throw new RuntimeException('Future transaction dates are not allowed.', 400);
+    }
+    return $parsed->format('Y-m-d H:i:s');
+}
+
+function pos_checkout_selected_transaction_datetime(array $data): string {
+    $custom = pos_checkout_resolve_transaction_datetime($data);
+    return $custom ?? date('Y-m-d H:i:s');
+}
+
+function pos_checkout_align_pos_order_timestamps(array $orderIds, string $selectedTransactionAt): void {
+    $selectedTransactionAt = trim($selectedTransactionAt);
+    if ($selectedTransactionAt === '') {
+        return;
+    }
+    foreach ($orderIds as $orderId) {
+        $orderId = (int) $orderId;
+        if ($orderId <= 0) {
+            continue;
+        }
+        // created_at is the actual creation time. Consumers resolve the
+        // business timestamp through customizations.order_id -> orders.
+        if (getenv('PRINTFLOW_POS_DATETIME_DEBUG') === '1') {
+            $saved = db_query('SELECT order_id, order_date FROM orders WHERE order_id = ?', 'i', [$orderId]);
+            error_log('[PrintFlow POS datetime] saved_order ' . json_encode([
+                'expected_transaction_date' => $selectedTransactionAt,
+                'saved' => $saved,
+                'customizations' => db_query('SELECT customization_id, order_id, created_at FROM customizations WHERE order_id = ?', 'i', [$orderId]),
+            ]));
+        }
+    }
+}
+
 function pos_checkout_reopen_session(): void {
     if (session_status() !== PHP_SESSION_ACTIVE) {
         SessionManager::start();
@@ -1167,6 +1253,21 @@ if (!pos_checkout_verify_csrf((string)($data['csrf_token'] ?? ''), $sessionConte
     echo json_encode(['success' => false, 'message' => 'Invalid security token.']);
     exit;
 }
+try {
+    $selectedTransactionAt = pos_checkout_selected_transaction_datetime($data);
+} catch (Throwable $dateError) {
+    http_response_code((int)$dateError->getCode() >= 400 && (int)$dateError->getCode() < 500 ? (int)$dateError->getCode() : 400);
+    echo json_encode(['success' => false, 'message' => $dateError->getMessage()]);
+    exit;
+}
+pos_checkout_log_stage('transaction_datetime', [
+    'custom' => pos_checkout_custom_datetime_enabled($data) ? 1 : 0,
+    'use_custom_transaction_datetime' => (string) ($data['use_custom_transaction_datetime'] ?? ''),
+    'custom_transaction_date' => (string) ($data['custom_transaction_date'] ?? ''),
+    'custom_transaction_time' => (string) ($data['custom_transaction_time'] ?? ''),
+    'selected' => $selectedTransactionAt,
+    'inventory_transaction_date' => $selectedTransactionAt,
+]);
 $payment_method = sanitize($data['payment_method'] ?? 'Cash');
 $reference_number = sanitize($data['reference_number'] ?? '');
 $amount_tendered = (float)($data['amount_tendered'] ?? 0);
@@ -1442,10 +1543,10 @@ try {
 
         $order_result = db_execute(
             "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source{$amountPaidColumns}{$priceFinalColumns})
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",
-            'iiidsssss' . $amountPaidTypes . $priceFinalTypes,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",
+            'iiidssssss' . $amountPaidTypes . $priceFinalTypes,
             array_merge(
-                [$customer_id, $branch_id, $reference_id, $groupTotal, $order_status, $initial_payment_status, $payment_method, $posBundleReference, $order_type],
+                [$customer_id, $branch_id, $reference_id, $groupTotal, $order_status, $initial_payment_status, $payment_method, $posBundleReference, $selectedTransactionAt, $order_type],
                 $amountPaidParams,
                 $priceFinalParams
             )
@@ -1458,6 +1559,10 @@ try {
         }
 
         $order_id = (int)$conn->insert_id;
+        pos_checkout_log_stage('order_inserted', [
+            'order_id' => $order_id,
+            'order_date' => $selectedTransactionAt,
+        ]);
         $linkedOrderIds[] = $order_id;
         if ($primaryOrderId === null || $order_type === 'product') {
             $primaryOrderId = $order_id;
@@ -1712,12 +1817,13 @@ try {
                          total_amount = ?,
                          status = 'Pending',
                          order_source = 'pos_merged',
+                         order_date = ?,
                          updated_at = NOW()
                          {$pendingPriceFinalSql}
                      WHERE order_id = ?",
-                    'ssd' . $pendingPriceFinalTypes . 'i',
+                    'ssds' . $pendingPriceFinalTypes . 'i',
                     array_merge(
-                        [$initial_payment_status, $payment_method, $price * $qty],
+                        [$initial_payment_status, $payment_method, $price * $qty, $selectedTransactionAt],
                         $pendingPriceFinalParams,
                         [$pendingOrderId]
                     )
@@ -1732,14 +1838,42 @@ try {
         $current_user_id = $checkout_actor_user_id;
         if (!$isPayMongo && !$is_service && $is_actual_product) {
             try {
-                printflow_apply_product_order_item_inventory(
+                pos_checkout_log_stage('inventory_deduction_started', [
+                    'order_id' => $order_id,
+                    'order_item_id' => $order_item_id,
+                    'product_id' => $product_id,
+                    'quantity' => $qty,
+                    'branch_id' => $branch_id,
+                    'transaction_date' => $selectedTransactionAt,
+                ]);
+                $inventoryResult = printflow_apply_product_order_item_inventory(
                     (int)$order_item_id,
                     (int)$branch_id,
                     $current_user_id,
-                    'POS sale'
+                    'POS sale',
+                    $selectedTransactionAt
                 );
+                pos_checkout_log_stage('inventory_deduction_finished', [
+                    'order_id' => $order_id,
+                    'order_item_id' => $order_item_id,
+                    'product_id' => $product_id,
+                    'quantity' => $qty,
+                    'branch_id' => $branch_id,
+                    'transaction_date' => $selectedTransactionAt,
+                    'applied' => !empty($inventoryResult['applied']) ? 1 : 0,
+                    'already_applied' => !empty($inventoryResult['already_applied']) ? 1 : 0,
+                ]);
                 $checkout_stage = 'inventory_deducted';
             } catch (Throwable $inventoryError) {
+                pos_checkout_log_stage('inventory_deduction_failed', [
+                    'order_id' => $order_id,
+                    'order_item_id' => $order_item_id,
+                    'product_id' => $product_id,
+                    'quantity' => $qty,
+                    'branch_id' => $branch_id,
+                    'transaction_date' => $selectedTransactionAt,
+                    'error' => $inventoryError->getMessage(),
+                ]);
                 throw new RuntimeException('Failed to deduct stock for ' . $prod_name . ': ' . $inventoryError->getMessage(), 409, $inventoryError);
             }
         }
@@ -1768,6 +1902,7 @@ try {
     $transaction_open = false;
     $checkout_committed = true;
     $checkout_stage = 'committed';
+    pos_checkout_align_pos_order_timestamps($linkedOrderIds, $selectedTransactionAt);
     $sync_warning = '';
     foreach ($post_commit_job_sync as $syncMeta) {
         if (!is_array($syncMeta)) {
@@ -1824,6 +1959,11 @@ try {
     }
 
     $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered, $linkedOrderIds);
+    pos_checkout_log_stage('receipt_built', [
+        'order_id' => (int)$order_id,
+        'order_date' => $selectedTransactionAt,
+        'receipt_date' => (string)($receipt['date_time'] ?? ''),
+    ]);
     pos_checkout_persist_session_state(
         $checkoutToken,
         (int)$order_id,
@@ -1834,6 +1974,10 @@ try {
     echo json_encode([
         'success' => true,
         'order_id' => $order_id,
+        // This is the one canonical POS transaction timestamp.  Receipt data
+        // is built from the saved order_date using the same value.
+        'order_date' => $selectedTransactionAt,
+        'transaction_date' => $selectedTransactionAt,
         'customization_id' => $last_customization_id ?? null,
         'message' => 'Sale completed successfully.',
         'warning' => $sync_warning,
@@ -1866,6 +2010,8 @@ try {
             echo json_encode([
                 'success' => true,
                 'order_id' => (int)$order_id,
+                'order_date' => $selectedTransactionAt,
+                'transaction_date' => $selectedTransactionAt,
                 'customization_id' => $last_customization_id ?? null,
                 'message' => 'Sale completed successfully.',
                 'warning' => 'Production sync needs follow-up.',

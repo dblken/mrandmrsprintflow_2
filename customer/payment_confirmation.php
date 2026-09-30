@@ -53,18 +53,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     if (!$transactionStarted) throw new RuntimeException('Could not start payment transaction.');
 
                     $updated = db_execute(
-                        "UPDATE orders SET status = 'To Verify', payment_status = 'Unpaid', payment_method = ?, payment_reference = ?, payment_proof_path = ?, updated_at = NOW() WHERE order_id = ?",
-                        'sssi',
-                        [$payment_method, $reference_number, $file_path, $order_id]
+                        "UPDATE orders SET status = 'To Verify', payment_status = 'Unpaid', payment_method = ?, payment_reference = ?, payment_proof_path = ?, updated_at = NOW() WHERE order_id = ? AND customer_id = ?",
+                        'sssii',
+                        [$payment_method, $reference_number, $file_path, $order_id, $customer_id]
                     );
                     if (!$updated) throw new RuntimeException('Order payment state could not be updated.');
                     if (db_table_has_column('orders', 'payment_proof')) {
-                        if (!db_execute('UPDATE orders SET payment_proof = ?, payment_submitted_at = NOW() WHERE order_id = ?', 'si', [$file_path, $order_id])) {
+                        if (!db_execute('UPDATE orders SET payment_proof = ?, payment_submitted_at = NOW() WHERE order_id = ? AND customer_id = ?', 'sii', [$file_path, $order_id, $customer_id])) {
                             throw new RuntimeException('Canonical payment proof could not be linked.');
                         }
                     }
                     if (db_table_has_column('orders', 'payment_proof_needs_resubmit')) {
-                        db_execute('UPDATE orders SET payment_proof_needs_resubmit = 0 WHERE order_id = ?', 'i', [$order_id]);
+                        db_execute('UPDATE orders SET payment_proof_needs_resubmit = 0 WHERE order_id = ? AND customer_id = ?', 'ii', [$order_id, $customer_id]);
                     }
 
                     JobOrderService::ensureJobsForStoreOrder($order_id);

@@ -387,6 +387,7 @@ require_once __DIR__ . '/../includes/header.php';
                 this.submitting = true;
                 const fd = new FormData();
                 fd.append('action', 'create_order');
+                fd.append('csrf_token', <?php echo json_encode(generate_csrf_token()); ?>);
                 fd.append('service_type', this.form.service_type);
                 fd.append('branch_id', this.form.branch_id);
                 fd.append('job_title', this.form.job_title);

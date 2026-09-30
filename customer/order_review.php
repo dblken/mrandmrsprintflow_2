@@ -11,6 +11,11 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
+require_once __DIR__ . '/../includes/product_branch_stock.php';
+require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/ensure_customer_checkout_idempotency_schema.php';
+
+printflow_ensure_customer_checkout_idempotency_schema();
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
@@ -195,56 +200,69 @@ function review_catalog_unit_price(array $item): ?float {
     }
 
     $variant_id = isset($item['variant_id']) ? (int)$item['variant_id'] : 0;
-    $cache_key = $product_id . ':' . $variant_id;
+    $custom = review_item_customization($item);
+    $cache_key = $product_id . ':' . $variant_id . ':' . hash('sha256', json_encode($custom));
     if (array_key_exists($cache_key, $cache)) {
         return $cache[$cache_key];
     }
 
     if ($variant_id > 0) {
         $variant = db_query(
-            "SELECT price FROM product_variants WHERE variant_id = ? AND product_id = ? LIMIT 1",
+            "SELECT price FROM product_variants WHERE variant_id = ? AND product_id = ? AND status = 'Active' LIMIT 1",
             'ii',
             [$variant_id, $product_id]
         );
         if (!empty($variant)) {
-            return $cache[$cache_key] = (float)$variant[0]['price'];
+            $basePrice = (float)$variant[0]['price'];
+        } else {
+            return $cache[$cache_key] = null;
+        }
+    } else {
+        $product = db_query(
+            "SELECT price FROM products WHERE product_id = ? AND status = 'Activated' LIMIT 1",
+            'i',
+            [$product_id]
+        );
+        if (empty($product)) {
+            return $cache[$cache_key] = null;
+        }
+        $basePrice = (float)$product[0]['price'];
+    }
+
+    // Product options are priced from the saved server-side field configuration.
+    // Cart/session price is display state only and is never authoritative here.
+    $optionTotal = 0.0;
+    foreach (get_product_field_config($product_id) as $fieldKey => $config) {
+        if (empty($config['visible'])) {
+            continue;
+        }
+        $label = trim((string)($config['label'] ?? $fieldKey));
+        $selected = trim((string)($custom[$label] ?? $custom[$fieldKey] ?? ''));
+        if (($config['type'] ?? '') === 'dimension') {
+            $unit = trim((string)($config['unit'] ?? ''));
+            if ($unit !== '') {
+                $selected = preg_replace('/\s+' . preg_quote($unit, '/') . '$/i', '', $selected) ?? $selected;
+            }
+        }
+        foreach ((array)($config['options'] ?? []) as $option) {
+            $value = is_array($option) ? trim((string)($option['value'] ?? '')) : trim((string)$option);
+            if ($value !== '' && hash_equals($value, $selected)) {
+                $optionTotal += max(0.0, (float)(is_array($option) ? ($option['price'] ?? 0) : 0));
+                break;
+            }
         }
     }
 
-    $product = db_query(
-        "SELECT price FROM products WHERE product_id = ? LIMIT 1",
-        'i',
-        [$product_id]
-    );
-
-    return $cache[$cache_key] = (!empty($product) ? (float)$product[0]['price'] : null);
+    return $cache[$cache_key] = round(max(0.0, $basePrice + $optionTotal), 2);
 }
 
 function review_item_unit_price(array $item): float {
-    $raw_price = (float)($item['price'] ?? $item['unit_price'] ?? $item['estimated_price'] ?? 0);
     if (!review_item_is_product($item)) {
-        return $raw_price;
+        return (float)($item['price'] ?? $item['unit_price'] ?? $item['estimated_price'] ?? 0);
     }
 
     $catalog_unit_price = review_catalog_unit_price($item);
-    if ($catalog_unit_price === null || $catalog_unit_price <= 0) {
-        return $raw_price;
-    }
-
-    $quantity = review_item_quantity($item);
-    if ($raw_price <= 0) {
-        return $catalog_unit_price;
-    }
-
-    if (abs($raw_price - $catalog_unit_price) < 0.01) {
-        return $catalog_unit_price;
-    }
-
-    if ($quantity > 1 && abs($raw_price - ($catalog_unit_price * $quantity)) < 0.01) {
-        return $catalog_unit_price;
-    }
-
-    return $raw_price;
+    return $catalog_unit_price !== null ? $catalog_unit_price : 0.0;
 }
 
 function review_item_quantity(array $item): int {
@@ -279,6 +297,54 @@ function review_item_customization(array $item): array {
 }
 
 // ── Accept the "buy_now" item key(s) from session ──────────────────
+function review_checkout_token_is_valid(string $token): bool {
+    return (bool)preg_match('/^[a-f0-9]{64}$/', strtolower(trim($token)));
+}
+
+function review_checkout_existing_order(int $customerId, string $token): int {
+    if ($customerId <= 0 || !review_checkout_token_is_valid($token)
+        || !db_table_has_column('orders', 'checkout_token')) {
+        return 0;
+    }
+    $rows = db_query(
+        'SELECT order_id FROM orders WHERE customer_id = ? AND checkout_token = ? LIMIT 1',
+        'is',
+        [$customerId, strtolower(trim($token))]
+    ) ?: [];
+    return (int)($rows[0]['order_id'] ?? 0);
+}
+
+function review_checkout_redirect_existing(int $orderId, bool $ajax): void {
+    if ($orderId <= 0) return;
+    $rows = db_query('SELECT order_type FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]) ?: [];
+    $redirect = strtolower(trim((string)($rows[0]['order_type'] ?? ''))) === 'custom'
+        ? 'orders.php'
+        : 'payment.php?order_id=' . $orderId;
+    if ($ajax) {
+        review_json_confirm_response(true, [
+            'order_id' => $orderId,
+            'redirect' => $redirect,
+            'idempotent_replay' => true,
+        ]);
+    }
+    header('Location: ' . $redirect);
+    exit;
+}
+
+$customer_id = get_user_id();
+$posted_checkout_token = strtolower(trim((string)($_POST['checkout_token'] ?? '')));
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST'
+    && isset($_POST['confirm_order'])
+    && verify_csrf_token((string)($_POST['csrf_token'] ?? ''))
+    && review_checkout_token_is_valid($posted_checkout_token)
+) {
+    review_checkout_redirect_existing(
+        review_checkout_existing_order((int)$customer_id, $posted_checkout_token),
+        review_is_ajax_confirm_request()
+    );
+}
+
 $item_key = $_REQUEST['item'] ?? '';
 $cart     = $_SESSION['cart'] ?? [];
 
@@ -317,7 +383,6 @@ if ($review_has_product && $review_has_service) {
     redirect('cart.php');
 }
 
-$customer_id = get_user_id();
 $customer    = db_query("SELECT * FROM customers WHERE customer_id = ?", 'i', [$customer_id])[0] ?? [];
 $customer_type = $customer['customer_type'] ?? 'new';
 $address_parts = [
@@ -356,18 +421,48 @@ if (!$needs_branch_selection) {
     }
 }
 
+$checkout_fingerprint_payload = [];
+foreach ($items_to_review as $key => $checkoutItem) {
+    $checkout_fingerprint_payload[$key] = [
+        'product_id' => (int)($checkoutItem['product_id'] ?? 0),
+        'variant_id' => (int)($checkoutItem['variant_id'] ?? 0),
+        'quantity' => review_item_quantity($checkoutItem),
+        'branch_id' => (int)($checkoutItem['branch_id'] ?? 0),
+        'customization' => review_item_customization($checkoutItem),
+    ];
+}
+$checkout_fingerprint = hash('sha256', json_encode([
+    'customer_id' => (int)$customer_id,
+    'items' => $checkout_fingerprint_payload,
+]));
+if (!isset($_SESSION['order_review_checkout_tokens']) || !is_array($_SESSION['order_review_checkout_tokens'])) {
+    $_SESSION['order_review_checkout_tokens'] = [];
+}
+if (empty($_SESSION['order_review_checkout_tokens'][$checkout_fingerprint])) {
+    $_SESSION['order_review_checkout_tokens'][$checkout_fingerprint] = bin2hex(random_bytes(32));
+}
+$checkout_token = (string)$_SESSION['order_review_checkout_tokens'][$checkout_fingerprint];
+
 // Handle Place Order FIRST (to allow clearing cart without trigger redirect)
 $order_error = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
-    error_log('=== ORDER REVIEW POST RECEIVED ===');
-    error_log('POST data: ' . print_r($_POST, true));
-    error_log('Current URL: ' . $_SERVER['REQUEST_URI']);
+    $request_reference = function_exists('printflow_db_error_reference')
+        ? printflow_db_error_reference()
+        : substr(hash('sha256', uniqid('', true)), 0, 12);
+    error_log('[order_review] confirmation_received ref=' . $request_reference . ' customer=' . (int)$customer_id);
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $order_error = 'Invalid request. Please try again.';
         if (review_is_ajax_confirm_request()) {
             review_json_confirm_response(false, ['error' => $order_error]);
         }
+    } elseif (!printflow_customer_checkout_idempotency_schema_ready()) {
+        error_log('[order_review] checkout blocked: orders.checkout_token schema not ready ref=' . $request_reference);
+        $order_error = 'Checkout is temporarily unavailable while a required database update is applied.';
+    } elseif (!review_checkout_token_is_valid($posted_checkout_token)
+        || !hash_equals($checkout_token, $posted_checkout_token)) {
+        $order_error = 'This checkout attempt is no longer valid. Please refresh and try again.';
     } else {
+        $checkout_token = $posted_checkout_token;
         // Validate branch selection
         $selected_branch_id = (int)($_POST['branch_id'] ?? 0);
         
@@ -395,6 +490,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                 }
                 $reviewCustom = review_item_customization($reviewItem);
                 $reviewQty = review_item_quantity($reviewItem);
+                $authoritativePrice = review_catalog_unit_price($reviewItem);
+                if ($authoritativePrice === null || $authoritativePrice < 0) {
+                    $order_error = 'A product or price changed while you were checking out. Please return to your cart and review it.';
+                    break;
+                }
                 $stockCheck = printflow_product_option_stock_validate($productId, $selected_branch_id, $reviewCustom, $reviewQty);
                 if (!empty($stockCheck['uses_option_stock']) && empty($stockCheck['ok'])) {
                     $order_error = (string)($stockCheck['message'] ?? 'Selected variant is out of stock.');
@@ -468,6 +568,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                 $estimated_price = ($order_type === 'custom') ? $grand_total : null;
                 $order_total_amount = $grand_total;
 
+                $checkout_transaction_started = false;
+                if (!printflow_db_in_transaction($conn)) {
+                    $checkout_transaction_started = $conn->begin_transaction();
+                    if (!$checkout_transaction_started) {
+                        $order_error = 'Unable to start checkout. Please try again.';
+                    }
+                }
+
                 // 2. Create Single Order with a schema-safe insert
                 $orders_columns = db_query("SHOW COLUMNS FROM orders") ?: [];
                 $orders_field_map = [];
@@ -534,9 +642,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                     if (!empty($orders_field_map['order_source'])) {
                         $add_param('order_source', 's', 'customer');
                     }
+                    if (!empty($orders_field_map['checkout_token'])) {
+                        $add_param('checkout_token', 's', $checkout_token);
+                    }
 
-                    $order_sql = "INSERT INTO orders (" . implode(', ', $insert_fields) . ") VALUES (" . implode(', ', $insert_values) . ")";
-                    $order_id = $types !== '' ? db_execute($order_sql, $types, $params) : db_execute($order_sql);
+                    $order_id = false;
+                    if ($order_error === null) {
+                        $order_sql = "INSERT INTO orders (" . implode(', ', $insert_fields) . ") VALUES (" . implode(', ', $insert_values) . ")";
+                        $order_id = $types !== '' ? db_execute($order_sql, $types, $params) : db_execute($order_sql);
+                    }
+                }
+
+                if (empty($order_id) && $checkout_transaction_started && printflow_db_in_transaction($conn)) {
+                    $conn->rollback();
+                }
+                if (empty($order_id)) {
+                    $existing_order_id = review_checkout_existing_order((int)$customer_id, $checkout_token);
+                    if ($existing_order_id > 0) {
+                        review_checkout_redirect_existing($existing_order_id, review_is_ajax_confirm_request());
+                    }
                 }
 
                 if (!empty($order_id)) {
@@ -756,7 +880,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             error_log('ORDER ITEM ID: ' . $order_item_id);
                             error_log('DESIGN FILE: ' . (string)($design_file_path ?? ''));
                             error_log('FULL PATH: ' . (string)(printflow_resolve_order_upload_disk_path((string)($design_file_path ?? '')) ?? 'null'));
-                        } elseif (review_item_is_service($item)) {
+                        } else {
                             $checkout_line_failures[] = (string)($item['name'] ?? $key);
                         }
 
@@ -770,26 +894,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             );
                         }
 
+                    }
+
+                    if ($checkout_line_failures !== []) {
+                        if ($checkout_transaction_started && printflow_db_in_transaction($conn)) {
+                            $conn->rollback();
+                        }
+                        error_log('[order_review] checkout_rolled_back ref=' . $request_reference . ' reason=line_insert_failed');
+                        $order_error = 'One or more order items could not be saved. Nothing was charged or ordered. Please try again.';
+                        goto order_review_post_complete;
+                    }
+
+                    // Claim ready-made stock in the same transaction as the order.
+                    // Completion calls this same ledger-keyed helper and therefore
+                    // cannot deduct a second time.
+                    if ($order_type === 'product') {
+                        try {
+                            foreach ($created_order_item_ids_by_key as $createdOrderItemId) {
+                                printflow_apply_product_order_item_inventory(
+                                    (int)$createdOrderItemId,
+                                    (int)$branch_id,
+                                    0,
+                                    'Online product checkout'
+                                );
+                            }
+                        } catch (Throwable $inventoryError) {
+                            if ($checkout_transaction_started && printflow_db_in_transaction($conn)) {
+                                $conn->rollback();
+                            }
+                            error_log('[order_review] checkout_rolled_back ref=' . $request_reference . ' reason=inventory_conflict');
+                            $order_error = 'Stock changed while you were checking out. Please refresh your cart and try again.';
+                            goto order_review_post_complete;
+                        }
+                    }
+
+                    if ($checkout_transaction_started && !$conn->commit()) {
+                        if (printflow_db_in_transaction($conn)) $conn->rollback();
+                        error_log('[order_review] checkout_rolled_back ref=' . $request_reference . ' reason=commit_failed');
+                        $order_error = 'Checkout could not be completed. Please try again.';
+                        goto order_review_post_complete;
+                    }
+
+                    error_log('[order_review] checkout_committed ref=' . $request_reference . ' order=' . (int)$order_id);
+
+                    foreach ($items_to_review as $item) {
                         if (!empty($item['design_tmp_path']) && file_exists($item['design_tmp_path'])) @unlink($item['design_tmp_path']);
                         if (!empty($item['reference_tmp_path']) && file_exists($item['reference_tmp_path'])) @unlink($item['reference_tmp_path']);
                         if (!empty($item['uploaded_files']) && is_array($item['uploaded_files'])) {
                             foreach ($item['uploaded_files'] as $upload) {
                                 $tmpPath = trim((string)($upload['tmp_path'] ?? ''));
-                                if ($tmpPath !== '' && file_exists($tmpPath)) {
-                                    @unlink($tmpPath);
-                                }
+                                if ($tmpPath !== '' && file_exists($tmpPath)) @unlink($tmpPath);
                             }
-                        }
-                    }
-
-                    if ($checkout_line_failures !== [] && $order_type === 'custom') {
-                        error_log(
-                            'order_review: order_items insert failed for order #' . $order_id
-                            . ' lines: ' . implode(', ', $checkout_line_failures)
-                        );
-                        $repair = printflow_repair_order_missing_line_items((int)$order_id);
-                        if (!empty($repair['order_item_id'])) {
-                            $created_order_item_ids_by_key['__repaired__'] = (int)$repair['order_item_id'];
                         }
                     }
 
@@ -966,6 +1121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
     }
 }
 
+order_review_post_complete:
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order']) && review_is_ajax_confirm_request()) {
     review_json_confirm_response(false, [
         'error' => $order_error ?? 'Failed to place order. Please try again.',
@@ -2202,6 +2358,7 @@ require_once __DIR__ . '/../includes/header.php';
         <form method="POST" action="order_review.php?item=<?php echo urlencode($item_key); ?>" novalidate data-pf-skip-guard class="review-checkout-form" data-service-inquire="<?php echo $is_product_order ? '0' : '1'; ?>">
             <input type="hidden" name="item" value="<?php echo htmlspecialchars($item_key); ?>">
             <?php echo csrf_field(); ?>
+            <input type="hidden" name="checkout_token" value="<?php echo htmlspecialchars($checkout_token, ENT_QUOTES, 'UTF-8'); ?>">
             
             <?php if ($order_error): ?>
                 <div class="alert-error" style="margin-bottom: 1.25rem;"><?php echo htmlspecialchars($order_error); ?></div>
@@ -2438,7 +2595,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    if (form && isServiceInquire && overlay) {
+    if (form) {
         form.addEventListener('submit', function(ev) {
             const submitter = ev.submitter;
             if (!submitter || submitter.name !== 'confirm_order') {
@@ -2455,6 +2612,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 return;
             }
+
+            // Product checkout uses a normal redirect response. Lock its submit
+            // control immediately; the durable checkout token handles retries,
+            // refreshes, back navigation, and lost responses on the server.
+            if (!isServiceInquire) {
+                submitInFlight = true;
+                const marker = document.createElement('input');
+                marker.type = 'hidden';
+                marker.name = 'confirm_order';
+                marker.value = '1';
+                form.appendChild(marker);
+                submitter.disabled = true;
+                submitter.setAttribute('aria-disabled', 'true');
+                return;
+            }
+
+            if (!overlay) return;
 
             ev.preventDefault();
             submitInFlight = true;

@@ -22,6 +22,16 @@ if (!function_exists('printflow_send_order_update')) {
 function printflow_send_order_update($order_id, $message, $action_type = 'view_status', $thumbnail = '', $action_url = '', $meta = []) {
     if (!$order_id) return false;
 
+    $internal_actions = ['view_status', 'view_only', 'view_details', 'pickup_details', 'retry_payment', 'rate', 'to_payment', 'verify_payment'];
+    if (in_array((string)$message, $internal_actions, true)) {
+        $meta_message = trim((string)($meta['change_item_message'] ?? $meta['message'] ?? $meta['display_message'] ?? ''));
+        if ($meta_message !== '') {
+            $message = $meta_message;
+        } elseif ((string)$message === (string)$action_type) {
+            return false;
+        }
+    }
+
     // Handle step name aliases (backward compatibility with legacy callers)
     $known_steps = ['pending', 'approved', 'send_to_payment', 'payment_submitted', 'payment_verified', 'payment_rejected', 'in_production', 'for_revision', 'ready_to_pickup', 'completed', 'cancelled', 'inquiry'];
     if (in_array($message, $known_steps) && function_exists('printflow_send_order_update_legacy')) {

@@ -2314,7 +2314,7 @@ $page_title = 'Orders - Staff';
         .catch(function() { alert('Network error occurred'); });
     }
 
-    async function markOrderCompleted(orderId, csrfToken) {
+    async function markOrderCompleted(orderId, csrfToken, expectedStatus) {
         const confirmed = await pfConfirm({
             title: 'Complete Order',
             text: 'Mark this order as COMPLETED? This will deduct items from stock and finalize the order.',
@@ -2328,6 +2328,7 @@ $page_title = 'Orders - Staff';
         var fd = new FormData();
         fd.append('order_id', orderId);
         fd.append('status', 'Completed');
+        fd.append('expected_status', expectedStatus || '');
         fd.append('csrf_token', csrfToken);
         
         fetch(staffUrl('staff/update_order_status_process.php'), {
@@ -2590,7 +2591,7 @@ $page_title = 'Orders - Staff';
                     '</div>';
             } else if (providerStatus === 'paid') {
                 actionsHTML = '<div style="margin-top:28px;">' +
-                    '<button class="btn-primary" onclick="markOrderCompleted(' + d.order_id + ', \'' + csrf + '\')" style="width:100%; background:#06A1A1; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Mark as Completed</button>' +
+                    '<button class="btn-primary" onclick="markOrderCompleted(' + d.order_id + ', \'' + csrf + '\', \'' + esc(d.status || '') + '\')" style="width:100%; background:#06A1A1; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Mark as Completed</button>' +
                     '</div>';
             } else {
                 actionsHTML = '<div style="margin-top:20px; padding:16px; border-radius:12px; border:1px solid #e2e8f0; background:#f8fafc; color:#475569; font-size:13px;">Completion is available after PayMongo verifies this payment as paid and the customer claims the order.</div>';

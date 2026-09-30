@@ -39,6 +39,52 @@
         setTimeout(() => node.remove(), 3200);
     }
 
+    function setMarkAllState(count, busy = false) {
+        const visible = Number(count) > 0;
+        document.querySelectorAll('[data-chat-mark-all]').forEach(button => {
+            button.style.display = visible ? 'inline-flex' : 'none';
+            button.disabled = busy || !visible;
+            button.textContent = busy ? 'Marking...' : 'Mark All as Read';
+        });
+    }
+
+    function confirmMarkAll() {
+        return new Promise(resolve => {
+            let overlay = document.getElementById('pfChatMarkAllConfirm');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'pfChatMarkAllConfirm';
+                overlay.className = 'pf-chat-confirm-overlay';
+                overlay.innerHTML = '<div class="pf-chat-confirm-card" role="dialog" aria-modal="true" aria-labelledby="pfChatMarkAllTitle">'
+                    + '<h2 id="pfChatMarkAllTitle" class="pf-chat-confirm-title">Mark all as read?</h2>'
+                    + '<p class="pf-chat-confirm-message">Are you sure you want to mark all unread messages as read?</p>'
+                    + '<div class="pf-chat-confirm-actions">'
+                    + '<button type="button" class="pf-chat-confirm-btn" data-chat-confirm-cancel>Cancel</button>'
+                    + '<button type="button" class="pf-chat-confirm-btn primary" data-chat-confirm-ok>Mark All as Read</button>'
+                    + '</div></div>';
+                document.body.appendChild(overlay);
+            }
+            const close = answer => {
+                overlay.classList.remove('is-open');
+                overlay.removeEventListener('click', onBackdrop);
+                document.removeEventListener('keydown', onKey);
+                resolve(answer);
+            };
+            const onBackdrop = event => {
+                if (event.target === overlay) close(false);
+            };
+            const onKey = event => {
+                if (event.key === 'Escape') close(false);
+            };
+            overlay.querySelector('[data-chat-confirm-cancel]').onclick = () => close(false);
+            overlay.querySelector('[data-chat-confirm-ok]').onclick = () => close(true);
+            overlay.addEventListener('click', onBackdrop);
+            document.addEventListener('keydown', onKey);
+            overlay.classList.add('is-open');
+            overlay.querySelector('[data-chat-confirm-ok]')?.focus();
+        });
+    }
+
     async function request(path, options = {}) {
         const opts = { credentials: 'same-origin', ...options };
         if (opts.method === 'POST' && opts.body instanceof FormData && !opts.body.has('csrf_token')) {
@@ -225,6 +271,7 @@
                 }
             }
             window.PrintFlowChatUnread?.set?.(Number(data.total_unread) || 0);
+            setMarkAllState(Number(data.total_unread) || 0);
             if (!state.initialHandled && cfg.initialOrderId) {
                 state.initialHandled = true;
                 const match = rows.find(row => Number(row.order_id) === Number(cfg.initialOrderId));
@@ -508,6 +555,29 @@
         finally { state.seenFlight = false; }
     }
 
+    async function markAllAsRead() {
+        const currentUnread = window.PrintFlowChatUnread?.get?.() || 0;
+        if (state.markAllFlight || currentUnread <= 0) return;
+        const confirmed = await confirmMarkAll();
+        if (!confirmed) return;
+        state.markAllFlight = true;
+        setMarkAllState(currentUnread, true);
+        const body = new FormData();
+        try {
+            const data = await request('/public/api/chat/mark_all_read.php', { method: 'POST', body });
+            const nextCount = Number(data.remaining_unread_count) || 0;
+            window.PrintFlowChatUnread?.set?.(nextCount);
+            setMarkAllState(nextCount);
+            document.querySelectorAll('.unread-badge').forEach(node => node.remove());
+            await loadConversations(true);
+        } catch (error) {
+            toast(error.message || 'Could not mark messages as read.');
+            setMarkAllState(currentUnread);
+        } finally {
+            state.markAllFlight = false;
+        }
+    }
+
     function beginReply(message) {
         state.reply = { id: Number(message.id), summary: messageSummary(message) };
         const box = el('reply'); const text = el('replyText');
@@ -674,6 +744,7 @@
         });
         let searchTimer;
         el('search')?.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => loadConversations(true), 300); });
+        document.querySelectorAll('[data-chat-mark-all]').forEach(button => button.addEventListener('click', markAllAsRead));
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) { loadConversations(); if (state.activeId) loadMessages('incremental'); }
             else { scheduleConversationPoll(); scheduleMessagePoll(); }

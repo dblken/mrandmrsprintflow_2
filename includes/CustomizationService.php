@@ -177,8 +177,7 @@ class CustomizationService
             static fn(array $order): int => (int)($order['order_id'] ?? 0),
             $orders
         )));
-        $itemsByOrder = $this->repo->getOrderItemsForOrders($orderIds);
-        $this->preloadStorePayloads($orderIds);
+        $itemsByOrder = $this->repo->getOrderItemSummariesForOrders($orderIds);
 
         foreach ($orders as $order) {
             $orderId = (int)($order['order_id'] ?? 0);
@@ -187,17 +186,13 @@ class CustomizationService
             }
 
             $items = $itemsByOrder[$orderId] ?? [];
-            if (!$this->itemsHaveMeaningfulCustomization($items)) {
-                // Keep the existing fallback chain for sparse and legacy records.
-                $items = $this->resolveRawItems($orderId);
-            }
             if (empty($items)) {
                 continue;
             }
 
             // Resolve a representative (first) item view for the card.
             $order['pf_summary_row'] = true;
-            $firstView = $this->buildItemView($items[0], $order);
+            $firstView = $this->buildSummaryItemView($items[0], $order);
             $itemCount = count($items);
 
             $customerName = trim((string)($order['first_name'] ?? '') . ' ' . (string)($order['last_name'] ?? ''));
@@ -237,6 +232,38 @@ class CustomizationService
         }
 
         return $out;
+    }
+
+    /** @return array{name:string,category:string,design_url:string,product_image_url:string,quantity:int} */
+    private function buildSummaryItemView(array $item, array $order): array
+    {
+        $name = trim((string)($item['pf_product_name'] ?? ''));
+        if ($name === '') $name = trim((string)($item['pf_job_title'] ?? ''));
+        if ($name === '') $name = trim((string)($item['pf_custom_service_type'] ?? ''));
+        if ($name === '') $name = trim((string)($item['pf_service_type'] ?? ''));
+        if ($name === '') $name = 'Custom Order';
+
+        $category = trim((string)($item['pf_category'] ?? ''));
+        if ($category === '') $category = trim((string)($item['pf_custom_service_type'] ?? ''));
+        if ($category === '') $category = trim((string)($item['pf_service_type'] ?? ''));
+        if ($category === '') $category = 'Service';
+
+        $designUrl = trim((string)($item['design_file'] ?? ''));
+        $productImageUrl = trim((string)($item['photo_path'] ?? $item['product_image'] ?? ''));
+        if ($designUrl !== '' && function_exists('pf_order_ui_asset_url')) {
+            $designUrl = pf_order_ui_asset_url($designUrl);
+        }
+        if ($productImageUrl !== '' && function_exists('pf_order_ui_asset_url')) {
+            $productImageUrl = pf_order_ui_asset_url($productImageUrl);
+        }
+
+        return [
+            'name' => $name,
+            'category' => $category,
+            'design_url' => $designUrl,
+            'product_image_url' => $productImageUrl,
+            'quantity' => max(1, (int)($item['quantity'] ?? 1)),
+        ];
     }
 
     /** @param array<int,int> $orderIds */
@@ -2307,10 +2334,25 @@ class CustomizationService
             return ['success' => false, 'message' => 'Order not found.'];
         }
 
-        $this->repo->updateCustomizationStatus($orderId, 'Completed');
-        printflow_revision_close_active($orderId, 'Closed - Completed');
-        $this->repo->updateOrderStatus($orderId, 'Completed');
-        $this->syncJobs($orderId, 'COMPLETED');
+        global $conn;
+        require_once __DIR__ . '/JobOrderService.php';
+        $startedTransaction = !printflow_db_in_transaction($conn);
+        if ($startedTransaction && !$conn->begin_transaction()) {
+            throw new RuntimeException('Unable to start customization completion.');
+        }
+        try {
+            // Deduction failures must reach the caller and roll back completion.
+            // Include completed jobs so pending assignments can be recovered.
+            JobOrderService::syncStoreOrderToStatus($orderId, 'COMPLETED');
+            $this->repo->updateCustomizationStatus($orderId, 'Completed');
+            printflow_revision_close_active($orderId, 'Closed - Completed');
+            $this->repo->updateOrderStatus($orderId, 'Completed');
+            if ($startedTransaction) $conn->commit();
+        } catch (Throwable $e) {
+            if ($startedTransaction) $conn->rollback();
+            error_log('Customization completion failed for order #' . $orderId . ': ' . $e->getMessage());
+            throw $e;
+        }
         $this->sendChat($orderId, 'completed');
 
         return ['success' => true, 'message' => 'Order closed.'];

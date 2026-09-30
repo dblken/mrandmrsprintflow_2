@@ -312,29 +312,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     
     // Validate all required fields dynamically
     if (empty($error)) {
+        $field_values = printflow_service_field_values_from_post($_POST);
         foreach ($field_configs as $key => $config) {
             if (!$config['visible']) continue;
-            
-            // --- Conditional Logic Check ---
-            if (!empty($config['parent_field_key']) && !empty($config['parent_value'])) {
-                $parent_key = $config['parent_field_key'];
-                $trigger_value = $config['parent_value'];
-                
-                // Get the value of the parent field from POST
-                // For radio/select, it's just $_POST[$parent_key]
-                $parent_submitted_value = $_POST[$parent_key] ?? null;
-                
-                // Special case for 'branch' if it were possible, but here it's custom fields
-                if ($parent_key === 'branch') {
-                    $parent_submitted_value = $_POST['branch_id'] ?? null;
-                }
-                
-                // If parent condition not met, skip this field (it was hidden)
-                if ($parent_submitted_value != $trigger_value) {
-                    continue;
-                }
+
+            if (!printflow_service_field_is_active($config, $field_values, (string)$key, $field_configs)) {
+                continue;
             }
-            // --- End Conditional Logic Check ---
             
             if ($config['type'] === 'date') {
                 $date_val = trim((string)($_POST[$key] ?? ''));
@@ -358,7 +342,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 $has_design_field = true;
                 $link_post_name = service_order_design_link_post_name($key);
                 $design_link_raw = trim((string)($_POST[$link_post_name] ?? ''));
-                $has_uploaded_file = isset($_FILES['design_file']) && $_FILES['design_file']['error'] === UPLOAD_ERR_OK;
+                $file_input_name = 'design_file';
+                $has_uploaded_file = isset($_FILES[$file_input_name]) && $_FILES[$file_input_name]['error'] === UPLOAD_ERR_OK;
                 $has_design_link = $design_link_raw !== '';
 
                 if ($config['required'] && !$has_uploaded_file && !$has_design_link) {
@@ -431,7 +416,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $design_mime = null;
         $design_link_url = null;
         
-        if ($has_design_field && isset($_FILES['design_file']) && $_FILES['design_file']['error'] === UPLOAD_ERR_OK) {
+        $field_values = printflow_service_field_values_from_post($_POST);
+        $active_file_field_key = null;
+        foreach ($field_configs as $fk => $fc) {
+            if (($fc['type'] ?? '') === 'file' && !empty($fc['visible']) && printflow_service_field_is_active($fc, $field_values, (string)$fk, $field_configs)) {
+                $active_file_field_key = $fk;
+                break;
+            }
+        }
+
+        if ($active_file_field_key !== null && isset($_FILES['design_file']) && $_FILES['design_file']['error'] === UPLOAD_ERR_OK) {
+            $has_design_field = true;
             $valid = service_order_validate_file($_FILES['design_file']);
             if (!$valid['ok']) {
                 $error = $valid['error'];
@@ -453,9 +448,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             }
         }
 
-        if ($has_design_field) {
+        if ($active_file_field_key !== null) {
             foreach ($field_configs as $fileKey => $fileConfig) {
                 if (($fileConfig['type'] ?? '') !== 'file' || empty($fileConfig['visible'])) {
+                    continue;
+                }
+                if (!printflow_service_field_is_active($fileConfig, $field_values, (string)$fileKey, $field_configs)) {
                     continue;
                 }
                 $link_post_name = service_order_design_link_post_name($fileKey);
@@ -491,16 +489,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             foreach ($field_configs as $key => $config) {
                 if (!$config['visible']) continue;
                 
-                // Check conditional logic again for data collection
-                if (!empty($config['parent_field_key']) && !empty($config['parent_value'])) {
-                    $parent_key = $config['parent_field_key'];
-                    $trigger_value = $config['parent_value'];
-                    $parent_submitted_value = $_POST[$parent_key] ?? null;
-                    if ($parent_key === 'branch') $parent_submitted_value = $_POST['branch_id'] ?? null;
-                    
-                    if ($parent_submitted_value != $trigger_value) {
-                        continue;
-                    }
+                if (!printflow_service_field_is_active($config, $field_values, (string)$key, $field_configs)) {
+                    continue;
                 }
                 
                 if ($key === 'branch') {
@@ -1026,7 +1016,7 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                     <div class="text-sm text-gray-500"><?php echo $sold_display; ?> Sold</div>
                 </div>
 
-                <form action="" method="POST" enctype="multipart/form-data" id="serviceForm" data-pf-skip-validation="true" target="_top" novalidate>
+                <form action="" method="POST" enctype="multipart/form-data" id="serviceForm" data-pf-skip-validation="true" data-pf-show-option-customer-notes="1" target="_top" novalidate>
                     <?php echo csrf_field(); ?>
                     <input type="hidden" name="calculated_unit_price" id="calculated-unit-price" value="0">
                     <input type="hidden" name="calculated_estimated_price" id="calculated-estimated-price" value="0">
@@ -1054,7 +1044,7 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                                 </svg>
                                 <span>Add to Cart</span>
                             </button>
-                            <button type="submit" name="action" value="inquire_now" class="shopee-btn-primary" style="min-width: 160px; display: flex; align-items: center; justify-content: center; padding: 0.5rem 1.25rem;">
+                            <button type="submit" name="action" value="inquire_now" class="shopee-btn-primary" style="min-width: 190px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; padding: 0.5rem 1.25rem;">
                                 <svg style="width: 1.125rem; height: 1.125rem; flex-shrink: 0; margin-right: 0.5rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
                                 </svg>
@@ -1463,12 +1453,31 @@ textarea.notes-textarea::-webkit-resizer { display: none !important; }
 .service-action-buttons { flex: 1; display: flex; justify-content: flex-start; align-items: center; gap: 0.75rem; flex-wrap: nowrap; min-width: 0; }
 .service-action-buttons > a,
 .service-action-buttons > button { flex: 0 0 auto; }
-.service-action-buttons > button[name="action"][value="inquire_now"] { flex: 1 1 auto; }
+.service-action-buttons > button[name="action"][value="inquire_now"] { flex: 1 1 auto; white-space: nowrap; }
+.service-action-buttons > button[name="action"][value="inquire_now"] span {
+    display: inline-block;
+    white-space: nowrap;
+    overflow-wrap: normal;
+    word-break: keep-all;
+}
 @media (max-width: 760px) {
     .service-action-row > div:first-child { display: none; }
-    .service-action-buttons { justify-content: stretch; flex-wrap: wrap; }
+    .service-action-buttons { justify-content: stretch; flex-wrap: wrap; width: 100%; }
     .service-action-buttons > a,
     .service-action-buttons > button { flex: 1 1 100%; width: 100%; }
+    .service-action-buttons > button {
+        min-width: 0 !important;
+        gap: 0.45rem;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        white-space: nowrap;
+    }
+    .service-action-buttons > button svg {
+        margin-right: 0.25rem !important;
+    }
+    .service-action-buttons > button span {
+        white-space: nowrap;
+    }
 }
 @media (max-width: 640px) {
     .sticky-image-container,
@@ -1932,7 +1941,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 hasControls = true;
                 if (widthHidden.value && heightHidden.value) rowHasValue = true;
                 const customPanel = row.querySelector('.pf-custom-size-panel.dim-others-inputs, .dim-others-inputs.pf-custom-size-panel');
-                if (customPanel && customPanel.style.display !== 'none' && typeof pfValidateCustomSizePanel === 'function') {
+                if (customPanel && typeof pfIsCustomSizePanelVisible === 'function' && pfIsCustomSizePanelVisible(customPanel) && typeof pfValidateCustomSizePanel === 'function') {
                     const dimCheck = pfValidateCustomSizePanel(customPanel, false);
                     if (!dimCheck.ok) rowHasValue = false;
                 }
@@ -1974,6 +1983,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const clearRowErrorIfSatisfied = (row) => {
             if (!row || row.offsetParent === null) return;
+            if (row.dataset.pfFieldInactive === '1') {
+                removeRowErrors(row);
+                return;
+            }
             const labelEl = row.querySelector('.shopee-form-label');
             if (!labelEl || !labelEl.innerText.includes('*')) return;
             if (getRowValueState(row).rowHasValue) removeRowErrors(row);
@@ -1992,6 +2005,9 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         form.addEventListener('submit', function(e) {
+            if (typeof updateConditionalFields === 'function') {
+                updateConditionalFields();
+            }
             document.querySelectorAll('select.pf-select-custom-size').forEach(function(sel) {
                 if (typeof pfSyncSelectCustomSizeHidden === 'function') {
                     pfSyncSelectCustomSizeHidden(sel);
@@ -2013,9 +2029,11 @@ document.addEventListener('DOMContentLoaded', function() {
             // Process every form row to check for required fields (*)
             const rows = form.querySelectorAll('.shopee-form-row');
             rows.forEach(row => {
+                if (row.dataset.pfFieldInactive === '1') return;
                 if (row.offsetParent === null) return;
 
                 row.querySelectorAll('.pf-custom-size-panel.dim-others-inputs, .dim-others-inputs.pf-custom-size-panel').forEach(panel => {
+                    if (typeof pfIsCustomSizePanelVisible === 'function' && !pfIsCustomSizePanelVisible(panel)) return;
                     if (panel.style.display === 'none') return;
                     if (typeof pfValidateCustomSizePanel !== 'function') return;
                     const dimCheck = pfValidateCustomSizePanel(panel, true);

@@ -166,7 +166,7 @@ $tables = [
       `ref_id` int(11) DEFAULT NULL,
       `notes` text,
       `created_by` int(11) DEFAULT NULL,
-      `transaction_date` date DEFAULT NULL,
+      `transaction_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
       `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (`id`),
       UNIQUE KEY `idx_unique_txn` (`transaction_id`)

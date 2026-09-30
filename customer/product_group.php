@@ -292,12 +292,9 @@ require_once __DIR__ . '/../includes/header.php';
         font-size: 0.95rem; font-weight: 700; color: var(--shopee-text); margin-top: 4px;
         overflow-wrap: anywhere; word-break: break-word; line-height: 1.3;
     }
-    .pf-group-selected-price { font-size: 1.125rem; font-weight: 800; color: #0f3441; margin-top: 4px; line-height: 1.2; }
-    .pf-group-selected-stock { font-size: 0.75rem; color: #64748b; margin-top: 4px; font-weight: 600; line-height: 1.2; }
     .pf-group-stats {
         display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
-        font-size: 0.75rem; color: var(--shopee-muted); margin: 8px 0 10px; padding-bottom: 10px;
-        border-bottom: 1px solid rgba(126,164,184,0.16);
+        font-size: 0.75rem; color: var(--shopee-muted); margin: 8px 0 0;
     }
     .pf-group-stats .rating-stars { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
     .pf-group-stats .rating-stars svg { width: 14px; height: 14px; }
@@ -340,7 +337,7 @@ require_once __DIR__ . '/../includes/header.php';
         padding: 10px 0 0;
         border-top: 1px solid rgba(126, 164, 184, 0.16);
         display: flex;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         align-items: center;
         justify-content: flex-end;
         gap: 8px;
@@ -363,16 +360,70 @@ require_once __DIR__ . '/../includes/header.php';
         width: 42px; height: 42px; padding: 0;
     }
     .pf-group-selection .shopee-btn-cart svg { width: 1.25rem; height: 1.25rem; }
+    .pf-group-cart-text { display: none; }
     .pf-group-selection .shopee-btn-buy {
         background: linear-gradient(135deg, #123746 0%, #0f4958 100%); color: #fff;
         min-width: 118px; height: 42px;
     }
     .pf-group-selection .shopee-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .pf-group-action-price {
+        color: #0f3441;
+        font-size: 1rem;
+        font-weight: 800;
+        line-height: 1;
+        margin-right: 4px;
+        white-space: nowrap;
+    }
+    .pf-group-options-error.field-error {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.375rem;
+        width: 100%;
+        margin: 0.5rem 0 0;
+        color: #ef4444;
+        font-size: 0.875rem;
+        line-height: 1.35;
+        font-weight: 600;
+    }
+    .pf-group-options-error.field-error::before {
+        content: "⚠";
+        font-size: 1rem;
+        flex-shrink: 0;
+    }
+    .pf-group-options-error[hidden] {
+        display: none;
+    }
     @media (max-width: 480px) {
-        .pf-group-selection .shopee-footer { display: flex; }
-        .pf-group-selection .shopee-btn-buy { flex: 1; min-width: 0; }
-        .pf-group-selection .shopee-btn-cart { width: 42px; height: 42px; }
-        .pf-group-selection .shopee-btn-buy { height: 42px; min-height: 42px; }
+        .pf-group-selection .shopee-footer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .pf-group-action-price {
+            width: auto;
+            text-align: center;
+            margin: 0;
+        }
+        .pf-group-selection .shopee-btn-cart,
+        .pf-group-selection .shopee-btn-buy {
+            width: min(100%, 210px);
+            min-width: 0;
+            height: 42px;
+            min-height: 42px;
+        }
+        .pf-group-selection .shopee-btn-cart {
+            gap: 0.45rem;
+            padding: 0.5rem 0.75rem;
+            text-transform: none;
+        }
+        .pf-group-cart-text { display: inline; }
+        .pf-group-options-error.field-error {
+            justify-content: center;
+            text-align: center;
+        }
         .pf-group-img-wrap {
             width: min(100%, 220px);
             max-width: 220px;
@@ -469,8 +520,6 @@ require_once __DIR__ . '/../includes/header.php';
                         <span id="pf-group-stats-sold">— sold</span>
                     </div>
 
-                    <div id="pf-group-selected-price" class="pf-group-selected-price">—</div>
-                    <div id="pf-group-selected-stock" class="pf-group-selected-stock">—</div>
                 </div>
             </div>
             <div class="pf-group-selection-options">
@@ -500,11 +549,14 @@ require_once __DIR__ . '/../includes/header.php';
                     <?php endforeach; ?>
                 </div>
                 <div class="shopee-footer pf-group-options-actions">
+                    <span id="pf-group-action-price" class="pf-group-action-price">&mdash;</span>
                     <button type="button" id="pf-group-add-cart" class="shopee-btn shopee-btn-cart" title="Add to Cart">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                        <span class="pf-group-cart-text">Add to Cart</span>
                     </button>
                     <a id="pf-group-order-now" href="#" class="shopee-btn shopee-btn-buy">Order Now</a>
                 </div>
+                <div id="pf-group-stock-error" class="field-error pf-group-options-error" role="alert" aria-live="polite" hidden>This product is currently out of stock.</div>
             </div>
         </div>
     </div>
@@ -739,6 +791,7 @@ function pfFormatMoney(n) {
 
 function pfSelectGroupOption(el) {
     if (!el) return;
+    pfClearOutOfStockError();
     document.querySelectorAll('.pf-group-option').forEach(function (row) { row.classList.remove('is-active'); });
     el.classList.add('is-active');
     var pid = el.getAttribute('data-product-id');
@@ -749,10 +802,10 @@ function pfSelectGroupOption(el) {
     var avgRating = el.getAttribute('data-avg-rating') || '0';
     var reviewCount = el.getAttribute('data-review-count') || '0';
     var soldCount = el.getAttribute('data-sold-count') || '0';
+    var formattedPrice = pfFormatMoney(price);
     document.getElementById('pf-group-main-image').src = img;
     document.getElementById('pf-group-selected-name').textContent = name;
-    document.getElementById('pf-group-selected-price').textContent = pfFormatMoney(price);
-    document.getElementById('pf-group-selected-stock').textContent = stock > 0 ? (stock + ' in stock') : 'Out of stock';
+    document.getElementById('pf-group-action-price').textContent = formattedPrice;
     pfRenderStatsStars(avgRating, reviewCount);
     document.getElementById('pf-group-stats-sold').textContent = pfFormatSold(soldCount) + ' sold';
     var orderBtn = document.getElementById('pf-group-order-now');
@@ -760,13 +813,14 @@ function pfSelectGroupOption(el) {
         orderBtn.href = '#';
         orderBtn.setAttribute('data-product-id', pid);
         orderBtn.setAttribute('data-stock', String(stock));
-        orderBtn.style.opacity = stock > 0 ? '1' : '0.5';
-        orderBtn.style.pointerEvents = stock > 0 ? 'auto' : 'none';
-        orderBtn.setAttribute('aria-disabled', stock > 0 ? 'false' : 'true');
+        orderBtn.setAttribute('aria-disabled', 'false');
     }
     var cartBtn = document.getElementById('pf-group-add-cart');
-    cartBtn.disabled = stock <= 0;
-    cartBtn.setAttribute('data-product-id', pid);
+    if (cartBtn) {
+        cartBtn.disabled = false;
+        cartBtn.setAttribute('data-stock', String(stock));
+        cartBtn.setAttribute('data-product-id', pid);
+    }
 }
 
 document.getElementById('pf-group-options').addEventListener('click', function (e) {
@@ -787,11 +841,37 @@ function showToast(msg, isError) {
     setTimeout(function () { toast.style.display = 'none'; }, 2800);
 }
 
+function pfIsOutOfStockMessage(msg) {
+    var text = String(msg || '').toLowerCase();
+    return text.indexOf('out of stock') !== -1
+        || text.indexOf('unavailable') !== -1
+        || text.indexOf('insufficient stock') !== -1
+        || text.indexOf('available stock') !== -1
+        || text.indexOf('stock left') !== -1;
+}
+
+function pfShowOutOfStockError() {
+    var error = document.getElementById('pf-group-stock-error');
+    if (!error) return;
+    error.hidden = false;
+}
+
+function pfClearOutOfStockError() {
+    var error = document.getElementById('pf-group-stock-error');
+    if (!error) return;
+    error.hidden = true;
+}
+
 document.getElementById('pf-group-add-cart').addEventListener('click', async function (ev) {
     var btn = ev.currentTarget;
-    if (btn.disabled) return;
     var productId = parseInt(btn.getAttribute('data-product-id') || '0', 10);
     if (!productId) return;
+    var stock = parseInt(btn.getAttribute('data-stock') || '0', 10);
+    if (stock <= 0) {
+        pfShowOutOfStockError();
+        return;
+    }
+    pfClearOutOfStockError();
     var lockKey = 'product-' + String(productId);
     if (window.PFAddToCartFx && PFAddToCartFx.isPending(lockKey)) return;
 
@@ -809,6 +889,10 @@ document.getElementById('pf-group-add-cart').addEventListener('click', async fun
         });
         var data = await response.json();
         if (!data.success) {
+            if (pfIsOutOfStockMessage(data.message)) {
+                pfShowOutOfStockError();
+                return;
+            }
             showToast(data.message || 'Could not add to cart.', true);
             return;
         }
@@ -842,7 +926,6 @@ document.getElementById('pf-group-add-cart').addEventListener('click', async fun
 document.getElementById('pf-group-order-now').addEventListener('click', async function (ev) {
     ev.preventDefault();
     var btn = ev.currentTarget;
-    if (btn.getAttribute('aria-disabled') === 'true') return;
     var productId = parseInt(btn.getAttribute('data-product-id') || '0', 10);
     if (!productId) {
         productId = parseInt(document.getElementById('pf-group-add-cart').getAttribute('data-product-id') || '0', 10);
@@ -850,9 +933,10 @@ document.getElementById('pf-group-order-now').addEventListener('click', async fu
     if (!productId) return;
     var stock = parseInt(btn.getAttribute('data-stock') || '0', 10);
     if (stock <= 0) {
-        showToast('This option is out of stock.', true);
+        pfShowOutOfStockError();
         return;
     }
+    pfClearOutOfStockError();
     if (btn.dataset.pending === '1') return;
     btn.dataset.pending = '1';
     try {
@@ -874,6 +958,10 @@ document.getElementById('pf-group-order-now').addEventListener('click', async fu
         }
         if (data.success && data.item_key) {
             window.location.href = 'order_review.php?item=' + encodeURIComponent(data.item_key);
+            return;
+        }
+        if (pfIsOutOfStockMessage(data.message)) {
+            pfShowOutOfStockError();
             return;
         }
         showToast(data.message || 'Could not start checkout.', true);

@@ -18,6 +18,12 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+if (!verify_csrf_token((string)($_POST['csrf_token'] ?? ''))) {
+    http_response_code(419);
+    echo json_encode(['success' => false, 'message' => 'Your session expired. Please refresh and try again.']);
+    exit;
+}
+
 $customer_id = get_user_id();
 
 // Collect all POST data

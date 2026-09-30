@@ -14,6 +14,12 @@ if (!has_role(['Admin', 'Staff'])) {
     exit;
 }
 
+if (!verify_csrf_token((string)($_POST['csrf_token'] ?? ''))) {
+    http_response_code(419);
+    echo json_encode(['success' => false, 'message' => 'Your session expired. Please refresh and try again.']);
+    exit;
+}
+
 $field = trim((string)($_POST['field'] ?? 'design'));
 $field = $field === 'reference' ? 'reference' : 'design';
 $inputName = $field === 'reference' ? 'reference_file' : 'design_file';

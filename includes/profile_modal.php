@@ -81,6 +81,7 @@
         <div id="tab-info" class="prof-tab-content active">
             <form id="prof-info-form">
                 <input type="hidden" name="action" value="update_profile">
+                <?php echo csrf_field(); ?>
                 <!-- Data populated via JS -->
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div>
@@ -126,6 +127,7 @@
         <div id="tab-security" class="prof-tab-content">
             <form id="prof-pass-form">
                 <input type="hidden" name="action" value="change_password">
+                <?php echo csrf_field(); ?>
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Current Password *</label>
                     <input type="password" name="current_password" class="input-field" required>

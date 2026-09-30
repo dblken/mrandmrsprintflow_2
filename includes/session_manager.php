@@ -10,8 +10,17 @@
  *   setNoCacheHeaders() — prevent browser caching of protected pages
  *   wasTimedOut()       — true if this request's session was just expired
  *
- * PRODUCTION NOTE: Change SESSION_HMAC_SECRET to a strong random value unique per deployment.
+ * PRODUCTION NOTE: Set PRINTFLOW_SESSION_HMAC_SECRET to a strong random value unique per deployment.
  */
+
+require_once __DIR__ . '/env.php';
+printflow_load_project_env();
+
+$printflowSessionEnvironment = strtolower(trim((string)(printflow_env('PRINTFLOW_APP_ENV') ?: '')));
+$printflowSessionHost = strtolower((string)($_SERVER['HTTP_HOST'] ?? ''));
+$printflowSessionIsProduction = $printflowSessionEnvironment === 'production'
+    || ($printflowSessionEnvironment === '' && str_contains($printflowSessionHost, 'mrandmrsprintflow.com'));
+$printflowSessionSecret = trim((string)(printflow_env('PRINTFLOW_SESSION_HMAC_SECRET') ?: ''));
 
 /**
  * Inactivity timeout for sessions without "Remember me" (seconds).
@@ -26,11 +35,18 @@ if (!defined('SESSION_LIFETIME')) {
  * Default false: rely on HTTPS + HttpOnly cookies; set true only if you need stricter binding.
  */
 if (!defined('PRINTFLOW_ENFORCE_FINGERPRINT')) {
-    define('PRINTFLOW_ENFORCE_FINGERPRINT', false);
+    define('PRINTFLOW_ENFORCE_FINGERPRINT', printflow_env_bool('PRINTFLOW_ENFORCE_FINGERPRINT', false));
 }
 
 if (!defined('SESSION_HMAC_SECRET')) {
-    define('SESSION_HMAC_SECRET', 'PrintFlow-Session-HMAC-Secret-Change-In-Production-2024');
+    if ($printflowSessionSecret === '' && $printflowSessionIsProduction) {
+        throw new RuntimeException('PRINTFLOW_SESSION_HMAC_SECRET must be configured in production.');
+    }
+    if ($printflowSessionSecret === '') {
+        $printflowSessionSecret = 'PrintFlow-Development-Only-Session-Secret';
+        error_log('[session] Development HMAC secret is in use; configure PRINTFLOW_SESSION_HMAC_SECRET before production.');
+    }
+    define('SESSION_HMAC_SECRET', $printflowSessionSecret);
 }
 
 if (!defined('REMEMBER_ME_STAFF_DAYS')) {

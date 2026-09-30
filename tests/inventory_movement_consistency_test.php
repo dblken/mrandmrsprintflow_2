@@ -47,6 +47,9 @@ $assert(str_contains($posCheckout, 'printflow_product_option_stock_prepare_cart_
 $assert(str_contains($optionStock, 'function printflow_product_option_stock_prepare_cart_customization('), 'shared helper can auto-select a single in-stock option');
 
 $assert(str_contains($jobs, 'getScopedMaterials((int)$orderId, true, true)'), 'service deductions lock undeducted assignments');
+$assert(str_contains($jobs, 'Unable to load material assignments for job'), 'failed material lookup aborts deduction instead of returning an empty list');
+$assert(str_contains($jobs, 'assertMaterialAssignmentsDeductionIntegrity'), 'marked-without-ledger assignments block completion');
+$assert(str_contains($jobs, 'Unable to load ink usage for job'), 'failed ink lookup aborts deduction');
 $assert(str_contains($jobs, "['materials' => true, 'inks' => false]"), 'completion does not repeat production-stage ink usage');
 $assert(str_contains($jobs, "SELECT id FROM inv_items WHERE id = ? FOR UPDATE"), 'material stock checks are serialized');
 $assert(str_contains($jobs, 'SET deducted_at = NOW()'), 'assigned material and ink usage is stamped only after movement');
