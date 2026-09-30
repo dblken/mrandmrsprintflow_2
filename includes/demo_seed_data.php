@@ -415,6 +415,107 @@ function demo_seed_verify_batch_integrity(string $batchId, int $expectedRows): a
 }
 
 /**
+ * @return array{width?:string,height?:string}
+ */
+function demo_seed_parse_spec_dimensions(string $specSummary, string $serviceDisplayName): array
+{
+    $spec = trim($specSummary);
+    if ($spec === '') {
+        return [];
+    }
+    $service = strtolower($serviceDisplayName);
+    if (!str_contains($service, 'tarp')) {
+        return [];
+    }
+    if (!preg_match('/(\d+(?:\.\d+)?)\s*(?:ft|feet|\')?\s*[x×]\s*(\d+(?:\.\d+)?)/i', $spec, $match)) {
+        return [];
+    }
+    return [
+        'width' => (string)$match[1],
+        'height' => (string)$match[2],
+    ];
+}
+
+/**
+ * @param array<string,string> $customer
+ * @return array<string,mixed>
+ */
+function demo_seed_build_pos_customization_payload(
+    array $row,
+    string $batchId,
+    int $catalogId,
+    array $customer,
+    string $orderAt
+): array {
+    $specSummary = trim((string)($row['spec_summary'] ?? ''));
+    $serviceName = (string)($row['service_display_name'] ?? '');
+    $payload = [
+        'service_type' => $serviceName,
+        'service_id' => $catalogId,
+        'source' => 'POS',
+        'source_page' => 'pos',
+        'spec_summary' => $specSummary,
+        'quantity' => 1,
+        'needed_date' => substr($orderAt, 0, 10),
+        'customer_first_name' => (string)$customer['first_name'],
+        'customer_last_name' => (string)$customer['last_name'],
+        'customer_email' => (string)$customer['email'],
+        'customer_phone' => (string)$customer['phone'],
+        '_seed_batch_id' => $batchId,
+    ];
+    foreach (demo_seed_parse_spec_dimensions($specSummary, $serviceName) as $key => $value) {
+        $payload[$key] = $value;
+    }
+    return $payload;
+}
+
+/**
+ * @return array<string,mixed>
+ */
+function demo_seed_trace_visibility_checks(
+    ?array $order,
+    ?array $customization,
+    ?array $jobOrder,
+    ?array $customer,
+    ?int $staffBranchId
+): array {
+    $reasons = [];
+    $orderId = (int)($order['order_id'] ?? 0);
+    $branchId = (int)($order['branch_id'] ?? $jobOrder['branch_id'] ?? 0);
+    $orderSource = strtolower(trim((string)($order['order_source'] ?? '')));
+    $email = strtolower(trim((string)($customer['email'] ?? '')));
+
+    if ($staffBranchId !== null && $branchId > 0 && $branchId !== $staffBranchId) {
+        $reasons[] = 'branch_filter: order branch_id ' . $branchId . ' != staff branch ' . $staffBranchId;
+    }
+    if ($orderSource === 'pos_draft' || $orderSource === 'pos_merged') {
+        $reasons[] = 'order_source excluded: ' . $orderSource;
+    }
+    $isPos = in_array($orderSource, ['pos', 'walk-in'], true)
+        || $email === 'walkin@pos.local'
+        || str_contains((string)($customization['customization_details'] ?? ''), '"source":"POS"');
+    if (!$isPos) {
+        $reasons[] = 'pos_staff_view: order_source is not POS/walk-in and no POS customization marker';
+    }
+    $orderStatus = trim((string)($order['status'] ?? ''));
+    $customStatus = trim((string)($customization['status'] ?? ''));
+    if ($orderId <= 0) {
+        $reasons[] = 'missing order_id link';
+    }
+
+    return [
+        'staff_pos_list_eligible' => $reasons === [],
+        'staff_pos_count_eligible' => $reasons === [],
+        'exclusion_reasons' => $reasons,
+        'resolved_order_source' => $isPos ? 'pos' : ($orderSource !== '' ? $orderSource : 'customer'),
+        'order_status' => $orderStatus,
+        'customization_status' => $customStatus,
+        'job_order_status' => (string)($jobOrder['status'] ?? ''),
+        'branch_id' => $branchId,
+    ];
+}
+
+/**
  * @return array<string,mixed>
  */
 function demo_seed_trace_seed_row(string $batchId, string $seedRowKey): array
@@ -455,25 +556,59 @@ function demo_seed_trace_seed_row(string $batchId, string $seedRowKey): array
     $customerEmail = strtolower(trim((string)($customer['email'] ?? '')));
     $displayName = trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''));
     $walkInGuest = $customerEmail === 'walkin@pos.local';
+    $staffBranch = function_exists('printflow_branch_filter_for_user') ? printflow_branch_filter_for_user() : null;
+
+    $customDetails = [];
+    if (!empty($customization['customization_details'])) {
+        $decoded = json_decode((string)$customization['customization_details'], true);
+        $customDetails = is_array($decoded) ? $decoded : [];
+    }
 
     return [
         'found' => true,
         'registry' => $reg,
-        'customer' => $customer,
+        'ids' => [
+            'seed_row_key' => $seedRowKey,
+            'customer_id' => $customerId,
+            'order_id' => $orderId,
+            'order_item_id' => $orderItemId,
+            'customization_id' => $customizationId,
+            'job_order_id' => $jobOrderId,
+        ],
+        'customer' => $customer ? [
+            'customer_id' => $customerId,
+            'first_name' => (string)($customer['first_name'] ?? ''),
+            'last_name' => (string)($customer['last_name'] ?? ''),
+            'email' => (string)($customer['email'] ?? ''),
+            'contact_number' => (string)($customer['contact_number'] ?? ''),
+        ] : null,
         'order' => $order,
         'order_item' => $orderItem,
         'customization' => $customization,
         'job_order' => $jobOrder,
-        'visibility' => [
-            'staff_customizations_uses' => [
-                'orders.order_date' => (string)($order['order_date'] ?? ''),
-                'orders.created_at' => (string)($order['created_at'] ?? ''),
-                'customizations.created_at' => (string)($customization['created_at'] ?? ''),
-                'job_orders.created_at' => (string)($jobOrder['created_at'] ?? ''),
-            ],
+        'dates' => [
+            'orders.order_date' => (string)($order['order_date'] ?? ''),
+            'orders.created_at' => (string)($order['created_at'] ?? ''),
+            'customizations.created_at' => (string)($customization['created_at'] ?? ''),
+            'customizations.updated_at' => (string)($customization['updated_at'] ?? ''),
+            'customizations.needed_date' => (string)($customization['needed_date'] ?? ''),
+            'payload.needed_date' => (string)($customDetails['needed_date'] ?? ''),
+            'job_orders.created_at' => (string)($jobOrder['created_at'] ?? ''),
+            'job_orders.updated_at' => (string)($jobOrder['updated_at'] ?? ''),
+            'job_orders.due_date' => (string)($jobOrder['due_date'] ?? ''),
+        ],
+        'visibility' => demo_seed_trace_visibility_checks(
+            is_array($order) ? $order : null,
+            is_array($customization) ? $customization : null,
+            is_array($jobOrder) ? $jobOrder : null,
+            is_array($customer) ? $customer : null,
+            $staffBranch !== null ? (int)$staffBranch : null
+        ),
+        'display' => [
             'customer_display_name' => $displayName,
-            'shows_walk_in_guest' => $walkInGuest || $displayName === 'Walk-in Guest',
+            'shows_walk_in_guest' => $walkInGuest || strcasecmp($displayName, 'Walk-in Guest') === 0,
             'walk_in_reason' => $walkInGuest ? 'customer.email is walkin@pos.local' : ($displayName === '' ? 'customer name empty' : null),
+            'spec_summary' => (string)($customDetails['spec_summary'] ?? ''),
         ],
     ];
 }
@@ -1527,6 +1662,7 @@ function demo_seed_insert_job_order_for_row(
         ['created_by', 'i', $staffId],
         ['created_at', 's', $orderAt],
         ['updated_at', 's', $updatedAt],
+        ['due_date', 's', substr($orderAt, 0, 10)],
     ];
 
     $cols = [];
@@ -1800,42 +1936,65 @@ function demo_seed_import_single_row(array $row, string $batchId, int $adminId, 
         $ctx
     );
 
-    $customizationData = [
-        'service_type' => (string)$row['service_display_name'],
-        'service_id' => $catalogId,
-        'source' => 'POS',
-        'spec_summary' => (string)$row['spec_summary'],
-        'quantity' => 1,
-        'customer_first_name' => (string)$customer['first_name'],
-        'customer_last_name' => (string)$customer['last_name'],
-        'customer_email' => (string)$customer['email'],
-        'customer_phone' => (string)$customer['phone'],
-        '_seed_batch_id' => $batchId,
-    ];
+    $customizationData = demo_seed_build_pos_customization_payload($row, $batchId, $catalogId, $customer, $orderAt);
+    $customizationJson = json_encode($customizationData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
+    $oiCols = ['order_id', 'product_id', 'quantity', 'unit_price', 'customization_data'];
+    $oiTypes = 'iiids';
+    $oiParams = [$orderId, $placeholderProductId, 1, (float)$row['unit_price'], $customizationJson];
+    if (db_table_has_column('order_items', 'item_type')) {
+        $oiCols[] = 'item_type';
+        $oiTypes .= 's';
+        $oiParams[] = 'service';
+    }
+    if (db_table_has_column('order_items', 'specifications')) {
+        $oiCols[] = 'specifications';
+        $oiTypes .= 's';
+        $oiParams[] = $customizationJson;
+    }
+    if (db_table_has_column('order_items', 'created_at')) {
+        $oiCols[] = 'created_at';
+        $oiTypes .= 's';
+        $oiParams[] = $orderAt;
+    }
+    if (db_table_has_column('order_items', 'updated_at')) {
+        $oiCols[] = 'updated_at';
+        $oiTypes .= 's';
+        $oiParams[] = $updatedAt;
+    }
+    $oiPlaceholders = implode(', ', array_fill(0, count($oiCols), '?'));
     $orderItemId = demo_seed_require_insert_id(
-        'INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data) VALUES (?, ?, 1, ?, ?)',
-        'iids',
-        [$orderId, $placeholderProductId, (float)$row['unit_price'], json_encode($customizationData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)],
+        'INSERT INTO order_items (' . implode(', ', $oiCols) . ') VALUES (' . $oiPlaceholders . ')',
+        $oiTypes,
+        $oiParams,
         'order_item_insert',
         $ctx
     );
 
     $details = $customizationData;
     $details['notes'] = (string)$row['spec_summary'];
+    $customCols = ['order_id', 'order_item_id', 'customer_id', 'service_type', 'customization_details', 'status', 'created_at', 'updated_at'];
+    $customTypes = 'iiisssss';
+    $customParams = [
+        $orderId,
+        $orderItemId,
+        $customerId,
+        (string)$row['service_display_name'],
+        json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+        (string)$row['customization_status'],
+        $orderAt,
+        $updatedAt,
+    ];
+    if (db_table_has_column('customizations', 'needed_date')) {
+        $customCols[] = 'needed_date';
+        $customTypes .= 's';
+        $customParams[] = substr($orderAt, 0, 10);
+    }
+    $customPlaceholders = implode(', ', array_fill(0, count($customCols), '?'));
     $customizationId = demo_seed_require_insert_id(
-        'INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        'iiisssss',
-        [
-            $orderId,
-            $orderItemId,
-            $customerId,
-            (string)$row['service_display_name'],
-            json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-            (string)$row['customization_status'],
-            $orderAt,
-            $updatedAt,
-        ],
+        'INSERT INTO customizations (' . implode(', ', $customCols) . ') VALUES (' . $customPlaceholders . ')',
+        $customTypes,
+        $customParams,
         'customization_insert',
         $ctx
     );

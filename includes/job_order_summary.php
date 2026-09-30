@@ -10,11 +10,11 @@ function jo_api_summary_row(array $row): array
 {
     static $allowed = [
         'id', 'order_id', 'job_order_id', 'order_item_id', 'customer_id', 'branch_id',
-        'first_name', 'last_name', 'customer_full_name', 'customer_name',
+        'first_name', 'last_name', 'customer_full_name', 'customer_name', 'customer_email',
         'customer_type', 'transaction_count', 'order_type', 'order_source', 'order_code',
         'service_type', 'job_title', 'width_ft', 'height_ft', 'quantity', 'status',
         'payment_proof_status', 'payment_status', 'provider_payment_status',
-        'created_at', 'updated_at', 'order_date', 'due_date', 'priority',
+        'created_at', 'updated_at', 'order_date', 'order_business_date', 'due_date', 'priority',
         'estimated_total', 'amount_paid', 'required_payment', 'readiness', 'estimated_cost',
         'items',
         'is_urgent_request', 'is_regular_priority', 'has_priority_field',

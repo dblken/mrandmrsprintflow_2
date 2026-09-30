@@ -4374,6 +4374,17 @@ window.pfServiceFieldCatalog = (() => {
 
                 this.mergeChangeItemFields(merged, winner, loser);
 
+                if ((!merged.first_name || !merged.last_name) && loser) {
+                    const loserFull = String(loser.customer_full_name || `${loser.first_name || ''} ${loser.last_name || ''}`).trim();
+                    const mergedFull = String(`${merged.first_name || ''} ${merged.last_name || ''}`).trim().toLowerCase();
+                    const mergedIsWalkIn = mergedFull === 'walk-in guest' || mergedFull === 'walk-in' || mergedFull === '';
+                    if (mergedIsWalkIn && loserFull && !loserFull.toLowerCase().includes('walk-in')) {
+                        merged.first_name = loser.first_name || loserFull.split(/\s+/)[0] || merged.first_name;
+                        merged.last_name = loser.last_name || loserFull.split(/\s+/).slice(1).join(' ') || merged.last_name;
+                        merged.customer_full_name = loserFull;
+                    }
+                }
+
                 return merged;
             },
             mergeChangeItemFields(target, primary, secondary) {
@@ -4442,7 +4453,8 @@ window.pfServiceFieldCatalog = (() => {
                     return '';
                 }
 
-                return [customer, created, status, normalizedLabel].join('|');
+                const orderIdPart = row.order_id != null && row.order_id !== '' ? String(row.order_id) : String(row.id || '');
+                return [customer, created, status, normalizedLabel, orderIdPart].join('|');
             },
             dedupePosDuplicateRows(rows = []) {
                 const deduped = new Map();
@@ -4768,7 +4780,16 @@ window.pfServiceFieldCatalog = (() => {
                 const display = String(row.needed_date_display || '').trim();
                 if (display) return display;
                 const raw = String(row.needed_date || '').trim();
-                if (!raw) return forTitle ? '' : '—';
+                if (!raw) {
+                    const business = String(row.order_business_date || row.order_date || row.created_at || '').trim();
+                    if (business && /^\d{4}-\d{2}-\d{2}/.test(business)) {
+                        const stamp = Date.parse(business.slice(0, 10));
+                        if (!Number.isNaN(stamp)) {
+                            return new Date(stamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                        }
+                    }
+                    return forTitle ? '' : '—';
+                }
                 if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
                     const stamp = Date.parse(raw.slice(0, 10));
                     if (!Number.isNaN(stamp)) {
@@ -4783,14 +4804,20 @@ window.pfServiceFieldCatalog = (() => {
             },
             formatCustomizationInfo(row) {
                 if (!row) return 'Custom service';
+                const dimValid = (value) => {
+                    const text = String(value !== null && value !== undefined ? value : '').trim();
+                    if (text === '') return false;
+                    const num = parseFloat(text);
+                    return Number.isNaN(num) || num > 0;
+                };
                 const width = String(row.width_ft !== null && row.width_ft !== undefined ? row.width_ft : '').trim();
                 const height = String(row.height_ft !== null && row.height_ft !== undefined ? row.height_ft : '').trim();
                 const quantity = Number(row.quantity || 0);
                 const parts = [];
 
-                if (width && height) {
+                if (dimValid(width) && dimValid(height)) {
                     parts.push(`${width}'×${height}'`);
-                } else if (width) {
+                } else if (dimValid(width)) {
                     parts.push(width);
                 }
 
@@ -4798,12 +4825,28 @@ window.pfServiceFieldCatalog = (() => {
                     parts.push(`${quantity} pcs`);
                 }
 
-                let base = parts.join(' • ') || 'Custom service';
+                let base = parts.join(' • ') || '';
 
                 const first = row.items && row.items[0];
                 const custom = first && first.customization && typeof first.customization === 'object' && !Array.isArray(first.customization)
                     ? first.customization
                     : null;
+                const specSummary = custom && custom.spec_summary
+                    ? String(custom.spec_summary).trim()
+                    : (row.customization_details && row.customization_details.spec_summary
+                        ? String(row.customization_details.spec_summary).trim()
+                        : '');
+                const serviceLabel = String(row.service_type || row.job_title || '').trim();
+
+                if (!base && specSummary) {
+                    base = specSummary.length > 80 ? specSummary.slice(0, 77) + '...' : specSummary;
+                } else if (!base && serviceLabel) {
+                    base = serviceLabel;
+                }
+                if (!base) {
+                    base = 'Custom service';
+                }
+
                 if (custom) {
                     const noiseKeys = new Set([
                         'width', 'height', 'width_ft', 'height_ft', 'dimensions', 'service_type', 'service_id', 'product_id',

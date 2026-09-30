@@ -764,6 +764,32 @@ function jo_api_source_matches(string $source, string $filter): bool {
     return $filter === 'pos' ? $isPos : !$isPos;
 }
 
+/**
+ * Prefer linked customers.* for staff lists; fall back to job_orders.customer_name when join is empty or walk-in placeholder.
+ *
+ * @param array<string,mixed> $row
+ */
+function jo_api_hydrate_staff_list_customer_fields(array &$row): void
+{
+    $email = strtolower(trim((string)($row['customer_email'] ?? '')));
+    $first = trim((string)($row['first_name'] ?? ''));
+    $last = trim((string)($row['last_name'] ?? ''));
+    $full = trim($first . ' ' . $last);
+    $isWalkInAccount = $email === 'walkin@pos.local'
+        || strcasecmp($full, 'Walk-in Guest') === 0
+        || strcasecmp($full, 'Walk-In Guest') === 0;
+
+    $jobName = trim((string)($row['customer_name'] ?? ''));
+    if (($full === '' || $isWalkInAccount) && $jobName !== '' && stripos($jobName, 'walk-in') === false) {
+        $parts = preg_split('/\s+/', $jobName, 2) ?: [];
+        $row['first_name'] = trim((string)($parts[0] ?? ''));
+        $row['last_name'] = trim((string)($parts[1] ?? ''));
+        $row['customer_full_name'] = $jobName;
+    } elseif ($full !== '' && empty($row['customer_full_name'])) {
+        $row['customer_full_name'] = $full;
+    }
+}
+
 function jo_api_sql_exclude_unfinalized_pos_drafts(string $orderAlias = 'o', ?string $customAlias = null): string
 {
     $customSourceClause = $customAlias !== null
@@ -1060,13 +1086,13 @@ try {
                 $countParams[] = $joStaffBranch;
             }
             $orderRows = db_query($orderCountSql, $countTypes ?: null, $countParams ?: null) ?: [];
+            $orderSourceMap = jo_api_resolve_order_sources_batch($orderRows);
             foreach ($orderRows as $row) {
-                $source = strtolower(trim((string)($row['order_source'] ?? 'customer')));
-                if (($row['customer_email'] ?? '') === 'walkin@pos.local') {
-                    $source = 'pos';
-                }
+                $orderId = (int)($row['order_id'] ?? 0);
+                $source = $orderSourceMap[$orderId] ?? strtolower(trim((string)($row['order_source'] ?? 'customer')));
                 if (jo_api_source_matches($source, $listSource)) {
-                    $row['_count_key'] = 'ORDER:' . (int)($row['order_id'] ?? 0);
+                    $row['_count_key'] = 'ORDER:' . $orderId;
+                    $row['order_source'] = $source;
                     $countRows[] = $row;
                 }
             }
@@ -1225,15 +1251,16 @@ try {
                    jo.required_payment, jo.payment_status, jo.due_date, jo.priority,
                    jo.created_at, jo.updated_at, jo.payment_proof_status"
                 : 'jo.*';
-            $sql = "SELECT {$jobColumns}, c.first_name, c.last_name, c.customer_type, c.transaction_count,
+            $sql = "SELECT {$jobColumns}, c.first_name, c.last_name, c.email AS customer_email, c.customer_type, c.transaction_count,
                            c.profile_picture AS customer_profile_picture,
+                           TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))) AS customer_full_name,
                            TRIM(CONCAT_WS(', ', NULLIF(TRIM(c.street_address), ''), NULLIF(TRIM(c.barangay), ''), NULLIF(TRIM(c.city), ''))) AS customer_address,
                            COALESCE(NULLIF(TRIM(c.contact_number), ''), NULLIF(TRIM(c.email), '')) AS customer_contact,
-                           o.order_source, o.order_date,
+                           o.order_source, o.order_date, o.branch_id AS order_branch_id,
                            COALESCE(o.order_date, jo.created_at) AS order_business_date
                     FROM job_orders jo 
                     LEFT JOIN orders o ON o.order_id = jo.order_id
-                    LEFT JOIN customers c ON jo.customer_id = c.customer_id 
+                    LEFT JOIN customers c ON c.customer_id = COALESCE(NULLIF(jo.customer_id, 0), o.customer_id)
                     WHERE 1=1";
             $params = []; $types = '';
             if ($status) {
@@ -1268,7 +1295,16 @@ try {
                           AND LOWER(TRIM(COALESCE(o.order_source, ''))) NOT IN ('pos_draft', 'pos_merged')
                           AND LOWER(TRIM(COALESCE(o.status, ''))) NOT IN ('draft', 'cancelled')
                           AND (LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
-                               OR LOWER(TRIM(COALESCE(c.email, ''))) = 'walkin@pos.local')";
+                               OR LOWER(TRIM(COALESCE(c.email, ''))) = 'walkin@pos.local'
+                               OR EXISTS (
+                                   SELECT 1 FROM customizations cust_pos
+                                   WHERE cust_pos.order_id = jo.order_id
+                                     AND (
+                                         cust_pos.customization_details LIKE '%\"source\":\"POS\"%'
+                                         OR cust_pos.customization_details LIKE '%\"source\": \"POS\"%'
+                                         OR cust_pos.customization_details LIKE '%\"_seed_batch_id\"%'
+                                     )
+                               ))";
             } elseif ($listSource === 'online') {
                 $sql .= " AND (jo.order_id IS NULL
                           OR (LOWER(TRIM(COALESCE(o.order_source, ''))) NOT IN ('pos', 'walk-in', 'pos_draft', 'pos_merged')
@@ -1300,6 +1336,10 @@ try {
             $sql .= " ORDER BY jo.priority = 'HIGH' DESC, jo.due_date ASC, jo.created_at DESC LIMIT ? OFFSET ?";
             $params[] = $per_page; $params[] = $offset; $types .= 'ii';
             $orders = db_query($sql, $types ?: null, $params ?: null) ?: [];
+            foreach ($orders as &$orderRow) {
+                jo_api_hydrate_staff_list_customer_fields($orderRow);
+            }
+            unset($orderRow);
             $fetchedOrderCount = count($orders);
             if (getenv('PRINTFLOW_POS_DATETIME_DEBUG') === '1') {
                 foreach ($orders as $dateRow) {
@@ -1404,7 +1444,25 @@ try {
                     if (!empty($jo['order_id'])) {
                         $payload = $payloads[$joOrderId] ?? null;
                         if ($serviceOnly && (empty($payload) || empty($payload['items']))) {
-                            continue;
+                            $seedLinked = db_query(
+                                'SELECT seed_row_key FROM demo_seed_rows WHERE order_id = ? LIMIT 1',
+                                'i',
+                                [$joOrderId]
+                            ) ?: [];
+                            if ($seedLinked === []) {
+                                continue;
+                            }
+                            $payload = [
+                                'items' => [[
+                                    'product_name' => trim((string)($jo['service_type'] ?? '')) ?: 'Service',
+                                    'quantity' => max(1, (int)($jo['quantity'] ?? 1)),
+                                    'customization' => ['source' => 'POS', 'service_type' => (string)($jo['service_type'] ?? '')],
+                                ]],
+                                'service_type' => (string)($jo['service_type'] ?? ''),
+                                'line_qty' => max(1, (int)($jo['quantity'] ?? 1)),
+                                'width_ft' => (string)($jo['width_ft'] ?? ''),
+                                'height_ft' => (string)($jo['height_ft'] ?? ''),
+                            ];
                         }
                         if ($payload !== null) {
                             JobOrderService::enrichStaffJobRowFromStorePayload($jo, $payload);
@@ -1599,6 +1657,10 @@ try {
                  : JobOrderService::getStoreOrderItemsPayloadsBatch($pendingOrderIds, $serviceOnly);
              $pendingOrderCodes = jo_api_order_codes($pendingOrderIds);
 
+             foreach ($pending_orders as &$order) {
+                 jo_api_hydrate_staff_list_customer_fields($order);
+             }
+             unset($order);
              $visiblePendingOrders = [];
              foreach ($pending_orders as $order) {
                  $pendingOrderId = (int)($order['order_id'] ?? 0);
@@ -1700,6 +1762,7 @@ try {
                 $co['quantity'] = $summary['quantity'];
                 $co['readiness'] = 'READY';
                 $co['estimated_cost'] = 0;
+                jo_api_hydrate_staff_list_customer_fields($co);
                 if (!empty($co['order_id'])) {
                     $customOrderId = (int)$co['order_id'];
                     $co['order_code'] = $customOrderCodes[$customOrderId] ?? printflow_format_order_code($customOrderId, '');

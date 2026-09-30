@@ -6746,6 +6746,18 @@ function printflow_customization_summary($custom, $fallback = 'Custom Service') 
     $width_ft = (string)($dimensions['width'] ?? '');
     $height_ft = (string)($dimensions['height'] ?? '');
 
+    if (($width_ft === '' || $height_ft === '') && !empty($custom['spec_summary'])) {
+        $specText = trim((string)$custom['spec_summary']);
+        if ($specText !== '' && preg_match('/(\d+(?:\.\d+)?)\s*(?:ft|feet|\')?\s*[x×]\s*(\d+(?:\.\d+)?)/i', $specText, $dimMatch)) {
+            if ($width_ft === '') {
+                $width_ft = (string)$dimMatch[1];
+            }
+            if ($height_ft === '') {
+                $height_ft = (string)$dimMatch[2];
+            }
+        }
+    }
+
     return [
         'service_type' => $service_type,
         'job_title' => $job_title,

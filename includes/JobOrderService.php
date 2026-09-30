@@ -1674,7 +1674,15 @@ class JobOrderService {
         $category = strtolower(trim((string)($item['category'] ?? '')));
         $sourcePage = strtolower(trim((string)($custom['source_page'] ?? '')));
         $formType = strtolower(trim((string)($custom['form_type'] ?? '')));
-        
+        $source = strtolower(trim((string)($custom['source'] ?? '')));
+
+        if ($source === 'pos' || trim((string)($custom['_seed_batch_id'] ?? '')) !== '') {
+            return true;
+        }
+        if (trim((string)($custom['service_type'] ?? '')) !== '' && (int)($custom['service_id'] ?? 0) > 0) {
+            return true;
+        }
+
         // If category contains 'service', it's a service order
         if (strpos($category, 'service') !== false) {
             return true;
@@ -3125,6 +3133,15 @@ class JobOrderService {
             }
         }
 
+        $orderDate = trim((string)($orderMeta['order_date'] ?? ''));
+        if ($orderDate !== '' && preg_match('/^\d{4}-\d{2}-\d{2}/', $orderDate)) {
+            $raw = substr($orderDate, 0, 10);
+            return [
+                'needed_date' => $raw,
+                'needed_date_display' => printflow_format_needed_date_display($raw),
+            ];
+        }
+
         return [
             'needed_date' => '',
             'needed_date_display' => '',
@@ -3197,7 +3214,7 @@ class JobOrderService {
 
         $orderMetaById = [];
         $orderMetaRows = db_query(
-            "SELECT order_id, order_type, reference_id FROM orders WHERE order_id IN ({$idsStr})"
+            "SELECT order_id, order_type, reference_id, order_date FROM orders WHERE order_id IN ({$idsStr})"
         ) ?: [];
         foreach ($orderMetaRows as $orderMetaRow) {
             $orderMetaById[(int)$orderMetaRow['order_id']] = $orderMetaRow;
@@ -3213,9 +3230,9 @@ class JobOrderService {
             $itemsOut = [];
             $firstCustom = [];
             $totalQty = 0;
-            $widthFt = '1';
-            $heightFt = '1';
-            $orderMeta = $orderMetaById[$orderId] ?? ['order_type' => 'custom', 'reference_id' => 0];
+            $widthFt = '';
+            $heightFt = '';
+            $orderMeta = $orderMetaById[$orderId] ?? ['order_type' => 'custom', 'reference_id' => 0, 'order_date' => ''];
 
             foreach ($itemsByOrder[$orderId] ?? [] as $item) {
                 $custom = customer_orders_decode_customization_payload((string)($item['customization_data'] ?? ''));
@@ -3345,7 +3362,7 @@ class JobOrderService {
 
         $orderMetaById = [];
         $orderMetaRows = db_query(
-            "SELECT order_id, order_type, reference_id FROM orders WHERE order_id IN ({$idsStr})"
+            "SELECT order_id, order_type, reference_id, order_date FROM orders WHERE order_id IN ({$idsStr})"
         ) ?: [];
         foreach ($orderMetaRows as $orderMetaRow) {
             $orderMetaById[(int)$orderMetaRow['order_id']] = $orderMetaRow;
