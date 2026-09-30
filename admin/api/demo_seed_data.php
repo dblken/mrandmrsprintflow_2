@@ -49,7 +49,9 @@ try {
             ]);
             exit;
         }
-        $validation = demo_seed_validate_rows($parsed['rows']);
+        $validation = demo_seed_validate_rows($parsed['rows'], [
+            'fallback_staff_user_id' => $adminId,
+        ]);
         $token = null;
         if ($validation['valid']) {
             $token = demo_seed_store_preview(
@@ -63,7 +65,16 @@ try {
             'preview_token' => $token,
             'summary' => $validation['summary'],
             'row_errors' => $validation['row_errors'],
+            'row_resolutions' => $validation['row_resolutions'] ?? [],
             'cabuyao_branch_id' => demo_seed_cabuyao_branch_id(),
+        ]);
+        exit;
+    }
+
+    if ($action === 'resolver_reference') {
+        echo json_encode([
+            'success' => true,
+            'reference' => demo_seed_resolver_reference($adminId),
         ]);
         exit;
     }
@@ -108,7 +119,10 @@ try {
                 'staff_user_id' => (string)$row['staff_user_id'],
                 'branch_id' => (string)$row['branch_id'],
             ];
-        }, $rows));
+        }, $rows), [
+            'fallback_staff_user_id' => $adminId,
+            'skip_active_batch_check' => true,
+        ]);
         if (!$revalidate['valid']) {
             throw new RuntimeException('Import blocked because validation no longer passes.');
         }

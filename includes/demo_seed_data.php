@@ -261,6 +261,277 @@ function demo_seed_is_raffle_service(string $serviceName, string $enumName): boo
 }
 
 /**
+ * @return list<array{service_id:int,name:string}>
+ */
+function demo_seed_list_activated_services(): array
+{
+    return db_query(
+        "SELECT service_id, name
+         FROM services
+         WHERE LOWER(TRIM(COALESCE(status, ''))) = 'activated'
+         ORDER BY name ASC"
+    ) ?: [];
+}
+
+function demo_seed_get_branch_row(int $branchId): ?array
+{
+    if ($branchId <= 0) {
+        return null;
+    }
+    $rows = db_query(
+        "SELECT id, branch_name, city FROM branches WHERE id = ? LIMIT 1",
+        'i',
+        [$branchId]
+    ) ?: [];
+    return $rows[0] ?? null;
+}
+
+function demo_seed_get_staff_row(int $userId): ?array
+{
+    if ($userId <= 0) {
+        return null;
+    }
+    $rows = db_query(
+        "SELECT user_id, first_name, last_name, role
+         FROM users
+         WHERE user_id = ? AND role IN ('Admin', 'Staff') AND status = 'Activated'
+         LIMIT 1",
+        'i',
+        [$userId]
+    ) ?: [];
+    return $rows[0] ?? null;
+}
+
+/**
+ * @return list<array{service_id:int,name:string}>
+ */
+function demo_seed_find_service_catalog_matches(string $displayName): array
+{
+    $displayName = trim($displayName);
+    if ($displayName === '') {
+        return [];
+    }
+
+    $catalog = demo_seed_list_activated_services();
+    $exact = [];
+    foreach ($catalog as $row) {
+        if (strcasecmp(trim((string)$row['name']), $displayName) === 0) {
+            $exact[] = [
+                'service_id' => (int)$row['service_id'],
+                'name' => (string)$row['name'],
+            ];
+        }
+    }
+    if ($exact !== []) {
+        return $exact;
+    }
+
+    $resolvedId = 0;
+    if (function_exists('printflow_resolve_active_service_catalog_id')) {
+        $resolvedId = printflow_resolve_active_service_catalog_id($displayName);
+    } elseif (function_exists('printflow_resolve_service_catalog_service_id')) {
+        $resolvedId = printflow_resolve_service_catalog_service_id($displayName);
+    }
+    if ($resolvedId > 0) {
+        foreach ($catalog as $row) {
+            if ((int)$row['service_id'] === $resolvedId) {
+                return [[
+                    'service_id' => $resolvedId,
+                    'name' => (string)$row['name'],
+                ]];
+            }
+        }
+    }
+
+    $needle = strtolower($displayName);
+    $partial = [];
+    foreach ($catalog as $row) {
+        $name = strtolower(trim((string)$row['name']));
+        if ($name === '' || strlen($needle) < 4) {
+            continue;
+        }
+        if (str_contains($name, $needle) || str_contains($needle, $name)) {
+            $partial[] = [
+                'service_id' => (int)$row['service_id'],
+                'name' => (string)$row['name'],
+            ];
+        }
+    }
+    return $partial;
+}
+
+/**
+ * @return array{ok:bool,service_id?:int,service_name?:string,method?:string,error?:string,candidates?:list<array{service_id:int,name:string}>,available?:list<string>}
+ */
+function demo_seed_resolve_service_catalog(int $csvCatalogId, string $displayName): array
+{
+    $displayName = trim($displayName);
+    if ($csvCatalogId > 0) {
+        $byId = db_query(
+            "SELECT service_id, name FROM services
+             WHERE service_id = ? AND LOWER(TRIM(COALESCE(status, ''))) <> 'archived'
+             LIMIT 1",
+            'i',
+            [$csvCatalogId]
+        ) ?: [];
+        if ($byId !== []) {
+            return [
+                'ok' => true,
+                'service_id' => (int)$byId[0]['service_id'],
+                'service_name' => (string)$byId[0]['name'],
+                'method' => 'csv_service_id',
+            ];
+        }
+    }
+
+    $matches = demo_seed_find_service_catalog_matches($displayName);
+    if (count($matches) === 1) {
+        return [
+            'ok' => true,
+            'service_id' => (int)$matches[0]['service_id'],
+            'service_name' => (string)$matches[0]['name'],
+            'method' => $csvCatalogId > 0 ? 'display_name_after_invalid_csv_id' : 'display_name',
+        ];
+    }
+    if (count($matches) > 1) {
+        return [
+            'ok' => false,
+            'error' => 'Multiple catalog services match "' . $displayName . '". Use a more specific service_display_name or a valid service_catalog_id.',
+            'candidates' => $matches,
+        ];
+    }
+
+    $available = array_map(static fn(array $r): string => (string)$r['name'], demo_seed_list_activated_services());
+    return [
+        'ok' => false,
+        'error' => 'No activated catalog service matches "' . $displayName . '".',
+        'available' => $available,
+    ];
+}
+
+/**
+ * @return array{ok:bool,enum?:string,method?:string,error?:string,available?:list<string>}
+ */
+function demo_seed_resolve_job_service_enum(string $displayName, string $csvEnum = ''): array
+{
+    $enums = demo_seed_job_service_enum_values();
+    $csvEnum = trim($csvEnum);
+    if ($csvEnum !== '') {
+        $matched = demo_seed_match_job_enum($csvEnum);
+        foreach ($enums as $enum) {
+            if (strcasecmp($enum, $matched) === 0) {
+                return ['ok' => true, 'enum' => $enum, 'method' => 'csv_enum'];
+            }
+        }
+    }
+
+    if (!class_exists('JobOrderService')) {
+        require_once __DIR__ . '/JobOrderService.php';
+    }
+    $inferred = JobOrderService::inferServiceTypeFromProduct('', $displayName);
+    foreach ($enums as $enum) {
+        if (strcasecmp($enum, $inferred) === 0) {
+            return ['ok' => true, 'enum' => $enum, 'method' => 'inferred_from_display_name'];
+        }
+    }
+
+    $lower = strtolower($displayName);
+    $aliasMap = [
+        'poster' => 'Layouts',
+        'mug' => 'Souvenirs',
+        'address plate' => 'Reflectorized (Subdivision Stickers/Signages)',
+        'sintra' => 'Stickers on Sintraboard',
+        'standee' => 'Sintraboard Standees',
+        't-shirt' => 'T-shirt Printing',
+        'tshirt' => 'T-shirt Printing',
+        'sticker' => 'Decals/Stickers (Print/Cut)',
+        'decal' => 'Decals/Stickers (Print/Cut)',
+        'tarp' => 'Tarpaulin Printing',
+    ];
+    foreach ($aliasMap as $needle => $enum) {
+        if (str_contains($lower, $needle)) {
+            return ['ok' => true, 'enum' => $enum, 'method' => 'alias_from_display_name'];
+        }
+    }
+
+    return [
+        'ok' => false,
+        'error' => 'Could not map job service type for "' . $displayName . '".',
+        'available' => $enums,
+    ];
+}
+
+/**
+ * @return array{ok:bool,branch_id?:int,branch_name?:string,method?:string,error?:string}
+ */
+function demo_seed_resolve_branch_id(int $csvBranchId): array
+{
+    $defaultId = demo_seed_cabuyao_branch_id();
+    if ($csvBranchId > 0 && demo_seed_branch_is_cabuyao($csvBranchId)) {
+        $row = demo_seed_get_branch_row($csvBranchId);
+        return [
+            'ok' => true,
+            'branch_id' => $csvBranchId,
+            'branch_name' => (string)($row['branch_name'] ?? ('Branch #' . $csvBranchId)),
+            'method' => 'csv_branch_id',
+        ];
+    }
+    if ($csvBranchId > 0) {
+        return ['ok' => false, 'error' => 'branch_id must be the Cabuyao branch (default id ' . $defaultId . ').'];
+    }
+    $row = demo_seed_get_branch_row($defaultId);
+    return [
+        'ok' => true,
+        'branch_id' => $defaultId,
+        'branch_name' => (string)($row['branch_name'] ?? ('Branch #' . $defaultId)),
+        'method' => 'default_cabuyao',
+    ];
+}
+
+/**
+ * @return array{ok:bool,user_id?:int,user_label?:string,method?:string,error?:string}
+ */
+function demo_seed_resolve_staff_user_id(int $csvStaffId, int $fallbackStaffId): array
+{
+    if ($csvStaffId > 0 && demo_seed_staff_user_valid($csvStaffId)) {
+        $row = demo_seed_get_staff_row($csvStaffId);
+        return [
+            'ok' => true,
+            'user_id' => $csvStaffId,
+            'user_label' => trim((string)($row['first_name'] ?? '') . ' ' . (string)($row['last_name'] ?? '')) . ' (' . (string)($row['role'] ?? '') . ')',
+            'method' => 'csv_staff_user_id',
+        ];
+    }
+    if ($fallbackStaffId > 0 && demo_seed_staff_user_valid($fallbackStaffId)) {
+        $row = demo_seed_get_staff_row($fallbackStaffId);
+        return [
+            'ok' => true,
+            'user_id' => $fallbackStaffId,
+            'user_label' => trim((string)($row['first_name'] ?? '') . ' ' . (string)($row['last_name'] ?? '')) . ' (' . (string)($row['role'] ?? '') . ')',
+            'method' => $csvStaffId > 0 ? 'logged_in_after_invalid_csv_id' : 'logged_in_default',
+        ];
+    }
+    return ['ok' => false, 'error' => 'Could not resolve an Admin/Staff user for import (check staff_user_id or log in as Admin/Staff).'];
+}
+
+function demo_seed_resolver_reference(int $fallbackStaffId): array
+{
+    $branchId = demo_seed_cabuyao_branch_id();
+    $branch = demo_seed_get_branch_row($branchId);
+    $staff = demo_seed_resolve_staff_user_id(0, $fallbackStaffId);
+    return [
+        'service_names' => demo_seed_list_activated_services(),
+        'job_service_types' => demo_seed_job_service_enum_values(),
+        'default_branch' => [
+            'branch_id' => $branchId,
+            'branch_name' => (string)($branch['branch_name'] ?? ''),
+            'city' => (string)($branch['city'] ?? ''),
+        ],
+        'default_staff' => $staff,
+    ];
+}
+
+/**
  * @return array{rows:list<array<string,string>>,errors:list<array{row:int,key?:string,message:string}>}
  */
 function demo_seed_parse_csv_content(string $content): array
@@ -313,12 +584,15 @@ function demo_seed_parse_csv_content(string $content): array
 
 /**
  * @param list<array<string,string>> $rows
- * @return array{valid:bool,summary:array<string,mixed>,row_errors:list<array<string,mixed>>,normalized_rows:list<array<string,mixed>>}
+ * @return array{valid:bool,summary:array<string,mixed>,row_errors:list<array<string,mixed>>,normalized_rows:list<array<string,mixed>>,row_resolutions:list<array<string,mixed>>}
  */
-function demo_seed_validate_rows(array $rows): array
+function demo_seed_validate_rows(array $rows, array $options = []): array
 {
+    $fallbackStaffId = (int)($options['fallback_staff_user_id'] ?? 0);
+    $skipActiveBatchCheck = (bool)($options['skip_active_batch_check'] ?? false);
     $rowErrors = [];
     $normalized = [];
+    $rowResolutions = [];
     $pendingCount = 0;
     $completedCount = 0;
     $totalSales = 0.0;
@@ -328,7 +602,9 @@ function demo_seed_validate_rows(array $rows): array
     $minTs = null;
     $maxTs = null;
     $branchId = null;
+    $branchName = null;
     $staffId = null;
+    $staffLabel = null;
 
     $minDt = new DateTimeImmutable(DEMO_SEED_DATE_MIN);
     $maxDt = new DateTimeImmutable(DEMO_SEED_DATE_MAX);
@@ -337,7 +613,6 @@ function demo_seed_validate_rows(array $rows): array
     $allowedOrderStatus = ['completed', 'pending'];
     $allowedCustomizationStatus = ['completed', 'in production', 'pending'];
     $allowedJobStatus = ['completed', 'pending', 'in_production'];
-    $jobEnums = array_map('strtolower', demo_seed_job_service_enum_values());
 
     foreach ($rows as $index => $row) {
         $line = (int)($row['_csv_line'] ?? ($index + 2));
@@ -396,25 +671,12 @@ function demo_seed_validate_rows(array $rows): array
         }
 
         $serviceName = trim((string)($row['service_display_name'] ?? ''));
-        $jobEnum = trim((string)($row['job_service_type_enum'] ?? ''));
+        $jobEnumCsv = trim((string)($row['job_service_type_enum'] ?? ''));
         if ($serviceName === '') {
             $errorsForRow[] = 'service_display_name is required.';
         }
-        if (!in_array(strtolower($jobEnum), $jobEnums, true)) {
-            $errorsForRow[] = 'job_service_type_enum is not a valid job_orders service type.';
-        }
-        if (demo_seed_is_raffle_service($serviceName, $jobEnum)) {
+        if ($serviceName !== '' && demo_seed_is_raffle_service($serviceName, $jobEnumCsv)) {
             $errorsForRow[] = 'Raffle ticketing services are not allowed.';
-        }
-
-        $catalogId = (int)($row['service_catalog_id'] ?? 0);
-        if ($catalogId <= 0) {
-            $errorsForRow[] = 'service_catalog_id must be a positive integer.';
-        } else {
-            $product = db_query('SELECT product_id, name, status FROM products WHERE product_id = ? LIMIT 1', 'i', [$catalogId]) ?: [];
-            if ($product === []) {
-                $errorsForRow[] = 'service_catalog_id does not match an existing product/service catalog row.';
-            }
         }
 
         $qty = (int)($row['quantity'] ?? 0);
@@ -475,23 +737,83 @@ function demo_seed_validate_rows(array $rows): array
             }
         }
 
-        $rowBranchId = (int)($row['branch_id'] ?? 0);
-        if (!demo_seed_branch_is_cabuyao($rowBranchId)) {
-            $errorsForRow[] = 'branch_id must be the Cabuyao branch.';
-        } elseif ($branchId === null) {
-            $branchId = $rowBranchId;
-        } elseif ($branchId !== $rowBranchId) {
-            $errorsForRow[] = 'branch_id must be consistent across all rows.';
+        $csvCatalogId = (int)($row['service_catalog_id'] ?? 0);
+        $csvBranchId = (int)($row['branch_id'] ?? 0);
+        $csvStaffId = (int)($row['staff_user_id'] ?? 0);
+
+        $catalogRes = $serviceName !== ''
+            ? demo_seed_resolve_service_catalog($csvCatalogId, $serviceName)
+            : ['ok' => false, 'error' => 'service_display_name is required.'];
+        $branchRes = demo_seed_resolve_branch_id($csvBranchId);
+        $staffRes = demo_seed_resolve_staff_user_id($csvStaffId, $fallbackStaffId);
+        $enumRes = $serviceName !== ''
+            ? demo_seed_resolve_job_service_enum($serviceName, $jobEnumCsv)
+            : ['ok' => false, 'error' => 'service_display_name is required.'];
+
+        if (!$catalogRes['ok']) {
+            $msg = (string)($catalogRes['error'] ?? 'Could not resolve service catalog.');
+            if (!empty($catalogRes['candidates'])) {
+                $names = array_map(static fn(array $c): string => (string)$c['name'] . ' (id ' . (int)$c['service_id'] . ')', $catalogRes['candidates']);
+                $msg .= ' Possible matches: ' . implode('; ', $names) . '.';
+            } elseif (!empty($catalogRes['available'])) {
+                $msg .= ' Available services: ' . implode('; ', $catalogRes['available']) . '.';
+            }
+            $errorsForRow[] = $msg;
+        }
+        if (!$branchRes['ok']) {
+            $errorsForRow[] = (string)($branchRes['error'] ?? 'Could not resolve branch.');
+        }
+        if (!$staffRes['ok']) {
+            $errorsForRow[] = (string)($staffRes['error'] ?? 'Could not resolve staff user.');
+        }
+        if (!$enumRes['ok']) {
+            $msg = (string)($enumRes['error'] ?? 'Could not resolve job service type.');
+            if (!empty($enumRes['available'])) {
+                $msg .= ' Valid job_orders.service_type values: ' . implode('; ', $enumRes['available']) . '.';
+            }
+            $errorsForRow[] = $msg;
         }
 
-        $rowStaffId = (int)($row['staff_user_id'] ?? 0);
-        if (!demo_seed_staff_user_valid($rowStaffId)) {
-            $errorsForRow[] = 'staff_user_id must be an existing Admin or Staff user.';
-        } elseif ($staffId === null) {
-            $staffId = $rowStaffId;
-        } elseif ($staffId !== $rowStaffId) {
-            $errorsForRow[] = 'staff_user_id must be consistent across all rows.';
+        if ($branchRes['ok'] ?? false) {
+            $resolvedBranchId = (int)$branchRes['branch_id'];
+            if ($branchId === null) {
+                $branchId = $resolvedBranchId;
+                $branchName = (string)($branchRes['branch_name'] ?? '');
+            } elseif ($branchId !== $resolvedBranchId) {
+                $errorsForRow[] = 'Resolved branch_id must be consistent across all rows.';
+            }
         }
+
+        if ($staffRes['ok'] ?? false) {
+            $resolvedStaffId = (int)$staffRes['user_id'];
+            if ($staffId === null) {
+                $staffId = $resolvedStaffId;
+                $staffLabel = (string)($staffRes['user_label'] ?? '');
+            } elseif ($staffId !== $resolvedStaffId) {
+                $errorsForRow[] = 'Resolved staff user must be consistent across all rows (leave staff_user_id blank to use the logged-in user).';
+            }
+        }
+
+        $resolution = [
+            'row' => $line,
+            'seed_row_key' => $key,
+            'service_catalog_id_csv' => $csvCatalogId > 0 ? (string)$csvCatalogId : '',
+            'service_catalog_id_resolved' => $catalogRes['ok'] ? (int)$catalogRes['service_id'] : null,
+            'service_name_resolved' => $catalogRes['ok'] ? (string)$catalogRes['service_name'] : null,
+            'service_resolve_method' => $catalogRes['ok'] ? (string)($catalogRes['method'] ?? '') : null,
+            'job_service_type_enum_csv' => $jobEnumCsv,
+            'job_service_type_enum_resolved' => $enumRes['ok'] ? (string)$enumRes['enum'] : null,
+            'job_enum_resolve_method' => $enumRes['ok'] ? (string)($enumRes['method'] ?? '') : null,
+            'branch_id_csv' => $csvBranchId > 0 ? (string)$csvBranchId : '',
+            'branch_id_resolved' => $branchRes['ok'] ? (int)$branchRes['branch_id'] : null,
+            'branch_name_resolved' => $branchRes['ok'] ? (string)($branchRes['branch_name'] ?? '') : null,
+            'branch_resolve_method' => $branchRes['ok'] ? (string)($branchRes['method'] ?? '') : null,
+            'staff_user_id_csv' => $csvStaffId > 0 ? (string)$csvStaffId : '',
+            'staff_user_id_resolved' => $staffRes['ok'] ? (int)$staffRes['user_id'] : null,
+            'staff_user_resolved_label' => $staffRes['ok'] ? (string)($staffRes['user_label'] ?? '') : null,
+            'staff_resolve_method' => $staffRes['ok'] ? (string)($staffRes['method'] ?? '') : null,
+        ];
+        $rowResolutions[] = $resolution;
 
         if ($errorsForRow !== []) {
             foreach ($errorsForRow as $msg) {
@@ -503,6 +825,11 @@ function demo_seed_validate_rows(array $rows): array
         $services[$serviceName] = ($services[$serviceName] ?? 0) + 1;
         $totalSales += $amountPaid;
 
+        $resolvedCatalogId = (int)$catalogRes['service_id'];
+        $resolvedEnum = (string)$enumRes['enum'];
+        $resolvedBranchId = (int)$branchRes['branch_id'];
+        $resolvedStaffId = (int)$staffRes['user_id'];
+
         $normalized[] = [
             'seed_row_key' => $key,
             'seed_batch_id' => $batchId,
@@ -511,8 +838,9 @@ function demo_seed_validate_rows(array $rows): array
             'customization_status' => demo_seed_title_case_status((string)($row['customization_status'] ?? '')),
             'job_status' => demo_seed_normalize_job_status($jobStatusNorm),
             'service_display_name' => $serviceName,
-            'job_service_type_enum' => demo_seed_match_job_enum($jobEnum),
-            'service_catalog_id' => $catalogId,
+            'job_service_type_enum' => $resolvedEnum,
+            'service_catalog_id' => $resolvedCatalogId,
+            'service_catalog_name' => (string)$catalogRes['service_name'],
             'unit_price' => $unitPrice,
             'quantity' => 1,
             'amount_paid' => $amountPaid,
@@ -528,8 +856,9 @@ function demo_seed_validate_rows(array $rows): array
                 'postal' => trim((string)$row['customer_postal']),
             ],
             'spec_summary' => trim((string)$row['spec_summary']),
-            'staff_user_id' => $rowStaffId,
-            'branch_id' => $rowBranchId,
+            'staff_user_id' => $resolvedStaffId,
+            'branch_id' => $resolvedBranchId,
+            'resolution' => $resolution,
         ];
     }
 
@@ -541,7 +870,7 @@ function demo_seed_validate_rows(array $rows): array
     }
 
     $active = demo_seed_active_batch();
-    if ($active !== null) {
+    if (!$skipActiveBatchCheck && $active !== null) {
         $rowErrors[] = [
             'row' => 0,
             'message' => 'An active demo batch already exists (' . ($active['batch_id'] ?? '') . '). Delete it before importing a new one.',
@@ -562,11 +891,15 @@ function demo_seed_validate_rows(array $rows): array
             'total_sales' => round($totalSales, 2),
             'services_breakdown' => $services,
             'branch_id' => $branchId,
+            'branch_name' => $branchName,
             'staff_user_id' => $staffId,
+            'staff_user_label' => $staffLabel,
             'seed_batch_id' => count($batchIds) === 1 ? array_key_first($batchIds) : null,
+            'resolution_row_count' => count($rowResolutions),
         ],
         'row_errors' => $rowErrors,
         'normalized_rows' => $normalized,
+        'row_resolutions' => $rowResolutions,
     ];
 }
 
@@ -610,6 +943,7 @@ function demo_seed_store_preview(array $validation, string $fileName): string
         'file_name' => $fileName,
         'summary' => $validation['summary'],
         'normalized_rows' => $validation['normalized_rows'],
+        'row_resolutions' => $validation['row_resolutions'] ?? [],
         'created_at' => time(),
     ];
     return $token;
@@ -784,10 +1118,6 @@ function demo_seed_import_single_row(array $row, string $batchId, int $adminId, 
     ];
 
     $lineProductId = $placeholderProductId;
-    $productRow = db_query('SELECT product_id FROM products WHERE product_id = ? LIMIT 1', 'i', [$catalogId]) ?: [];
-    if (!empty($productRow)) {
-        $lineProductId = $catalogId;
-    }
 
     db_execute(
         'INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data) VALUES (?, ?, 1, ?, ?)',

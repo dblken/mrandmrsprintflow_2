@@ -1026,6 +1026,24 @@ Stickers &amp; Decals"><?php
                             <ul id="demo-seed-services-list" style="font-size:12px;margin:10px 0 0 18px;"></ul>
                         </div>
                         <ul id="demo-seed-error-list" class="demo-error-list" style="display:none;margin-top:10px;"></ul>
+                        <div id="demo-seed-resolution-wrap" style="display:none;margin-top:14px;">
+                            <h4 style="font-size:13px;margin:0 0 8px;">Resolved IDs (CSV → database)</h4>
+                            <div style="overflow-x:auto;">
+                                <table id="demo-seed-resolution-table" class="demo-resolution-table" style="width:100%;font-size:11px;border-collapse:collapse;"></table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="demo-panel">
+                        <h3>Reference helpers</h3>
+                        <p style="font-size:12px;color:#64748b;margin:0 0 10px;">Use these lists when preparing CSV placeholders for service_catalog_id, staff_user_id, branch_id, or job_service_type_enum.</p>
+                        <div class="demo-actions" style="flex-wrap:wrap;gap:8px;">
+                            <button type="button" id="demo-seed-ref-services" class="btn-demo btn-demo-secondary">Show Valid Service Names</button>
+                            <button type="button" id="demo-seed-ref-enums" class="btn-demo btn-demo-secondary">Show Valid Job Service Types</button>
+                            <button type="button" id="demo-seed-ref-staff" class="btn-demo btn-demo-secondary">Show Default Staff/User</button>
+                            <button type="button" id="demo-seed-ref-branch" class="btn-demo btn-demo-secondary">Show Default Branch</button>
+                        </div>
+                        <pre id="demo-seed-ref-output" style="display:none;margin-top:10px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;max-height:240px;overflow:auto;white-space:pre-wrap;"></pre>
                     </div>
 
                     <div class="demo-panel">
@@ -1798,8 +1816,8 @@ function printflowInitDemoSeedTools() {
             ['Completed', summary.completed_count],
             ['Pending', summary.pending_count],
             ['Total sales', '₱' + Number(summary.total_sales || 0).toFixed(2)],
-            ['Branch id', summary.branch_id],
-            ['Staff user id', summary.staff_user_id],
+            ['Branch', (summary.branch_name ? summary.branch_name + ' ' : '') + '(id ' + (summary.branch_id ?? '') + ')'],
+            ['Staff user', (summary.staff_user_label ? summary.staff_user_label + ' ' : '') + '(id ' + (summary.staff_user_id ?? '') + ')'],
             ['Batch id', summary.seed_batch_id],
         ].map(function (pair) {
             return '<div><strong>' + pair[0] + '</strong><br>' + String(pair[1] ?? '') + '</div>';
@@ -1812,6 +1830,69 @@ function printflowInitDemoSeedTools() {
             services.appendChild(li);
         });
     }
+
+    function renderResolutions(resolutions) {
+        const wrap = document.getElementById('demo-seed-resolution-wrap');
+        const table = document.getElementById('demo-seed-resolution-table');
+        if (!wrap || !table) return;
+        if (!resolutions || !resolutions.length) {
+            wrap.style.display = 'none';
+            table.innerHTML = '';
+            return;
+        }
+        wrap.style.display = 'block';
+        const head = '<thead><tr><th>Row</th><th>Key</th><th>Service (CSV→resolved)</th><th>Job enum</th><th>Branch</th><th>Staff</th></tr></thead>';
+        const body = resolutions.map(function (r) {
+            const svc = (r.service_catalog_id_csv || '—') + ' → ' + (r.service_catalog_id_resolved ?? '—') + ' ' + (r.service_name_resolved || '');
+            const en = (r.job_service_type_enum_csv || '—') + ' → ' + (r.job_service_type_enum_resolved ?? '—');
+            const br = (r.branch_id_csv || '—') + ' → ' + (r.branch_id_resolved ?? '—') + ' ' + (r.branch_name_resolved || '');
+            const st = (r.staff_user_id_csv || '—') + ' → ' + (r.staff_user_id_resolved ?? '—') + ' ' + (r.staff_user_resolved_label || '');
+            return '<tr><td>' + r.row + '</td><td>' + (r.seed_row_key || '') + '</td><td>' + svc + '</td><td>' + en + '</td><td>' + br + '</td><td>' + st + '</td></tr>';
+        }).join('');
+        table.innerHTML = head + '<tbody>' + body + '</tbody>';
+    }
+
+    function loadResolverReference(renderKey) {
+        const out = document.getElementById('demo-seed-ref-output');
+        const fd = new FormData();
+        fd.append('action', 'resolver_reference');
+        fd.append('csrf_token', csrf);
+        return fetch(apiUrl, { method: 'POST', body: fd })
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                if (!data.success || !data.reference) {
+                    if (out) { out.style.display = 'block'; out.textContent = 'Could not load reference data.'; }
+                    return;
+                }
+                const ref = data.reference;
+                let text = '';
+                if (renderKey === 'services') {
+                    text = (ref.service_names || []).map(function (s) {
+                        return (s.name || s.service_name || '') + ' (service_id ' + (s.service_id || s.id) + ')';
+                    }).join('\n');
+                } else if (renderKey === 'enums') {
+                    text = (ref.job_service_types || []).join('\n');
+                } else if (renderKey === 'staff') {
+                    const st = ref.default_staff || {};
+                    text = st.ok
+                        ? ('User id ' + st.user_id + ': ' + (st.user_label || '') + ' [' + (st.method || '') + ']')
+                        : (st.error || 'No default staff resolved.');
+                } else if (renderKey === 'branch') {
+                    const b = ref.default_branch || {};
+                    text = (b.branch_name || 'Branch') + ' (id ' + b.branch_id + ')' + (b.city ? ', ' + b.city : '');
+                }
+                if (out) { out.style.display = 'block'; out.textContent = text || '(empty)'; }
+            });
+    }
+
+    ['demo-seed-ref-services', 'demo-seed-ref-enums', 'demo-seed-ref-staff', 'demo-seed-ref-branch'].forEach(function (id) {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+            const key = id.replace('demo-seed-ref-', '');
+            loadResolverReference(key === 'services' ? 'services' : key);
+        });
+    });
 
     function renderErrors(errors) {
         const list = document.getElementById('demo-seed-error-list');
@@ -1855,6 +1936,7 @@ function printflowInitDemoSeedTools() {
             .then(function (res) { return res.json(); })
             .then(function (data) {
                 renderErrors(data.row_errors || []);
+                renderResolutions(data.row_resolutions || []);
                 if (data.summary) renderSummary(data.summary);
                 if (data.valid) {
                     previewToken = data.preview_token || '';

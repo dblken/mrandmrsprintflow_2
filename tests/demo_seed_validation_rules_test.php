@@ -22,4 +22,10 @@ $assert(!str_contains($source, 'INSERT INTO job_order_materials'), 'import path 
 $assert(count(demo_seed_required_csv_columns()) >= 20, 'exports required CSV column list');
 $assert(DEMO_SEED_DATE_MAX === '2026-10-01 09:30:00', 'enforces Oct 1 09:30 cutoff constant');
 
+$assert(str_contains($source, 'demo_seed_resolve_service_catalog'), 'service catalog auto-resolution helper exists');
+$assert(str_contains($source, 'demo_seed_resolve_job_service_enum'), 'job enum auto-resolution helper exists');
+$assert(str_contains($source, 'demo_seed_resolve_branch_id'), 'branch auto-resolution helper exists');
+$assert(str_contains($source, 'demo_seed_resolve_staff_user_id'), 'staff auto-resolution helper exists');
+$assert(str_contains($source, 'row_resolutions'), 'validation returns row resolution preview payload');
+
 echo "Demo seed validation rules test: {$passed} passed.\n";
