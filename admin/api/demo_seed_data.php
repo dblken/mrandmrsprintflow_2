@@ -122,10 +122,16 @@ try {
         }, $rows), [
             'fallback_staff_user_id' => $adminId,
             'skip_active_batch_check' => true,
+            'skip_customer_email_db_check' => true,
         ]);
         if (!$revalidate['valid']) {
-            throw new RuntimeException('Import blocked because validation no longer passes.');
+            $first = $revalidate['row_errors'][0]['message'] ?? 'Validation failed.';
+            $key = $revalidate['row_errors'][0]['seed_row_key'] ?? '';
+            throw new RuntimeException(
+                ($key !== '' ? ('[' . $key . '] ') : '') . 'Import blocked: ' . $first
+            );
         }
+        demo_seed_set_last_import_debug(null);
         $result = demo_seed_import_rows(
             $rows,
             $adminId,
@@ -195,7 +201,8 @@ try {
             $message = 'Demo batch delete failed: ' . $message;
         }
     } elseif ($action === 'import_csv') {
-        if (!str_contains($message, 'import') && !str_contains($message, 'Import') && !str_contains($message, 'Demo')) {
+        if (!str_starts_with($message, '[') && !str_contains($message, 'Import blocked')
+            && !str_contains($message, 'active demo batch') && !str_contains($message, 'integrity')) {
             $message = 'Demo import failed: ' . $message;
         }
     } elseif ($action === 'validate_csv') {
@@ -203,10 +210,22 @@ try {
             $message = 'CSV validation failed: ' . $message;
         }
     }
-    echo json_encode([
+
+    $parsed = demo_seed_parse_import_failure_message($message);
+    $payload = [
         'success' => false,
         'message' => $message,
         'action' => $action,
-    ]);
+        'seed_row_key' => $parsed['seed_row_key'],
+        'failed_step' => $parsed['step'],
+        'error_detail' => $parsed['message'],
+    ];
+    if ($action === 'import_csv') {
+        $debug = demo_seed_get_last_import_debug();
+        if ($debug !== null) {
+            $payload['import_debug'] = $debug;
+        }
+    }
+    echo json_encode($payload);
     error_log('[demo_seed_data API] action=' . $action . ' ' . $e->getMessage());
 }

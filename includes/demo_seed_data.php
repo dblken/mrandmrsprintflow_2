@@ -15,6 +15,31 @@ const DEMO_SEED_MAX_PENDING = 10;
 const DEMO_SEED_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
 const DEMO_SEED_SESSION_KEY = 'demo_seed_validated_preview';
 
+function demo_seed_last_db_error(): string
+{
+    global $conn;
+    $parts = array_filter([
+        trim((string)($conn->error ?? '')),
+        trim((string)($conn->sqlstate ?? '')),
+    ]);
+    return $parts !== [] ? implode(' ', $parts) : '';
+}
+
+/**
+ * @param array<string,mixed> $context
+ */
+function demo_seed_fail(string $step, string $message, array $context = []): never
+{
+    $seedRowKey = trim((string)($context['seed_row_key'] ?? ''));
+    $prefix = $seedRowKey !== '' ? ('[' . $seedRowKey . '] ') : '';
+    $detail = demo_seed_last_db_error();
+    $full = $prefix . $step . ': ' . $message;
+    if ($detail !== '' && !str_contains($message, $detail)) {
+        $full .= ' (' . $detail . ')';
+    }
+    throw new RuntimeException($full);
+}
+
 /** @return list<string> */
 function demo_seed_required_csv_columns(): array
 {
@@ -115,28 +140,26 @@ function demo_seed_rollback_transaction(): void
 /**
  * @param list<mixed> $params
  */
-function demo_seed_require_execute(string $sql, string $types = '', array $params = []): void
+function demo_seed_require_execute(string $sql, string $types = '', array $params = [], string $step = 'database_write', array $context = []): void
 {
-    global $conn;
     if (db_execute($sql, $types, $params) === false) {
-        $detail = trim((string)($conn->error ?? ''));
-        throw new RuntimeException('Demo seed database write failed' . ($detail !== '' ? ': ' . $detail : '.'));
+        demo_seed_fail($step, 'Database write failed.', $context);
     }
 }
 
-function demo_seed_require_insert_id(string $sql, string $types = '', array $params = []): int
+function demo_seed_require_insert_id(string $sql, string $types = '', array $params = [], string $step = 'insert', array $context = []): int
 {
     global $conn;
     $result = db_execute($sql, $types, $params);
     if ($result === false) {
-        throw new RuntimeException('Demo seed insert failed.');
+        demo_seed_fail($step, 'Insert failed.', $context);
     }
     if (is_int($result) && $result > 0) {
         return $result;
     }
     $id = (int)($conn->insert_id ?? 0);
     if ($id <= 0) {
-        throw new RuntimeException('Demo seed insert did not return a new row id.');
+        demo_seed_fail($step, 'Insert did not return a new row id.', $context);
     }
     return $id;
 }
@@ -655,6 +678,28 @@ function demo_seed_find_service_catalog_matches(string $displayName): array
     }
 
     $needle = strtolower($displayName);
+    $aliasNeedles = [
+        'tarpaulin' => 'tarpaulin',
+        't-shirt' => 't-shirt',
+        'stickers decals' => 'decals/stickers',
+        'poster printing' => 'poster',
+        'sintraboard standees' => 'standee',
+        'mugs' => 'mug',
+        'mug printing' => 'mug',
+    ];
+    foreach ($aliasNeedles as $alias => $fragment) {
+        if (str_contains($needle, $alias) || str_contains($alias, $needle)) {
+            foreach ($catalog as $row) {
+                if (str_contains(strtolower((string)$row['name']), $fragment)) {
+                    return [[
+                        'service_id' => (int)$row['service_id'],
+                        'name' => (string)$row['name'],
+                    ]];
+                }
+            }
+        }
+    }
+
     $partial = [];
     foreach ($catalog as $row) {
         $name = strtolower(trim((string)$row['name']));
@@ -901,6 +946,7 @@ function demo_seed_validate_rows(array $rows, array $options = []): array
 {
     $fallbackStaffId = (int)($options['fallback_staff_user_id'] ?? 0);
     $skipActiveBatchCheck = (bool)($options['skip_active_batch_check'] ?? false);
+    $skipCustomerEmailDbCheck = (bool)($options['skip_customer_email_db_check'] ?? false);
     $rowErrors = [];
     $normalized = [];
     $rowResolutions = [];
@@ -1042,9 +1088,11 @@ function demo_seed_validate_rows(array $rows, array $options = []): array
             $errorsForRow[] = 'customer_email must be unique within the CSV batch.';
         } else {
             $emailsInBatch[$email] = true;
-            $existing = db_query('SELECT customer_id FROM customers WHERE LOWER(email) = ? LIMIT 1', 's', [$email]) ?: [];
-            if (!empty($existing)) {
-                $errorsForRow[] = 'customer_email already exists in the live database; use unique meeting emails.';
+            if (!$skipCustomerEmailDbCheck) {
+                $existing = db_query('SELECT customer_id FROM customers WHERE LOWER(email) = ? LIMIT 1', 's', [$email]) ?: [];
+                if (!empty($existing)) {
+                    $errorsForRow[] = 'customer_email already exists in the live database; use unique meeting emails.';
+                }
             }
         }
 
@@ -1281,6 +1329,162 @@ function demo_seed_clear_preview(): void
     unset($_SESSION[DEMO_SEED_SESSION_KEY]);
 }
 
+function demo_seed_import_preflight(string $batchId): void
+{
+    $active = demo_seed_active_batch();
+    if ($active !== null) {
+        throw new RuntimeException(
+            'An active demo batch already exists (' . ($active['batch_id'] ?? '') . '). '
+            . 'Delete it under “Delete Demo Data” before importing again.'
+        );
+    }
+
+    $prior = db_query(
+        'SELECT batch_id, rolled_back_at FROM ' . DEMO_SEED_BATCH_TABLE . ' WHERE batch_id = ? LIMIT 1',
+        's',
+        [$batchId]
+    ) ?: [];
+    if ($prior !== [] && empty($prior[0]['rolled_back_at'])) {
+        throw new RuntimeException(
+            'Batch id "' . $batchId . '" is already registered and not rolled back. Delete or roll back that batch first.'
+        );
+    }
+}
+
+function demo_seed_clear_prior_batch_metadata(string $batchId): void
+{
+    demo_seed_require_execute(
+        'DELETE FROM ' . DEMO_SEED_ROW_TABLE . ' WHERE batch_id = ?',
+        's',
+        [$batchId],
+        'clear_prior_registry'
+    );
+    demo_seed_require_execute(
+        'DELETE FROM ' . DEMO_SEED_BATCH_TABLE . ' WHERE batch_id = ?',
+        's',
+        [$batchId],
+        'clear_prior_batch'
+    );
+}
+
+/**
+ * @param array<string,mixed> $row
+ * @return array<string,mixed>
+ */
+function demo_seed_import_row_debug_context(array $row): array
+{
+    $resolution = is_array($row['resolution'] ?? null) ? $row['resolution'] : [];
+    return [
+        'seed_row_key' => (string)($row['seed_row_key'] ?? ''),
+        'service_catalog_id' => (int)($row['service_catalog_id'] ?? 0),
+        'service_catalog_name' => (string)($row['service_catalog_name'] ?? ''),
+        'job_service_type_enum' => (string)($row['job_service_type_enum'] ?? ''),
+        'staff_user_id' => (int)($row['staff_user_id'] ?? 0),
+        'branch_id' => (int)($row['branch_id'] ?? 0),
+        'order_datetime' => (string)($row['order_datetime'] ?? ''),
+        'customer_email' => (string)($row['customer']['email'] ?? ''),
+        'resolution' => $resolution,
+    ];
+}
+
+function demo_seed_set_last_import_debug(?array $debug): void
+{
+    $GLOBALS['demo_seed_last_import_debug'] = $debug;
+}
+
+/** @return array<string,mixed>|null */
+function demo_seed_get_last_import_debug(): ?array
+{
+    $debug = $GLOBALS['demo_seed_last_import_debug'] ?? null;
+    return is_array($debug) ? $debug : null;
+}
+
+/**
+ * @param array<string,mixed> $row
+ */
+function demo_seed_insert_job_order_for_row(
+    array $row,
+    int $orderId,
+    int $orderItemId,
+    int $customerId,
+    int $branchId,
+    int $staffId,
+    float $amountPaid,
+    string $orderAt,
+    string $updatedAt,
+    string $seedRowKey
+): int {
+    $customer = (array)($row['customer'] ?? []);
+    $jobTitle = (string)$row['service_display_name'] . ' — ' . (string)$row['spec_summary'];
+    if (strlen($jobTitle) > 150) {
+        $jobTitle = substr($jobTitle, 0, 147) . '...';
+    }
+    $customerName = trim((string)$customer['first_name'] . ' ' . (string)$customer['last_name']);
+
+    $spec = [
+        ['order_id', 'i', $orderId],
+        ['order_item_id', 'i', $orderItemId],
+        ['customer_id', 'i', $customerId],
+        ['branch_id', 'i', $branchId],
+        ['job_title', 's', $jobTitle],
+        ['customer_name', 's', $customerName],
+        ['service_type', 's', (string)$row['job_service_type_enum']],
+        ['quantity', 'i', 1],
+        ['estimated_total', 'd', $amountPaid],
+        ['amount_paid', 'd', $amountPaid],
+        ['required_payment', 'd', $amountPaid],
+        ['payment_status', 's', 'PAID'],
+        ['payment_method', 's', 'Cash'],
+        ['status', 's', (string)$row['job_status']],
+        ['created_by', 'i', $staffId],
+        ['created_at', 's', $orderAt],
+        ['updated_at', 's', $updatedAt],
+    ];
+
+    $cols = [];
+    $types = '';
+    $params = [];
+    foreach ($spec as [$col, $type, $value]) {
+        if (!db_table_has_column('job_orders', $col)) {
+            continue;
+        }
+        $cols[] = $col;
+        $types .= $type;
+        $params[] = $value;
+    }
+    if ($cols === []) {
+        demo_seed_fail('job_order_insert', 'No writable job_orders columns found.', ['seed_row_key' => $seedRowKey]);
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($cols), '?'));
+    return demo_seed_require_insert_id(
+        'INSERT INTO job_orders (' . implode(', ', $cols) . ') VALUES (' . $placeholders . ')',
+        $types,
+        $params,
+        'job_order_insert',
+        ['seed_row_key' => $seedRowKey]
+    );
+}
+
+/**
+ * @return array{seed_row_key:?string,step:?string,message:string,debug?:array<string,mixed>}
+ */
+function demo_seed_parse_import_failure_message(string $message): array
+{
+    $seedRowKey = null;
+    $step = null;
+    if (preg_match('/^\[([^\]]+)\]\s*([^:]+):\s*(.+)$/s', $message, $m)) {
+        $seedRowKey = $m[1];
+        $step = trim($m[2]);
+        $message = trim($m[3]);
+    }
+    return [
+        'seed_row_key' => $seedRowKey,
+        'step' => $step,
+        'message' => $message,
+    ];
+}
+
 /**
  * @param list<array<string,mixed>> $rows
  */
@@ -1296,10 +1500,14 @@ function demo_seed_import_rows(array $rows, int $adminId, string $sourceFileName
         throw new RuntimeException('POS service placeholder product is unavailable.');
     }
 
+    demo_seed_import_preflight($batchId);
+    demo_seed_clear_prior_batch_metadata($batchId);
+
     $completed = 0;
     $pending = 0;
     $totalSales = 0.0;
     $integrity = ['ok' => true, 'checks' => [], 'errors' => []];
+    $lastDebug = null;
 
     demo_seed_begin_transaction();
     try {
@@ -1307,11 +1515,18 @@ function demo_seed_import_rows(array $rows, int $adminId, string $sourceFileName
             'INSERT INTO ' . DEMO_SEED_BATCH_TABLE . ' (batch_id, label, source_file_name, imported_by, imported_at, total_orders, total_sales, completed_count, pending_count, status)
              VALUES (?, ?, ?, ?, NOW(), 0, 0, 0, 0, ?)',
             'sssis',
-            [$batchId, 'Meeting demo POS services', $sourceFileName, $adminId, 'active']
+            [$batchId, 'Meeting demo POS services', $sourceFileName, $adminId, 'active'],
+            'demo_seed_batches_insert'
         );
 
         foreach ($rows as $row) {
-            $result = demo_seed_import_single_row($row, $batchId, $adminId, $placeholderProductId);
+            $lastDebug = demo_seed_import_row_debug_context($row);
+            demo_seed_set_last_import_debug($lastDebug);
+            try {
+                demo_seed_import_single_row($row, $batchId, $adminId, $placeholderProductId);
+            } catch (RuntimeException $e) {
+                throw $e;
+            }
             if (($row['order_status'] ?? '') === 'Completed') {
                 $completed++;
             } else {
@@ -1323,17 +1538,23 @@ function demo_seed_import_rows(array $rows, int $adminId, string $sourceFileName
         demo_seed_require_execute(
             'UPDATE ' . DEMO_SEED_BATCH_TABLE . ' SET total_orders = ?, total_sales = ?, completed_count = ?, pending_count = ? WHERE batch_id = ?',
             'idiis',
-            [count($rows), round($totalSales, 2), $completed, $pending, $batchId]
+            [count($rows), round($totalSales, 2), $completed, $pending, $batchId],
+            'demo_seed_batches_update'
         );
 
         $integrity = demo_seed_verify_batch_integrity($batchId, count($rows));
         if (!$integrity['ok']) {
-            throw new RuntimeException('Demo import failed integrity checks: ' . implode(' ', $integrity['errors']));
+            throw new RuntimeException(
+                'Demo import failed integrity checks: ' . implode(' ', $integrity['errors'])
+            );
         }
 
         demo_seed_commit_transaction();
     } catch (Throwable $e) {
         demo_seed_rollback_transaction();
+        if ($lastDebug !== null && !str_contains($e->getMessage(), 'seed_row_key')) {
+            throw new RuntimeException($e->getMessage(), 0, $e);
+        }
         throw $e;
     }
 
@@ -1356,9 +1577,12 @@ function demo_seed_import_rows(array $rows, int $adminId, string $sourceFileName
  */
 function demo_seed_import_single_row(array $row, string $batchId, int $adminId, int $placeholderProductId): array
 {
+    $seedRowKey = (string)($row['seed_row_key'] ?? '');
+    $ctx = ['seed_row_key' => $seedRowKey];
+
     $orderAt = (string)$row['order_datetime'];
     if (!preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $orderAt)) {
-        throw new RuntimeException('Invalid order_datetime for seed row ' . ($row['seed_row_key'] ?? '') . '.');
+        demo_seed_fail('order_datetime', 'Must be Y-m-d H:i:s.', $ctx);
     }
     $updatedAt = $orderAt;
 
@@ -1371,7 +1595,7 @@ function demo_seed_import_single_row(array $row, string $batchId, int $adminId, 
         'phone' => (string)$customer['phone'],
         'password_hash' => $passwordHash,
     ];
-    $customerId = demo_seed_insert_customer_return_id($customerPayload, $customer, $orderAt);
+    $customerId = demo_seed_insert_customer_return_id($customerPayload, $customer, $orderAt, $ctx);
 
     $branchId = (int)$row['branch_id'];
     $amountPaid = (float)$row['amount_paid'];
@@ -1424,7 +1648,9 @@ function demo_seed_import_single_row(array $row, string $batchId, int $adminId, 
     $orderId = demo_seed_require_insert_id(
         'INSERT INTO orders (' . implode(', ', $orderCols) . ') VALUES (' . $placeholders . ')',
         $orderTypes,
-        $orderParams
+        $orderParams,
+        'order_insert',
+        $ctx
     );
 
     $customizationData = [
@@ -1443,7 +1669,9 @@ function demo_seed_import_single_row(array $row, string $batchId, int $adminId, 
     $orderItemId = demo_seed_require_insert_id(
         'INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data) VALUES (?, ?, 1, ?, ?)',
         'iids',
-        [$orderId, $placeholderProductId, (float)$row['unit_price'], json_encode($customizationData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]
+        [$orderId, $placeholderProductId, (float)$row['unit_price'], json_encode($customizationData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)],
+        'order_item_insert',
+        $ctx
     );
 
     $details = $customizationData;
@@ -1460,49 +1688,22 @@ function demo_seed_import_single_row(array $row, string $batchId, int $adminId, 
             (string)$row['customization_status'],
             $orderAt,
             $updatedAt,
-        ]
+        ],
+        'customization_insert',
+        $ctx
     );
 
-    $jobTitle = (string)$row['service_display_name'] . ' — ' . (string)$row['spec_summary'];
-    if (strlen($jobTitle) > 150) {
-        $jobTitle = substr($jobTitle, 0, 147) . '...';
-    }
-
-    $jobCols = [
-        'order_id', 'order_item_id', 'customer_id', 'branch_id', 'job_title', 'service_type',
-        'quantity', 'estimated_total', 'amount_paid', 'required_payment', 'payment_status',
-        'payment_method', 'status', 'created_by', 'created_at', 'updated_at',
-    ];
-    $jobTypes = 'iiiissidddsssis';
-    $jobParams = [
+    $jobOrderId = demo_seed_insert_job_order_for_row(
+        $row,
         $orderId,
         $orderItemId,
         $customerId,
         $branchId,
-        $jobTitle,
-        (string)$row['job_service_type_enum'],
-        1,
-        $amountPaid,
-        $amountPaid,
-        $amountPaid,
-        'PAID',
-        'Cash',
-        (string)$row['job_status'],
         $staffId,
+        $amountPaid,
         $orderAt,
         $updatedAt,
-    ];
-    if (db_table_has_column('job_orders', 'customer_name')) {
-        $jobCols[] = 'customer_name';
-        $jobTypes .= 's';
-        $jobParams[] = trim((string)$customer['first_name'] . ' ' . (string)$customer['last_name']);
-    }
-
-    $jobPlaceholders = implode(', ', array_fill(0, count($jobCols), '?'));
-    $jobOrderId = demo_seed_require_insert_id(
-        'INSERT INTO job_orders (' . implode(', ', $jobCols) . ') VALUES (' . $jobPlaceholders . ')',
-        $jobTypes,
-        $jobParams
+        $seedRowKey
     );
 
     demo_seed_optional_history($orderId, (string)$row['order_status'], $orderAt);
@@ -1511,7 +1712,9 @@ function demo_seed_import_single_row(array $row, string $batchId, int $adminId, 
         'INSERT INTO ' . DEMO_SEED_ROW_TABLE . ' (batch_id, seed_row_key, order_id, order_item_id, customization_id, job_order_id, customer_id, customer_created)
          VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
         'ssiiiii',
-        [$batchId, (string)$row['seed_row_key'], $orderId, $orderItemId, $customizationId, $jobOrderId, $customerId]
+        [$batchId, $seedRowKey, $orderId, $orderItemId, $customizationId, $jobOrderId, $customerId],
+        'demo_seed_rows_insert',
+        $ctx
     );
 
     return [
@@ -1527,7 +1730,7 @@ function demo_seed_import_single_row(array $row, string $batchId, int $adminId, 
  * @param array<string,string> $customerPayload
  * @param array<string,string> $address
  */
-function demo_seed_insert_customer_return_id(array $customerPayload, array $address, string $createdAt): int
+function demo_seed_insert_customer_return_id(array $customerPayload, array $address, string $createdAt, array $context = []): int
 {
     $cols = ['first_name', 'last_name', 'email', 'contact_number', 'password_hash'];
     $types = 'sssss';
@@ -1589,7 +1792,9 @@ function demo_seed_insert_customer_return_id(array $customerPayload, array $addr
     return demo_seed_require_insert_id(
         'INSERT INTO customers (' . implode(', ', $cols) . ') VALUES (' . $placeholders . ')',
         $types,
-        $params
+        $params,
+        'customer_insert',
+        $context
     );
 }
 

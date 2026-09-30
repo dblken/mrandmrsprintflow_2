@@ -2003,14 +2003,29 @@ function printflowInitDemoSeedTools() {
             if (status) status.textContent = 'Importing...';
             importBtn.disabled = true;
             fetch(apiUrl, { method: 'POST', body: fd })
-                .then(function (res) { return res.json(); })
-                .then(function (data) {
+                .then(function (res) {
+                    return res.json().then(function (data) {
+                        return { httpOk: res.ok, data: data };
+                    });
+                })
+                .then(function (result) {
+                    var data = result.data || {};
                     if (data.success) {
                         if (status) status.textContent = (data.message || 'Imported.') + ' Reloading...';
                         window.location.reload();
                         return;
                     }
-                    if (status) status.textContent = data.message || 'Import failed.';
+                    var lines = [data.message || 'Import failed.'];
+                    if (data.seed_row_key) {
+                        lines.push('Row: ' + data.seed_row_key + (data.failed_step ? (' · step: ' + data.failed_step) : ''));
+                    }
+                    if (data.error_detail && data.error_detail !== data.message) {
+                        lines.push(String(data.error_detail));
+                    }
+                    if (data.import_debug) {
+                        lines.push('Debug: ' + JSON.stringify(data.import_debug));
+                    }
+                    if (status) status.textContent = lines.join(' ');
                     importBtn.disabled = false;
                 })
                 .catch(function () {
