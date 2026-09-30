@@ -1322,6 +1322,12 @@ class JobOrderService {
                 $branchId,
                 (string)$ledgerTransactionDate
             ));
+            if ($ledgerTransactionDate === null || $ledgerTransactionDate === '') {
+                error_log(sprintf(
+                    '[PrintFlow material deduction] WARNING: job_id=%d has no parent order_date; inventory will use its normal current timestamp fallback.',
+                    (int)$orderId
+                ));
+            }
         }
         $jobRef = printflow_get_job_inventory_reference((int)$orderId);
         $jobLabel = $jobRef['label'] ?? ('Job #' . printflow_format_job_code((int)$orderId));
