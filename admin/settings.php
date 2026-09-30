@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/runtime_config.php';
 require_once __DIR__ . '/../includes/team_photo_helper.php';
 require_once __DIR__ . '/../includes/pos_receipt_printer.php';
+require_once __DIR__ . '/../includes/demo_seed_data.php';
 
 require_role('Admin');
 // Ensure $base_path is defined
@@ -57,6 +58,16 @@ $payment_cfg = printflow_load_runtime_config('payment_methods', $qr_dir . 'payme
 $shop_cfg   = printflow_load_runtime_config('shop', $logo_dir . 'shop_config.json');
 $footer_cfg = printflow_load_runtime_config('footer', $logo_dir . 'footer_config.json');
 $about_cfg  = printflow_load_runtime_config('about', $logo_dir . 'about_config.json');
+
+$demo_active_batch = null;
+$demo_cabuyao_branch_id = 1;
+try {
+    demo_seed_ensure_tables();
+    $demo_active_batch = demo_seed_active_batch();
+    $demo_cabuyao_branch_id = demo_seed_cabuyao_branch_id();
+} catch (Throwable $demoSeedInitError) {
+    error_log('[demo_seed] settings init: ' . $demoSeedInitError->getMessage());
+}
 
 // Load branches for address selector (archived branches omitted)
 $branches = db_query("SELECT id, branch_name AS name FROM branches WHERE status != 'Archived' ORDER BY branch_name") ?: [];
@@ -399,6 +410,59 @@ $page_title = 'Settings - Admin';
         }
         .printer-show-more-btn:hover { border-color: #9ca3af; background: #f9fafb; }
         .settings-card--hidden { display: none !important; }
+        .demo-maintenance-card {
+            grid-column: 1 / -1;
+            border: 2px solid #fde68a;
+            background: linear-gradient(180deg, #fffbeb 0%, #ffffff 120px);
+        }
+        .demo-maintenance-card .demo-warning {
+            background: #fef3c7;
+            border: 1px solid #fcd34d;
+            color: #92400e;
+            padding: 12px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 16px;
+        }
+        .demo-panel {
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 16px;
+            background: #fff;
+        }
+        .demo-panel h3 { margin: 0 0 10px; font-size: 14px; color: #111827; }
+        .demo-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .demo-summary-grid div {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 12px;
+        }
+        .demo-error-list {
+            max-height: 220px;
+            overflow: auto;
+            font-size: 12px;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            padding: 10px;
+            list-style: disc;
+            margin-left: 18px;
+        }
+        .demo-error-list li { margin-bottom: 6px; color: #991b1b; }
+        .demo-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+        .btn-demo { padding: 9px 14px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; }
+        .btn-demo-primary { background: #00232b; color: #fff; }
+        .btn-demo-danger { background: #b91c1c; color: #fff; }
+        .btn-demo-secondary { background: #e5e7eb; color: #111827; }
+        .btn-demo:disabled { opacity: .55; cursor: not-allowed; }
         .printer-actions { display:flex; gap:6px; flex-wrap:wrap; }
         .btn-printer-secondary { padding:6px 10px; border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#374151; font-size:12px; cursor:pointer; }
         
@@ -930,6 +994,82 @@ Stickers &amp; Decals"><?php
                             <button type="submit" name="save_about" class="btn-save-sm">Save About Page</button>
                         </div>
                     </form>
+                </div>
+
+                <!-- Maintenance / Demo Data Tools (Admin only) -->
+                <div class="settings-card demo-maintenance-card">
+                    <div class="settings-card-title">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.66 1.73-3L13.73 4c-.77-1.34-2.53-1.34-3.46 0L3.34 16c-.77 1.34.19 3 1.73 3z"/></svg>
+                        Maintenance / Demo Data Tools
+                    </div>
+                    <div class="demo-warning">
+                        Temporary meeting demo data only. Imports POS walk-in service/customization orders directly (not live POS checkout). No PayMongo rows and no inventory deductions. Delete the batch after the meeting using the batch registry — never by date range alone.
+                    </div>
+
+                    <div class="demo-panel">
+                        <h3>1. Upload CSV &amp; Preview / Validate</h3>
+                        <p style="font-size:12px;color:#64748b;margin:0 0 10px;">
+                            Allowed window: <?php echo demo_seed_h(DEMO_SEED_DATE_MIN); ?> to <?php echo demo_seed_h(DEMO_SEED_DATE_MAX); ?>.
+                            Cabuyao branch id: <strong><?php echo (int)$demo_cabuyao_branch_id; ?></strong>.
+                            Max pending rows in file: <?php echo (int)DEMO_SEED_MAX_PENDING; ?>.
+                        </p>
+                        <form id="demo-seed-upload-form" enctype="multipart/form-data" onsubmit="return false;">
+                            <?php echo csrf_field(); ?>
+                            <input type="file" id="demo-seed-csv-file" name="csv_file" accept=".csv,text/csv" required style="margin-bottom:10px;">
+                            <div class="demo-actions">
+                                <button type="button" id="demo-seed-validate-btn" class="btn-demo btn-demo-secondary">Preview &amp; Validate CSV</button>
+                            </div>
+                        </form>
+                        <div id="demo-seed-validate-status" style="font-size:13px;margin-top:10px;"></div>
+                        <div id="demo-seed-preview-summary" style="display:none;">
+                            <div class="demo-summary-grid" id="demo-seed-summary-grid"></div>
+                            <ul id="demo-seed-services-list" style="font-size:12px;margin:10px 0 0 18px;"></ul>
+                        </div>
+                        <ul id="demo-seed-error-list" class="demo-error-list" style="display:none;margin-top:10px;"></ul>
+                    </div>
+
+                    <div class="demo-panel">
+                        <h3>2. Import Demo Data</h3>
+                        <p style="font-size:12px;color:#64748b;margin:0 0 10px;">Import is disabled until validation passes. Nothing is inserted automatically on page load.</p>
+                        <div class="demo-actions">
+                            <button type="button" id="demo-seed-import-btn" class="btn-demo btn-demo-primary" disabled>Import Demo Data</button>
+                        </div>
+                        <div id="demo-seed-import-status" style="font-size:13px;margin-top:10px;"></div>
+                    </div>
+
+                    <div class="demo-panel">
+                        <h3>3. Active Demo Batch</h3>
+                        <div id="demo-seed-active-batch">
+                            <?php if ($demo_active_batch): ?>
+                                <div class="demo-summary-grid">
+                                    <div><strong>Batch ID</strong><br><span class="font-mono"><?php echo demo_seed_h($demo_active_batch['batch_id'] ?? ''); ?></span></div>
+                                    <div><strong>Imported at</strong><br><?php echo demo_seed_h($demo_active_batch['imported_at'] ?? ''); ?></div>
+                                    <div><strong>Imported by</strong><br><?php echo demo_seed_h(trim($demo_active_batch['imported_by_name'] ?? '')); ?></div>
+                                    <div><strong>Orders</strong><br><?php echo (int)($demo_active_batch['total_orders'] ?? 0); ?></div>
+                                    <div><strong>Total sales</strong><br>₱<?php echo number_format((float)($demo_active_batch['total_sales'] ?? 0), 2); ?></div>
+                                    <div><strong>Completed</strong><br><?php echo (int)($demo_active_batch['completed_count'] ?? 0); ?></div>
+                                    <div><strong>Pending</strong><br><?php echo (int)($demo_active_batch['pending_count'] ?? 0); ?></div>
+                                </div>
+                            <?php else: ?>
+                                <p style="font-size:13px;color:#64748b;margin:0;">No active demo batch.</p>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <div class="demo-panel">
+                        <h3>4. Delete Demo Data</h3>
+                        <p style="font-size:12px;color:#64748b;margin:0 0 10px;">Type <code>DELETE MEETING DATA</code> to confirm. Deletion uses the batch registry only.</p>
+                        <div id="demo-seed-delete-preview" class="demo-summary-grid" style="margin-bottom:12px;"></div>
+                        <div class="f-group" style="max-width:420px;">
+                            <label>Confirmation</label>
+                            <input type="text" id="demo-seed-delete-confirm" placeholder="DELETE MEETING DATA" autocomplete="off">
+                        </div>
+                        <div class="demo-actions" style="margin-top:10px;">
+                            <button type="button" id="demo-seed-delete-preview-btn" class="btn-demo btn-demo-secondary" <?php echo $demo_active_batch ? '' : 'disabled'; ?>>Refresh Delete Preview</button>
+                            <button type="button" id="demo-seed-delete-btn" class="btn-demo btn-demo-danger" <?php echo $demo_active_batch ? '' : 'disabled'; ?>>Delete Demo Data</button>
+                        </div>
+                        <div id="demo-seed-delete-status" style="font-size:13px;margin-top:10px;"></div>
+                    </div>
                 </div>
 
             </div>
@@ -1629,15 +1769,197 @@ function printflowInitSettingsPage() {
     }
 }
 
-// Initialize on page load
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', printflowInitSettingsPage);
-} else {
-    printflowInitSettingsPage();
+function printflowInitDemoSeedTools() {
+    const apiUrl = <?php echo json_encode(rtrim($base_path, '/') . '/admin/api/demo_seed_data.php'); ?>;
+    const csrfInput = document.querySelector('input[name="csrf_token"]');
+    const csrf = csrfInput ? csrfInput.value : '';
+    let previewToken = '';
+
+    const validateBtn = document.getElementById('demo-seed-validate-btn');
+    const importBtn = document.getElementById('demo-seed-import-btn');
+    const deleteBtn = document.getElementById('demo-seed-delete-btn');
+    const deletePreviewBtn = document.getElementById('demo-seed-delete-preview-btn');
+    if (!validateBtn || validateBtn.dataset.pfBound === '1') {
+        return;
+    }
+    validateBtn.dataset.pfBound = '1';
+
+    function renderSummary(summary) {
+        const wrap = document.getElementById('demo-seed-preview-summary');
+        const grid = document.getElementById('demo-seed-summary-grid');
+        const services = document.getElementById('demo-seed-services-list');
+        if (!wrap || !grid || !services || !summary) return;
+        wrap.style.display = 'block';
+        grid.innerHTML = [
+            ['Total rows', summary.total_rows],
+            ['Valid rows', summary.valid_rows],
+            ['Date from', summary.date_from],
+            ['Date to', summary.date_to],
+            ['Completed', summary.completed_count],
+            ['Pending', summary.pending_count],
+            ['Total sales', '₱' + Number(summary.total_sales || 0).toFixed(2)],
+            ['Branch id', summary.branch_id],
+            ['Staff user id', summary.staff_user_id],
+            ['Batch id', summary.seed_batch_id],
+        ].map(function (pair) {
+            return '<div><strong>' + pair[0] + '</strong><br>' + String(pair[1] ?? '') + '</div>';
+        }).join('');
+        services.innerHTML = '';
+        const breakdown = summary.services_breakdown || {};
+        Object.keys(breakdown).forEach(function (name) {
+            const li = document.createElement('li');
+            li.textContent = name + ': ' + breakdown[name];
+            services.appendChild(li);
+        });
+    }
+
+    function renderErrors(errors) {
+        const list = document.getElementById('demo-seed-error-list');
+        if (!list) return;
+        if (!errors || !errors.length) {
+            list.style.display = 'none';
+            list.innerHTML = '';
+            return;
+        }
+        list.style.display = 'block';
+        list.innerHTML = errors.map(function (err) {
+            const row = err.row ? ('Row ' + err.row + ': ') : '';
+            const key = err.seed_row_key ? ('[' + err.seed_row_key + '] ') : '';
+            return '<li>' + row + key + String(err.message || '') + '</li>';
+        }).join('');
+    }
+
+    function renderDeletePreview(preview) {
+        const grid = document.getElementById('demo-seed-delete-preview');
+        if (!grid || !preview || !preview.counts) return;
+        grid.innerHTML = Object.keys(preview.counts).map(function (key) {
+            return '<div><strong>' + key.replace(/_/g, ' ') + '</strong><br>' + preview.counts[key] + '</div>';
+        }).join('');
+    }
+
+    validateBtn.addEventListener('click', function () {
+        const fileInput = document.getElementById('demo-seed-csv-file');
+        const status = document.getElementById('demo-seed-validate-status');
+        if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+            if (status) status.textContent = 'Choose a CSV file first.';
+            return;
+        }
+        const fd = new FormData();
+        fd.append('action', 'validate_csv');
+        fd.append('csrf_token', csrf);
+        fd.append('csv_file', fileInput.files[0]);
+        if (status) status.textContent = 'Validating...';
+        if (importBtn) importBtn.disabled = true;
+        previewToken = '';
+        fetch(apiUrl, { method: 'POST', body: fd })
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                renderErrors(data.row_errors || []);
+                if (data.summary) renderSummary(data.summary);
+                if (data.valid) {
+                    previewToken = data.preview_token || '';
+                    if (status) status.textContent = 'Validation passed. You may import this CSV.';
+                    if (importBtn) importBtn.disabled = false;
+                } else {
+                    if (status) status.textContent = data.message || 'Validation failed.';
+                    if (importBtn) importBtn.disabled = true;
+                }
+            })
+            .catch(function () {
+                if (status) status.textContent = 'Validation request failed.';
+            });
+    });
+
+    if (importBtn) {
+        importBtn.addEventListener('click', function () {
+            const status = document.getElementById('demo-seed-import-status');
+            if (!previewToken) {
+                if (status) status.textContent = 'Validate the CSV first.';
+                return;
+            }
+            const fd = new FormData();
+            fd.append('action', 'import_csv');
+            fd.append('csrf_token', csrf);
+            fd.append('preview_token', previewToken);
+            if (status) status.textContent = 'Importing...';
+            importBtn.disabled = true;
+            fetch(apiUrl, { method: 'POST', body: fd })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (data.success) {
+                        if (status) status.textContent = (data.message || 'Imported.') + ' Reloading...';
+                        window.location.reload();
+                        return;
+                    }
+                    if (status) status.textContent = data.message || 'Import failed.';
+                    importBtn.disabled = false;
+                })
+                .catch(function () {
+                    if (status) status.textContent = 'Import request failed.';
+                    importBtn.disabled = false;
+                });
+        });
+    }
+
+    function loadDeletePreview() {
+        const fd = new FormData();
+        fd.append('action', 'delete_preview');
+        fd.append('csrf_token', csrf);
+        fetch(apiUrl, { method: 'POST', body: fd })
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                if (data.preview) renderDeletePreview(data.preview);
+            });
+    }
+
+    if (deletePreviewBtn) {
+        deletePreviewBtn.addEventListener('click', loadDeletePreview);
+        loadDeletePreview();
+    }
+
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', function () {
+            const status = document.getElementById('demo-seed-delete-status');
+            const confirmInput = document.getElementById('demo-seed-delete-confirm');
+            const fd = new FormData();
+            fd.append('action', 'delete_batch');
+            fd.append('csrf_token', csrf);
+            fd.append('confirm_text', confirmInput ? confirmInput.value : '');
+            if (status) status.textContent = 'Deleting...';
+            deleteBtn.disabled = true;
+            fetch(apiUrl, { method: 'POST', body: fd })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (data.success) {
+                        if (status) status.textContent = (data.message || 'Deleted.') + ' Reloading...';
+                        window.location.reload();
+                        return;
+                    }
+                    if (status) status.textContent = data.message || 'Delete failed.';
+                    deleteBtn.disabled = false;
+                })
+                .catch(function () {
+                    if (status) status.textContent = 'Delete request failed.';
+                    deleteBtn.disabled = false;
+                });
+        });
+    }
 }
 
-// Re-initialize after Turbo navigation
-document.addEventListener('printflow:page-init', printflowInitSettingsPage);
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+        printflowInitSettingsPage();
+        printflowInitDemoSeedTools();
+    });
+} else {
+    printflowInitSettingsPage();
+    printflowInitDemoSeedTools();
+}
+
+document.addEventListener('printflow:page-init', function () {
+    printflowInitSettingsPage();
+    printflowInitDemoSeedTools();
+});
 
 // Cleanup before Turbo caches/navigates away
 document.addEventListener('turbo:before-cache', function() {

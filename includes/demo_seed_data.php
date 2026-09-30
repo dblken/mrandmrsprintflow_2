@@ -1,0 +1,1222 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * Admin-only POS walk-in service/customization demo seed import & batch rollback.
+ * Does not use POS checkout, PayMongo, or inventory deduction workflows.
+ */
+
+const DEMO_SEED_BATCH_TABLE = 'demo_seed_batches';
+const DEMO_SEED_ROW_TABLE = 'demo_seed_rows';
+const DEMO_SEED_DATE_MIN = '2026-09-07 00:00:00';
+const DEMO_SEED_DATE_MAX = '2026-10-01 09:30:00';
+const DEMO_SEED_PENDING_MIN = '2026-09-30 00:00:00';
+const DEMO_SEED_MAX_PENDING = 10;
+const DEMO_SEED_MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
+const DEMO_SEED_SESSION_KEY = 'demo_seed_validated_preview';
+
+/** @return list<string> */
+function demo_seed_required_csv_columns(): array
+{
+    return [
+        'seed_row_key',
+        'seed_batch_id',
+        'order_datetime',
+        'order_status',
+        'customization_status',
+        'job_status',
+        'service_display_name',
+        'job_service_type_enum',
+        'service_catalog_id',
+        'unit_price',
+        'quantity',
+        'payment_method',
+        'payment_status',
+        'amount_paid',
+        'customer_first_name',
+        'customer_last_name',
+        'customer_email',
+        'customer_phone',
+        'customer_street',
+        'customer_barangay',
+        'customer_city',
+        'customer_province',
+        'customer_postal',
+        'spec_summary',
+        'staff_user_id',
+        'branch_id',
+    ];
+}
+
+/** @return list<string> */
+function demo_seed_job_service_enum_values(): array
+{
+    return [
+        'Tarpaulin Printing',
+        'T-shirt Printing',
+        'Decals/Stickers (Print/Cut)',
+        'Glass Stickers / Wall / Frosted Stickers',
+        'Transparent Stickers',
+        'Layouts',
+        'Reflectorized (Subdivision Stickers/Signages)',
+        'Stickers on Sintraboard',
+        'Sintraboard Standees',
+        'Souvenirs',
+    ];
+}
+
+function demo_seed_h($value): string
+{
+    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+}
+
+function demo_seed_table_exists(string $table): bool
+{
+    static $cache = [];
+    if (isset($cache[$table])) {
+        return $cache[$table];
+    }
+    $safe = preg_replace('/[^a-zA-Z0-9_]/', '', $table);
+    if ($safe === '') {
+        return false;
+    }
+    $rows = db_query(
+        "SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1",
+        's',
+        [$safe]
+    ) ?: [];
+    return $cache[$table] = !empty($rows);
+}
+
+function demo_seed_begin_transaction(): void
+{
+    global $conn;
+    if (!$conn->begin_transaction()) {
+        throw new RuntimeException('Unable to start database transaction.');
+    }
+}
+
+function demo_seed_commit_transaction(): void
+{
+    global $conn;
+    if (!$conn->commit()) {
+        throw new RuntimeException('Unable to commit database transaction.');
+    }
+}
+
+function demo_seed_rollback_transaction(): void
+{
+    global $conn;
+    if (!$conn->rollback()) {
+        error_log('demo_seed_data rollback warning: ' . ($conn->error ?? ''));
+    }
+}
+
+function demo_seed_ensure_tables(): void
+{
+    $sql1 = 'CREATE TABLE IF NOT EXISTS ' . DEMO_SEED_BATCH_TABLE . " (
+        id BIGINT NOT NULL AUTO_INCREMENT,
+        batch_id VARCHAR(80) NOT NULL,
+        label VARCHAR(160) NULL,
+        source_file_name VARCHAR(255) NULL,
+        imported_by INT NULL,
+        imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        rolled_back_by INT NULL,
+        rolled_back_at DATETIME NULL DEFAULT NULL,
+        total_orders INT NOT NULL DEFAULT 0,
+        total_sales DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+        completed_count INT NOT NULL DEFAULT 0,
+        pending_count INT NOT NULL DEFAULT 0,
+        status VARCHAR(32) NOT NULL DEFAULT 'active',
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_demo_seed_batch_id (batch_id),
+        KEY idx_demo_seed_status (status, rolled_back_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+
+    $sql2 = 'CREATE TABLE IF NOT EXISTS ' . DEMO_SEED_ROW_TABLE . " (
+        id BIGINT NOT NULL AUTO_INCREMENT,
+        batch_id VARCHAR(80) NOT NULL,
+        seed_row_key VARCHAR(80) NOT NULL,
+        order_id INT NOT NULL,
+        order_item_id INT NULL,
+        customization_id INT NULL,
+        job_order_id INT NULL,
+        customer_id INT NOT NULL,
+        customer_created TINYINT(1) NOT NULL DEFAULT 1,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_demo_seed_rows_batch (batch_id),
+        KEY idx_demo_seed_rows_order (order_id),
+        KEY idx_demo_seed_rows_customer (customer_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+
+    if (!db_execute($sql1) || !db_execute($sql2)) {
+        throw new RuntimeException('Could not create or verify demo seed maintenance tables.');
+    }
+}
+
+function demo_seed_active_batch(): ?array
+{
+    if (!demo_seed_table_exists(DEMO_SEED_BATCH_TABLE)) {
+        return null;
+    }
+    $rows = db_query(
+        "SELECT b.*, CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS imported_by_name
+         FROM " . DEMO_SEED_BATCH_TABLE . " b
+         LEFT JOIN users u ON u.user_id = b.imported_by
+         WHERE b.status = 'active' AND b.rolled_back_at IS NULL
+         ORDER BY b.imported_at DESC
+         LIMIT 1"
+    ) ?: [];
+    return $rows[0] ?? null;
+}
+
+function demo_seed_pos_service_placeholder_product_id(): int
+{
+    $existing = db_query("SELECT product_id FROM products WHERE sku = 'POS-SERVICE' LIMIT 1") ?: [];
+    if (!empty($existing)) {
+        return (int)$existing[0]['product_id'];
+    }
+    global $conn;
+    if (db_execute(
+        "INSERT INTO products (sku, name, category, description, price, stock_quantity, status)
+         VALUES ('POS-SERVICE', 'POS Service Item', 'Service', 'Placeholder product for POS service-only order items.', 0, 0, 'Activated')"
+    )) {
+        return (int)$conn->insert_id;
+    }
+    $fallback = db_query('SELECT product_id FROM products ORDER BY product_id ASC LIMIT 1') ?: [];
+    return (int)($fallback[0]['product_id'] ?? 0);
+}
+
+function demo_seed_cabuyao_branch_id(): int
+{
+    if (function_exists('printflow_get_default_admin_branch_id')) {
+        return (int)printflow_get_default_admin_branch_id();
+    }
+    return 1;
+}
+
+function demo_seed_branch_is_cabuyao(int $branchId): bool
+{
+    if ($branchId <= 0) {
+        return false;
+    }
+    $expected = demo_seed_cabuyao_branch_id();
+    if ($branchId === $expected) {
+        return true;
+    }
+    $rows = db_query(
+        "SELECT id FROM branches
+         WHERE id = ?
+           AND status != 'Archived'
+           AND (
+               LOWER(branch_name) LIKE '%cabuyao%'
+               OR LOWER(COALESCE(city, '')) LIKE '%cabuyao%'
+               OR LOWER(COALESCE(address, '')) LIKE '%cabuyao%'
+           )
+         LIMIT 1",
+        'i',
+        [$branchId]
+    ) ?: [];
+    return !empty($rows);
+}
+
+function demo_seed_staff_user_valid(int $userId): bool
+{
+    if ($userId <= 0) {
+        return false;
+    }
+    $rows = db_query(
+        "SELECT user_id FROM users WHERE user_id = ? AND role IN ('Admin', 'Staff') AND status = 'Activated' LIMIT 1",
+        'i',
+        [$userId]
+    ) ?: [];
+    return !empty($rows);
+}
+
+function demo_seed_contains_banned_visible_text(string $text): bool
+{
+    return (bool)preg_match('/\b(demo|test|fake|sample|dummy)\b/i', $text);
+}
+
+function demo_seed_contains_provider_like_text(string $text): bool
+{
+    $lower = strtolower($text);
+    $needles = [
+        'paymongo', 'payment_intent', 'provider_reference', 'provider_payment',
+        'checkout_session', 'source_id', 'gcash', 'maya', 'qrph',
+    ];
+    foreach ($needles as $needle) {
+        if (str_contains($lower, $needle)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function demo_seed_is_raffle_service(string $serviceName, string $enumName): bool
+{
+    $blob = strtolower($serviceName . ' ' . $enumName);
+    return str_contains($blob, 'raffle');
+}
+
+/**
+ * @return array{rows:list<array<string,string>>,errors:list<array{row:int,key?:string,message:string}>}
+ */
+function demo_seed_parse_csv_content(string $content): array
+{
+    $content = preg_replace('/^\xEF\xBB\xBF/', '', $content) ?? $content;
+    $lines = preg_split('/\R/', trim($content));
+    if ($lines === false || $lines === []) {
+        return ['rows' => [], 'errors' => [['row' => 0, 'message' => 'CSV file is empty.']]];
+    }
+
+    $header = str_getcsv(array_shift($lines));
+    $header = array_map(static fn($h) => strtolower(trim((string)$h)), $header);
+    $required = demo_seed_required_csv_columns();
+    $errors = [];
+    foreach ($required as $col) {
+        if (!in_array($col, $header, true)) {
+            $errors[] = ['row' => 0, 'message' => 'Missing required column: ' . $col];
+        }
+    }
+    foreach ($header as $col) {
+        if ($col !== '' && demo_seed_contains_provider_like_text($col)) {
+            $errors[] = ['row' => 0, 'message' => 'Disallowed provider-like column: ' . $col];
+        }
+    }
+    if ($errors !== []) {
+        return ['rows' => [], 'errors' => $errors];
+    }
+
+    $rows = [];
+    $lineNo = 1;
+    foreach ($lines as $line) {
+        $lineNo++;
+        if (trim($line) === '') {
+            continue;
+        }
+        $cells = str_getcsv($line);
+        if (count($cells) < count($header)) {
+            $cells = array_pad($cells, count($header), '');
+        }
+        $assoc = [];
+        foreach ($header as $i => $col) {
+            $assoc[$col] = trim((string)($cells[$i] ?? ''));
+        }
+        $assoc['_csv_line'] = (string)$lineNo;
+        $rows[] = $assoc;
+    }
+
+    return ['rows' => $rows, 'errors' => $errors];
+}
+
+/**
+ * @param list<array<string,string>> $rows
+ * @return array{valid:bool,summary:array<string,mixed>,row_errors:list<array<string,mixed>>,normalized_rows:list<array<string,mixed>>}
+ */
+function demo_seed_validate_rows(array $rows): array
+{
+    $rowErrors = [];
+    $normalized = [];
+    $pendingCount = 0;
+    $completedCount = 0;
+    $totalSales = 0.0;
+    $services = [];
+    $emailsInBatch = [];
+    $batchIds = [];
+    $minTs = null;
+    $maxTs = null;
+    $branchId = null;
+    $staffId = null;
+
+    $minDt = new DateTimeImmutable(DEMO_SEED_DATE_MIN);
+    $maxDt = new DateTimeImmutable(DEMO_SEED_DATE_MAX);
+    $pendingMinDt = new DateTimeImmutable(DEMO_SEED_PENDING_MIN);
+
+    $allowedOrderStatus = ['completed', 'pending'];
+    $allowedCustomizationStatus = ['completed', 'in production', 'pending'];
+    $allowedJobStatus = ['completed', 'pending', 'in_production'];
+    $jobEnums = array_map('strtolower', demo_seed_job_service_enum_values());
+
+    foreach ($rows as $index => $row) {
+        $line = (int)($row['_csv_line'] ?? ($index + 2));
+        $key = trim((string)($row['seed_row_key'] ?? ''));
+        $errorsForRow = [];
+
+        if ($key === '') {
+            $errorsForRow[] = 'seed_row_key is required.';
+        }
+
+        $batchId = trim((string)($row['seed_batch_id'] ?? ''));
+        if ($batchId === '') {
+            $errorsForRow[] = 'seed_batch_id is required.';
+        } else {
+            $batchIds[$batchId] = true;
+        }
+
+        $orderAtRaw = trim((string)($row['order_datetime'] ?? ''));
+        $orderAt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $orderAtRaw);
+        $fmtErrors = DateTimeImmutable::getLastErrors();
+        if (!$orderAt || ($fmtErrors !== false && ($fmtErrors['warning_count'] > 0 || $fmtErrors['error_count'] > 0))
+            || $orderAt->format('Y-m-d H:i:s') !== $orderAtRaw) {
+            $errorsForRow[] = 'order_datetime must be Y-m-d H:i:s between ' . DEMO_SEED_DATE_MIN . ' and ' . DEMO_SEED_DATE_MAX . '.';
+        } elseif ($orderAt < $minDt || $orderAt > $maxDt) {
+            $errorsForRow[] = 'order_datetime is outside the allowed meeting window.';
+        } else {
+            if ($minTs === null || $orderAt < $minTs) {
+                $minTs = $orderAt;
+            }
+            if ($maxTs === null || $orderAt > $maxTs) {
+                $maxTs = $orderAt;
+            }
+        }
+
+        $orderStatus = strtolower(trim((string)($row['order_status'] ?? '')));
+        if (!in_array($orderStatus, $allowedOrderStatus, true)) {
+            $errorsForRow[] = 'order_status must be Completed or Pending.';
+        } elseif ($orderStatus === 'pending') {
+            if (!$orderAt || $orderAt < $pendingMinDt) {
+                $errorsForRow[] = 'Pending orders are only allowed from 2026-09-30 onward.';
+            }
+            $pendingCount++;
+        } else {
+            $completedCount++;
+        }
+
+        $customStatus = strtolower(trim((string)($row['customization_status'] ?? '')));
+        if (!in_array($customStatus, $allowedCustomizationStatus, true)) {
+            $errorsForRow[] = 'customization_status must be Completed, In Production, or Pending.';
+        }
+
+        $jobStatus = strtoupper(trim((string)($row['job_status'] ?? '')));
+        $jobStatusNorm = str_replace(' ', '_', $jobStatus);
+        if (!in_array(strtolower($jobStatusNorm), $allowedJobStatus, true)) {
+            $errorsForRow[] = 'job_status must be COMPLETED, PENDING, or IN_PRODUCTION.';
+        }
+
+        $serviceName = trim((string)($row['service_display_name'] ?? ''));
+        $jobEnum = trim((string)($row['job_service_type_enum'] ?? ''));
+        if ($serviceName === '') {
+            $errorsForRow[] = 'service_display_name is required.';
+        }
+        if (!in_array(strtolower($jobEnum), $jobEnums, true)) {
+            $errorsForRow[] = 'job_service_type_enum is not a valid job_orders service type.';
+        }
+        if (demo_seed_is_raffle_service($serviceName, $jobEnum)) {
+            $errorsForRow[] = 'Raffle ticketing services are not allowed.';
+        }
+
+        $catalogId = (int)($row['service_catalog_id'] ?? 0);
+        if ($catalogId <= 0) {
+            $errorsForRow[] = 'service_catalog_id must be a positive integer.';
+        } else {
+            $product = db_query('SELECT product_id, name, status FROM products WHERE product_id = ? LIMIT 1', 'i', [$catalogId]) ?: [];
+            if ($product === []) {
+                $errorsForRow[] = 'service_catalog_id does not match an existing product/service catalog row.';
+            }
+        }
+
+        $qty = (int)($row['quantity'] ?? 0);
+        if ($qty !== 1) {
+            $errorsForRow[] = 'quantity must be exactly 1.';
+        }
+
+        $unitPrice = round((float)($row['unit_price'] ?? 0), 2);
+        $amountPaid = round((float)($row['amount_paid'] ?? 0), 2);
+        if ($unitPrice <= 0 || $amountPaid <= 0) {
+            $errorsForRow[] = 'unit_price and amount_paid must be positive.';
+        } elseif (abs($unitPrice - $amountPaid) > 0.009) {
+            $errorsForRow[] = 'unit_price must match amount_paid for single-quantity rows.';
+        }
+
+        $paymentMethod = trim((string)($row['payment_method'] ?? ''));
+        if (strcasecmp($paymentMethod, 'Cash') !== 0) {
+            $errorsForRow[] = 'payment_method must be Cash only.';
+        }
+        $paymentStatus = trim((string)($row['payment_status'] ?? ''));
+        if (strcasecmp($paymentStatus, 'Paid') !== 0) {
+            $errorsForRow[] = 'payment_status must be Paid.';
+        }
+
+        foreach ($row as $col => $val) {
+            if ($col === 'seed_batch_id' || str_starts_with($col, '_')) {
+                continue;
+            }
+            if (is_string($val) && demo_seed_contains_provider_like_text($val)) {
+                $errorsForRow[] = 'Provider-like value is not allowed in column ' . $col . '.';
+            }
+        }
+
+        $visibleFields = [
+            'customer_first_name', 'customer_last_name', 'customer_email', 'customer_phone',
+            'customer_street', 'customer_barangay', 'customer_city', 'customer_province',
+            'customer_postal', 'spec_summary', 'service_display_name',
+        ];
+        foreach ($visibleFields as $field) {
+            $val = trim((string)($row[$field] ?? ''));
+            if ($val === '') {
+                $errorsForRow[] = $field . ' is required.';
+            } elseif (demo_seed_contains_banned_visible_text($val)) {
+                $errorsForRow[] = $field . ' contains disallowed placeholder wording.';
+            }
+        }
+
+        $email = strtolower(trim((string)($row['customer_email'] ?? '')));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errorsForRow[] = 'customer_email is invalid.';
+        } elseif (isset($emailsInBatch[$email])) {
+            $errorsForRow[] = 'customer_email must be unique within the CSV batch.';
+        } else {
+            $emailsInBatch[$email] = true;
+            $existing = db_query('SELECT customer_id FROM customers WHERE LOWER(email) = ? LIMIT 1', 's', [$email]) ?: [];
+            if (!empty($existing)) {
+                $errorsForRow[] = 'customer_email already exists in the live database; use unique meeting emails.';
+            }
+        }
+
+        $rowBranchId = (int)($row['branch_id'] ?? 0);
+        if (!demo_seed_branch_is_cabuyao($rowBranchId)) {
+            $errorsForRow[] = 'branch_id must be the Cabuyao branch.';
+        } elseif ($branchId === null) {
+            $branchId = $rowBranchId;
+        } elseif ($branchId !== $rowBranchId) {
+            $errorsForRow[] = 'branch_id must be consistent across all rows.';
+        }
+
+        $rowStaffId = (int)($row['staff_user_id'] ?? 0);
+        if (!demo_seed_staff_user_valid($rowStaffId)) {
+            $errorsForRow[] = 'staff_user_id must be an existing Admin or Staff user.';
+        } elseif ($staffId === null) {
+            $staffId = $rowStaffId;
+        } elseif ($staffId !== $rowStaffId) {
+            $errorsForRow[] = 'staff_user_id must be consistent across all rows.';
+        }
+
+        if ($errorsForRow !== []) {
+            foreach ($errorsForRow as $msg) {
+                $rowErrors[] = ['row' => $line, 'seed_row_key' => $key, 'message' => $msg];
+            }
+            continue;
+        }
+
+        $services[$serviceName] = ($services[$serviceName] ?? 0) + 1;
+        $totalSales += $amountPaid;
+
+        $normalized[] = [
+            'seed_row_key' => $key,
+            'seed_batch_id' => $batchId,
+            'order_datetime' => $orderAtRaw,
+            'order_status' => $orderStatus === 'completed' ? 'Completed' : 'Pending',
+            'customization_status' => demo_seed_title_case_status((string)($row['customization_status'] ?? '')),
+            'job_status' => demo_seed_normalize_job_status($jobStatusNorm),
+            'service_display_name' => $serviceName,
+            'job_service_type_enum' => demo_seed_match_job_enum($jobEnum),
+            'service_catalog_id' => $catalogId,
+            'unit_price' => $unitPrice,
+            'quantity' => 1,
+            'amount_paid' => $amountPaid,
+            'customer' => [
+                'first_name' => trim((string)$row['customer_first_name']),
+                'last_name' => trim((string)$row['customer_last_name']),
+                'email' => $email,
+                'phone' => trim((string)$row['customer_phone']),
+                'street' => trim((string)$row['customer_street']),
+                'barangay' => trim((string)$row['customer_barangay']),
+                'city' => trim((string)$row['customer_city']),
+                'province' => trim((string)$row['customer_province']),
+                'postal' => trim((string)$row['customer_postal']),
+            ],
+            'spec_summary' => trim((string)$row['spec_summary']),
+            'staff_user_id' => $rowStaffId,
+            'branch_id' => $rowBranchId,
+        ];
+    }
+
+    if (count($batchIds) > 1) {
+        $rowErrors[] = ['row' => 0, 'message' => 'All rows must share the same seed_batch_id.'];
+    }
+    if ($pendingCount > DEMO_SEED_MAX_PENDING) {
+        $rowErrors[] = ['row' => 0, 'message' => 'Pending order count exceeds maximum of ' . DEMO_SEED_MAX_PENDING . '.'];
+    }
+
+    $active = demo_seed_active_batch();
+    if ($active !== null) {
+        $rowErrors[] = [
+            'row' => 0,
+            'message' => 'An active demo batch already exists (' . ($active['batch_id'] ?? '') . '). Delete it before importing a new one.',
+        ];
+    }
+
+    $valid = $rowErrors === [] && $normalized !== [];
+
+    return [
+        'valid' => $valid,
+        'summary' => [
+            'total_rows' => count($rows),
+            'valid_rows' => count($normalized),
+            'date_from' => $minTs ? $minTs->format('Y-m-d H:i:s') : null,
+            'date_to' => $maxTs ? $maxTs->format('Y-m-d H:i:s') : null,
+            'completed_count' => $completedCount,
+            'pending_count' => $pendingCount,
+            'total_sales' => round($totalSales, 2),
+            'services_breakdown' => $services,
+            'branch_id' => $branchId,
+            'staff_user_id' => $staffId,
+            'seed_batch_id' => count($batchIds) === 1 ? array_key_first($batchIds) : null,
+        ],
+        'row_errors' => $rowErrors,
+        'normalized_rows' => $normalized,
+    ];
+}
+
+function demo_seed_title_case_status(string $status): string
+{
+    $status = strtolower(trim($status));
+    if ($status === 'in production') {
+        return 'In Production';
+    }
+    if ($status === 'pending') {
+        return 'Pending Review';
+    }
+    return 'Completed';
+}
+
+function demo_seed_normalize_job_status(string $status): string
+{
+    $status = strtoupper(str_replace(' ', '_', trim($status)));
+    return match ($status) {
+        'IN_PRODUCTION' => 'IN_PRODUCTION',
+        'PENDING' => 'PENDING',
+        default => 'COMPLETED',
+    };
+}
+
+function demo_seed_match_job_enum(string $input): string
+{
+    foreach (demo_seed_job_service_enum_values() as $enum) {
+        if (strcasecmp($enum, $input) === 0) {
+            return $enum;
+        }
+    }
+    return trim($input);
+}
+
+function demo_seed_store_preview(array $validation, string $fileName): string
+{
+    $token = bin2hex(random_bytes(16));
+    $_SESSION[DEMO_SEED_SESSION_KEY] = [
+        'token' => $token,
+        'file_name' => $fileName,
+        'summary' => $validation['summary'],
+        'normalized_rows' => $validation['normalized_rows'],
+        'created_at' => time(),
+    ];
+    return $token;
+}
+
+function demo_seed_get_preview(?string $token): ?array
+{
+    $preview = $_SESSION[DEMO_SEED_SESSION_KEY] ?? null;
+    if (!is_array($preview)) {
+        return null;
+    }
+    if ($token !== null && (string)($preview['token'] ?? '') !== $token) {
+        return null;
+    }
+    if ((int)($preview['created_at'] ?? 0) < time() - 7200) {
+        unset($_SESSION[DEMO_SEED_SESSION_KEY]);
+        return null;
+    }
+    return $preview;
+}
+
+function demo_seed_clear_preview(): void
+{
+    unset($_SESSION[DEMO_SEED_SESSION_KEY]);
+}
+
+/**
+ * @param list<array<string,mixed>> $rows
+ */
+function demo_seed_import_rows(array $rows, int $adminId, string $sourceFileName, string $batchId): array
+{
+    demo_seed_ensure_tables();
+    if ($rows === []) {
+        throw new RuntimeException('No validated rows to import.');
+    }
+
+    $placeholderProductId = demo_seed_pos_service_placeholder_product_id();
+    if ($placeholderProductId <= 0) {
+        throw new RuntimeException('POS service placeholder product is unavailable.');
+    }
+
+    $completed = 0;
+    $pending = 0;
+    $totalSales = 0.0;
+
+    demo_seed_begin_transaction();
+    try {
+        db_execute(
+            'INSERT INTO ' . DEMO_SEED_BATCH_TABLE . ' (batch_id, label, source_file_name, imported_by, imported_at, total_orders, total_sales, completed_count, pending_count, status)
+             VALUES (?, ?, ?, ?, NOW(), 0, 0, 0, 0, ?)',
+            'sssis',
+            [$batchId, 'Meeting demo POS services', $sourceFileName, $adminId, 'active']
+        );
+
+        foreach ($rows as $row) {
+            $result = demo_seed_import_single_row($row, $batchId, $adminId, $placeholderProductId);
+            if (($row['order_status'] ?? '') === 'Completed') {
+                $completed++;
+            } else {
+                $pending++;
+            }
+            $totalSales += (float)($row['amount_paid'] ?? 0);
+        }
+
+        db_execute(
+            'UPDATE ' . DEMO_SEED_BATCH_TABLE . ' SET total_orders = ?, total_sales = ?, completed_count = ?, pending_count = ? WHERE batch_id = ?',
+            'idiis',
+            [count($rows), round($totalSales, 2), $completed, $pending, $batchId]
+        );
+
+        demo_seed_commit_transaction();
+    } catch (Throwable $e) {
+        demo_seed_rollback_transaction();
+        throw $e;
+    }
+
+    demo_seed_clear_preview();
+    log_activity($adminId, 'Import Demo Seed Batch', 'Imported demo batch ' . $batchId . ' with ' . count($rows) . ' POS service orders.');
+
+    return [
+        'batch_id' => $batchId,
+        'imported_orders' => count($rows),
+        'total_sales' => round($totalSales, 2),
+        'completed_count' => $completed,
+        'pending_count' => $pending,
+    ];
+}
+
+/**
+ * @param array<string,mixed> $row
+ * @return array<string,int>
+ */
+function demo_seed_import_single_row(array $row, string $batchId, int $adminId, int $placeholderProductId): array
+{
+    global $conn;
+
+    $orderAt = (string)$row['order_datetime'];
+    $updatedAt = $orderAt;
+    if (($row['order_status'] ?? '') === 'Completed') {
+        $updatedAt = date('Y-m-d H:i:s', strtotime($orderAt) + random_int(3600, 28800));
+    }
+
+    $customer = (array)($row['customer'] ?? []);
+    $passwordHash = password_hash(bin2hex(random_bytes(12)), PASSWORD_BCRYPT);
+    $customerPayload = [
+        'first_name' => (string)$customer['first_name'],
+        'last_name' => (string)$customer['last_name'],
+        'email' => (string)$customer['email'],
+        'phone' => (string)$customer['phone'],
+        'password_hash' => $passwordHash,
+    ];
+    demo_seed_insert_customer($customerPayload, $customer);
+    $customerId = (int)$conn->insert_id;
+
+    $branchId = (int)$row['branch_id'];
+    $amountPaid = (float)$row['amount_paid'];
+    $catalogId = (int)$row['service_catalog_id'];
+    $staffId = (int)$row['staff_user_id'];
+
+    $orderCols = ['customer_id', 'branch_id', 'reference_id', 'total_amount', 'status', 'payment_status', 'payment_method', 'order_date', 'updated_at', 'order_type', 'order_source'];
+    $orderTypes = 'iiidssssss';
+    $orderParams = [
+        $customerId,
+        $branchId,
+        $catalogId,
+        $amountPaid,
+        (string)$row['order_status'],
+        'Paid',
+        'Cash',
+        $orderAt,
+        $updatedAt,
+        'custom',
+        'pos',
+    ];
+
+    if (db_table_has_column('orders', 'amount_paid')) {
+        $orderCols[] = 'amount_paid';
+        $orderTypes .= 'd';
+        $orderParams[] = $amountPaid;
+    }
+    if (db_table_has_column('orders', 'price_finalized_at')) {
+        $orderCols[] = 'price_finalized_at';
+        $orderTypes .= 's';
+        $orderParams[] = $orderAt;
+    }
+    if (db_table_has_column('orders', 'price_finalized_by')) {
+        $orderCols[] = 'price_finalized_by';
+        $orderTypes .= 'i';
+        $orderParams[] = $staffId;
+    }
+    if (db_table_has_column('orders', 'payment_type')) {
+        $orderCols[] = 'payment_type';
+        $orderTypes .= 's';
+        $orderParams[] = 'full_payment';
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($orderCols), '?'));
+    db_execute(
+        'INSERT INTO orders (' . implode(', ', $orderCols) . ') VALUES (' . $placeholders . ')',
+        $orderTypes,
+        $orderParams
+    );
+    $orderId = (int)$conn->insert_id;
+
+    $customizationData = [
+        'service_type' => (string)$row['service_display_name'],
+        'service_id' => $catalogId,
+        'source' => 'POS',
+        'spec_summary' => (string)$row['spec_summary'],
+        'quantity' => 1,
+        '_seed_batch_id' => $batchId,
+    ];
+
+    $lineProductId = $placeholderProductId;
+    $productRow = db_query('SELECT product_id FROM products WHERE product_id = ? LIMIT 1', 'i', [$catalogId]) ?: [];
+    if (!empty($productRow)) {
+        $lineProductId = $catalogId;
+    }
+
+    db_execute(
+        'INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data) VALUES (?, ?, 1, ?, ?)',
+        'iids',
+        [$orderId, $lineProductId, (float)$row['unit_price'], json_encode($customizationData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]
+    );
+    $orderItemId = (int)$conn->insert_id;
+
+    $details = $customizationData;
+    $details['notes'] = (string)$row['spec_summary'];
+    db_execute(
+        'INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'iiisssss',
+        [
+            $orderId,
+            $orderItemId,
+            $customerId,
+            (string)$row['service_display_name'],
+            json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            (string)$row['customization_status'],
+            $orderAt,
+            $updatedAt,
+        ]
+    );
+    $customizationId = (int)$conn->insert_id;
+
+    $jobTitle = (string)$row['service_display_name'] . ' — ' . (string)$row['spec_summary'];
+    if (strlen($jobTitle) > 150) {
+        $jobTitle = substr($jobTitle, 0, 147) . '...';
+    }
+
+    $jobCols = [
+        'order_id', 'order_item_id', 'customer_id', 'branch_id', 'job_title', 'service_type',
+        'quantity', 'estimated_total', 'amount_paid', 'required_payment', 'payment_status',
+        'payment_method', 'status', 'created_by', 'created_at', 'updated_at',
+    ];
+    $jobTypes = 'iiiissdddssssiss';
+    $jobParams = [
+        $orderId,
+        $orderItemId,
+        $customerId,
+        $branchId,
+        $jobTitle,
+        (string)$row['job_service_type_enum'],
+        1,
+        $amountPaid,
+        $amountPaid,
+        $amountPaid,
+        'PAID',
+        'Cash',
+        (string)$row['job_status'],
+        $staffId,
+        $orderAt,
+        $updatedAt,
+    ];
+
+    $jobPlaceholders = implode(', ', array_fill(0, count($jobCols), '?'));
+    db_execute(
+        'INSERT INTO job_orders (' . implode(', ', $jobCols) . ') VALUES (' . $jobPlaceholders . ')',
+        $jobTypes,
+        $jobParams
+    );
+    $jobOrderId = (int)$conn->insert_id;
+
+    demo_seed_optional_history($orderId, (string)$row['order_status'], $orderAt);
+
+    db_execute(
+        'INSERT INTO ' . DEMO_SEED_ROW_TABLE . ' (batch_id, seed_row_key, order_id, order_item_id, customization_id, job_order_id, customer_id, customer_created)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
+        'ssiiiii',
+        [$batchId, (string)$row['seed_row_key'], $orderId, $orderItemId, $customizationId, $jobOrderId, $customerId]
+    );
+
+    return [
+        'order_id' => $orderId,
+        'order_item_id' => $orderItemId,
+        'customization_id' => $customizationId,
+        'job_order_id' => $jobOrderId,
+        'customer_id' => $customerId,
+    ];
+}
+
+/**
+ * @param array<string,string> $customerPayload
+ * @param array<string,string> $address
+ */
+function demo_seed_insert_customer(array $customerPayload, array $address): void
+{
+    $cols = ['first_name', 'last_name', 'email', 'contact_number', 'password_hash'];
+    $types = 'sssss';
+    $params = [
+        $customerPayload['first_name'],
+        $customerPayload['last_name'],
+        $customerPayload['email'],
+        $customerPayload['phone'],
+        $customerPayload['password_hash'],
+    ];
+
+    if (db_table_has_column('customers', 'status')) {
+        $cols[] = 'status';
+        $types .= 's';
+        $params[] = 'Activated';
+    }
+    if (db_table_has_column('customers', 'street_address')) {
+        $cols[] = 'street_address';
+        $types .= 's';
+        $params[] = (string)($address['street'] ?? '');
+    }
+    if (db_table_has_column('customers', 'barangay')) {
+        $cols[] = 'barangay';
+        $types .= 's';
+        $params[] = (string)($address['barangay'] ?? '');
+    }
+    if (db_table_has_column('customers', 'city')) {
+        $cols[] = 'city';
+        $types .= 's';
+        $params[] = (string)($address['city'] ?? '');
+    }
+    if (db_table_has_column('customers', 'province')) {
+        $cols[] = 'province';
+        $types .= 's';
+        $params[] = (string)($address['province'] ?? '');
+    }
+    if (db_table_has_column('customers', 'postal_code')) {
+        $cols[] = 'postal_code';
+        $types .= 's';
+        $params[] = (string)($address['postal'] ?? '');
+    }
+    if (db_table_has_column('customers', 'created_by_system')) {
+        $cols[] = 'created_by_system';
+        $types .= 'i';
+        $params[] = 1;
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($cols), '?'));
+    db_execute(
+        'INSERT INTO customers (' . implode(', ', $cols) . ') VALUES (' . $placeholders . ')',
+        $types,
+        $params
+    );
+}
+
+function demo_seed_optional_history(int $orderId, string $orderStatus, string $orderAt): void
+{
+    if (!demo_seed_table_exists('order_status_history') || !db_table_has_column('order_status_history', 'order_id')) {
+        return;
+    }
+    $payload = ['order_id' => $orderId];
+    if (db_table_has_column('order_status_history', 'old_status')
+        && db_table_has_column('order_status_history', 'new_status')
+        && db_table_has_column('order_status_history', 'changed_by')) {
+        $payload['old_status'] = 'Pending';
+        $payload['new_status'] = $orderStatus;
+        $payload['changed_by'] = 'Admin';
+    } elseif (db_table_has_column('order_status_history', 'status')) {
+        $payload['status'] = $orderStatus;
+    } else {
+        return;
+    }
+    if (db_table_has_column('order_status_history', 'changed_at')) {
+        $payload['changed_at'] = $orderAt;
+    } elseif (db_table_has_column('order_status_history', 'created_at')) {
+        $payload['created_at'] = $orderAt;
+    }
+
+    $cols = array_keys($payload);
+    $types = '';
+    $bindValues = [];
+    foreach ($payload as $column => $value) {
+        $types .= $column === 'order_id' ? 'i' : 's';
+        $bindValues[] = $value;
+    }
+    db_execute(
+        'INSERT INTO order_status_history (' . implode(', ', $cols) . ') VALUES (' . implode(', ', array_fill(0, count($cols), '?')) . ')',
+        $types,
+        $bindValues
+    );
+}
+
+function demo_seed_delete_preview(?string $batchId = null): array
+{
+    demo_seed_ensure_tables();
+    $batch = $batchId
+        ? (db_query('SELECT * FROM ' . DEMO_SEED_BATCH_TABLE . ' WHERE batch_id = ? AND rolled_back_at IS NULL LIMIT 1', 's', [$batchId]) ?: [])[0] ?? null
+        : demo_seed_active_batch();
+    if (!$batch) {
+        return ['batch_id' => null, 'counts' => []];
+    }
+    $batchId = (string)$batch['batch_id'];
+    $rows = db_query('SELECT order_id, customer_id FROM ' . DEMO_SEED_ROW_TABLE . ' WHERE batch_id = ?', 's', [$batchId]) ?: [];
+    $orderIds = array_values(array_unique(array_filter(array_map(static fn($r) => (int)($r['order_id'] ?? 0), $rows))));
+    $customerIds = array_values(array_unique(array_filter(array_map(static fn($r) => (int)($r['customer_id'] ?? 0), $rows))));
+
+    $counts = [
+        'orders' => count($orderIds),
+        'order_items' => demo_seed_count_in('order_items', 'order_id', $orderIds),
+        'customizations' => demo_seed_count_in('customizations', 'order_id', $orderIds),
+        'job_orders' => demo_seed_count_in('job_orders', 'order_id', $orderIds),
+        'job_order_materials' => demo_seed_count_job_children('job_order_materials', $orderIds),
+        'job_order_ink_usage' => demo_seed_count_job_children('job_order_ink_usage', $orderIds),
+        'job_order_files' => demo_seed_count_job_children('job_order_files', $orderIds),
+        'order_status_history' => demo_seed_count_in('order_status_history', 'order_id', $orderIds),
+        'order_messages' => demo_seed_count_in('order_messages', 'order_id', $orderIds),
+        'order_notes' => demo_seed_count_in('order_notes', 'order_id', $orderIds),
+        'order_designs' => demo_seed_count_in('order_designs', 'order_id', $orderIds),
+        'payment_submissions' => demo_seed_count_in('payment_submissions', 'order_id', $orderIds),
+        'provider_payments' => demo_seed_count_in('provider_payments', 'order_id', $orderIds),
+        'inventory_transactions' => demo_seed_count_inventory_for_orders($orderIds),
+        'customers' => demo_seed_count_deletable_customers($batchId, $customerIds),
+    ];
+
+    return ['batch_id' => $batchId, 'batch' => $batch, 'counts' => $counts];
+}
+
+/** @param list<int> $ids */
+function demo_seed_count_in(string $table, string $column, array $ids): int
+{
+    if ($ids === [] || !demo_seed_table_exists($table) || !db_table_has_column($table, $column)) {
+        return 0;
+    }
+    $csv = implode(',', array_map('intval', $ids));
+    return (int)(db_query("SELECT COUNT(*) AS c FROM {$table} WHERE {$column} IN ({$csv})")[0]['c'] ?? 0);
+}
+
+/** @param list<int> $orderIds */
+function demo_seed_count_job_children(string $table, array $orderIds): int
+{
+    if ($orderIds === [] || !demo_seed_table_exists($table) || !demo_seed_table_exists('job_orders')) {
+        return 0;
+    }
+    $csv = implode(',', array_map('intval', $orderIds));
+    return (int)(db_query(
+        "SELECT COUNT(*) AS c FROM {$table} t INNER JOIN job_orders jo ON jo.id = t.job_order_id WHERE jo.order_id IN ({$csv})"
+    )[0]['c'] ?? 0);
+}
+
+/** @param list<int> $orderIds */
+function demo_seed_count_inventory_for_orders(array $orderIds): int
+{
+    if ($orderIds === [] || !demo_seed_table_exists('inventory_transactions')) {
+        return 0;
+    }
+    $total = 0;
+    foreach ($orderIds as $orderId) {
+        $total += (int)(db_query(
+            "SELECT COUNT(*) AS c FROM inventory_transactions
+             WHERE (UPPER(ref_type) IN ('ORDER', 'ORDER_PRODUCT', 'JOB_ORDER') AND ref_id = ?)
+                OR (UPPER(ref_type) = 'JOB_ORDER' AND ref_id IN (SELECT id FROM job_orders WHERE order_id = ?))",
+            'ii',
+            [$orderId, $orderId]
+        )[0]['c'] ?? 0);
+    }
+    return $total;
+}
+
+/** @param list<int> $customerIds */
+function demo_seed_count_deletable_customers(string $batchId, array $customerIds): int
+{
+    if ($customerIds === []) {
+        return 0;
+    }
+    $count = 0;
+    foreach ($customerIds as $customerId) {
+        if ($customerId <= 0) {
+            continue;
+        }
+        $inBatch = db_query(
+            'SELECT 1 FROM ' . DEMO_SEED_ROW_TABLE . ' WHERE batch_id = ? AND customer_id = ? LIMIT 1',
+            'si',
+            [$batchId, $customerId]
+        ) ?: [];
+        if ($inBatch === []) {
+            continue;
+        }
+        $otherOrders = db_query(
+            'SELECT 1 FROM orders o WHERE o.customer_id = ?
+             AND NOT EXISTS (SELECT 1 FROM ' . DEMO_SEED_ROW_TABLE . ' r WHERE r.order_id = o.order_id AND r.batch_id = ?)
+             LIMIT 1',
+            'is',
+            [$customerId, $batchId]
+        ) ?: [];
+        if ($otherOrders === []) {
+            $count++;
+        }
+    }
+    return $count;
+}
+
+function demo_seed_delete_batch(string $batchId, int $adminId): array
+{
+    demo_seed_ensure_tables();
+    $preview = demo_seed_delete_preview($batchId);
+    if (empty($preview['batch_id'])) {
+        throw new RuntimeException('No active demo batch was found to delete.');
+    }
+
+    $rows = db_query('SELECT order_id, customer_id FROM ' . DEMO_SEED_ROW_TABLE . ' WHERE batch_id = ?', 's', [$batchId]) ?: [];
+    $orderIds = array_values(array_unique(array_filter(array_map(static fn($r) => (int)($r['order_id'] ?? 0), $rows))));
+    if ($orderIds === []) {
+        throw new RuntimeException('Batch registry has no orders to delete.');
+    }
+    $orderCsv = implode(',', array_map('intval', $orderIds));
+    $jobIds = demo_seed_collect_job_ids($orderIds);
+    $jobCsv = $jobIds !== [] ? implode(',', array_map('intval', $jobIds)) : '0';
+
+    demo_seed_begin_transaction();
+    try {
+        if ($jobIds !== []) {
+            if (demo_seed_table_exists('job_order_ink_usage')) {
+                db_execute("DELETE FROM job_order_ink_usage WHERE job_order_id IN ({$jobCsv})");
+            }
+            if (demo_seed_table_exists('job_order_materials')) {
+                db_execute("DELETE FROM job_order_materials WHERE job_order_id IN ({$jobCsv})");
+            }
+            if (demo_seed_table_exists('job_order_files')) {
+                db_execute("DELETE FROM job_order_files WHERE job_order_id IN ({$jobCsv})");
+            }
+        }
+        if (demo_seed_table_exists('job_orders')) {
+            db_execute("DELETE FROM job_orders WHERE order_id IN ({$orderCsv})");
+        }
+        if (demo_seed_table_exists('customizations')) {
+            db_execute("DELETE FROM customizations WHERE order_id IN ({$orderCsv})");
+        }
+        if (demo_seed_table_exists('order_items')) {
+            db_execute("DELETE FROM order_items WHERE order_id IN ({$orderCsv})");
+        }
+        foreach (['order_status_history', 'order_messages', 'order_notes', 'order_designs'] as $table) {
+            if (demo_seed_table_exists($table) && db_table_has_column($table, 'order_id')) {
+                db_execute("DELETE FROM {$table} WHERE order_id IN ({$orderCsv})");
+            }
+        }
+        if (demo_seed_table_exists('payment_submissions') && db_table_has_column('payment_submissions', 'order_id')) {
+            db_execute("DELETE FROM payment_submissions WHERE order_id IN ({$orderCsv})");
+        }
+        if (demo_seed_table_exists('provider_payments') && db_table_has_column('provider_payments', 'order_id')) {
+            db_execute("DELETE FROM provider_payments WHERE order_id IN ({$orderCsv})");
+        }
+        if (demo_seed_table_exists('inventory_transactions')) {
+            db_execute(
+                "DELETE FROM inventory_transactions
+                 WHERE (UPPER(ref_type) IN ('ORDER', 'ORDER_PRODUCT') AND ref_id IN ({$orderCsv}))
+                    OR (UPPER(ref_type) = 'JOB_ORDER' AND ref_id IN ({$jobCsv}))"
+            );
+        }
+        db_execute("DELETE FROM orders WHERE order_id IN ({$orderCsv})");
+
+        $customerIds = array_values(array_unique(array_filter(array_map(static fn($r) => (int)($r['customer_id'] ?? 0), $rows))));
+        $deletedCustomers = 0;
+        foreach ($customerIds as $customerId) {
+            if (demo_seed_customer_safe_to_delete($batchId, $customerId)) {
+                db_execute('DELETE FROM customers WHERE customer_id = ?', 'i', [$customerId]);
+                $deletedCustomers++;
+            }
+        }
+
+        db_execute('DELETE FROM ' . DEMO_SEED_ROW_TABLE . ' WHERE batch_id = ?', 's', [$batchId]);
+        db_execute(
+            'UPDATE ' . DEMO_SEED_BATCH_TABLE . ' SET status = ?, rolled_back_at = NOW(), rolled_back_by = ? WHERE batch_id = ?',
+            'sis',
+            ['rolled_back', $adminId, $batchId]
+        );
+
+        demo_seed_commit_transaction();
+    } catch (Throwable $e) {
+        demo_seed_rollback_transaction();
+        throw $e;
+    }
+
+    $message = 'Deleted demo batch ' . $batchId . ' (' . count($orderIds) . ' orders, ' . $deletedCustomers . ' customers).';
+    log_activity($adminId, 'Delete Demo Seed Batch', $message);
+
+    return [
+        'batch_id' => $batchId,
+        'deleted_orders' => count($orderIds),
+        'deleted_customers' => $deletedCustomers,
+        'counts' => $preview['counts'],
+    ];
+}
+
+/** @param list<int> $orderIds */
+function demo_seed_collect_job_ids(array $orderIds): array
+{
+    if ($orderIds === [] || !demo_seed_table_exists('job_orders')) {
+        return [];
+    }
+    $csv = implode(',', array_map('intval', $orderIds));
+    $rows = db_query("SELECT id FROM job_orders WHERE order_id IN ({$csv})") ?: [];
+    return array_values(array_filter(array_map(static fn($r) => (int)($r['id'] ?? 0), $rows)));
+}
+
+function demo_seed_customer_safe_to_delete(string $batchId, int $customerId): bool
+{
+    if ($customerId <= 0) {
+        return false;
+    }
+    $inBatch = db_query(
+        'SELECT 1 FROM ' . DEMO_SEED_ROW_TABLE . ' WHERE batch_id = ? AND customer_id = ? LIMIT 1',
+        'si',
+        [$batchId, $customerId]
+    ) ?: [];
+    if ($inBatch === []) {
+        return false;
+    }
+    $other = db_query(
+        'SELECT 1 FROM orders o WHERE o.customer_id = ?
+         AND NOT EXISTS (SELECT 1 FROM ' . DEMO_SEED_ROW_TABLE . ' r WHERE r.order_id = o.order_id AND r.batch_id = ?)
+         LIMIT 1',
+        'is',
+        [$customerId, $batchId]
+    ) ?: [];
+    return $other === [];
+}
+
+function demo_seed_validate_uploaded_file(array $file): ?string
+{
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        return 'CSV upload failed.';
+    }
+    if ((int)($file['size'] ?? 0) > DEMO_SEED_MAX_UPLOAD_BYTES) {
+        return 'CSV file exceeds the 2 MB upload limit.';
+    }
+    $name = (string)($file['name'] ?? '');
+    if (!preg_match('/\.csv$/i', $name)) {
+        return 'Only .csv files are allowed.';
+    }
+    $mime = (string)($file['type'] ?? '');
+    if ($mime !== '' && !in_array($mime, ['text/csv', 'text/plain', 'application/csv', 'application/vnd.ms-excel'], true)) {
+        return 'Invalid CSV MIME type.';
+    }
+    return null;
+}
