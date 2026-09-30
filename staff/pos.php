@@ -832,12 +832,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             overflow: hidden;
         }
 
-        .pos-cart-main {
+        .pos-cart-body {
             flex: 1 1 0;
             min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            -webkit-overflow-scrolling: touch;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
         }
 
         .pos-cart-header {
@@ -921,8 +923,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-cart-list {
-            flex: 1 1 0;
-            min-height: 140px;
+            flex: 0 0 auto;
+            max-height: min(260px, 32vh);
+            min-height: 72px;
             overflow-y: auto;
             overflow-x: hidden;
             padding: 12px 18px 14px;
@@ -1114,11 +1117,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             padding: 14px 20px 16px;
             background: #f8fafc;
             border-top: 1px solid #e2e8f0;
-            flex-shrink: 0;
-            display: flex;
-            flex-direction: column;
-            max-height: min(48vh, 400px);
-            overflow: hidden;
+            flex: 0 0 auto;
         }
 
         .pos-payment-summary {
@@ -1126,28 +1125,22 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             flex-direction: column;
             gap: 10px;
             margin-bottom: 0;
-            flex: 1 1 auto;
-            min-height: 0;
-            overflow-y: auto;
-            -webkit-overflow-scrolling: touch;
-            padding-right: 2px;
         }
 
         .pos-checkout-footer {
-            flex-shrink: 0;
-            padding-top: 8px;
-            margin-top: 8px;
-            border-top: 1px solid #e2e8f0;
+            padding-top: 10px;
+            margin-top: 10px;
+            border-top: 1px dashed #e2e8f0;
         }
 
         @media (max-height: 800px) {
             .pos-checkout-section {
                 padding: 10px 16px 12px;
-                max-height: min(42vh, 340px);
             }
 
             .pos-cart-list {
-                min-height: 120px;
+                max-height: min(220px, 28vh);
+                min-height: 64px;
             }
 
             .pos-payment-tabs {
@@ -2634,23 +2627,25 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 flex: none !important;
                 height: auto;
                 min-height: 0 !important;
+                max-height: none;
+                overflow: visible;
             }
 
-            .pos-cart-main {
+            .pos-cart-body {
                 flex: none;
+                min-height: 0;
+                overflow: visible;
             }
 
             .pos-cart-list {
-                max-height: none !important;
+                max-height: min(240px, 40vh) !important;
                 overflow-y: auto !important;
-                min-height: 160px;
+                min-height: 72px;
             }
 
             .pos-checkout-section {
                 position: static;
                 box-shadow: none;
-                max-height: none;
-                overflow: visible;
             }
 
             .pos-cart-area {
@@ -2924,7 +2919,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                 Clear</button>
                         </div>
 
-                        <div class="pos-cart-main">
+                        <div class="pos-cart-body">
                         <div class="pos-customer-section">
                             <div class="pos-customer-label">
                                 <span class="pos-section-label"><i class="fas fa-user"></i> Customer *</span>
@@ -2954,7 +2949,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                 <i class="fas fa-shopping-cart"></i>
                                 <p>Cart is empty</p>
                             </div>
-                        </div>
                         </div>
 
                         <div class="pos-checkout-section">
@@ -3029,6 +3023,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                     Items</span>
                             </button>
                             </div>
+                        </div>
                         </div>
                     </div>
 
