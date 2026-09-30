@@ -42,8 +42,18 @@ function normalize_inventory_uom(?string $uom, ?string $categoryName = null): st
     return 'pcs';
 }
 
+function printflow_inventory_category_hidden_from_filter(?string $categoryName): bool {
+    $normalized = strtoupper(trim((string)$categoryName));
+    return in_array($normalized, ['INK TARP', 'INK L120', 'INK L130'], true);
+}
 // Get parameters
 $cat_id   = (int)($_GET['category_id'] ?? 0);
+if ($cat_id > 0) {
+    $selectedCategoryRows = db_query("SELECT name FROM inv_categories WHERE id = ? LIMIT 1", 'i', [$cat_id]) ?: [];
+    if (!empty($selectedCategoryRows) && printflow_inventory_category_hidden_from_filter($selectedCategoryRows[0]['name'] ?? '')) {
+        $cat_id = 0;
+    }
+}
 $search   = trim($_GET['search'] ?? '');
 $sort     = $_GET['sort'] ?? 'id';
 $dir      = strtoupper($_GET['dir'] ?? 'DESC') === 'DESC' ? 'DESC' : 'ASC';
@@ -236,6 +246,9 @@ unset($item);
 
 // Get categories for filters
 $categories = db_query("SELECT * FROM inv_categories ORDER BY sort_order ASC, name ASC") ?: [];
+$filter_categories = array_values(array_filter($categories, static function (array $cat): bool {
+    return !printflow_inventory_category_hidden_from_filter($cat['name'] ?? '');
+}));
 
 // Safe JSON for inline <script> (invalid UTF-8 or encode failure must not break JS)
 $items_js_flags = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP;
@@ -935,7 +948,7 @@ if (isset($_GET['ajax'])) {
                                     </div>
                                     <select id="fp_category" class="filter-select">
                                         <option value="">All Categories</option>
-                                        <?php foreach ($categories as $cat): ?>
+                                        <?php foreach ($filter_categories as $cat): ?>
                                             <?php
                                                 $catNameRaw = (string)($cat['name'] ?? '');
                                                 // UI-only: strip trailing unit suffix like "(FT)" or "(pcs)".
@@ -3848,3 +3861,4 @@ if (isset($_GET['ajax'])) {
 <?php include __DIR__ . '/../includes/footer.php'; ?>
 </body>
 </html>
+
