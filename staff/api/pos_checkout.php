@@ -292,15 +292,16 @@ function pos_checkout_verify_csrf(string $token, array $sessionContext): bool {
 }
 
 function pos_checkout_resolve_transaction_datetime(array $data): ?string {
+    $toggle = filter_var($data['use_custom_transaction_datetime'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    if (!$toggle) {
+        return null;
+    }
     $date = trim((string)($data['custom_transaction_date'] ?? ''));
     $time = trim((string)($data['custom_transaction_time'] ?? ''));
-    $toggle = filter_var($data['use_custom_transaction_datetime'] ?? false, FILTER_VALIDATE_BOOLEAN);
-    $submitted = $toggle || $date !== '' || $time !== '';
-    if (!$submitted) return null;
     if (get_user_type() !== 'Admin') {
         throw new RuntimeException('Only Admin users may set a custom transaction date/time.', 403);
     }
-    if (!$toggle || $date === '' || $time === '') {
+    if ($date === '' || $time === '') {
         throw new RuntimeException('A transaction date and time are required when custom date/time is enabled.', 400);
     }
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !preg_match('/^\d{2}:\d{2}$/', $time)) {
