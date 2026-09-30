@@ -65,7 +65,7 @@ $joApiStartedAt = microtime(true);
 $joStaffBranch = null;
 // Keep the page-query contract visible while the staff/admin deployment is
 // being verified.  This is deliberately a response marker, not a cache key.
-const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'demo_seed_visibility_fix_20260930';
+const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'demo_seed_visibility_fix_20260930_v2';
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -1086,6 +1086,7 @@ if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'GET'
 try {
     switch ($action) {
         case 'page_query_trace':
+        case 'page_query_row_trace':
             if (!in_array(get_user_type() ?? '', ['Admin', 'Staff', 'Manager'], true)) {
                 jo_api_json_response(['success' => false, 'error' => 'Forbidden'], 403);
             }
@@ -1131,8 +1132,11 @@ try {
                 if (!$ok) $exclusions[] = $name;
             }
             $listRows = $oid > 0 ? (db_query(
-                "SELECT jo.id, jo.order_id
+                "SELECT jo.id, jo.order_id, o.order_date, o.branch_id,
+                        o.status AS page_status, c.first_name, c.last_name,
+                        c.email AS customer_email, c.contact_number AS customer_phone
                  FROM job_orders jo LEFT JOIN orders o ON o.order_id = jo.order_id
+                 LEFT JOIN customers c ON c.customer_id = o.customer_id
                  WHERE jo.order_id = ?
                    AND COALESCE(jo.branch_id, o.branch_id) = ?
                    AND o.order_type = 'custom'
@@ -1141,6 +1145,15 @@ try {
                  LIMIT 1", 'ii', [$oid, $joStaffBranch ?? (int)($seed['branch_id'] ?? 0)]
             ) ?: []) : [];
             $listIncludes = !empty($listRows);
+            $pageRow = $listRows[0] ?? [];
+            $requestedStatus = trim((string)($_GET['status'] ?? 'ALL'));
+            $dateFrom = trim((string)($_GET['date_from'] ?? ''));
+            $dateTo = trim((string)($_GET['date_to'] ?? ''));
+            $dateMatches = true;
+            if ($dateFrom !== '') $dateMatches = $dateMatches && substr((string)($pageRow['order_date'] ?? ''), 0, 10) >= $dateFrom;
+            if ($dateTo !== '') $dateMatches = $dateMatches && substr((string)($pageRow['order_date'] ?? ''), 0, 10) <= $dateTo;
+            $statusMatches = $requestedStatus === '' || strtoupper($requestedStatus) === 'ALL'
+                || strtoupper((string)($pageRow['page_status'] ?? '')) === strtoupper($requestedStatus);
             $displayName = trim((string)($seed['first_name'] ?? '') . ' ' . (string)($seed['last_name'] ?? ''));
             jo_api_json_response(['success' => true, 'data' => [
                 'seed_row_key' => $seedKey,
@@ -1150,10 +1163,19 @@ try {
                 'actual_all_tab_count_includes' => $listIncludes,
                 'actual_completed_tab_count_includes' => $listIncludes && strtolower((string)($seed['order_status'] ?? '')) === 'completed',
                 'actual_sept_7_filter_includes' => $listIncludes && str_starts_with((string)($seed['order_date'] ?? ''), '2026-09-07'),
+                'actual_query_row' => $pageRow ?: null,
+                'customer_name_returned_by_query' => trim((string)($pageRow['first_name'] ?? '') . ' ' . (string)($pageRow['last_name'] ?? '')),
+                'order_date_returned_by_query' => (string)($pageRow['order_date'] ?? ''),
+                'branch_result' => (int)($pageRow['branch_id'] ?? 0),
+                'active_tab' => $requestedStatus,
+                'status_matches' => $statusMatches,
+                'applied_date_from' => $dateFrom,
+                'applied_date_to' => $dateTo,
+                'date_matches' => $dateMatches,
                 'customer_display_name' => $displayName !== '' ? $displayName : 'Walk-In Guest',
                 'customer_email' => (string)($seed['email'] ?? ''),
                 'customer_phone' => (string)($seed['contact_number'] ?? ''),
-                'exclusion_reasons' => $exclusions,
+                'exclusion_reasons' => array_values(array_merge($exclusions, $listIncludes ? [] : ['actual_staff_list_query'])),
                 'branch_context' => $joStaffBranch,
             ]]);
 
@@ -1219,6 +1241,7 @@ try {
                                          OR cust.customization_details LIKE '%\"source\":\"POS\"%'
                                          OR cust.customization_details LIKE '%\"source\": \"POS\"%'
                                          OR cust.customization_details LIKE '%\"_seed_batch_id\"%'
+                                         OR EXISTS (SELECT 1 FROM order_items oi_seed WHERE oi_seed.order_id = cust.order_id AND oi_seed.customization_data LIKE '%\"_seed_batch_id\"%')
                                      )"
                                      . jo_api_sql_exclude_unfinalized_pos_drafts('o', 'cust');
                 $customCountTypes = '';
@@ -1405,6 +1428,7 @@ try {
                                          cust_pos.customization_details LIKE '%\"source\":\"POS\"%'
                                          OR cust_pos.customization_details LIKE '%\"source\": \"POS\"%'
                                          OR cust_pos.customization_details LIKE '%\"_seed_batch_id\"%'
+                                         OR EXISTS (SELECT 1 FROM order_items oi_seed WHERE oi_seed.order_id = jo.order_id AND oi_seed.customization_data LIKE '%\"_seed_batch_id\"%')
                                      )
                                ))";
             } elseif ($listSource === 'online') {
@@ -1843,6 +1867,7 @@ try {
                     OR cust.customization_details LIKE '%\"source\":\"POS\"%'
                     OR cust.customization_details LIKE '%\"source\": \"POS\"%'
                     OR cust.customization_details LIKE '%\"_seed_batch_id\"%'
+                    OR EXISTS (SELECT 1 FROM order_items oi_seed WHERE oi_seed.order_id = cust.order_id AND oi_seed.customization_data LIKE '%\"_seed_batch_id\"%')
                 )"
                 . jo_api_sql_exclude_unfinalized_pos_drafts('o', 'cust')
                 . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
