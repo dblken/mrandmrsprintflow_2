@@ -572,6 +572,22 @@ $page_title = 'Customers Management - Admin';
         /* Mobile Header */
         .mobile-header { display: none; }
         @media (max-width: 768px) {
+            .customer-page-header {
+                justify-content: flex-start !important;
+                gap: 12px !important;
+            }
+            .customer-page-title-wrap {
+                display: flex !important;
+                justify-content: flex-start !important;
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+            }
+            .customer-page-title-wrap .page-title {
+                text-align: left !important;
+                margin-left: 0 !important;
+            }
+        }
+        @media (max-width: 768px) {
             .mobile-header { display: flex; position: fixed; top: 0; left: 0; right: 0; height: 60px; background: #fff; z-index: 60; padding: 0 20px; align-items: center; justify-content: space-between; border-bottom: 1px solid #e5e7eb; }
             .mobile-menu-btn { font-size: 24px; background: none; border: none; cursor: pointer; color: #1f2937; }
         }
@@ -608,8 +624,8 @@ $page_title = 'Customers Management - Admin';
     <!-- Main Content -->
     <div class="main-content">
 
-        <header>
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <header class="customer-page-header">
+            <div class="customer-page-title-wrap" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
                 <h1 class="page-title">Customers Management</h1>
             </div>
         </header>
@@ -1427,3 +1443,4 @@ $page_title = 'Customers Management - Admin';
 <?php include __DIR__ . '/../includes/footer.php'; ?>
 </body>
 </html>
+

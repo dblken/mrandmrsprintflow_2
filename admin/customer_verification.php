@@ -158,6 +158,22 @@ $page_title = 'Customer Verification - Admin';
     <link rel="stylesheet" href="<?php echo $base_path; ?>/public/assets/css/output.css">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
+        @media (max-width: 768px) {
+            .verification-page-header {
+                justify-content: flex-start !important;
+                gap: 12px !important;
+            }
+            .verification-page-title-wrap {
+                display: flex !important;
+                justify-content: flex-start !important;
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+            }
+            .verification-page-title-wrap .page-title {
+                text-align: left !important;
+                margin-left: 0 !important;
+            }
+        }
         .customer-verification-page,
         #verification-modal {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -279,8 +295,8 @@ $page_title = 'Customer Verification - Admin';
     <?php include __DIR__ . '/../includes/' . (($current_user['role'] ?? '') === 'Admin' ? 'admin_sidebar.php' : 'manager_sidebar.php'); ?>
 
     <div class="main-content">
-        <header>
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <header class="verification-page-header">
+            <div class="verification-page-title-wrap" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
                 <h1 class="page-title">Customer Verification</h1>
             </div>
         </header>
@@ -930,3 +946,4 @@ $page_title = 'Customer Verification - Admin';
 <?php include __DIR__ . '/../includes/footer.php'; ?>
 </body>
 </html>
+
