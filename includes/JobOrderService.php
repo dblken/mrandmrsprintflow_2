@@ -841,11 +841,15 @@ class JobOrderService {
 
         self::ensureJobsForStoreOrder($storeOrderId);
 
+        $normalizedTargetStatus = self::normalizeWorkflowStatus($targetStatus);
+        $jobStatusSql = $normalizedTargetStatus === 'COMPLETED'
+            ? "AND UPPER(TRIM(COALESCE(status, ''))) <> 'CANCELLED'"
+            : "AND UPPER(TRIM(COALESCE(status, ''))) NOT IN ('COMPLETED', 'CANCELLED')";
         $jobs = db_query(
             "SELECT id
              FROM job_orders
              WHERE order_id = ?
-               AND status NOT IN ('COMPLETED', 'CANCELLED')
+               {$jobStatusSql}
              ORDER BY id ASC",
             'i',
             [$storeOrderId]
@@ -1102,6 +1106,9 @@ class JobOrderService {
             $order = $lockedRows[0];
             $currentNormalizedStatus = self::normalizeWorkflowStatus((string)($order['status'] ?? ''));
             if ($currentNormalizedStatus === $normalizedNewStatus) {
+                if ($normalizedNewStatus === 'COMPLETED') {
+                    self::processDeductions((int)$orderId, ['materials' => true, 'inks' => false]);
+                }
                 if (!$wasInTransaction) {
                     $conn->commit();
                 }
@@ -1292,6 +1299,15 @@ class JobOrderService {
         }
 
         try {
+        $debugDeductions = getenv('PRINTFLOW_POS_DATETIME_DEBUG') === '1'
+            || getenv('PRINTFLOW_MATERIAL_DEDUCTION_DEBUG') === '1';
+        $debugLog = static function (string $stage, array $context = []) use ($debugDeductions): void {
+            if (!$debugDeductions) {
+                return;
+            }
+            $encoded = json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            error_log('[PrintFlow material deduction] ' . $stage . ($encoded ? ' ' . $encoded : ''));
+        };
         $processMaterials = $options['materials'] ?? true;
         $processInks = $options['inks'] ?? true;
         $branchId = self::getJobBranchId((int)$orderId);
@@ -1314,14 +1330,15 @@ class JobOrderService {
         // RollService accept this optional final parameter as a full ledger
         // timestamp, preserving the original POS transaction time.
         db_query('SELECT id FROM job_orders WHERE id = ? FOR UPDATE', 'i', [(int)$orderId]);
-        if (getenv('PRINTFLOW_POS_DATETIME_DEBUG') === '1') {
-            error_log(sprintf(
-                '[PrintFlow material deduction] job_id=%d store_order_id=%d branch_id=%d transaction_date=%s',
-                (int)$orderId,
-                $storeOrderId,
-                $branchId,
-                (string)$ledgerTransactionDate
-            ));
+        if ($debugDeductions) {
+            $debugLog('start', [
+                'job_order_id' => (int)$orderId,
+                'store_order_id' => $storeOrderId,
+                'branch_id' => $branchId,
+                'transaction_date' => (string)$ledgerTransactionDate,
+                'process_materials' => (bool)$processMaterials,
+                'process_inks' => (bool)$processInks,
+            ]);
             if ($ledgerTransactionDate === null || $ledgerTransactionDate === '') {
                 error_log(sprintf(
                     '[PrintFlow material deduction] WARNING: job_id=%d has no parent order_date; inventory will use its normal current timestamp fallback.',
@@ -1332,6 +1349,10 @@ class JobOrderService {
         $jobRef = printflow_get_job_inventory_reference((int)$orderId);
         $jobLabel = $jobRef['label'] ?? ('Job #' . printflow_format_job_code((int)$orderId));
         $materials = $processMaterials ? self::getScopedMaterials((int)$orderId, true, true) : [];
+        $debugLog('materials_loaded', [
+            'job_order_id' => (int)$orderId,
+            'count' => count($materials),
+        ]);
         
         if ($materials) {
             foreach ($materials as $m) {
@@ -1340,6 +1361,22 @@ class JobOrderService {
                 if (!$item) {
                     throw new RuntimeException('An assigned inventory material no longer exists.');
                 }
+                $itemId = (int)($m['item_id'] ?? 0);
+                $beforeStock = InventoryManager::getStockOnHand($itemId, $branchId);
+                $debugLog('material_before', [
+                    'assignment_id' => (int)($m['id'] ?? 0),
+                    'job_order_id' => (int)$orderId,
+                    'std_order_id' => (int)($m['std_order_id'] ?? 0),
+                    'item_id' => $itemId,
+                    'item_name' => (string)($item['name'] ?? ''),
+                    'track_by_roll' => (bool)($item['track_by_roll'] ?? false),
+                    'quantity' => (float)($m['quantity'] ?? 0),
+                    'computed_required_length_ft' => (float)($m['computed_required_length_ft'] ?? 0),
+                    'uom' => (string)($m['uom'] ?? ''),
+                    'deducted_at' => (string)($m['deducted_at'] ?? ''),
+                    'branch_id' => $branchId,
+                    'stock_before' => $beforeStock,
+                ]);
 
                 if ($item['track_by_roll']) {
                     $lengthNeeded = (float)($m['computed_required_length_ft'] ?: $m['quantity']);
@@ -1349,12 +1386,17 @@ class JobOrderService {
                         if (db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')", 'i', [$m['id']]) === false) {
                             throw new RuntimeException('Failed to mark the zero-quantity material as processed.');
                         }
+                        $debugLog('material_skipped_zero_quantity', [
+                            'assignment_id' => (int)($m['id'] ?? 0),
+                            'item_id' => $itemId,
+                            'length_needed' => $lengthNeeded,
+                        ]);
                         continue;
                     }
 
                     try {
                         // Use unified FIFO deduction logic
-                        RollService::deductFIFO(
+                        $deductionResult = RollService::deductFIFO(
                             $m['item_id'],
                             $lengthNeeded,
                             'JOB_ORDER',
@@ -1363,7 +1405,19 @@ class JobOrderService {
                             $branchId,
                             $ledgerTransactionDate
                         );
+                        $debugLog('roll_material_deducted', [
+                            'assignment_id' => (int)($m['id'] ?? 0),
+                            'item_id' => $itemId,
+                            'length_needed' => $lengthNeeded,
+                            'result' => $deductionResult,
+                        ]);
                     } catch (Exception $e) {
+                        $debugLog('roll_material_failed', [
+                            'assignment_id' => (int)($m['id'] ?? 0),
+                            'item_id' => $itemId,
+                            'length_needed' => $lengthNeeded,
+                            'error' => $e->getMessage(),
+                        ]);
                         // FIFO failed (e.g. insufficient rolls) — propagate error to prevent
                         // silent inventory corruption. Staff must add roll stock first.
                         throw new Exception(
@@ -1417,9 +1471,21 @@ class JobOrderService {
                     }
                 } else {
                     // Non-roll deduction
-                    InventoryManager::issueStock(
+                    $quantityNeeded = (float)($m['quantity'] ?? 0);
+                    if ($quantityNeeded <= 0) {
+                        if (db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')", 'i', [$m['id']]) === false) {
+                            throw new RuntimeException('Failed to mark the zero-quantity material as processed.');
+                        }
+                        $debugLog('material_skipped_zero_quantity', [
+                            'assignment_id' => (int)($m['id'] ?? 0),
+                            'item_id' => $itemId,
+                            'quantity' => $quantityNeeded,
+                        ]);
+                        continue;
+                    }
+                    $deductionResult = InventoryManager::issueStock(
                         $m['item_id'], 
-                        $m['quantity'], 
+                        $quantityNeeded,
                         $m['uom'], 
                         'JOB_ORDER', 
                         $orderId, 
@@ -1429,11 +1495,26 @@ class JobOrderService {
                         $branchId,
                         $ledgerTransactionDate
                     );
+                    $debugLog('material_deducted', [
+                        'assignment_id' => (int)($m['id'] ?? 0),
+                        'item_id' => $itemId,
+                        'quantity' => $quantityNeeded,
+                        'inventory_transaction_id' => is_scalar($deductionResult) ? $deductionResult : null,
+                    ]);
                     // Mark as deducted
                     if (db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')", 'i', [$m['id']]) === false) {
                         throw new RuntimeException('Failed to finalize the material deduction.');
                     }
                 }
+                $afterStock = InventoryManager::getStockOnHand($itemId, $branchId);
+                $debugLog('material_after', [
+                    'assignment_id' => (int)($m['id'] ?? 0),
+                    'item_id' => $itemId,
+                    'branch_id' => $branchId,
+                    'stock_before' => $beforeStock,
+                    'stock_after' => $afterStock,
+                    'deducted_quantity' => $beforeStock - $afterStock,
+                ]);
             }
         }
 

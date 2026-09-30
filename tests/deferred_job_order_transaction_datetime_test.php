@@ -44,6 +44,19 @@ $assert(
     'deducted_at remains the real processing time while a missing business date is logged in debug mode'
 );
 $assert(
+    str_contains($jobs, '$normalizedTargetStatus === \'COMPLETED\'')
+        && str_contains($jobs, "UPPER(TRIM(COALESCE(status, ''))) <> 'CANCELLED'")
+        && str_contains($jobs, 'self::processDeductions((int)$orderId, [\'materials\' => true, \'inks\' => false]);'),
+    'completed jobs with pending materials still run the idempotent recovery deduction pass'
+);
+$assert(
+    str_contains($jobs, 'PRINTFLOW_MATERIAL_DEDUCTION_DEBUG')
+        && str_contains($jobs, "'stock_before' =>")
+        && str_contains($jobs, "'stock_after' =>")
+        && str_contains($jobs, "'inventory_transaction_id' =>"),
+    'debug mode records material IDs, branch, stock before/after, and created ledger evidence'
+);
+$assert(
     str_contains($rolls, '$transactionDate,')
         && str_contains($rolls, '$branchId'),
     'roll helper keeps transactionDate as its optional final argument before writing the ledger'
