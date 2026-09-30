@@ -383,6 +383,28 @@ $page_title = 'Dashboard - Manager | PrintFlow';
         /* KPI Row */
         .kpi-row { display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; margin-bottom:24px; }
         @media (max-width:768px) { .kpi-row { grid-template-columns:repeat(2, 1fr); } }
+        @media (max-width:768px) {
+            .manager-dashboard-header {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                gap: 10px !important;
+            }
+            .manager-dashboard-header .page-title {
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+                text-align: left !important;
+                white-space: nowrap !important;
+            }
+            .manager-dashboard-header .branch-selector-wrap {
+                flex: 0 1 auto !important;
+                max-width: 48vw !important;
+                margin-left: auto !important;
+            }
+        }
         .kpi-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px 20px; position:relative; overflow:hidden; }
         .kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
         .kpi-card.indigo::before { background:linear-gradient(90deg,#00232b,#53C5E0); }
@@ -589,7 +611,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
     <?php include __DIR__ . '/../includes/manager_sidebar.php'; ?>
 
     <div class="main-content">
-        <header>
+        <header class="manager-dashboard-header">
             <h1 class="page-title">Dashboard</h1>
             <?php render_branch_selector($branchCtx); ?>
         </header>
