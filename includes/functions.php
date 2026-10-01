@@ -5961,6 +5961,13 @@ function printflow_order_notification_preview(int $order_id, bool $prefer_catalo
         );
     }
 
+    if ($resolvedServiceIdForImage <= 0 && $preview['item_kind'] === 'Service') {
+        $resolvedFromDisplayName = printflow_resolve_service_catalog_service_id((string)$preview['display_name']);
+        if ($resolvedFromDisplayName > 0) {
+            $resolvedServiceIdForImage = $resolvedFromDisplayName;
+        }
+    }
+
     // Review notification thumbnails must use official catalog art. The upload
     // remains available to detail pages, but is explicitly rejected here.
     if (printflow_order_item_has_previewable_design($row) && !empty($row['order_item_id'])) {
