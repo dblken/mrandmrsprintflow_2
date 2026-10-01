@@ -21,9 +21,10 @@ $user_type = get_user_type() ?? 'Customer';
 $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 15;
 
 try {
+    printflow_ensure_notification_review_id_column();
     if ($user_type === 'Customer') {
         $rows = db_query(
-            "SELECT notification_id AS id, notification_id, message, type, data_id, is_read, created_at
+            "SELECT notification_id AS id, notification_id, message, type, data_id, review_id, is_read, created_at
              FROM notifications
              WHERE customer_id = ?
              ORDER BY created_at DESC
@@ -33,7 +34,7 @@ try {
         );
     } else {
         $rows = db_query(
-            "SELECT notification_id AS id, notification_id, message, type, data_id, is_read, created_at
+            "SELECT notification_id AS id, notification_id, message, type, data_id, review_id, is_read, created_at
              FROM notifications
              WHERE user_id = ?
              ORDER BY created_at DESC

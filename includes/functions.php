@@ -197,7 +197,20 @@ function send_sms($phone, $message) {
  * @param bool $send_sms Whether to send SMS
  * @return bool|int
  */
-function create_notification($user_id, $user_type, $message, $type = 'System', $send_email = false, $send_sms = false, $data_id = null) {
+function printflow_ensure_notification_review_id_column(): void {
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+    try {
+        if (empty(db_query("SHOW COLUMNS FROM notifications LIKE 'review_id'"))) {
+            db_execute("ALTER TABLE notifications ADD COLUMN review_id INT DEFAULT NULL AFTER data_id");
+        }
+    } catch (Throwable $e) {
+        error_log('Unable to ensure notifications.review_id: ' . $e->getMessage());
+    }
+}
+
+function create_notification($user_id, $user_type, $message, $type = 'System', $send_email = false, $send_sms = false, $data_id = null, $review_id = null) {
     // ── Pre-check ENUM ───────────────────────────────────────────────────────
     static $enums_checked = false;
     if (!$enums_checked) {
@@ -230,6 +243,10 @@ function create_notification($user_id, $user_type, $message, $type = 'System', $
                 db_execute("ALTER TABLE notifications ADD COLUMN data_id INT DEFAULT 0 AFTER type");
             }
 
+            // Review notifications need both the order and the exact review
+            // so the customer can open the reply without an intermediate page.
+            printflow_ensure_notification_review_id_column();
+
             // Ensure is_read, send_email, send_sms exist
             $has_is_read = db_query("SHOW COLUMNS FROM notifications LIKE 'is_read'");
             if (empty($has_is_read)) {
@@ -252,6 +269,7 @@ function create_notification($user_id, $user_type, $message, $type = 'System', $
     $safe_type = trim((string)$type);
     $safe_message = trim((string)$message);
     $safe_data_id = ($data_id === null || $data_id === '') ? 0 : (int)$data_id;
+    $safe_review_id = ($review_id === null || $review_id === '') ? 0 : (int)$review_id;
 
     // Guard against accidental duplicate inserts fired within a few seconds.
     if ($customer_id !== null) {
@@ -262,11 +280,12 @@ function create_notification($user_id, $user_type, $message, $type = 'System', $
                AND type = ?
                AND message = ?
                AND COALESCE(data_id, 0) = ?
+               AND COALESCE(review_id, 0) = ?
                AND created_at >= (NOW() - INTERVAL 20 SECOND)
              ORDER BY notification_id DESC
              LIMIT 1",
-            'issi',
-            [$customer_id, $safe_type, $safe_message, $safe_data_id]
+            'issii',
+            [$customer_id, $safe_type, $safe_message, $safe_data_id, $safe_review_id]
         );
         if (!empty($dup)) {
             return (int)($dup[0]['notification_id'] ?? 0);
@@ -279,26 +298,28 @@ function create_notification($user_id, $user_type, $message, $type = 'System', $
                AND type = ?
                AND message = ?
                AND COALESCE(data_id, 0) = ?
+               AND COALESCE(review_id, 0) = ?
                AND created_at >= (NOW() - INTERVAL 20 SECOND)
              ORDER BY notification_id DESC
              LIMIT 1",
-            'iisi',
-            [$staff_user_id, $safe_type, $safe_message, $safe_data_id]
+            'iisii',
+            [$staff_user_id, $safe_type, $safe_message, $safe_data_id, $safe_review_id]
         );
         if (!empty($dup)) {
             return (int)($dup[0]['notification_id'] ?? 0);
         }
     }
     
-    $sql = "INSERT INTO notifications (user_id, customer_id, message, type, data_id, is_read, send_email, send_sms) 
-            VALUES (?, ?, ?, ?, ?, 0, ?, ?)";
+    $sql = "INSERT INTO notifications (user_id, customer_id, message, type, data_id, review_id, is_read, send_email, send_sms)
+            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)";
     
-    $result = db_execute($sql, 'iissiii', [
+    $result = db_execute($sql, 'iissiiii', [
         $staff_user_id,
         $customer_id,
         $safe_message,
         $safe_type,
         $safe_data_id,
+        $safe_review_id,
         $send_email ? 1 : 0,
         $send_sms ? 1 : 0
     ]);
@@ -398,7 +419,7 @@ function create_notification($user_id, $user_type, $message, $type = 'System', $
 /**
  * Notify activated shop users and use each user's role for push subscription matching.
  */
-function notify_shop_users(string $message, string $type = 'System', bool $send_email = false, bool $send_sms = false, $data_id = null, array $roles = ['Staff', 'Admin', 'Manager']): void {
+function notify_shop_users(string $message, string $type = 'System', bool $send_email = false, bool $send_sms = false, $data_id = null, array $roles = ['Staff', 'Admin', 'Manager'], $review_id = null): void {
     $allowed_roles = ['Staff', 'Admin', 'Manager'];
     $roles = array_values(array_unique(array_intersect($roles, $allowed_roles)));
     if (empty($roles)) {
@@ -450,7 +471,7 @@ function notify_shop_users(string $message, string $type = 'System', bool $send_
             }
         }
 
-        create_notification((int)$u['user_id'], $role, $message, $type, $send_email, $send_sms, $data_id);
+        create_notification((int)$u['user_id'], $role, $message, $type, $send_email, $send_sms, $data_id, $review_id);
     }
 }
 
@@ -861,6 +882,22 @@ function printflow_notification_is_revision_submission(array $notification): boo
     return false;
 }
 
+function printflow_review_notification_debug(array $notification, array $context = []): void {
+    $env = strtolower(trim((string)(getenv('APP_ENV') ?: '')));
+    if (getenv('PRINTFLOW_NOTIFICATION_DEBUG') !== '1' && !in_array($env, ['dev', 'development', 'local'], true)) return;
+    $type = strtolower(trim((string)($notification['type'] ?? '')));
+    $message = strtolower((string)($notification['message'] ?? ''));
+    if ($type !== 'rating' && $type !== 'review' && strpos($message, 'review') === false && strpos($message, 'rating') === false) return;
+    $payload = array_merge([
+        'notification_id' => (int)($notification['notification_id'] ?? $notification['id'] ?? 0),
+        'type' => (string)($notification['type'] ?? ''),
+        'review_id' => (int)($notification['review_id'] ?? 0),
+        'order_id' => (int)($notification['data_id'] ?? 0),
+        'order_item_id' => (int)($notification['order_item_id'] ?? 0),
+    ], $context);
+    error_log('[PrintFlow review_notification] ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+}
+
 function staff_notification_target_url(array $n): string {
     $base = printflow_notification_base_path();
     $msg = isset($n['message']) ? (string)$n['message'] : '';
@@ -868,6 +905,9 @@ function staff_notification_target_url(array $n): string {
     $type = strtolower((string)($n['type'] ?? ''));
     $data_id = isset($n['data_id']) && $n['data_id'] !== null && $n['data_id'] !== ''
         ? (int)$n['data_id']
+        : 0;
+    $review_id = isset($n['review_id']) && $n['review_id'] !== null && $n['review_id'] !== ''
+        ? (int)$n['review_id']
         : 0;
 
     // Revision messages often end in "Review is required". They are order
@@ -882,7 +922,11 @@ function staff_notification_target_url(array $n): string {
         ((stripos($msg, 'rating') !== false || stripos($msg, 'review') !== false) && stripos($msg, 'design') === false)
     );
     if ($is_rating) {
-        return $base . '/staff/reviews.php';
+        $query = $review_id > 0 ? '?review_id=' . $review_id : '';
+        if ($data_id > 0) $query .= ($query === '' ? '?' : '&') . 'order_id=' . $data_id;
+        $target = $base . '/staff/reviews.php' . $query;
+        printflow_review_notification_debug($n, ['target_url' => $target, 'opened_state' => 'server_target']);
+        return $target;
     }
 
     if ($type === 'system') {
@@ -2073,12 +2117,13 @@ function get_customer_notifications_for_display($customer_id, $limit = 10, $offs
     $offset = max(0, (int)$offset);
     $base = defined('BASE_URL') ? BASE_URL : '/printflow';
     $default_image = printflow_notification_placeholder_image_url();
+    printflow_ensure_notification_review_id_column();
     if ($default_image === '') {
         $default_image = printflow_notification_normalize_media_url($base . '/public/assets/uploads/profiles/default.png');
     }
 
     $rows = db_query(
-        "SELECT notification_id, customer_id, message, type, data_id, is_read, created_at
+        "SELECT notification_id, customer_id, message, type, data_id, review_id, is_read, created_at
          FROM notifications
          WHERE customer_id = ?
          ORDER BY created_at DESC
@@ -2341,6 +2386,7 @@ function customer_notification_target_url(array $notification) {
     $type = (string)($notification['type'] ?? '');
     $message = (string)($notification['message'] ?? '');
     $data_id = (int)($notification['data_id'] ?? 0);
+    $review_id = (int)($notification['review_id'] ?? 0);
     $message_l = strtolower($message);
 
     if (strpos($message_l, 'support chat') !== false || strpos($message_l, 'chatbot') !== false) {
@@ -2351,8 +2397,11 @@ function customer_notification_target_url(array $notification) {
         if ($type === 'Message' || strpos($message_l, 'message') !== false || strpos($message_l, 'chat') !== false) {
             return $base . '/customer/chat.php?order_id=' . $data_id;
         }
-        if ($type === 'Rating' || $type === 'Review' || strpos($message_l, 'rate your') !== false || strpos($message_l, 'rate here') !== false) {
-            return $base . '/customer/rate_order.php?order_id=' . $data_id;
+        if ($type === 'Rating' || $type === 'Review' || strpos($message_l, 'rate your') !== false || strpos($message_l, 'rate here') !== false || strpos($message_l, 'replied to your review') !== false) {
+            $target = $base . '/customer/reviews.php?order_id=' . $data_id;
+            if ($review_id > 0) $target .= '&review_id=' . $review_id;
+            printflow_review_notification_debug($notification, ['target_url' => $target, 'opened_state' => 'server_target']);
+            return $target;
         }
         // Payment-related: check live order status — if To Pay, send directly to payment page
         $is_payment_msg = (
@@ -2425,6 +2474,12 @@ function customer_notification_image_url(array $notification, string $fallback, 
         $oid = $data_id > 0 ? $data_id : $order_hint;
         $preview = printflow_order_notification_preview($oid);
         $img = trim((string)($preview['image_url'] ?? ''));
+        printflow_review_notification_debug($notification, [
+            'order_id' => $oid,
+            'image_source' => (string)($preview['image_source'] ?? 'resolved_preview'),
+            'image_url' => $img !== '' ? $img : $resolved_fallback,
+            'opened_state' => 'image_resolved',
+        ]);
         return printflow_notification_normalize_media_url($img !== '' ? $img : $resolved_fallback);
     }
 
@@ -2543,7 +2598,7 @@ function staff_admin_notification_image_url(array $notification, string $fallbac
     )) {
         return printflow_customer_id_notification_image_url($data_id, $fallback);
     }
-    if (!in_array($type, ['order', 'design', 'payment', 'payment issue', 'message', 'job order'], true)) {
+    if (!in_array($type, ['order', 'design', 'payment', 'payment issue', 'message', 'job order', 'rating', 'review'], true)) {
         return printflow_notification_normalize_media_url($fallback);
     }
     if ($type === 'payment') {
@@ -2558,7 +2613,14 @@ function staff_admin_notification_image_url(array $notification, string $fallbac
     } else {
         $preview = printflow_order_notification_preview($data_id);
     }
-    return printflow_notification_normalize_media_url($preview['image_url'] ?: $fallback);
+    $image = $preview['image_url'] ?: $fallback;
+    printflow_review_notification_debug($notification, [
+        'order_id' => $data_id,
+        'image_source' => (string)($preview['image_source'] ?? 'resolved_preview'),
+        'image_url' => $image,
+        'opened_state' => 'image_resolved',
+    ]);
+    return printflow_notification_normalize_media_url($image);
 }
 
 function printflow_notification_is_default_thumbnail(string $url): bool {
@@ -5666,7 +5728,7 @@ function printflow_order_notification_preview(int $order_id): array {
         [$order_id]
     );
 
-    $preview = ['display_name' => '', 'image_url' => '', 'item_kind' => ''];
+    $preview = ['display_name' => '', 'image_url' => '', 'item_kind' => '', 'image_source' => 'none'];
     if (empty($item[0])) {
         $snap = printflow_notification_order_snapshot($order_id);
         $preview['display_name'] = trim((string)($snap['service_name'] ?? ''));
@@ -5806,22 +5868,12 @@ function printflow_order_notification_preview(int $order_id): array {
         );
     }
 
-    $catalogThumb = printflow_order_notification_resolve_catalog_thumbnail(
-        $row,
-        $custom,
-        (string)($preview['item_kind'] ?? ''),
-        (int)$resolvedServiceIdForImage,
-        (int)$order_id
-    );
-    if ($catalogThumb !== '') {
-        $preview['image_url'] = $catalogThumb;
-        $cache[$order_id] = $preview;
-        return $preview;
-    }
-
+    // Notification/review image priority: the customer's order-item design
+    // is the most specific visual, followed by the catalog product/service art.
     if (printflow_order_item_has_previewable_design($row) && !empty($row['order_item_id'])) {
         $preview['image_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$row['order_item_id'];
         $preview['image_url'] = printflow_notification_normalize_media_url($preview['image_url']);
+        $preview['image_source'] = 'customer_upload';
         $cache[$order_id] = $preview;
         return $preview;
     }
@@ -5845,6 +5897,21 @@ function printflow_order_notification_preview(int $order_id): array {
     if (!empty($fallbackDesignRow[0]) && printflow_order_item_has_previewable_design($fallbackDesignRow[0])) {
         $preview['image_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$fallbackDesignRow[0]['order_item_id'];
         $preview['image_url'] = printflow_notification_normalize_media_url($preview['image_url']);
+        $preview['image_source'] = 'customer_upload';
+        $cache[$order_id] = $preview;
+        return $preview;
+    }
+
+    $catalogThumb = printflow_order_notification_resolve_catalog_thumbnail(
+        $row,
+        $custom,
+        (string)($preview['item_kind'] ?? ''),
+        (int)$resolvedServiceIdForImage,
+        (int)$order_id
+    );
+    if ($catalogThumb !== '') {
+        $preview['image_url'] = $catalogThumb;
+        $preview['image_source'] = 'catalog';
         $cache[$order_id] = $preview;
         return $preview;
     }

@@ -1331,9 +1331,7 @@ if (in_array($order['status'], ['Completed', 'To Rate', 'Rated'], true)) {
             'comment' => $r['comment'] ?? '',
             'image_url' => null, // Multiple images handled by review_images table
             'created_at' => format_datetime($r['created_at']),
-            'view_url' => ($r['review_type'] === 'custom') 
-                ? "/printflow/customer/order_service_dynamic.php?service_id=" . $r['reference_id'] . "#review-" . $r['id']
-                : "/printflow/customer/order_create.php?product_id=" . $r['reference_id'] . "#review-" . $r['id']
+            'view_url' => (defined('BASE_URL') ? BASE_URL : '') . "/customer/reviews.php?order_id=" . $order_id . "&review_id=" . (int)$r['id']
         ];
     }
 }
