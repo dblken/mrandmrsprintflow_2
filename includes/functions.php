@@ -2381,6 +2381,83 @@ function customer_notification_title($type, $message, array $notification = []) 
     return 'Notification';
 }
 
+function printflow_customer_review_catalog_target(array $notification): string {
+    $base = printflow_notification_base_path();
+    $order_id = (int)($notification['data_id'] ?? 0);
+    $review_id = (int)($notification['review_id'] ?? 0);
+
+    if ($review_id > 0 && $order_id <= 0) {
+        $reviewRows = db_query('SELECT order_id FROM reviews WHERE id = ? LIMIT 1', 'i', [$review_id]) ?: [];
+        $order_id = (int)($reviewRows[0]['order_id'] ?? 0);
+    }
+    if ($order_id <= 0) {
+        return '';
+    }
+    if ($review_id <= 0) {
+        $reviewRows = db_query('SELECT id FROM reviews WHERE order_id = ? ORDER BY id DESC LIMIT 1', 'i', [$order_id]) ?: [];
+        $review_id = (int)($reviewRows[0]['id'] ?? 0);
+    }
+
+    $hasItemType = function_exists('db_table_has_column') && db_table_has_column('order_items', 'item_type');
+    $hasServiceId = function_exists('db_table_has_column') && db_table_has_column('order_items', 'service_id');
+    $itemTypeExpr = $hasItemType ? 'oi.item_type' : "'' AS item_type";
+    $serviceIdExpr = $hasServiceId ? 'oi.service_id' : '0 AS service_id';
+    $rows = db_query(
+        "SELECT oi.product_id, {$itemTypeExpr}, {$serviceIdExpr}, oi.customization_data,
+                p.name AS product_name, o.order_type, o.reference_id,
+                (SELECT jo.job_title FROM job_orders jo WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1) AS first_job_title,
+                (SELECT jo.service_type FROM job_orders jo WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1) AS first_job_service_type,
+                (SELECT c.service_type FROM customizations c WHERE c.order_id = o.order_id ORDER BY c.customization_id ASC LIMIT 1) AS first_customization_service_type
+         FROM order_items oi
+         LEFT JOIN products p ON p.product_id = oi.product_id
+         JOIN orders o ON o.order_id = oi.order_id
+         WHERE oi.order_id = ?
+         ORDER BY oi.order_item_id ASC
+         LIMIT 1",
+        'i', [$order_id]
+    ) ?: [];
+    if (empty($rows[0])) {
+        return '';
+    }
+
+    $item = $rows[0];
+    $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+    $identity = printflow_resolve_order_line_identity(
+        $item,
+        $item,
+        is_array($custom) ? $custom : []
+    );
+    $kind = strtolower((string)($identity['item_type'] ?? ''));
+    if ($kind === 'product') {
+        $product_id = (int)($identity['product_id'] ?? 0);
+        if ($product_id <= 0 && strtolower(trim((string)($item['order_type'] ?? ''))) === 'product') {
+            $product_id = (int)($item['reference_id'] ?? 0);
+        }
+        if ($product_id <= 0) {
+            return '';
+        }
+        $target = $base . '/customer/order_create.php?product_id=' . $product_id;
+    } elseif ($kind === 'service') {
+        $service_id = (int)($identity['service_id'] ?? 0);
+        if ($service_id <= 0) {
+            $service_id = printflow_resolve_service_catalog_service_id(
+                (string)($item['first_customization_service_type'] ?? $item['first_job_service_type'] ?? '')
+            );
+        }
+        if ($service_id <= 0) {
+            return '';
+        }
+        $target = $base . '/customer/order_service_dynamic.php?service_id=' . $service_id;
+    } else {
+        return '';
+    }
+
+    if ($review_id > 0) {
+        $target .= '&review_id=' . $review_id;
+    }
+    return $target . '#poc-reviews-container';
+}
+
 function customer_notification_target_url(array $notification) {
     $base = printflow_notification_base_path();
     $type = (string)($notification['type'] ?? '');
@@ -2398,6 +2475,11 @@ function customer_notification_target_url(array $notification) {
             return $base . '/customer/chat.php?order_id=' . $data_id;
         }
         if ($type === 'Rating' || $type === 'Review' || strpos($message_l, 'rate your') !== false || strpos($message_l, 'rate here') !== false || strpos($message_l, 'replied to your review') !== false) {
+            $catalogTarget = printflow_customer_review_catalog_target($notification);
+            if ($catalogTarget !== '') {
+                printflow_review_notification_debug($notification, ['target_url' => $catalogTarget, 'opened_state' => 'catalog_target']);
+                return $catalogTarget;
+            }
             $target = $base . '/customer/reviews.php?order_id=' . $data_id;
             if ($review_id > 0) $target .= '&review_id=' . $review_id;
             printflow_review_notification_debug($notification, ['target_url' => $target, 'opened_state' => 'server_target']);
