@@ -2473,6 +2473,23 @@ function customer_notification_image_url(array $notification, string $fallback, 
     if ($data_id > 0 || $order_hint > 0) {
         $oid = $data_id > 0 ? $data_id : $order_hint;
         $is_review = $type === 'rating' || $type === 'review' || strpos($message_l, 'review') !== false || strpos($message_l, 'rating') !== false;
+        if ($is_review) {
+            $resolved = printflow_resolve_official_catalog_image_for_notification($notification, $resolved_fallback);
+            printflow_review_notification_debug($notification, [
+                'order_id' => (int)$resolved['order_id'],
+                'review_id' => (int)$resolved['review_id'],
+                'order_item_id' => (int)$resolved['order_item_id'],
+                'resolved_catalog_id' => (int)$resolved['resolved_catalog_id'],
+                'official_image_field' => (string)$resolved['official_image_field'],
+                'old_image_url' => (string)($notification['image_url'] ?? $notification['image'] ?? $notification['thumbnail'] ?? ''),
+                'rejected_customer_upload_url' => (string)$resolved['rejected_design_url'],
+                'image_url' => (string)$resolved['image_url'],
+                'image_source' => (string)$resolved['image_source'],
+                'fallback_reason' => (string)$resolved['fallback_reason'],
+                'opened_state' => 'image_resolved',
+            ]);
+            return printflow_notification_normalize_media_url((string)$resolved['image_url']);
+        }
         $preview = printflow_order_notification_preview($oid, $is_review);
         $img = trim((string)($preview['image_url'] ?? ''));
         printflow_review_notification_debug($notification, [
@@ -2502,6 +2519,38 @@ function customer_notification_image_url(array $notification, string $fallback, 
  */
 function customer_notification_should_use_id_image_thumbnail(string $message_l): bool {
     return customer_notification_is_id_verification_message($message_l);
+}
+
+/**
+ * Resolve a review notification image from the current official catalog state.
+ * Historical rows intentionally do not trust any previously saved thumbnail.
+ */
+function printflow_resolve_official_catalog_image_for_notification(array $notification, string $fallback): array {
+    $order_id = (int)($notification['data_id'] ?? 0);
+    $review_id = (int)($notification['review_id'] ?? 0);
+    if ($order_id <= 0 && $review_id > 0) {
+        $reviewRows = db_query('SELECT order_id FROM reviews WHERE id = ? LIMIT 1', 'i', [$review_id]) ?: [];
+        $order_id = (int)($reviewRows[0]['order_id'] ?? 0);
+    }
+
+    $preview = $order_id > 0 ? printflow_order_notification_preview($order_id, true) : [];
+    $image = trim((string)($preview['image_url'] ?? ''));
+    $resolvedFallback = printflow_notification_normalize_media_url($fallback);
+    if ($image === '') {
+        $image = $resolvedFallback;
+    }
+
+    return [
+        'image_url' => $image,
+        'order_id' => $order_id,
+        'review_id' => $review_id,
+        'order_item_id' => (int)($preview['resolved_order_item_id'] ?? 0),
+        'resolved_catalog_id' => (int)($preview['resolved_catalog_id'] ?? 0),
+        'official_image_field' => (string)($preview['official_image_field'] ?? ''),
+        'rejected_design_url' => (string)($preview['rejected_design_url'] ?? ''),
+        'image_source' => $image === $resolvedFallback ? 'neutral_fallback' : 'official_catalog',
+        'fallback_reason' => trim((string)($preview['fallback_reason'] ?? ($image === $resolvedFallback ? 'catalog_image_missing' : ''))),
+    ];
 }
 
 
@@ -2614,9 +2663,24 @@ function staff_admin_notification_image_url(array $notification, string $fallbac
     }
     if ($type === 'job order') {
         $preview = printflow_job_notification_preview($data_id);
+    } elseif ($type === 'rating' || $type === 'review' || strpos($message, 'review') !== false || strpos($message, 'rating') !== false) {
+        $resolved = printflow_resolve_official_catalog_image_for_notification($notification, $fallback);
+        printflow_review_notification_debug($notification, [
+            'order_id' => (int)$resolved['order_id'],
+            'review_id' => (int)$resolved['review_id'],
+            'order_item_id' => (int)$resolved['order_item_id'],
+            'resolved_catalog_id' => (int)$resolved['resolved_catalog_id'],
+            'official_image_field' => (string)$resolved['official_image_field'],
+            'old_image_url' => (string)($notification['image_url'] ?? $notification['image'] ?? $notification['thumbnail'] ?? ''),
+            'rejected_customer_upload_url' => (string)$resolved['rejected_design_url'],
+            'image_url' => (string)$resolved['image_url'],
+            'image_source' => (string)$resolved['image_source'],
+            'fallback_reason' => (string)$resolved['fallback_reason'],
+            'opened_state' => 'image_resolved',
+        ]);
+        return printflow_notification_normalize_media_url((string)$resolved['image_url']);
     } else {
-        $is_review = $type === 'rating' || $type === 'review' || strpos($message, 'review') !== false || strpos($message, 'rating') !== false;
-        $preview = printflow_order_notification_preview($data_id, $is_review);
+        $preview = printflow_order_notification_preview($data_id);
     }
     $image = $preview['image_url'] ?: $fallback;
     printflow_review_notification_debug($notification, [
@@ -5541,7 +5605,8 @@ function printflow_order_notification_resolve_catalog_thumbnail(
     array $custom,
     string $item_kind,
     int $resolvedServiceIdForImage,
-    int $order_id
+    int $order_id,
+    bool $prefer_exact_catalog_id = false
 ): string {
     $base = printflow_notification_base_path();
     $item_kind = trim($item_kind);
@@ -5596,6 +5661,9 @@ function printflow_order_notification_resolve_catalog_thumbnail(
             $url = printflow_notification_service_image_from_id($sid);
             if ($url !== '') {
                 return printflow_notification_normalize_media_url($url);
+            }
+            if ($prefer_exact_catalog_id) {
+                return '';
             }
         }
 
@@ -5784,7 +5852,8 @@ function printflow_order_notification_preview(int $order_id, bool $prefer_catalo
             $synthCustom,
             (string)$preview['item_kind'],
             $resSvcPass,
-            $order_id
+            $order_id,
+            $prefer_catalog
         );
         if ($thumbEmpty !== '') {
             $preview['image_url'] = $thumbEmpty;
@@ -5820,6 +5889,7 @@ function printflow_order_notification_preview(int $order_id, bool $prefer_catalo
 
     $row = $item[0];
     $custom = printflow_decode_modal_customization_payload((string)($row['customization_data'] ?? ''));
+    $preview['resolved_order_item_id'] = (int)($row['order_item_id'] ?? 0);
     $order_type = strtolower(trim((string)($row['order_type'] ?? '')));
     $is_pos_placeholder = printflow_is_pos_service_placeholder_row($row);
     $linePid = (int)($row['product_id'] ?? 0);
@@ -5920,7 +5990,8 @@ function printflow_order_notification_preview(int $order_id, bool $prefer_catalo
         $custom,
         (string)($preview['item_kind'] ?? ''),
         (int)$resolvedServiceIdForImage,
-        (int)$order_id
+        (int)$order_id,
+        $prefer_catalog
     );
     $preview['resolved_catalog_id'] = $preview['item_kind'] === 'Service'
         ? (int)$resolvedServiceIdForImage
@@ -5964,14 +6035,14 @@ function printflow_order_notification_preview(int $order_id, bool $prefer_catalo
         if ($resolvedServiceIdForImage > 0) {
             $preview['image_url'] = printflow_notification_service_image_from_id($resolvedServiceIdForImage);
         }
-        if (printflow_notification_is_default_thumbnail((string)$preview['image_url'])) {
+        if (!$prefer_catalog && printflow_notification_is_default_thumbnail((string)$preview['image_url'])) {
             $preview['image_url'] = '';
             $serviceImage = printflow_notification_service_image_from_name($preview['display_name']);
             if ($serviceImage !== '') {
                 $preview['image_url'] = $serviceImage;
             }
         }
-        if (printflow_notification_is_default_thumbnail((string)$preview['image_url'])) {
+        if (!$prefer_catalog && printflow_notification_is_default_thumbnail((string)$preview['image_url'])) {
             $preview['image_url'] = '';
             foreach ([
                 (string)($custom['service_type'] ?? ''),
@@ -5989,16 +6060,23 @@ function printflow_order_notification_preview(int $order_id, bool $prefer_catalo
     }
 
     if ($preview['image_url'] === '') {
-        $fallbackImage = ($preview['item_kind'] === 'Product')
-            ? ($base . '/public/images/products/product_1.jpg')
-            : get_service_image_url($preview['display_name']);
+        $fallbackImage = $prefer_catalog
+            ? ''
+            : (($preview['item_kind'] === 'Product')
+                ? ($base . '/public/images/products/product_1.jpg')
+                : get_service_image_url($preview['display_name']));
         $normalizedFallback = printflow_notification_normalize_media_url($fallbackImage);
         if ($normalizedFallback !== '' && printflow_notification_local_media_exists($normalizedFallback)) {
             $preview['image_url'] = $normalizedFallback;
         } else {
             $preview['image_url'] = printflow_notification_placeholder_image_url()
                 ?: printflow_notification_normalize_media_url($base . '/public/assets/uploads/profiles/default.png');
+            $preview['fallback_reason'] = 'catalog_image_missing';
         }
+    }
+
+    if ($preview['image_source'] === 'none' && $preview['image_url'] !== '') {
+        $preview['image_source'] = 'official_catalog';
     }
 
         $cache[$cache_key] = $preview;
