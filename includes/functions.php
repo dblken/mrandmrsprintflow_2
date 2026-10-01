@@ -5620,12 +5620,6 @@ function printflow_order_notification_resolve_catalog_thumbnail(
             $sid = (int)($custom['service_id'] ?? 0);
         }
         if ($sid <= 0) {
-            $ot = strtolower(trim((string)($row['order_type'] ?? '')));
-            if ($ot === 'custom') {
-                $sid = (int)($row['reference_id'] ?? 0);
-            }
-        }
-        if ($sid <= 0) {
             $jst = trim((string)($row['first_job_service_type'] ?? ''));
             if ($jst !== '') {
                 $sid = printflow_resolve_service_catalog_service_id($jst);
@@ -5667,6 +5661,12 @@ function printflow_order_notification_resolve_catalog_thumbnail(
             }
             if ($prefer_exact_catalog_id) {
                 return '';
+            }
+        }
+        if ($sid <= 0) {
+            $ot = strtolower(trim((string)($row['order_type'] ?? '')));
+            if ($ot === 'custom') {
+                $sid = (int)($row['reference_id'] ?? 0);
             }
         }
 
@@ -5900,9 +5900,6 @@ function printflow_order_notification_preview(int $order_id, bool $prefer_catalo
     $srcPage = strtolower(trim((string)($custom['source_page'] ?? '')));
     $resolvedServiceIdForImage = $lineServiceId;
     if ($resolvedServiceIdForImage <= 0 && $order_type === 'custom') {
-        $resolvedServiceIdForImage = (int)($row['reference_id'] ?? 0);
-    }
-    if ($resolvedServiceIdForImage <= 0 && $order_type === 'custom') {
         $serviceNameCandidates = array_unique(array_filter(array_map('trim', [
             (string)($custom['service_type'] ?? ''),
             (string)($row['first_customization_service_type'] ?? ''),
@@ -5976,6 +5973,9 @@ function printflow_order_notification_preview(int $order_id, bool $prefer_catalo
         if ($resolvedFromSnapshot > 0) {
             $resolvedServiceIdForImage = $resolvedFromSnapshot;
         }
+    }
+    if ($resolvedServiceIdForImage <= 0 && $order_type === 'custom') {
+        $resolvedServiceIdForImage = (int)($row['reference_id'] ?? 0);
     }
 
     // Review notification thumbnails must use official catalog art. The upload
