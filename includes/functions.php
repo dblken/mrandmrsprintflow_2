@@ -5616,6 +5616,7 @@ function printflow_order_notification_resolve_catalog_thumbnail(
 
     if ($item_kind === 'Service') {
         $sid = (int)$resolvedServiceIdForImage;
+        $legacyServiceNames = [];
         if ($sid <= 0) {
             $sid = (int)($custom['service_id'] ?? 0);
         }
@@ -5639,6 +5640,7 @@ function printflow_order_notification_resolve_catalog_thumbnail(
             );
             $st = trim((string)($custSvc[0]['service_type'] ?? ''));
             if ($st !== '') {
+                $legacyServiceNames[] = $st;
                 $sid = printflow_resolve_service_catalog_service_id($st);
             }
         }
@@ -5650,6 +5652,7 @@ function printflow_order_notification_resolve_catalog_thumbnail(
             );
             $st = trim((string)($jo[0]['service_type'] ?? ''));
             if ($st !== '') {
+                $legacyServiceNames[] = $st;
                 $sid = printflow_resolve_service_catalog_service_id($st);
             }
         }
@@ -5658,9 +5661,6 @@ function printflow_order_notification_resolve_catalog_thumbnail(
             $url = printflow_notification_service_image_from_id($sid);
             if ($url !== '') {
                 return printflow_notification_normalize_media_url($url);
-            }
-            if ($prefer_exact_catalog_id) {
-                return '';
             }
         }
         if ($sid <= 0) {
@@ -5904,6 +5904,7 @@ function printflow_order_notification_preview(int $order_id, bool $prefer_catalo
             (string)($custom['service_type'] ?? ''),
             (string)($row['first_customization_service_type'] ?? ''),
             (string)($row['first_job_service_type'] ?? ''),
+            ...$legacyServiceNames,
         ])));
         foreach ($serviceNameCandidates as $serviceNameCandidate) {
             $resolved = printflow_resolve_service_catalog_service_id($serviceNameCandidate);
