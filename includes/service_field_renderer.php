@@ -755,6 +755,10 @@ function render_service_fields($service_id, $branches = [], $existing_data = [])
             || in_array($field_key, ['upload_design', 'design_upload', 'design_file'], true)
         ) {
             $priority = 2;
+        } elseif (in_array($field_key, ['quantity', 'qty'], true) || $field_name === 'quantity') {
+            $priority = 4;
+        } elseif ($field_key === 'notes' || $field_name === 'notes') {
+            $priority = 5;
         }
 
         $ordered_fields[] = [
