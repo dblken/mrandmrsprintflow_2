@@ -743,9 +743,12 @@ function render_service_fields($service_id, $branches = [], $existing_data = [])
         $field_name = preg_replace('/\s+/', ' ', $field_name);
 
         $priority = 3;
-        if ($field_key === 'branch' || $field_name === 'branch') {
+        if (
+            in_array($field_key, ['branch', 'branch_id', 'pickup_branch'], true)
+            || preg_match('/\b(branch|select\s+branch|pickup\s+branch)\b/i', $field_name)
+        ) {
             $priority = 0;
-        } elseif ($field_key === 'layout' || $field_name === 'layout') {
+        } elseif ($field_key === 'layout' || preg_match('/\blayout\b/i', $field_name)) {
             $priority = 1;
         } elseif (
             preg_match('/\b(upload\s+design|design\s+upload)\b/i', $field_name)
