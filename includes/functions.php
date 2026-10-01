@@ -2472,11 +2472,15 @@ function customer_notification_image_url(array $notification, string $fallback, 
 
     if ($data_id > 0 || $order_hint > 0) {
         $oid = $data_id > 0 ? $data_id : $order_hint;
-        $preview = printflow_order_notification_preview($oid);
+        $is_review = $type === 'rating' || $type === 'review' || strpos($message_l, 'review') !== false || strpos($message_l, 'rating') !== false;
+        $preview = printflow_order_notification_preview($oid, $is_review);
         $img = trim((string)($preview['image_url'] ?? ''));
         printflow_review_notification_debug($notification, [
-            'order_id' => $oid,
-            'image_source' => (string)($preview['image_source'] ?? 'resolved_preview'),
+        'order_id' => $oid,
+        'image_source' => (string)($preview['image_source'] ?? 'resolved_preview'),
+            'resolved_catalog_id' => (int)($preview['resolved_catalog_id'] ?? 0),
+            'official_image_field' => (string)($preview['official_image_field'] ?? ''),
+            'rejected_customer_upload_url' => (string)($preview['rejected_design_url'] ?? ''),
             'image_url' => $img !== '' ? $img : $resolved_fallback,
             'opened_state' => 'image_resolved',
         ]);
@@ -2539,7 +2543,7 @@ function printflow_push_media_payload(string $type, $data_id, string $message): 
     $order_types = ['order', 'new order', 'payment', 'payment issue', 'design', 'customization', 'message', 'chat', 'job order', 'rating', 'review'];
 
     if ($data_id > 0 && in_array($type_l, $order_types, true)) {
-        $preview = printflow_order_notification_preview($data_id);
+        $preview = printflow_order_notification_preview($data_id, $type_l === 'rating' || $type_l === 'review');
         $image = trim((string)($preview['image_url'] ?? ''));
         if ($image !== '') {
             return [
@@ -2611,12 +2615,16 @@ function staff_admin_notification_image_url(array $notification, string $fallbac
     if ($type === 'job order') {
         $preview = printflow_job_notification_preview($data_id);
     } else {
-        $preview = printflow_order_notification_preview($data_id);
+        $is_review = $type === 'rating' || $type === 'review' || strpos($message, 'review') !== false || strpos($message, 'rating') !== false;
+        $preview = printflow_order_notification_preview($data_id, $is_review);
     }
     $image = $preview['image_url'] ?: $fallback;
     printflow_review_notification_debug($notification, [
         'order_id' => $data_id,
         'image_source' => (string)($preview['image_source'] ?? 'resolved_preview'),
+        'resolved_catalog_id' => (int)($preview['resolved_catalog_id'] ?? 0),
+        'official_image_field' => (string)($preview['official_image_field'] ?? ''),
+        'rejected_customer_upload_url' => (string)($preview['rejected_design_url'] ?? ''),
         'image_url' => $image,
         'opened_state' => 'image_resolved',
     ]);
@@ -5665,15 +5673,16 @@ function printflow_order_notification_resolve_catalog_thumbnail(
 }
 
 
-function printflow_order_notification_preview(int $order_id): array {
+function printflow_order_notification_preview(int $order_id, bool $prefer_catalog = false): array {
     static $cache = [];
 
     $order_id = (int)$order_id;
     if ($order_id <= 0) {
-        return ['display_name' => '', 'image_url' => '', 'item_kind' => ''];
+        return ['display_name' => '', 'image_url' => '', 'item_kind' => '', 'image_source' => 'none'];
     }
-    if (isset($cache[$order_id])) {
-        return $cache[$order_id];
+    $cache_key = $order_id . ':' . ($prefer_catalog ? 'catalog' : 'default');
+    if (isset($cache[$cache_key])) {
+        return $cache[$cache_key];
     }
 
     $base = printflow_notification_base_path();
@@ -5728,7 +5737,7 @@ function printflow_order_notification_preview(int $order_id): array {
         [$order_id]
     );
 
-    $preview = ['display_name' => '', 'image_url' => '', 'item_kind' => '', 'image_source' => 'none'];
+    $preview = ['display_name' => '', 'image_url' => '', 'item_kind' => '', 'image_source' => 'none', 'resolved_catalog_id' => 0, 'official_image_field' => '', 'rejected_design_url' => ''];
     if (empty($item[0])) {
         $snap = printflow_notification_order_snapshot($order_id);
         $preview['display_name'] = trim((string)($snap['service_name'] ?? ''));
@@ -5805,9 +5814,9 @@ function printflow_order_notification_preview(int $order_id): array {
             $preview['image_url'] = printflow_notification_placeholder_image_url()
                 ?: printflow_notification_normalize_media_url($base . '/public/assets/uploads/profiles/default.png');
         }
-        $cache[$order_id] = $preview;
-        return $preview;
-    }
+    $cache[$cache_key] = $preview;
+    return $preview;
+}
 
     $row = $item[0];
     $custom = printflow_decode_modal_customization_payload((string)($row['customization_data'] ?? ''));
@@ -5868,13 +5877,16 @@ function printflow_order_notification_preview(int $order_id): array {
         );
     }
 
-    // Notification/review image priority: the customer's order-item design
-    // is the most specific visual, followed by the catalog product/service art.
+    // Review notification thumbnails must use official catalog art. The upload
+    // remains available to detail pages, but is explicitly rejected here.
     if (printflow_order_item_has_previewable_design($row) && !empty($row['order_item_id'])) {
+        $preview['rejected_design_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$row['order_item_id'];
+    }
+    if (!$prefer_catalog && printflow_order_item_has_previewable_design($row) && !empty($row['order_item_id'])) {
         $preview['image_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$row['order_item_id'];
         $preview['image_url'] = printflow_notification_normalize_media_url($preview['image_url']);
         $preview['image_source'] = 'customer_upload';
-        $cache[$order_id] = $preview;
+        $cache[$cache_key] = $preview;
         return $preview;
     }
 
@@ -5894,11 +5906,12 @@ function printflow_order_notification_preview(int $order_id): array {
         'i',
         [$order_id]
     );
-    if (!empty($fallbackDesignRow[0]) && printflow_order_item_has_previewable_design($fallbackDesignRow[0])) {
+    if (!$prefer_catalog && !empty($fallbackDesignRow[0]) && printflow_order_item_has_previewable_design($fallbackDesignRow[0])) {
+        $preview['rejected_design_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$fallbackDesignRow[0]['order_item_id'];
         $preview['image_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$fallbackDesignRow[0]['order_item_id'];
         $preview['image_url'] = printflow_notification_normalize_media_url($preview['image_url']);
         $preview['image_source'] = 'customer_upload';
-        $cache[$order_id] = $preview;
+        $cache[$cache_key] = $preview;
         return $preview;
     }
 
@@ -5909,10 +5922,16 @@ function printflow_order_notification_preview(int $order_id): array {
         (int)$resolvedServiceIdForImage,
         (int)$order_id
     );
+    $preview['resolved_catalog_id'] = $preview['item_kind'] === 'Service'
+        ? (int)$resolvedServiceIdForImage
+        : (int)$linePid;
+    $preview['official_image_field'] = $preview['item_kind'] === 'Service'
+        ? 'services.display_image|hero_image|image_path'
+        : 'products.photo_path|product_image';
     if ($catalogThumb !== '') {
         $preview['image_url'] = $catalogThumb;
         $preview['image_source'] = 'catalog';
-        $cache[$order_id] = $preview;
+        $cache[$cache_key] = $preview;
         return $preview;
     }
 
@@ -5982,8 +6001,8 @@ function printflow_order_notification_preview(int $order_id): array {
         }
     }
 
-    $cache[$order_id] = $preview;
-    return $preview;
+        $cache[$cache_key] = $preview;
+        return $preview;
 }
 
 /**
