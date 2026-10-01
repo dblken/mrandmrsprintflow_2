@@ -4072,6 +4072,9 @@ function printflow_resolve_service_catalog_service_id(?string $serviceName): int
     }
 
     $candidates = [$serviceName];
+    if (function_exists('printflow_service_name_aliases')) {
+        $candidates = array_merge($candidates, printflow_service_name_aliases($serviceName));
+    }
     if (function_exists('normalize_service_name')) {
         $norm = normalize_service_name($serviceName, '');
         if (is_string($norm) && trim($norm) !== '' && strcasecmp(trim($norm), $serviceName) !== 0) {
@@ -5965,6 +5968,13 @@ function printflow_order_notification_preview(int $order_id, bool $prefer_catalo
         $resolvedFromDisplayName = printflow_resolve_service_catalog_service_id((string)$preview['display_name']);
         if ($resolvedFromDisplayName > 0) {
             $resolvedServiceIdForImage = $resolvedFromDisplayName;
+        }
+    }
+    if ($resolvedServiceIdForImage <= 0 && $preview['item_kind'] === 'Service') {
+        $orderSnapshot = printflow_notification_order_snapshot($order_id);
+        $resolvedFromSnapshot = printflow_resolve_service_catalog_service_id((string)($orderSnapshot['service_name'] ?? ''));
+        if ($resolvedFromSnapshot > 0) {
+            $resolvedServiceIdForImage = $resolvedFromSnapshot;
         }
     }
 
