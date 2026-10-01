@@ -5193,6 +5193,14 @@ function printflow_customer_modal_collapse_equivalent_dimension_fields(array $fl
         if ($text === '' || printflow_customer_modal_is_preset_size_value($text)) {
             continue;
         }
+        $descriptorText = (string)preg_replace(
+            '/\b(?:ft|feet|foot|in|inch|inches|cm|m)\b/iu',
+            '',
+            $text
+        );
+        if (preg_match('/[a-z]/iu', $descriptorText)) {
+            continue;
+        }
         $fp = printflow_customer_modal_normalize_dimension_fingerprint($text);
         if ($fp === null) {
             continue;
@@ -5316,6 +5324,17 @@ function printflow_customer_modal_finalize_customer_dimension_labels(array $spec
         if ($text === '' || !printflow_customer_modal_is_dimension_spec_key((string)$label)) {
             continue;
         }
+        // Preset options can contain a measurement inside a meaningful label,
+        // for example "50pcs Legal (8 × 14 Inch)". That label is the value the
+        // customer selected and must not be reduced to only its numeric pair.
+        $descriptorText = (string)preg_replace(
+            '/\b(?:ft|feet|foot|in|inch|inches|cm|m)\b/iu',
+            '',
+            $text
+        );
+        if (preg_match('/[a-z]/iu', $descriptorText)) {
+            continue;
+        }
         if (printflow_customer_modal_is_preset_size_value($text)) {
             continue;
         }
@@ -5392,6 +5411,22 @@ function printflow_customer_modal_finalize_customer_dimension_labels(array $spec
  */
 function printflow_flatten_order_customization_for_customer_modal(array $custom, ?int $lineQuantity = null, bool $is_staff = false): array {
     $custom = printflow_normalize_customization_for_modal($custom);
+    $branchDisplay = '';
+    if (!$is_staff) {
+        foreach ($custom as $customKey => $customValue) {
+            $branchToken = printflow_customization_key_token((string)$customKey);
+            if (!in_array($branchToken, ['branch', 'branchname', 'pickupbranch'], true)) {
+                continue;
+            }
+            $candidate = function_exists('pf_order_ui_value_to_text')
+                ? pf_order_ui_value_to_text($customValue)
+                : (is_scalar($customValue) ? (string)$customValue : '');
+            if (trim($candidate) !== '') {
+                $branchDisplay = trim($candidate);
+                break;
+            }
+        }
+    }
     // Match render_order_item_clean skips where sensible; omit note-* keys so the modal can render long-form blocks.
     // Strip job_orders-derived ft/sqft rows when they are all-zero placeholders (see printflow_customer_modal_strip_placeholder_job_dimensions).
     $skip = [
@@ -5475,6 +5510,9 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom,
     ]);
     if (!$is_staff) {
         $out = printflow_customer_modal_finalize_customer_dimension_labels($out);
+        if ($branchDisplay !== '') {
+            $out = ['Branch' => $branchDisplay] + $out;
+        }
     }
 
     return $out;
