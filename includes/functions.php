@@ -2422,6 +2422,12 @@ function printflow_customer_review_catalog_target(array $notification): string {
 
     $item = $rows[0];
     $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+    if (is_array($custom) && trim((string)($custom['service_type'] ?? '')) === '') {
+        $legacyServiceName = trim((string)($item['first_customization_service_type'] ?? $item['first_job_service_type'] ?? ''));
+        if ($legacyServiceName !== '') {
+            $custom['service_type'] = $legacyServiceName;
+        }
+    }
     $identity = printflow_resolve_order_line_identity(
         $item,
         $item,
@@ -2440,9 +2446,10 @@ function printflow_customer_review_catalog_target(array $notification): string {
     } elseif ($kind === 'service') {
         $service_id = (int)($identity['service_id'] ?? 0);
         if ($service_id <= 0) {
-            $service_id = printflow_resolve_service_catalog_service_id(
-                (string)($item['first_customization_service_type'] ?? $item['first_job_service_type'] ?? '')
-            );
+            foreach ([$item['first_customization_service_type'] ?? '', $item['first_job_service_type'] ?? '', $custom['service_type'] ?? ''] as $serviceName) {
+                $service_id = printflow_resolve_service_catalog_service_id((string)$serviceName);
+                if ($service_id > 0) break;
+            }
         }
         if ($service_id <= 0) {
             return '';
