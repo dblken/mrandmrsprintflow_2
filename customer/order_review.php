@@ -2305,6 +2305,59 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-order-success-retry:hover {
         background: #e2e8f0;
     }
+
+    /* Order review layout: keep the page scrollable and let uploaded previews
+       use the available summary width without a nested scroll trap. */
+    .order-review-page .order-container {
+        width: 100%;
+        max-width: min(1280px, calc(100vw - 2rem));
+    }
+    .order-review-page .review-card,
+    .order-review-page .review-card-body,
+    .order-review-page .review-order-entry {
+        overflow: visible !important;
+    }
+    .order-review-page .review-card-body {
+        min-height: auto !important;
+        max-height: none !important;
+        padding-bottom: 0 !important;
+    }
+    .order-review-page .review-order-entry .order-item-header {
+        padding: 0.85rem !important;
+    }
+    .order-review-page .review-order-entry .order-item-specs {
+        padding: 0.85rem !important;
+    }
+    .order-review-page .review-order-entry .order-item-upload-design {
+        padding: 0.55rem !important;
+    }
+    .order-review-page .review-order-entry .order-item-upload-design img {
+        width: min(100%, 520px) !important;
+        height: auto !important;
+        max-width: 100% !important;
+        max-height: min(46vh, 440px) !important;
+        object-fit: contain !important;
+    }
+    @media (min-width: 901px) {
+        .order-review-page .order-container form.review-checkout-form {
+            max-height: none !important;
+        }
+        .order-review-page .review-layout {
+            align-items: start !important;
+        }
+    }
+    @media (max-width: 900px) {
+        .order-review-page,
+        .order-review-page .review-card,
+        .order-review-page .review-card-body {
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+        }
+        .order-review-page .review-order-entry .order-item-upload-design img {
+            max-height: min(65vh, 520px) !important;
+        }
+    }
 </style>
 
 <!-- Success Modal -->
