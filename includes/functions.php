@@ -5899,6 +5899,20 @@ function printflow_order_notification_preview(int $order_id, bool $prefer_catalo
     if ($resolvedServiceIdForImage <= 0 && $order_type === 'custom') {
         $resolvedServiceIdForImage = (int)($row['reference_id'] ?? 0);
     }
+    if ($resolvedServiceIdForImage <= 0 && $order_type === 'custom') {
+        $serviceNameCandidates = array_unique(array_filter(array_map('trim', [
+            (string)($custom['service_type'] ?? ''),
+            (string)($row['first_customization_service_type'] ?? ''),
+            (string)($row['first_job_service_type'] ?? ''),
+        ])));
+        foreach ($serviceNameCandidates as $serviceNameCandidate) {
+            $resolved = printflow_resolve_service_catalog_service_id($serviceNameCandidate);
+            if ($resolved > 0) {
+                $resolvedServiceIdForImage = (int)$resolved;
+                break;
+            }
+        }
+    }
 
     if ($order_type === 'product' && !$is_pos_placeholder) {
         $preview['item_kind'] = 'Product';
