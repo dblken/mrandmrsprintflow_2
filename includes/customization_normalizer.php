@@ -171,7 +171,7 @@ function printflow_customization_field_meta(string $key): array {
 }
 
 /**
- * @param array{include_service?:bool,include_design?:bool,include_notes?:bool,include_quantity?:bool} $options
+ * @param array{include_service?:bool,include_design?:bool,include_notes?:bool,include_quantity?:bool,preserve_explicit_values?:bool} $options
  * @return array<string,string>
  */
 function printflow_customization_display_specs(array $customization, array $options = []): array {
@@ -179,6 +179,7 @@ function printflow_customization_display_specs(array $customization, array $opti
     $includeDesign = (bool)($options['include_design'] ?? true);
     $includeNotes = (bool)($options['include_notes'] ?? true);
     $includeQuantity = (bool)($options['include_quantity'] ?? false);
+    $preserveExplicitValues = (bool)($options['preserve_explicit_values'] ?? false);
     $rows = [];
     $seen = [];
     $seenValues = [];
@@ -209,7 +210,8 @@ function printflow_customization_display_specs(array $customization, array $opti
         ) continue;
         if ($meta['group'] === 'total_area' && (!empty($presentGroups['dimensions']) || (!empty($presentGroups['width']) && !empty($presentGroups['height'])))) continue;
         $text = printflow_customization_value_text($value);
-        if ($text === '' || stripos($text, 'data:') === 0 || in_array(strtolower($text), ['none', 'no'], true)) continue;
+        if ($text === '' || stripos($text, 'data:') === 0) continue;
+        if (!$preserveExplicitValues && in_array(strtolower($text), ['none', 'no'], true)) continue;
         if (in_array($meta['group'], ['width', 'height', 'total_area'], true) && is_numeric($text) && abs((float)$text) < 0.000001) continue;
         if ($meta['design']) $text = basename(str_replace('\\', '/', $text));
         $token = printflow_customization_key_token($key);

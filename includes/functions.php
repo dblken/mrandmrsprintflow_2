@@ -5469,6 +5469,9 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom,
         'include_design' => false,
         'include_notes' => $is_staff,
         'include_quantity' => false,
+        // Customer order details must preserve explicit saved selections such
+        // as "No" or "None"; only blank optional fields should disappear.
+        'preserve_explicit_values' => !$is_staff,
     ]);
     if (!$is_staff) {
         $out = printflow_customer_modal_finalize_customer_dimension_labels($out);
