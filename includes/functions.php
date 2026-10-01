@@ -2476,8 +2476,8 @@ function customer_notification_image_url(array $notification, string $fallback, 
         $preview = printflow_order_notification_preview($oid, $is_review);
         $img = trim((string)($preview['image_url'] ?? ''));
         printflow_review_notification_debug($notification, [
-        'order_id' => $oid,
-        'image_source' => (string)($preview['image_source'] ?? 'resolved_preview'),
+            'order_id' => $oid,
+            'image_source' => (string)($preview['image_source'] ?? 'resolved_preview'),
             'resolved_catalog_id' => (int)($preview['resolved_catalog_id'] ?? 0),
             'official_image_field' => (string)($preview['official_image_field'] ?? ''),
             'rejected_customer_upload_url' => (string)($preview['rejected_design_url'] ?? ''),
@@ -5814,9 +5814,9 @@ function printflow_order_notification_preview(int $order_id, bool $prefer_catalo
             $preview['image_url'] = printflow_notification_placeholder_image_url()
                 ?: printflow_notification_normalize_media_url($base . '/public/assets/uploads/profiles/default.png');
         }
-    $cache[$cache_key] = $preview;
-    return $preview;
-}
+        $cache[$cache_key] = $preview;
+        return $preview;
+    }
 
     $row = $item[0];
     $custom = printflow_decode_modal_customization_payload((string)($row['customization_data'] ?? ''));
