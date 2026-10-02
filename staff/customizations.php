@@ -650,10 +650,16 @@ $online_closed_count = 0;
         }
         .pf-change-item-review__grid {
             display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 8px;
             font-size: 13px;
             color: #78350f;
             line-height: 1.5;
+        }
+        @media (max-width: 640px) {
+            .pf-change-item-review__grid {
+                grid-template-columns: minmax(0, 1fr);
+            }
         }
         .pf-change-item-review__description {
             width: 100%;
@@ -3197,7 +3203,7 @@ $online_closed_count = 0;
                                 <button type="button" @click="verifyPayment()" :disabled="actionBusy || !canApproveVerification()" class="pf-entry-btn pf-entry-in" style="width:auto; max-width:220px; min-width:140px; justify-self:center; padding:0 14px; background:#10b981; color:#fff; border-color:#10b981;" :style="(actionBusy || !canApproveVerification()) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve</button>
                                 <button type="button" @click="openRejectPaymentModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Reject</button>
                             </div>
-                            <div x-show="!isPosSimplifiedView && (currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing' || changeItemReworkInProgress(currentJo))" style="display:flex; gap:8px;">
+                            <div x-show="!isPosSimplifiedView && (currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing')" style="display:flex; gap:8px;">
                                 <button type="button" @click="markReadyForPickup()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Mark as Ready for Pickup</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && currentJo.status === 'TO_RECEIVE'" style="display:flex; gap:8px;">
