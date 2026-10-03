@@ -17,6 +17,26 @@ require_role('Customer');
 $service_customer_rows = db_query("SELECT * FROM customers WHERE customer_id = ? LIMIT 1", 'i', [get_user_id()]);
 $service_customer = $service_customer_rows[0] ?? [];
 $service_id_state = printflow_custom_order_id_status($service_customer);
+$service_show_verified_notice = false;
+if (($service_id_state['status'] ?? '') === 'Verified') {
+    $service_reviewed_at = trim((string)($service_customer['id_reviewed_at'] ?? ''));
+    $service_verified_notice_token = hash('sha256', (string)get_user_id() . '|' . $service_reviewed_at . '|verified');
+    $service_verified_notice_seen = (string)($_COOKIE['pf_verified_services_notice'] ?? '');
+    if ($service_verified_notice_seen === '' || !hash_equals($service_verified_notice_token, $service_verified_notice_seen)) {
+        $service_show_verified_notice = true;
+        setcookie(
+            'pf_verified_services_notice',
+            $service_verified_notice_token,
+            [
+                'expires' => time() + 31536000,
+                'path' => '/',
+                'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]
+        );
+    }
+}
 
 $base_path = pf_app_base_path();
 $default_service_img = $base_path . '/public/assets/images/services/default.png';
@@ -639,7 +659,7 @@ function render_service_card($srv, int $card_index = 0) {
             <h1 class="text-2xl font-bold text-gray-800">Available Services</h1>
         </div>
         <?php $service_notice_status = (string)($service_id_state['status'] ?? 'None'); ?>
-        <?php if ($service_notice_status === 'Verified'): ?>
+        <?php if ($service_notice_status === 'Verified' && $service_show_verified_notice): ?>
             <div class="pf-id-notice pf-id-notice--verified" role="status">
                 <span><span class="pf-id-notice__icon" aria-hidden="true">&#10003;</span><strong>Identity Verified</strong> Your account is verified and ready to place customizable orders.</span>
             </div>
@@ -660,7 +680,7 @@ function render_service_card($srv, int $card_index = 0) {
                 </span>
                 <a href="profile.php#section-security">Resubmit ID</a>
             </div>
-        <?php else: ?>
+        <?php elseif ($service_notice_status !== 'Verified'): ?>
             <div class="pf-id-notice" role="status">
                 <span>
                     <strong>ID verification required for customizable orders</strong>
