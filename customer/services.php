@@ -612,8 +612,13 @@ function render_service_card($srv, int $card_index = 0) {
     .pf-id-notice strong { display:block; color:#7c2d12; margin-bottom:0.2rem; }
     .pf-id-notice span { font-size:0.88rem; line-height:1.45; }
     .pf-id-notice a { flex-shrink:0; background:#0f766e; color:#fff; text-decoration:none; border-radius:8px; padding:0.55rem 0.9rem; font-weight:800; font-size:0.85rem; }
+    .pf-id-notice--pending { background:#eff6ff; border-color:#bfdbfe; color:#1e40af; }
+    .pf-id-notice--pending strong { color:#1d4ed8; }
+    .pf-id-notice--verified { background:#ecfdf5; border-color:#bbf7d0; color:#166534; padding:0.7rem 1rem; margin-bottom:1.25rem; }
+    .pf-id-notice--verified strong { color:#166534; margin-bottom:0.1rem; }
+    .pf-id-notice--verified span { display:flex; align-items:center; gap:0.45rem; }
+    .pf-id-notice__icon { font-size:1rem; font-weight:900; }
     @media (max-width:640px) { .pf-id-notice { align-items:flex-start; flex-direction:column; } }
-
     #service-modal-content {
         background: rgba(0,28,36,0.97) !important;
         border: 1px solid rgba(83,197,224,0.28) !important;
@@ -633,16 +638,38 @@ function render_service_card($srv, int $card_index = 0) {
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <h1 class="text-2xl font-bold text-gray-800">Available Services</h1>
         </div>
-        <div class="pf-id-notice" role="status">
-            <span>
-                <strong>ID verification required for customizable orders</strong>
-                A verified government-issued ID is required before a customizable order can be placed. You only need to complete verification once unless re-verification is required.
-                Current status: <strong style="display:inline;margin:0;color:inherit;"><?php echo htmlspecialchars($service_id_state['label'] ?? 'Not Submitted', ENT_QUOTES, 'UTF-8'); ?></strong>
-            </span>
-            <?php if (empty($service_id_state['verified'])): ?>
+        <?php $service_notice_status = (string)($service_id_state['status'] ?? 'None'); ?>
+        <?php if ($service_notice_status === 'Verified'): ?>
+            <div class="pf-id-notice pf-id-notice--verified" role="status">
+                <span><span class="pf-id-notice__icon" aria-hidden="true">&#10003;</span><strong>Identity Verified</strong> Your account is verified and ready to place customizable orders.</span>
+            </div>
+        <?php elseif ($service_notice_status === 'Pending'): ?>
+            <div class="pf-id-notice pf-id-notice--pending" role="status">
+                <span>
+                    <strong>ID verification pending</strong>
+                    Your submitted ID is currently being reviewed. You may continue browsing and customizing products, but your customizable order cannot be finalized until verification is approved.
+                    Current status: <strong style="display:inline;margin:0;color:inherit;">Pending Verification</strong>
+                </span>
+            </div>
+        <?php elseif ($service_notice_status === 'Rejected'): ?>
+            <div class="pf-id-notice" role="status">
+                <span>
+                    <strong>ID verification needs attention</strong>
+                    Your previous ID submission was not approved. Please submit a new valid government-issued ID before placing a customizable order.
+                    Current status: <strong style="display:inline;margin:0;color:inherit;">Rejected</strong>
+                </span>
+                <a href="profile.php#section-security">Resubmit ID</a>
+            </div>
+        <?php else: ?>
+            <div class="pf-id-notice" role="status">
+                <span>
+                    <strong>ID verification required for customizable orders</strong>
+                    A verified government-issued ID is required before a customizable order can be placed.
+                    Current status: <strong style="display:inline;margin:0;color:inherit;">Not Submitted</strong>
+                </span>
                 <a href="profile.php#section-security">Submit ID</a>
-            <?php endif; ?>
-        </div>
+            </div>
+        <?php endif; ?>
 
         
         <?php if (empty($core_services)): ?>
