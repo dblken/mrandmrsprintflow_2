@@ -479,6 +479,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 }
             }
         }
+        if (!empty($_POST['notice_bulk_ajax'])) {
+            header('Content-Type: application/json; charset=utf-8');
+            if ($error !== '') {
+                echo json_encode(['success' => false, 'message' => $error]);
+            } else {
+                $pickerRows = db_query(
+                    "SELECT product_id, COALESCE(order_information_notice_enabled, 0) AS order_information_notice_enabled
+                     FROM products WHERE status != 'Archived' ORDER BY name ASC"
+                ) ?: [];
+                $pickerPayload = array_map(static function ($row) {
+                    return [
+                        'product_id' => (int)($row['product_id'] ?? 0),
+                        'order_information_notice_enabled' => (int)($row['order_information_notice_enabled'] ?? 0),
+                    ];
+                }, $pickerRows);
+                echo json_encode([
+                    'success' => true,
+                    'message' => $success,
+                    'picker' => $pickerPayload,
+                ]);
+            }
+            exit;
+        }
     } elseif (isset($_POST['create_product'])) {
         if ($is_manager) {
             $error = 'Only administrators can add new products.';
@@ -1536,6 +1559,11 @@ foreach ($products as &$pfProduct) {
 }
 unset($pfProduct);
 
+$page_product_ids = array_values(array_unique(array_filter(array_map(
+    static fn($p) => (int)($p['product_id'] ?? 0),
+    $products
+))));
+
 $page_title = 'Products Management - Admin';
 
 // Summary stats
@@ -1980,6 +2008,186 @@ if (isset($_GET['ajax'])) {
             font-size: 11px;
             margin-top: 3px;
             line-height: 1.3;
+        }
+        #product-modal .form-group input[type="checkbox"],
+        #product-modal .pf-notice-show-product-row input[type="checkbox"],
+        #product-modal .pf-modal-notice-select-cb {
+            width: auto;
+            padding: 0;
+            margin: 0;
+            flex-shrink: 0;
+            box-shadow: none;
+        }
+        #product-modal .pf-notice-panel {
+            margin-top: 4px;
+            padding: 14px;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            background: #f9fafb;
+        }
+        #product-modal .pf-notice-panel-section + .pf-notice-panel-section {
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid #e5e7eb;
+        }
+        #product-modal .pf-notice-panel-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+        #product-modal .pf-notice-panel-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #111827;
+        }
+        #product-modal .pf-notice-panel-sub {
+            font-size: 12px;
+            color: #6b7280;
+            line-height: 1.45;
+            margin-top: 2px;
+        }
+        #product-modal .pf-notice-selection-count {
+            font-size: 12px;
+            font-weight: 700;
+            color: #0f766e;
+            white-space: nowrap;
+            padding: 4px 10px;
+            background: #ecfdf5;
+            border-radius: 999px;
+            border: 1px solid #a7f3d0;
+        }
+        #product-modal .pf-notice-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        #product-modal .pf-notice-toolbar .filter-reset-link {
+            font-size: 12px;
+        }
+        #product-modal .pf-notice-table-wrap {
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            background: #fff;
+            overflow: hidden;
+        }
+        #product-modal .pf-notice-table-head,
+        #product-modal .pf-modal-notice-product-row {
+            display: grid;
+            grid-template-columns: 36px minmax(0, 1fr) 88px;
+            align-items: center;
+            column-gap: 10px;
+        }
+        #product-modal .pf-notice-table-head {
+            padding: 8px 12px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #6b7280;
+            background: #f8fafc;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        #product-modal #pf-modal-notice-product-list {
+            max-height: 200px;
+            overflow: auto;
+        }
+        #product-modal .pf-modal-notice-product-row {
+            padding: 8px 12px;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 13px;
+            cursor: pointer;
+            margin: 0;
+        }
+        #product-modal .pf-modal-notice-product-row:last-child {
+            border-bottom: none;
+        }
+        #product-modal .pf-modal-notice-product-row.is-editing {
+            background: #f0fdf4;
+        }
+        #product-modal .pf-modal-notice-product-row.is-selected {
+            background: #eff6ff;
+        }
+        #product-modal .pf-modal-notice-product-name {
+            min-width: 0;
+            font-weight: 500;
+            color: #111827;
+        }
+        #product-modal .pf-modal-notice-product-sku {
+            display: block;
+            font-size: 11px;
+            color: #6b7280;
+            font-weight: 400;
+            margin-top: 1px;
+        }
+        #product-modal .pf-modal-notice-status {
+            justify-self: end;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+        #product-modal .pf-modal-notice-status.is-on {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        #product-modal .pf-modal-notice-status.is-off {
+            background: #f3f4f6;
+            color: #4b5563;
+        }
+        #product-modal .pf-notice-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        #product-modal .pf-notice-actions .btn-action {
+            min-height: 38px;
+            padding: 8px 14px;
+            font-size: 13px;
+        }
+        #product-modal .pf-notice-feedback {
+            display: none;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.45;
+            margin-bottom: 12px;
+        }
+        #product-modal .pf-notice-feedback--success {
+            background: #f0fdf4;
+            border: 1px solid #86efac;
+            color: #166534;
+        }
+        #product-modal .pf-notice-feedback--error {
+            background: #fef2f2;
+            border: 1px solid #fca5a5;
+            color: #dc2626;
+        }
+        #product-modal .pf-notice-feedback--loading {
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            color: #374151;
+        }
+        #product-modal .pf-notice-show-product-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-top: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #374151;
+            cursor: pointer;
+        }
+        #product-modal #modal-order-information-notice {
+            min-height: 96px;
+        }
+        #product-modal .btn-action.is-loading {
+            opacity: 0.65;
+            pointer-events: none;
         }
         #product-modal .form-group.has-error input,
         #product-modal .form-group.has-error select,
@@ -3287,6 +3495,22 @@ if (isset($_GET['ajax'])) {
     </div>
 </div>
 
+<!-- Order notice bulk confirmation -->
+<div id="pfNoticeConfirmModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10150;align-items:center;justify-content:center;padding:16px;flex-direction:column;pointer-events:auto;">
+    <div style="background:white;border-radius:16px;padding:26px;max-width:420px;width:100%;box-shadow:0 25px 50px rgba(0,0,0,0.25);text-align:center;">
+        <div style="width:48px;height:48px;background:#f3f4f6;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:#6b7280;">
+            <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        </div>
+        <h3 id="pfNoticeConfirmTitle" style="font-size:18px;font-weight:700;color:#1f2937;margin:0 0 8px;">Confirm</h3>
+        <p id="pfNoticeConfirmText" style="font-size:14px;color:#4b5563;margin:0 0 16px;line-height:1.5;word-break:break-word;overflow-wrap:anywhere;"></p>
+        <div id="pfNoticeConfirmInfo" style="font-size:12px;color:#6b7280;background:#f9fafb;padding:12px;border-radius:10px;margin-bottom:24px;text-align:left;border:1px solid #e5e7eb;line-height:1.5;"></div>
+        <div style="display:flex;gap:12px;justify-content:center;">
+            <button type="button" id="pfNoticeConfirmCancel" style="flex:1;padding:12px 16px;border:1px solid #e5e7eb;background:white;border-radius:10px;font-size:14px;font-weight:600;color:#4b5563;cursor:pointer;">Cancel</button>
+            <button type="button" id="pfNoticeConfirmOk" style="flex:1;padding:12px 16px;border:none;background:#3b82f6;border-radius:10px;font-size:14px;font-weight:600;color:white;cursor:pointer;">Confirm</button>
+        </div>
+    </div>
+</div>
+
 <!-- Add/Edit Product Modal -->
 <div id="product-modal-overlay" onclick="handleOverlayClick(event)">
     <div id="product-modal">
@@ -3447,35 +3671,60 @@ if (isset($_GET['ajax'])) {
 
                 <div class="form-row pf-admin-only">
                     <div class="form-group" id="fg-order-information-notice" style="grid-column:1/-1;">
-                        <label for="modal-order-information-notice" style="font-weight:700;color:#111827;">Order Information Notice</label>
-                        <textarea id="modal-order-information-notice" name="order_information_notice" rows="4" maxlength="<?php echo PRINTFLOW_PRODUCT_ORDER_NOTICE_MAX_LENGTH; ?>" placeholder="<?php echo htmlspecialchars(printflow_product_order_notice_default(), ENT_QUOTES, 'UTF-8'); ?>"></textarea>
-                        <input type="hidden" name="order_information_notice_enabled" id="modal-order-information-notice-enabled-value" value="0">
-                        <label class="pf-product-create-only" style="display:flex;align-items:flex-start;gap:8px;margin-top:10px;font-weight:600;color:#374151;">
-                            <input type="checkbox" id="modal-notice-show-create" value="1" style="margin-top:3px;">
-                            <span>Show this notice on the customer order review page for this new product</span>
-                        </label>
-                        <div class="pf-product-edit-only" id="pf-modal-notice-products-wrap" style="margin-top:12px;">
-                            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;">
-                                <span style="font-size:12px;font-weight:600;color:#374151;">Products that display this notice</span>
-                                <button type="button" class="filter-reset-link" id="pf-modal-notice-toggle-all">Select all</button>
+                        <label for="modal-order-information-notice" style="font-weight:700;color:#111827;margin-bottom:6px;">Order Information Notice</label>
+                        <div class="pf-notice-panel">
+                            <div id="pf-modal-notice-feedback" class="pf-notice-feedback" role="status" aria-live="polite"></div>
+                            <div class="pf-notice-panel-section">
+                                <label for="modal-order-information-notice" style="font-size:13px;font-weight:600;color:#374151;margin-bottom:4px;">Notice text</label>
+                                <textarea id="modal-order-information-notice" name="order_information_notice" rows="4" maxlength="<?php echo PRINTFLOW_PRODUCT_ORDER_NOTICE_MAX_LENGTH; ?>" placeholder="<?php echo htmlspecialchars(printflow_product_order_notice_default(), ENT_QUOTES, 'UTF-8'); ?>"></textarea>
+                                <input type="hidden" name="order_information_notice_enabled" id="modal-order-information-notice-enabled-value" value="0">
+                                <small>Shown on the customer product order review page. Leave empty to use the standard pickup notice when enabled.</small>
+                                <label class="pf-notice-show-product-row">
+                                    <input type="checkbox" id="modal-notice-show-product">
+                                    <span class="pf-product-create-only">Show this notice for the new product after it is created</span>
+                                    <span class="pf-product-edit-only">Show this notice on checkout for this product</span>
+                                </label>
                             </div>
-                            <div id="pf-modal-notice-product-list" style="max-height:168px;overflow:auto;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">
-                                <?php foreach ($product_notice_picker as $np): ?>
-                                    <?php
-                                    $npId = (int)($np['product_id'] ?? 0);
-                                    $npOn = (int)($np['order_information_notice_enabled'] ?? 0) === 1;
-                                    ?>
-                                    <label class="pf-modal-notice-product-row" data-product-id="<?php echo $npId; ?>" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #f3f4f6;font-size:13px;cursor:pointer;margin:0;">
-                                        <input type="checkbox" class="pf-modal-notice-product-cb" form="pf-order-notice-modal-form" name="notice_product_ids[]" value="<?php echo $npId; ?>"<?php echo $npOn ? ' checked' : ''; ?>>
-                                        <span style="flex:1;min-width:0;"><?php echo htmlspecialchars((string)($np['name'] ?? '')); ?> <span style="color:#6b7280;">(<?php echo htmlspecialchars((string)($np['sku'] ?? '—')); ?>)</span></span>
-                                        <span class="pf-modal-notice-status" style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;<?php echo $npOn ? 'background:#dbeafe;color:#1e40af;' : 'background:#f3f4f6;color:#4b5563;'; ?>"><?php echo $npOn ? 'On' : 'Off'; ?></span>
-                                    </label>
-                                <?php endforeach; ?>
-                            </div>
-                            <small style="display:block;margin-top:6px;color:#6b7280;line-height:1.45;">Checked products show this notice on checkout. <strong>Apply to checked</strong> saves the text above and turns the notice on for those products only. <strong>Turn off for checked</strong> hides the notice and keeps each product&apos;s saved text. Saving the product updates this product&apos;s notice from its row below.</small>
-                            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
-                                <button type="button" class="btn-action blue" onclick="return pfPrepareModalNoticeBulk(event, 'apply')">Apply to checked</button>
-                                <button type="button" class="btn-action gray" onclick="return pfPrepareModalNoticeBulk(event, 'disable')">Turn off for checked</button>
+                            <div class="pf-notice-panel-section pf-product-edit-only">
+                                <div class="pf-notice-panel-head">
+                                    <div>
+                                        <div class="pf-notice-panel-title">Apply to other products</div>
+                                        <div class="pf-notice-panel-sub">Select products, then apply the notice text above or turn the notice off. Only selected rows are updated.</div>
+                                    </div>
+                                    <span id="pf-modal-notice-selection-count" class="pf-notice-selection-count">0 selected</span>
+                                </div>
+                                <div class="pf-notice-toolbar">
+                                    <button type="button" class="filter-reset-link" id="pf-modal-notice-select-page">Select current page</button>
+                                    <button type="button" class="filter-reset-link" id="pf-modal-notice-select-all">Select all</button>
+                                    <button type="button" class="filter-reset-link" id="pf-modal-notice-clear">Clear selection</button>
+                                </div>
+                                <div class="pf-notice-table-wrap">
+                                    <div class="pf-notice-table-head">
+                                        <span aria-hidden="true"></span>
+                                        <span>Product</span>
+                                        <span style="text-align:right;">Live notice</span>
+                                    </div>
+                                    <div id="pf-modal-notice-product-list">
+                                        <?php foreach ($product_notice_picker as $np): ?>
+                                            <?php
+                                            $npId = (int)($np['product_id'] ?? 0);
+                                            $npOn = (int)($np['order_information_notice_enabled'] ?? 0) === 1;
+                                            ?>
+                                            <label class="pf-modal-notice-product-row" data-product-id="<?php echo $npId; ?>" data-notice-enabled="<?php echo $npOn ? '1' : '0'; ?>">
+                                                <input type="checkbox" class="pf-modal-notice-select-cb" value="<?php echo $npId; ?>" aria-label="Select <?php echo htmlspecialchars((string)($np['name'] ?? ''), ENT_QUOTES); ?>">
+                                                <span class="pf-modal-notice-product-name">
+                                                    <?php echo htmlspecialchars((string)($np['name'] ?? '')); ?>
+                                                    <span class="pf-modal-notice-product-sku"><?php echo htmlspecialchars((string)($np['sku'] ?? '—')); ?></span>
+                                                </span>
+                                                <span class="pf-modal-notice-status <?php echo $npOn ? 'is-on' : 'is-off'; ?>"><?php echo $npOn ? 'On' : 'Off'; ?></span>
+                                            </label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+                                <div class="pf-notice-actions">
+                                    <button type="button" class="btn-action blue" id="pf-modal-notice-apply-btn">Apply notice to selected</button>
+                                    <button type="button" class="btn-action gray" id="pf-modal-notice-disable-btn">Turn off for selected</button>
+                                </div>
                             </div>
                         </div>
                         <span id="err-order-information-notice" class="field-error"></span>
@@ -3549,12 +3798,6 @@ if (isset($_GET['ajax'])) {
                     <button type="submit" id="<?php echo $is_manager ? 'modal-submit-products-mgr' : 'modal-submit-btn'; ?>" class="btn-save">Create Product</button>
                 </div>
             </form>
-            <?php if (!$is_manager): ?>
-            <form id="pf-order-notice-modal-form" method="POST" style="display:none;" aria-hidden="true">
-                <?php echo csrf_field(); ?>
-                <textarea name="order_information_notice" id="pf-order-notice-modal-text"></textarea>
-            </form>
-            <?php endif; ?>
         </div>
     </div>
 </div>
@@ -3748,88 +3991,172 @@ window.PF_PRODUCT_NOTICE_PICKER = <?php echo json_encode(array_map(static functi
         'order_information_notice_enabled' => (int)($row['order_information_notice_enabled'] ?? 0),
     ];
 }, $product_notice_picker), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+window.PF_PRODUCT_NOTICE_PAGE_IDS = <?php echo json_encode($page_product_ids, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 
-function pfUpdateModalNoticeRowStatus(checkbox) {
-    if (!checkbox) return;
-    var row = checkbox.closest('.pf-modal-notice-product-row');
-    if (!row) return;
-    var badge = row.querySelector('.pf-modal-notice-status');
-    if (!badge) return;
-    if (checkbox.checked) {
-        badge.textContent = 'On';
-        badge.style.background = '#dbeafe';
-        badge.style.color = '#1e40af';
-    } else {
-        badge.textContent = 'Off';
-        badge.style.background = '#f3f4f6';
-        badge.style.color = '#4b5563';
-    }
+var _pfNoticeConfirmCallback = null;
+
+function pfHideModalNoticeFeedback() {
+    var el = document.getElementById('pf-modal-notice-feedback');
+    if (!el) return;
+    el.style.display = 'none';
+    el.textContent = '';
+    el.className = 'pf-notice-feedback';
 }
 
-function pfResetModalNoticeProductChecks(activeProductId) {
+function pfShowModalNoticeFeedback(type, message) {
+    var el = document.getElementById('pf-modal-notice-feedback');
+    if (!el) return;
+    el.className = 'pf-notice-feedback pf-notice-feedback--' + type;
+    el.textContent = message;
+    el.style.display = 'block';
+}
+
+function pfUpdateModalNoticeLiveBadge(row, enabled) {
+    if (!row) return;
+    row.setAttribute('data-notice-enabled', enabled ? '1' : '0');
+    var badge = row.querySelector('.pf-modal-notice-status');
+    if (!badge) return;
+    badge.textContent = enabled ? 'On' : 'Off';
+    badge.classList.toggle('is-on', enabled);
+    badge.classList.toggle('is-off', !enabled);
+}
+
+function pfApplyModalNoticePickerState(pickerRows) {
+    if (Array.isArray(pickerRows)) {
+        window.PF_PRODUCT_NOTICE_PICKER = pickerRows;
+    }
     var map = {};
     (window.PF_PRODUCT_NOTICE_PICKER || []).forEach(function(row) {
         map[row.product_id] = row.order_information_notice_enabled === 1;
     });
     document.querySelectorAll('.pf-modal-notice-product-row').forEach(function(rowEl) {
-        rowEl.style.background = '';
+        var id = parseInt(rowEl.getAttribute('data-product-id') || '0', 10);
+        pfUpdateModalNoticeLiveBadge(rowEl, !!map[id]);
     });
-    document.querySelectorAll('.pf-modal-notice-product-cb').forEach(function(cb) {
-        var id = parseInt(cb.value, 10);
-        cb.checked = !!map[id];
-        pfUpdateModalNoticeRowStatus(cb);
+}
+
+function pfUpdateModalNoticeSelectionUi() {
+    document.querySelectorAll('.pf-modal-notice-product-row').forEach(function(rowEl) {
+        var cb = rowEl.querySelector('.pf-modal-notice-select-cb');
+        rowEl.classList.toggle('is-selected', !!(cb && cb.checked));
     });
+    var countEl = document.getElementById('pf-modal-notice-selection-count');
+    var selected = document.querySelectorAll('.pf-modal-notice-select-cb:checked').length;
+    if (countEl) {
+        countEl.textContent = selected + ' selected';
+    }
+}
+
+function pfResetModalNoticeProductChecks(activeProductId) {
+    pfHideModalNoticeFeedback();
+    document.querySelectorAll('.pf-modal-notice-product-row').forEach(function(rowEl) {
+        rowEl.classList.remove('is-editing', 'is-selected');
+        var cb = rowEl.querySelector('.pf-modal-notice-select-cb');
+        if (cb) cb.checked = false;
+    });
+    pfApplyModalNoticePickerState(window.PF_PRODUCT_NOTICE_PICKER || []);
     if (activeProductId) {
         var activeRow = document.querySelector('.pf-modal-notice-product-row[data-product-id="' + activeProductId + '"]');
-        if (activeRow) activeRow.style.background = '#f0fdf4';
+        if (activeRow) {
+            activeRow.classList.add('is-editing');
+        }
     }
+    pfUpdateModalNoticeSelectionUi();
 }
 
 function pfSyncNoticeEnabledForProductSave() {
     var hidden = document.getElementById('modal-order-information-notice-enabled-value');
-    var modeInput = document.getElementById('modal-mode-input');
+    var showProduct = document.getElementById('modal-notice-show-product');
     if (!hidden) return;
-    if (modeInput && modeInput.name === 'create_product') {
-        var createUi = document.getElementById('modal-notice-show-create');
-        hidden.value = createUi && createUi.checked ? '1' : '0';
+    hidden.value = showProduct && showProduct.checked ? '1' : '0';
+}
+
+function pfShowNoticeConfirm(title, text, info, onOk) {
+    var modal = document.getElementById('pfNoticeConfirmModal');
+    var titleEl = document.getElementById('pfNoticeConfirmTitle');
+    var textEl = document.getElementById('pfNoticeConfirmText');
+    var infoEl = document.getElementById('pfNoticeConfirmInfo');
+    if (!modal || !titleEl || !textEl || !infoEl) {
+        if (window.confirm(text)) onOk();
         return;
     }
-    var pid = parseInt(document.getElementById('modal-product-id')?.value || '0', 10);
-    var cb = document.querySelector('.pf-modal-notice-product-cb[value="' + pid + '"]');
-    hidden.value = cb && cb.checked ? '1' : '0';
+    titleEl.textContent = title;
+    textEl.textContent = text;
+    infoEl.textContent = info;
+    _pfNoticeConfirmCallback = onOk;
+    modal.style.display = 'flex';
+}
+
+function pfCloseNoticeConfirm() {
+    var modal = document.getElementById('pfNoticeConfirmModal');
+    if (modal) modal.style.display = 'none';
+    _pfNoticeConfirmCallback = null;
+}
+
+function pfSetNoticeBulkButtonsLoading(isLoading) {
+    ['pf-modal-notice-apply-btn', 'pf-modal-notice-disable-btn'].forEach(function(id) {
+        var btn = document.getElementById(id);
+        if (!btn) return;
+        btn.classList.toggle('is-loading', isLoading);
+        btn.disabled = isLoading;
+    });
+}
+
+async function pfRunModalNoticeBulk(action) {
+    var checked = Array.prototype.slice.call(document.querySelectorAll('.pf-modal-notice-select-cb:checked'));
+    if (!checked.length) {
+        pfShowModalNoticeFeedback('error', 'Select at least one product.');
+        return;
+    }
+    var textarea = document.getElementById('modal-order-information-notice');
+    var title = action === 'disable' ? 'Turn off notice' : 'Apply notice';
+    var text = action === 'disable'
+        ? 'Turn off the order information notice for ' + checked.length + ' selected product(s)?'
+        : 'Save this notice text and turn it on for ' + checked.length + ' selected product(s)?';
+    var info = action === 'disable'
+        ? 'Saved notice text for each product will be kept. Only the selected products are affected.'
+        : 'Other products will not be changed. Only the selected products receive the notice text above.';
+    pfShowNoticeConfirm(title, text, info, function() {
+        void (async function() {
+            pfSetNoticeBulkButtonsLoading(true);
+            pfShowModalNoticeFeedback('loading', action === 'disable' ? 'Turning off notice…' : 'Applying notice…');
+        var fd = new FormData();
+        fd.append('csrf_token', window.PF_PRODUCTS_CSRF || '');
+        fd.append('notice_bulk_ajax', '1');
+        fd.append('order_notice_bulk', action);
+        fd.append('order_information_notice', textarea ? textarea.value : '');
+        checked.forEach(function(cb) {
+            fd.append('notice_product_ids[]', cb.value);
+        });
+        try {
+            var resp = await fetch(window.location.pathname + window.location.search, {
+                method: 'POST',
+                body: fd,
+                credentials: 'same-origin',
+                headers: { 'Accept': 'application/json' },
+            });
+            var data = await resp.json();
+            if (!data.success) {
+                pfShowModalNoticeFeedback('error', data.message || 'Could not update the order information notice.');
+                return;
+            }
+            pfApplyModalNoticePickerState(data.picker || []);
+            pfUpdateModalNoticeSelectionUi();
+            pfShowModalNoticeFeedback('success', data.message || 'Notice updated.');
+        } catch (err) {
+            pfShowModalNoticeFeedback('error', 'Could not update the order information notice. Please try again.');
+        } finally {
+            pfSetNoticeBulkButtonsLoading(false);
+        }
+        })();
+    });
 }
 
 function pfPrepareModalNoticeBulk(event, action) {
     if (event && typeof event.preventDefault === 'function') {
         event.preventDefault();
     }
-    var checked = document.querySelectorAll('.pf-modal-notice-product-cb:checked');
-    if (!checked.length) {
-        window.alert('Check at least one product.');
-        return false;
-    }
-    var src = document.getElementById('modal-order-information-notice');
-    var dst = document.getElementById('pf-order-notice-modal-text');
-    if (src && dst) {
-        dst.value = src.value;
-    }
-    if (action === 'disable') {
-        if (!window.confirm('Turn off the order information notice for ' + checked.length + ' checked product(s)? Saved notice text will be kept.')) {
-            return false;
-        }
-    } else if (!window.confirm('Save this notice and turn it on for ' + checked.length + ' checked product(s)? Other products will not be changed.')) {
-        return false;
-    }
-    var form = document.getElementById('pf-order-notice-modal-form');
-    if (!form) return false;
-    var existing = form.querySelector('input[name="order_notice_bulk"]');
-    if (existing) existing.remove();
-    var actionInput = document.createElement('input');
-    actionInput.type = 'hidden';
-    actionInput.name = 'order_notice_bulk';
-    actionInput.value = action;
-    form.appendChild(actionInput);
-    form.submit();
+    pfRunModalNoticeBulk(action);
     return false;
 }
 window.pfPrepareModalNoticeBulk = pfPrepareModalNoticeBulk;
@@ -4468,6 +4795,8 @@ window.openProductModal = function openProductModal(mode, product) {
             if (descEl) descEl.value = product.description || '';
             var orderNoticeEl = document.getElementById('modal-order-information-notice');
             if (orderNoticeEl) orderNoticeEl.value = product.order_information_notice || '';
+            var showNoticeProduct = document.getElementById('modal-notice-show-product');
+            if (showNoticeProduct) showNoticeProduct.checked = String(product.order_information_notice_enabled) === '1';
             pfResetModalNoticeProductChecks(parseInt(product.product_id, 10) || 0);
             var stockEl = document.getElementById('modal-stock');
             if (stockEl) {
@@ -4509,7 +4838,7 @@ window.openProductModal = function openProductModal(mode, product) {
         pfManagerModalSetActive(false);
         var orderNoticeCreateEl = document.getElementById('modal-order-information-notice');
         if (orderNoticeCreateEl) orderNoticeCreateEl.value = '';
-        var orderNoticeEnabledCreateEl = document.getElementById('modal-notice-show-create');
+        var orderNoticeEnabledCreateEl = document.getElementById('modal-notice-show-product');
         if (orderNoticeEnabledCreateEl) orderNoticeEnabledCreateEl.checked = false;
         var orderNoticeEnabledValue = document.getElementById('modal-order-information-notice-enabled-value');
         if (orderNoticeEnabledValue) orderNoticeEnabledValue.value = '0';
@@ -4918,27 +5247,73 @@ function printflowInitProductsPage() {
         productFormNotice.addEventListener('submit', pfSyncNoticeEnabledForProductSave);
     }
 
-    var toggleAllNoticeBtn = document.getElementById('pf-modal-notice-toggle-all');
-    if (toggleAllNoticeBtn && !toggleAllNoticeBtn._pf_bound) {
-        toggleAllNoticeBtn._pf_bound = true;
-        toggleAllNoticeBtn.addEventListener('click', function() {
-            var boxes = document.querySelectorAll('.pf-modal-notice-product-cb');
-            var allChecked = boxes.length > 0 && Array.prototype.every.call(boxes, function(b) { return b.checked; });
-            boxes.forEach(function(b) {
-                b.checked = !allChecked;
-                pfUpdateModalNoticeRowStatus(b);
+    var applyNoticeBtn = document.getElementById('pf-modal-notice-apply-btn');
+    if (applyNoticeBtn && !applyNoticeBtn._pf_bound) {
+        applyNoticeBtn._pf_bound = true;
+        applyNoticeBtn.addEventListener('click', function() { pfRunModalNoticeBulk('apply'); });
+    }
+    var disableNoticeBtn = document.getElementById('pf-modal-notice-disable-btn');
+    if (disableNoticeBtn && !disableNoticeBtn._pf_bound) {
+        disableNoticeBtn._pf_bound = true;
+        disableNoticeBtn.addEventListener('click', function() { pfRunModalNoticeBulk('disable'); });
+    }
+
+    var selectPageNoticeBtn = document.getElementById('pf-modal-notice-select-page');
+    if (selectPageNoticeBtn && !selectPageNoticeBtn._pf_bound) {
+        selectPageNoticeBtn._pf_bound = true;
+        selectPageNoticeBtn.addEventListener('click', function() {
+            var pageIds = window.PF_PRODUCT_NOTICE_PAGE_IDS || [];
+            document.querySelectorAll('.pf-modal-notice-select-cb').forEach(function(cb) {
+                cb.checked = pageIds.indexOf(parseInt(cb.value, 10)) !== -1;
             });
-            toggleAllNoticeBtn.textContent = allChecked ? 'Select all' : 'Clear all';
+            pfUpdateModalNoticeSelectionUi();
         });
     }
 
-    document.querySelectorAll('.pf-modal-notice-product-cb').forEach(function(cb) {
+    var selectAllNoticeBtn = document.getElementById('pf-modal-notice-select-all');
+    if (selectAllNoticeBtn && !selectAllNoticeBtn._pf_bound) {
+        selectAllNoticeBtn._pf_bound = true;
+        selectAllNoticeBtn.addEventListener('click', function() {
+            document.querySelectorAll('.pf-modal-notice-select-cb').forEach(function(cb) {
+                cb.checked = true;
+            });
+            pfUpdateModalNoticeSelectionUi();
+        });
+    }
+
+    var clearNoticeBtn = document.getElementById('pf-modal-notice-clear');
+    if (clearNoticeBtn && !clearNoticeBtn._pf_bound) {
+        clearNoticeBtn._pf_bound = true;
+        clearNoticeBtn.addEventListener('click', function() {
+            document.querySelectorAll('.pf-modal-notice-select-cb').forEach(function(cb) {
+                cb.checked = false;
+            });
+            pfUpdateModalNoticeSelectionUi();
+        });
+    }
+
+    document.querySelectorAll('.pf-modal-notice-select-cb').forEach(function(cb) {
         if (cb._pf_notice_bound) return;
         cb._pf_notice_bound = true;
-        cb.addEventListener('change', function() {
-            pfUpdateModalNoticeRowStatus(cb);
-        });
+        cb.addEventListener('change', pfUpdateModalNoticeSelectionUi);
     });
+
+    var noticeConfirmCancel = document.getElementById('pfNoticeConfirmCancel');
+    if (noticeConfirmCancel && !noticeConfirmCancel._pf_bound) {
+        noticeConfirmCancel._pf_bound = true;
+        noticeConfirmCancel.addEventListener('click', pfCloseNoticeConfirm);
+    }
+    var noticeConfirmOk = document.getElementById('pfNoticeConfirmOk');
+    if (noticeConfirmOk && !noticeConfirmOk._pf_bound) {
+        noticeConfirmOk._pf_bound = true;
+        noticeConfirmOk.addEventListener('click', function() {
+            var cb = _pfNoticeConfirmCallback;
+            pfCloseNoticeConfirm();
+            if (typeof cb === 'function') {
+                cb();
+            }
+        });
+    }
 
     // Description textarea: limit newlines to 5 (idempotent)
     var orderNoticeTextarea = document.getElementById('modal-order-information-notice');
