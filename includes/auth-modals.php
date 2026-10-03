@@ -404,6 +404,52 @@ if (!empty($google_client_id)) {
     .auth-btn-secondary:hover {
         background: rgba(255,255,255,.06);
     }
+    /* Registration modal layout */
+    .auth-modal-register {
+        width: min(880px, 90vw);
+        max-width: 90vw;
+        max-height: 85vh;
+        overflow: hidden;
+    }
+    .auth-modal-register .auth-modal-close {
+        z-index: 3;
+    }
+    .auth-modal-register .auth-modal-scrollable {
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding-right: 4px;
+    }
+    .auth-modal-register .auth-modal-inner {
+        padding: 2rem 2.25rem;
+    }
+    .reg-two-column-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 0.85rem;
+    }
+    .reg-two-column-grid .auth-field {
+        min-width: 0;
+    }
+
+    @media (max-width: 700px) {
+        .auth-modal-register {
+            width: 94vw;
+            max-width: 94vw;
+            max-height: 90vh;
+        }
+        .auth-modal-register .auth-modal-inner {
+            padding: 1.5rem 1rem 1.75rem;
+        }
+        .reg-two-column-grid {
+            grid-template-columns: 1fr;
+            gap: 0.95rem;
+        }
+        .auth-modal-register .auth-btn-submit,
+        .auth-modal-register .auth-btn-google {
+            width: 100%;
+        }
+    }
     @media (max-height: 760px) {
         .auth-modal-register .auth-modal-scrollable {
             overflow-y: auto;
@@ -477,7 +523,7 @@ if (!empty($google_client_id)) {
                 <input type="hidden" name="reg_type" value="direct">
                 <input type="hidden" name="identifier_type" id="reg-h-type" value="email">
 
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;">
+                <div class="reg-two-column-grid reg-personal-grid">
                     <div class="auth-field">
                         <label for="reg-first-name">First Name <span style="color:#dc2626;">*</span></label>
                         <input type="text" id="reg-first-name" name="first_name" placeholder="First name" class="input-field validate-reg-name" maxlength="50" autocomplete="given-name" data-reg-required>
@@ -521,7 +567,7 @@ if (!empty($google_client_id)) {
                         <option value="">Select province</option>
                     </select>
                 </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;">
+                <div class="reg-two-column-grid reg-address-grid">
                     <div class="auth-field">
                         <label for="reg-city">City / Municipality <span style="color:#dc2626;">*</span></label>
                         <select id="reg-city" name="city" class="input-field" data-reg-required disabled>
@@ -1602,7 +1648,7 @@ if (!empty($google_client_id)) {
 
     Array.prototype.slice.call(document.querySelectorAll('#reg-form-final .validate-reg-name')).forEach(function(input) {
         input.addEventListener('input', function() {
-            this.value = this.value.replace(/[^A-Za-z ]/g, '').replace(/ +(?= )/g, '');
+            this.value = this.value.replace(/[^A-Za-z ]/g, '').replace(/\s+/g, ' ');
             this.value = regNormalizeName(this.value);
             regCheckForm(false);
         });
