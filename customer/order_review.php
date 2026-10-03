@@ -417,6 +417,18 @@ if ($review_has_product && $review_has_service) {
 }
 
 $customer    = db_query("SELECT * FROM customers WHERE customer_id = ?", 'i', [$customer_id])[0] ?? [];
+$review_id_state = $review_has_service ? printflow_custom_order_id_status($customer) : ['status' => 'Verified'];
+if ($review_has_service && ($review_id_state['status'] ?? 'None') !== 'Verified') {
+    $review_return_to = 'customer/services.php';
+    foreach ($items_to_review as $review_item) {
+        $review_service_id = (int)($review_item['service_id'] ?? 0);
+        if ($review_service_id > 0) {
+            $review_return_to = 'customer/order_service_dynamic.php?service_id=' . $review_service_id;
+            break;
+        }
+    }
+    printflow_redirect_customer_to_id_verification($customer, $review_return_to);
+}
 $customer_type = $customer['customer_type'] ?? 'new';
 $address_parts = [
     trim((string)($customer['address'] ?? '')),

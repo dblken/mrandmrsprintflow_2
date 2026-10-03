@@ -221,6 +221,7 @@ function pf_review_video_candidates($path, $base_path, $review_id = 0) {
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/customer_profile_completion.php';
+require_once __DIR__ . '/../includes/require_id_verified.php';
 $customer_id = get_user_id();
 
 function pf_customer_absolute_url(string $path, array $query = []): string {
@@ -270,6 +271,25 @@ if (empty($service)) {
 }
 $service = $service[0];
 
+$service_customer = db_query("SELECT * FROM customers WHERE customer_id = ? LIMIT 1", 'i', [$customer_id])[0] ?? [];
+$service_id_state = printflow_custom_order_id_status($service_customer);
+$service_id_status = (string)($service_id_state['status'] ?? 'None');
+$service_id_verified = $service_id_status === 'Verified';
+$service_id_status_label = $service_id_status === 'Pending'
+    ? 'Pending Verification'
+    : ($service_id_status === 'Rejected' ? 'Rejected' : ($service_id_status === 'Verified' ? 'Verified' : 'Not Submitted'));
+$service_id_notice_title = match ($service_id_status) {
+    'Pending' => 'Your ID verification is still pending',
+    'Rejected' => 'ID verification was not approved',
+    default => 'ID verification required before you can continue',
+};
+$service_id_notice_message = match ($service_id_status) {
+    'Pending' => 'You cannot continue with this customizable order yet. Please wait until your verification has been approved.',
+    'Rejected' => 'You cannot continue with this customizable order until you submit a new valid government-issued ID and it has been approved.',
+    default => 'You cannot add this customizable product to your cart or proceed to review until your identity has been verified.',
+};
+$service_id_notice_action = $service_id_status === 'Rejected' ? 'Resubmit ID' : 'Submit ID';
+
 // Check if service has field configuration
 if (!service_has_field_config($service_id)) {
     // Fallback to hardcoded page if exists
@@ -286,7 +306,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     if (isset($_POST['inquire_now'])) {
         $submission_action = 'inquire_now';
     }
-    if (printflow_is_order_submission_action($submission_action)) {
+    if (!$service_id_verified && printflow_is_order_submission_action($submission_action)) {
+        $error = $service_id_notice_message . ' Current status: ' . $service_id_status_label . '.';
+    }
+    if (empty($error) && printflow_is_order_submission_action($submission_action)) {
         printflow_block_order_submission_if_profile_incomplete();
     }
 
@@ -1034,17 +1057,27 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                     
                     <?php echo render_service_fields($service_id, $branches, $existing_data); ?>
                     
+                    <?php if (!$service_id_verified): ?>
+                        <div class="pf-custom-id-gate pf-custom-id-gate--<?php echo strtolower($service_id_status === 'Pending' ? 'pending' : ($service_id_status === 'Rejected' ? 'rejected' : 'required')); ?>" role="alert">
+                            <div>
+                                <strong><?php echo htmlspecialchars($service_id_notice_title, ENT_QUOTES, 'UTF-8'); ?></strong>
+                                <span><?php echo htmlspecialchars($service_id_notice_message, ENT_QUOTES, 'UTF-8'); ?></span>
+                                <span>Current Status: <strong><?php echo htmlspecialchars($service_id_status_label, ENT_QUOTES, 'UTF-8'); ?></strong></span>
+                            </div>
+                            <a href="profile.php#section-security"><?php echo htmlspecialchars($service_id_notice_action, ENT_QUOTES, 'UTF-8'); ?></a>
+                        </div>
+                    <?php endif; ?>
                     <div class="shopee-form-row pt-8 service-action-row">
                         <div style="width: 130px;"></div>
                         <div class="service-action-buttons">
                             <a href="<?php echo BASE_URL; ?>/customer/services.php" class="shopee-btn-outline" style="min-width: 100px;">Back</a>
-                            <button type="submit" name="action" value="add_to_cart" class="shopee-btn-outline" style="min-width: 140px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; padding: 0.5rem 1.25rem;" title="Add to Cart">
+                            <button type="submit" name="action" value="add_to_cart" class="shopee-btn-outline<?php echo $service_id_verified ? '' : ' service-action-disabled'; ?>"<?php echo $service_id_verified ? '' : ' disabled aria-disabled="true"'; ?> style="min-width: 140px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; padding: 0.5rem 1.25rem;" title="Add to Cart">
                                 <svg style="width: 1.125rem; height: 1.125rem; flex-shrink: 0; margin-right: 0.5rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
                                 </svg>
                                 <span>Add to Cart</span>
                             </button>
-                            <button type="submit" name="action" value="inquire_now" class="shopee-btn-primary" style="min-width: 190px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; padding: 0.5rem 1.25rem;">
+                            <button type="submit" name="action" value="inquire_now" class="shopee-btn-primary<?php echo $service_id_verified ? '' : ' service-action-disabled'; ?>"<?php echo $service_id_verified ? '' : ' disabled aria-disabled="true"'; ?> style="min-width: 190px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; padding: 0.5rem 1.25rem;">
                                 <svg style="width: 1.125rem; height: 1.125rem; flex-shrink: 0; margin-right: 0.5rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
                                 </svg>
@@ -1448,6 +1481,14 @@ textarea.notes-textarea::-webkit-resizer { display: none !important; }
 .shopee-form-row { display: flex; gap: 1rem; margin-bottom: 1.5rem; align-items: flex-start; position: relative; flex-wrap: wrap; }
 .shopee-form-label { min-width: 130px; padding-top: 0.5rem; font-size: 0.875rem; font-weight: 600; color: #374151; flex-shrink: 0; overflow-wrap:anywhere; word-break:break-word; }
 .shopee-form-field { flex: 1; position: relative; display: flex !important; flex-direction: column !important; min-width: 0; gap: 4px; }
+    .pf-custom-id-gate { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:1.25rem; padding:1rem 1.1rem; border:1px solid #fed7aa; border-radius:12px; background:#fff7ed; color:#9a3412; }
+    .pf-custom-id-gate > div { display:flex; flex-direction:column; gap:0.2rem; line-height:1.4; }
+    .pf-custom-id-gate strong { color:#7c2d12; }
+    .pf-custom-id-gate a { flex-shrink:0; padding:0.55rem 0.9rem; border-radius:8px; background:#0f766e; color:#fff; font-weight:800; text-decoration:none; }
+    .pf-custom-id-gate--pending { border-color:#bfdbfe; background:#eff6ff; color:#1e40af; }
+    .pf-custom-id-gate--pending strong { color:#1d4ed8; }
+    .service-action-disabled { opacity:0.48; cursor:not-allowed !important; pointer-events:none; }
+    @media (max-width:640px) { .pf-custom-id-gate { align-items:flex-start; flex-direction:column; } .pf-custom-id-gate a { width:100%; text-align:center; } }
 .service-action-row { align-items: center; margin-bottom: 0; }
 .service-action-row > div:first-child { width: 130px; flex: 0 0 130px; }
 .service-action-buttons { flex: 1; display: flex; justify-content: flex-start; align-items: center; gap: 0.75rem; flex-wrap: nowrap; min-width: 0; }

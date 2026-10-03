@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/dynamic_form_helpers.php';
+require_once __DIR__ . '/../includes/require_id_verified.php';
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
@@ -37,6 +38,11 @@ if (empty($product)) {
     exit;
 }
 $product = $product[0];
+
+$dynamic_customer = db_query("SELECT * FROM customers WHERE customer_id = ? LIMIT 1", 'i', [get_user_id()])[0] ?? [];
+if ((printflow_custom_order_id_status($dynamic_customer)['status'] ?? 'None') !== 'Verified') {
+    printflow_redirect_customer_to_id_verification($dynamic_customer, 'customer/order_dynamic.php?product_id=' . $product_id);
+}
 
 // Validate dynamic form config
 $config = db_query("SELECT * FROM service_form_configs WHERE config_id = ? AND product_id = ? AND is_active = 1", 'ii', [$config_id, $product_id]);
