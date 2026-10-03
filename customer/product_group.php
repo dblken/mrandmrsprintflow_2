@@ -377,19 +377,58 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-group-stats .rating-stars svg.pf-star-off { fill: #e5e7eb !important; }
     .pf-group-stats .rating-text { margin-left: 4px; font-weight: 600; font-size: 0.75rem; color: var(--shopee-muted); }
     .pf-group-option {
-        display: flex; gap: 8px; align-items: center; padding: 8px 10px 8px 8px; border-radius: 10px;
-        border: 1px solid var(--shopee-border); cursor: pointer; background: rgba(255, 255, 255, 0.92);
-        transition: border-color 0.2s, box-shadow 0.2s, background 0.2s; min-height: 0;
-        width: 100%; max-width: 100%; box-sizing: border-box;
+        display: block;
+        position: relative;
+        flex: 0 0 auto;
+        width: 72px;
+        padding: 5px;
+        border-radius: 8px;
+        border: 2px solid var(--shopee-border);
+        cursor: pointer;
+        background: rgba(255, 255, 255, 0.92);
+        transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+        min-height: 0;
+        max-width: none;
+        box-sizing: border-box;
+        scroll-snap-align: start;
     }
     .pf-group-option:hover { border-color: rgba(15, 52, 65, 0.28); background: #fff; }
     .pf-group-option.is-active {
-        border-color: rgba(15, 52, 65, 0.5);
+        border-color: #0f6b93;
         background: rgba(255, 255, 255, 1);
-        box-shadow: 0 0 0 1px rgba(15, 52, 65, 0.12), 0 4px 14px rgba(13, 45, 60, 0.08);
+        box-shadow: 0 0 0 1px rgba(15, 107, 147, 0.2), 0 4px 12px rgba(13, 45, 60, 0.1);
     }
-    .pf-group-option img { width: 44px; height: 44px; object-fit: contain; border-radius: 8px; background: #f8fafc; flex-shrink: 0; border: 1px solid rgba(126, 164, 184, 0.12); }
-    .pf-group-option-text { flex: 1; min-width: 0; line-height: 1.3; }
+    .pf-group-option.is-active::after {
+        content: "";
+        position: absolute;
+        right: 4px;
+        bottom: 4px;
+        width: 14px;
+        height: 14px;
+        border-radius: 2px 0 6px 0;
+        background: linear-gradient(135deg, transparent 50%, #0f6b93 50%);
+        pointer-events: none;
+    }
+    .pf-group-option img {
+        display: block;
+        width: 100%;
+        height: 64px;
+        object-fit: contain;
+        border-radius: 6px;
+        background: #f8fafc;
+        border: none;
+    }
+    .pf-group-option-text {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
     .pf-group-option-name { font-weight: 700; font-size: 0.78rem; color: #173042; overflow-wrap: anywhere; word-break: break-word; }
     .pf-group-option-meta { font-size: 0.68rem; color: #64748b; margin-top: 2px; }
 
@@ -483,18 +522,20 @@ require_once __DIR__ . '/../includes/header.php';
 
     .pf-group-options {
         display: flex;
-        flex-direction: column;
-        gap: 6px;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        align-items: stretch;
+        gap: 8px;
         width: 100%;
         min-width: 0;
+        max-width: 100%;
         flex: 0 0 auto;
-        height: auto;
-        max-height: none;
-        overflow-y: visible;
-    }
-    .pf-group-options:has(.pf-group-option:nth-child(5)) {
-        max-height: min(280px, 45vh);
-        overflow-y: auto;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 2px 2px 6px;
+        -webkit-overflow-scrolling: touch;
+        scroll-snap-type: x proximity;
+        box-sizing: border-box;
     }
     .pf-group-back { color: #0f3441; font-weight: 600; text-decoration: none; font-size: 0.875rem; }
     .pf-group-selection .shopee-footer {
@@ -700,6 +741,9 @@ require_once __DIR__ . '/../includes/header.php';
                         $stockLabel = $stockQty > 0 ? ($stockQty . ' in stock') : 'Out of stock';
                         ?>
                         <div class="pf-group-option<?php echo $pid === $selectedId ? ' is-active' : ''; ?>"
+                             role="button"
+                             tabindex="0"
+                             aria-label="<?php echo htmlspecialchars($opt['name'], ENT_QUOTES); ?>"
                              data-product-id="<?php echo $pid; ?>"
                              data-name="<?php echo htmlspecialchars($opt['name'], ENT_QUOTES); ?>"
                              data-price="<?php echo htmlspecialchars(number_format($opt['price'], 2, '.', ''), ENT_QUOTES); ?>"
