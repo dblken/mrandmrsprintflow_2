@@ -207,7 +207,7 @@ require_once __DIR__ . '/../includes/header.php';
         --shopee-text: #173042;
         --shopee-muted: #688092;
         --shopee-border: rgba(126, 164, 184, 0.24);
-        --pf-group-content-max: 880px;
+        --pf-group-content-max: 1040px;
     }
     .pf-group-page {
         max-width: var(--pf-group-content-max);
@@ -227,7 +227,7 @@ require_once __DIR__ . '/../includes/header.php';
     }
     .pf-group-selection-inner {
         display: grid;
-        grid-template-columns: minmax(0, 0.44fr) minmax(0, 0.56fr);
+        grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
         align-items: stretch;
     }
     @media (max-width: 900px) {
@@ -235,37 +235,31 @@ require_once __DIR__ . '/../includes/header.php';
             grid-template-columns: 1fr;
             grid-template-rows: auto auto;
         }
-        .pf-group-selection-options {
+        .pf-group-selection-sidebar {
             border-left: none;
             border-top: 1px solid rgba(126, 164, 184, 0.18);
-            height: auto;
-            min-height: 0;
         }
-        .pf-group-selection-main {
-            height: auto;
-            min-height: 0;
-        }
-        .pf-group-selection .pf-group-options-actions {
-            margin-top: 12px;
+        .pf-group-options {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
         }
     }
-    .pf-group-selection-main {
+    @media (max-width: 640px) {
+        .pf-group-options {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+    .pf-group-selection-grid {
         min-width: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-        height: 100%;
-        min-height: 100%;
+        padding: 14px 16px 16px;
+        box-sizing: border-box;
     }
-    .pf-group-selection-options {
+    .pf-group-selection-sidebar {
         min-width: 0;
         display: flex;
         flex-direction: column;
         padding: 14px 16px 14px;
         border-left: 1px solid rgba(126, 164, 184, 0.18);
         background: rgba(248, 250, 252, 0.55);
-        height: 100%;
-        min-height: 100%;
         box-sizing: border-box;
         gap: 0;
     }
@@ -277,36 +271,13 @@ require_once __DIR__ . '/../includes/header.php';
         letter-spacing: 0.08em;
         margin: 0 0 10px;
     }
-    .pf-group-hero-img {
-        display: block;
-        max-width: 100%;
-        max-height: 100%;
-        width: auto;
-        height: auto;
-        object-fit: contain;
-        background: transparent;
-        border: none;
-    }
-    .pf-group-img-wrap {
-        align-self: center;
-        width: min(100%, 240px);
-        max-width: 240px;
-        aspect-ratio: 3 / 4;
-        max-height: min(360px, 52vh);
-        min-height: 0;
-        overflow: hidden;
-        background: #f1f5f9;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: none;
-        border-bottom: 1px solid rgba(126, 164, 184, 0.14);
-        box-sizing: border-box;
-        padding: 8px;
-        margin: 0 auto;
-    }
     .pf-group-detail-body {
-        padding: 12px 16px 14px; flex: 0 0 auto; display: flex; flex-direction: column; min-width: 0; gap: 0;
+        padding: 0 0 8px;
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        gap: 0;
     }
     .pf-group-selected-label {
         font-size: 0.58rem; font-weight: 700; color: #477089; text-transform: uppercase; letter-spacing: 0.08em; line-height: 1.2;
@@ -325,24 +296,41 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-group-stats .rating-stars svg.pf-star-off { fill: #e5e7eb !important; }
     .pf-group-stats .rating-text { margin-left: 4px; font-weight: 600; font-size: 0.75rem; color: var(--shopee-muted); }
     .pf-group-option {
-        display: flex; gap: 8px; align-items: center; padding: 8px 10px 8px 8px; border-radius: 10px;
-        border: 1px solid var(--shopee-border); cursor: pointer; background: rgba(255, 255, 255, 0.92);
-        transition: border-color 0.2s, box-shadow 0.2s, background 0.2s; min-height: 0;
-        width: 100%; max-width: 100%; box-sizing: border-box;
+        display: block;
+        padding: 6px;
+        border-radius: 10px;
+        border: 2px solid var(--shopee-border);
+        cursor: pointer;
+        background: rgba(255, 255, 255, 0.92);
+        transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+        min-height: 0;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        aspect-ratio: 1;
+        overflow: hidden;
     }
     .pf-group-option:hover { border-color: rgba(15, 52, 65, 0.28); background: #fff; }
     .pf-group-option.is-active {
-        border-color: rgba(15, 52, 65, 0.5);
+        border-color: rgba(15, 52, 65, 0.55);
         background: rgba(255, 255, 255, 1);
         box-shadow: 0 0 0 1px rgba(15, 52, 65, 0.12), 0 4px 14px rgba(13, 45, 60, 0.08);
     }
-    .pf-group-option img { width: 44px; height: 44px; object-fit: contain; border-radius: 8px; background: #f8fafc; flex-shrink: 0; border: 1px solid rgba(126, 164, 184, 0.12); }
-    .pf-group-option-text { flex: 1; min-width: 0; line-height: 1.3; }
-    .pf-group-option-name { font-weight: 700; font-size: 0.78rem; color: #173042; overflow-wrap: anywhere; word-break: break-word; }
-    .pf-group-option-meta { font-size: 0.68rem; color: #64748b; margin-top: 2px; }
+    .pf-group-option img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        border-radius: 6px;
+        background: #f8fafc;
+        border: none;
+    }
+    .pf-group-option-text {
+        display: none !important;
+    }
 
     .pf-group-order-fields {
-        margin-top: 14px;
+        margin-top: 12px;
         padding-top: 12px;
         border-top: 1px dashed rgba(126, 164, 184, 0.35);
         display: grid;
@@ -430,19 +418,13 @@ require_once __DIR__ . '/../includes/header.php';
     }
 
     .pf-group-options {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
         width: 100%;
         min-width: 0;
-        flex: 0 0 auto;
-        height: auto;
         max-height: none;
-        overflow-y: visible;
-    }
-    .pf-group-options:has(.pf-group-option:nth-child(5)) {
-        max-height: min(280px, 45vh);
-        overflow-y: auto;
+        overflow: visible;
     }
     .pf-group-back { color: #0f3441; font-weight: 600; text-decoration: none; font-size: 0.875rem; }
     .pf-group-selection .shopee-footer {
@@ -536,11 +518,6 @@ require_once __DIR__ . '/../includes/header.php';
             justify-content: center;
             text-align: center;
         }
-        .pf-group-img-wrap {
-            width: min(100%, 220px);
-            max-width: 220px;
-            max-height: min(320px, 48vh);
-        }
     }
     .pf-group-reviews {
         margin-top: 1.25rem;
@@ -601,10 +578,33 @@ require_once __DIR__ . '/../includes/header.php';
 
     <div class="pf-group-selection" role="region" aria-label="Product selection">
         <div class="pf-group-selection-inner">
-            <div class="pf-group-selection-main">
-                <div class="pf-group-img-wrap">
-                    <img id="pf-group-main-image" class="pf-group-hero-img" src="<?php echo htmlspecialchars($cover); ?>" alt="">
+            <div class="pf-group-selection-grid">
+                <h2 class="pf-group-options-heading">Available options</h2>
+                <div class="pf-group-options" id="pf-group-options">
+                    <?php foreach ($options as $opt):
+                        $pid = (int) $opt['product_id'];
+                        $ps = $productStatsMap[$pid] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
+                        $stockQty = (int) $opt['stock_quantity'];
+                        ?>
+                        <div class="pf-group-option<?php echo $pid === $selectedId ? ' is-active' : ''; ?>"
+                             role="button"
+                             tabindex="0"
+                             aria-label="<?php echo htmlspecialchars($opt['name'], ENT_QUOTES); ?>"
+                             data-product-id="<?php echo $pid; ?>"
+                             data-name="<?php echo htmlspecialchars($opt['name'], ENT_QUOTES); ?>"
+                             data-price="<?php echo htmlspecialchars(number_format($opt['price'], 2, '.', ''), ENT_QUOTES); ?>"
+                             data-stock="<?php echo $stockQty; ?>"
+                             data-image="<?php echo htmlspecialchars($opt['image_url'], ENT_QUOTES); ?>"
+                             data-avg-rating="<?php echo htmlspecialchars(number_format((float) $ps['avg_rating'], 2, '.', ''), ENT_QUOTES); ?>"
+                             data-review-count="<?php echo (int) ($ps['review_count'] ?? 0); ?>"
+                             data-sold-count="<?php echo (int) ($ps['sold_count'] ?? 0); ?>"
+                             data-has-variant="<?php echo !empty($opt['has_variant_stock']) ? '1' : '0'; ?>">
+                            <img src="<?php echo htmlspecialchars($opt['image_url']); ?>" alt="">
+                        </div>
+                    <?php endforeach; ?>
                 </div>
+            </div>
+            <div class="pf-group-selection-sidebar">
                 <div class="pf-group-detail-body">
                     <div class="pf-group-selected-label">Selected option</div>
                     <div id="pf-group-selected-name" class="pf-group-selected-name">—</div>
@@ -648,35 +648,6 @@ require_once __DIR__ . '/../includes/header.php';
                             <div id="pf-group-qty-error" class="field-error" hidden></div>
                         </div>
                     </div>
-
-                </div>
-            </div>
-            <div class="pf-group-selection-options">
-                <h2 class="pf-group-options-heading">Available options</h2>
-                <div class="pf-group-options" id="pf-group-options">
-                    <?php foreach ($options as $opt):
-                        $pid = (int) $opt['product_id'];
-                        $ps = $productStatsMap[$pid] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
-                        $stockQty = (int) $opt['stock_quantity'];
-                        $stockLabel = $stockQty > 0 ? ($stockQty . ' in stock') : 'Out of stock';
-                        ?>
-                        <div class="pf-group-option<?php echo $pid === $selectedId ? ' is-active' : ''; ?>"
-                             data-product-id="<?php echo $pid; ?>"
-                             data-name="<?php echo htmlspecialchars($opt['name'], ENT_QUOTES); ?>"
-                             data-price="<?php echo htmlspecialchars(number_format($opt['price'], 2, '.', ''), ENT_QUOTES); ?>"
-                             data-stock="<?php echo $stockQty; ?>"
-                             data-image="<?php echo htmlspecialchars($opt['image_url'], ENT_QUOTES); ?>"
-                             data-avg-rating="<?php echo htmlspecialchars(number_format((float) $ps['avg_rating'], 2, '.', ''), ENT_QUOTES); ?>"
-                             data-review-count="<?php echo (int) ($ps['review_count'] ?? 0); ?>"
-                             data-sold-count="<?php echo (int) ($ps['sold_count'] ?? 0); ?>"
-                             data-has-variant="<?php echo !empty($opt['has_variant_stock']) ? '1' : '0'; ?>">
-                            <img src="<?php echo htmlspecialchars($opt['image_url']); ?>" alt="">
-                            <div class="pf-group-option-text">
-                                <div class="pf-group-option-name"><?php echo htmlspecialchars($opt['name']); ?></div>
-                                <div class="pf-group-option-meta"><?php echo format_currency($opt['price']); ?> · <?php echo htmlspecialchars($stockLabel); ?></div>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
                 </div>
                 <div class="shopee-footer pf-group-options-actions">
                     <span id="pf-group-action-price" class="pf-group-action-price">&mdash;</span>
@@ -1084,7 +1055,6 @@ function pfSelectGroupOption(el) {
     var reviewCount = el.getAttribute('data-review-count') || '0';
     var soldCount = el.getAttribute('data-sold-count') || '0';
     var formattedPrice = pfFormatMoney(price);
-    document.getElementById('pf-group-main-image').src = img;
     document.getElementById('pf-group-selected-name').textContent = name;
     document.getElementById('pf-group-action-price').textContent = formattedPrice;
     pfRenderStatsStars(avgRating, reviewCount);
