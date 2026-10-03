@@ -3744,7 +3744,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             <div class="receipt-customer-name">${escapeHtml(customer.name || 'Walk-in Guest')}</div>
                             ${receiptContact ? `<div class="receipt-value" style="margin-top:4px;">${escapeHtml(receiptContact)}</div>` : ''}
                         </div>
-                        <div class="receipt-payment-chip">${escapeHtml(payment.method || 'Cash')}</div>
                     </div>
                 </div>
 

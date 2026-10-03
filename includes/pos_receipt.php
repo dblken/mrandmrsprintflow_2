@@ -34,8 +34,7 @@ function printflow_pos_receipt_item_name(array $item): string {
     $customization = json_decode((string)($item['customization_data'] ?? ''), true);
     $customization = is_array($customization) ? $customization : [];
     $name = trim((string)($customization['service_type'] ?? $customization['product_type'] ?? $item['product_name'] ?? 'Item'));
-    $size = trim((string)($customization['size'] ?? $customization['dimensions'] ?? ''));
-    return $size !== '' ? $name . ' (' . $size . ')' : $name;
+    return $name !== '' ? $name : 'Item';
 }
 
 function printflow_pos_build_receipt(int $orderId, float $amountTendered = 0.0, array $linkedOrderIds = []): array {

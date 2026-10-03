@@ -996,10 +996,9 @@ function pos_extract_order_item_display_name(array $item): string {
 
     $serviceType = trim((string)($customization['service_type'] ?? ''));
     $productType = trim((string)($customization['product_type'] ?? ''));
-    $size = trim((string)($customization['size'] ?? $customization['dimensions'] ?? ''));
     $baseName = $serviceType !== '' ? $serviceType : ($productType !== '' ? $productType : $fallback);
 
-    return $size !== '' ? ($baseName . ' (' . $size . ')') : ($baseName !== '' ? $baseName : 'Item');
+    return $baseName !== '' ? $baseName : 'Item';
 }
 
 function pos_checkout_group_total(array $groupItems, array $products_cache): float
