@@ -15,6 +15,7 @@ require_once __DIR__ . '/ensure_order_source_column.php'; // Ensure order_source
 require_once __DIR__ . '/order_items_persistence.php';
 require_once __DIR__ . '/image_optimizer.php';
 require_once __DIR__ . '/customer_catalog_perf.php';
+require_once __DIR__ . '/notification_images.php';
 
 // Global Environment Detection
 if (!defined('BASE_PATH')) {
@@ -197,7 +198,20 @@ function send_sms($phone, $message) {
  * @param bool $send_sms Whether to send SMS
  * @return bool|int
  */
-function create_notification($user_id, $user_type, $message, $type = 'System', $send_email = false, $send_sms = false, $data_id = null) {
+function printflow_ensure_notification_review_id_column(): void {
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+    try {
+        if (empty(db_query("SHOW COLUMNS FROM notifications LIKE 'review_id'"))) {
+            db_execute("ALTER TABLE notifications ADD COLUMN review_id INT DEFAULT NULL AFTER data_id");
+        }
+    } catch (Throwable $e) {
+        error_log('Unable to ensure notifications.review_id: ' . $e->getMessage());
+    }
+}
+
+function create_notification($user_id, $user_type, $message, $type = 'System', $send_email = false, $send_sms = false, $data_id = null, $review_id = null) {
     // ── Pre-check ENUM ───────────────────────────────────────────────────────
     static $enums_checked = false;
     if (!$enums_checked) {
@@ -230,6 +244,10 @@ function create_notification($user_id, $user_type, $message, $type = 'System', $
                 db_execute("ALTER TABLE notifications ADD COLUMN data_id INT DEFAULT 0 AFTER type");
             }
 
+            // Review notifications need both the order and the exact review
+            // so the customer can open the reply without an intermediate page.
+            printflow_ensure_notification_review_id_column();
+
             // Ensure is_read, send_email, send_sms exist
             $has_is_read = db_query("SHOW COLUMNS FROM notifications LIKE 'is_read'");
             if (empty($has_is_read)) {
@@ -252,6 +270,7 @@ function create_notification($user_id, $user_type, $message, $type = 'System', $
     $safe_type = trim((string)$type);
     $safe_message = trim((string)$message);
     $safe_data_id = ($data_id === null || $data_id === '') ? 0 : (int)$data_id;
+    $safe_review_id = ($review_id === null || $review_id === '') ? 0 : (int)$review_id;
 
     // Guard against accidental duplicate inserts fired within a few seconds.
     if ($customer_id !== null) {
@@ -262,11 +281,12 @@ function create_notification($user_id, $user_type, $message, $type = 'System', $
                AND type = ?
                AND message = ?
                AND COALESCE(data_id, 0) = ?
+               AND COALESCE(review_id, 0) = ?
                AND created_at >= (NOW() - INTERVAL 20 SECOND)
              ORDER BY notification_id DESC
              LIMIT 1",
-            'issi',
-            [$customer_id, $safe_type, $safe_message, $safe_data_id]
+            'issii',
+            [$customer_id, $safe_type, $safe_message, $safe_data_id, $safe_review_id]
         );
         if (!empty($dup)) {
             return (int)($dup[0]['notification_id'] ?? 0);
@@ -279,26 +299,28 @@ function create_notification($user_id, $user_type, $message, $type = 'System', $
                AND type = ?
                AND message = ?
                AND COALESCE(data_id, 0) = ?
+               AND COALESCE(review_id, 0) = ?
                AND created_at >= (NOW() - INTERVAL 20 SECOND)
              ORDER BY notification_id DESC
              LIMIT 1",
-            'iisi',
-            [$staff_user_id, $safe_type, $safe_message, $safe_data_id]
+            'iisii',
+            [$staff_user_id, $safe_type, $safe_message, $safe_data_id, $safe_review_id]
         );
         if (!empty($dup)) {
             return (int)($dup[0]['notification_id'] ?? 0);
         }
     }
     
-    $sql = "INSERT INTO notifications (user_id, customer_id, message, type, data_id, is_read, send_email, send_sms) 
-            VALUES (?, ?, ?, ?, ?, 0, ?, ?)";
+    $sql = "INSERT INTO notifications (user_id, customer_id, message, type, data_id, review_id, is_read, send_email, send_sms)
+            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)";
     
-    $result = db_execute($sql, 'iissiii', [
+    $result = db_execute($sql, 'iissiiii', [
         $staff_user_id,
         $customer_id,
         $safe_message,
         $safe_type,
         $safe_data_id,
+        $safe_review_id,
         $send_email ? 1 : 0,
         $send_sms ? 1 : 0
     ]);
@@ -329,7 +351,10 @@ function create_notification($user_id, $user_type, $message, $type = 'System', $
             require_once $push_helper;
             if (function_exists('push_dispatch_user') && function_exists('push_url_for_type')) {
                 $push_url = push_url_for_type($type, $data_id, $user_type);
-                $push_media = printflow_push_media_payload((string)$type, $data_id, (string)$message);
+                $push_media = printflow_push_media_payload((string)$type, $data_id, (string)$message, [
+                    'customer_id' => $customer_id, 'user_id' => $staff_user_id,
+                    'review_id' => $safe_review_id, 'created_at' => date('Y-m-d H:i:s'),
+                ]);
                 $push_title = printflow_push_title_for_notification((string)$type, (string)$message, (string)$user_type);
                 if ($type === 'System' && $data_id !== null && $data_id !== '' && (int)$data_id > 0) {
                     $ml = strtolower((string)$message);
@@ -398,7 +423,7 @@ function create_notification($user_id, $user_type, $message, $type = 'System', $
 /**
  * Notify activated shop users and use each user's role for push subscription matching.
  */
-function notify_shop_users(string $message, string $type = 'System', bool $send_email = false, bool $send_sms = false, $data_id = null, array $roles = ['Staff', 'Admin', 'Manager']): void {
+function notify_shop_users(string $message, string $type = 'System', bool $send_email = false, bool $send_sms = false, $data_id = null, array $roles = ['Staff', 'Admin', 'Manager'], $review_id = null): void {
     $allowed_roles = ['Staff', 'Admin', 'Manager'];
     $roles = array_values(array_unique(array_intersect($roles, $allowed_roles)));
     if (empty($roles)) {
@@ -450,7 +475,7 @@ function notify_shop_users(string $message, string $type = 'System', bool $send_
             }
         }
 
-        create_notification((int)$u['user_id'], $role, $message, $type, $send_email, $send_sms, $data_id);
+        create_notification((int)$u['user_id'], $role, $message, $type, $send_email, $send_sms, $data_id, $review_id);
     }
 }
 
@@ -861,6 +886,22 @@ function printflow_notification_is_revision_submission(array $notification): boo
     return false;
 }
 
+function printflow_review_notification_debug(array $notification, array $context = []): void {
+    $env = strtolower(trim((string)(getenv('APP_ENV') ?: '')));
+    if (getenv('PRINTFLOW_NOTIFICATION_DEBUG') !== '1' && !in_array($env, ['dev', 'development', 'local'], true)) return;
+    $type = strtolower(trim((string)($notification['type'] ?? '')));
+    $message = strtolower((string)($notification['message'] ?? ''));
+    if ($type !== 'rating' && $type !== 'review' && strpos($message, 'review') === false && strpos($message, 'rating') === false) return;
+    $payload = array_merge([
+        'notification_id' => (int)($notification['notification_id'] ?? $notification['id'] ?? 0),
+        'type' => (string)($notification['type'] ?? ''),
+        'review_id' => (int)($notification['review_id'] ?? 0),
+        'order_id' => (int)($notification['data_id'] ?? 0),
+        'order_item_id' => (int)($notification['order_item_id'] ?? 0),
+    ], $context);
+    error_log('[PrintFlow review_notification] ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+}
+
 function staff_notification_target_url(array $n): string {
     $base = printflow_notification_base_path();
     $msg = isset($n['message']) ? (string)$n['message'] : '';
@@ -868,6 +909,9 @@ function staff_notification_target_url(array $n): string {
     $type = strtolower((string)($n['type'] ?? ''));
     $data_id = isset($n['data_id']) && $n['data_id'] !== null && $n['data_id'] !== ''
         ? (int)$n['data_id']
+        : 0;
+    $review_id = isset($n['review_id']) && $n['review_id'] !== null && $n['review_id'] !== ''
+        ? (int)$n['review_id']
         : 0;
 
     // Revision messages often end in "Review is required". They are order
@@ -882,7 +926,11 @@ function staff_notification_target_url(array $n): string {
         ((stripos($msg, 'rating') !== false || stripos($msg, 'review') !== false) && stripos($msg, 'design') === false)
     );
     if ($is_rating) {
-        return $base . '/staff/reviews.php';
+        $query = $review_id > 0 ? '?review_id=' . $review_id : '';
+        if ($data_id > 0) $query .= ($query === '' ? '?' : '&') . 'order_id=' . $data_id;
+        $target = $base . '/staff/reviews.php' . $query;
+        printflow_review_notification_debug($n, ['target_url' => $target, 'opened_state' => 'server_target']);
+        return $target;
     }
 
     if ($type === 'system') {
@@ -2073,12 +2121,13 @@ function get_customer_notifications_for_display($customer_id, $limit = 10, $offs
     $offset = max(0, (int)$offset);
     $base = defined('BASE_URL') ? BASE_URL : '/printflow';
     $default_image = printflow_notification_placeholder_image_url();
+    printflow_ensure_notification_review_id_column();
     if ($default_image === '') {
         $default_image = printflow_notification_normalize_media_url($base . '/public/assets/uploads/profiles/default.png');
     }
 
     $rows = db_query(
-        "SELECT notification_id, customer_id, message, type, data_id, is_read, created_at
+        "SELECT notification_id, customer_id, message, type, data_id, review_id, is_read, created_at
          FROM notifications
          WHERE customer_id = ?
          ORDER BY created_at DESC
@@ -2119,7 +2168,7 @@ function get_customer_notifications_for_display($customer_id, $limit = 10, $offs
             'time_ago' => !empty($row['created_at']) ? time_ago((string)$row['created_at']) : '',
             'link' => $link,
             'image' => $image,
-            'fallback' => $default_image,
+            'fallback' => printflow_notification_is_message($row) ? pf_default_profile_image_url() : $default_image,
         ];
     }
 
@@ -2336,11 +2385,96 @@ function customer_notification_title($type, $message, array $notification = []) 
     return 'Notification';
 }
 
+function printflow_customer_review_catalog_target(array $notification): string {
+    $base = printflow_notification_base_path();
+    $order_id = (int)($notification['data_id'] ?? 0);
+    $review_id = (int)($notification['review_id'] ?? 0);
+
+    if ($review_id > 0 && $order_id <= 0) {
+        $reviewRows = db_query('SELECT order_id FROM reviews WHERE id = ? LIMIT 1', 'i', [$review_id]) ?: [];
+        $order_id = (int)($reviewRows[0]['order_id'] ?? 0);
+    }
+    if ($order_id <= 0) {
+        return '';
+    }
+    if ($review_id <= 0) {
+        $reviewRows = db_query('SELECT id FROM reviews WHERE order_id = ? ORDER BY id DESC LIMIT 1', 'i', [$order_id]) ?: [];
+        $review_id = (int)($reviewRows[0]['id'] ?? 0);
+    }
+
+    $hasItemType = function_exists('db_table_has_column') && db_table_has_column('order_items', 'item_type');
+    $hasServiceId = function_exists('db_table_has_column') && db_table_has_column('order_items', 'service_id');
+    $itemTypeExpr = $hasItemType ? 'oi.item_type' : "'' AS item_type";
+    $serviceIdExpr = $hasServiceId ? 'oi.service_id' : '0 AS service_id';
+    $rows = db_query(
+        "SELECT oi.product_id, {$itemTypeExpr}, {$serviceIdExpr}, oi.customization_data,
+                p.name AS product_name, o.order_type, o.reference_id,
+                (SELECT jo.job_title FROM job_orders jo WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1) AS first_job_title,
+                (SELECT jo.service_type FROM job_orders jo WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1) AS first_job_service_type,
+                (SELECT c.service_type FROM customizations c WHERE c.order_id = o.order_id ORDER BY c.customization_id ASC LIMIT 1) AS first_customization_service_type
+         FROM order_items oi
+         LEFT JOIN products p ON p.product_id = oi.product_id
+         JOIN orders o ON o.order_id = oi.order_id
+         WHERE oi.order_id = ?
+         ORDER BY oi.order_item_id ASC
+         LIMIT 1",
+        'i', [$order_id]
+    ) ?: [];
+    if (empty($rows[0])) {
+        return '';
+    }
+
+    $item = $rows[0];
+    $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+    if (is_array($custom) && trim((string)($custom['service_type'] ?? '')) === '') {
+        $legacyServiceName = trim((string)($item['first_customization_service_type'] ?? $item['first_job_service_type'] ?? ''));
+        if ($legacyServiceName !== '') {
+            $custom['service_type'] = $legacyServiceName;
+        }
+    }
+    $identity = printflow_resolve_order_line_identity(
+        $item,
+        $item,
+        is_array($custom) ? $custom : []
+    );
+    $kind = strtolower((string)($identity['item_type'] ?? ''));
+    if ($kind === 'product') {
+        $product_id = (int)($identity['product_id'] ?? 0);
+        if ($product_id <= 0 && strtolower(trim((string)($item['order_type'] ?? ''))) === 'product') {
+            $product_id = (int)($item['reference_id'] ?? 0);
+        }
+        if ($product_id <= 0) {
+            return '';
+        }
+        $target = $base . '/customer/order_create.php?product_id=' . $product_id;
+    } elseif ($kind === 'service') {
+        $service_id = (int)($identity['service_id'] ?? 0);
+        if ($service_id <= 0) {
+            foreach ([$item['first_customization_service_type'] ?? '', $item['first_job_service_type'] ?? '', $custom['service_type'] ?? ''] as $serviceName) {
+                $service_id = printflow_resolve_service_catalog_service_id((string)$serviceName);
+                if ($service_id > 0) break;
+            }
+        }
+        if ($service_id <= 0) {
+            return '';
+        }
+        $target = $base . '/customer/order_service_dynamic.php?service_id=' . $service_id;
+    } else {
+        return '';
+    }
+
+    if ($review_id > 0) {
+        $target .= '&review_id=' . $review_id;
+    }
+    return $target . '#poc-reviews-container';
+}
+
 function customer_notification_target_url(array $notification) {
     $base = printflow_notification_base_path();
     $type = (string)($notification['type'] ?? '');
     $message = (string)($notification['message'] ?? '');
     $data_id = (int)($notification['data_id'] ?? 0);
+    $review_id = (int)($notification['review_id'] ?? 0);
     $message_l = strtolower($message);
 
     if (strpos($message_l, 'support chat') !== false || strpos($message_l, 'chatbot') !== false) {
@@ -2351,8 +2485,16 @@ function customer_notification_target_url(array $notification) {
         if ($type === 'Message' || strpos($message_l, 'message') !== false || strpos($message_l, 'chat') !== false) {
             return $base . '/customer/chat.php?order_id=' . $data_id;
         }
-        if ($type === 'Rating' || $type === 'Review' || strpos($message_l, 'rate your') !== false || strpos($message_l, 'rate here') !== false) {
-            return $base . '/customer/rate_order.php?order_id=' . $data_id;
+        if ($type === 'Rating' || $type === 'Review' || strpos($message_l, 'rate your') !== false || strpos($message_l, 'rate here') !== false || strpos($message_l, 'replied to your review') !== false) {
+            $catalogTarget = printflow_customer_review_catalog_target($notification);
+            if ($catalogTarget !== '') {
+                printflow_review_notification_debug($notification, ['target_url' => $catalogTarget, 'opened_state' => 'catalog_target']);
+                return $catalogTarget;
+            }
+            $target = $base . '/customer/reviews.php?order_id=' . $data_id;
+            if ($review_id > 0) $target .= '&review_id=' . $review_id;
+            printflow_review_notification_debug($notification, ['target_url' => $target, 'opened_state' => 'server_target']);
+            return $target;
         }
         // Payment-related: check live order status — if To Pay, send directly to payment page
         $is_payment_msg = (
@@ -2390,52 +2532,23 @@ function customer_notification_target_url(array $notification) {
 }
 
 /**
- * Resolve the thumbnail URL for a customer notification (order/design preview, uploaded ID photo, etc.).
+ * Resolve live catalog art or sender avatars for customer notifications.
  *
  * @param array<string,mixed> $notification
  */
 function customer_notification_image_url(array $notification, string $fallback, ?int $viewer_customer_id = null): string {
-    $resolved_fallback = trim($fallback);
-    if ($resolved_fallback === '') {
-        $resolved_fallback = printflow_notification_placeholder_image_url();
+    if (printflow_notification_is_message($notification)) return printflow_notification_sender_image($notification);
+    $type = strtolower(trim((string)($notification['type'] ?? '')));
+    $message = strtolower((string)($notification['message'] ?? ''));
+    $fallback = $fallback ?: printflow_notification_placeholder_image_url();
+    if (customer_notification_should_use_id_image_thumbnail($message)) {
+        return printflow_customer_id_notification_image_url($viewer_customer_id ?? (int)($notification['customer_id'] ?? 0), $fallback);
     }
-    if ($resolved_fallback === '') {
-        $resolved_fallback = printflow_notification_normalize_media_url(
-            printflow_notification_base_path() . '/public/assets/uploads/profiles/default.png'
-        );
+    if (in_array($type, ['order', 'new order', 'status', 'design', 'customization', 'payment', 'payment issue', 'job order', 'rating', 'review'], true)) {
+        $resolved = printflow_resolve_official_catalog_image_for_notification($notification, $fallback);
+        return (string)$resolved['image_url'];
     }
-
-    $data_id = (int)($notification['data_id'] ?? 0);
-    $type = strtolower((string)($notification['type'] ?? ''));
-    $message = (string)($notification['message'] ?? '');
-    $message_l = strtolower($message);
-
-    $order_hint = $data_id;
-    if ($order_hint <= 0 && preg_match('/order\s*#?(\d+)/i', $message, $om)) {
-        $order_hint = (int)$om[1];
-    }
-
-    if ($type === 'job order' && $data_id > 0) {
-        $preview = printflow_job_notification_preview($data_id);
-        $img = trim((string)($preview['image_url'] ?? ''));
-        return printflow_notification_normalize_media_url($img !== '' ? $img : $resolved_fallback);
-    }
-
-    if ($data_id > 0 || $order_hint > 0) {
-        $oid = $data_id > 0 ? $data_id : $order_hint;
-        $preview = printflow_order_notification_preview($oid);
-        $img = trim((string)($preview['image_url'] ?? ''));
-        return printflow_notification_normalize_media_url($img !== '' ? $img : $resolved_fallback);
-    }
-
-    $cid = $viewer_customer_id ?? (int)($notification['customer_id'] ?? 0);
-    if ($cid > 0 && customer_notification_should_use_id_image_thumbnail($message_l)) {
-        $id_thumb = trim((string)printflow_customer_id_notification_image_url($cid, ''));
-
-        return printflow_notification_normalize_media_url($id_thumb !== '' ? $id_thumb : $resolved_fallback);
-    }
-
-    return printflow_notification_normalize_media_url($resolved_fallback);
+    return printflow_notification_normalize_media_url($fallback);
 }
 
 /**
@@ -2443,6 +2556,19 @@ function customer_notification_image_url(array $notification, string $fallback, 
  */
 function customer_notification_should_use_id_image_thumbnail(string $message_l): bool {
     return customer_notification_is_id_verification_message($message_l);
+}
+
+/**
+ * Resolve notification images from the current official catalog state.
+ * Historical rows intentionally do not trust any previously saved thumbnail.
+ */
+function printflow_resolve_official_catalog_image_for_notification(array $notification, string $fallback): array {
+    $resolved = printflow_notification_catalog_context($notification, printflow_notification_normalize_media_url($fallback));
+    printflow_review_notification_debug($notification, $resolved + [
+        'old_image_url' => (string)($notification['image_url'] ?? $notification['image'] ?? $notification['thumbnail'] ?? ''),
+        'opened_state' => 'image_resolved',
+    ]);
+    return $resolved;
 }
 
 
@@ -2472,7 +2598,7 @@ function printflow_push_title_for_notification(string $type, string $message, st
     return 'PrintFlow';
 }
 
-function printflow_push_media_payload(string $type, $data_id, string $message): array {
+function printflow_push_media_payload(string $type, $data_id, string $message, array $context = []): array {
     $fallback = '';
     if (function_exists('push_logo_url')) {
         $fallback = (string)push_logo_url();
@@ -2481,17 +2607,15 @@ function printflow_push_media_payload(string $type, $data_id, string $message): 
     $data_id = (int)$data_id;
     $type_l = strtolower(trim($type));
     $message_l = strtolower($message);
-    $order_types = ['order', 'new order', 'payment', 'payment issue', 'design', 'customization', 'message', 'chat', 'job order', 'rating', 'review'];
+    $order_types = ['order', 'new order', 'status', 'payment', 'payment issue', 'design', 'customization', 'message', 'chat', 'job order', 'rating', 'review'];
 
-    if ($data_id > 0 && in_array($type_l, $order_types, true)) {
-        $preview = printflow_order_notification_preview($data_id);
-        $image = trim((string)($preview['image_url'] ?? ''));
-        if ($image !== '') {
-            return [
-                'icon' => $image,
-                'image' => $image,
-            ];
-        }
+    if ($data_id > 0 && (in_array($type_l, $order_types, true)
+        || printflow_notification_is_message(['type' => $type, 'message' => $message]))) {
+        $notification = ['type' => $type, 'data_id' => $data_id, 'message' => $message] + $context;
+        $image = printflow_notification_is_message($notification)
+            ? printflow_notification_sender_image($notification)
+            : (string)printflow_notification_catalog_context($notification, $fallback)['image_url'];
+        if ($image !== '') return ['icon' => $image, 'image' => $image];
     }
 
     if ($data_id > 0 && $type_l === 'system' && (
@@ -2531,34 +2655,19 @@ function printflow_customer_id_notification_image_url(int $customerId, string $f
 }
 
 function staff_admin_notification_image_url(array $notification, string $fallback): string {
+    if (printflow_notification_is_message($notification)) return printflow_notification_sender_image($notification);
     $data_id = (int)($notification['data_id'] ?? 0);
-    $type = strtolower((string)($notification['type'] ?? ''));
+    $type = strtolower(trim((string)($notification['type'] ?? '')));
     $message = strtolower((string)($notification['message'] ?? ''));
-    if ($data_id <= 0) {
-        return printflow_notification_normalize_media_url($fallback);
-    }
-    if ($type === 'system' && (
-        strpos($message, 'submitted an id for verification') !== false ||
-        strpos($message, 'resubmitted an id for verification') !== false
-    )) {
+    if ($type === 'system' && (strpos($message, 'submitted an id for verification') !== false
+        || strpos($message, 'resubmitted an id for verification') !== false)) {
         return printflow_customer_id_notification_image_url($data_id, $fallback);
     }
-    if (!in_array($type, ['order', 'design', 'payment', 'payment issue', 'message', 'job order'], true)) {
-        return printflow_notification_normalize_media_url($fallback);
+    if (in_array($type, ['order', 'new order', 'status', 'design', 'customization', 'payment', 'payment issue', 'job order', 'rating', 'review'], true)) {
+        $resolved = printflow_resolve_official_catalog_image_for_notification($notification, $fallback);
+        return (string)$resolved['image_url'];
     }
-    if ($type === 'payment') {
-        $paymentContext = printflow_payment_submission_notification_context($data_id);
-        $image = trim((string)($paymentContext['image_url'] ?? ''));
-        if ($image !== '') {
-            return printflow_notification_normalize_media_url($image);
-        }
-    }
-    if ($type === 'job order') {
-        $preview = printflow_job_notification_preview($data_id);
-    } else {
-        $preview = printflow_order_notification_preview($data_id);
-    }
-    return printflow_notification_normalize_media_url($preview['image_url'] ?: $fallback);
+    return printflow_notification_normalize_media_url($fallback);
 }
 
 function printflow_notification_is_default_thumbnail(string $url): bool {
@@ -3938,6 +4047,9 @@ function printflow_resolve_service_catalog_service_id(?string $serviceName): int
     }
 
     $candidates = [$serviceName];
+    if (function_exists('printflow_service_name_aliases')) {
+        $candidates = array_merge($candidates, printflow_service_name_aliases($serviceName));
+    }
     if (function_exists('normalize_service_name')) {
         $norm = normalize_service_name($serviceName, '');
         if (is_string($norm) && trim($norm) !== '' && strcasecmp(trim($norm), $serviceName) !== 0) {
@@ -4967,6 +5079,14 @@ function printflow_customer_modal_collapse_equivalent_dimension_fields(array $fl
         if ($text === '' || printflow_customer_modal_is_preset_size_value($text)) {
             continue;
         }
+        $descriptorText = (string)preg_replace(
+            '/\b(?:ft|feet|foot|in|inch|inches|cm|m)\b/iu',
+            '',
+            $text
+        );
+        if (preg_match('/[a-z]/iu', $descriptorText)) {
+            continue;
+        }
         $fp = printflow_customer_modal_normalize_dimension_fingerprint($text);
         if ($fp === null) {
             continue;
@@ -5090,6 +5210,17 @@ function printflow_customer_modal_finalize_customer_dimension_labels(array $spec
         if ($text === '' || !printflow_customer_modal_is_dimension_spec_key((string)$label)) {
             continue;
         }
+        // Preset options can contain a measurement inside a meaningful label,
+        // for example "50pcs Legal (8 × 14 Inch)". That label is the value the
+        // customer selected and must not be reduced to only its numeric pair.
+        $descriptorText = (string)preg_replace(
+            '/\b(?:ft|feet|foot|in|inch|inches|cm|m)\b/iu',
+            '',
+            $text
+        );
+        if (preg_match('/[a-z]/iu', $descriptorText)) {
+            continue;
+        }
         if (printflow_customer_modal_is_preset_size_value($text)) {
             continue;
         }
@@ -5166,6 +5297,22 @@ function printflow_customer_modal_finalize_customer_dimension_labels(array $spec
  */
 function printflow_flatten_order_customization_for_customer_modal(array $custom, ?int $lineQuantity = null, bool $is_staff = false): array {
     $custom = printflow_normalize_customization_for_modal($custom);
+    $branchDisplay = '';
+    if (!$is_staff) {
+        foreach ($custom as $customKey => $customValue) {
+            $branchToken = printflow_customization_key_token((string)$customKey);
+            if (!in_array($branchToken, ['branch', 'branchname', 'pickupbranch'], true)) {
+                continue;
+            }
+            $candidate = function_exists('pf_order_ui_value_to_text')
+                ? pf_order_ui_value_to_text($customValue)
+                : (is_scalar($customValue) ? (string)$customValue : '');
+            if (trim($candidate) !== '') {
+                $branchDisplay = trim($candidate);
+                break;
+            }
+        }
+    }
     // Match render_order_item_clean skips where sensible; omit note-* keys so the modal can render long-form blocks.
     // Strip job_orders-derived ft/sqft rows when they are all-zero placeholders (see printflow_customer_modal_strip_placeholder_job_dimensions).
     $skip = [
@@ -5243,9 +5390,15 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom,
         'include_design' => false,
         'include_notes' => $is_staff,
         'include_quantity' => false,
+        // Customer order details must preserve explicit saved selections such
+        // as "No" or "None"; only blank optional fields should disappear.
+        'preserve_explicit_values' => !$is_staff,
     ]);
     if (!$is_staff) {
         $out = printflow_customer_modal_finalize_customer_dimension_labels($out);
+        if ($branchDisplay !== '') {
+            $out = ['Branch' => $branchDisplay] + $out;
+        }
     }
 
     return $out;
@@ -5471,21 +5624,17 @@ function printflow_order_notification_resolve_catalog_thumbnail(
     array $custom,
     string $item_kind,
     int $resolvedServiceIdForImage,
-    int $order_id
+    int $order_id,
+    bool $prefer_exact_catalog_id = false
 ): string {
     $base = printflow_notification_base_path();
     $item_kind = trim($item_kind);
 
     if ($item_kind === 'Service') {
         $sid = (int)$resolvedServiceIdForImage;
+        $legacyServiceNames = [];
         if ($sid <= 0) {
             $sid = (int)($custom['service_id'] ?? 0);
-        }
-        if ($sid <= 0) {
-            $ot = strtolower(trim((string)($row['order_type'] ?? '')));
-            if ($ot === 'custom') {
-                $sid = (int)($row['reference_id'] ?? 0);
-            }
         }
         if ($sid <= 0) {
             $jst = trim((string)($row['first_job_service_type'] ?? ''));
@@ -5507,6 +5656,7 @@ function printflow_order_notification_resolve_catalog_thumbnail(
             );
             $st = trim((string)($custSvc[0]['service_type'] ?? ''));
             if ($st !== '') {
+                $legacyServiceNames[] = $st;
                 $sid = printflow_resolve_service_catalog_service_id($st);
             }
         }
@@ -5518,6 +5668,7 @@ function printflow_order_notification_resolve_catalog_thumbnail(
             );
             $st = trim((string)($jo[0]['service_type'] ?? ''));
             if ($st !== '') {
+                $legacyServiceNames[] = $st;
                 $sid = printflow_resolve_service_catalog_service_id($st);
             }
         }
@@ -5526,6 +5677,12 @@ function printflow_order_notification_resolve_catalog_thumbnail(
             $url = printflow_notification_service_image_from_id($sid);
             if ($url !== '') {
                 return printflow_notification_normalize_media_url($url);
+            }
+        }
+        if ($sid <= 0) {
+            $ot = strtolower(trim((string)($row['order_type'] ?? '')));
+            if ($ot === 'custom') {
+                $sid = (int)($row['reference_id'] ?? 0);
             }
         }
 
@@ -5603,15 +5760,16 @@ function printflow_order_notification_resolve_catalog_thumbnail(
 }
 
 
-function printflow_order_notification_preview(int $order_id): array {
+function printflow_order_notification_preview(int $order_id, bool $prefer_catalog = false): array {
     static $cache = [];
 
     $order_id = (int)$order_id;
     if ($order_id <= 0) {
-        return ['display_name' => '', 'image_url' => '', 'item_kind' => ''];
+        return ['display_name' => '', 'image_url' => '', 'item_kind' => '', 'image_source' => 'none'];
     }
-    if (isset($cache[$order_id])) {
-        return $cache[$order_id];
+    $cache_key = $order_id . ':' . ($prefer_catalog ? 'catalog' : 'default');
+    if (isset($cache[$cache_key])) {
+        return $cache[$cache_key];
     }
 
     $base = printflow_notification_base_path();
@@ -5666,7 +5824,7 @@ function printflow_order_notification_preview(int $order_id): array {
         [$order_id]
     );
 
-    $preview = ['display_name' => '', 'image_url' => '', 'item_kind' => ''];
+    $preview = ['display_name' => '', 'image_url' => '', 'item_kind' => '', 'image_source' => 'none', 'resolved_catalog_id' => 0, 'official_image_field' => '', 'rejected_design_url' => ''];
     if (empty($item[0])) {
         $snap = printflow_notification_order_snapshot($order_id);
         $preview['display_name'] = trim((string)($snap['service_name'] ?? ''));
@@ -5713,7 +5871,8 @@ function printflow_order_notification_preview(int $order_id): array {
             $synthCustom,
             (string)$preview['item_kind'],
             $resSvcPass,
-            $order_id
+            $order_id,
+            $prefer_catalog
         );
         if ($thumbEmpty !== '') {
             $preview['image_url'] = $thumbEmpty;
@@ -5743,12 +5902,13 @@ function printflow_order_notification_preview(int $order_id): array {
             $preview['image_url'] = printflow_notification_placeholder_image_url()
                 ?: printflow_notification_normalize_media_url($base . '/public/assets/uploads/profiles/default.png');
         }
-        $cache[$order_id] = $preview;
+        $cache[$cache_key] = $preview;
         return $preview;
     }
 
     $row = $item[0];
     $custom = printflow_decode_modal_customization_payload((string)($row['customization_data'] ?? ''));
+    $preview['resolved_order_item_id'] = (int)($row['order_item_id'] ?? 0);
     $order_type = strtolower(trim((string)($row['order_type'] ?? '')));
     $is_pos_placeholder = printflow_is_pos_service_placeholder_row($row);
     $linePid = (int)($row['product_id'] ?? 0);
@@ -5756,7 +5916,19 @@ function printflow_order_notification_preview(int $order_id): array {
     $srcPage = strtolower(trim((string)($custom['source_page'] ?? '')));
     $resolvedServiceIdForImage = $lineServiceId;
     if ($resolvedServiceIdForImage <= 0 && $order_type === 'custom') {
-        $resolvedServiceIdForImage = (int)($row['reference_id'] ?? 0);
+        $serviceNameCandidates = array_unique(array_filter(array_map('trim', [
+            (string)($custom['service_type'] ?? ''),
+            (string)($row['first_customization_service_type'] ?? ''),
+            (string)($row['first_job_service_type'] ?? ''),
+            ...$legacyServiceNames,
+        ])));
+        foreach ($serviceNameCandidates as $serviceNameCandidate) {
+            $resolved = printflow_resolve_service_catalog_service_id($serviceNameCandidate);
+            if ($resolved > 0) {
+                $resolvedServiceIdForImage = (int)$resolved;
+                break;
+            }
+        }
     }
 
     if ($order_type === 'product' && !$is_pos_placeholder) {
@@ -5806,23 +5978,33 @@ function printflow_order_notification_preview(int $order_id): array {
         );
     }
 
-    $catalogThumb = printflow_order_notification_resolve_catalog_thumbnail(
-        $row,
-        $custom,
-        (string)($preview['item_kind'] ?? ''),
-        (int)$resolvedServiceIdForImage,
-        (int)$order_id
-    );
-    if ($catalogThumb !== '') {
-        $preview['image_url'] = $catalogThumb;
-        $cache[$order_id] = $preview;
-        return $preview;
+    if ($resolvedServiceIdForImage <= 0 && $preview['item_kind'] === 'Service') {
+        $resolvedFromDisplayName = printflow_resolve_service_catalog_service_id((string)$preview['display_name']);
+        if ($resolvedFromDisplayName > 0) {
+            $resolvedServiceIdForImage = $resolvedFromDisplayName;
+        }
+    }
+    if ($resolvedServiceIdForImage <= 0 && $preview['item_kind'] === 'Service') {
+        $orderSnapshot = printflow_notification_order_snapshot($order_id);
+        $resolvedFromSnapshot = printflow_resolve_service_catalog_service_id((string)($orderSnapshot['service_name'] ?? ''));
+        if ($resolvedFromSnapshot > 0) {
+            $resolvedServiceIdForImage = $resolvedFromSnapshot;
+        }
+    }
+    if ($resolvedServiceIdForImage <= 0 && $order_type === 'custom') {
+        $resolvedServiceIdForImage = (int)($row['reference_id'] ?? 0);
     }
 
+    // Review notification thumbnails must use official catalog art. The upload
+    // remains available to detail pages, but is explicitly rejected here.
     if (printflow_order_item_has_previewable_design($row) && !empty($row['order_item_id'])) {
+        $preview['rejected_design_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$row['order_item_id'];
+    }
+    if (!$prefer_catalog && printflow_order_item_has_previewable_design($row) && !empty($row['order_item_id'])) {
         $preview['image_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$row['order_item_id'];
         $preview['image_url'] = printflow_notification_normalize_media_url($preview['image_url']);
-        $cache[$order_id] = $preview;
+        $preview['image_source'] = 'customer_upload';
+        $cache[$cache_key] = $preview;
         return $preview;
     }
 
@@ -5842,10 +6024,33 @@ function printflow_order_notification_preview(int $order_id): array {
         'i',
         [$order_id]
     );
-    if (!empty($fallbackDesignRow[0]) && printflow_order_item_has_previewable_design($fallbackDesignRow[0])) {
+    if (!$prefer_catalog && !empty($fallbackDesignRow[0]) && printflow_order_item_has_previewable_design($fallbackDesignRow[0])) {
+        $preview['rejected_design_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$fallbackDesignRow[0]['order_item_id'];
         $preview['image_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$fallbackDesignRow[0]['order_item_id'];
         $preview['image_url'] = printflow_notification_normalize_media_url($preview['image_url']);
-        $cache[$order_id] = $preview;
+        $preview['image_source'] = 'customer_upload';
+        $cache[$cache_key] = $preview;
+        return $preview;
+    }
+
+    $catalogThumb = printflow_order_notification_resolve_catalog_thumbnail(
+        $row,
+        $custom,
+        (string)($preview['item_kind'] ?? ''),
+        (int)$resolvedServiceIdForImage,
+        (int)$order_id,
+        $prefer_catalog
+    );
+    $preview['resolved_catalog_id'] = $preview['item_kind'] === 'Service'
+        ? (int)$resolvedServiceIdForImage
+        : (int)$linePid;
+    $preview['official_image_field'] = $preview['item_kind'] === 'Service'
+        ? 'services.display_image|hero_image|image_path'
+        : 'products.photo_path|product_image';
+    if ($catalogThumb !== '') {
+        $preview['image_url'] = $catalogThumb;
+        $preview['image_source'] = 'catalog';
+        $cache[$cache_key] = $preview;
         return $preview;
     }
 
@@ -5878,14 +6083,14 @@ function printflow_order_notification_preview(int $order_id): array {
         if ($resolvedServiceIdForImage > 0) {
             $preview['image_url'] = printflow_notification_service_image_from_id($resolvedServiceIdForImage);
         }
-        if (printflow_notification_is_default_thumbnail((string)$preview['image_url'])) {
+        if (!$prefer_catalog && printflow_notification_is_default_thumbnail((string)$preview['image_url'])) {
             $preview['image_url'] = '';
             $serviceImage = printflow_notification_service_image_from_name($preview['display_name']);
             if ($serviceImage !== '') {
                 $preview['image_url'] = $serviceImage;
             }
         }
-        if (printflow_notification_is_default_thumbnail((string)$preview['image_url'])) {
+        if (!$prefer_catalog && printflow_notification_is_default_thumbnail((string)$preview['image_url'])) {
             $preview['image_url'] = '';
             foreach ([
                 (string)($custom['service_type'] ?? ''),
@@ -5903,20 +6108,27 @@ function printflow_order_notification_preview(int $order_id): array {
     }
 
     if ($preview['image_url'] === '') {
-        $fallbackImage = ($preview['item_kind'] === 'Product')
-            ? ($base . '/public/images/products/product_1.jpg')
-            : get_service_image_url($preview['display_name']);
+        $fallbackImage = $prefer_catalog
+            ? ''
+            : (($preview['item_kind'] === 'Product')
+                ? ($base . '/public/images/products/product_1.jpg')
+                : get_service_image_url($preview['display_name']));
         $normalizedFallback = printflow_notification_normalize_media_url($fallbackImage);
         if ($normalizedFallback !== '' && printflow_notification_local_media_exists($normalizedFallback)) {
             $preview['image_url'] = $normalizedFallback;
         } else {
             $preview['image_url'] = printflow_notification_placeholder_image_url()
                 ?: printflow_notification_normalize_media_url($base . '/public/assets/uploads/profiles/default.png');
+            $preview['fallback_reason'] = 'catalog_image_missing';
         }
     }
 
-    $cache[$order_id] = $preview;
-    return $preview;
+    if ($preview['image_source'] === 'none' && $preview['image_url'] !== '') {
+        $preview['image_source'] = 'official_catalog';
+    }
+
+        $cache[$cache_key] = $preview;
+        return $preview;
 }
 
 /**
@@ -6745,6 +6957,18 @@ function printflow_customization_summary($custom, $fallback = 'Custom Service') 
     $dimensions = printflow_resolve_customization_dimensions($custom);
     $width_ft = (string)($dimensions['width'] ?? '');
     $height_ft = (string)($dimensions['height'] ?? '');
+
+    if (($width_ft === '' || $height_ft === '') && !empty($custom['spec_summary'])) {
+        $specText = trim((string)$custom['spec_summary']);
+        if ($specText !== '' && preg_match('/(\d+(?:\.\d+)?)\s*(?:ft|feet|\')?\s*[x×]\s*(\d+(?:\.\d+)?)/i', $specText, $dimMatch)) {
+            if ($width_ft === '') {
+                $width_ft = (string)$dimMatch[1];
+            }
+            if ($height_ft === '') {
+                $height_ft = (string)$dimMatch[2];
+            }
+        }
+    }
 
     return [
         'service_type' => $service_type,

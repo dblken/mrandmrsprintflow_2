@@ -21,9 +21,10 @@ $user_type = get_user_type() ?? 'Customer';
 $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 15;
 
 try {
+    printflow_ensure_notification_review_id_column();
     if ($user_type === 'Customer') {
         $rows = db_query(
-            "SELECT notification_id AS id, notification_id, message, type, data_id, is_read, created_at
+            "SELECT notification_id AS id, notification_id, message, type, data_id, review_id, is_read, created_at
              FROM notifications
              WHERE customer_id = ?
              ORDER BY created_at DESC
@@ -33,7 +34,7 @@ try {
         );
     } else {
         $rows = db_query(
-            "SELECT notification_id AS id, notification_id, message, type, data_id, is_read, created_at
+            "SELECT notification_id AS id, notification_id, message, type, data_id, review_id, is_read, created_at
              FROM notifications
              WHERE user_id = ?
              ORDER BY created_at DESC
@@ -73,7 +74,7 @@ try {
             $row['message'] = printflow_notification_display_message($row);
             $row['title'] = customer_notification_title((string)($row['type'] ?? ''), (string)($row['message'] ?? ''), $row);
             $row['image'] = customer_notification_image_url($row, $fallback, $user_id);
-            $row['fallback'] = $fallback;
+            $row['fallback'] = printflow_notification_is_message($row) ? pf_default_profile_image_url() : $fallback;
             $target = customer_notification_target_url($row);
             $row['link'] = ((int)($row['is_read'] ?? 0) === 0)
                 ? ($base . '/customer/notifications.php?mark_read=' . (int)($row['notification_id'] ?? $row['id'] ?? 0) . '&next=' . urlencode($target))
@@ -83,7 +84,7 @@ try {
             $row['message'] = printflow_notification_display_message($row);
             $row['item_kind'] = printflow_notification_item_kind($row);
             $row['image'] = staff_admin_notification_image_url($row, $fallback);
-            $row['fallback'] = $fallback;
+            $row['fallback'] = printflow_notification_is_message($row) ? pf_default_profile_image_url() : $fallback;
         }
     }
     unset($row);

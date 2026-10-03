@@ -47,6 +47,8 @@ $review_type = sanitize($_GET['review_type'] ?? '');
 $rating = (int) ($_GET['rating'] ?? 0);
 $service = sanitize($_GET['service'] ?? '');
 $sort_by = sanitize($_GET['sort_by'] ?? 'newest');
+$requested_order_id = (int) ($_GET['order_id'] ?? 0);
+$requested_review_id = (int) ($_GET['review_id'] ?? 0);
 
 // Get distinct services for the filter from reviews, services, and products table
 $available_services = db_query("
@@ -72,6 +74,17 @@ $sql_base = "
 ";
 $params = [];
 $types = '';
+
+if ($requested_order_id > 0) {
+    $sql_base .= " AND r.order_id = ?";
+    $params[] = $requested_order_id;
+    $types .= 'i';
+}
+if ($requested_review_id > 0) {
+    $sql_base .= " AND r.id = ?";
+    $params[] = $requested_review_id;
+    $types .= 'i';
+}
 
 if ($reviewBranchFilter !== null) {
     $sql_base .= " AND (o.branch_id = ? OR r.order_id IS NULL OR r.order_id = 0)";

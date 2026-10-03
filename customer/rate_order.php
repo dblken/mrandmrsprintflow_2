@@ -245,7 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     $staff_msg = "Customer submitted a review for Order #{$order_id}: {$rating}/5 stars.";
-                    notify_shop_users($staff_msg, 'Rating', false, false, $order_id, ['Staff', 'Admin', 'Manager']);
+                    notify_shop_users($staff_msg, 'Rating', false, false, $order_id, ['Staff', 'Admin', 'Manager'], $new_review_id);
 
                     $_SESSION['success'] = 'Thank you! Your review has been submitted.';
                     redirect($app_base . '/customer/orders.php?tab=completed&highlight=' . $order_id);
@@ -477,7 +477,7 @@ require_once __DIR__ . '/../includes/header.php';
                             <span style="font-weight: 700;">You already submitted a review for this order.</span>
                         </div>
                         <div class="rate-actions">
-                            <a class="rate-btn-primary" href="<?php echo $app_base; ?>/customer/orders.php?tab=completed&highlight=<?php echo $order_id; ?>">View Your Review</a>
+                            <a class="rate-btn-primary" href="<?php echo $app_base; ?>/customer/reviews.php?order_id=<?php echo $order_id; ?>&review_id=<?php echo $review_id; ?>">View Your Review</a>
                             <a class="rate-btn-secondary" href="<?php echo $app_base; ?>/customer/orders.php?tab=completed">Back to Orders</a>
                         </div>
                     <?php else: ?>

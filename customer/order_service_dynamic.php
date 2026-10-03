@@ -1630,6 +1630,23 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+function focusNotificationReview() {
+    const reviewId = new URLSearchParams(window.location.search).get('review_id');
+    if (!reviewId) return;
+    const target = document.getElementById('review-' + reviewId);
+    const section = document.getElementById('poc-reviews-container');
+    (target || section)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (target) {
+        target.style.backgroundColor = '#fff7ed';
+        target.style.boxShadow = '0 0 0 3px rgba(249,115,22,.35)';
+        setTimeout(() => {
+            target.style.backgroundColor = '';
+            target.style.boxShadow = '';
+        }, 5000);
+    }
+}
+document.addEventListener('DOMContentLoaded', () => setTimeout(focusNotificationReview, 100));
+
 async function markHelpful(reviewId, btn) {
     const basePath = <?php echo json_encode(rtrim((string)$base_path, '/')); ?>;
     const label = btn.querySelector('.helpful-label');

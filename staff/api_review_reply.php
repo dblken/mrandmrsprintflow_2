@@ -81,7 +81,7 @@ try {
 
     // Notify customer
     $notif_msg = "PrintFlow Staff replied to your review.";
-    create_notification($customer_id, 'Customer', $notif_msg, 'Rating', false, false, $order_id);
+    create_notification($customer_id, 'Customer', $notif_msg, 'Rating', false, false, $order_id, $review_id);
 
     echo json_encode(['success' => true, 'message' => 'Reply posted successfully.']);
 } catch (Throwable $e) {

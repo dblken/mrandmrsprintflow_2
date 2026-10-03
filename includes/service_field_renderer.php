@@ -734,42 +734,55 @@ function render_service_fields($service_id, $branches = [], $existing_data = [])
         return '<p style="color:#ef4444; padding:20px; text-align:center;">No field configuration found. Please contact administrator.</p>';
     }
 
-    // Separate fields into categories (restores classic layout: branch → specs → needed date / qty / notes).
-    $branch_field = [];
-    $custom_fields = [];
-    $default_bottom_fields = [];
-
+    // Display order is a presentation concern; keep the configured field data,
+    // conditional rules, validation, and rendering behavior unchanged.
+    $ordered_fields = [];
     foreach ($configs as $key => $config) {
-        if ($key === 'branch') {
-            $branch_field[$key] = $config;
-        } elseif (in_array($key, ['needed_date', 'quantity', 'notes'], true)) {
-            $default_bottom_fields[$key] = $config;
-        } else {
-            $custom_fields[$key] = $config;
+        $field_key = strtolower(trim((string)$key));
+        $field_name = strtolower(trim((string)($config['label'] ?? $key)));
+        $field_name = preg_replace('/\s+/', ' ', $field_name);
+
+        $priority = 3;
+        if (
+            in_array($field_key, ['branch', 'branch_id', 'pickup_branch'], true)
+            || preg_match('/\b(branch|select\s+branch|pickup\s+branch)\b/i', $field_name)
+        ) {
+            $priority = 0;
+        } elseif ($field_key === 'layout' || preg_match('/\blayout\b/i', $field_name)) {
+            $priority = 1;
+        } elseif (
+            preg_match('/\b(upload\s+design|design\s+upload)\b/i', $field_name)
+            || in_array($field_key, ['upload_design', 'design_upload', 'design_file'], true)
+        ) {
+            $priority = 2;
+        } elseif (in_array($field_key, ['quantity', 'qty'], true) || $field_name === 'quantity') {
+            $priority = 4;
+        } elseif ($field_key === 'notes' || $field_name === 'notes') {
+            $priority = 5;
         }
+
+        $ordered_fields[] = [
+            'key' => $key,
+            'config' => $config,
+            'priority' => $priority,
+            'name' => $field_name,
+        ];
     }
 
-    uasort($custom_fields, function ($a, $b) {
-        return ((int)($a['order'] ?? 0)) <=> ((int)($b['order'] ?? 0));
-    });
-
-    $bottom_order = ['needed_date' => 1, 'quantity' => 2, 'notes' => 3];
-    uasort($default_bottom_fields, function ($a, $b) use ($bottom_order, $default_bottom_fields) {
-        $key_a = array_search($a, $default_bottom_fields);
-        $key_b = array_search($b, $default_bottom_fields);
-        return ($bottom_order[$key_a] ?? 999) - ($bottom_order[$key_b] ?? 999);
+    usort($ordered_fields, static function (array $a, array $b): int {
+        if ($a['priority'] !== $b['priority']) {
+            return $a['priority'] <=> $b['priority'];
+        }
+        $nameCompare = strnatcasecmp((string)$a['name'], (string)$b['name']);
+        if ($nameCompare !== 0) {
+            return $nameCompare;
+        }
+        return strnatcasecmp((string)$a['key'], (string)$b['key']);
     });
 
     $html = '';
-
-    foreach ($branch_field as $key => $config) {
-        $html .= render_service_field($key, $config, $branches, $existing_data, $configs);
-    }
-    foreach ($custom_fields as $key => $config) {
-        $html .= render_service_field($key, $config, $branches, $existing_data, $configs);
-    }
-    foreach ($default_bottom_fields as $key => $config) {
-        $html .= render_service_field($key, $config, $branches, $existing_data, $configs);
+    foreach ($ordered_fields as $field) {
+        $html .= render_service_field($field['key'], $field['config'], $branches, $existing_data, $configs);
     }
 
     return $html;

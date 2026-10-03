@@ -780,6 +780,8 @@ if (!function_exists('pf_payment_qr_url')) {
     .paymongo-method-summary span { display:block;margin-top:.25rem;color:#5b6f76;font-size:.76rem;line-height:1.4; }
     .paymongo-qr-card { margin-top:0.55rem;padding:0.65rem 0.75rem;border:1px solid #dbe5e8;border-radius:12px;background:#fbfefe;text-align:center; }
     .paymongo-qr-card img { width:min(220px,100%);padding:6px;border:1px solid #e2e8f0;border-radius:8px; }
+    .paymongo-qr-download { display:inline-flex;align-items:center;justify-content:center;gap:.35rem;margin-top:.55rem;padding:.5rem .75rem;border:1px solid #a9c7cc;border-radius:8px;background:#fff;color:#0a5962;font-size:.76rem;font-weight:800;text-decoration:none; }
+    .paymongo-qr-download:hover { border-color:#53c5e0;color:#063b47;background:#f8fcfd; }
     .paymongo-state { margin-top:0.5rem;padding:0.55rem 0.65rem;border-radius:8px;background:#f1f5f9;color:#43565d;font-size:.76rem;line-height:1.4;text-align:center; }
     .paymongo-actions { display:flex;justify-content:center;flex-wrap:wrap;gap:.5rem;margin-top:0.55rem; }
     .paymongo-action { display:inline-flex;min-height:42px;align-items:center;justify-content:center;width:auto;padding:.65rem 1rem;border-radius:9px;font-size:.8rem;font-weight:800;text-decoration:none; }
@@ -1103,6 +1105,7 @@ if (!function_exists('pf_payment_qr_url')) {
                                 <div class="paymongo-eyebrow">QR Ph Payment</div><div class="paymongo-amount" style="font-size:1.35rem;margin:.2rem 0 .35rem;"><?php echo format_currency($total_amount); ?></div>
                                 <div style="font-size:.76rem;color:#52666d;line-height:1.45;margin-bottom:.45rem;">Scan this QR using a supported banking or e-wallet application.</div>
                                 <img id="paymongo-qr-image" alt="PayMongo QR Ph payment code">
+                                <a id="paymongo-qr-download" class="paymongo-qr-download" href="#" download style="display:none;">Download QR image</a>
                                 <div style="margin-top:.45rem;font-size:.78rem;font-weight:800;color:#9a6700;">Waiting for payment</div>
                                 <div id="paymongo-qr-countdown" style="font-size:.78rem;font-weight:800;color:#0f766e;margin-top:.15rem;min-height:18px;"></div>
                                 <div style="margin-top:.35rem;font-size:.7rem;color:#64748b;overflow-wrap:anywhere;">Order Reference: <strong style="color:#223b43;">#<?php echo (int)$order_id; ?></strong></div>
@@ -1254,12 +1257,14 @@ if (!function_exists('pf_payment_qr_url')) {
 <script>
     const paymongoStatusUrl = 'api_paymongo_status.php?subject_type=<?php echo rawurlencode($paymongo_subject_type); ?>&subject_id=<?php echo (int)$order_id; ?>';
     const paymongoCreateUrl = 'api_paymongo_status.php';
+    const paymongoQrDownloadUrl = 'api_paymongo_qr_download.php?subject_type=<?php echo rawurlencode($paymongo_subject_type); ?>&subject_id=<?php echo (int)$order_id; ?>';
     const paymongoCsrfToken = <?php echo json_encode($customer_paymongo_csrf); ?>;
     const paymongoSubjectType = <?php echo json_encode($paymongo_subject_type); ?>;
     const paymongoSubjectId = <?php echo (int)$order_id; ?>;
     const paymongoState = document.getElementById('paymongo-payment-state');
     const paymongoQrPanel = document.getElementById('paymongo-qr-panel');
     const paymongoQrImage = document.getElementById('paymongo-qr-image');
+    const paymongoQrDownload = document.getElementById('paymongo-qr-download');
     const paymongoQrCountdown = document.getElementById('paymongo-qr-countdown');
     const paymongoRetryButton = document.getElementById('paymongo-retry');
     const paymentSidebarCard = document.getElementById('payment-sidebar-card');
@@ -1389,6 +1394,10 @@ if (!function_exists('pf_payment_qr_url')) {
             if (!payment) {
                 paymongoState.textContent = 'Preparing your QR Ph payment...';
                 if (paymongoQrPanel) paymongoQrPanel.style.display = 'none';
+                if (paymongoQrDownload) {
+                    paymongoQrDownload.style.display = 'none';
+                    paymongoQrDownload.removeAttribute('href');
+                }
                 if (paymongoRetryButton) paymongoRetryButton.style.display = 'none';
                 return false;
             }
@@ -1401,6 +1410,16 @@ if (!function_exists('pf_payment_qr_url')) {
             const hasQr = isQr && Boolean(payment.qr_image_url);
             if (paymongoQrPanel) paymongoQrPanel.style.display = hasQr ? 'block' : 'none';
             if (paymongoQrImage && hasQr) paymongoQrImage.src = payment.qr_image_url;
+            if (paymongoQrDownload) {
+                if (hasQr) {
+                    paymongoQrDownload.href = paymongoQrDownloadUrl + '&download=' + encodeURIComponent(payment.payment_id || payment.ledger_payment_id || Date.now());
+                    paymongoQrDownload.setAttribute('download', 'printflow-qrph-' + paymongoSubjectType.replace(/_/g, '-') + '-' + paymongoSubjectId + '.png');
+                    paymongoQrDownload.style.display = 'inline-flex';
+                } else {
+                    paymongoQrDownload.style.display = 'none';
+                    paymongoQrDownload.removeAttribute('href');
+                }
+            }
             if (paymongoRetryButton) {
                 paymongoRetryButton.style.display = isQr && ['failed', 'expired', 'cancelled'].includes(status)
                     ? 'block'

@@ -114,6 +114,8 @@ $online_closed_count = 0;
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="turbo-visit-control" content="reload">
     <title><?php echo $page_title; ?></title>
+    <!-- customizations_query_version: demo_seed_visibility_fix_20261001_live -->
+    <meta name="customizations-query-version" content="demo_seed_visibility_fix_20261001_live">
     <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/output.css'); ?>">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
@@ -629,11 +631,11 @@ $online_closed_count = 0;
             letter-spacing: .04em;
             margin-bottom: 4px;
         }
-        .pf-change-item-review__code {
-            font-size: 13px;
-            font-weight: 800;
-            color: #78350f;
-            margin-bottom: 14px;
+        .pf-change-item-review__summary-heading {
+            margin-bottom: 12px;
+        }
+        .pf-change-item-review__summary-heading .pf-change-item-review__section-label {
+            margin-bottom: 0;
         }
         .pf-change-item-review__section {
             margin-top: 14px;
@@ -648,10 +650,68 @@ $online_closed_count = 0;
         }
         .pf-change-item-review__grid {
             display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-auto-flow: row;
             gap: 8px;
             font-size: 13px;
             color: #78350f;
             line-height: 1.5;
+        }
+        .pf-change-item-review__summary {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-rows: repeat(3, auto);
+            column-gap: 24px;
+            row-gap: 8px;
+            align-items: stretch;
+            font-size: 13px;
+            color: #78350f;
+            line-height: 1.5;
+        }
+        .pf-change-item-review__summary > .pf-change-item-review__summary-column {
+            display: grid;
+            grid-template-rows: subgrid;
+            grid-column: 1;
+            grid-row: 1 / span 3;
+            row-gap: 8px;
+            align-items: start;
+            min-width: 0;
+        }
+        .pf-change-item-review__summary > .pf-change-item-review__summary-column + .pf-change-item-review__summary-column {
+            grid-column: 2;
+            grid-row: 1 / span 3;
+        }
+        .pf-change-item-review__summary-column > div {
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+        .pf-change-item-review__proof-layout {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 24px;
+            align-items: start;
+        }
+        .pf-change-item-review__proof-layout > div {
+            min-width: 0;
+        }
+        @media (max-width: 640px) {
+            .pf-change-item-review__proof-layout {
+                grid-template-columns: minmax(0, 1fr);
+                gap: 16px;
+            }
+            .pf-change-item-review__grid {
+                grid-template-columns: minmax(0, 1fr);
+            }
+            .pf-change-item-review__summary {
+                grid-template-columns: minmax(0, 1fr);
+                grid-template-rows: none;
+            }
+            .pf-change-item-review__summary > .pf-change-item-review__summary-column,
+            .pf-change-item-review__summary > .pf-change-item-review__summary-column + .pf-change-item-review__summary-column {
+                grid-column: 1;
+                grid-row: auto;
+                grid-template-rows: none;
+            }
         }
         .pf-change-item-review__description {
             width: 100%;
@@ -2903,45 +2963,28 @@ $online_closed_count = 0;
 
                     <template x-if="changeItemActiveRequest(currentJo)">
                         <div class="pf-change-item-review">
-                            <div class="pf-change-item-review__title">Change Item Request</div>
-                            <div class="pf-change-item-review__code" x-text="changeItemActiveRequest(currentJo).change_item_code || ('CI-' + String(changeItemActiveRequest(currentJo).id || '').padStart(6, '0'))"></div>
-
-                            <div class="pf-change-item-review__section">
-                                <div class="pf-change-item-review__section-label">Request Status</div>
-                                <span :class="getChangeItemBadgeClass(currentJo)" x-text="changeItemActiveRequest(currentJo).display_badge_label || getChangeItemBadgeLabel(currentJo)"></span>
-                            </div>
-
-                            <div class="pf-change-item-review__section">
-                                <div class="pf-change-item-review__section-label">Request Summary</div>
-                                <div class="pf-change-item-review__grid">
-                                    <div><strong>Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
-                                    <div><strong>Customer:</strong> <span x-text="(currentJo.customer_full_name || ((currentJo.first_name || '') + ' ' + (currentJo.last_name || ''))).trim() || 'Walk-in customer'"></span></div>
-                                    <div><strong>Item:</strong> <span x-text="getChangeItemItemName(currentJo)"></span></div>
-                                    <div><strong>Request Source:</strong> <span x-text="changeItemActiveRequest(currentJo).request_source_label || changeItemRequestedByLabel(changeItemActiveRequest(currentJo))"></span></div>
-                                    <div><strong>Status:</strong> <span x-text="changeItemDisplayStatus(currentJo)"></span></div>
-                                    <div><strong>Requested:</strong> <span x-text="changeItemActiveRequest(currentJo).requested_at_display || changeItemActiveRequest(currentJo).requested_at || '—'"></span></div>
-                                    <div x-show="changeItemReworkInProgress(currentJo)"><strong>Production Status:</strong> In Production</div>
+                            <div>
+                                <div class="pf-change-item-review__summary-heading">
+                                    <div class="pf-change-item-review__title">Change Item Request</div>
+                                    <div class="pf-change-item-review__section-label">Request Summary</div>
+                                </div>
+                                <div class="pf-change-item-review__summary">
+                                    <div class="pf-change-item-review__summary-column">
+                                        <div><strong>Request ID:</strong> <span x-text="changeItemActiveRequest(currentJo).change_item_code || ('CI-' + String(changeItemActiveRequest(currentJo).id || '').padStart(6, '0'))"></span></div>
+                                        <div><strong>Request Status:</strong> <span :class="getChangeItemBadgeClass(currentJo)" x-text="changeItemActiveRequest(currentJo).display_badge_label || getChangeItemBadgeLabel(currentJo)"></span></div>
+                                        <div><strong>Reason for Change:</strong> <span x-text="changeItemActiveRequest(currentJo).reason || '—'"></span></div>
+                                    </div>
+                                    <div class="pf-change-item-review__summary-column">
+                                        <div><strong>Status:</strong> <span x-text="changeItemDisplayStatus(currentJo)"></span></div>
+                                        <div><strong>Requested:</strong> <span x-text="changeItemActiveRequest(currentJo).requested_at_display || changeItemActiveRequest(currentJo).requested_at || '—'"></span></div>
+                                        <div x-show="changeItemReworkInProgress(currentJo)"><strong>Production Status:</strong> In Production</div>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div class="pf-change-item-review__section">
-                                <div class="pf-change-item-review__section-label">Reason for Change</div>
-                                <div class="pf-change-item-review__grid">
-                                    <div x-text="changeItemActiveRequest(currentJo).reason || '—'"></div>
-                                </div>
-                            </div>
-
-                            <div class="pf-change-item-review__section">
-                                <div class="pf-change-item-review__section-label">Issue Description</div>
-                                <div class="pf-change-item-review__description" x-text="changeItemActiveRequest(currentJo).description || changeItemActiveRequest(currentJo).issue_description || '—'"></div>
-                                <div x-show="changeItemActiveRequest(currentJo).customer_notes" style="margin-top:10px;font-size:12px;color:#78350f;">
-                                    <strong>Customer Notes:</strong>
-                                    <div class="pf-change-item-review__description" style="margin-top:6px;max-height:160px;" x-text="changeItemActiveRequest(currentJo).customer_notes"></div>
-                                </div>
-                            </div>
-
-                            <div class="pf-change-item-review__section pf-change-item-review__proof">
-                                <div class="pf-change-item-review__section-label">Customer Evidence</div>
+                            <div class="pf-change-item-review__section pf-change-item-review__proof-layout">
+                              <div class="pf-change-item-review__proof">
+                                <div class="pf-change-item-review__section-label">Customer Proof</div>
                                 <template x-if="changeItemEvidencePhotos(changeItemActiveRequest(currentJo)).length">
                                     <div>
                                         <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:4px;">
@@ -2985,6 +3028,15 @@ $online_closed_count = 0;
                                     </div>
                                 </template>
                                 <div x-show="!changeItemHasEvidence(changeItemActiveRequest(currentJo)) && !changeItemActiveRequest(currentJo).proof_url" style="font-size:13px;color:#92400e;">No proof uploaded</div>
+                              </div>
+                              <div>
+                                <div class="pf-change-item-review__section-label">Issue Description</div>
+                                <div class="pf-change-item-review__description" x-text="changeItemActiveRequest(currentJo).description || changeItemActiveRequest(currentJo).issue_description || 'No issue description provided.'"></div>
+                                <div x-show="changeItemCustomerNotesAreDistinct(changeItemActiveRequest(currentJo))" style="margin-top:10px;font-size:12px;color:#78350f;">
+                                    <strong>Customer Notes:</strong>
+                                    <div class="pf-change-item-review__description" style="margin-top:6px;max-height:160px;" x-text="changeItemActiveRequest(currentJo).customer_notes"></div>
+                                </div>
+                              </div>
                             </div>
 
                             <div class="pf-change-item-review__section" x-show="changeItemActiveRequest(currentJo).staff_notes && !changeItemCanReview(currentJo)">
@@ -3195,7 +3247,7 @@ $online_closed_count = 0;
                                 <button type="button" @click="verifyPayment()" :disabled="actionBusy || !canApproveVerification()" class="pf-entry-btn pf-entry-in" style="width:auto; max-width:220px; min-width:140px; justify-self:center; padding:0 14px; background:#10b981; color:#fff; border-color:#10b981;" :style="(actionBusy || !canApproveVerification()) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve</button>
                                 <button type="button" @click="openRejectPaymentModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Reject</button>
                             </div>
-                            <div x-show="!isPosSimplifiedView && (currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing' || changeItemReworkInProgress(currentJo))" style="display:flex; gap:8px;">
+                            <div x-show="!isPosSimplifiedView && (currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing')" style="display:flex; gap:8px;">
                                 <button type="button" @click="markReadyForPickup()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Mark as Ready for Pickup</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && currentJo.status === 'TO_RECEIVE'" style="display:flex; gap:8px;">
@@ -3643,9 +3695,12 @@ window.pfServiceFieldCatalog = (() => {
             modalCache: {},
             modalCacheLoadedAt: {},
             modalCacheTtlMs: 60000,
-            // Two scoped summary sources are merged; 15 each caps the initial
-            // response set at roughly 30 rows before de-duplication.
-            ordersSummaryPageSize: 15,
+            // The Staff table applies status/date/search filters locally. Load
+            // the complete bounded summary set once so valid imported rows are
+            // present before the client-side pagination is calculated. The API
+            // caps each source at 500 rows, which is well above the current
+            // branch workload and still keeps detail payloads out of this call.
+            ordersSummaryPageSize: 500,
             ordersApiPage: 1,
             ordersHasMore: false,
             loadingMoreOrders: false,
@@ -4374,6 +4429,17 @@ window.pfServiceFieldCatalog = (() => {
 
                 this.mergeChangeItemFields(merged, winner, loser);
 
+                if ((!merged.first_name || !merged.last_name) && loser) {
+                    const loserFull = String(loser.customer_full_name || `${loser.first_name || ''} ${loser.last_name || ''}`).trim();
+                    const mergedFull = String(`${merged.first_name || ''} ${merged.last_name || ''}`).trim().toLowerCase();
+                    const mergedIsWalkIn = mergedFull === 'walk-in guest' || mergedFull === 'walk-in' || mergedFull === '';
+                    if (mergedIsWalkIn && loserFull && !loserFull.toLowerCase().includes('walk-in')) {
+                        merged.first_name = loser.first_name || loserFull.split(/\s+/)[0] || merged.first_name;
+                        merged.last_name = loser.last_name || loserFull.split(/\s+/).slice(1).join(' ') || merged.last_name;
+                        merged.customer_full_name = loserFull;
+                    }
+                }
+
                 return merged;
             },
             mergeChangeItemFields(target, primary, secondary) {
@@ -4442,7 +4508,8 @@ window.pfServiceFieldCatalog = (() => {
                     return '';
                 }
 
-                return [customer, created, status, normalizedLabel].join('|');
+                const orderIdPart = row.order_id != null && row.order_id !== '' ? String(row.order_id) : String(row.id || '');
+                return [customer, created, status, normalizedLabel, orderIdPart].join('|');
             },
             dedupePosDuplicateRows(rows = []) {
                 const deduped = new Map();
@@ -4535,6 +4602,13 @@ window.pfServiceFieldCatalog = (() => {
                 if (!active) return false;
                 const status = String(active.status || row.change_item_status || '').toLowerCase();
                 return status === 'in rework';
+            },
+            changeItemCustomerNotesAreDistinct(request) {
+                const notes = String((request && request.customer_notes) || '').trim();
+                if (!notes) return false;
+                const written = String((request && (request.description || request.issue_description)) || '').trim();
+                const reason = String((request && request.reason) || '').trim();
+                return notes !== written && notes !== reason;
             },
             changeItemPendingReview(row) {
                 if (!row) return false;
@@ -4768,7 +4842,16 @@ window.pfServiceFieldCatalog = (() => {
                 const display = String(row.needed_date_display || '').trim();
                 if (display) return display;
                 const raw = String(row.needed_date || '').trim();
-                if (!raw) return forTitle ? '' : '—';
+                if (!raw) {
+                    const business = String(row.order_business_date || row.order_date || row.created_at || '').trim();
+                    if (business && /^\d{4}-\d{2}-\d{2}/.test(business)) {
+                        const stamp = Date.parse(business.slice(0, 10));
+                        if (!Number.isNaN(stamp)) {
+                            return new Date(stamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                        }
+                    }
+                    return forTitle ? '' : '—';
+                }
                 if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
                     const stamp = Date.parse(raw.slice(0, 10));
                     if (!Number.isNaN(stamp)) {
@@ -4783,14 +4866,20 @@ window.pfServiceFieldCatalog = (() => {
             },
             formatCustomizationInfo(row) {
                 if (!row) return 'Custom service';
+                const dimValid = (value) => {
+                    const text = String(value !== null && value !== undefined ? value : '').trim();
+                    if (text === '') return false;
+                    const num = parseFloat(text);
+                    return Number.isNaN(num) || num > 0;
+                };
                 const width = String(row.width_ft !== null && row.width_ft !== undefined ? row.width_ft : '').trim();
                 const height = String(row.height_ft !== null && row.height_ft !== undefined ? row.height_ft : '').trim();
                 const quantity = Number(row.quantity || 0);
                 const parts = [];
 
-                if (width && height) {
+                if (dimValid(width) && dimValid(height)) {
                     parts.push(`${width}'×${height}'`);
-                } else if (width) {
+                } else if (dimValid(width)) {
                     parts.push(width);
                 }
 
@@ -4798,12 +4887,28 @@ window.pfServiceFieldCatalog = (() => {
                     parts.push(`${quantity} pcs`);
                 }
 
-                let base = parts.join(' • ') || 'Custom service';
+                let base = parts.join(' • ') || '';
 
                 const first = row.items && row.items[0];
                 const custom = first && first.customization && typeof first.customization === 'object' && !Array.isArray(first.customization)
                     ? first.customization
                     : null;
+                const specSummary = custom && custom.spec_summary
+                    ? String(custom.spec_summary).trim()
+                    : (row.customization_details && row.customization_details.spec_summary
+                        ? String(row.customization_details.spec_summary).trim()
+                        : '');
+                const serviceLabel = String(row.service_type || row.job_title || '').trim();
+
+                if (!base && specSummary) {
+                    base = specSummary.length > 80 ? specSummary.slice(0, 77) + '...' : specSummary;
+                } else if (!base && serviceLabel) {
+                    base = serviceLabel;
+                }
+                if (!base) {
+                    base = 'Custom service';
+                }
+
                 if (custom) {
                     const noiseKeys = new Set([
                         'width', 'height', 'width_ft', 'height_ft', 'dimensions', 'service_type', 'service_id', 'product_id',
@@ -6874,8 +6979,8 @@ window.pfServiceFieldCatalog = (() => {
                     per_page: String(this.ordersSummaryPageSize),
                     _: String(Date.now())
                 });
-                const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&include_pagination=1&${query.toString()}`;
-                const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&${query.toString()}`;
+                const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&include_pagination=1&debug=1&query_version=demo_seed_visibility_fix_20261001_live&${query.toString()}`;
+                const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&debug=1&query_version=demo_seed_visibility_fix_20261001_live&${query.toString()}`;
                 const requestOptions = {
                     cache: 'no-store',
                     signal,
@@ -6911,7 +7016,7 @@ window.pfServiceFieldCatalog = (() => {
                 const sourceFilter = <?php echo json_encode(
                     $staffCustomizationRole === 'pos' ? 'pos' : ($staffCustomizationRole === 'online' ? 'online' : 'all')
                 ); ?>;
-                const endpoint = `../admin/job_orders_api.php?action=customization_counts&source=${encodeURIComponent(sourceFilter)}`;
+                const endpoint = `../admin/job_orders_api.php?action=customization_counts&source=${encodeURIComponent(sourceFilter)}&debug=1&query_version=demo_seed_visibility_fix_20261001_live`;
                 const controller = new AbortController();
                 countsAbortController = controller;
                 const timeoutId = window.setTimeout(() => controller.abort(), 10000);

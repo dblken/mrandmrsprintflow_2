@@ -45,6 +45,13 @@ try {
 $customers = [];
 try {
     $customers = db_query("SELECT customer_id, first_name, last_name, email, contact_number FROM customers ORDER BY first_name ASC, last_name ASC");
+    $customers = array_values(array_filter($customers ?: [], static function (array $row): bool {
+        $email = strtolower(trim((string)($row['email'] ?? '')));
+        if ($email === 'walkin@pos.local') {
+            return false;
+        }
+        return !preg_match('/^pos\.guest\.[a-f0-9]+@pos\.local$/', $email);
+    }));
 } catch (Exception $e) {
 }
 
@@ -880,6 +887,37 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             border-bottom: 1px solid #e2e8f0;
             background: #f8fafc;
             flex-shrink: 0;
+        }
+
+        .pos-guest-name-wrap {
+            margin-top: 10px;
+        }
+
+        .pos-guest-name-wrap label {
+            display: block;
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #64748b;
+            margin-bottom: 6px;
+        }
+
+        .pos-guest-name-input {
+            width: 100%;
+            box-sizing: border-box;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 0.95rem;
+            color: #0f172a;
+            background: #fff;
+        }
+
+        .pos-guest-name-input:focus {
+            outline: none;
+            border-color: var(--staff-primary, #2563eb);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
         }
 
         .pos-customer-label {
@@ -2826,20 +2864,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         <!-- Products View -->
                         <div id="products-view" style="display: none; height: 100%; flex-direction: column;">
                             <div class="pos-search-header">
-                                <div class="pos-toolbar-field pos-toolbar-sku">
-                                    <div class="pos-barcode-scan">
-                                        <label for="pos-barcode-input" class="pos-toolbar-sr-label">Scan Barcode or Enter SKU</label>
-                                        <div class="pos-barcode-box">
-                                            <input type="text" id="pos-barcode-input" class="pos-search-input pos-barcode-entry"
-                                                placeholder="Scan or type SKU, then press Enter" autocomplete="off" inputmode="text">
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="pos-toolbar-field pos-toolbar-search">
+                                <div class="pos-toolbar-field pos-toolbar-search" style="grid-column: 1 / span 2;">
                                     <div class="pos-search-box">
                                         <i class="fas fa-search"></i>
-                                        <input type="text" id="pos-search" class="pos-search-input"
-                                            placeholder="Search products...">
+                                        <input type="text" id="pos-search" class="pos-search-input pos-barcode-entry"
+                                            placeholder="Search by product name or SKU (Enter to scan SKU)" autocomplete="off" inputmode="search">
                                     </div>
                                 </div>
                                 <div class="pos-toolbar-field pos-toolbar-category">
@@ -2941,6 +2970,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                     </option>
                                 <?php endforeach; ?>
                             </select>
+                            </div>
+                            <div class="pos-guest-name-wrap" id="pos-guest-name-wrap">
+                                <label for="pos-guest-name">Customer name *</label>
+                                <input type="text" id="pos-guest-name" class="pos-guest-name-input" maxlength="120"
+                                    placeholder="Enter name for receipt (no account required)" autocomplete="name">
                             </div>
                         </div>
 
@@ -3710,7 +3744,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             <div class="receipt-customer-name">${escapeHtml(customer.name || 'Walk-in Guest')}</div>
                             ${receiptContact ? `<div class="receipt-value" style="margin-top:4px;">${escapeHtml(receiptContact)}</div>` : ''}
                         </div>
-                        <div class="receipt-payment-chip">${escapeHtml(payment.method || 'Cash')}</div>
                     </div>
                 </div>
 
@@ -4189,6 +4222,39 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             ].filter(Boolean).join(' ').toLowerCase();
         }
 
+        function isPosGuestCustomerSelected() {
+            return $('#pos-customer').val() === 'guest';
+        }
+
+        function getPosGuestDisplayName() {
+            const el = document.getElementById('pos-guest-name');
+            return el ? String(el.value || '').trim() : '';
+        }
+
+        function togglePosGuestNameField() {
+            const wrap = document.getElementById('pos-guest-name-wrap');
+            if (!wrap) return;
+            const show = isPosGuestCustomerSelected();
+            wrap.style.display = show ? 'block' : 'none';
+            const nameInput = document.getElementById('pos-guest-name');
+            if (nameInput) {
+                if (show) {
+                    nameInput.setAttribute('required', 'required');
+                } else {
+                    nameInput.removeAttribute('required');
+                }
+            }
+        }
+
+        function posCheckoutCustomerPayload() {
+            const customerId = $('#pos-customer').val();
+            const payload = { customer_id: customerId };
+            if (customerId === 'guest') {
+                payload.guest_display_name = getPosGuestDisplayName();
+            }
+            return payload;
+        }
+
         function formatPosCustomerOption(customer) {
             if (!customer.id) return customer.text;
             if (customer.id === 'guest') {
@@ -4246,10 +4312,19 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     field.setAttribute('placeholder', 'Search customer by name or email...');
                     field.focus({ preventScroll: true });
                 }, 0);
+            }).on('change', function() {
+                togglePosGuestNameField();
+                updateCheckoutState();
             });
+
+            const guestNameEl = document.getElementById('pos-guest-name');
+            if (guestNameEl) {
+                guestNameEl.addEventListener('input', updateCheckoutState);
+            }
 
             // Set default to guest
             $('#pos-customer').val('guest').trigger('change');
+            togglePosGuestNameField();
         });
 
         function showPOSMode(mode) {
@@ -4322,6 +4397,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         const state = JSON.parse(savedState);
                         if (state.customer) {
                             $('#pos-customer').val(state.customer).trigger('change');
+                        }
+                        if (state.guest_display_name) {
+                            const guestNameInput = document.getElementById('pos-guest-name');
+                            if (guestNameInput) {
+                                guestNameInput.value = state.guest_display_name;
+                            }
                         }
                         // Update cart item price if available
                         if (state.item_index !== undefined && state.updated_price !== undefined) {
@@ -6489,6 +6570,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (!customer) {
                 canCheckout = false;
                 message = 'Select Customer';
+            } else if (customer === 'guest' && !getPosGuestDisplayName()) {
+                canCheckout = false;
+                message = 'Enter Customer Name';
             }
 
             // Check if cart has any services with price = 0
@@ -6544,6 +6628,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 await showPOSAlert('Select Customer', 'Please select a customer before checkout.', 'warning');
                 return;
             }
+            if (customer === 'guest' && !getPosGuestDisplayName()) {
+                await showPOSAlert('Customer Name Required', 'Enter the walk-in customer\'s name for the receipt.', 'warning');
+                const guestField = document.getElementById('pos-guest-name');
+                if (guestField) guestField.focus();
+                return;
+            }
 
             // Block checkout if any item has price = 0
             const hasUnpricedService = cart.some(i => (i.is_service || i.price === 0) && i.price === 0);
@@ -6583,7 +6673,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             posPayMongoCheckoutPending = true;
             const payload = {
                 action: 'walkin_checkout',
-                customer_id: $('#pos-customer').val(),
+                ...posCheckoutCustomerPayload(),
                 payment_method: pm,
                 reference_number: '',
                 amount_tendered: tendered,
@@ -6699,6 +6789,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (!clearResult.success) {
                 cart = [];
                 renderCart();
+            }
+            const guestNameInput = document.getElementById('pos-guest-name');
+            if (guestNameInput) {
+                guestNameInput.value = '';
             }
             updateCheckoutState();
         }
@@ -7100,18 +7194,25 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 await showPOSAlert('Customer Required', 'Please select a customer first.', 'warning');
                 return;
             }
+            if (customer === 'guest' && !getPosGuestDisplayName()) {
+                await showPOSAlert('Customer Name Required', 'Enter the walk-in customer\'s name before continuing.', 'warning');
+                const guestField = document.getElementById('pos-guest-name');
+                if (guestField) guestField.focus();
+                return;
+            }
 
             // Store cart state in session storage
             sessionStorage.setItem('pos_cart_state', JSON.stringify({
                 cart: cart,
                 customer: customer,
+                guest_display_name: customer === 'guest' ? getPosGuestDisplayName() : '',
                 item_index: index
             }));
 
             // Create a temporary customization entry
             const payload = {
                 action: 'create_pending_customization',
-                customer_id: customer,
+                ...posCheckoutCustomerPayload(),
                 csrf_token: POS_CSRF_TOKEN,
                 item: {
                     id: item.product_id,

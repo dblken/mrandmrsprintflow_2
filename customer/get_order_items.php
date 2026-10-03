@@ -800,14 +800,24 @@ foreach ($customization_rows as $cRow) {
 }
 
 $first_item_customization = [];
+$specificationsSelect = function_exists('db_table_has_column') && db_table_has_column('order_items', 'specifications')
+    ? ', specifications'
+    : '';
 $first_item_raw_customization = db_query(
-    "SELECT customization_data FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC LIMIT 1",
+    "SELECT customization_data{$specificationsSelect} FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC LIMIT 1",
     'i',
     [$order_id]
 );
 if (!empty($first_item_raw_customization[0]['customization_data'])) {
     $first_item_customization = customer_order_items_decode_customization_payload((string)$first_item_raw_customization[0]['customization_data']);
 }
+$first_item_specifications = !empty($first_item_raw_customization[0]['specifications'])
+    ? customer_order_items_decode_customization_payload((string)$first_item_raw_customization[0]['specifications'])
+    : [];
+$first_item_customization = customer_order_items_merge_customization_payload(
+    $first_item_customization,
+    $first_item_specifications
+);
     $first_item_customization = customer_order_items_merge_customization_payload(
         $first_item_customization,
         printflow_overlay_nonempty_assoc($orphan_customization_details, $first_customization_payload),
@@ -1037,6 +1047,12 @@ foreach ($items as $lineIndex => $item) {
     }
 
     $custom_data = customer_order_items_decode_customization_payload((string)($item['customization_data'] ?? ''));
+    // Some checkout/repair paths preserve the complete customer-facing snapshot
+    // in `specifications` while `customization_data` is sparse. Merge both read
+    // sources so an empty optional field (for example Notes) cannot hide the
+    // other saved specifications from the customer order-details modal.
+    $specification_data = customer_order_items_decode_customization_payload((string)($item['specifications'] ?? ''));
+    $custom_data = customer_order_items_merge_customization_payload($custom_data, $specification_data);
     $session_restore_custom = isset($session_restore_items[$lineIndex])
         ? customer_order_items_restore_customization_from_session($session_restore_items[$lineIndex])
         : [];
@@ -1331,9 +1347,7 @@ if (in_array($order['status'], ['Completed', 'To Rate', 'Rated'], true)) {
             'comment' => $r['comment'] ?? '',
             'image_url' => null, // Multiple images handled by review_images table
             'created_at' => format_datetime($r['created_at']),
-            'view_url' => ($r['review_type'] === 'custom') 
-                ? "/printflow/customer/order_service_dynamic.php?service_id=" . $r['reference_id'] . "#review-" . $r['id']
-                : "/printflow/customer/order_create.php?product_id=" . $r['reference_id'] . "#review-" . $r['id']
+            'view_url' => (defined('BASE_URL') ? BASE_URL : '') . "/customer/reviews.php?order_id=" . $order_id . "&review_id=" . (int)$r['id']
         ];
     }
 }

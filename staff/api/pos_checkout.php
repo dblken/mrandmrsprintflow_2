@@ -57,18 +57,7 @@ function pos_get_walkin_customer_id(): int {
 
     $res = db_query("SELECT customer_id FROM customers WHERE email='walkin@pos.local' LIMIT 1") ?: [];
     if (!empty($res)) {
-        $customerId = (int)$res[0]['customer_id'];
-        db_execute(
-            "UPDATE customers
-             SET first_name = 'Walk-in',
-                 last_name = 'Guest',
-                 contact_number = NULL
-             WHERE customer_id = ?
-               AND email = 'walkin@pos.local'",
-            'i',
-            [$customerId]
-        );
-        return $customerId;
+        return (int)$res[0]['customer_id'];
     }
 
     db_execute(
@@ -77,6 +66,105 @@ function pos_get_walkin_customer_id(): int {
     );
 
     return (int)$conn->insert_id;
+}
+
+function pos_is_shared_walkin_placeholder_email(string $email): bool {
+    return strtolower(trim($email)) === 'walkin@pos.local';
+}
+
+/** @return array{first:string,last:string} */
+function pos_parse_guest_display_name(string $raw): array {
+    $name = preg_replace('/\s+/u', ' ', trim($raw)) ?? trim($raw);
+    if ($name === '') {
+        return ['first' => '', 'last' => ''];
+    }
+    $parts = preg_split('/\s+/u', $name, 2) ?: [];
+    return [
+        'first' => trim((string)($parts[0] ?? '')),
+        'last' => trim((string)($parts[1] ?? '')),
+    ];
+}
+
+function pos_create_name_only_pos_customer(string $displayName): int {
+    global $conn;
+
+    $parsed = pos_parse_guest_display_name($displayName);
+    if ($parsed['first'] === '') {
+        throw new RuntimeException('Please enter the walk-in customer\'s name.', 400);
+    }
+    $lastName = $parsed['last'] !== '' ? $parsed['last'] : '-';
+    $email = 'pos.guest.' . bin2hex(random_bytes(8)) . '@pos.local';
+    $passwordHash = password_hash(bin2hex(random_bytes(16)), PASSWORD_BCRYPT);
+
+    if (function_exists('printflow_ensure_customers_auth_provider_column')) {
+        printflow_ensure_customers_auth_provider_column();
+    }
+
+    $insertOk = printflow_run_guarded_account_insert(function () use ($parsed, $lastName, $email, $passwordHash) {
+        return db_execute(
+            "INSERT INTO customers (first_name, last_name, email, contact_number, password_hash, status, auth_provider, created_by_system, created_at)
+             VALUES (?, ?, ?, '', ?, 'Activated', 'local', 1, NOW())",
+            'ssss',
+            [$parsed['first'], $lastName, $email, $passwordHash]
+        );
+    });
+
+    if (!$insertOk) {
+        $logDetail = '';
+        if (!empty($GLOBALS['printflow_db_errors']) && is_array($GLOBALS['printflow_db_errors'])) {
+            $lastDbErr = end($GLOBALS['printflow_db_errors']);
+            if (is_array($lastDbErr)) {
+                $stage = trim((string)($lastDbErr['stage'] ?? ''));
+                $errText = trim((string)($lastDbErr['error'] ?? ''));
+                $logDetail = $stage !== '' ? ($stage . ': ' . $errText) : $errText;
+            }
+        }
+        if ($logDetail === '' && $conn instanceof mysqli && $conn->error) {
+            $logDetail = trim((string)$conn->error);
+        }
+        error_log('[pos_checkout] name-only guest insert failed: ' . ($logDetail !== '' ? $logDetail : 'db_execute returned false'));
+        throw new RuntimeException('Could not save the walk-in customer name.', 500);
+    }
+
+    $customerId = is_numeric($insertOk) ? (int)$insertOk : (int)($conn->insert_id ?? 0);
+    if ($customerId <= 0) {
+        throw new RuntimeException('Could not save the walk-in customer name.', 500);
+    }
+
+    return $customerId;
+}
+
+function pos_resolve_checkout_customer_id(array $data): int {
+    $rawCustomer = $data['customer_id'] ?? null;
+    if ($rawCustomer !== null && $rawCustomer !== '' && $rawCustomer !== 'guest') {
+        $customerId = (int)$rawCustomer;
+        if ($customerId <= 0) {
+            throw new RuntimeException('Please select a valid customer.', 400);
+        }
+        $rows = db_query(
+            'SELECT customer_id FROM customers WHERE customer_id = ? LIMIT 1',
+            'i',
+            [$customerId]
+        ) ?: [];
+        if ($rows === []) {
+            throw new RuntimeException('The selected customer could not be found.', 400);
+        }
+        return $customerId;
+    }
+
+    $guestName = trim((string)($data['guest_display_name'] ?? ''));
+    if ($guestName === '') {
+        throw new RuntimeException('Please enter the walk-in customer\'s name.', 400);
+    }
+    if (function_exists('mb_strlen')) {
+        if (mb_strlen($guestName) > 120) {
+            throw new RuntimeException('Customer name is too long.', 400);
+        }
+    } elseif (strlen($guestName) > 120) {
+        throw new RuntimeException('Customer name is too long.', 400);
+    }
+
+    return pos_create_name_only_pos_customer($guestName);
 }
 
 function pos_prepare_order_for_paymongo_checkout(
@@ -160,7 +248,7 @@ function pos_prepare_order_for_paymongo_checkout(
 }
 
 function pos_order_uses_walkin_placeholder(array $order): bool {
-    return strtolower(trim((string)($order['email'] ?? ''))) === 'walkin@pos.local';
+    return pos_is_shared_walkin_placeholder_email((string)($order['email'] ?? ''));
 }
 
 function pos_ensure_customizations_table(): void {
@@ -908,10 +996,9 @@ function pos_extract_order_item_display_name(array $item): string {
 
     $serviceType = trim((string)($customization['service_type'] ?? ''));
     $productType = trim((string)($customization['product_type'] ?? ''));
-    $size = trim((string)($customization['size'] ?? $customization['dimensions'] ?? ''));
     $baseName = $serviceType !== '' ? $serviceType : ($productType !== '' ? $productType : $fallback);
 
-    return $size !== '' ? ($baseName . ' (' . $size . ')') : ($baseName !== '' ? $baseName : 'Item');
+    return $baseName !== '' ? $baseName : 'Item';
 }
 
 function pos_checkout_group_total(array $groupItems, array $products_cache): float
@@ -1119,11 +1206,17 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
     printflow_ensure_order_items_columns();
     pos_ensure_customizations_table();
 
-    $customer_id = $data['customer_id'] === 'guest' ? null : (int)$data['customer_id'];
     $transaction_open = false;
-    
-    if ($customer_id === null) {
-        $customer_id = pos_get_walkin_customer_id();
+
+    try {
+        $customer_id = pos_resolve_checkout_customer_id($data);
+    } catch (RuntimeException $customerError) {
+        $code = (int)$customerError->getCode();
+        if ($code >= 400 && $code < 600) {
+            http_response_code($code);
+        }
+        echo json_encode(['success' => false, 'message' => $customerError->getMessage()]);
+        exit;
     }
     
     $item = $data['item'];
@@ -1243,11 +1336,6 @@ if (empty($data['items'])) {
 printflow_ensure_order_items_columns();
 pos_ensure_customizations_table();
 
-$customer_id = $data['customer_id'] === 'guest' ? null : (int)$data['customer_id'];
-
-if ($customer_id === null) {
-    $customer_id = pos_get_walkin_customer_id();
-}
 if (!pos_checkout_verify_csrf((string)($data['csrf_token'] ?? ''), $sessionContext)) {
     http_response_code(403);
     echo json_encode(['success' => false, 'message' => 'Invalid security token.']);
@@ -1374,6 +1462,17 @@ if ($isPayMongo && !empty($sessionContext['pos_paymongo_checkouts'][$checkoutTok
         ], JSON_UNESCAPED_SLASHES);
         exit;
     }
+}
+
+try {
+    $customer_id = pos_resolve_checkout_customer_id($data);
+} catch (RuntimeException $customerError) {
+    $code = (int)$customerError->getCode();
+    if ($code >= 400 && $code < 600) {
+        http_response_code($code);
+    }
+    echo json_encode(['success' => false, 'message' => $customerError->getMessage()]);
+    exit;
 }
 
 $pos_pending_orders_snapshot = $sessionContext['pos_pending_orders'];

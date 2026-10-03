@@ -1036,7 +1036,7 @@
                 var html = '';
                 for (var j = 0; j < data.notifications.length; j++) {
                     var n = data.notifications[j];
-                    var target = normalizeNotificationTarget((n && n.link) ? n.link : ((n && n.target_url) ? n.target_url : getNotifUrl(n.type, n.data_id, n.message, n.id, n.order_type)));
+                    var target = normalizeNotificationTarget((n && n.link) ? n.link : ((n && n.target_url) ? n.target_url : getNotifUrl(n.type, n.data_id, n.message, n.id, n.order_type, n.review_id)));
                     var unreadClass = n.is_read == 0 ? 'unread' : '';
                     var type = (n.type || '').toLowerCase();
                     var iconSvg = '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>';
@@ -1095,7 +1095,7 @@
             });
     }
 
-    function getNotifUrl(type, dataId, message, notifId, orderType) {
+    function getNotifUrl(type, dataId, message, notifId, orderType, reviewId) {
         var base = '/printflow';
         var t = (type || '').toLowerCase();
         var isStaff = (USER_TYPE.toLowerCase() === 'admin' || USER_TYPE.toLowerCase() === 'staff' || USER_TYPE.toLowerCase() === 'manager');
@@ -1127,6 +1127,7 @@
             }
             else if (t.indexOf('rating') !== -1 || t.indexOf('review') !== -1) {
                 url = USER_TYPE.toLowerCase() === 'staff' ? base + '/staff/reviews.php' : base + '/admin/notifications.php';
+                if (reviewId && USER_TYPE.toLowerCase() === 'staff') url += '?review_id=' + encodeURIComponent(reviewId) + (did ? '&order_id=' + did : '');
             }
             else if (t.indexOf('payment') !== -1) {
                 url = did ? base + '/staff/payment_verification.php?submission_id=' + did : base + '/staff/payment_verification.php';
@@ -1149,7 +1150,10 @@
             else if (t.indexOf('order') !== -1 || t.indexOf('status') !== -1) url = base + '/customer/orders.php?highlight=' + did;
             else if (t.indexOf('payment') !== -1) url = did ? base + '/customer/orders.php?highlight=' + did : base + '/customer/notifications.php';
             else if (t.indexOf('job') !== -1) url = base + '/customer/new_job_order.php';
-            else if (t.indexOf('rating') !== -1 || t.indexOf('review') !== -1) url = did ? base + '/customer/rate_order.php?order_id=' + did : base + '/customer/reviews.php';
+            else if (t.indexOf('rating') !== -1 || t.indexOf('review') !== -1) {
+                url = did ? base + '/customer/reviews.php?order_id=' + did : base + '/customer/reviews.php';
+                if (reviewId) url += '&review_id=' + encodeURIComponent(reviewId);
+            }
             else if ((t.indexOf('design') !== -1 || t.indexOf('custom') !== -1) && did) url = base + '/customer/chat.php?order_id=' + did;
             else url = base + '/customer/notifications.php';
         }
@@ -1197,7 +1201,7 @@
                         markSeen(String(itemId));
                         highestId = Math.max(highestId, itemId);
                     }
-                    var targetUrl = normalizeNotificationTarget((item && item.link) ? item.link : ((item && item.target_url) ? item.target_url : getNotifUrl(item.type, item.data_id, item.message, item.id, item.order_type)));
+                    var targetUrl = normalizeNotificationTarget((item && item.link) ? item.link : ((item && item.target_url) ? item.target_url : getNotifUrl(item.type, item.data_id, item.message, item.id, item.order_type, item.review_id)));
                     showToast(item.title || 'PrintFlow', item.message, targetUrl, item.image || '', item.fallback || '');
                 }
 
