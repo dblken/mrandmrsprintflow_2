@@ -935,6 +935,12 @@ require_once __DIR__ . '/../includes/header.php';
     display: none;
 }
 
+@media (max-width: 767px) {
+    #main-header [data-pf-profile-wrap] {
+        display: none !important;
+    }
+}
+
 .profile-nav-divider {
     border: 0;
     border-top: 1px solid var(--pf-border);
@@ -988,6 +994,28 @@ require_once __DIR__ . '/../includes/header.php';
     .profile-nav-mobile-extra {
         display: block;
         padding-bottom: 0.35rem;
+    }
+
+    .profile-mobile-account-actions {
+        margin-top: 1.5rem;
+        padding: 1rem;
+        background: #f8fafc;
+        border: 1px solid var(--pf-border);
+        border-radius: 12px;
+    }
+
+    .profile-mobile-account-actions .profile-nav-divider {
+        display: none;
+    }
+
+    .profile-mobile-account-actions .profile-nav-action-btn {
+        width: 100%;
+        margin: 0;
+        min-height: 44px;
+    }
+
+    .profile-mobile-account-actions .profile-nav-action-btn + .profile-nav-action-btn {
+        margin-top: 0.75rem;
     }
 }
 
@@ -1125,17 +1153,6 @@ require_once __DIR__ . '/../includes/header.php';
                         <?php endforeach; ?>
                     </ul>
 
-                    <div class="profile-nav-mobile-extra" aria-label="Account shortcuts">
-                        <hr class="profile-nav-divider">
-                        <button type="button" id="pwa-install-btn-profile" class="profile-nav-action-btn profile-nav-action-btn--install" aria-label="Install PrintFlow app" style="display:none;">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                            Install App
-                        </button>
-                        <button type="button" class="profile-nav-action-btn profile-nav-action-btn--logout" onclick="document.getElementById('logout-confirm-modal').style.display='flex'">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
-                            Logout
-                        </button>
-                    </div>
                 </div>
 
 
@@ -1415,6 +1432,17 @@ require_once __DIR__ . '/../includes/header.php';
 
             </div><!-- /main -->
         </div><!-- /profile-grid -->
+        <div class="profile-nav-mobile-extra profile-mobile-account-actions" aria-label="Account shortcuts">
+            <hr class="profile-nav-divider">
+            <button type="button" id="pwa-install-btn-profile" class="profile-nav-action-btn profile-nav-action-btn--install" aria-label="Install PrintFlow app" style="display:none;">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                Install App
+            </button>
+            <button type="button" class="profile-nav-action-btn profile-nav-action-btn--logout" onclick="document.getElementById('logout-confirm-modal').style.display='flex'">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                Logout
+            </button>
+        </div>
     </div><!-- /profile-container -->
 </div><!-- /min-h-screen -->
 
