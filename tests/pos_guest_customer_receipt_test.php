@@ -24,7 +24,7 @@ $assert(strpos($receipt, "'customer' => \$receiptCustomer") !== false, 'receipt 
 
 $assert(strpos($checkout, 'function pos_resolve_checkout_customer_id(') !== false, 'checkout resolves guest vs account customers');
 $assert(strpos($checkout, 'function pos_create_name_only_pos_customer(') !== false, 'checkout can persist name-only walk-in customers');
-$assert(strpos($checkout, 'pos.guest.') !== false && strpos($checkout, '@pos.local') !== false, 'name-only guests use synthetic local emails');
+$assert(strpos($checkout, 'printflow_run_guarded_account_insert') !== false, 'name-only guest insert uses account creation guard');
 $assert(
     strpos($checkout, "SET first_name = 'Walk-in'") === false,
     'checkout no longer resets the shared walk-in placeholder name on every sale'

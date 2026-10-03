@@ -92,17 +92,46 @@ function pos_create_name_only_pos_customer(string $displayName): int {
     if ($parsed['first'] === '') {
         throw new RuntimeException('Please enter the walk-in customer\'s name.', 400);
     }
+    $lastName = $parsed['last'] !== '' ? $parsed['last'] : '-';
     $email = 'pos.guest.' . bin2hex(random_bytes(8)) . '@pos.local';
-    if (!db_execute(
-        "INSERT INTO customers (first_name, last_name, email, contact_number, password_hash, status)
-         VALUES (?, ?, ?, NULL, '', 'Active')",
-        'sss',
-        [$parsed['first'], $parsed['last'], $email]
-    )) {
+    $passwordHash = password_hash(bin2hex(random_bytes(16)), PASSWORD_BCRYPT);
+
+    if (function_exists('printflow_ensure_customers_auth_provider_column')) {
+        printflow_ensure_customers_auth_provider_column();
+    }
+
+    $insertOk = printflow_run_guarded_account_insert(function () use ($parsed, $lastName, $email, $passwordHash) {
+        return db_execute(
+            "INSERT INTO customers (first_name, last_name, email, contact_number, password_hash, status, auth_provider, created_by_system, created_at)
+             VALUES (?, ?, ?, '', ?, 'Activated', 'local', 1, NOW())",
+            'ssss',
+            [$parsed['first'], $lastName, $email, $passwordHash]
+        );
+    });
+
+    if (!$insertOk) {
+        $logDetail = '';
+        if (!empty($GLOBALS['printflow_db_errors']) && is_array($GLOBALS['printflow_db_errors'])) {
+            $lastDbErr = end($GLOBALS['printflow_db_errors']);
+            if (is_array($lastDbErr)) {
+                $stage = trim((string)($lastDbErr['stage'] ?? ''));
+                $errText = trim((string)($lastDbErr['error'] ?? ''));
+                $logDetail = $stage !== '' ? ($stage . ': ' . $errText) : $errText;
+            }
+        }
+        if ($logDetail === '' && $conn instanceof mysqli && $conn->error) {
+            $logDetail = trim((string)$conn->error);
+        }
+        error_log('[pos_checkout] name-only guest insert failed: ' . ($logDetail !== '' ? $logDetail : 'db_execute returned false'));
         throw new RuntimeException('Could not save the walk-in customer name.', 500);
     }
 
-    return (int)$conn->insert_id;
+    $customerId = is_numeric($insertOk) ? (int)$insertOk : (int)($conn->insert_id ?? 0);
+    if ($customerId <= 0) {
+        throw new RuntimeException('Could not save the walk-in customer name.', 500);
+    }
+
+    return $customerId;
 }
 
 function pos_resolve_checkout_customer_id(array $data): int {

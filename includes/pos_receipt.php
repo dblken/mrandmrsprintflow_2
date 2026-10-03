@@ -8,7 +8,11 @@ function printflow_pos_receipt_customer_fields(array $order): array {
     $email = strtolower(trim((string)($order['email'] ?? '')));
     $first = trim((string)($order['first_name'] ?? ''));
     $last = trim((string)($order['last_name'] ?? ''));
-    $fullName = trim($first . ' ' . $last);
+    if ($last === '-' || $last === '') {
+        $fullName = $first;
+    } else {
+        $fullName = trim($first . ' ' . $last);
+    }
     $isSharedPlaceholder = $email === 'walkin@pos.local';
     $hideContact = $isSharedPlaceholder
         || (str_starts_with($email, 'pos.guest.') && str_ends_with($email, '@pos.local'));
