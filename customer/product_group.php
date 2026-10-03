@@ -550,6 +550,30 @@ require_once __DIR__ . '/../includes/header.php';
         flex: 0 0 auto;
         box-sizing: border-box;
     }
+    .pf-group-selection .shopee-footer.pf-group-options-actions {
+        display: grid;
+        grid-template-columns: auto auto 118px;
+        grid-template-rows: auto auto;
+        justify-content: end;
+        align-items: end;
+        column-gap: 8px;
+        row-gap: 8px;
+    }
+    .pf-group-selection .shopee-footer.pf-group-options-actions .pf-group-action-price {
+        grid-column: 1;
+        grid-row: 2;
+        align-self: center;
+        margin-right: 0;
+    }
+    .pf-group-selection .shopee-footer.pf-group-options-actions .shopee-btn-cart {
+        grid-column: 2;
+        grid-row: 2;
+        align-self: center;
+    }
+    .pf-group-selection .shopee-footer.pf-group-options-actions .pf-group-buy-stack {
+        grid-column: 3;
+        grid-row: 1 / span 2;
+    }
     .pf-group-selection .pf-group-options-actions {
         margin-top: 0;
         padding-top: 0;
