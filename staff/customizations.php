@@ -2943,12 +2943,12 @@ $online_closed_count = 0;
                                         <div><strong>Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
                                         <div><strong>Item:</strong> <span x-text="getChangeItemItemName(currentJo)"></span></div>
                                         <div><strong>Status:</strong> <span x-text="changeItemDisplayStatus(currentJo)"></span></div>
-                                        <div x-show="changeItemReworkInProgress(currentJo)"><strong>Production Status:</strong> In Production</div>
                                     </div>
                                     <div class="pf-change-item-review__summary-col">
                                         <div><strong>Customer:</strong> <span x-text="(currentJo.customer_full_name || ((currentJo.first_name || '') + ' ' + (currentJo.last_name || ''))).trim() || 'Walk-in customer'"></span></div>
                                         <div><strong>Request Source:</strong> <span x-text="changeItemActiveRequest(currentJo).request_source_label || changeItemRequestedByLabel(changeItemActiveRequest(currentJo))"></span></div>
                                         <div><strong>Requested:</strong> <span x-text="changeItemActiveRequest(currentJo).requested_at_display || changeItemActiveRequest(currentJo).requested_at || '—'"></span></div>
+                                        <div x-show="changeItemReworkInProgress(currentJo)"><strong>Production Status:</strong> In Production</div>
                                     </div>
                                 </div>
                             </div>
