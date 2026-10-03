@@ -469,22 +469,32 @@ if (!empty($google_client_id)) {
                     <div class="auth-field">
                         <label for="reg-first-name">First Name <span style="color:#dc2626;">*</span></label>
                         <input type="text" id="reg-first-name" name="first_name" class="input-field validate-reg-name" maxlength="50" autocomplete="given-name" data-reg-required>
+                        <p class="auth-field-hint">Letters and spaces only, 2-50 characters.</p>
+                        <p class="modal-field-error" id="reg-first-name-error"></p>
                     </div>
                     <div class="auth-field">
                         <label for="reg-middle-name">Middle Name</label>
                         <input type="text" id="reg-middle-name" name="middle_name" class="input-field validate-reg-name" maxlength="50" autocomplete="additional-name">
+                        <p class="auth-field-hint">Optional. Letters and spaces only.</p>
+                        <p class="modal-field-error" id="reg-middle-name-error"></p>
                     </div>
                     <div class="auth-field">
                         <label for="reg-last-name">Last Name <span style="color:#dc2626;">*</span></label>
                         <input type="text" id="reg-last-name" name="last_name" class="input-field validate-reg-name" maxlength="50" autocomplete="family-name" data-reg-required>
+                        <p class="auth-field-hint">Letters and spaces only, 2-50 characters.</p>
+                        <p class="modal-field-error" id="reg-last-name-error"></p>
                     </div>
                     <div class="auth-field">
                         <label for="reg-contact-number">Contact Number <span style="color:#dc2626;">*</span></label>
                         <input type="tel" id="reg-contact-number" name="contact_number" class="input-field validate-reg-contact" placeholder="09XXXXXXXXX" maxlength="11" inputmode="numeric" autocomplete="tel" data-reg-required>
+                        <p class="auth-field-hint">Use 11 digits starting with 09.</p>
+                        <p class="modal-field-error" id="reg-contact-number-error"></p>
                     </div>
                     <div class="auth-field">
                         <label for="reg-dob">Birthday <span style="color:#dc2626;">*</span></label>
                         <input type="date" id="reg-dob" name="dob" class="input-field validate-reg-dob" min="<?php echo date('Y-m-d', strtotime('-100 years')); ?>" max="<?php echo date('Y-m-d', strtotime('-13 years')); ?>" data-reg-required>
+                        <p class="auth-field-hint">You must be between 13 and 100 years old.</p>
+                        <p class="modal-field-error" id="reg-dob-error"></p>
                     </div>
                     <div class="auth-field">
                         <label for="reg-gender">Gender <span style="color:#dc2626;">*</span></label>
@@ -494,6 +504,7 @@ if (!empty($google_client_id)) {
                             <option value="Female">Female</option>
                             <option value="Other">Other</option>
                         </select>
+                        <p class="modal-field-error" id="reg-gender-error"></p>
                     </div>
                 </div>
 
@@ -1133,6 +1144,38 @@ if (!empty($google_client_id)) {
         return dob <= today && age >= 13 && age <= 100;
     }
 
+    function regValidateProfileLikeField(fieldId, showErrors) {
+        var inputId = 'reg-' + fieldId.replace('_', '-');
+        var input = document.getElementById(inputId);
+        var errorId = 'reg-' + fieldId.replace('_', '-') + '-error';
+        var errorEl = document.getElementById(errorId);
+        if (!input) return true;
+        var value = (input.value || '').trim();
+        var message = '';
+
+        if (fieldId === 'first_name' || fieldId === 'last_name' || fieldId === 'middle_name') {
+            var required = fieldId !== 'middle_name';
+            if (!value) {
+                if (required && showErrors) message = fieldId === 'first_name' ? 'First name is required.' : 'Last name is required.';
+            } else if (!/^[A-Za-z]+(?: [A-Za-z]+)*$/.test(value)) {
+                message = /[0-9]/.test(value) ? 'Numbers are not allowed.' : 'Use letters only.';
+            } else if ((required && value.length < 2) || value.length > 50) {
+                message = required ? 'Use 2-50 characters.' : 'Use no more than 50 characters.';
+            }
+        } else if (fieldId === 'contact_number') {
+            if (!value && showErrors) message = 'Contact number is required.';
+            else if (value && !/^09\d{9}$/.test(value)) message = 'Use format 09XXXXXXXXX.';
+        } else if (fieldId === 'dob') {
+            if (!value && showErrors) message = 'Birthday is required.';
+            else if (value && !regDobValid(value)) message = 'Age must be between 13 and 100.';
+        } else if (fieldId === 'gender' && !value && showErrors) {
+            message = 'Gender is required.';
+        }
+
+        regSetFieldError(input, errorEl, message);
+        return !message;
+    }
+
     function regRequiredFieldsOk() {
         var first = regNormalizeName((document.getElementById('reg-first-name') || {}).value || '');
         var middle = regNormalizeName((document.getElementById('reg-middle-name') || {}).value || '');
@@ -1159,6 +1202,9 @@ if (!empty($google_client_id)) {
         var pwErrEl = document.getElementById('reg-password-error');
         var submitBtn = document.querySelector('#reg-form-final button[type="submit"]');
 
+        ['first_name', 'middle_name', 'last_name', 'contact_number', 'dob', 'gender'].forEach(function(fieldId) {
+            regValidateProfileLikeField(fieldId, showErrors);
+        });
         var idVal = idEl ? idEl.value.trim() : '';
         var pwVal = pwEl ? pwEl.value : '';
 
@@ -1548,7 +1594,15 @@ if (!empty($google_client_id)) {
     }
 
     Array.prototype.slice.call(document.querySelectorAll('#reg-form-final .validate-reg-name')).forEach(function(input) {
-        input.addEventListener('blur', function() { this.value = regNormalizeName(this.value); regCheckForm(false); });
+        input.addEventListener('input', function() {
+            this.value = this.value.replace(/[^A-Za-z ]/g, '').replace(/ +(?= )/g, '');
+            this.value = regNormalizeName(this.value);
+            regCheckForm(false);
+        });
+        input.addEventListener('blur', function() {
+            this.value = regNormalizeName(this.value);
+            regCheckForm(true);
+        });
     });
     var regContactEl = document.getElementById('reg-contact-number');
     if (regContactEl) {
