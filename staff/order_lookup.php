@@ -58,7 +58,7 @@ if ($userType === 'Admin') {
                 <svg width="30" height="30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3M3 19a2 2 0 002 2h3M21 5a2 2 0 00-2-2h-3m5 16a2 2 0 01-2 2h-3M7 7h3v3H7V7zm7 0h3v3h-3V7zM7 14h3v3H7v-3zm7 0h1m2 0v3h-3"/></svg>
             </div>
             <h1 id="lookup-heading">Scan receipt QR</h1>
-            <p>Scan a customer receipt with a USB scanner, or enter its Receipt No. or visible order code. The existing order will open in the correct staff module.</p>
+            <p>Scan a customer receipt with a USB scanner, or enter its receipt reference or visible order code. The existing order will open in the correct staff module.</p>
             <form id="receipt-lookup-form" class="receipt-lookup-form" novalidate>
                 <label class="receipt-lookup-label" for="receipt-lookup-input">Receipt QR / order identifier</label>
                 <div class="receipt-lookup-row">
