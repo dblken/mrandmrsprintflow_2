@@ -658,24 +658,38 @@ $online_closed_count = 0;
             line-height: 1.5;
         }
         .pf-change-item-review__grid--summary {
-            gap: 8px 24px;
+            grid-template-rows: repeat(4, auto);
+            column-gap: 24px;
+            row-gap: 8px;
             align-items: start;
         }
-        .pf-change-item-review__summary-col {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
+        .pf-change-item-review__grid--summary > div {
             min-width: 0;
         }
-        .pf-change-item-review__summary-col > div {
-            min-width: 0;
-        }
+        .pf-change-item-summary-order { grid-column: 1; grid-row: 1; }
+        .pf-change-item-summary-item { grid-column: 1; grid-row: 2; }
+        .pf-change-item-summary-status { grid-column: 1; grid-row: 3; }
+        .pf-change-item-summary-production { grid-column: 1; grid-row: 4; }
+        .pf-change-item-summary-customer { grid-column: 2; grid-row: 1; }
+        .pf-change-item-summary-source { grid-column: 2; grid-row: 2; }
+        .pf-change-item-summary-requested { grid-column: 2; grid-row: 3; }
         @media (max-width: 640px) {
             .pf-change-item-review__grid {
                 grid-template-columns: minmax(0, 1fr);
             }
             .pf-change-item-review__grid--summary {
                 grid-template-columns: minmax(0, 1fr);
+                grid-template-rows: none;
+            }
+            .pf-change-item-summary-order,
+            .pf-change-item-summary-customer,
+            .pf-change-item-summary-item,
+            .pf-change-item-summary-source,
+            .pf-change-item-summary-status,
+            .pf-change-item-summary-requested,
+            .pf-change-item-summary-production {
+                grid-column: 1;
+                grid-row: auto;
             }
         }
         .pf-change-item-review__description {
@@ -2939,17 +2953,13 @@ $online_closed_count = 0;
                             <div class="pf-change-item-review__section">
                                 <div class="pf-change-item-review__section-label">Request Summary</div>
                                 <div class="pf-change-item-review__grid pf-change-item-review__grid--summary">
-                                    <div class="pf-change-item-review__summary-col">
-                                        <div><strong>Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
-                                        <div><strong>Item:</strong> <span x-text="getChangeItemItemName(currentJo)"></span></div>
-                                        <div><strong>Status:</strong> <span x-text="changeItemDisplayStatus(currentJo)"></span></div>
-                                    </div>
-                                    <div class="pf-change-item-review__summary-col">
-                                        <div><strong>Customer:</strong> <span x-text="(currentJo.customer_full_name || ((currentJo.first_name || '') + ' ' + (currentJo.last_name || ''))).trim() || 'Walk-in customer'"></span></div>
-                                        <div><strong>Request Source:</strong> <span x-text="changeItemActiveRequest(currentJo).request_source_label || changeItemRequestedByLabel(changeItemActiveRequest(currentJo))"></span></div>
-                                        <div><strong>Requested:</strong> <span x-text="changeItemActiveRequest(currentJo).requested_at_display || changeItemActiveRequest(currentJo).requested_at || '—'"></span></div>
-                                        <div x-show="changeItemReworkInProgress(currentJo)"><strong>Production Status:</strong> In Production</div>
-                                    </div>
+                                    <div class="pf-change-item-summary-order"><strong>Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
+                                    <div class="pf-change-item-summary-customer"><strong>Customer:</strong> <span x-text="(currentJo.customer_full_name || ((currentJo.first_name || '') + ' ' + (currentJo.last_name || ''))).trim() || 'Walk-in customer'"></span></div>
+                                    <div class="pf-change-item-summary-item"><strong>Item:</strong> <span x-text="getChangeItemItemName(currentJo)"></span></div>
+                                    <div class="pf-change-item-summary-source"><strong>Request Source:</strong> <span x-text="changeItemActiveRequest(currentJo).request_source_label || changeItemRequestedByLabel(changeItemActiveRequest(currentJo))"></span></div>
+                                    <div class="pf-change-item-summary-status"><strong>Status:</strong> <span x-text="changeItemDisplayStatus(currentJo)"></span></div>
+                                    <div class="pf-change-item-summary-requested"><strong>Requested:</strong> <span x-text="changeItemActiveRequest(currentJo).requested_at_display || changeItemActiveRequest(currentJo).requested_at || '—'"></span></div>
+                                    <div class="pf-change-item-summary-production" x-show="changeItemReworkInProgress(currentJo)"><strong>Production Status:</strong> In Production</div>
                                 </div>
                             </div>
 
@@ -2963,7 +2973,7 @@ $online_closed_count = 0;
                             <div class="pf-change-item-review__section">
                                 <div class="pf-change-item-review__section-label">Issue Description</div>
                                 <div class="pf-change-item-review__description" x-text="changeItemActiveRequest(currentJo).description || changeItemActiveRequest(currentJo).issue_description || '—'"></div>
-                                <div x-show="changeItemActiveRequest(currentJo).customer_notes" style="margin-top:10px;font-size:12px;color:#78350f;">
+                                <div x-show="changeItemCustomerNotesAreDistinct(changeItemActiveRequest(currentJo))" style="margin-top:10px;font-size:12px;color:#78350f;">
                                     <strong>Customer Notes:</strong>
                                     <div class="pf-change-item-review__description" style="margin-top:6px;max-height:160px;" x-text="changeItemActiveRequest(currentJo).customer_notes"></div>
                                 </div>
@@ -4579,6 +4589,13 @@ window.pfServiceFieldCatalog = (() => {
                 if (!active) return false;
                 const status = String(active.status || row.change_item_status || '').toLowerCase();
                 return status === 'in rework';
+            },
+            changeItemCustomerNotesAreDistinct(request) {
+                const notes = String((request && request.customer_notes) || '').trim();
+                if (!notes) return false;
+                const written = String((request && (request.description || request.issue_description)) || '').trim();
+                const reason = String((request && request.reason) || '').trim();
+                return notes !== written && notes !== reason;
             },
             changeItemPendingReview(row) {
                 if (!row) return false;
