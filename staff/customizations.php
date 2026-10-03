@@ -660,7 +660,7 @@ $online_closed_count = 0;
         .pf-change-item-review__summary {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            grid-template-rows: repeat(4, auto);
+            grid-template-rows: repeat(5, auto);
             column-gap: 24px;
             row-gap: 8px;
             align-items: stretch;
@@ -672,14 +672,14 @@ $online_closed_count = 0;
             display: grid;
             grid-template-rows: subgrid;
             grid-column: 1;
-            grid-row: 1 / span 4;
+            grid-row: 1 / span 3;
             row-gap: 8px;
             align-items: start;
             min-width: 0;
         }
         .pf-change-item-review__summary > .pf-change-item-review__summary-column + .pf-change-item-review__summary-column {
             grid-column: 2;
-            grid-row: 1 / span 3;
+            grid-row: 1 / span 5;
         }
         .pf-change-item-review__summary-column > div {
             min-width: 0;
@@ -2965,20 +2965,14 @@ $online_closed_count = 0;
                                         <div><strong>Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
                                         <div><strong>Customer:</strong> <span x-text="(currentJo.customer_full_name || ((currentJo.first_name || '') + ' ' + (currentJo.last_name || ''))).trim() || 'Walk-in customer'"></span></div>
                                         <div><strong>Item:</strong> <span x-text="getChangeItemItemName(currentJo)"></span></div>
-                                        <div><strong>Request Source:</strong> <span x-text="changeItemActiveRequest(currentJo).request_source_label || changeItemRequestedByLabel(changeItemActiveRequest(currentJo))"></span></div>
                                     </div>
                                     <div class="pf-change-item-review__summary-column">
                                         <div><strong>Status:</strong> <span x-text="changeItemDisplayStatus(currentJo)"></span></div>
                                         <div><strong>Requested:</strong> <span x-text="changeItemActiveRequest(currentJo).requested_at_display || changeItemActiveRequest(currentJo).requested_at || '—'"></span></div>
                                         <div x-show="changeItemReworkInProgress(currentJo)"><strong>Production Status:</strong> In Production</div>
+                                        <div><strong>Request Source:</strong> <span x-text="changeItemActiveRequest(currentJo).request_source_label || changeItemRequestedByLabel(changeItemActiveRequest(currentJo))"></span></div>
+                                        <div><strong>Reason for Change:</strong> <span x-text="changeItemActiveRequest(currentJo).reason || '—'"></span></div>
                                     </div>
-                                </div>
-                            </div>
-
-                            <div class="pf-change-item-review__section">
-                                <div class="pf-change-item-review__section-label">Reason for Change</div>
-                                <div class="pf-change-item-review__grid">
-                                    <div x-text="changeItemActiveRequest(currentJo).reason || '—'"></div>
                                 </div>
                             </div>
 
