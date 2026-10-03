@@ -164,7 +164,7 @@ if ($initials === '') {
         #main-header .pf-notif-empty { padding: 32px 16px; text-align: center; color: var(--pf-notif-empty); font-size: 0.85rem; }
         #main-header .pf-avatar { width: 2.55rem; height: 2.55rem; border-radius: 9999px; overflow: hidden; border: 1px solid rgba(83,197,224,.45); background: linear-gradient(135deg, rgba(83,197,224,.24), rgba(50,161,196,.4)); display: inline-flex; align-items: center; justify-content: center; color: #e6f7fc; font-size: .78rem; font-weight: 700; letter-spacing: .02em; }
         #main-header .pf-avatar img { width: 100%; height: 100%; object-fit: cover; }
-        #main-header .pf-dropdown-menu { display: none !important; }
+        #main-header .pf-dropdown-menu { display: none !important; position: absolute; top: calc(100% + 8px); right: 0; left: auto; width: 13rem; max-width: calc(100vw - 32px); }
         #main-header .pf-dropdown-menu.open { display: block !important; }
         #main-header .pf-icon-btn { pointer-events: auto !important; touch-action: manipulation; }
         #main-header .pf-dropdown-link,
@@ -605,7 +605,7 @@ if ($initials === '') {
                 display: none !important;
             }
             #main-header .pf-header-right [data-pf-profile-wrap] {
-                display: none !important;
+                display: block;
             }
             #main-header .pf-mobile-icon-row {
                 display: flex;
@@ -655,6 +655,15 @@ if ($initials === '') {
                 width: 2.2rem;
                 height: 2.2rem;
             }
+        }
+        /* Reserve space for account controls before shrinking desktop search. */
+        body #main-header .pf-header-shell { flex-wrap: nowrap; }
+        #main-header .pf-nav-links { flex: 0 0 auto; flex-wrap: nowrap; }
+        #main-header .pf-search-wrap { flex: 1 1 460px; min-width: 0; max-width: 460px; }
+        #main-header .pf-search-input { min-width: 0; }
+        #main-header [data-pf-profile-wrap] { flex: 0 0 auto; }
+        @media (max-width: 480px) {
+            #main-header .pf-header-left a > span { display: none; }
         }
     </style>
     <nav class="container mx-auto px-4 py-3">
