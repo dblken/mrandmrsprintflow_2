@@ -1481,7 +1481,7 @@ textarea.notes-textarea::-webkit-resizer { display: none !important; }
 .shopee-form-row { display: flex; gap: 1rem; margin-bottom: 1.5rem; align-items: flex-start; position: relative; flex-wrap: wrap; }
 .shopee-form-label { min-width: 130px; padding-top: 0.5rem; font-size: 0.875rem; font-weight: 600; color: #374151; flex-shrink: 0; overflow-wrap:anywhere; word-break:break-word; }
 .shopee-form-field { flex: 1; position: relative; display: flex !important; flex-direction: column !important; min-width: 0; gap: 4px; }
-    .pf-custom-id-gate { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:1.25rem; padding:1rem 1.1rem; border:1px solid #fed7aa; border-radius:12px; background:#fff7ed; color:#9a3412; }
+    .pf-custom-id-gate { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:1.25rem; margin-bottom:1rem; padding:1rem 1.1rem; border:1px solid #fed7aa; border-radius:12px; background:#fff7ed; color:#9a3412; }
     .pf-custom-id-gate > div { display:flex; flex-direction:column; gap:0.2rem; line-height:1.4; }
     .pf-custom-id-gate strong { color:#7c2d12; }
     .pf-custom-id-gate a { flex-shrink:0; padding:0.55rem 0.9rem; border-radius:8px; background:#0f766e; color:#fff; font-weight:800; text-decoration:none; }
