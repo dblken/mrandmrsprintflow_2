@@ -308,6 +308,35 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-group-detail-body {
         padding: 12px 16px 14px; flex: 0 0 auto; display: flex; flex-direction: column; min-width: 0; gap: 0;
     }
+    .pf-group-selection-options .pf-group-right-selection {
+        padding: 0 0 12px;
+        margin: 0 0 4px;
+        border-bottom: 1px solid rgba(126, 164, 184, 0.16);
+    }
+    .pf-group-checkout-stack {
+        margin-top: auto;
+        padding-top: 12px;
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+    }
+    .pf-group-qty-section {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        width: 100%;
+        min-width: 0;
+        margin-bottom: 10px;
+        box-sizing: border-box;
+    }
+    .pf-group-qty-section .pf-group-qty-control {
+        max-width: 100%;
+    }
+    .pf-group-size-fields {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px dashed rgba(126, 164, 184, 0.35);
+    }
     .pf-group-selected-label {
         font-size: 0.58rem; font-weight: 700; color: #477089; text-transform: uppercase; letter-spacing: 0.08em; line-height: 1.2;
     }
@@ -458,8 +487,8 @@ require_once __DIR__ . '/../includes/header.php';
         box-sizing: border-box;
     }
     .pf-group-selection .pf-group-options-actions {
-        margin-top: auto;
-        padding-top: 12px;
+        margin-top: 0;
+        padding-top: 0;
     }
     .pf-group-selection .shopee-btn {
         padding: 0.5rem 0.75rem; border-radius: 12px; font-size: 0.6rem; font-weight: 700;
@@ -507,6 +536,9 @@ require_once __DIR__ . '/../includes/header.php';
         display: none;
     }
     @media (max-width: 480px) {
+        .pf-group-qty-section {
+            align-items: center;
+        }
         .pf-group-selection .shopee-footer {
             display: flex;
             flex-direction: column;
@@ -605,7 +637,9 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="pf-group-img-wrap">
                     <img id="pf-group-main-image" class="pf-group-hero-img" src="<?php echo htmlspecialchars($cover); ?>" alt="">
                 </div>
-                <div class="pf-group-detail-body">
+            </div>
+            <div class="pf-group-selection-options">
+                <div class="pf-group-detail-body pf-group-right-selection">
                     <div class="pf-group-selected-label">Selected option</div>
                     <div id="pf-group-selected-name" class="pf-group-selected-name">—</div>
 
@@ -632,26 +666,14 @@ require_once __DIR__ . '/../includes/header.php';
                         <span id="pf-group-stats-sold">— sold</span>
                     </div>
 
-                    <div class="pf-group-order-fields">
+                    <div class="pf-group-order-fields pf-group-size-fields">
                         <div id="pf-group-variant-wrap" hidden>
                             <div class="pf-group-field-label" id="pf-group-variant-label">Size *</div>
                             <div class="shopee-opt-group" id="pf-group-variant-options" role="group" aria-labelledby="pf-group-variant-label"></div>
                             <div id="pf-group-variant-error" class="field-error" hidden>Please select a size.</div>
                         </div>
-                        <div>
-                            <div class="pf-group-field-label">Quantity *</div>
-                            <div class="pf-group-qty-control shopee-opt-btn" style="cursor: default;">
-                                <button type="button" id="pf-group-qty-minus" aria-label="Decrease quantity">&minus;</button>
-                                <input type="number" id="pf-group-qty" min="1" max="1" value="1" inputmode="numeric" aria-label="Quantity">
-                                <button type="button" id="pf-group-qty-plus" aria-label="Increase quantity">+</button>
-                            </div>
-                            <div id="pf-group-qty-error" class="field-error" hidden></div>
-                        </div>
                     </div>
-
                 </div>
-            </div>
-            <div class="pf-group-selection-options">
                 <h2 class="pf-group-options-heading">Available options</h2>
                 <div class="pf-group-options" id="pf-group-options">
                     <?php foreach ($options as $opt):
@@ -678,15 +700,26 @@ require_once __DIR__ . '/../includes/header.php';
                         </div>
                     <?php endforeach; ?>
                 </div>
-                <div class="shopee-footer pf-group-options-actions">
-                    <span id="pf-group-action-price" class="pf-group-action-price">&mdash;</span>
-                    <button type="button" id="pf-group-add-cart" class="shopee-btn shopee-btn-cart" title="Add to Cart">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                        <span class="pf-group-cart-text">Add to Cart</span>
-                    </button>
-                    <a id="pf-group-order-now" href="#" class="shopee-btn shopee-btn-buy">Order Now</a>
+                <div class="pf-group-checkout-stack">
+                    <div class="pf-group-qty-section">
+                        <div class="pf-group-field-label">Quantity *</div>
+                        <div class="pf-group-qty-control shopee-opt-btn" style="cursor: default;">
+                            <button type="button" id="pf-group-qty-minus" aria-label="Decrease quantity">&minus;</button>
+                            <input type="number" id="pf-group-qty" min="1" max="1" value="1" inputmode="numeric" aria-label="Quantity">
+                            <button type="button" id="pf-group-qty-plus" aria-label="Increase quantity">+</button>
+                        </div>
+                        <div id="pf-group-qty-error" class="field-error" hidden></div>
+                    </div>
+                    <div class="shopee-footer pf-group-options-actions">
+                        <span id="pf-group-action-price" class="pf-group-action-price">&mdash;</span>
+                        <button type="button" id="pf-group-add-cart" class="shopee-btn shopee-btn-cart" title="Add to Cart">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                            <span class="pf-group-cart-text">Add to Cart</span>
+                        </button>
+                        <a id="pf-group-order-now" href="#" class="shopee-btn shopee-btn-buy">Order Now</a>
+                    </div>
+                    <div id="pf-group-stock-error" class="field-error pf-group-options-error" role="alert" aria-live="polite" hidden>This product is currently out of stock.</div>
                 </div>
-                <div id="pf-group-stock-error" class="field-error pf-group-options-error" role="alert" aria-live="polite" hidden>This product is currently out of stock.</div>
             </div>
         </div>
     </div>
