@@ -31,7 +31,6 @@ if (!isset($base_path)) {
 
 $current_user = get_logged_in_user();
 $is_manager = (get_user_type() === 'Manager' || (($current_user['role'] ?? '') === 'Manager'));
-$product_list_colspan = $is_manager ? 9 : 11;
 
 if ($is_manager && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['branch_id']) && !isset($_GET['branch_id'])) {
     $postedBranchId = trim((string)$_POST['branch_id']);
@@ -1513,6 +1512,10 @@ $catalog_groups_admin = printflow_catalog_group_list_all(true);
 $catalog_group_product_picker = db_query(
     "SELECT product_id, name, sku FROM products WHERE status != 'Archived' ORDER BY name ASC"
 ) ?: [];
+$product_notice_picker = db_query(
+    "SELECT product_id, name, sku, COALESCE(order_information_notice_enabled, 0) AS order_information_notice_enabled
+     FROM products WHERE status != 'Archived' ORDER BY name ASC"
+) ?: [];
 
 foreach ($products as &$pfProduct) {
     $effectiveStock = printflow_get_branch_product_stock(
@@ -1567,7 +1570,6 @@ if (isset($_GET['ajax'])) {
     <table class="orders-table">
         <thead>
             <tr>
-                <?php if (!$is_manager): ?><th style="width:36px;" onclick="event.stopPropagation();"><input type="checkbox" class="pf-notice-select-all" aria-label="Select all products on this page"></th><?php endif; ?>
                 <th>ID</th>
                 <th>SKU</th>
                 <th>Name</th>
@@ -1576,13 +1578,12 @@ if (isset($_GET['ajax'])) {
                 <th><?php echo $is_manager ? 'Branch qty' : 'Quantity'; ?></th>
                 <th>Stock Status</th>
                 <th>Status</th>
-                <?php if (!$is_manager): ?><th>Notice</th><?php endif; ?>
                 <th style="text-align:right;">Actions</th>
             </tr>
         </thead>
         <tbody id="productsTableBody">
             <?php if (empty($products)): ?>
-                <tr><td colspan="<?php echo (int)$product_list_colspan; ?>" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No products found.</td></tr>
+                <tr><td colspan="9" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No products found.</td></tr>
             <?php else: ?>
                 <?php foreach ($products as $product): ?>
                     <?php
@@ -1598,11 +1599,6 @@ if (isset($_GET['ajax'])) {
                     };
                     ?>
                     <tr class="<?php echo htmlspecialchars(trim($stockStatusMeta['row_class']), ENT_QUOTES); ?>" onclick="openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)">
-                        <?php if (!$is_manager): ?>
-                        <td style="text-align:center;" onclick="event.stopPropagation();">
-                            <input type="checkbox" form="pf-order-notice-bulk" name="notice_product_ids[]" value="<?php echo (int)$product['product_id']; ?>" aria-label="Select <?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>">
-                        </td>
-                        <?php endif; ?>
                         <td style="color:#1f2937;"><?php echo $product['product_id']; ?></td>
                         <td class="product-sku-cell"><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
                         <td style="font-weight:500;color:#1f2937;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($product['name']); ?></td>
@@ -1616,15 +1612,6 @@ if (isset($_GET['ajax'])) {
                             <?php $sc = match($product['status']) { 'Activated' => 'background:#dcfce7;color:#166534;', 'Deactivated' => 'background:#fee2e2;color:#991b1b;', default => 'background:#fef9c3;color:#854d0e;' }; ?>
                             <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $sc; ?>"><?php echo $product['status']; ?></span>
                         </td>
-                        <?php if (!$is_manager): ?>
-                        <td>
-                            <?php if ((int)($product['order_information_notice_enabled'] ?? 0) === 1): ?>
-                                <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:#dbeafe;color:#1e40af;">On</span>
-                            <?php else: ?>
-                                <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:#f3f4f6;color:#4b5563;">Off</span>
-                            <?php endif; ?>
-                        </td>
-                        <?php endif; ?>
                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
                             <?php if ($is_manager): ?>
                                 <button type="button" class="btn-action blue" onclick='openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Manage</button>
@@ -2905,25 +2892,11 @@ if (isset($_GET['ajax'])) {
                         </div>
                     </div>
                 </div>
-                <?php if (!$is_manager): ?>
-                <form id="pf-order-notice-bulk" method="POST" onsubmit="return pfConfirmOrderNoticeBulk(event);" style="margin:0 0 14px;padding:14px 16px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc;">
-                    <?php echo csrf_field(); ?>
-                    <div style="font-size:14px;font-weight:700;color:#111827;margin-bottom:4px;">Order Information Notice</div>
-                    <p style="margin:0 0 10px;font-size:12px;line-height:1.45;color:#4b5563;">Check the products that should show this notice. Apply saves the text below and turns the notice on for those products only. Turn off hides it for the checked products and keeps their saved text. The Notice column shows which products are currently on.</p>
-                    <label for="pf-order-notice-bulk-text" style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Notice text</label>
-                    <textarea id="pf-order-notice-bulk-text" name="order_information_notice" rows="3" maxlength="<?php echo (int)PRINTFLOW_PRODUCT_ORDER_NOTICE_MAX_LENGTH; ?>" style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:8px;padding:8px 10px;font:inherit;resize:vertical;" placeholder="<?php echo htmlspecialchars(printflow_product_order_notice_default(), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars(printflow_product_order_notice_default(), ENT_QUOTES, 'UTF-8'); ?></textarea>
-                    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
-                        <button type="submit" name="order_notice_bulk" value="apply" class="btn-action blue">Apply to selected</button>
-                        <button type="submit" name="order_notice_bulk" value="disable" class="btn-action gray">Turn off for selected</button>
-                    </div>
-                </form>
-                <?php endif; ?>
                 <div id="productsTableContainer">
                 <div class="overflow-x-auto">
                     <table class="orders-table">
                         <thead>
                             <tr>
-                                <?php if (!$is_manager): ?><th style="width:36px;"><input type="checkbox" class="pf-notice-select-all" aria-label="Select all products on this page"></th><?php endif; ?>
                                 <th>ID</th>
                                 <th>SKU</th>
                                 <th>Name</th>
@@ -2932,14 +2905,13 @@ if (isset($_GET['ajax'])) {
                                 <th><?php echo $is_manager ? 'Branch qty' : 'Quantity'; ?></th>
                                 <th>Stock Status</th>
                                 <th>Status</th>
-                                <?php if (!$is_manager): ?><th>Notice</th><?php endif; ?>
                                 <th style="text-align:right;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="productsTableBody">
                             <?php if (empty($products)): ?>
                                 <tr id="emptyProductsRow">
-                                    <td colspan="<?php echo (int)$product_list_colspan; ?>" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">
+                                    <td colspan="9" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">
                                         <?php echo $search ? 'No products found matching "' . htmlspecialchars($search) . '"' : 'No products yet.'; ?>
                                     </td>
                                 </tr>
@@ -2958,11 +2930,6 @@ if (isset($_GET['ajax'])) {
                                     };
                                     ?>
                                     <tr class="<?php echo htmlspecialchars(trim($stockStatusMeta['row_class']), ENT_QUOTES); ?>" onclick="openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)">
-                                        <?php if (!$is_manager): ?>
-                                        <td style="text-align:center;" onclick="event.stopPropagation();">
-                                            <input type="checkbox" form="pf-order-notice-bulk" name="notice_product_ids[]" value="<?php echo (int)$product['product_id']; ?>" aria-label="Select <?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>">
-                                        </td>
-                                        <?php endif; ?>
                                         <td style="color:#1f2937;"><?php echo $product['product_id']; ?></td>
                                         <td class="product-sku-cell"><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
                                         <td style="font-weight:500;color:#1f2937;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($product['name']); ?></td>
@@ -2985,15 +2952,6 @@ if (isset($_GET['ajax'])) {
                                                 <?php echo $product['status']; ?>
                                             </span>
                                         </td>
-                                        <?php if (!$is_manager): ?>
-                                        <td>
-                                            <?php if ((int)($product['order_information_notice_enabled'] ?? 0) === 1): ?>
-                                                <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:#dbeafe;color:#1e40af;">On</span>
-                                            <?php else: ?>
-                                                <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:#f3f4f6;color:#4b5563;">Off</span>
-                                            <?php endif; ?>
-                                        </td>
-                                        <?php endif; ?>
                                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
                                             <?php if ($is_manager): ?>
                                                 <button type="button" class="btn-action blue"
@@ -3489,13 +3447,37 @@ if (isset($_GET['ajax'])) {
 
                 <div class="form-row pf-admin-only">
                     <div class="form-group" id="fg-order-information-notice" style="grid-column:1/-1;">
-                        <label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;font-weight:600;color:#374151;">
-                            <input type="checkbox" id="modal-order-information-notice-enabled" name="order_information_notice_enabled" value="1" style="margin-top:3px;">
-                            <span>Show this notice on the customer order review page for this product</span>
-                        </label>
-                        <label for="modal-order-information-notice">Order Information Notice</label>
+                        <label for="modal-order-information-notice" style="font-weight:700;color:#111827;">Order Information Notice</label>
                         <textarea id="modal-order-information-notice" name="order_information_notice" rows="4" maxlength="<?php echo PRINTFLOW_PRODUCT_ORDER_NOTICE_MAX_LENGTH; ?>" placeholder="<?php echo htmlspecialchars(printflow_product_order_notice_default(), ENT_QUOTES, 'UTF-8'); ?>"></textarea>
-                        <small style="display:block;margin-top:4px;color:#6b7280;">Used only when the checkbox above is on. Leave the text empty to show the standard pickup notice. Turning it off hides the notice for this product and does not change other products.</small>
+                        <input type="hidden" name="order_information_notice_enabled" id="modal-order-information-notice-enabled-value" value="0">
+                        <label class="pf-product-create-only" style="display:flex;align-items:flex-start;gap:8px;margin-top:10px;font-weight:600;color:#374151;">
+                            <input type="checkbox" id="modal-notice-show-create" value="1" style="margin-top:3px;">
+                            <span>Show this notice on the customer order review page for this new product</span>
+                        </label>
+                        <div class="pf-product-edit-only" id="pf-modal-notice-products-wrap" style="margin-top:12px;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;">
+                                <span style="font-size:12px;font-weight:600;color:#374151;">Products that display this notice</span>
+                                <button type="button" class="filter-reset-link" id="pf-modal-notice-toggle-all">Select all</button>
+                            </div>
+                            <div id="pf-modal-notice-product-list" style="max-height:168px;overflow:auto;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">
+                                <?php foreach ($product_notice_picker as $np): ?>
+                                    <?php
+                                    $npId = (int)($np['product_id'] ?? 0);
+                                    $npOn = (int)($np['order_information_notice_enabled'] ?? 0) === 1;
+                                    ?>
+                                    <label class="pf-modal-notice-product-row" data-product-id="<?php echo $npId; ?>" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #f3f4f6;font-size:13px;cursor:pointer;margin:0;">
+                                        <input type="checkbox" class="pf-modal-notice-product-cb" form="pf-order-notice-modal-form" name="notice_product_ids[]" value="<?php echo $npId; ?>"<?php echo $npOn ? ' checked' : ''; ?>>
+                                        <span style="flex:1;min-width:0;"><?php echo htmlspecialchars((string)($np['name'] ?? '')); ?> <span style="color:#6b7280;">(<?php echo htmlspecialchars((string)($np['sku'] ?? '—')); ?>)</span></span>
+                                        <span class="pf-modal-notice-status" style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;<?php echo $npOn ? 'background:#dbeafe;color:#1e40af;' : 'background:#f3f4f6;color:#4b5563;'; ?>"><?php echo $npOn ? 'On' : 'Off'; ?></span>
+                                    </label>
+                                <?php endforeach; ?>
+                            </div>
+                            <small style="display:block;margin-top:6px;color:#6b7280;line-height:1.45;">Checked products show this notice on checkout. <strong>Apply to checked</strong> saves the text above and turns the notice on for those products only. <strong>Turn off for checked</strong> hides the notice and keeps each product&apos;s saved text. Saving the product updates this product&apos;s notice from its row below.</small>
+                            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+                                <button type="button" class="btn-action blue" onclick="return pfPrepareModalNoticeBulk(event, 'apply')">Apply to checked</button>
+                                <button type="button" class="btn-action gray" onclick="return pfPrepareModalNoticeBulk(event, 'disable')">Turn off for checked</button>
+                            </div>
+                        </div>
                         <span id="err-order-information-notice" class="field-error"></span>
                     </div>
                 </div>
@@ -3567,6 +3549,12 @@ if (isset($_GET['ajax'])) {
                     <button type="submit" id="<?php echo $is_manager ? 'modal-submit-products-mgr' : 'modal-submit-btn'; ?>" class="btn-save">Create Product</button>
                 </div>
             </form>
+            <?php if (!$is_manager): ?>
+            <form id="pf-order-notice-modal-form" method="POST" style="display:none;" aria-hidden="true">
+                <?php echo csrf_field(); ?>
+                <textarea name="order_information_notice" id="pf-order-notice-modal-text"></textarea>
+            </form>
+            <?php endif; ?>
         </div>
     </div>
 </div>
@@ -3754,6 +3742,97 @@ window.PF_PRODUCT_CATEGORY_ALLOWLIST = <?php echo json_encode(printflow_product_
 window.PF_PRODUCTS_CSRF = <?php echo json_encode(generate_csrf_token(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 window.PF_PRODUCTS_BARCODE_API = <?php echo json_encode(rtrim($base_path, '/') . '/admin/api_product_barcode.php', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 window.PF_PRODUCT_ORDER_NOTICE_DEFAULT = <?php echo json_encode(printflow_product_order_notice_default(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+window.PF_PRODUCT_NOTICE_PICKER = <?php echo json_encode(array_map(static function ($row) {
+    return [
+        'product_id' => (int)($row['product_id'] ?? 0),
+        'order_information_notice_enabled' => (int)($row['order_information_notice_enabled'] ?? 0),
+    ];
+}, $product_notice_picker), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+
+function pfUpdateModalNoticeRowStatus(checkbox) {
+    if (!checkbox) return;
+    var row = checkbox.closest('.pf-modal-notice-product-row');
+    if (!row) return;
+    var badge = row.querySelector('.pf-modal-notice-status');
+    if (!badge) return;
+    if (checkbox.checked) {
+        badge.textContent = 'On';
+        badge.style.background = '#dbeafe';
+        badge.style.color = '#1e40af';
+    } else {
+        badge.textContent = 'Off';
+        badge.style.background = '#f3f4f6';
+        badge.style.color = '#4b5563';
+    }
+}
+
+function pfResetModalNoticeProductChecks(activeProductId) {
+    var map = {};
+    (window.PF_PRODUCT_NOTICE_PICKER || []).forEach(function(row) {
+        map[row.product_id] = row.order_information_notice_enabled === 1;
+    });
+    document.querySelectorAll('.pf-modal-notice-product-row').forEach(function(rowEl) {
+        rowEl.style.background = '';
+    });
+    document.querySelectorAll('.pf-modal-notice-product-cb').forEach(function(cb) {
+        var id = parseInt(cb.value, 10);
+        cb.checked = !!map[id];
+        pfUpdateModalNoticeRowStatus(cb);
+    });
+    if (activeProductId) {
+        var activeRow = document.querySelector('.pf-modal-notice-product-row[data-product-id="' + activeProductId + '"]');
+        if (activeRow) activeRow.style.background = '#f0fdf4';
+    }
+}
+
+function pfSyncNoticeEnabledForProductSave() {
+    var hidden = document.getElementById('modal-order-information-notice-enabled-value');
+    var modeInput = document.getElementById('modal-mode-input');
+    if (!hidden) return;
+    if (modeInput && modeInput.name === 'create_product') {
+        var createUi = document.getElementById('modal-notice-show-create');
+        hidden.value = createUi && createUi.checked ? '1' : '0';
+        return;
+    }
+    var pid = parseInt(document.getElementById('modal-product-id')?.value || '0', 10);
+    var cb = document.querySelector('.pf-modal-notice-product-cb[value="' + pid + '"]');
+    hidden.value = cb && cb.checked ? '1' : '0';
+}
+
+function pfPrepareModalNoticeBulk(event, action) {
+    if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault();
+    }
+    var checked = document.querySelectorAll('.pf-modal-notice-product-cb:checked');
+    if (!checked.length) {
+        window.alert('Check at least one product.');
+        return false;
+    }
+    var src = document.getElementById('modal-order-information-notice');
+    var dst = document.getElementById('pf-order-notice-modal-text');
+    if (src && dst) {
+        dst.value = src.value;
+    }
+    if (action === 'disable') {
+        if (!window.confirm('Turn off the order information notice for ' + checked.length + ' checked product(s)? Saved notice text will be kept.')) {
+            return false;
+        }
+    } else if (!window.confirm('Save this notice and turn it on for ' + checked.length + ' checked product(s)? Other products will not be changed.')) {
+        return false;
+    }
+    var form = document.getElementById('pf-order-notice-modal-form');
+    if (!form) return false;
+    var existing = form.querySelector('input[name="order_notice_bulk"]');
+    if (existing) existing.remove();
+    var actionInput = document.createElement('input');
+    actionInput.type = 'hidden';
+    actionInput.name = 'order_notice_bulk';
+    actionInput.value = action;
+    form.appendChild(actionInput);
+    form.submit();
+    return false;
+}
+window.pfPrepareModalNoticeBulk = pfPrepareModalNoticeBulk;
 
 function pfSuggestReorderLevel(qty) {
     qty = parseInt(qty, 10) || 0;
@@ -4389,8 +4468,7 @@ window.openProductModal = function openProductModal(mode, product) {
             if (descEl) descEl.value = product.description || '';
             var orderNoticeEl = document.getElementById('modal-order-information-notice');
             if (orderNoticeEl) orderNoticeEl.value = product.order_information_notice || '';
-            var orderNoticeEnabledEl = document.getElementById('modal-order-information-notice-enabled');
-            if (orderNoticeEnabledEl) orderNoticeEnabledEl.checked = String(product.order_information_notice_enabled) === '1';
+            pfResetModalNoticeProductChecks(parseInt(product.product_id, 10) || 0);
             var stockEl = document.getElementById('modal-stock');
             if (stockEl) {
                 stockEl.value = product.stock_quantity != null ? String(product.stock_quantity) : '0';
@@ -4431,8 +4509,11 @@ window.openProductModal = function openProductModal(mode, product) {
         pfManagerModalSetActive(false);
         var orderNoticeCreateEl = document.getElementById('modal-order-information-notice');
         if (orderNoticeCreateEl) orderNoticeCreateEl.value = '';
-        var orderNoticeEnabledCreateEl = document.getElementById('modal-order-information-notice-enabled');
+        var orderNoticeEnabledCreateEl = document.getElementById('modal-notice-show-create');
         if (orderNoticeEnabledCreateEl) orderNoticeEnabledCreateEl.checked = false;
+        var orderNoticeEnabledValue = document.getElementById('modal-order-information-notice-enabled-value');
+        if (orderNoticeEnabledValue) orderNoticeEnabledValue.value = '0';
+        pfResetModalNoticeProductChecks(0);
         var pidEl2 = document.getElementById('modal-product-id');
         if (pidEl2) pidEl2.value = '';
         var stElCreate = document.getElementById('modal-status');
@@ -4831,32 +4912,31 @@ function printflowInitProductsPage() {
         });
     }
 
-    function pfConfirmOrderNoticeBulk(event) {
-        var checked = document.querySelectorAll('#productsTableContainer input[name="notice_product_ids[]"]:checked');
-        if (!checked.length) {
-            window.alert('Select at least one product.');
-            return false;
-        }
-        var submitter = event.submitter || document.activeElement;
-        var action = submitter && submitter.value ? submitter.value : '';
-        if (action === 'disable') {
-            return window.confirm('Turn off the order information notice for ' + checked.length + ' selected product(s)? Their saved notice text will be kept.');
-        }
-        return window.confirm('Save this notice and turn it on for ' + checked.length + ' selected product(s)? Other products will not be changed.');
+    var productFormNotice = document.getElementById('product-form');
+    if (productFormNotice && !productFormNotice._pf_notice_save_bound) {
+        productFormNotice._pf_notice_save_bound = true;
+        productFormNotice.addEventListener('submit', pfSyncNoticeEnabledForProductSave);
     }
-    window.pfConfirmOrderNoticeBulk = pfConfirmOrderNoticeBulk;
 
-    document.addEventListener('change', function(event) {
-        var target = event.target;
-        if (!target || !target.classList || !target.classList.contains('pf-notice-select-all')) {
-            return;
-        }
-        var table = target.closest('table');
-        if (!table) {
-            return;
-        }
-        table.querySelectorAll('input[name="notice_product_ids[]"]').forEach(function(box) {
-            box.checked = target.checked;
+    var toggleAllNoticeBtn = document.getElementById('pf-modal-notice-toggle-all');
+    if (toggleAllNoticeBtn && !toggleAllNoticeBtn._pf_bound) {
+        toggleAllNoticeBtn._pf_bound = true;
+        toggleAllNoticeBtn.addEventListener('click', function() {
+            var boxes = document.querySelectorAll('.pf-modal-notice-product-cb');
+            var allChecked = boxes.length > 0 && Array.prototype.every.call(boxes, function(b) { return b.checked; });
+            boxes.forEach(function(b) {
+                b.checked = !allChecked;
+                pfUpdateModalNoticeRowStatus(b);
+            });
+            toggleAllNoticeBtn.textContent = allChecked ? 'Select all' : 'Clear all';
+        });
+    }
+
+    document.querySelectorAll('.pf-modal-notice-product-cb').forEach(function(cb) {
+        if (cb._pf_notice_bound) return;
+        cb._pf_notice_bound = true;
+        cb.addEventListener('change', function() {
+            pfUpdateModalNoticeRowStatus(cb);
         });
     });
 
