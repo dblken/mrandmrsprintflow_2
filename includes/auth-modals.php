@@ -428,6 +428,14 @@ if (!empty($google_client_id)) {
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         gap: 0.85rem;
     }
+    .reg-password-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 0.85rem;
+    }
+    .reg-password-grid .auth-field {
+        min-width: 0;
+    }
     .reg-two-column-grid .auth-field {
         min-width: 0;
     }
@@ -440,6 +448,10 @@ if (!empty($google_client_id)) {
         }
         .auth-modal-register .auth-modal-inner {
             padding: 1.5rem 1rem 1.75rem;
+        }
+        .reg-password-grid {
+            grid-template-columns: 1fr;
+            gap: 0.95rem;
         }
         .reg-two-column-grid {
             grid-template-columns: 1fr;
@@ -596,7 +608,8 @@ if (!empty($google_client_id)) {
                     <p class="modal-field-error" id="reg-id-error"></p>
                 </div>
 
-                <!-- Password fields -->
+                <div class="reg-password-grid">
+                    <!-- Password fields -->
                 <div class="auth-field">
                     <label for="reg-password">Password <span style="color:#dc2626;">*</span></label>
                     <div class="auth-password-wrap">
@@ -633,6 +646,8 @@ if (!empty($google_client_id)) {
                     <p class="modal-field-error" id="reg-confirm-error"></p>
                     <p class="reg-match-ok" id="reg-match-ok" style="display:none;">✓ Passwords match</p>
                 </div>
+                </div>
+
                 <div class="auth-terms-field">
                     <label for="reg-terms-agreement" class="auth-terms-label">
                         <input type="checkbox" id="reg-terms-agreement" name="terms_agreement" value="1" aria-describedby="reg-terms-error">
