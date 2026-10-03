@@ -1034,6 +1034,90 @@ $online_closed_count = 0;
 
         .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999; }
         .modal-panel { background:#fff; border-radius:12px; box-shadow:0 25px 50px rgba(0,0,0,0.25); width:100%; max-width:560px; max-height:88vh; overflow-y:auto; margin:16px; position:relative; }
+        body.pf-revision-modal-open {
+            overflow: hidden;
+        }
+        .pf-revision-modal-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 11040;
+            background: transparent;
+        }
+        .pf-revision-modal-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 11041;
+            width: calc(100% - 32px);
+            max-width: 540px;
+            max-height: calc(100vh - 32px);
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.35);
+            border: 1px solid #fee2e2;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+        .pf-revision-modal-header {
+            flex: 0 0 auto;
+            padding: 16px 20px;
+            border-bottom: 1px solid #fee2e2;
+            background: #fef2f2;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+        .pf-revision-modal-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            padding: 20px;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
+        }
+        .pf-revision-modal-footer {
+            flex: 0 0 auto;
+            padding: 16px 20px;
+            border-top: 1px solid #e5e7eb;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+            box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.04);
+        }
+        .pf-revision-modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            flex-wrap: wrap;
+        }
+        .pf-revision-modal-actions .pf-entry-btn {
+            justify-content: center;
+        }
+        @media (max-width: 420px), (max-height: 520px) {
+            .pf-revision-modal-panel {
+                width: calc(100% - 20px);
+                max-height: calc(100vh - 20px);
+                border-radius: 12px;
+            }
+            .pf-revision-modal-header,
+            .pf-revision-modal-body,
+            .pf-revision-modal-footer {
+                padding-left: 14px;
+                padding-right: 14px;
+            }
+            .pf-revision-modal-actions .pf-entry-btn {
+                flex: 1 1 140px;
+                min-width: 0 !important;
+            }
+        }
         .pf-change-item-modal-backdrop {
             position: fixed;
             inset: 0;
@@ -1891,7 +1975,7 @@ $online_closed_count = 0;
     }
     ?>
     <div class="main-content">
-        <div id="staffJoCustomizationsPage" x-data="joManager('ALL')" class="pf-staff-customizations-root" @keydown.escape.window="onSvcEscape()">
+        <div id="staffJoCustomizationsPage" x-data="joManager('ALL')" class="pf-staff-customizations-root" @keydown.escape.window="onSvcEscape()" x-effect="document.body.classList.toggle('pf-revision-modal-open', showRevisionModal)">
         <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
             <div>
                 <h1 class="page-title">Customizations</h1>
@@ -3360,27 +3444,27 @@ $online_closed_count = 0;
 
 <!-- REVISION MODAL -->
     <template x-if="showRevisionModal">
+        <template x-teleport="body">
         <div>
             <!-- Backdrop -->
             <div x-show="showRevisionModal" x-cloak
-                 style="position:fixed; inset:0; z-index:10001; background:transparent;"
+                 class="pf-revision-modal-backdrop"
                  @click="closeRevisionModal()"></div>
             <!-- Modal Panel — true viewport center via transform -->
             <div x-show="showRevisionModal" x-cloak
-                 style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002;
-                        width:calc(100% - 32px); max-width:540px; max-height:calc(100vh - 32px);
-                        background:white; border-radius:16px;
-                        box-shadow:0 25px 50px -12px rgba(0,0,0,0.35);
-                        border:1px solid #fee2e2; display:flex; flex-direction:column; overflow:hidden;">
+                 class="pf-revision-modal-panel"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="pf-revision-modal-title">
                 <!-- Header -->
-                <div style="flex:0 0 auto; padding:16px 20px; border-bottom:1px solid #fee2e2; background:#fef2f2; display:flex; justify-content:space-between; align-items:center;">
-                    <h3 style="margin:0; font-size:16px; font-weight:700; color:#b91c1c;">Request Additional Details</h3>
+                <div class="pf-revision-modal-header">
+                    <h3 id="pf-revision-modal-title" style="margin:0; font-size:16px; font-weight:700; color:#b91c1c;">Request Additional Details</h3>
                     <button @click="closeRevisionModal()" style="background:none; border:none; color:#f87171; cursor:pointer;" onmouseover="this.style.color='#b91c1c'" onmouseout="this.style.color='#f87171'">
                         <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                 </div>
                 <!-- Body -->
-                <div style="flex:1 1 auto; min-height:0; overflow-y:auto; padding:20px;">
+                <div class="pf-revision-modal-body">
                     <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:8px;">Reason for Revision</label>
                     <select x-model="revisionReasonSelect" @change="applyRevisionReasonDefaults()" style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; margin-bottom:16px; outline:none;" onfocus="this.style.borderColor='#f87171'" onblur="this.style.borderColor='#d1d5db'">
                         <option value="">-- Select a reason --</option>
@@ -3419,9 +3503,9 @@ $online_closed_count = 0;
                     </div>
                 </div>
                 <!-- Footer -->
-                <div style="flex:0 0 auto; flex-shrink:0; padding:16px 20px; border-top:1px solid #e5e7eb; background:#fff; display:flex; flex-direction:column; align-items:stretch; gap:8px;">
+                <div class="pf-revision-modal-footer">
                     <div x-show="revisionModalError" x-cloak style="width:100%; font-size:12px; font-weight:600; color:#dc2626; text-align:left;" x-text="revisionModalError"></div>
-                    <div style="display:flex; justify-content:flex-end; align-items:center; gap:10px; width:100%;">
+                    <div class="pf-revision-modal-actions">
                         <button type="button" @click="closeRevisionModal()" class="pf-entry-btn pf-entry-out" style="height:38px; min-width:96px; padding:0 16px; justify-content:center; background:#fff;">Cancel</button>
                         <button type="button" @click="submitRevision()" class="pf-entry-btn pf-entry-in" style="height:38px; min-width:170px; padding:0 16px; justify-content:center; background:#10b981; border-color:#10b981; color:#fff;" :disabled="revisionSubmitting || !isRevisionFormValid()" :style="(revisionSubmitting || !isRevisionFormValid()) ? 'opacity:.55;cursor:not-allowed;' : ''">
                             <span x-show="!revisionSubmitting">Send Revision Request</span>
@@ -3431,6 +3515,7 @@ $online_closed_count = 0;
                 </div>
             </div>
         </div>
+        </template>
     </template>
 
     <template x-if="showChangeItemModal">
@@ -8894,6 +8979,12 @@ window.pfServiceFieldCatalog = (() => {
                 this.revisionModalError = '';
                 this.revisionSubmitting = false;
                 this.showRevisionModal = true;
+            },
+
+            onSvcEscape() {
+                if (this.showRevisionModal) {
+                    this.closeRevisionModal();
+                }
             },
 
             staffRevisionIsProtectedKey(key) {
