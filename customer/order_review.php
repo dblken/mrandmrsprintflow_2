@@ -39,9 +39,13 @@ function review_enrich_cart_item(array $item): array {
     $product_id = (int)($item['product_id'] ?? 0);
 
     if ($is_product && $product_id > 0) {
-        $notice_select = function_exists('db_table_has_column') && db_table_has_column('products', 'order_information_notice')
-            ? ', order_information_notice'
-            : '';
+        $notice_select = '';
+        if (function_exists('db_table_has_column') && db_table_has_column('products', 'order_information_notice')) {
+            $notice_select .= ', order_information_notice';
+        }
+        if (function_exists('db_table_has_column') && db_table_has_column('products', 'order_information_notice_enabled')) {
+            $notice_select .= ', order_information_notice_enabled';
+        }
         $product_rows = db_query(
             "SELECT name, category, photo_path, product_image, product_type{$notice_select} FROM products WHERE product_id = ? LIMIT 1",
             'i',
@@ -58,6 +62,9 @@ function review_enrich_cart_item(array $item): array {
             $item['catalog_product_type'] = $product['product_type'] ?? 'fixed';
             if (array_key_exists('order_information_notice', $product)) {
                 $item['order_information_notice'] = $product['order_information_notice'];
+            }
+            if (array_key_exists('order_information_notice_enabled', $product)) {
+                $item['order_information_notice_enabled'] = $product['order_information_notice_enabled'];
             }
             $catalog_image = review_resolve_catalog_image($product['photo_path'] ?? '')
                 ?: review_resolve_catalog_image($product['product_image'] ?? '');
@@ -359,17 +366,16 @@ function review_product_order_information_notice(array $items): string {
         if (!review_item_is_product($item)) {
             continue;
         }
-        $notice = printflow_product_order_notice_display($item['order_information_notice'] ?? '');
+        $notice = printflow_product_order_notice_for_customer(
+            $item['order_information_notice_enabled'] ?? 0,
+            $item['order_information_notice'] ?? ''
+        );
         if ($notice !== '') {
             $notices[$notice] = true;
         }
     }
 
-    if (count($notices) === 1) {
-        return (string)array_key_first($notices);
-    }
-
-    return printflow_product_order_notice_default();
+    return implode("\n\n", array_keys($notices));
 }
 
 $item_key = $_REQUEST['item'] ?? '';
@@ -2537,6 +2543,7 @@ require_once __DIR__ . '/../includes/header.php';
                 </div><!-- /.review-layout-col--order -->
 
                 <div class="review-layout-col review-layout-col--aside">
+                <?php if (!$is_product_order || $product_order_information_notice !== ''): ?>
                 <!-- Pricing Notice -->
                 <div class="review-info-note">
                     <span style="font-size:1.25rem; flex-shrink:0;">ℹ️</span>
@@ -2550,6 +2557,7 @@ require_once __DIR__ . '/../includes/header.php';
                         <?php endif; ?>
                     </div>
                 </div>
+                <?php endif; ?>
 
                 <?php if ($needs_branch_selection): ?>
                 <!-- Branch Selection -->

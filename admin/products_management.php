@@ -31,6 +31,7 @@ if (!isset($base_path)) {
 
 $current_user = get_logged_in_user();
 $is_manager = (get_user_type() === 'Manager' || (($current_user['role'] ?? '') === 'Manager'));
+$product_list_colspan = $is_manager ? 9 : 11;
 
 if ($is_manager && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['branch_id']) && !isset($_GET['branch_id'])) {
     $postedBranchId = trim((string)$_POST['branch_id']);
@@ -435,7 +436,51 @@ function printflow_products_variant_stock_payload(int $productId, int $branchId)
 
 // Handle product creation/update/delete
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_token'] ?? '')) {
-    if (isset($_POST['create_product'])) {
+    if (isset($_POST['order_notice_bulk'])) {
+        if ($is_manager) {
+            $error = 'Only administrators can change the order information notice.';
+        } else {
+            $bulkAction = (string)$_POST['order_notice_bulk'];
+            $noticeIds = array_values(array_unique(array_filter(
+                array_map('intval', (array)($_POST['notice_product_ids'] ?? [])),
+                static fn(int $id): bool => $id > 0
+            )));
+            if ($noticeIds === []) {
+                $error = 'Select at least one product.';
+            } elseif (!in_array($bulkAction, ['apply', 'disable'], true)) {
+                $error = 'Unknown notice action.';
+            } else {
+                $placeholders = implode(', ', array_fill(0, count($noticeIds), '?'));
+                $types = str_repeat('i', count($noticeIds));
+                if ($bulkAction === 'apply') {
+                    $order_notice_result = printflow_product_order_notice_clean($_POST['order_information_notice'] ?? '');
+                    if (!$order_notice_result['ok']) {
+                        $error = $order_notice_result['message'];
+                    } elseif (db_execute(
+                        "UPDATE products
+                         SET order_information_notice = ?, order_information_notice_enabled = 1, updated_at = NOW()
+                         WHERE product_id IN ($placeholders)",
+                        's' . $types,
+                        array_merge([$order_notice_result['value']], $noticeIds)
+                    ) === false) {
+                        $error = 'Could not apply the order information notice.';
+                    } else {
+                        $success = 'Order information notice applied to ' . count($noticeIds) . ' product' . (count($noticeIds) === 1 ? '' : 's') . '.';
+                    }
+                } elseif (db_execute(
+                    "UPDATE products
+                     SET order_information_notice_enabled = 0, updated_at = NOW()
+                     WHERE product_id IN ($placeholders)",
+                    $types,
+                    $noticeIds
+                ) === false) {
+                    $error = 'Could not turn off the order information notice.';
+                } else {
+                    $success = 'Order information notice turned off for ' . count($noticeIds) . ' product' . (count($noticeIds) === 1 ? '' : 's') . '. Saved notice text was kept.';
+                }
+            }
+        }
+    } elseif (isset($_POST['create_product'])) {
         if ($is_manager) {
             $error = 'Only administrators can add new products.';
         } else {
@@ -445,6 +490,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $description = sanitize($_POST['description'] ?? '');
         $order_notice_result = printflow_product_order_notice_clean($_POST['order_information_notice'] ?? '');
         $order_information_notice = $order_notice_result['value'];
+        $order_information_notice_enabled = isset($_POST['order_information_notice_enabled']) ? 1 : 0;
         $price = (float)($_POST['price'] ?? 0);
         $stock_quantity = (int)($_POST['stock_quantity'] ?? 0);
         $thresholds = printflow_product_thresholds_from_post($stock_quantity);
@@ -494,9 +540,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     $photo_path = handle_product_photo_upload($_FILES['photo'] ?? null);
                     
                     $result = db_execute(
-                        "INSERT INTO products (name, sku, category, description, order_information_notice, price, stock_quantity, low_stock_level, critical_level, status, photo_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
-                        'sssssdiiiss',
-                        [$name, $sku_val, $category, $description, $order_information_notice, $price, $product_stock_uses_base ? $stock_quantity : 0, $low_stock_level, $critical_level, $status, $photo_path]
+                        "INSERT INTO products (name, sku, category, description, order_information_notice, order_information_notice_enabled, price, stock_quantity, low_stock_level, critical_level, status, photo_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
+                        'sssssidiiiss',
+                        [$name, $sku_val, $category, $description, $order_information_notice, $order_information_notice_enabled, $price, $product_stock_uses_base ? $stock_quantity : 0, $low_stock_level, $critical_level, $status, $photo_path]
                     );
 
                     if ($result) {
@@ -919,6 +965,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $description = sanitize($_POST['description'] ?? '');
         $order_notice_result = printflow_product_order_notice_clean($_POST['order_information_notice'] ?? '');
         $order_information_notice = $order_notice_result['value'];
+        $order_information_notice_enabled = isset($_POST['order_information_notice_enabled']) ? 1 : 0;
         $price = (float)($_POST['price'] ?? 0);
         $posted_stock_quantity = max(0, (int)($_POST['stock_quantity'] ?? 0));
         $thresholds = printflow_product_thresholds_from_post($posted_stock_quantity);
@@ -979,29 +1026,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             if ($photo_path) {
                 if ($product_stock_uses_base) {
                     $result = db_execute(
-                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, order_information_notice = ?, price = ?, stock_quantity = ?, low_stock_level = ?, critical_level = ?, status = ?, photo_path = ?, updated_at = NOW() WHERE product_id = ?",
-                        'sssssdiiissi',
-                        [$name, $sku_val, $category, $description, $order_information_notice, $price, $stock_quantity, $low_stock_level, $critical_level, $status, $photo_path, $product_id]
+                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, order_information_notice = ?, order_information_notice_enabled = ?, price = ?, stock_quantity = ?, low_stock_level = ?, critical_level = ?, status = ?, photo_path = ?, updated_at = NOW() WHERE product_id = ?",
+                        'sssssidiiissi',
+                        [$name, $sku_val, $category, $description, $order_information_notice, $order_information_notice_enabled, $price, $stock_quantity, $low_stock_level, $critical_level, $status, $photo_path, $product_id]
                     );
                 } else {
                     $result = db_execute(
-                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, order_information_notice = ?, price = ?, low_stock_level = ?, critical_level = ?, status = ?, photo_path = ?, updated_at = NOW() WHERE product_id = ?",
-                        'sssssdiissi',
-                        [$name, $sku_val, $category, $description, $order_information_notice, $price, $low_stock_level, $critical_level, $status, $photo_path, $product_id]
+                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, order_information_notice = ?, order_information_notice_enabled = ?, price = ?, low_stock_level = ?, critical_level = ?, status = ?, photo_path = ?, updated_at = NOW() WHERE product_id = ?",
+                        'sssssidiissi',
+                        [$name, $sku_val, $category, $description, $order_information_notice, $order_information_notice_enabled, $price, $low_stock_level, $critical_level, $status, $photo_path, $product_id]
                     );
                 }
             } else {
                 if ($product_stock_uses_base) {
                     $result = db_execute(
-                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, order_information_notice = ?, price = ?, stock_quantity = ?, low_stock_level = ?, critical_level = ?, status = ?, updated_at = NOW() WHERE product_id = ?",
-                        'sssssdiiisi',
-                        [$name, $sku_val, $category, $description, $order_information_notice, $price, $stock_quantity, $low_stock_level, $critical_level, $status, $product_id]
+                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, order_information_notice = ?, order_information_notice_enabled = ?, price = ?, stock_quantity = ?, low_stock_level = ?, critical_level = ?, status = ?, updated_at = NOW() WHERE product_id = ?",
+                        'sssssidiiisi',
+                        [$name, $sku_val, $category, $description, $order_information_notice, $order_information_notice_enabled, $price, $stock_quantity, $low_stock_level, $critical_level, $status, $product_id]
                     );
                 } else {
                     $result = db_execute(
-                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, order_information_notice = ?, price = ?, low_stock_level = ?, critical_level = ?, status = ?, updated_at = NOW() WHERE product_id = ?",
-                        'sssssdiisi',
-                        [$name, $sku_val, $category, $description, $order_information_notice, $price, $low_stock_level, $critical_level, $status, $product_id]
+                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, order_information_notice = ?, order_information_notice_enabled = ?, price = ?, low_stock_level = ?, critical_level = ?, status = ?, updated_at = NOW() WHERE product_id = ?",
+                        'sssssidiisi',
+                        [$name, $sku_val, $category, $description, $order_information_notice, $order_information_notice_enabled, $price, $low_stock_level, $critical_level, $status, $product_id]
                     );
                 }
             }
@@ -1520,6 +1567,7 @@ if (isset($_GET['ajax'])) {
     <table class="orders-table">
         <thead>
             <tr>
+                <?php if (!$is_manager): ?><th style="width:36px;" onclick="event.stopPropagation();"><input type="checkbox" class="pf-notice-select-all" aria-label="Select all products on this page"></th><?php endif; ?>
                 <th>ID</th>
                 <th>SKU</th>
                 <th>Name</th>
@@ -1528,12 +1576,13 @@ if (isset($_GET['ajax'])) {
                 <th><?php echo $is_manager ? 'Branch qty' : 'Quantity'; ?></th>
                 <th>Stock Status</th>
                 <th>Status</th>
+                <?php if (!$is_manager): ?><th>Notice</th><?php endif; ?>
                 <th style="text-align:right;">Actions</th>
             </tr>
         </thead>
         <tbody id="productsTableBody">
             <?php if (empty($products)): ?>
-                <tr><td colspan="9" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No products found.</td></tr>
+                <tr><td colspan="<?php echo (int)$product_list_colspan; ?>" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No products found.</td></tr>
             <?php else: ?>
                 <?php foreach ($products as $product): ?>
                     <?php
@@ -1549,6 +1598,11 @@ if (isset($_GET['ajax'])) {
                     };
                     ?>
                     <tr class="<?php echo htmlspecialchars(trim($stockStatusMeta['row_class']), ENT_QUOTES); ?>" onclick="openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)">
+                        <?php if (!$is_manager): ?>
+                        <td style="text-align:center;" onclick="event.stopPropagation();">
+                            <input type="checkbox" form="pf-order-notice-bulk" name="notice_product_ids[]" value="<?php echo (int)$product['product_id']; ?>" aria-label="Select <?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>">
+                        </td>
+                        <?php endif; ?>
                         <td style="color:#1f2937;"><?php echo $product['product_id']; ?></td>
                         <td class="product-sku-cell"><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
                         <td style="font-weight:500;color:#1f2937;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($product['name']); ?></td>
@@ -1562,6 +1616,15 @@ if (isset($_GET['ajax'])) {
                             <?php $sc = match($product['status']) { 'Activated' => 'background:#dcfce7;color:#166534;', 'Deactivated' => 'background:#fee2e2;color:#991b1b;', default => 'background:#fef9c3;color:#854d0e;' }; ?>
                             <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $sc; ?>"><?php echo $product['status']; ?></span>
                         </td>
+                        <?php if (!$is_manager): ?>
+                        <td>
+                            <?php if ((int)($product['order_information_notice_enabled'] ?? 0) === 1): ?>
+                                <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:#dbeafe;color:#1e40af;">On</span>
+                            <?php else: ?>
+                                <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:#f3f4f6;color:#4b5563;">Off</span>
+                            <?php endif; ?>
+                        </td>
+                        <?php endif; ?>
                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
                             <?php if ($is_manager): ?>
                                 <button type="button" class="btn-action blue" onclick='openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Manage</button>
@@ -2842,11 +2905,25 @@ if (isset($_GET['ajax'])) {
                         </div>
                     </div>
                 </div>
+                <?php if (!$is_manager): ?>
+                <form id="pf-order-notice-bulk" method="POST" onsubmit="return pfConfirmOrderNoticeBulk(event);" style="margin:0 0 14px;padding:14px 16px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc;">
+                    <?php echo csrf_field(); ?>
+                    <div style="font-size:14px;font-weight:700;color:#111827;margin-bottom:4px;">Order Information Notice</div>
+                    <p style="margin:0 0 10px;font-size:12px;line-height:1.45;color:#4b5563;">Check the products that should show this notice. Apply saves the text below and turns the notice on for those products only. Turn off hides it for the checked products and keeps their saved text. The Notice column shows which products are currently on.</p>
+                    <label for="pf-order-notice-bulk-text" style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Notice text</label>
+                    <textarea id="pf-order-notice-bulk-text" name="order_information_notice" rows="3" maxlength="<?php echo (int)PRINTFLOW_PRODUCT_ORDER_NOTICE_MAX_LENGTH; ?>" style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:8px;padding:8px 10px;font:inherit;resize:vertical;" placeholder="<?php echo htmlspecialchars(printflow_product_order_notice_default(), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars(printflow_product_order_notice_default(), ENT_QUOTES, 'UTF-8'); ?></textarea>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
+                        <button type="submit" name="order_notice_bulk" value="apply" class="btn-action blue">Apply to selected</button>
+                        <button type="submit" name="order_notice_bulk" value="disable" class="btn-action gray">Turn off for selected</button>
+                    </div>
+                </form>
+                <?php endif; ?>
                 <div id="productsTableContainer">
                 <div class="overflow-x-auto">
                     <table class="orders-table">
                         <thead>
                             <tr>
+                                <?php if (!$is_manager): ?><th style="width:36px;"><input type="checkbox" class="pf-notice-select-all" aria-label="Select all products on this page"></th><?php endif; ?>
                                 <th>ID</th>
                                 <th>SKU</th>
                                 <th>Name</th>
@@ -2855,13 +2932,14 @@ if (isset($_GET['ajax'])) {
                                 <th><?php echo $is_manager ? 'Branch qty' : 'Quantity'; ?></th>
                                 <th>Stock Status</th>
                                 <th>Status</th>
+                                <?php if (!$is_manager): ?><th>Notice</th><?php endif; ?>
                                 <th style="text-align:right;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="productsTableBody">
                             <?php if (empty($products)): ?>
                                 <tr id="emptyProductsRow">
-                                    <td colspan="9" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">
+                                    <td colspan="<?php echo (int)$product_list_colspan; ?>" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">
                                         <?php echo $search ? 'No products found matching "' . htmlspecialchars($search) . '"' : 'No products yet.'; ?>
                                     </td>
                                 </tr>
@@ -2880,6 +2958,11 @@ if (isset($_GET['ajax'])) {
                                     };
                                     ?>
                                     <tr class="<?php echo htmlspecialchars(trim($stockStatusMeta['row_class']), ENT_QUOTES); ?>" onclick="openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)">
+                                        <?php if (!$is_manager): ?>
+                                        <td style="text-align:center;" onclick="event.stopPropagation();">
+                                            <input type="checkbox" form="pf-order-notice-bulk" name="notice_product_ids[]" value="<?php echo (int)$product['product_id']; ?>" aria-label="Select <?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>">
+                                        </td>
+                                        <?php endif; ?>
                                         <td style="color:#1f2937;"><?php echo $product['product_id']; ?></td>
                                         <td class="product-sku-cell"><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
                                         <td style="font-weight:500;color:#1f2937;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($product['name']); ?></td>
@@ -2902,6 +2985,15 @@ if (isset($_GET['ajax'])) {
                                                 <?php echo $product['status']; ?>
                                             </span>
                                         </td>
+                                        <?php if (!$is_manager): ?>
+                                        <td>
+                                            <?php if ((int)($product['order_information_notice_enabled'] ?? 0) === 1): ?>
+                                                <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:#dbeafe;color:#1e40af;">On</span>
+                                            <?php else: ?>
+                                                <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:#f3f4f6;color:#4b5563;">Off</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <?php endif; ?>
                                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
                                             <?php if ($is_manager): ?>
                                                 <button type="button" class="btn-action blue"
@@ -3397,9 +3489,13 @@ if (isset($_GET['ajax'])) {
 
                 <div class="form-row pf-admin-only">
                     <div class="form-group" id="fg-order-information-notice" style="grid-column:1/-1;">
+                        <label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;font-weight:600;color:#374151;">
+                            <input type="checkbox" id="modal-order-information-notice-enabled" name="order_information_notice_enabled" value="1" style="margin-top:3px;">
+                            <span>Show this notice on the customer order review page for this product</span>
+                        </label>
                         <label for="modal-order-information-notice">Order Information Notice</label>
                         <textarea id="modal-order-information-notice" name="order_information_notice" rows="4" maxlength="<?php echo PRINTFLOW_PRODUCT_ORDER_NOTICE_MAX_LENGTH; ?>" placeholder="<?php echo htmlspecialchars(printflow_product_order_notice_default(), ENT_QUOTES, 'UTF-8'); ?>"></textarea>
-                        <small style="display:block;margin-top:4px;color:#6b7280;">Shown on the customer product order review page for ready-made product checkout.</small>
+                        <small style="display:block;margin-top:4px;color:#6b7280;">Used only when the checkbox above is on. Leave the text empty to show the standard pickup notice. Turning it off hides the notice for this product and does not change other products.</small>
                         <span id="err-order-information-notice" class="field-error"></span>
                     </div>
                 </div>
@@ -4292,7 +4388,9 @@ window.openProductModal = function openProductModal(mode, product) {
             var descEl = document.getElementById('modal-description');
             if (descEl) descEl.value = product.description || '';
             var orderNoticeEl = document.getElementById('modal-order-information-notice');
-            if (orderNoticeEl) orderNoticeEl.value = product.order_information_notice || window.PF_PRODUCT_ORDER_NOTICE_DEFAULT || '';
+            if (orderNoticeEl) orderNoticeEl.value = product.order_information_notice || '';
+            var orderNoticeEnabledEl = document.getElementById('modal-order-information-notice-enabled');
+            if (orderNoticeEnabledEl) orderNoticeEnabledEl.checked = String(product.order_information_notice_enabled) === '1';
             var stockEl = document.getElementById('modal-stock');
             if (stockEl) {
                 stockEl.value = product.stock_quantity != null ? String(product.stock_quantity) : '0';
@@ -4332,7 +4430,9 @@ window.openProductModal = function openProductModal(mode, product) {
         pfStockOnlyModalSetActive(false);
         pfManagerModalSetActive(false);
         var orderNoticeCreateEl = document.getElementById('modal-order-information-notice');
-        if (orderNoticeCreateEl) orderNoticeCreateEl.value = window.PF_PRODUCT_ORDER_NOTICE_DEFAULT || '';
+        if (orderNoticeCreateEl) orderNoticeCreateEl.value = '';
+        var orderNoticeEnabledCreateEl = document.getElementById('modal-order-information-notice-enabled');
+        if (orderNoticeEnabledCreateEl) orderNoticeEnabledCreateEl.checked = false;
         var pidEl2 = document.getElementById('modal-product-id');
         if (pidEl2) pidEl2.value = '';
         var stElCreate = document.getElementById('modal-status');
@@ -4730,6 +4830,35 @@ function printflowInitProductsPage() {
             }
         });
     }
+
+    function pfConfirmOrderNoticeBulk(event) {
+        var checked = document.querySelectorAll('#productsTableContainer input[name="notice_product_ids[]"]:checked');
+        if (!checked.length) {
+            window.alert('Select at least one product.');
+            return false;
+        }
+        var submitter = event.submitter || document.activeElement;
+        var action = submitter && submitter.value ? submitter.value : '';
+        if (action === 'disable') {
+            return window.confirm('Turn off the order information notice for ' + checked.length + ' selected product(s)? Their saved notice text will be kept.');
+        }
+        return window.confirm('Save this notice and turn it on for ' + checked.length + ' selected product(s)? Other products will not be changed.');
+    }
+    window.pfConfirmOrderNoticeBulk = pfConfirmOrderNoticeBulk;
+
+    document.addEventListener('change', function(event) {
+        var target = event.target;
+        if (!target || !target.classList || !target.classList.contains('pf-notice-select-all')) {
+            return;
+        }
+        var table = target.closest('table');
+        if (!table) {
+            return;
+        }
+        table.querySelectorAll('input[name="notice_product_ids[]"]').forEach(function(box) {
+            box.checked = target.checked;
+        });
+    });
 
     // Description textarea: limit newlines to 5 (idempotent)
     var orderNoticeTextarea = document.getElementById('modal-order-information-notice');
