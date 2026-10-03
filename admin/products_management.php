@@ -14,8 +14,10 @@ require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/product_field_config_helper.php';
 require_once __DIR__ . '/../includes/product_stock_status.php';
 require_once __DIR__ . '/../includes/product_catalog_groups.php';
+require_once __DIR__ . '/../includes/product_order_notice.php';
 
 printflow_ensure_product_catalog_groups_schema();
+printflow_ensure_product_order_notice_schema();
 
 require_role(['Admin', 'Manager']);
 // Ensure $base_path is defined
@@ -441,6 +443,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $sku = trim($_POST['sku'] ?? '');
         $category = sanitize($_POST['category'] ?? '');
         $description = sanitize($_POST['description'] ?? '');
+        $order_notice_result = printflow_product_order_notice_clean($_POST['order_information_notice'] ?? '');
+        $order_information_notice = $order_notice_result['value'];
         $price = (float)($_POST['price'] ?? 0);
         $stock_quantity = (int)($_POST['stock_quantity'] ?? 0);
         $thresholds = printflow_product_thresholds_from_post($stock_quantity);
@@ -458,6 +462,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Product name cannot contain only numbers.';
         } elseif (strlen($description) > 500) {
             $error = 'Description must not exceed 500 characters.';
+        } elseif (!$order_notice_result['ok']) {
+            $error = $order_notice_result['message'];
         } elseif ($price < 1.00 || $price > 1000000) {
             $error = $price <= 0 ? 'Price is required and must be greater than 0.' : 'Price must be between ₱1.00 and ₱1,000,000.00.';
         } elseif ($stock_quantity < 0) {
@@ -488,9 +494,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     $photo_path = handle_product_photo_upload($_FILES['photo'] ?? null);
                     
                     $result = db_execute(
-                        "INSERT INTO products (name, sku, category, description, price, stock_quantity, low_stock_level, critical_level, status, photo_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
-                        'ssssdiiiss',
-                        [$name, $sku_val, $category, $description, $price, $product_stock_uses_base ? $stock_quantity : 0, $low_stock_level, $critical_level, $status, $photo_path]
+                        "INSERT INTO products (name, sku, category, description, order_information_notice, price, stock_quantity, low_stock_level, critical_level, status, photo_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
+                        'sssssdiiiss',
+                        [$name, $sku_val, $category, $description, $order_information_notice, $price, $product_stock_uses_base ? $stock_quantity : 0, $low_stock_level, $critical_level, $status, $photo_path]
                     );
 
                     if ($result) {
@@ -911,6 +917,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $sku = trim($_POST['sku'] ?? '');
         $category = sanitize($_POST['category'] ?? '');
         $description = sanitize($_POST['description'] ?? '');
+        $order_notice_result = printflow_product_order_notice_clean($_POST['order_information_notice'] ?? '');
+        $order_information_notice = $order_notice_result['value'];
         $price = (float)($_POST['price'] ?? 0);
         $posted_stock_quantity = max(0, (int)($_POST['stock_quantity'] ?? 0));
         $thresholds = printflow_product_thresholds_from_post($posted_stock_quantity);
@@ -930,6 +938,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Product name cannot contain only numbers.';
         } elseif (strlen($description) > 500) {
             $error = 'Description must not exceed 500 characters.';
+        } elseif (!$order_notice_result['ok']) {
+            $error = $order_notice_result['message'];
         } elseif ($price < 1.00 || $price > 1000000) {
             $error = $price <= 0 ? 'Price is required and must be greater than 0.' : 'Price must be between ₱1.00 and ₱1,000,000.00.';
         } elseif ($posted_stock_quantity > 99999) {
@@ -969,29 +979,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             if ($photo_path) {
                 if ($product_stock_uses_base) {
                     $result = db_execute(
-                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, price = ?, stock_quantity = ?, low_stock_level = ?, critical_level = ?, status = ?, photo_path = ?, updated_at = NOW() WHERE product_id = ?",
-                        'ssssdiiissi',
-                        [$name, $sku_val, $category, $description, $price, $stock_quantity, $low_stock_level, $critical_level, $status, $photo_path, $product_id]
+                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, order_information_notice = ?, price = ?, stock_quantity = ?, low_stock_level = ?, critical_level = ?, status = ?, photo_path = ?, updated_at = NOW() WHERE product_id = ?",
+                        'sssssdiiissi',
+                        [$name, $sku_val, $category, $description, $order_information_notice, $price, $stock_quantity, $low_stock_level, $critical_level, $status, $photo_path, $product_id]
                     );
                 } else {
                     $result = db_execute(
-                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, price = ?, low_stock_level = ?, critical_level = ?, status = ?, photo_path = ?, updated_at = NOW() WHERE product_id = ?",
-                        'ssssdiissi',
-                        [$name, $sku_val, $category, $description, $price, $low_stock_level, $critical_level, $status, $photo_path, $product_id]
+                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, order_information_notice = ?, price = ?, low_stock_level = ?, critical_level = ?, status = ?, photo_path = ?, updated_at = NOW() WHERE product_id = ?",
+                        'sssssdiissi',
+                        [$name, $sku_val, $category, $description, $order_information_notice, $price, $low_stock_level, $critical_level, $status, $photo_path, $product_id]
                     );
                 }
             } else {
                 if ($product_stock_uses_base) {
                     $result = db_execute(
-                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, price = ?, stock_quantity = ?, low_stock_level = ?, critical_level = ?, status = ?, updated_at = NOW() WHERE product_id = ?",
-                        'ssssdiiisi',
-                        [$name, $sku_val, $category, $description, $price, $stock_quantity, $low_stock_level, $critical_level, $status, $product_id]
+                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, order_information_notice = ?, price = ?, stock_quantity = ?, low_stock_level = ?, critical_level = ?, status = ?, updated_at = NOW() WHERE product_id = ?",
+                        'sssssdiiisi',
+                        [$name, $sku_val, $category, $description, $order_information_notice, $price, $stock_quantity, $low_stock_level, $critical_level, $status, $product_id]
                     );
                 } else {
                     $result = db_execute(
-                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, price = ?, low_stock_level = ?, critical_level = ?, status = ?, updated_at = NOW() WHERE product_id = ?",
-                        'ssssdiisi',
-                        [$name, $sku_val, $category, $description, $price, $low_stock_level, $critical_level, $status, $product_id]
+                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, order_information_notice = ?, price = ?, low_stock_level = ?, critical_level = ?, status = ?, updated_at = NOW() WHERE product_id = ?",
+                        'sssssdiisi',
+                        [$name, $sku_val, $category, $description, $order_information_notice, $price, $low_stock_level, $critical_level, $status, $product_id]
                     );
                 }
             }
@@ -3385,6 +3395,15 @@ if (isset($_GET['ajax'])) {
                     </div>
                 </div>
 
+                <div class="form-row pf-admin-only">
+                    <div class="form-group" id="fg-order-information-notice" style="grid-column:1/-1;">
+                        <label for="modal-order-information-notice">Order Information Notice</label>
+                        <textarea id="modal-order-information-notice" name="order_information_notice" rows="4" maxlength="<?php echo PRINTFLOW_PRODUCT_ORDER_NOTICE_MAX_LENGTH; ?>" placeholder="<?php echo htmlspecialchars(printflow_product_order_notice_default(), ENT_QUOTES, 'UTF-8'); ?>"></textarea>
+                        <small style="display:block;margin-top:4px;color:#6b7280;">Shown on the customer product order review page for ready-made product checkout.</small>
+                        <span id="err-order-information-notice" class="field-error"></span>
+                    </div>
+                </div>
+
                 <div class="form-group" id="fg-photo">
                     <label for="modal-photo">Product Photo <span style="color:red">*</span></label>
                     <div style="display:flex; align-items:flex-start; gap:12px;">
@@ -3638,6 +3657,7 @@ window.PF_PRODUCTS_IS_MANAGER = <?php echo $is_manager ? 'true' : 'false'; ?>;
 window.PF_PRODUCT_CATEGORY_ALLOWLIST = <?php echo json_encode(printflow_product_modal_categories(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 window.PF_PRODUCTS_CSRF = <?php echo json_encode(generate_csrf_token(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 window.PF_PRODUCTS_BARCODE_API = <?php echo json_encode(rtrim($base_path, '/') . '/admin/api_product_barcode.php', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+window.PF_PRODUCT_ORDER_NOTICE_DEFAULT = <?php echo json_encode(printflow_product_order_notice_default(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 
 function pfSuggestReorderLevel(qty) {
     qty = parseInt(qty, 10) || 0;
@@ -4271,6 +4291,8 @@ window.openProductModal = function openProductModal(mode, product) {
             if (priceEl) priceEl.value = product.price != null ? String(product.price) : '';
             var descEl = document.getElementById('modal-description');
             if (descEl) descEl.value = product.description || '';
+            var orderNoticeEl = document.getElementById('modal-order-information-notice');
+            if (orderNoticeEl) orderNoticeEl.value = product.order_information_notice || window.PF_PRODUCT_ORDER_NOTICE_DEFAULT || '';
             var stockEl = document.getElementById('modal-stock');
             if (stockEl) {
                 stockEl.value = product.stock_quantity != null ? String(product.stock_quantity) : '0';
@@ -4309,6 +4331,8 @@ window.openProductModal = function openProductModal(mode, product) {
         }
         pfStockOnlyModalSetActive(false);
         pfManagerModalSetActive(false);
+        var orderNoticeCreateEl = document.getElementById('modal-order-information-notice');
+        if (orderNoticeCreateEl) orderNoticeCreateEl.value = window.PF_PRODUCT_ORDER_NOTICE_DEFAULT || '';
         var pidEl2 = document.getElementById('modal-product-id');
         if (pidEl2) pidEl2.value = '';
         var stElCreate = document.getElementById('modal-status');
@@ -4708,6 +4732,18 @@ function printflowInitProductsPage() {
     }
 
     // Description textarea: limit newlines to 5 (idempotent)
+    var orderNoticeTextarea = document.getElementById('modal-order-information-notice');
+    if (orderNoticeTextarea && !orderNoticeTextarea._pf_newline_bound) {
+        orderNoticeTextarea._pf_newline_bound = true;
+        orderNoticeTextarea.addEventListener('input', function() {
+            var lines = this.value.split('\n');
+            if (lines.length > 8) {
+                this.value = lines.slice(0, 8).join('\n');
+                this.setSelectionRange(this.value.length, this.value.length);
+            }
+        });
+    }
+
     var descTextarea = document.getElementById('modal-description');
     if (descTextarea && !descTextarea._pf_newline_bound) {
         descTextarea._pf_newline_bound = true;
