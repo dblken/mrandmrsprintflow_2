@@ -962,12 +962,6 @@ if (!function_exists('pf_payment_qr_url')) {
                 <!-- LEFT: Order Summary -->
                 <div class="payment-main">
                 <div class="payment-card p-6">
-                <!-- Grand Total -->
-                <div class="payment-grand-total" style="background: linear-gradient(135deg, #0f3340, #0a2530); border: none; border-radius: 0; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: 0 4px 15px rgba(0,0,0,0.25); text-align: center;">
-                    <span class="payment-grand-total-label" style="font-size: 0.78rem; font-weight: 700; color: #9fc4d4; text-transform: uppercase; letter-spacing: 0.1em; display: block; margin-bottom: 0.4rem;">Order Total Amount</span>
-                    <span class="payment-grand-total-value" style="font-size: 2.25rem; font-weight: 900; color: #53c5e0; letter-spacing: -0.01em;">₱ <?php echo number_format($total_amount, 2); ?></span>
-                </div>
-
                 <div class="payment-items-wrap" style="margin-bottom: 1.5rem;">
                     <?php if (!$is_job_order): ?>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
@@ -1092,10 +1086,6 @@ if (!function_exists('pf_payment_qr_url')) {
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;">
                                 <div><div class="paymongo-eyebrow">Payment Method</div><h2 class="paymongo-title">Pay securely with PayMongo</h2></div>
                                 <?php if ($paymongo_mode === 'test'): ?><span style="padding:3px 8px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:800;text-transform:uppercase;">Test Mode</span><?php endif; ?>
-                            </div>
-                            <div class="paymongo-amount-wrap">
-                                <div class="paymongo-label">Amount Due</div>
-                                <div class="paymongo-amount"><?php echo format_currency($total_amount); ?></div>
                             </div>
                             <div class="paymongo-method-summary">
                                 <strong>QR PH</strong>
