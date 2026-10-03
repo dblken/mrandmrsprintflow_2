@@ -288,7 +288,11 @@ $service_id_notice_message = match ($service_id_status) {
     'Rejected' => 'You cannot continue with this customizable order until you submit a new valid government-issued ID and it has been approved.',
     default => 'You cannot add this customizable product to your cart or proceed to review until your identity has been verified.',
 };
-$service_id_notice_action = $service_id_status === 'Rejected' ? 'Resubmit ID' : 'Submit ID';
+$service_id_notice_action = match ($service_id_status) {
+    'Rejected' => 'Resubmit ID',
+    'None' => 'Submit ID',
+    default => null,
+};
 
 // Check if service has field configuration
 if (!service_has_field_config($service_id)) {
@@ -1064,7 +1068,9 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                                 <span><?php echo htmlspecialchars($service_id_notice_message, ENT_QUOTES, 'UTF-8'); ?></span>
                                 <span>Current Status: <strong><?php echo htmlspecialchars($service_id_status_label, ENT_QUOTES, 'UTF-8'); ?></strong></span>
                             </div>
-                            <a href="profile.php#section-security"><?php echo htmlspecialchars($service_id_notice_action, ENT_QUOTES, 'UTF-8'); ?></a>
+                            <?php if ($service_id_notice_action !== null): ?>
+                                <a href="profile.php#section-security"><?php echo htmlspecialchars($service_id_notice_action, ENT_QUOTES, 'UTF-8'); ?></a>
+                            <?php endif; ?>
                         </div>
                     <?php endif; ?>
                     <div class="shopee-form-row pt-8 service-action-row">
