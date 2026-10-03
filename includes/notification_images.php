@@ -46,7 +46,9 @@ function printflow_notification_catalog_image(string $kind, int $id): string {
     if ($id <= 0) return '';
     if (array_key_exists($key, $cache)) return $cache[$key];
     if ($kind === 'Service') {
-        $rows = db_query('SELECT display_image, hero_image, image_path FROM services WHERE service_id = ? LIMIT 1', 'i', [$id]) ?: [];
+        // Legacy image_path is optional; selecting it explicitly breaks the
+        // lookup on current Admin Services schemas that do not contain it.
+        $rows = db_query('SELECT * FROM services WHERE service_id = ? LIMIT 1', 'i', [$id]) ?: [];
         if (empty($rows[0])) return $cache[$key] = '';
         // Admin stores ordered display_image CSV. Storefront primary is its
         // first still image, then hero_image. image_path is legacy catalog art.

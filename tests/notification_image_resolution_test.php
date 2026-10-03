@@ -48,6 +48,7 @@ function db_query($sql, $types = '', $params = []): array {
     if (str_contains($sql, 'FROM reviews')) return $id === 31 ? [['order_id' => 14, 'order_item_id' => 141]] : [];
     if (str_contains($sql, 'FROM change_item_requests')) return [['order_item_id' => 141]];
     if (str_contains($sql, 'FROM services')) {
+        if (preg_match('/SELECT\s+[^*]+\bimage_path\b/i', $sql)) throw new RuntimeException('Optional legacy service column selected explicitly');
         if (str_contains($sql, 'LOWER(TRIM(name))')) {
             return array_values(array_map(static fn($key) => ['service_id' => $key], array_keys(array_filter($services,
                 static fn($s) => strcasecmp($s['name'], $params[0]) === 0))));
