@@ -5,7 +5,7 @@
 
 function printflow_profile_completion_required_message(): string
 {
-    return 'Please complete your Customer Account before submitting an inquiry or placing an order.';
+    return 'Please complete your required Customer Account information before submitting an inquiry or placing an order.';
 }
 
 /**
@@ -43,14 +43,12 @@ function printflow_customer_account_tab_status($customer = null): array
         && printflow_customer_has_usable_password_hash($customer['password_hash'] ?? null);
     $account_complete = !$is_google || $has_password;
 
-    $id_status = trim((string)($customer['id_status'] ?? 'None'));
-    $security_complete = ($id_status === 'Verified');
 
     return [
         'section-profile' => ['complete' => (bool)$personal['complete'], 'label' => 'Personal Information'],
         'section-address' => ['complete' => $address_complete, 'label' => 'Address'],
         'section-account' => ['complete' => $account_complete, 'label' => 'Account Management'],
-        'section-security' => ['complete' => $security_complete, 'label' => 'Security & Verification'],
+        'section-security' => ['complete' => true, 'label' => 'Security & Verification'],
     ];
 }
 
@@ -158,7 +156,7 @@ function printflow_render_customer_profile_incomplete_banner(): void
     <div class="pf-profile-incomplete-banner" role="status" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:1rem;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:0.75rem;padding:1rem 1.25rem;margin-bottom:1.5rem;">
         <div style="flex:1;min-width:220px;font-size:0.9375rem;line-height:1.5;">
             <strong style="display:block;margin-bottom:0.25rem;">Your Customer Account is incomplete.</strong>
-            Please complete every section marked with ! in your profile before submitting an inquiry or placing an order.
+            Please complete your Personal Information, Address, and Account Management sections before submitting an inquiry or placing an order.
         </div>
         <a href="<?php echo htmlspecialchars($profile_url, ENT_QUOTES, 'UTF-8'); ?>" class="shopee-btn-primary" style="flex-shrink:0;white-space:nowrap;padding:0.55rem 1.25rem;text-decoration:none;">
             Complete Profile

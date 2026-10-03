@@ -1085,10 +1085,31 @@ function register_customer($data) {
  * @param string $password The password
  * @return array ['success' => bool, 'message' => string]
  */
-function register_customer_direct($type, $identifier, $password, $terms_accepted_at = null, $terms_version = null) {
+function printflow_ensure_customer_registration_profile_columns(): void {
+    $columns = [
+        ['region', 100, 'contact_number'],
+        ['province', 100, 'region'],
+        ['city', 100, 'province'],
+        ['barangay', 100, 'city'],
+        ['street_address', 255, 'barangay'],
+    ];
+
+    foreach ($columns as [$column, $length, $after]) {
+        if (function_exists('db_table_has_column') && db_table_has_column('customers', $column)) {
+            continue;
+        }
+        @db_execute("ALTER TABLE customers ADD COLUMN `{$column}` varchar({$length}) DEFAULT NULL AFTER `{$after}`");
+        if (function_exists('db_table_has_column')) {
+            db_table_has_column('customers', $column, true);
+        }
+    }
+}
+
+function register_customer_direct($type, $identifier, $password, $terms_accepted_at = null, $terms_version = null, array $profile_data = []) {
     if (!printflow_customer_terms_acceptance_columns_ready()) {
         return ['success' => false, 'message' => 'Registration is temporarily unavailable. Please contact support.'];
     }
+    printflow_ensure_customer_registration_profile_columns();
 
     // Determine email and contact_number
     if ($type === 'email') {
@@ -1130,18 +1151,43 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
 
     $password_hash = password_hash($password, PASSWORD_BCRYPT);
 
-    $sql = "INSERT INTO customers (first_name, middle_name, last_name, dob, gender, email, contact_number, password_hash, is_profile_complete, email_verified, created_by_system, terms_accepted_at, terms_version)
-            VALUES (?, '', ?, NULL, NULL, ?, ?, ?, 0, 0, 1, ?, ?)";
+    $first_name = trim((string)($profile_data['first_name'] ?? ''));
+    $middle_name = trim((string)($profile_data['middle_name'] ?? ''));
+    $last_name = trim((string)($profile_data['last_name'] ?? ''));
+    $dob = trim((string)($profile_data['dob'] ?? ''));
+    $gender = trim((string)($profile_data['gender'] ?? ''));
+    $profile_contact = trim((string)($profile_data['contact_number'] ?? ''));
+    if ($contact_number === null && $profile_contact !== '') {
+        $contact_number = $profile_contact;
+    }
+    $region = trim((string)($profile_data['region'] ?? ''));
+    $province = trim((string)($profile_data['province'] ?? ''));
+    $city = trim((string)($profile_data['city'] ?? ''));
+    $barangay = trim((string)($profile_data['barangay'] ?? ''));
+    $street_address = trim((string)($profile_data['street_address'] ?? ''));
+    $profile_complete = ($first_name !== '' && $last_name !== '' && $dob !== '' && $gender !== '' && $contact_number !== null && $contact_number !== '' && $province !== '' && $city !== '' && $barangay !== '' && $street_address !== '') ? 1 : 0;
 
-    $result = printflow_run_guarded_account_insert(function() use ($sql, $email, $contact_number, $password_hash, $terms_accepted_at, $terms_version) {
-        return db_execute($sql, 'sssssss', [
-            '',           // placeholder first_name
-            '',           // placeholder last_name
+    $sql = "INSERT INTO customers (first_name, middle_name, last_name, dob, gender, email, contact_number, password_hash, is_profile_complete, email_verified, created_by_system, terms_accepted_at, terms_version, region, province, city, barangay, street_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?)";
+
+    $result = printflow_run_guarded_account_insert(function() use ($sql, $first_name, $middle_name, $last_name, $dob, $gender, $email, $contact_number, $password_hash, $profile_complete, $terms_accepted_at, $terms_version, $region, $province, $city, $barangay, $street_address) {
+        return db_execute($sql, 'ssssssssisssssss', [
+            $first_name,
+            $middle_name,
+            $last_name,
+            $dob,
+            $gender,
             $email,
             $contact_number,
             $password_hash,
+            $profile_complete,
             $terms_accepted_at,
-            $terms_version
+            $terms_version,
+            $region,
+            $province,
+            $city,
+            $barangay,
+            $street_address,
         ]);
     });
 

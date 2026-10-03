@@ -1340,7 +1340,7 @@ require_once __DIR__ . '/../includes/header.php';
                         Security & Verification
                         <span style="font-size:0.72rem;font-weight:700;padding:3px 10px;border-radius:99px;background:<?php echo $sbg;?>;color:<?php echo $sc;?>;margin-left:8px;"><?php echo $slabel; ?></span>
                     </h3>
-                    <p class="profile-card-description">Review your verification status and submit a valid ID when needed to confirm your identity and unlock order eligibility.</p>
+                    <p class="profile-card-description">Review your verification status and submit a valid ID when needed for customizable orders.</p>
 
                     <?php if ($id_status === 'Rejected'): ?>
                     <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px 16px;margin-bottom:1rem;color:#b91c1c;">
@@ -1363,7 +1363,7 @@ require_once __DIR__ . '/../includes/header.php';
                         <?php if ($id_status === 'Rejected'): ?>
                         Please review the rejection reason above, then upload a clearer valid government-issued ID to continue.
                         <?php else: ?>
-                        Upload a valid government-issued ID to verify your identity before placing orders.
+                        Upload a valid government-issued ID only when you need to place customizable orders.
                         <?php endif; ?>
                     </p>
 
@@ -1371,12 +1371,6 @@ require_once __DIR__ . '/../includes/header.php';
                     <div style="margin-bottom:1.25rem;padding:12px 16px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:0.875rem;color:#92400e;">
                         Your ID is currently under review. We'll notify you once the admin finishes reviewing it. If it is rejected, the admin's reason will appear here so you can upload a new ID again.
                     </div>
-                    <?php if (!empty($id_image)): ?>
-                    <div style="margin-top:1rem;">
-                        <p style="font-size:0.75rem;color:#64748b;margin-bottom:6px;">Submitted ID:</p>
-                        <img src="<?php echo $base_path; ?>/uploads/ids/<?php echo htmlspecialchars($id_image); ?>" style="max-height:140px;border-radius:8px;border:1px solid #e2e8f0;">
-                    </div>
-                    <?php endif; ?>
                     <?php elseif (empty($id_image) || $id_status === 'Rejected'): ?>
                     <form method="POST" enctype="multipart/form-data">
                         <?php echo csrf_field(); ?>
@@ -1399,12 +1393,6 @@ require_once __DIR__ . '/../includes/header.php';
                         <div id="id-preview-wrap" style="display:none;margin-top:1rem;">
                             <img id="id-preview-img" src="" style="max-height:180px;border-radius:8px;border:1px solid #e2e8f0;">
                         </div>
-                        <?php if (!empty($id_image)): ?>
-                        <div style="margin-top:1rem;">
-                            <p style="font-size:0.75rem;color:#64748b;margin-bottom:6px;"><?php echo $id_status === 'Rejected' ? 'Previous rejected ID:' : 'Previously submitted:'; ?></p>
-                            <img src="<?php echo $base_path; ?>/uploads/ids/<?php echo htmlspecialchars($id_image); ?>" style="max-height:140px;border-radius:8px;border:1px solid #e2e8f0;">
-                        </div>
-                        <?php endif; ?>
                         <div style="margin-top:1.5rem;display:flex;justify-content:flex-end;">
                             <button type="submit" class="pf-btn-primary"><?php echo $id_status==='Rejected'?'Resubmit ID':'Submit ID for Verification'; ?></button>
                         </div>

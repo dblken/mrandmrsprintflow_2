@@ -71,6 +71,11 @@ foreach ($cart_items as $item) {
 
 $customer_id = get_user_id();
 $customer = db_query("SELECT * FROM customers WHERE customer_id = ?", 'i', [$customer_id])[0];
+$cart_requires_id_verification = printflow_cart_requires_id_verification($cart_items);
+$id_verification_state = printflow_custom_order_id_status($customer);
+$id_verification_notice = $cart_requires_id_verification && empty($id_verification_state['verified'])
+    ? printflow_custom_order_id_message($customer)
+    : '';
 
 $customer_type = $customer['customer_type'] ?? 'new';
 
@@ -80,6 +85,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
     
     if (false) {
         $error = "🚫 Your account is restricted from placing new orders.";
+    } elseif ($cart_requires_id_verification && empty($id_verification_state['verified'])) {
+        printflow_redirect_customer_to_id_verification($customer, 'checkout.php');
     } elseif (verify_csrf_token($_POST['csrf_token'] ?? '')) {
         // Pricing and payment are determined AFTER staff review.
         // The checkout page does not collect payment choice from the customer initially.
@@ -551,6 +558,12 @@ require_once __DIR__ . '/../includes/header.php';
             <div style="display:flex; flex-direction:column; gap:1.25rem;">
                 <?php if (isset($error)): ?>
                     <div class="alert-error"><?php echo $error; ?></div>
+                <?php endif; ?>
+                <?php if ($id_verification_notice !== ''): ?>
+                    <div class="alert-error" style="background:#fff7ed;border-color:#fed7aa;color:#9a3412;">
+                        <?php echo htmlspecialchars($id_verification_notice, ENT_QUOTES, 'UTF-8'); ?>
+                        <a href="profile.php#section-security" style="display:inline-block;margin-left:8px;font-weight:700;color:#0f766e;">Submit ID</a>
+                    </div>
                 <?php endif; ?>
 
                 <!-- 1. Order Summary -->

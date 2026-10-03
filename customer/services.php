@@ -9,9 +9,14 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/customer_service_catalog.php';
 require_once __DIR__ . '/../includes/service_field_config_helper.php';
 require_once __DIR__ . '/../includes/customer_catalog_perf.php';
+require_once __DIR__ . '/../includes/require_id_verified.php';
 
 define('PF_CUSTOMER_CATALOG_NAV', true);
 require_role('Customer');
+
+$service_customer_rows = db_query("SELECT * FROM customers WHERE customer_id = ? LIMIT 1", 'i', [get_user_id()]);
+$service_customer = $service_customer_rows[0] ?? [];
+$service_id_state = printflow_custom_order_id_status($service_customer);
 
 $base_path = pf_app_base_path();
 $default_service_img = $base_path . '/public/assets/images/services/default.png';
@@ -603,6 +608,12 @@ function render_service_card($srv, int $card_index = 0) {
         white-space: nowrap;
     }
 
+    .pf-id-notice { display:flex; align-items:center; justify-content:space-between; gap:1rem; background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; border-radius:12px; padding:1rem 1.25rem; margin:-0.5rem 0 1.5rem; }
+    .pf-id-notice strong { display:block; color:#7c2d12; margin-bottom:0.2rem; }
+    .pf-id-notice span { font-size:0.88rem; line-height:1.45; }
+    .pf-id-notice a { flex-shrink:0; background:#0f766e; color:#fff; text-decoration:none; border-radius:8px; padding:0.55rem 0.9rem; font-weight:800; font-size:0.85rem; }
+    @media (max-width:640px) { .pf-id-notice { align-items:flex-start; flex-direction:column; } }
+
     #service-modal-content {
         background: rgba(0,28,36,0.97) !important;
         border: 1px solid rgba(83,197,224,0.28) !important;
@@ -622,6 +633,17 @@ function render_service_card($srv, int $card_index = 0) {
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <h1 class="text-2xl font-bold text-gray-800">Available Services</h1>
         </div>
+        <div class="pf-id-notice" role="status">
+            <span>
+                <strong>ID verification required for customizable orders</strong>
+                A verified government-issued ID is required before a customizable order can be placed. You only need to complete verification once unless re-verification is required.
+                Current status: <strong style="display:inline;margin:0;color:inherit;"><?php echo htmlspecialchars($service_id_state['label'] ?? 'Not Submitted', ENT_QUOTES, 'UTF-8'); ?></strong>
+            </span>
+            <?php if (empty($service_id_state['verified'])): ?>
+                <a href="profile.php#section-security">Submit ID</a>
+            <?php endif; ?>
+        </div>
+
         
         <?php if (empty($core_services)): ?>
             <div class="ct-empty" style="padding:4rem;text-align:center;color:#6b7280; background: rgba(15, 23, 42, 0.5); border-radius: 1rem;">

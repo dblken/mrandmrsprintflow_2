@@ -465,6 +465,63 @@ if (!empty($google_client_id)) {
                 <input type="hidden" name="reg_type" value="direct">
                 <input type="hidden" name="identifier_type" id="reg-h-type" value="email">
 
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;">
+                    <div class="auth-field">
+                        <label for="reg-first-name">First Name <span style="color:#dc2626;">*</span></label>
+                        <input type="text" id="reg-first-name" name="first_name" class="input-field" maxlength="50" autocomplete="given-name" data-reg-required>
+                    </div>
+                    <div class="auth-field">
+                        <label for="reg-middle-name">Middle Name</label>
+                        <input type="text" id="reg-middle-name" name="middle_name" class="input-field" maxlength="50" autocomplete="additional-name">
+                    </div>
+                    <div class="auth-field">
+                        <label for="reg-last-name">Last Name <span style="color:#dc2626;">*</span></label>
+                        <input type="text" id="reg-last-name" name="last_name" class="input-field" maxlength="50" autocomplete="family-name" data-reg-required>
+                    </div>
+                    <div class="auth-field">
+                        <label for="reg-contact-number">Contact Number <span style="color:#dc2626;">*</span></label>
+                        <input type="tel" id="reg-contact-number" name="contact_number" class="input-field" placeholder="09XXXXXXXXX" maxlength="13" autocomplete="tel" data-reg-required>
+                    </div>
+                    <div class="auth-field">
+                        <label for="reg-dob">Birthday <span style="color:#dc2626;">*</span></label>
+                        <input type="date" id="reg-dob" name="dob" class="input-field" data-reg-required>
+                    </div>
+                    <div class="auth-field">
+                        <label for="reg-gender">Gender <span style="color:#dc2626;">*</span></label>
+                        <select id="reg-gender" name="gender" class="input-field" data-reg-required>
+                            <option value="">Select</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="auth-field">
+                    <label for="reg-province">Province <span style="color:#dc2626;">*</span></label>
+                    <select id="reg-province" name="province" class="input-field" data-reg-required>
+                        <option value="">Select province</option>
+                    </select>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;">
+                    <div class="auth-field">
+                        <label for="reg-city">City / Municipality <span style="color:#dc2626;">*</span></label>
+                        <select id="reg-city" name="city" class="input-field" data-reg-required disabled>
+                            <option value="">Select city/municipality</option>
+                        </select>
+                    </div>
+                    <div class="auth-field">
+                        <label for="reg-barangay">Barangay <span style="color:#dc2626;">*</span></label>
+                        <select id="reg-barangay" name="barangay" class="input-field" data-reg-required disabled>
+                            <option value="">Select barangay</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="auth-field">
+                    <label for="reg-street-address">Street Name / House Number / Building <span style="color:#dc2626;">*</span></label>
+                    <input type="text" id="reg-street-address" name="street_address" class="input-field" maxlength="255" autocomplete="street-address" data-reg-required>
+                </div>
+
                 <!-- Identifier input (email only) -->
                 <div class="auth-field">
                     <label id="reg-id-label" for="reg-identifier">Email Address</label>
@@ -1051,6 +1108,10 @@ if (!empty($google_client_id)) {
         return ok;
     }
 
+    function regRequiredFieldsOk() {
+        var fields = Array.prototype.slice.call(document.querySelectorAll('#reg-form-final [data-reg-required]'));
+        return fields.every(function(field) { return (field.value || '').trim() !== ''; });
+    }
     function regCheckForm(showErrors) {
         showErrors = Boolean(showErrors);
         /* Checklist first on every pass — same order as reset-password updatePwChecklist → resetCheckForm */
@@ -1088,7 +1149,7 @@ if (!empty($google_client_id)) {
         var cpwOk = regCheckConfirm(showErrors || regTouched.confirm);
         regCheckTerms(showErrors || regTouched.terms);
 
-        if (submitBtn) submitBtn.disabled = !(idOk && pwOk && cpwOk);
+        if (submitBtn) submitBtn.disabled = !(idOk && pwOk && cpwOk && regRequiredFieldsOk());
     }
 
     function regBlockSpaces(el) {
@@ -1388,6 +1449,72 @@ if (!empty($google_client_id)) {
     }
 
     // Wire up register modal events
+    function regSetSelectOptions(selectEl, rows, placeholder) {
+        if (!selectEl) return;
+        selectEl.innerHTML = '';
+        var first = document.createElement('option');
+        first.value = '';
+        first.textContent = placeholder;
+        selectEl.appendChild(first);
+        (rows || []).forEach(function(row) {
+            var opt = document.createElement('option');
+            opt.value = row.name || '';
+            opt.textContent = row.name || '';
+            opt.dataset.code = row.code || '';
+            selectEl.appendChild(opt);
+        });
+    }
+
+    function regSelectedCode(selectEl) {
+        if (!selectEl || selectEl.selectedIndex < 0) return '';
+        return selectEl.options[selectEl.selectedIndex].dataset.code || '';
+    }
+
+    function regLoadAddressRows(url) {
+        return fetch(url, { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) { return data && data.success ? (data.data || []) : []; })
+            .catch(function() { return []; });
+    }
+
+    var regProvinceEl = document.getElementById('reg-province');
+    var regCityEl = document.getElementById('reg-city');
+    var regBarangayEl = document.getElementById('reg-barangay');
+    if (regProvinceEl && regCityEl && regBarangayEl) {
+        regLoadAddressRows('<?php echo htmlspecialchars($base_url); ?>/customer/api_address.php?action=provinces').then(function(rows) {
+            regSetSelectOptions(regProvinceEl, rows, 'Select province');
+            regCheckForm(false);
+        });
+        regProvinceEl.addEventListener('change', function() {
+            regSetSelectOptions(regCityEl, [], 'Select city/municipality');
+            regSetSelectOptions(regBarangayEl, [], 'Select barangay');
+            regCityEl.disabled = true;
+            regBarangayEl.disabled = true;
+            var code = regSelectedCode(regProvinceEl);
+            if (!code) { regCheckForm(false); return; }
+            regLoadAddressRows('<?php echo htmlspecialchars($base_url); ?>/customer/api_address.php?action=cities&province=' + encodeURIComponent(code)).then(function(rows) {
+                regSetSelectOptions(regCityEl, rows, 'Select city/municipality');
+                regCityEl.disabled = false;
+                regCheckForm(false);
+            });
+        });
+        regCityEl.addEventListener('change', function() {
+            regSetSelectOptions(regBarangayEl, [], 'Select barangay');
+            regBarangayEl.disabled = true;
+            var code = regSelectedCode(regCityEl);
+            if (!code) { regCheckForm(false); return; }
+            regLoadAddressRows('<?php echo htmlspecialchars($base_url); ?>/customer/api_address.php?action=barangays&city=' + encodeURIComponent(code)).then(function(rows) {
+                regSetSelectOptions(regBarangayEl, rows, 'Select barangay');
+                regBarangayEl.disabled = false;
+                regCheckForm(false);
+            });
+        });
+    }
+
+    Array.prototype.slice.call(document.querySelectorAll('#reg-form-final [data-reg-required]')).forEach(function(field) {
+        field.addEventListener('input', function() { regCheckForm(false); });
+        field.addEventListener('change', function() { regCheckForm(false); });
+    });
     var regIdEl  = document.getElementById('reg-identifier');
     var regPwEl  = document.getElementById('reg-password');
     var regCpwEl = document.getElementById('reg-confirm-pw');

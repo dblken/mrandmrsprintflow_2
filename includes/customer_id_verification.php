@@ -64,7 +64,7 @@ function pf_customer_id_profile_status_display(array $customer): array
     $has_id = trim((string)($customer['id_image'] ?? '')) !== '';
     if (!$has_id) {
         return [
-            'label' => '-',
+            'label' => 'Not Submitted',
             'color' => '#64748b',
             'bg' => '#f1f5f9',
             'status' => 'None',
@@ -76,7 +76,7 @@ function pf_customer_id_profile_status_display(array $customer): array
 
     return match ($status) {
         'Verified' => [
-            'label' => 'Approved',
+            'label' => 'Verified',
             'color' => '#16a34a',
             'bg' => '#f0fdf4',
             'status' => 'Verified',
@@ -90,7 +90,7 @@ function pf_customer_id_profile_status_display(array $customer): array
             'has_id' => true,
         ],
         default => [
-            'label' => 'Pending',
+            'label' => 'Pending Verification',
             'color' => '#b45309',
             'bg' => '#fffbeb',
             'status' => 'Pending',
@@ -109,7 +109,7 @@ function pf_admin_id_verification_status_display(array $customer): array
     $has_id = trim((string)($customer['id_image'] ?? '')) !== '';
     if (!$has_id) {
         return [
-            'label' => '-',
+            'label' => 'Not Submitted',
             'style' => 'background:#f3f4f6;color:#6b7280;',
             'status' => 'none',
             'has_id' => false,

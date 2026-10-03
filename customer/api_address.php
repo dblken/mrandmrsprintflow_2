@@ -48,8 +48,8 @@ switch ($action) {
 
     case 'provinces':
         $region = $_GET['region'] ?? '';
-        if (!$region) { echo json_encode(['success'=>false,'error'=>'Region required']); exit; }
-        $data = fetch_psgc('/regions/' . urlencode($region) . '/provinces');
+        $path = $region ? '/regions/' . urlencode($region) . '/provinces' : '/provinces';
+        $data = fetch_psgc($path);
         if ($data === null) { echo json_encode(['success'=>false,'error'=>'Failed to fetch provinces']); exit; }
         $out = array_map(fn($p) => ['code'=>$p['code'],'name'=>$p['name']], $data);
         usort($out, fn($a,$b) => strcmp($a['name'],$b['name']));
