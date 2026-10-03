@@ -183,6 +183,13 @@ nav.pf-mobile-bottom-nav {
         display: none !important;
     }
 
+    /* Phone header keeps cart + notifications; Profile is available in the bottom nav. */
+    body.pf-has-mobile-bottom-nav #main-header [data-pf-profile-wrap] {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+
     /* Cart + notification badges: red on mobile header */
     body.pf-has-mobile-bottom-nav #main-header [data-notif-badge].pf-badge,
     body.pf-has-mobile-bottom-nav #main-header #nav-notif-badge.pf-badge,
