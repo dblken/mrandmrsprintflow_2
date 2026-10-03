@@ -631,11 +631,11 @@ $online_closed_count = 0;
             letter-spacing: .04em;
             margin-bottom: 4px;
         }
-        .pf-change-item-review__code {
-            font-size: 13px;
-            font-weight: 800;
-            color: #78350f;
-            margin-bottom: 14px;
+        .pf-change-item-review__summary-heading {
+            margin-bottom: 12px;
+        }
+        .pf-change-item-review__summary-heading .pf-change-item-review__section-label {
+            margin-bottom: 0;
         }
         .pf-change-item-review__section {
             margin-top: 14px;
@@ -672,7 +672,7 @@ $online_closed_count = 0;
             display: grid;
             grid-template-rows: subgrid;
             grid-column: 1;
-            grid-row: 1 / span 3;
+            grid-row: 1 / span 5;
             row-gap: 8px;
             align-items: start;
             min-width: 0;
@@ -685,7 +685,20 @@ $online_closed_count = 0;
             min-width: 0;
             overflow-wrap: anywhere;
         }
+        .pf-change-item-review__proof-layout {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 24px;
+            align-items: start;
+        }
+        .pf-change-item-review__proof-layout > div {
+            min-width: 0;
+        }
         @media (max-width: 640px) {
+            .pf-change-item-review__proof-layout {
+                grid-template-columns: minmax(0, 1fr);
+                gap: 16px;
+            }
             .pf-change-item-review__grid {
                 grid-template-columns: minmax(0, 1fr);
             }
@@ -2950,18 +2963,15 @@ $online_closed_count = 0;
 
                     <template x-if="changeItemActiveRequest(currentJo)">
                         <div class="pf-change-item-review">
-                            <div class="pf-change-item-review__title">Change Item Request</div>
-                            <div class="pf-change-item-review__code" x-text="changeItemActiveRequest(currentJo).change_item_code || ('CI-' + String(changeItemActiveRequest(currentJo).id || '').padStart(6, '0'))"></div>
-
-                            <div class="pf-change-item-review__section">
-                                <div class="pf-change-item-review__section-label">Request Status</div>
-                                <span :class="getChangeItemBadgeClass(currentJo)" x-text="changeItemActiveRequest(currentJo).display_badge_label || getChangeItemBadgeLabel(currentJo)"></span>
-                            </div>
-
-                            <div class="pf-change-item-review__section">
-                                <div class="pf-change-item-review__section-label">Request Summary</div>
+                            <div>
+                                <div class="pf-change-item-review__summary-heading">
+                                    <div class="pf-change-item-review__title">Change Item Request</div>
+                                    <div class="pf-change-item-review__section-label">Request Summary</div>
+                                </div>
                                 <div class="pf-change-item-review__summary">
                                     <div class="pf-change-item-review__summary-column">
+                                        <div><strong>Request ID:</strong> <span x-text="changeItemActiveRequest(currentJo).change_item_code || ('CI-' + String(changeItemActiveRequest(currentJo).id || '').padStart(6, '0'))"></span></div>
+                                        <div><strong>Request Status:</strong> <span :class="getChangeItemBadgeClass(currentJo)" x-text="changeItemActiveRequest(currentJo).display_badge_label || getChangeItemBadgeLabel(currentJo)"></span></div>
                                         <div><strong>Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
                                         <div><strong>Customer:</strong> <span x-text="(currentJo.customer_full_name || ((currentJo.first_name || '') + ' ' + (currentJo.last_name || ''))).trim() || 'Walk-in customer'"></span></div>
                                         <div><strong>Item:</strong> <span x-text="getChangeItemItemName(currentJo)"></span></div>
@@ -2976,17 +2986,9 @@ $online_closed_count = 0;
                                 </div>
                             </div>
 
-                            <div class="pf-change-item-review__section">
-                                <div class="pf-change-item-review__section-label">Issue Description</div>
-                                <div class="pf-change-item-review__description" x-text="changeItemActiveRequest(currentJo).description || changeItemActiveRequest(currentJo).issue_description || '—'"></div>
-                                <div x-show="changeItemCustomerNotesAreDistinct(changeItemActiveRequest(currentJo))" style="margin-top:10px;font-size:12px;color:#78350f;">
-                                    <strong>Customer Notes:</strong>
-                                    <div class="pf-change-item-review__description" style="margin-top:6px;max-height:160px;" x-text="changeItemActiveRequest(currentJo).customer_notes"></div>
-                                </div>
-                            </div>
-
-                            <div class="pf-change-item-review__section pf-change-item-review__proof">
-                                <div class="pf-change-item-review__section-label">Customer Evidence</div>
+                            <div class="pf-change-item-review__section pf-change-item-review__proof-layout">
+                              <div class="pf-change-item-review__proof">
+                                <div class="pf-change-item-review__section-label">Customer Proof</div>
                                 <template x-if="changeItemEvidencePhotos(changeItemActiveRequest(currentJo)).length">
                                     <div>
                                         <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:4px;">
@@ -3030,6 +3032,15 @@ $online_closed_count = 0;
                                     </div>
                                 </template>
                                 <div x-show="!changeItemHasEvidence(changeItemActiveRequest(currentJo)) && !changeItemActiveRequest(currentJo).proof_url" style="font-size:13px;color:#92400e;">No proof uploaded</div>
+                              </div>
+                              <div>
+                                <div class="pf-change-item-review__section-label">Issue Description</div>
+                                <div class="pf-change-item-review__description" x-text="changeItemActiveRequest(currentJo).description || changeItemActiveRequest(currentJo).issue_description || 'No issue description provided.'"></div>
+                                <div x-show="changeItemCustomerNotesAreDistinct(changeItemActiveRequest(currentJo))" style="margin-top:10px;font-size:12px;color:#78350f;">
+                                    <strong>Customer Notes:</strong>
+                                    <div class="pf-change-item-review__description" style="margin-top:6px;max-height:160px;" x-text="changeItemActiveRequest(currentJo).customer_notes"></div>
+                                </div>
+                              </div>
                             </div>
 
                             <div class="pf-change-item-review__section" x-show="changeItemActiveRequest(currentJo).staff_notes && !changeItemCanReview(currentJo)">
