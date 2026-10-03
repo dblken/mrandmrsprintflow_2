@@ -120,6 +120,18 @@ if (!empty($google_client_id)) {
         transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
     }
     .auth-modal .input-field::placeholder { color: #475569; }
+    .auth-modal select.input-field {
+        color: #e0f2fe;
+        background-color: #102a31;
+        color-scheme: dark;
+    }
+    .auth-modal select.input-field option {
+        color: #e0f2fe;
+        background-color: #102a31;
+    }
+    .auth-modal select.input-field option[value=""] {
+        color: #94a3b8;
+    }
     .auth-modal .input-field:focus {
         outline: none !important;
         border-color: #32a1c4 !important;
@@ -468,32 +480,27 @@ if (!empty($google_client_id)) {
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;">
                     <div class="auth-field">
                         <label for="reg-first-name">First Name <span style="color:#dc2626;">*</span></label>
-                        <input type="text" id="reg-first-name" name="first_name" class="input-field validate-reg-name" maxlength="50" autocomplete="given-name" data-reg-required>
-                        <p class="auth-field-hint">Letters and spaces only, 2-50 characters.</p>
+                        <input type="text" id="reg-first-name" name="first_name" placeholder="First name" class="input-field validate-reg-name" maxlength="50" autocomplete="given-name" data-reg-required>
                         <p class="modal-field-error" id="reg-first-name-error"></p>
                     </div>
                     <div class="auth-field">
                         <label for="reg-middle-name">Middle Name</label>
-                        <input type="text" id="reg-middle-name" name="middle_name" class="input-field validate-reg-name" maxlength="50" autocomplete="additional-name">
-                        <p class="auth-field-hint">Optional. Letters and spaces only.</p>
+                        <input type="text" id="reg-middle-name" name="middle_name" placeholder="Middle name (optional)" class="input-field validate-reg-name" maxlength="50" autocomplete="additional-name">
                         <p class="modal-field-error" id="reg-middle-name-error"></p>
                     </div>
                     <div class="auth-field">
                         <label for="reg-last-name">Last Name <span style="color:#dc2626;">*</span></label>
-                        <input type="text" id="reg-last-name" name="last_name" class="input-field validate-reg-name" maxlength="50" autocomplete="family-name" data-reg-required>
-                        <p class="auth-field-hint">Letters and spaces only, 2-50 characters.</p>
+                        <input type="text" id="reg-last-name" name="last_name" placeholder="Last name" class="input-field validate-reg-name" maxlength="50" autocomplete="family-name" data-reg-required>
                         <p class="modal-field-error" id="reg-last-name-error"></p>
                     </div>
                     <div class="auth-field">
                         <label for="reg-contact-number">Contact Number <span style="color:#dc2626;">*</span></label>
                         <input type="tel" id="reg-contact-number" name="contact_number" class="input-field validate-reg-contact" placeholder="09XXXXXXXXX" maxlength="11" inputmode="numeric" autocomplete="tel" data-reg-required>
-                        <p class="auth-field-hint">Use 11 digits starting with 09.</p>
                         <p class="modal-field-error" id="reg-contact-number-error"></p>
                     </div>
                     <div class="auth-field">
                         <label for="reg-dob">Birthday <span style="color:#dc2626;">*</span></label>
-                        <input type="date" id="reg-dob" name="dob" class="input-field validate-reg-dob" min="<?php echo date('Y-m-d', strtotime('-100 years')); ?>" max="<?php echo date('Y-m-d', strtotime('-13 years')); ?>" data-reg-required>
-                        <p class="auth-field-hint">You must be between 13 and 100 years old.</p>
+                        <input type="date" id="reg-dob" name="dob" title="Select your birthday (ages 13-100)" class="input-field validate-reg-dob" min="<?php echo date('Y-m-d', strtotime('-100 years')); ?>" max="<?php echo date('Y-m-d', strtotime('-13 years')); ?>" data-reg-required>
                         <p class="modal-field-error" id="reg-dob-error"></p>
                     </div>
                     <div class="auth-field">
@@ -530,7 +537,7 @@ if (!empty($google_client_id)) {
                 </div>
                 <div class="auth-field">
                     <label for="reg-street-address">Street Name / House Number / Building <span style="color:#dc2626;">*</span></label>
-                    <input type="text" id="reg-street-address" name="street_address" class="input-field" maxlength="255" autocomplete="street-address" data-reg-required>
+                    <input type="text" id="reg-street-address" name="street_address" placeholder="Street name, house number, or building" class="input-field" maxlength="255" autocomplete="street-address" data-reg-required>
                 </div>
 
                 <!-- Identifier input (email only) -->
@@ -570,7 +577,7 @@ if (!empty($google_client_id)) {
                     <label for="reg-confirm-pw">Confirm Password <span style="color:#dc2626;">*</span></label>
                     <div class="auth-password-wrap">
                         <input type="password" id="reg-confirm-pw" name="confirm_password" class="input-field"
-                               placeholder="Confirm password"
+                               placeholder="Repeat password"
                                maxlength="64"
                                autocomplete="new-password">
                         <button type="button" class="auth-password-toggle" data-toggle-password aria-label="Show password" aria-controls="reg-confirm-pw">
