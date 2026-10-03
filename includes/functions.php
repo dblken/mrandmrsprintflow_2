@@ -15,6 +15,7 @@ require_once __DIR__ . '/ensure_order_source_column.php'; // Ensure order_source
 require_once __DIR__ . '/order_items_persistence.php';
 require_once __DIR__ . '/image_optimizer.php';
 require_once __DIR__ . '/customer_catalog_perf.php';
+require_once __DIR__ . '/notification_images.php';
 
 // Global Environment Detection
 if (!defined('BASE_PATH')) {
@@ -350,7 +351,10 @@ function create_notification($user_id, $user_type, $message, $type = 'System', $
             require_once $push_helper;
             if (function_exists('push_dispatch_user') && function_exists('push_url_for_type')) {
                 $push_url = push_url_for_type($type, $data_id, $user_type);
-                $push_media = printflow_push_media_payload((string)$type, $data_id, (string)$message);
+                $push_media = printflow_push_media_payload((string)$type, $data_id, (string)$message, [
+                    'customer_id' => $customer_id, 'user_id' => $staff_user_id,
+                    'review_id' => $safe_review_id, 'created_at' => date('Y-m-d H:i:s'),
+                ]);
                 $push_title = printflow_push_title_for_notification((string)$type, (string)$message, (string)$user_type);
                 if ($type === 'System' && $data_id !== null && $data_id !== '' && (int)$data_id > 0) {
                     $ml = strtolower((string)$message);
@@ -2164,7 +2168,7 @@ function get_customer_notifications_for_display($customer_id, $limit = 10, $offs
             'time_ago' => !empty($row['created_at']) ? time_ago((string)$row['created_at']) : '',
             'link' => $link,
             'image' => $image,
-            'fallback' => $default_image,
+            'fallback' => printflow_notification_is_message($row) ? pf_default_profile_image_url() : $default_image,
         ];
     }
 
@@ -2528,79 +2532,23 @@ function customer_notification_target_url(array $notification) {
 }
 
 /**
- * Resolve the thumbnail URL for a customer notification (order/design preview, uploaded ID photo, etc.).
+ * Resolve live catalog art or sender avatars for customer notifications.
  *
  * @param array<string,mixed> $notification
  */
 function customer_notification_image_url(array $notification, string $fallback, ?int $viewer_customer_id = null): string {
-    $resolved_fallback = trim($fallback);
-    if ($resolved_fallback === '') {
-        $resolved_fallback = printflow_notification_placeholder_image_url();
+    if (printflow_notification_is_message($notification)) return printflow_notification_sender_image($notification);
+    $type = strtolower(trim((string)($notification['type'] ?? '')));
+    $message = strtolower((string)($notification['message'] ?? ''));
+    $fallback = $fallback ?: printflow_notification_placeholder_image_url();
+    if (customer_notification_should_use_id_image_thumbnail($message)) {
+        return printflow_customer_id_notification_image_url($viewer_customer_id ?? (int)($notification['customer_id'] ?? 0), $fallback);
     }
-    if ($resolved_fallback === '') {
-        $resolved_fallback = printflow_notification_normalize_media_url(
-            printflow_notification_base_path() . '/public/assets/uploads/profiles/default.png'
-        );
+    if (in_array($type, ['order', 'new order', 'status', 'design', 'customization', 'payment', 'payment issue', 'job order', 'rating', 'review'], true)) {
+        $resolved = printflow_resolve_official_catalog_image_for_notification($notification, $fallback);
+        return (string)$resolved['image_url'];
     }
-
-    $data_id = (int)($notification['data_id'] ?? 0);
-    $type = strtolower((string)($notification['type'] ?? ''));
-    $message = (string)($notification['message'] ?? '');
-    $message_l = strtolower($message);
-
-    $order_hint = $data_id;
-    if ($order_hint <= 0 && preg_match('/order\s*#?(\d+)/i', $message, $om)) {
-        $order_hint = (int)$om[1];
-    }
-
-    if ($type === 'job order' && $data_id > 0) {
-        $preview = printflow_job_notification_preview($data_id);
-        $img = trim((string)($preview['image_url'] ?? ''));
-        return printflow_notification_normalize_media_url($img !== '' ? $img : $resolved_fallback);
-    }
-
-    if ($data_id > 0 || $order_hint > 0) {
-        $oid = $data_id > 0 ? $data_id : $order_hint;
-        $is_review = $type === 'rating' || $type === 'review' || strpos($message_l, 'review') !== false || strpos($message_l, 'rating') !== false;
-        if ($is_review) {
-            $resolved = printflow_resolve_official_catalog_image_for_notification($notification, $resolved_fallback);
-            printflow_review_notification_debug($notification, [
-                'order_id' => (int)$resolved['order_id'],
-                'review_id' => (int)$resolved['review_id'],
-                'order_item_id' => (int)$resolved['order_item_id'],
-                'resolved_catalog_id' => (int)$resolved['resolved_catalog_id'],
-                'official_image_field' => (string)$resolved['official_image_field'],
-                'old_image_url' => (string)($notification['image_url'] ?? $notification['image'] ?? $notification['thumbnail'] ?? ''),
-                'rejected_customer_upload_url' => (string)$resolved['rejected_design_url'],
-                'image_url' => (string)$resolved['image_url'],
-                'image_source' => (string)$resolved['image_source'],
-                'fallback_reason' => (string)$resolved['fallback_reason'],
-                'opened_state' => 'image_resolved',
-            ]);
-            return printflow_notification_normalize_media_url((string)$resolved['image_url']);
-        }
-        $preview = printflow_order_notification_preview($oid, $is_review);
-        $img = trim((string)($preview['image_url'] ?? ''));
-        printflow_review_notification_debug($notification, [
-            'order_id' => $oid,
-            'image_source' => (string)($preview['image_source'] ?? 'resolved_preview'),
-            'resolved_catalog_id' => (int)($preview['resolved_catalog_id'] ?? 0),
-            'official_image_field' => (string)($preview['official_image_field'] ?? ''),
-            'rejected_customer_upload_url' => (string)($preview['rejected_design_url'] ?? ''),
-            'image_url' => $img !== '' ? $img : $resolved_fallback,
-            'opened_state' => 'image_resolved',
-        ]);
-        return printflow_notification_normalize_media_url($img !== '' ? $img : $resolved_fallback);
-    }
-
-    $cid = $viewer_customer_id ?? (int)($notification['customer_id'] ?? 0);
-    if ($cid > 0 && customer_notification_should_use_id_image_thumbnail($message_l)) {
-        $id_thumb = trim((string)printflow_customer_id_notification_image_url($cid, ''));
-
-        return printflow_notification_normalize_media_url($id_thumb !== '' ? $id_thumb : $resolved_fallback);
-    }
-
-    return printflow_notification_normalize_media_url($resolved_fallback);
+    return printflow_notification_normalize_media_url($fallback);
 }
 
 /**
@@ -2611,35 +2559,16 @@ function customer_notification_should_use_id_image_thumbnail(string $message_l):
 }
 
 /**
- * Resolve a review notification image from the current official catalog state.
+ * Resolve notification images from the current official catalog state.
  * Historical rows intentionally do not trust any previously saved thumbnail.
  */
 function printflow_resolve_official_catalog_image_for_notification(array $notification, string $fallback): array {
-    $order_id = (int)($notification['data_id'] ?? 0);
-    $review_id = (int)($notification['review_id'] ?? 0);
-    if ($order_id <= 0 && $review_id > 0) {
-        $reviewRows = db_query('SELECT order_id FROM reviews WHERE id = ? LIMIT 1', 'i', [$review_id]) ?: [];
-        $order_id = (int)($reviewRows[0]['order_id'] ?? 0);
-    }
-
-    $preview = $order_id > 0 ? printflow_order_notification_preview($order_id, true) : [];
-    $image = trim((string)($preview['image_url'] ?? ''));
-    $resolvedFallback = printflow_notification_normalize_media_url($fallback);
-    if ($image === '') {
-        $image = $resolvedFallback;
-    }
-
-    return [
-        'image_url' => $image,
-        'order_id' => $order_id,
-        'review_id' => $review_id,
-        'order_item_id' => (int)($preview['resolved_order_item_id'] ?? 0),
-        'resolved_catalog_id' => (int)($preview['resolved_catalog_id'] ?? 0),
-        'official_image_field' => (string)($preview['official_image_field'] ?? ''),
-        'rejected_design_url' => (string)($preview['rejected_design_url'] ?? ''),
-        'image_source' => $image === $resolvedFallback ? 'neutral_fallback' : 'official_catalog',
-        'fallback_reason' => trim((string)($preview['fallback_reason'] ?? ($image === $resolvedFallback ? 'catalog_image_missing' : ''))),
-    ];
+    $resolved = printflow_notification_catalog_context($notification, printflow_notification_normalize_media_url($fallback));
+    printflow_review_notification_debug($notification, $resolved + [
+        'old_image_url' => (string)($notification['image_url'] ?? $notification['image'] ?? $notification['thumbnail'] ?? ''),
+        'opened_state' => 'image_resolved',
+    ]);
+    return $resolved;
 }
 
 
@@ -2669,7 +2598,7 @@ function printflow_push_title_for_notification(string $type, string $message, st
     return 'PrintFlow';
 }
 
-function printflow_push_media_payload(string $type, $data_id, string $message): array {
+function printflow_push_media_payload(string $type, $data_id, string $message, array $context = []): array {
     $fallback = '';
     if (function_exists('push_logo_url')) {
         $fallback = (string)push_logo_url();
@@ -2678,17 +2607,15 @@ function printflow_push_media_payload(string $type, $data_id, string $message): 
     $data_id = (int)$data_id;
     $type_l = strtolower(trim($type));
     $message_l = strtolower($message);
-    $order_types = ['order', 'new order', 'payment', 'payment issue', 'design', 'customization', 'message', 'chat', 'job order', 'rating', 'review'];
+    $order_types = ['order', 'new order', 'status', 'payment', 'payment issue', 'design', 'customization', 'message', 'chat', 'job order', 'rating', 'review'];
 
-    if ($data_id > 0 && in_array($type_l, $order_types, true)) {
-        $preview = printflow_order_notification_preview($data_id, $type_l === 'rating' || $type_l === 'review');
-        $image = trim((string)($preview['image_url'] ?? ''));
-        if ($image !== '') {
-            return [
-                'icon' => $image,
-                'image' => $image,
-            ];
-        }
+    if ($data_id > 0 && (in_array($type_l, $order_types, true)
+        || printflow_notification_is_message(['type' => $type, 'message' => $message]))) {
+        $notification = ['type' => $type, 'data_id' => $data_id, 'message' => $message] + $context;
+        $image = printflow_notification_is_message($notification)
+            ? printflow_notification_sender_image($notification)
+            : (string)printflow_notification_catalog_context($notification, $fallback)['image_url'];
+        if ($image !== '') return ['icon' => $image, 'image' => $image];
     }
 
     if ($data_id > 0 && $type_l === 'system' && (
@@ -2728,60 +2655,19 @@ function printflow_customer_id_notification_image_url(int $customerId, string $f
 }
 
 function staff_admin_notification_image_url(array $notification, string $fallback): string {
+    if (printflow_notification_is_message($notification)) return printflow_notification_sender_image($notification);
     $data_id = (int)($notification['data_id'] ?? 0);
-    $type = strtolower((string)($notification['type'] ?? ''));
+    $type = strtolower(trim((string)($notification['type'] ?? '')));
     $message = strtolower((string)($notification['message'] ?? ''));
-    if ($data_id <= 0) {
-        return printflow_notification_normalize_media_url($fallback);
-    }
-    if ($type === 'system' && (
-        strpos($message, 'submitted an id for verification') !== false ||
-        strpos($message, 'resubmitted an id for verification') !== false
-    )) {
+    if ($type === 'system' && (strpos($message, 'submitted an id for verification') !== false
+        || strpos($message, 'resubmitted an id for verification') !== false)) {
         return printflow_customer_id_notification_image_url($data_id, $fallback);
     }
-    if (!in_array($type, ['order', 'design', 'payment', 'payment issue', 'message', 'job order', 'rating', 'review'], true)) {
-        return printflow_notification_normalize_media_url($fallback);
-    }
-    if ($type === 'payment') {
-        $paymentContext = printflow_payment_submission_notification_context($data_id);
-        $image = trim((string)($paymentContext['image_url'] ?? ''));
-        if ($image !== '') {
-            return printflow_notification_normalize_media_url($image);
-        }
-    }
-    if ($type === 'job order') {
-        $preview = printflow_job_notification_preview($data_id);
-    } elseif ($type === 'rating' || $type === 'review' || strpos($message, 'review') !== false || strpos($message, 'rating') !== false) {
+    if (in_array($type, ['order', 'new order', 'status', 'design', 'customization', 'payment', 'payment issue', 'job order', 'rating', 'review'], true)) {
         $resolved = printflow_resolve_official_catalog_image_for_notification($notification, $fallback);
-        printflow_review_notification_debug($notification, [
-            'order_id' => (int)$resolved['order_id'],
-            'review_id' => (int)$resolved['review_id'],
-            'order_item_id' => (int)$resolved['order_item_id'],
-            'resolved_catalog_id' => (int)$resolved['resolved_catalog_id'],
-            'official_image_field' => (string)$resolved['official_image_field'],
-            'old_image_url' => (string)($notification['image_url'] ?? $notification['image'] ?? $notification['thumbnail'] ?? ''),
-            'rejected_customer_upload_url' => (string)$resolved['rejected_design_url'],
-            'image_url' => (string)$resolved['image_url'],
-            'image_source' => (string)$resolved['image_source'],
-            'fallback_reason' => (string)$resolved['fallback_reason'],
-            'opened_state' => 'image_resolved',
-        ]);
-        return printflow_notification_normalize_media_url((string)$resolved['image_url']);
-    } else {
-        $preview = printflow_order_notification_preview($data_id);
+        return (string)$resolved['image_url'];
     }
-    $image = $preview['image_url'] ?: $fallback;
-    printflow_review_notification_debug($notification, [
-        'order_id' => $data_id,
-        'image_source' => (string)($preview['image_source'] ?? 'resolved_preview'),
-        'resolved_catalog_id' => (int)($preview['resolved_catalog_id'] ?? 0),
-        'official_image_field' => (string)($preview['official_image_field'] ?? ''),
-        'rejected_customer_upload_url' => (string)($preview['rejected_design_url'] ?? ''),
-        'image_url' => $image,
-        'opened_state' => 'image_resolved',
-    ]);
-    return printflow_notification_normalize_media_url($image);
+    return printflow_notification_normalize_media_url($fallback);
 }
 
 function printflow_notification_is_default_thumbnail(string $url): bool {

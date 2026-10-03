@@ -74,7 +74,7 @@ try {
             $row['message'] = printflow_notification_display_message($row);
             $row['title'] = customer_notification_title((string)($row['type'] ?? ''), (string)($row['message'] ?? ''), $row);
             $row['image'] = customer_notification_image_url($row, $fallback, $user_id);
-            $row['fallback'] = $fallback;
+            $row['fallback'] = printflow_notification_is_message($row) ? pf_default_profile_image_url() : $fallback;
             $target = customer_notification_target_url($row);
             $row['link'] = ((int)($row['is_read'] ?? 0) === 0)
                 ? ($base . '/customer/notifications.php?mark_read=' . (int)($row['notification_id'] ?? $row['id'] ?? 0) . '&next=' . urlencode($target))
@@ -84,7 +84,7 @@ try {
             $row['message'] = printflow_notification_display_message($row);
             $row['item_kind'] = printflow_notification_item_kind($row);
             $row['image'] = staff_admin_notification_image_url($row, $fallback);
-            $row['fallback'] = $fallback;
+            $row['fallback'] = printflow_notification_is_message($row) ? pf_default_profile_image_url() : $fallback;
         }
     }
     unset($row);
