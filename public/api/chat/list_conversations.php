@@ -183,6 +183,7 @@ try {
     $conversations = [];
     foreach ($rows ?: [] as $r) {
         if ($user_type === 'Customer') {
+            $r['staff_name'] = printflow_chat_public_staff_label();
             $r['staff_avatar_url'] = printflow_chat_profile_image_url($r['staff_avatar'] ?? '');
             $r['staff_avatar'] = $r['staff_avatar_url'];
         } else {
