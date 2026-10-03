@@ -468,23 +468,23 @@ if (!empty($google_client_id)) {
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;">
                     <div class="auth-field">
                         <label for="reg-first-name">First Name <span style="color:#dc2626;">*</span></label>
-                        <input type="text" id="reg-first-name" name="first_name" class="input-field" maxlength="50" autocomplete="given-name" data-reg-required>
+                        <input type="text" id="reg-first-name" name="first_name" class="input-field validate-reg-name" maxlength="50" autocomplete="given-name" data-reg-required>
                     </div>
                     <div class="auth-field">
                         <label for="reg-middle-name">Middle Name</label>
-                        <input type="text" id="reg-middle-name" name="middle_name" class="input-field" maxlength="50" autocomplete="additional-name">
+                        <input type="text" id="reg-middle-name" name="middle_name" class="input-field validate-reg-name" maxlength="50" autocomplete="additional-name">
                     </div>
                     <div class="auth-field">
                         <label for="reg-last-name">Last Name <span style="color:#dc2626;">*</span></label>
-                        <input type="text" id="reg-last-name" name="last_name" class="input-field" maxlength="50" autocomplete="family-name" data-reg-required>
+                        <input type="text" id="reg-last-name" name="last_name" class="input-field validate-reg-name" maxlength="50" autocomplete="family-name" data-reg-required>
                     </div>
                     <div class="auth-field">
                         <label for="reg-contact-number">Contact Number <span style="color:#dc2626;">*</span></label>
-                        <input type="tel" id="reg-contact-number" name="contact_number" class="input-field" placeholder="09XXXXXXXXX" maxlength="13" autocomplete="tel" data-reg-required>
+                        <input type="tel" id="reg-contact-number" name="contact_number" class="input-field validate-reg-contact" placeholder="09XXXXXXXXX" maxlength="11" inputmode="numeric" autocomplete="tel" data-reg-required>
                     </div>
                     <div class="auth-field">
                         <label for="reg-dob">Birthday <span style="color:#dc2626;">*</span></label>
-                        <input type="date" id="reg-dob" name="dob" class="input-field" data-reg-required>
+                        <input type="date" id="reg-dob" name="dob" class="input-field validate-reg-dob" min="<?php echo date('Y-m-d', strtotime('-100 years')); ?>" max="<?php echo date('Y-m-d', strtotime('-13 years')); ?>" data-reg-required>
                     </div>
                     <div class="auth-field">
                         <label for="reg-gender">Gender <span style="color:#dc2626;">*</span></label>
@@ -1108,7 +1108,43 @@ if (!empty($google_client_id)) {
         return ok;
     }
 
+    function regNormalizeName(val) {
+        return String(val || '').trim().replace(/\s+/g, ' ').toLowerCase().replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+    }
+
+    function regNormalizeContact(val) {
+        var digits = String(val || '').replace(/\D/g, '');
+        if (!digits) return '';
+        if (digits.indexOf('63') === 0) digits = '0' + digits.slice(2);
+        else if (digits.indexOf('9') === 0) digits = '0' + digits;
+        else if (digits.indexOf('09') !== 0) digits = digits.indexOf('0') === 0 ? '09' + digits.slice(1) : '09' + digits;
+        if (digits.indexOf('09') !== 0) digits = '09' + digits.replace(/^0+/, '');
+        return digits.slice(0, 11);
+    }
+
+    function regDobValid(value) {
+        if (!value) return false;
+        var dob = new Date(value);
+        if (isNaN(dob.getTime())) return false;
+        var today = new Date();
+        var age = today.getFullYear() - dob.getFullYear();
+        var m = today.getMonth() - dob.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+        return dob <= today && age >= 13 && age <= 100;
+    }
+
     function regRequiredFieldsOk() {
+        var first = regNormalizeName((document.getElementById('reg-first-name') || {}).value || '');
+        var middle = regNormalizeName((document.getElementById('reg-middle-name') || {}).value || '');
+        var last = regNormalizeName((document.getElementById('reg-last-name') || {}).value || '');
+        var contact = regNormalizeContact((document.getElementById('reg-contact-number') || {}).value || '');
+        var nameRegex = /^[A-Za-z]+(?: [A-Za-z]+)*$/;
+        if (!first || first.length < 2 || first.length > 50 || !nameRegex.test(first)) return false;
+        if (middle && (middle.length > 50 || !nameRegex.test(middle))) return false;
+        if (!last || last.length < 2 || last.length > 50 || !nameRegex.test(last)) return false;
+        if (!/^09\d{9}$/.test(contact)) return false;
+        if (!regDobValid((document.getElementById('reg-dob') || {}).value || '')) return false;
+        if (!((document.getElementById('reg-gender') || {}).value || '')) return false;
         var fields = Array.prototype.slice.call(document.querySelectorAll('#reg-form-final [data-reg-required]'));
         return fields.every(function(field) { return (field.value || '').trim() !== ''; });
     }
@@ -1511,6 +1547,19 @@ if (!empty($google_client_id)) {
         });
     }
 
+    Array.prototype.slice.call(document.querySelectorAll('#reg-form-final .validate-reg-name')).forEach(function(input) {
+        input.addEventListener('blur', function() { this.value = regNormalizeName(this.value); regCheckForm(false); });
+    });
+    var regContactEl = document.getElementById('reg-contact-number');
+    if (regContactEl) {
+        regContactEl.addEventListener('input', function() { this.value = regNormalizeContact(this.value); regCheckForm(false); });
+        regContactEl.addEventListener('focus', function() { if (!this.value) this.value = '09'; });
+        regContactEl.addEventListener('paste', function(e) {
+            e.preventDefault();
+            this.value = regNormalizeContact((e.clipboardData || window.clipboardData).getData('text') || '');
+            regCheckForm(false);
+        });
+    }
     Array.prototype.slice.call(document.querySelectorAll('#reg-form-final [data-reg-required]')).forEach(function(field) {
         field.addEventListener('input', function() { regCheckForm(false); });
         field.addEventListener('change', function() { regCheckForm(false); });
