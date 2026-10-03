@@ -651,18 +651,21 @@ $online_closed_count = 0;
         .pf-change-item-review__grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            grid-template-rows: repeat(4, auto);
-            grid-auto-flow: column;
+            grid-auto-flow: row;
             gap: 8px;
             font-size: 13px;
             color: #78350f;
             line-height: 1.5;
         }
+        .pf-change-item-review__grid > :nth-child(7) {
+            grid-column: 1 / -1;
+        }
         @media (max-width: 640px) {
             .pf-change-item-review__grid {
                 grid-template-columns: minmax(0, 1fr);
-                grid-template-rows: none;
-                grid-auto-flow: row;
+            }
+            .pf-change-item-review__grid > :nth-child(7) {
+                grid-column: auto;
             }
         }
         .pf-change-item-review__description {
