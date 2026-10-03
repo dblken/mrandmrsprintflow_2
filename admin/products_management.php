@@ -2183,7 +2183,9 @@ if (isset($_GET['ajax'])) {
             cursor: pointer;
         }
         #product-modal #modal-order-information-notice {
-            min-height: 96px;
+            min-height: 72px;
+            max-height: 160px;
+            resize: vertical;
         }
         #product-modal .btn-action.is-loading {
             opacity: 0.65;
@@ -3676,9 +3678,9 @@ if (isset($_GET['ajax'])) {
                             <div id="pf-modal-notice-feedback" class="pf-notice-feedback" role="status" aria-live="polite"></div>
                             <div class="pf-notice-panel-section">
                                 <label for="modal-order-information-notice" style="font-size:13px;font-weight:600;color:#374151;margin-bottom:4px;">Notice text</label>
-                                <textarea id="modal-order-information-notice" name="order_information_notice" rows="4" maxlength="<?php echo PRINTFLOW_PRODUCT_ORDER_NOTICE_MAX_LENGTH; ?>" placeholder="<?php echo htmlspecialchars(printflow_product_order_notice_default(), ENT_QUOTES, 'UTF-8'); ?>"></textarea>
+                                <textarea id="modal-order-information-notice" name="order_information_notice" rows="3" maxlength="<?php echo PRINTFLOW_PRODUCT_ORDER_NOTICE_MAX_LENGTH; ?>" placeholder="Enter notice text…"></textarea>
                                 <input type="hidden" name="order_information_notice_enabled" id="modal-order-information-notice-enabled-value" value="0">
-                                <small>Shown on the customer product order review page. Leave empty to use the standard pickup notice when enabled.</small>
+                                <small>Shown on the customer order review page when this product&apos;s notice is enabled.</small>
                                 <label class="pf-notice-show-product-row">
                                     <input type="checkbox" id="modal-notice-show-product">
                                     <span class="pf-product-create-only">Show this notice for the new product after it is created</span>
