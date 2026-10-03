@@ -3,6 +3,29 @@
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/runtime_config.php';
 
+/** @return array{name:string,email:string,phone:string} */
+function printflow_pos_receipt_customer_fields(array $order): array {
+    $email = strtolower(trim((string)($order['email'] ?? '')));
+    $first = trim((string)($order['first_name'] ?? ''));
+    $last = trim((string)($order['last_name'] ?? ''));
+    $fullName = trim($first . ' ' . $last);
+    $isSharedPlaceholder = $email === 'walkin@pos.local';
+    $hideContact = $isSharedPlaceholder
+        || (str_starts_with($email, 'pos.guest.') && str_ends_with($email, '@pos.local'));
+
+    if ($isSharedPlaceholder && ($fullName === '' || strcasecmp($fullName, 'Walk-in Guest') === 0)) {
+        return ['name' => 'Walk-in Guest', 'email' => '', 'phone' => ''];
+    }
+
+    $name = $fullName !== '' ? $fullName : 'Walk-in Guest';
+
+    return [
+        'name' => $name,
+        'email' => $hideContact ? '' : (string)($order['email'] ?? ''),
+        'phone' => $hideContact ? '' : (string)($order['contact_number'] ?? ''),
+    ];
+}
+
 function printflow_pos_receipt_item_name(array $item): string {
     $customization = json_decode((string)($item['customization_data'] ?? ''), true);
     $customization = is_array($customization) ? $customization : [];
@@ -97,7 +120,7 @@ function printflow_pos_build_receipt(int $orderId, float $amountTendered = 0.0, 
     $logoUrl = $shopLogo !== ''
         ? rtrim((string)(defined('BASE_PATH') ? BASE_PATH : '/printflow'), '/') . '/public/assets/uploads/' . rawurlencode(basename($shopLogo))
         : '';
-    $isGuest = strtolower(trim((string)($order['email'] ?? ''))) === 'walkin@pos.local';
+    $receiptCustomer = printflow_pos_receipt_customer_fields($order);
 
     // A receipt represents the sale's transaction timestamp, not the later
     // confirmation time returned by an online payment provider.
@@ -136,11 +159,7 @@ function printflow_pos_build_receipt(int $orderId, float $amountTendered = 0.0, 
             'address' => (string)($order['branch_address'] ?? ''),
             'contact' => (string)($order['branch_contact'] ?? ''),
         ],
-        'customer' => [
-            'name' => $isGuest ? 'Walk-in Guest' : trim((string)$order['first_name'] . ' ' . (string)$order['last_name']),
-            'email' => $isGuest ? '' : (string)($order['email'] ?? ''),
-            'phone' => $isGuest ? '' : (string)($order['contact_number'] ?? ''),
-        ],
+        'customer' => $receiptCustomer,
         'items' => $items,
         'subtotal' => round($subtotal, 2),
         'discount' => [
