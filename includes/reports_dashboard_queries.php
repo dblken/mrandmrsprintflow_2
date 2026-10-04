@@ -119,15 +119,16 @@ function pf_reports_job_exclude_linked_custom_store_sale_sql(string $alias = 'jo
     )";
 }
 
-/** Official product/store revenue amount. Uses amount_paid when the column exists. */
+/** Official product/store revenue amount. POS uses net order total; other orders keep amount_paid fallback. */
 function pf_reports_store_order_revenue_expr(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
     $hasAmountPaid = function_exists('pf_reports_table_has_column')
         ? pf_reports_table_has_column('orders', 'amount_paid')
         : false;
-    return $hasAmountPaid
-        ? "COALESCE(NULLIF({$alias}.amount_paid, 0), {$alias}.total_amount, 0)"
-        : "COALESCE({$alias}.total_amount, 0)";
+    if ($hasAmountPaid) {
+        return "CASE WHEN LOWER(TRIM(COALESCE({$alias}.order_source, ''))) = 'pos' THEN COALESCE({$alias}.total_amount, 0) ELSE COALESCE(NULLIF({$alias}.amount_paid, 0), {$alias}.total_amount, 0) END";
+    }
+    return "COALESCE({$alias}.total_amount, 0)";
 }
 
 /** Official customization/job-order sales inclusion rule for all reports. */
@@ -204,6 +205,12 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
         : "'QR Ph'";
     $storeAmountPaidGroup = $hasStoreAmountPaid ? ', o.amount_paid' : '';
     $storePaymentMethodGroup = $hasStorePaymentMethod ? ', o.payment_method' : '';
+    $storeOrderSourceGroup = ', o.order_source';
+    $hasStoreDiscountAmount = function_exists('db_table_has_column')
+        ? db_table_has_column('orders', 'pos_discount_amount')
+        : pf_reports_table_has_column('orders', 'pos_discount_amount');
+    $storeDiscountSelect = $hasStoreDiscountAmount ? 'COALESCE(o.pos_discount_amount, 0)' : '0';
+    $storeDiscountGroup = $hasStoreDiscountAmount ? ', o.pos_discount_amount' : '';
     $jobPaymentMethod = $hasJobPaymentMethod
         ? "CASE WHEN LOWER(TRIM(COALESCE(jo.payment_method, ''))) = 'cash' THEN 'Cash' ELSE 'QR Ph' END"
         : "'QR Ph'";
@@ -321,17 +328,17 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
     try {
         [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
         [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
-        $txnRows = array_merge($txnRows, db_query("SELECT 'Product' AS type, 'order' AS ref_type, o.order_id AS id, NULL AS store_order_id, o.order_date AS sales_date, {$storeRevenue} AS amount, {$storePaymentMethod} AS payment_method, o.payment_status, o.status, COALESCE(b.branch_name, CONCAT('Branch #', o.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), 'Walk-in') AS customer_name, COALESCE(NULLIF(GROUP_CONCAT(DISTINCT NULLIF(TRIM(p.name), '') ORDER BY p.name SEPARATOR ', '), ''), 'Product Order') AS item_name FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN branches b ON b.id = o.branch_id LEFT JOIN order_items oi ON oi.order_id = o.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales} AND {$storeProductScope}{$do}{$bo} GROUP BY o.order_id, o.order_date{$storeAmountPaidGroup}, o.total_amount{$storePaymentMethodGroup}, o.payment_status, o.status, o.branch_id, b.branch_name, c.first_name, c.last_name", $dto . $bto, array_merge($dpo, $bpo)) ?: []);
+        $txnRows = array_merge($txnRows, db_query("SELECT 'Product' AS type, 'order' AS ref_type, o.order_id AS id, NULL AS store_order_id, o.order_date AS sales_date, {$storeRevenue} AS amount, {$storeDiscountSelect} AS discount_amount, {$storePaymentMethod} AS payment_method, o.payment_status, o.status, COALESCE(b.branch_name, CONCAT('Branch #', o.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), 'Walk-in') AS customer_name, COALESCE(NULLIF(GROUP_CONCAT(DISTINCT NULLIF(TRIM(p.name), '') ORDER BY p.name SEPARATOR ', '), ''), 'Product Order') AS item_name FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN branches b ON b.id = o.branch_id LEFT JOIN order_items oi ON oi.order_id = o.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales} AND {$storeProductScope}{$do}{$bo} GROUP BY o.order_id, o.order_date{$storeAmountPaidGroup}, o.total_amount{$storePaymentMethodGroup}{$storeDiscountGroup}{$storeOrderSourceGroup}, o.payment_status, o.status, o.branch_id, b.branch_name, c.first_name, c.last_name", $dto . $bto, array_merge($dpo, $bpo)) ?: []);
     } catch (Throwable $e) {}
     try {
         [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
         [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
-        $txnRows = array_merge($txnRows, db_query("SELECT 'Service' AS type, 'order' AS ref_type, o.order_id AS id, o.order_id AS store_order_id, o.order_date AS sales_date, {$storeRevenue} AS amount, {$storePaymentMethod} AS payment_method, o.payment_status, o.status, COALESCE(b.branch_name, CONCAT('Branch #', o.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), 'Walk-in') AS customer_name, COALESCE(NULLIF(GROUP_CONCAT(DISTINCT NULLIF(TRIM(p.name), '') ORDER BY p.name SEPARATOR ', '), ''), 'Customization') AS item_name FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN branches b ON b.id = o.branch_id LEFT JOIN order_items oi ON oi.order_id = o.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales} AND {$storeCustomScope}{$do}{$bo} GROUP BY o.order_id, o.order_date{$storeAmountPaidGroup}, o.total_amount{$storePaymentMethodGroup}, o.payment_status, o.status, o.branch_id, b.branch_name, c.first_name, c.last_name", $dto . $bto, array_merge($dpo, $bpo)) ?: []);
+        $txnRows = array_merge($txnRows, db_query("SELECT 'Service' AS type, 'order' AS ref_type, o.order_id AS id, o.order_id AS store_order_id, o.order_date AS sales_date, {$storeRevenue} AS amount, {$storeDiscountSelect} AS discount_amount, {$storePaymentMethod} AS payment_method, o.payment_status, o.status, COALESCE(b.branch_name, CONCAT('Branch #', o.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), 'Walk-in') AS customer_name, COALESCE(NULLIF(GROUP_CONCAT(DISTINCT NULLIF(TRIM(p.name), '') ORDER BY p.name SEPARATOR ', '), ''), 'Customization') AS item_name FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN branches b ON b.id = o.branch_id LEFT JOIN order_items oi ON oi.order_id = o.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales} AND {$storeCustomScope}{$do}{$bo} GROUP BY o.order_id, o.order_date{$storeAmountPaidGroup}, o.total_amount{$storePaymentMethodGroup}{$storeDiscountGroup}{$storeOrderSourceGroup}, o.payment_status, o.status, o.branch_id, b.branch_name, c.first_name, c.last_name", $dto . $bto, array_merge($dpo, $bpo)) ?: []);
     } catch (Throwable $e) {}
     try {
         [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
         [$dj, $dtj, $dpj] = pf_reports_date_expr_where($jobDate, $from, $toEnd);
-        $txnRows = array_merge($txnRows, db_query("SELECT 'Service' AS type, 'job' AS ref_type, jo.id AS id, jo.order_id AS store_order_id, {$jobDate} AS sales_date, {$jobRevenue} AS amount, {$jobPaymentMethod} AS payment_method, jo.payment_status, jo.status, COALESCE(b.branch_name, CONCAT('Branch #', jo.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name, COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS item_name FROM job_orders jo LEFT JOIN customers c ON c.customer_id = jo.customer_id LEFT JOIN branches b ON b.id = jo.branch_id WHERE {$jobSales}{$jobExcludeLinkedCustomStore}{$dj}{$bj}", $dtj . $btj, array_merge($dpj, $bpj)) ?: []);
+        $txnRows = array_merge($txnRows, db_query("SELECT 'Service' AS type, 'job' AS ref_type, jo.id AS id, jo.order_id AS store_order_id, {$jobDate} AS sales_date, {$jobRevenue} AS amount, 0 AS discount_amount, {$jobPaymentMethod} AS payment_method, jo.payment_status, jo.status, COALESCE(b.branch_name, CONCAT('Branch #', jo.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name, COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS item_name FROM job_orders jo LEFT JOIN customers c ON c.customer_id = jo.customer_id LEFT JOIN branches b ON b.id = jo.branch_id WHERE {$jobSales}{$jobExcludeLinkedCustomStore}{$dj}{$bj}", $dtj . $btj, array_merge($dpj, $bpj)) ?: []);
     } catch (Throwable $e) {}
     usort($txnRows, static fn($a, $b) => strcmp((string)($b['sales_date'] ?? ''), (string)($a['sales_date'] ?? '')));
     foreach (array_slice($txnRows, 0, $limit) as $row) {
@@ -342,6 +349,7 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
             'store_order_id' => (int)($row['store_order_id'] ?? 0),
             'sales_date' => (string)($row['sales_date'] ?? ''),
             'amount' => round((float)($row['amount'] ?? 0), 2),
+            'discount_amount' => round((float)($row['discount_amount'] ?? 0), 2),
             'payment_method' => (string)($row['payment_method'] ?? ''),
             'payment_status' => (string)($row['payment_status'] ?? ''),
             'status' => (string)($row['status'] ?? ''),

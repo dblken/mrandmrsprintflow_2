@@ -61,6 +61,7 @@ function pf_sales_export_transaction_headers(): array
         'Payment Status',
         'Payment Method',
         'Order Status',
+        'Discount',
         'Amount',
     ];
 }
@@ -86,6 +87,7 @@ function pf_sales_format_export_transaction_row(array $row): array
         pf_sales_format_label($row['payment_status'] ?? ''),
         pf_sales_method_display($row['payment_method'] ?? ''),
         pf_sales_format_label($row['status'] ?? ''),
+        round((float)($row['discount_amount'] ?? 0), 2),
         round((float)($row['amount'] ?? 0), 2),
     ];
 }

@@ -491,7 +491,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             cursor: default;
         }
 
-        /* 
+        /*
          * STABLE POS LAYOUT
          * We use absolute positioning inside a relative container to prevent ALL jumping/height shifts.
          */
@@ -1300,6 +1300,101 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             font-size: 20px;
             font-weight: 800;
             color: var(--staff-primary);
+        }
+
+        .pos-discount-panel {
+            border: 1px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 10px;
+            background: #ffffff;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .pos-discount-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .pos-discount-toggle,
+        .pos-discount-remove {
+            border: 0;
+            background: transparent;
+            color: var(--staff-primary);
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+            padding: 4px 0;
+            font-family: inherit;
+        }
+
+        .pos-discount-remove { color: #dc2626; }
+        .pos-discount-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            grid-column: 1 / -1;
+        }
+        .pos-discount-actions button {
+            flex: 1 1 auto;
+            min-width: 88px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            cursor: pointer;
+            border: 1px solid rgba(126, 164, 184, 0.35);
+            background: #fff;
+        }
+        .pos-discount-apply { color: #0f766e; border-color: rgba(15, 118, 110, 0.35); }
+        .pos-discount-cancel { color: #475569; }
+        .pos-discount-error {
+            margin-top: 6px;
+            color: #dc2626;
+            font-size: 0.75rem;
+            font-weight: 700;
+            line-height: 1.35;
+        }
+
+        .pos-discount-fields {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 8px;
+        }
+
+        .pos-discount-field { display: flex; flex-direction: column; gap: 4px; }
+
+        .pos-discount-field label {
+            font-size: 11px;
+            font-weight: 800;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .pos-discount-field select,
+        .pos-discount-field input {
+            width: 100%;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font: inherit;
+            font-size: 13px;
+            color: #0f172a;
+            background: #fff;
+            box-sizing: border-box;
+        }
+
+        .pos-discount-field--wide { grid-column: 1 / -1; }
+
+        .pos-summary-discount,
+        .pos-summary-discount .pos-summary-amount { color: #0f766e; }
+
+        @media (max-width: 520px) {
+            .pos-discount-fields { grid-template-columns: 1fr; }
         }
 
         .pos-checkout-datetime-bar {
@@ -2790,7 +2885,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         <div class="main-content pos-main-shell"
             style="padding: 0; height: 100vh; overflow: hidden; display: flex; flex-direction: column; width: 100%; min-height: 0;">
-            
+
             <!-- Mobile Header for Burger Menu Injection -->
             <header style="display: none; border-bottom: 1px solid #e2e8f0;">
                 <div class="pf-mobile-title-group" style="display:flex; align-items:center; flex:1; min-width:0; margin-left: 12px;">
@@ -3010,10 +3105,60 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                     <span class="pos-summary-amount" id="pos-subtotal">₱0.00</span>
                                 </div>
 
+
+
+                                <div class="pos-discount-panel" id="pos-discount-panel">
+                                    <div class="pos-discount-head">
+                                        <span class="pos-summary-label">
+                                            <span class="pos-summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z"/></svg></span>
+                                            Discount
+                                        </span>
+                                        <button type="button" class="pos-discount-toggle" id="pos-discount-toggle" onclick="togglePosDiscountFields()">Add Discount</button>
+                                    </div>
+                                    <div class="pos-discount-fields" id="pos-discount-fields" hidden>
+                                        <div class="pos-discount-field">
+                                            <label for="pos-discount-type">Type</label>
+                                            <select id="pos-discount-type" onchange="onPosDiscountFieldInput()">
+                                                <option value="fixed">Fixed Amount</option>
+                                                <option value="percentage">Percentage</option>
+                                            </select>
+                                        </div>
+                                        <div class="pos-discount-field">
+                                            <label for="pos-discount-value">Value</label>
+                                            <input type="number" id="pos-discount-value" min="0" step="0.01" placeholder="0.00" oninput="onPosDiscountFieldInput()">
+                                        </div>
+                                        <div class="pos-discount-field">
+                                            <label for="pos-discount-reason">Reason</label>
+                                            <select id="pos-discount-reason" onchange="onPosDiscountFieldInput()">
+                                                <option value="">Select reason</option>
+                                                <option value="Senior Citizen">Senior Citizen</option>
+                                                <option value="PWD">PWD</option>
+                                                <option value="Promo">Promo</option>
+                                                <option value="Employee Discount">Employee Discount</option>
+                                                <option value="Customer Request">Customer Request</option>
+                                                <option value="Others">Others</option>
+                                            </select>
+                                        </div>
+                                        <div class="pos-discount-field">
+                                            <label for="pos-discount-notes">Notes</label>
+                                            <input type="text" id="pos-discount-notes" maxlength="255" placeholder="Optional" oninput="onPosDiscountFieldInput()">
+                                        </div>
+                                        <div class="pos-discount-field pos-discount-field--wide pos-discount-actions">
+                                            <button type="button" class="pos-discount-apply" onclick="applyPosDiscount()">Apply</button>
+                                            <button type="button" class="pos-discount-cancel" onclick="cancelPosDiscountEdit()">Cancel</button>
+                                            <button type="button" class="pos-discount-remove" onclick="clearPosDiscount()">Remove</button>
+                                        </div>
+                                    </div>
+                                    <div class="pos-discount-error" id="pos-discount-error" hidden></div>
+                                    <div class="pos-summary-line pos-summary-discount" id="pos-discount-summary" hidden>
+                                        <span class="pos-summary-label">Discount</span>
+                                        <span class="pos-summary-amount" id="pos-discount-amount">-₱0.00</span>
+                                    </div>
+                                </div>
                                 <div class="pos-summary-total">
                                     <span class="pos-summary-label">
                                         <span class="pos-summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="8.01" y2="10"/><line x1="12" y1="10" x2="12.01" y2="10"/><line x1="16" y1="10" x2="16.01" y2="10"/><line x1="8" y1="14" x2="8.01" y2="14"/><line x1="12" y1="14" x2="12.01" y2="14"/><line x1="16" y1="14" x2="16.01" y2="14"/><line x1="8" y1="18" x2="8.01" y2="18"/><line x1="12" y1="18" x2="16" y2="18"/></svg></span>
-                                        Total
+                                        Grand Total
                                     </span>
                                     <span class="pos-summary-amount" id="pos-total">₱0.00</span>
                                 </div>
@@ -3381,7 +3526,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         let products = [];
         let cart = [];
+        let currentSubtotal = 0;
         let currentTotal = 0;
+        let posDiscountApplied = {
+            active: false,
+            type: 'fixed',
+            value: 0,
+            reason: '',
+            notes: ''
+        };
+        let posDiscountEditing = false;
+        let posDiscountPreviewAmount = 0;
         let currentMode = null; // 'products' or 'services'
         let barcodeScanBusy = false;
         let barcodeScanQueueRunning = false;
@@ -3783,6 +3938,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     <div class="receipt-section-title">Payment Summary</div>
                     <div class="receipt-summary">
                         <div class="receipt-total-line"><span>Subtotal</span><strong>${formatMoney(receipt.subtotal || 0)}</strong></div>
+                        ${receipt.discount && Number(receipt.discount.amount || 0) > 0 ? `<div class="receipt-total-line"><span>Discount${receipt.discount.reason ? ' (' + escapeHtml(receipt.discount.reason) + ')' : ''}</span><strong>-${formatMoney(receipt.discount.amount || 0)}</strong></div>` : ''}
                         <div class="receipt-total-line receipt-total-line--grand"><span>Total</span><span>${formatMoney(receipt.total || 0)}</span></div>
                     </div>
                     <div class="receipt-payment-breakdown">
@@ -4424,9 +4580,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         }
                         // Update cart item price if available
                         if (state.item_index !== undefined && state.updated_price !== undefined) {
-                            await syncedCartAction('update_price', { 
-                                index: state.item_index, 
-                                price: state.updated_price 
+                            await syncedCartAction('update_price', {
+                                index: state.item_index,
+                                price: state.updated_price
                             });
                         }
                     } catch (e) { }
@@ -5927,7 +6083,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 <label style="display:block; font-size:12px; font-weight:700; color:#64748b; text-transform:uppercase; margin-bottom:8px; letter-spacing:0.05em;">Negotiated Price *</label>
                 <div style="position: relative;">
                     <span style="position: absolute; left: 16px; top: 14px; font-weight: 700; color: #94a3b8;">₱</span>
-                    <input type="text" id="cm-price-input" 
+                    <input type="text" id="cm-price-input"
                            oninput="let v = this.value.replace(/[^0-9.]/g, ''); let p = v.split('.'); p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ','); this.value = p.join('.');"
                            onblur="if(this.value){ let n = parseFloat(this.value.replace(/,/g, '')) || 0; this.value = n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }"
                            style="width:100%; padding:14px 14px 14px 32px; border:1px solid #e2e8f0; border-radius:12px; font-weight:800; font-size:24px; background:#f8fafc; color:#1e293b; outline:none;" placeholder="0.00">
@@ -6263,8 +6419,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                     // Check if material has been set in customization
                     const hasMaterialSet = item.customization && (
-                        item.customization['Material Selection'] || 
-                        item.customization['Material Brand'] || 
+                        item.customization['Material Selection'] ||
+                        item.customization['Material Brand'] ||
                         item.customization['Material'] ||
                         item.customization['temp_plate_material'] ||
                         item.customization['material_type']
@@ -6306,9 +6462,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 });
             }
 
-            const fTotal = formatMoney(currentTotal);
-            document.getElementById('pos-subtotal').textContent = fTotal;
-            document.getElementById('pos-total').textContent = fTotal;
+            currentSubtotal = roundMoney(currentTotal);
+            refreshPosDiscountTotals();
 
             calculateChange();
             updateCheckoutState();
@@ -6319,6 +6474,206 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         // Handlers are used above in renderCart via 'index' directly
 
+
+        function roundMoney(value) {
+            return Math.round((Number(value) || 0) * 100) / 100;
+        }
+
+        function posReadDiscountFields() {
+            const typeEl = document.getElementById('pos-discount-type');
+            const valueEl = document.getElementById('pos-discount-value');
+            const reasonEl = document.getElementById('pos-discount-reason');
+            const notesEl = document.getElementById('pos-discount-notes');
+            const rawValue = valueEl ? String(valueEl.value ?? '').trim() : '';
+            const parsedValue = rawValue === '' ? 0 : Number(rawValue);
+            return {
+                type: typeEl && typeEl.value === 'percentage' ? 'percentage' : 'fixed',
+                value: Number.isFinite(parsedValue) ? Math.max(0, parsedValue) : NaN,
+                reason: reasonEl ? String(reasonEl.value || '').trim() : '',
+                notes: notesEl ? String(notesEl.value || '').trim() : ''
+            };
+        }
+
+        function posSyncDiscountFieldsFromApplied() {
+            const typeEl = document.getElementById('pos-discount-type');
+            const valueEl = document.getElementById('pos-discount-value');
+            const reasonEl = document.getElementById('pos-discount-reason');
+            const notesEl = document.getElementById('pos-discount-notes');
+            if (typeEl) typeEl.value = posDiscountApplied.type === 'percentage' ? 'percentage' : 'fixed';
+            if (valueEl) valueEl.value = posDiscountApplied.active && posDiscountApplied.value > 0 ? String(posDiscountApplied.value) : '';
+            if (reasonEl) reasonEl.value = posDiscountApplied.reason || '';
+            if (notesEl) notesEl.value = posDiscountApplied.notes || '';
+        }
+
+        function posDiscountConfigForPreview() {
+            const fields = document.getElementById('pos-discount-fields');
+            if (fields && !fields.hidden) {
+                const draft = posReadDiscountFields();
+                return {
+                    active: draft.value > 0,
+                    type: draft.type,
+                    value: draft.value,
+                    reason: draft.reason,
+                    notes: draft.notes
+                };
+            }
+            return posDiscountApplied;
+        }
+
+        function posFixedDiscountExceedsSubtotal(config, subtotal) {
+            return !!(config.active && config.type === 'fixed' && Number.isFinite(config.value) && config.value > subtotal + 0.0001);
+        }
+
+        function calculatePosDiscountAmount(subtotal, config) {
+            if (!config || !config.active) return 0;
+            const value = Math.max(0, Number(config.value) || 0);
+            if (!Number.isFinite(value) || value <= 0 || subtotal <= 0) return 0;
+            if (config.type === 'percentage') {
+                return roundMoney(Math.min(subtotal, subtotal * Math.min(value, 100) / 100));
+            }
+            if (value > subtotal) return NaN;
+            return roundMoney(value);
+        }
+
+        function refreshPosDiscountTotals() {
+            const subtotal = roundMoney(currentSubtotal || 0);
+            const previewConfig = posDiscountConfigForPreview();
+            const appliedInvalid = posFixedDiscountExceedsSubtotal(posDiscountApplied, subtotal);
+            let previewAmount = calculatePosDiscountAmount(subtotal, previewConfig);
+            if (posFixedDiscountExceedsSubtotal(previewConfig, subtotal)) {
+                previewAmount = NaN;
+            }
+            posDiscountPreviewAmount = Number.isFinite(previewAmount) ? previewAmount : 0;
+
+            let payableAmount = subtotal;
+            if (posDiscountApplied.active && !appliedInvalid) {
+                const appliedAmount = calculatePosDiscountAmount(subtotal, posDiscountApplied);
+                payableAmount = roundMoney(Math.max(0, subtotal - (Number.isFinite(appliedAmount) ? appliedAmount : 0)));
+            }
+            currentTotal = payableAmount;
+
+            const subtotalEl = document.getElementById('pos-subtotal');
+            const totalEl = document.getElementById('pos-total');
+            const discountSummary = document.getElementById('pos-discount-summary');
+            const discountAmountEl = document.getElementById('pos-discount-amount');
+            const toggleEl = document.getElementById('pos-discount-toggle');
+            const errorEl = document.getElementById('pos-discount-error');
+            if (subtotalEl) subtotalEl.textContent = formatMoney(subtotal);
+            if (totalEl) totalEl.textContent = formatMoney(currentTotal);
+            const appliedAmount = posDiscountApplied.active && !appliedInvalid
+                ? calculatePosDiscountAmount(subtotal, posDiscountApplied)
+                : 0;
+            const lineAmount = posDiscountEditing && Number.isFinite(previewAmount) && previewAmount > 0
+                ? previewAmount
+                : (Number.isFinite(appliedAmount) ? appliedAmount : 0);
+            if (discountSummary) discountSummary.hidden = !(Number.isFinite(lineAmount) && lineAmount > 0);
+            if (discountAmountEl) discountAmountEl.textContent = '-' + formatMoney(lineAmount);
+            if (toggleEl) toggleEl.textContent = posDiscountApplied.active ? 'Edit Discount' : 'Add Discount';
+
+            let errorMessage = '';
+            if (posDiscountEditing) {
+                const draft = posReadDiscountFields();
+                if (!Number.isFinite(draft.value)) {
+                    errorMessage = 'Enter a valid discount value.';
+                } else if (draft.value > 0 && !draft.reason) {
+                    errorMessage = 'Select a discount reason before applying.';
+                } else if (posFixedDiscountExceedsSubtotal(draft, subtotal)) {
+                    errorMessage = 'Fixed discount cannot exceed the current subtotal.';
+                }
+            } else if (appliedInvalid) {
+                errorMessage = 'Fixed discount exceeds the current subtotal. Edit or remove the discount.';
+            }
+            if (errorEl) {
+                errorEl.textContent = errorMessage;
+                errorEl.hidden = errorMessage === '';
+            }
+            updateCheckoutState();
+        }
+
+        function onPosDiscountFieldInput() {
+            if (!posDiscountEditing) return;
+            refreshPosDiscountTotals();
+            calculateChange();
+        }
+
+        function togglePosDiscountFields() {
+            const fields = document.getElementById('pos-discount-fields');
+            if (!fields) return;
+            if (fields.hidden) {
+                posSyncDiscountFieldsFromApplied();
+                posDiscountEditing = true;
+                fields.hidden = false;
+                const valueEl = document.getElementById('pos-discount-value');
+                if (valueEl) valueEl.focus();
+            } else {
+                cancelPosDiscountEdit();
+                return;
+            }
+            refreshPosDiscountTotals();
+            calculateChange();
+        }
+
+        function applyPosDiscount() {
+            const subtotal = roundMoney(currentSubtotal || 0);
+            const draft = posReadDiscountFields();
+            if (!Number.isFinite(draft.value) || draft.value <= 0) {
+                refreshPosDiscountTotals();
+                return;
+            }
+            if (!draft.reason) {
+                refreshPosDiscountTotals();
+                return;
+            }
+            if (posFixedDiscountExceedsSubtotal(draft, subtotal)) {
+                refreshPosDiscountTotals();
+                return;
+            }
+            posDiscountApplied = {
+                active: true,
+                type: draft.type,
+                value: draft.value,
+                reason: draft.reason,
+                notes: draft.notes
+            };
+            posDiscountEditing = false;
+            const fields = document.getElementById('pos-discount-fields');
+            if (fields) fields.hidden = true;
+            refreshPosDiscountTotals();
+            calculateChange();
+        }
+
+        function cancelPosDiscountEdit() {
+            posSyncDiscountFieldsFromApplied();
+            posDiscountEditing = false;
+            const fields = document.getElementById('pos-discount-fields');
+            if (fields) fields.hidden = true;
+            refreshPosDiscountTotals();
+            calculateChange();
+        }
+
+        function clearPosDiscount() {
+            posDiscountApplied = { active: false, type: 'fixed', value: 0, reason: '', notes: '' };
+            posDiscountEditing = false;
+            posSyncDiscountFieldsFromApplied();
+            const fields = document.getElementById('pos-discount-fields');
+            if (fields) fields.hidden = true;
+            refreshPosDiscountTotals();
+            calculateChange();
+        }
+
+        function posCheckoutDiscountPayload() {
+            const applied = posDiscountApplied;
+            const subtotal = roundMoney(currentSubtotal || 0);
+            const amount = applied.active ? calculatePosDiscountAmount(subtotal, applied) : 0;
+            return {
+                discount: {
+                    type: applied.active && Number.isFinite(amount) && amount > 0 ? applied.type : 'none',
+                    value: applied.active && Number.isFinite(amount) && amount > 0 ? applied.value : 0,
+                    reason: applied.active && Number.isFinite(amount) && amount > 0 ? applied.reason : '',
+                    notes: applied.active && Number.isFinite(amount) && amount > 0 ? applied.notes : ''
+                }
+            };
+        }
 
         function toggleReferenceField() {
             const pm = document.getElementById('pos-payment-method').value;
@@ -6605,6 +6960,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
+            const discountFields = document.getElementById('pos-discount-fields');
+            if (posDiscountEditing && discountFields && !discountFields.hidden) {
+                canCheckout = false;
+                message = 'Apply Discount';
+            } else if (posFixedDiscountExceedsSubtotal(posDiscountApplied, roundMoney(currentSubtotal || 0))) {
+                canCheckout = false;
+                message = 'Fix Discount';
+            }
+
             const pm = document.getElementById('pos-payment-method').value;
 
             // Regular products require payment
@@ -6698,6 +7062,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 csrf_token: POS_CSRF_TOKEN,
                 checkout_token: checkoutToken,
                 items: cart.map(posCheckoutItemPayload),
+                ...posCheckoutDiscountPayload(),
                 ...posCheckoutCustomTransactionPayload()
             };
             console.log('[POS CHECKOUT] custom transaction datetime', {
@@ -6779,6 +7144,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             document.getElementById('pos-payment-method').value = 'Cash';
             document.getElementById('pos-tendered').value = '';
+            clearPosDiscount();
             toggleReferenceField();
             calculateChange();
             resetPosCheckoutTransactionDateTime();

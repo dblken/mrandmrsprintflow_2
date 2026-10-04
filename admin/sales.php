@@ -269,6 +269,7 @@ function sales_transaction_modal_payload(array $row): array
         'payment_status' => sales_format_label($row['payment_status'] ?? ''),
         'payment_method' => sales_method_display($row['payment_method'] ?? ''),
         'order_status' => sales_format_label($row['status'] ?? ''),
+        'discount' => number_format((float)($row['discount_amount'] ?? 0), 2),
         'amount' => number_format((float)($row['amount'] ?? 0), 2),
         'record_type' => ($refType === 'job' || $type === 'service') ? 'Customization / Service Order' : 'Store Product Order',
         'linked_order' => $linkedOrder > 0 ? '#' . $linkedOrder : '',
@@ -745,7 +746,7 @@ function salesPrintInPlace(url) {
                     <?php else: ?>
                         <div class="sales-txn-wrap">
                             <table class="sales-breakdown-table sales-txn-table">
-                                <thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Order</th><th>Customer</th><th>Branch</th><th>Payment</th><th>Method</th><th>Status</th><th class="num">Amount</th></tr></thead>
+                                <thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Order</th><th>Customer</th><th>Branch</th><th>Payment</th><th>Method</th><th>Status</th><th class="num">Discount</th><th class="num">Amount</th></tr></thead>
                                 <tbody>
                                 <?php foreach ($salesData['transactions'] as $transactionIndex => $row): ?>
                                     <?php
@@ -762,11 +763,12 @@ function salesPrintInPlace(url) {
                                         <td><?php echo htmlspecialchars(sales_format_label($row['payment_status'] ?? '')); ?></td>
                                         <td><?php echo htmlspecialchars(sales_method_display($row['payment_method'] ?? '')); ?></td>
                                         <td><?php echo htmlspecialchars(sales_format_label($row['status'] ?? '')); ?></td>
+                                        <td class="num">&#8369;<?php echo number_format((float)($row['discount_amount'] ?? 0), 2); ?></td>
                                         <td class="num">&#8369;<?php echo number_format((float)$row['amount'], 2); ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                                 </tbody>
-                                <tfoot><tr class="sales-breakdown-total-row"><td colspan="9">Total Amount</td><td class="num">&#8369;<?php echo number_format((float)($salesSummary['total_sales'] ?? 0), 2); ?></td></tr></tfoot>
+                                <tfoot><tr class="sales-breakdown-total-row"><td colspan="10">Total Amount</td><td class="num">&#8369;<?php echo number_format((float)($salesSummary['total_sales'] ?? 0), 2); ?></td></tr></tfoot>
                             </table>
                             <?php if (count($salesData['transactions']) > 10): ?>
                                 <button type="button" class="sales-txn-expand" id="salesTxnExpand" aria-expanded="false">
@@ -828,6 +830,7 @@ function openSalesTxnModal(payload) {
         ['Record Type', payload.record_type],
     ];
     if (payload.linked_order) rows.push(['Linked Store Order', payload.linked_order]);
+    if (Number(String(payload.discount || '0').replace(/,/g, '')) > 0) rows.push(['Discount', '₱' + payload.discount]);
     body.innerHTML = rows.map(function (pair) {
         return '<div class="sales-txn-detail-item"><dt>' + salesEscapeHtml(pair[0]) + '</dt><dd>' + salesEscapeHtml(pair[1]) + '</dd></div>';
     }).join('') + '<div class="sales-txn-detail-item sales-txn-detail-item--amount"><dt>Amount</dt><dd class="sales-txn-detail-amount">&#8369;' + salesEscapeHtml(payload.amount) + '</dd></div>';
