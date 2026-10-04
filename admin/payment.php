@@ -70,6 +70,19 @@ function pf_status_badge(string $s): string
     return '<span class="pf-pay-badge" style="background:' . $bg . ';color:' . $fg . '">' . htmlspecialchars($s) . '</span>';
 }
 
+function pf_payment_order_type(array $row): string
+{
+    return strtolower(trim((string)($row['order_type'] ?? ''))) === 'custom' || trim((string)($row['service_names'] ?? '')) !== ''
+        ? 'Custom Order'
+        : 'Product Order';
+}
+
+function pf_payment_item_label(array $row): string
+{
+    $services = trim((string)($row['service_names'] ?? ''));
+    $products = trim((string)($row['product_names'] ?? ''));
+    return $services !== '' ? $services : ($products !== '' ? $products : 'Item details unavailable');
+}
 function pf_date_range(string $p, string $f, string $t): array
 {
     if ($p === 'all') {
@@ -98,7 +111,15 @@ if (printflow_provider_payments_ready()) {
         ? 'COALESCE(pp.provider_paid_at, pp.paid_at, pp.created_at)'
         : 'COALESCE(pp.paid_at, pp.created_at)';
     $sql = "SELECT pp.id, pp.order_id, pp.channel, pp.status, pp.provider_payment_id, {$amount} amount, {$at} occurred_at,
-                   o.reference_id, CONCAT_WS(' ', c.first_name, c.last_name) customer_name, b.branch_name
+                   o.reference_id, o.order_type,
+                   (SELECT GROUP_CONCAT(DISTINCT p_item.name ORDER BY p_item.name SEPARATOR ', ')
+                    FROM order_items oi_item
+                    LEFT JOIN products p_item ON p_item.product_id = oi_item.product_id
+                    WHERE oi_item.order_id = o.order_id) product_names,
+                   (SELECT GROUP_CONCAT(DISTINCT jo_item.service_type ORDER BY jo_item.service_type SEPARATOR ', ')
+                    FROM job_orders jo_item
+                    WHERE jo_item.order_id = o.order_id AND TRIM(COALESCE(jo_item.service_type, '')) <> '') service_names,
+                   CONCAT_WS(' ', c.first_name, c.last_name) customer_name, b.branch_name
             FROM provider_payments pp
             LEFT JOIN orders o ON o.order_id = pp.order_id
             LEFT JOIN customers c ON c.customer_id = pp.customer_id
@@ -152,6 +173,8 @@ if (printflow_provider_payments_ready()) {
             'order_id' => (int)$r['order_id'],
             'reference' => (string)($r['provider_payment_id'] ?: 'Ledger #' . $r['id']),
             'order' => (string)($r['reference_id'] ?: 'Order #' . $r['order_id']),
+            'order_type' => pf_payment_order_type($r),
+            'item' => pf_payment_item_label($r),
             'customer' => trim((string)$r['customer_name']) ?: 'Walk-in Guest',
             'source' => strtolower((string)$r['channel']) === 'pos' ? 'POS' : 'Online',
             'amount' => (float)$r['amount'] / 100,
@@ -163,7 +186,14 @@ if (printflow_provider_payments_ready()) {
     }
 }
 
-$sql = "SELECT o.order_id, o.reference_id, o.total_amount, o.order_date,
+$sql = "SELECT o.order_id, o.reference_id, o.order_type, o.total_amount, o.order_date,
+               (SELECT GROUP_CONCAT(DISTINCT p_item.name ORDER BY p_item.name SEPARATOR ', ')
+                FROM order_items oi_item
+                LEFT JOIN products p_item ON p_item.product_id = oi_item.product_id
+                WHERE oi_item.order_id = o.order_id) product_names,
+               (SELECT GROUP_CONCAT(DISTINCT jo_item.service_type ORDER BY jo_item.service_type SEPARATOR ', ')
+                FROM job_orders jo_item
+                WHERE jo_item.order_id = o.order_id AND TRIM(COALESCE(jo_item.service_type, '')) <> '') service_names,
                CONCAT_WS(' ', c.first_name, c.last_name) customer_name, b.branch_name
         FROM orders o
         LEFT JOIN customers c ON c.customer_id = o.customer_id
@@ -206,6 +236,8 @@ foreach (db_query($sql . ' ORDER BY o.order_date DESC', $types ?: null, $params 
         'order_id' => (int)$r['order_id'],
         'reference' => 'POS-' . str_pad((string)$r['order_id'], 6, '0', STR_PAD_LEFT),
         'order' => (string)($r['reference_id'] ?: 'Order #' . $r['order_id']),
+        'order_type' => pf_payment_order_type($r),
+        'item' => pf_payment_item_label($r),
         'customer' => trim((string)$r['customer_name']) ?: 'Walk-in Guest',
         'source' => 'POS',
         'amount' => (float)$r['total_amount'],
@@ -583,6 +615,9 @@ function openPaymentModal(payload) {
     }
     const rows = [
         ['Order / Receipt', payload.order],
+        ['Internal Order ID', payload.order_id],
+        ['Order Type', payload.order_type],
+        ['Product / Service', payload.item],
         ['Customer', payload.customer],
         ['Branch', payload.branch],
         ['Source', payload.source],
