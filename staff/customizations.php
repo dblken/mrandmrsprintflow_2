@@ -1464,7 +1464,10 @@ $online_closed_count = 0;
             .customizations-table-scroll {
                 margin: 0 !important;
                 padding: 0 !important;
-                overflow-x: hidden !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                overflow-x: visible !important;
             }
             .customizations-data-table,
             .customizations-data-table tbody {
@@ -1584,9 +1587,11 @@ $online_closed_count = 0;
             .customizations-data-table tr.customization-row .action-col-cell::before { display: none !important; }
             .customizations-data-table tr.customization-row .action-btn-group,
             .customizations-data-table tr.customization-row .table-action-btn {
+                display: flex !important;
                 width: 100% !important;
-                max-width: none !important;
+                max-width: 100% !important;
                 min-width: 0 !important;
+                box-sizing: border-box !important;
             }
             .customizations-data-table tr.customization-row .table-action-btn {
                 min-height: 40px !important;
@@ -1600,22 +1605,8 @@ $online_closed_count = 0;
         }
 
         @container customization-list (max-width: 430px) {
-            .customizations-data-table tr.customization-row {
-                grid-template-columns: minmax(0, 1fr) !important;
-            }
-            .customizations-data-table tr.customization-row .order-code-cell,
-            .customizations-data-table tr.customization-row .customization-info-cell,
-            .customizations-data-table tr.customization-row .needed-date-cell,
-            .customizations-data-table tr.customization-row .status-col-cell,
-            .customizations-data-table tr.customization-row .customer-cell,
-            .customizations-data-table tr.customization-row .created-cell,
-            .customizations-data-table tr.customization-row .action-col-cell {
-                grid-column: 1 / -1 !important;
-                grid-row: auto !important;
-            }
             .customizations-data-table tr.customization-row td {
-                padding-left: 10px !important;
-                padding-right: 10px !important;
+                padding: 6px 8px !important;
             }
         }
 
@@ -1635,9 +1626,10 @@ $online_closed_count = 0;
                 display: block !important;
                 margin: 0 !important;
                 padding: 0 !important;
-                overflow-x: auto !important;
+                overflow-x: visible !important;
                 width: 100% !important;
                 max-width: 100% !important;
+                min-width: 0 !important;
                 box-sizing: border-box !important;
             }
             .pf-staff-customizations-root .customizations-mobile-list {

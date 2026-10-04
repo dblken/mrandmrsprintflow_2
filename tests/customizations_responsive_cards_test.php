@@ -10,10 +10,9 @@ $assert = static function (bool $condition, string $message): void {
 };
 
 $twoColumnStart = strpos($source, '@container customization-list (max-width: 680px) {');
-$oneColumnStart = strpos($source, '@container customization-list (max-width: 430px) {', $twoColumnStart ?: 0);
-$assert($twoColumnStart !== false && $oneColumnStart !== false, 'responsive cards use available list width breakpoints');
-$twoColumnCss = substr($source, $twoColumnStart, $oneColumnStart - $twoColumnStart);
-$oneColumnCss = substr($source, $oneColumnStart, 1200);
+$assert($twoColumnStart !== false, 'responsive cards use the available list width breakpoint');
+$mobileEnd = strpos($source, '/* Narrow customization records use native block cards.', $twoColumnStart);
+$twoColumnCss = substr($source, $twoColumnStart, $mobileEnd - $twoColumnStart);
 $assert(str_contains($twoColumnCss, 'grid-template-columns: repeat(2, minmax(0, 1fr))'), 'order-card fields use two columns when the list is wide enough');
 foreach ([
     '.order-code-cell { grid-column: 1 !important; grid-row: 1 !important; }',
@@ -25,8 +24,11 @@ foreach ([
 ] as $selector) {
     $assert(str_contains($twoColumnCss, $selector), 'two-column card keeps the requested field placement: ' . $selector);
 }
-$assert(str_contains($oneColumnCss, 'grid-template-columns: minmax(0, 1fr) !important;'), 'narrow order cards return to one column');
+$assert(!str_contains($twoColumnCss, 'grid-template-columns: minmax(0, 1fr) !important;'), 'two-column card layout remains at narrow mobile widths');
 $assert(str_contains($twoColumnCss, 'overflow-wrap: anywhere !important;'), 'long order values wrap without horizontal overflow');
 $assert(str_contains($twoColumnCss, 'grid-column: 1 / -1 !important;'), 'View action spans both columns');
+$assert(str_contains($twoColumnCss, 'max-width: 100% !important;') && str_contains($twoColumnCss, 'box-sizing: border-box !important;'), 'View control width is constrained to the inner card width');
+$assert(str_contains($twoColumnCss, 'overflow-x: visible !important;'), 'mobile table wrapper does not mask overflowing card content');
+$assert(!str_contains($twoColumnCss, 'overflow-x: hidden !important;'), 'mobile card overflow is not hidden at the table wrapper');
 $assert(str_contains($source, 'data-label="Created"') && str_contains($source, 'x-text="formatOrderBusinessDate(item.jo)"'), 'created date and order data bindings remain intact');
 $assert(str_contains($source, 'class="pf-urgent-request-badge"') && str_contains($source, 'x-text="getDisplayOrderCode(item.jo)"'), 'order number and urgent request badge markup remain intact');
