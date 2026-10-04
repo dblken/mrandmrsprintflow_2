@@ -361,10 +361,13 @@ function service_order_ensure_tables() {
  * Pass $resolved_service_id when known (e.g. order_service_dynamic.php) so stats work even if customer_link is empty.
  * Otherwise uses customer_link (e.g. 'order_stickers') to find the correct service row.
  */
-function service_order_get_page_stats($keyword, $resolved_service_id = 0) {
+function service_order_get_page_stats($keyword, $resolved_service_id = 0, $resolved_service_name = '') {
     $resolved_service_id = (int)$resolved_service_id;
     if ($resolved_service_id > 0) {
-        $row = db_query("SELECT service_id, name FROM services WHERE service_id = ? LIMIT 1", 'i', [$resolved_service_id]);
+        $resolved_service_name = trim((string)$resolved_service_name);
+        $row = $resolved_service_name !== ''
+            ? [['service_id' => $resolved_service_id, 'name' => $resolved_service_name]]
+            : db_query("SELECT service_id, name FROM services WHERE service_id = ? LIMIT 1", 'i', [$resolved_service_id]);
     } else {
         if (empty($keyword)) {
             return ['sold_count' => 0, 'avg_rating' => 0, 'review_count' => 0];
@@ -386,7 +389,7 @@ function service_order_get_page_stats($keyword, $resolved_service_id = 0) {
     $s_name = $row[0]['name'];
 
     $sold_count = function_exists('printflow_service_units_sold')
-        ? printflow_service_units_sold($s_id)
+        ? printflow_service_units_sold($s_id, $s_name)
         : (int)(db_query(
             "SELECT COALESCE(SUM(oi.quantity), 0) AS cnt
              FROM order_items oi

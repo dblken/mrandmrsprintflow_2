@@ -5521,13 +5521,16 @@ function printflow_product_units_sold(int $product_id): int {
 /**
  * Sum of quantities for a configured service (services.service_id) from custom orders and legacy JSON matches.
  */
-function printflow_service_units_sold(int $service_id): int {
+function printflow_service_units_sold(int $service_id, string $service_name = ''): int {
     $service_id = (int)$service_id;
     if ($service_id <= 0) {
         return 0;
     }
-    $meta = db_query('SELECT name FROM services WHERE service_id = ? LIMIT 1', 'i', [$service_id]);
-    $sname = trim((string)($meta[0]['name'] ?? ''));
+    $sname = trim($service_name);
+    if ($sname === '') {
+        $meta = db_query('SELECT name FROM services WHERE service_id = ? LIMIT 1', 'i', [$service_id]);
+        $sname = trim((string)($meta[0]['name'] ?? ''));
+    }
 
     $likeColon = '%"service_id":' . $service_id . '%';
     $likeColonSp = '%"service_id": ' . $service_id . '%';

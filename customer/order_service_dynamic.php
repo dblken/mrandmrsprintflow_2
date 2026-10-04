@@ -284,12 +284,14 @@ $service = $service[0];
 
 // Preserve the legacy config bootstrap, but run it only for the service the
 // customer selected instead of initializing every unconfigured catalog card.
-if (!service_has_field_config($service_id)) {
+$has_service_field_config = service_has_field_config($service_id);
+if (!$has_service_field_config) {
     $legacyServiceLink = trim((string)($service['customer_link'] ?? ''));
     if ($legacyServiceLink !== '') {
         $legacyServiceLink = basename(str_replace('\\', '/', $legacyServiceLink));
     }
     init_service_field_config($service_id, $legacyServiceLink !== '' ? $legacyServiceLink : null);
+    $has_service_field_config = service_has_field_config($service_id);
 }
 
 $service_customer = db_query(
@@ -320,7 +322,7 @@ $service_id_notice_action = match ($service_id_status) {
 };
 
 // Check if service has field configuration
-if (!service_has_field_config($service_id)) {
+if (!$has_service_field_config) {
     // Fallback to hardcoded page if exists
     if (!empty($service['customer_link']) && file_exists(__DIR__ . '/' . $service['customer_link'])) {
         header('Location: ' . $service['customer_link']);
@@ -783,7 +785,11 @@ $display_video_poster = !empty($service['hero_image'])
     ? pf_normalize_service_media_path($service['hero_image'], $base_path, $default_service_img)
     : (!empty($display_images) && $display_images[0]['type'] === 'image' ? $display_images[0]['src'] : $default_service_img);
 
-$stats = service_order_get_page_stats($service['customer_link'] ?? '', (int)($service['service_id'] ?? 0));
+$stats = service_order_get_page_stats(
+    $service['customer_link'] ?? '',
+    (int)($service['service_id'] ?? 0),
+    (string)($service['name'] ?? '')
+);
 $avg_rating = number_format((float)($stats['avg_rating'] ?? 0), 1);
 $review_count = (int)($stats['review_count'] ?? 0);
 $sold_count = (int)($stats['sold_count'] ?? 0);
