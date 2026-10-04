@@ -287,6 +287,11 @@ function salesPrintInPlace(url) {
 .sales-txn-table .sales-breakdown-pill { max-width:100%; overflow:hidden; text-overflow:ellipsis; }
 .sales-txn-row { cursor:pointer; transition:background .15s; }
 .sales-txn-row:hover { background:#f0fdfa !important; }
+.sales-txn-row-extra { display:none; }
+.sales-txn-expand { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; margin-top:12px; padding:10px 14px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; color:#374151; font-size:13px; font-weight:600; cursor:pointer; }
+.sales-txn-expand:hover { background:#f9fafb; border-color:#9ca3af; }
+.sales-txn-expand svg { transition:transform .2s ease; }
+.sales-txn-expand[aria-expanded="true"] svg { transform:rotate(180deg); }
 .sales-txn-modal-overlay { position:fixed; inset:0; background:rgba(15,23,42,.45); z-index:1000; display:none; align-items:center; justify-content:center; padding:20px; }
 .sales-txn-modal-overlay.open { display:flex; }
 .sales-txn-modal { background:#fff; border-radius:14px; width:100%; max-width:520px; max-height:90vh; overflow:auto; box-shadow:0 20px 50px rgba(0,0,0,.18); }
@@ -529,12 +534,12 @@ function salesPrintInPlace(url) {
                             <table class="sales-breakdown-table sales-txn-table">
                                 <thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Order</th><th>Customer</th><th>Branch</th><th>Payment</th><th>Method</th><th>Status</th><th class="num">Amount</th></tr></thead>
                                 <tbody>
-                                <?php foreach ($salesData['transactions'] as $row): ?>
+                                <?php foreach ($salesData['transactions'] as $transactionIndex => $row): ?>
                                     <?php
                                     $txnPayload = sales_transaction_modal_payload($row);
                                     $txnPayloadAttr = htmlspecialchars(json_encode($txnPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}', ENT_QUOTES, 'UTF-8');
                                     ?>
-                                    <tr class="sales-txn-row" tabindex="0" role="button" data-sales-txn="<?php echo $txnPayloadAttr; ?>" aria-label="View transaction details for order #<?php echo (int)($row['id'] ?? 0); ?>">
+                                    <tr class="sales-txn-row<?php echo $transactionIndex >= 10 ? ' sales-txn-row-extra' : ''; ?>" tabindex="0" role="button" data-sales-txn="<?php echo $txnPayloadAttr; ?>" aria-label="View transaction details for order #<?php echo (int)($row['id'] ?? 0); ?>">
                                         <td><?php echo htmlspecialchars(date('M j, Y g:i A', strtotime((string)$row['sales_date']))); ?></td>
                                         <td><span class="sales-breakdown-pill<?php echo sales_type_pill_class($row['type'] ?? ''); ?>"><?php echo htmlspecialchars((string)$row['type']); ?></span></td>
                                         <td><?php echo htmlspecialchars((string)($row['item_name'] ?? '-')); ?></td>
@@ -550,6 +555,12 @@ function salesPrintInPlace(url) {
                                 </tbody>
                                 <tfoot><tr class="sales-breakdown-total-row"><td colspan="9">Total Amount</td><td class="num">&#8369;<?php echo number_format((float)($salesSummary['total_sales'] ?? 0), 2); ?></td></tr></tfoot>
                             </table>
+                            <?php if (count($salesData['transactions']) > 10): ?>
+                                <button type="button" class="sales-txn-expand" id="salesTxnExpand" aria-expanded="false">
+                                    <span data-expand-label>View all <?php echo number_format(count($salesData['transactions'])); ?> transactions</span>
+                                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m6 9 6 6 6-6"/></svg>
+                                </button>
+                            <?php endif; ?>
                         </div>
                     <?php endif; ?>
                 </div>
@@ -609,6 +620,16 @@ function closeSalesTxnModal() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
+    const expandTransactions = document.getElementById('salesTxnExpand');
+    expandTransactions?.addEventListener('click', function () {
+        const expanded = expandTransactions.getAttribute('aria-expanded') === 'true';
+        document.querySelectorAll('.sales-txn-row-extra').forEach(function (row) {
+            row.style.display = expanded ? 'none' : 'table-row';
+        });
+        expandTransactions.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+        const label = expandTransactions.querySelector('[data-expand-label]');
+        if (label) label.textContent = expanded ? 'View all transactions' : 'Show fewer transactions';
+    });
     document.querySelectorAll('.sales-txn-row').forEach(function (row) {
         const open = function () {
             try {
