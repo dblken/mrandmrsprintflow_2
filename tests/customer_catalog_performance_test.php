@@ -65,7 +65,9 @@ $assert(str_contains($catalogNavJs, 'pf-nav-skeleton-retry'), 'slow page navigat
 $assert(str_contains($catalogNavJs, "event.key !== 'Enter' && event.key !== ' '"), 'keyboard card navigation also starts the skeleton state');
 $assert(str_contains($detail, '$pf_catalog_nav_page = true;') && str_contains($orderCreate, '$pf_catalog_nav_page = true;'), 'service and product order pages enable catalog transition skeletons');
 $assert(str_contains($detail, 'init_service_field_config($service_id'), 'legacy service form config initializes only after that service is selected');
-$assert(str_contains($servicesDetail, 'SELECT service_id, name, category, customer_link, description, base_price') && !str_contains($servicesDetail, 'SELECT * FROM services'), 'service order page selects only fields used by the selected service');
+$assert(str_contains($servicesDetail, 'COALESCE(price, 0) AS base_price'), 'service order page maps the schema price column to its base-price view');
+$assert(str_contains($servicesDetail, "db_table_has_column('services', 'video_url')") && str_contains($servicesDetail, 'NULL AS video_url'), 'service order page tolerates deployments without the optional video column');
+$assert(str_contains($servicesDetail, 'WHERE service_id = ? AND status = \'Activated\'') && !str_contains($servicesDetail, 'SELECT * FROM services'), 'service order page keeps the selected active service lookup narrow');
 $assert(str_contains($orderCreate, 'SELECT product_id, name, price, category, photo_path, product_image, description') && !str_contains($orderCreate, 'SELECT * FROM products'), 'product order page selects only fields used by the selected product');
 $assert(str_contains($products, 'pf_normalize_service_image_path'), 'products use normalized image paths');
 $assert(str_contains($detail, 'printflow_attach_review_media'), 'service detail batches review media queries');

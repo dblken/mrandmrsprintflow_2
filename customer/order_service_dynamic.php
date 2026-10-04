@@ -264,9 +264,13 @@ if ($service_id < 1) {
     exit;
 }
 
+$videoUrlSelect = db_table_has_column('services', 'video_url')
+    ? 'video_url'
+    : 'NULL AS video_url';
 $service = db_query(
-    "SELECT service_id, name, category, customer_link, description, base_price,
-            display_image, hero_image, video_url
+    "SELECT service_id, name, category, customer_link, description,
+            COALESCE(price, 0) AS base_price,
+            display_image, hero_image, {$videoUrlSelect}
      FROM services
      WHERE service_id = ? AND status = 'Activated'",
     'i',
