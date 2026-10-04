@@ -342,7 +342,25 @@ function printflow_customer_catalog_entries(?string $categoryFilter, int $offset
         $params[] = $categoryFilter;
         $types .= 's';
     }
-    $standalone = db_query($sql, $types !== '' ? $types : null, $params ?: null) ?: [];
+    $countSql = "SELECT COUNT(*) AS total
+                 FROM products p
+                 WHERE p.status = 'Activated'
+                   AND p.product_id NOT IN (SELECT product_id FROM product_catalog_group_members)";
+    if ($categoryFilter !== null && $categoryFilter !== '') {
+        $countSql .= ' AND p.category = ?';
+    }
+    $countRows = db_query($countSql, $types !== '' ? $types : null, $params ?: null) ?: [];
+    $standaloneCount = (int)($countRows[0]['total'] ?? 0);
+
+    // To merge standalone products with the relatively small group list in
+    // PHP while preserving global name order, only the first page-window worth
+    // of standalone candidates can contribute to this page.
+    $candidateLimit = max(1, max(0, $offset) + max(1, $limit));
+    $sql .= ' ORDER BY p.name COLLATE utf8mb4_unicode_ci ASC, p.product_id ASC LIMIT ?';
+    $queryTypes = $types . 'i';
+    $queryParams = $params;
+    $queryParams[] = $candidateLimit;
+    $standalone = db_query($sql, $queryTypes, $queryParams) ?: [];
 
     $productEntries = [];
     foreach ($standalone as $p) {
@@ -358,7 +376,7 @@ function printflow_customer_catalog_entries(?string $categoryFilter, int $offset
         return strcasecmp($a['sort_name'] ?? '', $b['sort_name'] ?? '');
     });
 
-    $total = count($all);
+    $total = $standaloneCount + count($groupEntries);
     $slice = array_slice($all, max(0, $offset), max(1, $limit));
     return ['entries' => $slice, 'total' => $total];
 }

@@ -1446,39 +1446,67 @@ if ($initials === '') {
         }
     };
 
-    // Poll cart count on load and every 5s
+    // Keep the cart badge fresh without competing with catalog requests every
+    // few seconds. Cart mutations update it immediately; focus/visibility
+    // refresh it when another tab may have changed the count.
     <?php if ($is_logged_in && is_customer()): ?>
-    (function pollCart() {
+    (function () {
         var keepPolling = true;
+        var cartPollTimer = null;
+        var cartPollFlight = null;
         var cartApiUrl = (window.PFConfig && window.PFConfig.apiCartUrl) || (basePath + '/customer/api_cart.php');
-        fetch(cartApiUrl, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({action: 'get_count', csrf_token: '<?php echo generate_csrf_token(); ?>'})
-        })
-        .then(function(r){
-            if (r.status === 401 || r.status === 403) {
-                keepPolling = false;
-                return null;
+        function scheduleCartPoll() {
+            if (!keepPolling || document.hidden) return;
+            clearTimeout(cartPollTimer);
+            cartPollTimer = setTimeout(pollCart, 30000);
+        }
+        function pollCart() {
+            if (!keepPolling) return Promise.resolve(null);
+            if (document.hidden) return Promise.resolve(null);
+            if (cartPollFlight) return cartPollFlight;
+            cartPollFlight = fetch(cartApiUrl, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                credentials: 'same-origin',
+                body: JSON.stringify({action: 'get_count', csrf_token: '<?php echo generate_csrf_token(); ?>'})
+            })
+            .then(function(r){
+                if (r.status === 401 || r.status === 403) {
+                    keepPolling = false;
+                    return null;
+                }
+                if (r.status === 404 || r.status === 503) {
+                    keepPolling = false;
+                    console.error('[Cart Poll] Cart API unavailable:', r.status, cartApiUrl);
+                    return null;
+                }
+                if (!r.ok) {
+                    console.warn('[Cart Poll] Cart API request failed:', r.status, cartApiUrl);
+                    return null;
+                }
+                return r.json();
+            })
+            .then(function(d){ if (d && d.success) window.updateCartBadge(d.cart_count); })
+            .catch(function(err){
+                console.error('[Cart Poll] Network error while polling cart count:', err);
+            })
+            .finally(function(){
+                cartPollFlight = null;
+                scheduleCartPoll();
+            });
+            return cartPollFlight;
+        }
+        function refreshCartOnReturn() {
+            if (document.hidden) {
+                clearTimeout(cartPollTimer);
+                return;
             }
-            if (r.status === 404 || r.status === 503) {
-                keepPolling = false;
-                console.error('[Cart Poll] Cart API unavailable:', r.status, cartApiUrl);
-                return null;
-            }
-            if (!r.ok) {
-                console.warn('[Cart Poll] Cart API request failed:', r.status, cartApiUrl);
-                return null;
-            }
-            return r.json();
-        })
-        .then(function(d){ if (d && d.success) window.updateCartBadge(d.cart_count); })
-        .catch(function(err){
-            console.error('[Cart Poll] Network error while polling cart count:', err);
-        })
-        .finally(function(){
-            if (keepPolling) setTimeout(pollCart, 5000);
-        });
+            clearTimeout(cartPollTimer);
+            pollCart();
+        }
+        document.addEventListener('visibilitychange', refreshCartOnReturn);
+        window.addEventListener('focus', refreshCartOnReturn);
+        pollCart();
     })();
     <?php endif; ?>
 

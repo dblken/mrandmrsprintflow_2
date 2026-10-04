@@ -7,7 +7,6 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/customer_service_catalog.php';
-require_once __DIR__ . '/../includes/service_field_config_helper.php';
 require_once __DIR__ . '/../includes/customer_catalog_perf.php';
 require_once __DIR__ . '/../includes/require_id_verified.php';
 
@@ -102,7 +101,6 @@ $visible_rows = db_query(
 ) ?: [];
 
 $service_stats_map = printflow_catalog_service_card_stats_map($visible_rows);
-$configured_service_ids = service_ids_with_field_config(array_column($visible_rows, 'service_id'));
 $pricing_by_service = printflow_catalog_pricing_metadata_map(array_column($visible_rows, 'service_id'));
 $core_services = [];
 foreach ($visible_rows as $row) {
@@ -112,17 +110,6 @@ foreach ($visible_rows as $row) {
     }
     $pricing = $pricing_by_service[$sid] ?? printflow_catalog_pricing_metadata_from_fields([]);
     $card_stats = $service_stats_map[$sid] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
-
-    // Every catalog tile must hit order_service_dynamic.php so order_items.customization_data always carries
-    // service_id + the same field labels as admin service_field_configs (legacy customer_link flows omit these).
-    if (!isset($configured_service_ids[$sid])) {
-        $cl = trim((string)($row['customer_link'] ?? ''));
-        if ($cl !== '') {
-            $cl = basename(str_replace('\\', '/', $cl));
-        }
-        init_service_field_config($sid, $cl !== '' ? $cl : null);
-        $configured_service_ids[$sid] = true;
-    }
 
     $img = pf_service_card_primary_image(
         (string)($row['display_image'] ?? ''),

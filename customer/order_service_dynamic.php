@@ -264,14 +264,35 @@ if ($service_id < 1) {
     exit;
 }
 
-$service = db_query("SELECT * FROM services WHERE service_id = ? AND status = 'Activated'", 'i', [$service_id]);
+$service = db_query(
+    "SELECT service_id, name, category, customer_link, description, base_price,
+            display_image, hero_image, video_url
+     FROM services
+     WHERE service_id = ? AND status = 'Activated'",
+    'i',
+    [$service_id]
+);
 if (empty($service)) {
     header('Location: services.php');
     exit;
 }
 $service = $service[0];
 
-$service_customer = db_query("SELECT * FROM customers WHERE customer_id = ? LIMIT 1", 'i', [$customer_id])[0] ?? [];
+// Preserve the legacy config bootstrap, but run it only for the service the
+// customer selected instead of initializing every unconfigured catalog card.
+if (!service_has_field_config($service_id)) {
+    $legacyServiceLink = trim((string)($service['customer_link'] ?? ''));
+    if ($legacyServiceLink !== '') {
+        $legacyServiceLink = basename(str_replace('\\', '/', $legacyServiceLink));
+    }
+    init_service_field_config($service_id, $legacyServiceLink !== '' ? $legacyServiceLink : null);
+}
+
+$service_customer = db_query(
+    "SELECT id_image, id_status FROM customers WHERE customer_id = ? LIMIT 1",
+    'i',
+    [$customer_id]
+)[0] ?? [];
 $service_id_state = printflow_custom_order_id_status($service_customer);
 $service_id_status = (string)($service_id_state['status'] ?? 'None');
 $service_id_verified = $service_id_status === 'Verified';
@@ -709,6 +730,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
 
 $page_title = 'Order ' . $service['name'] . ' - PrintFlow';
 $use_customer_css = true;
+$pf_catalog_nav_page = true;
 require_once __DIR__ . '/../includes/header.php';
 
 $review_helpful_columns = pf_review_helpful_columns();

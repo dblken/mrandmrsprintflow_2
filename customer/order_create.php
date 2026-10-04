@@ -173,7 +173,9 @@ if ($edit_item_key && isset($_SESSION['cart'][$edit_item_key])) {
 if ($product_id < 1) { header('Location: products.php'); exit; }
 
 $product = db_query(
-    "SELECT * FROM products WHERE product_id = ? AND status = 'Activated'",
+    "SELECT product_id, name, price, category, photo_path, product_image, description
+     FROM products
+     WHERE product_id = ? AND status = 'Activated'",
     'i', [$product_id]
 );
 if (empty($product)) { header('Location: products.php'); exit; }
@@ -479,6 +481,7 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
 
 $page_title = 'Order ' . $product['name'] . ' - PrintFlow';
 $use_customer_css = true;
+$pf_catalog_nav_page = true;
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
