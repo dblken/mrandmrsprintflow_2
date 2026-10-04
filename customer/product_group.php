@@ -379,8 +379,8 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-group-option {
         display: block;
         position: relative;
-        flex: 0 0 auto;
-        width: 72px;
+        width: 100%;
+        min-width: 0;
         padding: 5px;
         border-radius: 8px;
         border: 2px solid var(--shopee-border);
@@ -388,9 +388,8 @@ require_once __DIR__ . '/../includes/header.php';
         background: rgba(255, 255, 255, 0.92);
         transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
         min-height: 0;
-        max-width: none;
+        max-width: 100%;
         box-sizing: border-box;
-        scroll-snap-align: start;
     }
     .pf-group-option:hover { border-color: rgba(15, 52, 65, 0.28); background: #fff; }
     .pf-group-option.is-active {
@@ -521,21 +520,32 @@ require_once __DIR__ . '/../includes/header.php';
     }
 
     .pf-group-options {
-        display: flex;
-        flex-direction: row;
-        flex-wrap: nowrap;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
         align-items: stretch;
         gap: 8px;
         width: 100%;
         min-width: 0;
         max-width: 100%;
         flex: 0 0 auto;
-        overflow-x: auto;
-        overflow-y: hidden;
-        padding: 2px 2px 6px;
-        -webkit-overflow-scrolling: touch;
-        scroll-snap-type: x proximity;
+        overflow: visible;
+        padding: 2px;
         box-sizing: border-box;
+    }
+    @media (max-width: 900px) {
+        .pf-group-options {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+    }
+    @media (max-width: 560px) {
+        .pf-group-options {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+    @media (max-width: 360px) {
+        .pf-group-options {
+            grid-template-columns: minmax(0, 1fr);
+        }
     }
     .pf-group-back { color: #0f3441; font-weight: 600; text-decoration: none; font-size: 0.875rem; }
     .pf-group-selection .shopee-footer {
