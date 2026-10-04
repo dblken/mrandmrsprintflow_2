@@ -1308,6 +1308,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         <canvas id="statusChart"></canvas>
                     </div>
                     <div id="status-legend" class="dash-single-chart-legend <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['statuses'])) ? 'is-hidden' : ''; ?>" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
+                    <div id="dash-status-empty" class="dash-empty-state dash-empty-state--compact" style="display:none;">No order status data for this period.</div>
                     <div id="dash-status-branch-charts" class="dash-branch-chart-grid is-status <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['statuses'])) ? '' : 'is-hidden'; ?>"></div>
                 </div>
 
@@ -2153,6 +2154,12 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 }
                 var labels = data.labels || [];
                 var counts = data.counts || [];
+                var statusEmpty = document.getElementById('dash-status-empty');
+                var statusWrap = document.getElementById('dash-status-single-chart');
+                var statusLegend = document.getElementById('status-legend');
+                if (statusEmpty) statusEmpty.style.display = labels.length ? 'none' : 'block';
+                if (statusWrap) statusWrap.style.display = labels.length ? 'flex' : 'none';
+                if (statusLegend) statusLegend.style.display = labels.length ? 'flex' : 'none';
                 var catColors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
                 var colors = labels.map(function(_, i) { return catColors[i % catColors.length]; });
                 window.__pfDashStatusChart.data.labels = labels;

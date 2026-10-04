@@ -244,6 +244,13 @@ try {
 
 $dashboard_sales_bar = pf_reports_category_sales_for_dashboard_bar_chart($service_category_sales, 8);
 $dashboard_sales_bar_is_category = true;
+$dashboard_sales_bar_labels = array_map(static function ($r) {
+    $label = trim((string)($r['category'] ?? ''));
+    return mb_substr($label !== '' ? $label : 'Customization', 0, 20);
+}, $dashboard_sales_bar);
+$dashboard_sales_bar_values = array_map(static function ($r) {
+    return round((float)($r['total'] ?? $r['revenue'] ?? 0), 2);
+}, $dashboard_sales_bar);
 
 $branchRevenueFrom = $dashFromDate;
 $branchRevenueTo = $dashToDate;
@@ -829,7 +836,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                         Order Status Breakdown
                     </div>
                     <?php if (!empty($order_status)): ?>
-                    <div class="chart-wrap" style="height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;">
+                    <div class="chart-wrap" data-status-labels="<?php echo htmlspecialchars(json_encode(array_map(fn($d) => $d['status'], $order_status), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-status-values="<?php echo htmlspecialchars(json_encode(array_map(fn($d) => (int)$d['cnt'], $order_status), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" style="height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;">
                         <canvas id="statusChart"></canvas>
                     </div>
                     <div id="status-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:12px; padding:0 10px;"></div>
@@ -879,9 +886,9 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                         Best Selling Services
                     </div>
                     <?php if (!empty($dashboard_sales_bar)): ?>
-                    <div class="products-chart"><div id="productsChart"></div></div>
+                    <div class="products-chart" data-service-bar-labels="<?php echo htmlspecialchars(json_encode($dashboard_sales_bar_labels, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-service-bar-values="<?php echo htmlspecialchars(json_encode($dashboard_sales_bar_values, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><div id="productsChart"></div></div>
                     <?php else: ?>
-                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No service sales data yet</div>
+                    <div class="dash-empty-state">No service sales data yet</div>
                     <?php endif; ?>
                 </div>
 
@@ -1234,8 +1241,8 @@ $page_title = 'Dashboard - Manager | PrintFlow';
         }
         var statusCanvas = document.getElementById('statusChart');
         if (statusCanvas) {
-            var statusLabels = <?php echo json_encode(array_map(fn($d) => $d['status'], $order_status)); ?>;
-            var statusValues = <?php echo json_encode(array_map(fn($d) => (int)$d['cnt'], $order_status)); ?>;
+            var statusLabels = parseJsonAttr(statusCanvas.parentElement, 'data-status-labels', []);
+            var statusValues = parseJsonAttr(statusCanvas.parentElement, 'data-status-values', []);
             var catColors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
             var statusColors = statusLabels.map(function(_, i) { return catColors[i % catColors.length]; });
             window.__pfDashStatusChart = new Chart(statusCanvas.getContext('2d'), { type: 'doughnut', data: { labels: statusLabels, datasets: [{ data: statusValues, backgroundColor: statusColors, borderWidth: 2, borderColor: '#fff', hoverOffset: 8 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '70%', animation: doughnutAnim, plugins: { legend: { display: false }, tooltip: { animation: { duration: 160 }, cornerRadius: 8 } } } });
@@ -1247,10 +1254,13 @@ $page_title = 'Dashboard - Manager | PrintFlow';
 
         var productsEl = document.getElementById('productsChart');
         if (productsEl && typeof ApexCharts !== 'undefined') {
+            var serviceDataWrap = productsEl.parentElement;
+            var serviceBarLabels = parseJsonAttr(serviceDataWrap, 'data-service-bar-labels', []);
+            var serviceBarValues = parseJsonAttr(serviceDataWrap, 'data-service-bar-values', []);
             window.__pfDashProductsChart = new ApexCharts(productsEl, {
                 chart: { type: 'bar', height: 300, toolbar: { show: false } },
-                series: [{ name: 'Sales (PHP)', data: <?php echo json_encode(array_map(function ($r) { return round((float)($r['total'] ?? $r['revenue'] ?? 0), 2); }, $dashboard_sales_bar)); ?> }],
-                xaxis: { categories: <?php echo json_encode(array_map(function ($r) { $label = trim((string)($r['category'] ?? '')); return mb_substr($label !== '' ? $label : 'Customization', 0, 20); }, $dashboard_sales_bar)); ?>, labels: { style: { fontSize: '11px' } } },
+                series: [{ name: 'Sales (PHP)', data: serviceBarValues }],
+                xaxis: { categories: serviceBarLabels, labels: { style: { fontSize: '11px' } } },
                 yaxis: { labels: { maxWidth: 160, style: { fontSize: '11px' } } },
                 colors: ['#00232b'],
                 plotOptions: { bar: { horizontal: true, borderRadius: 6, barHeight: '64%' } },
