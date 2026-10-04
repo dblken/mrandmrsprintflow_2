@@ -414,7 +414,7 @@ function pf_sales_trend_branch_breakdown(array $periodInfo, array $filters): arr
         }
         $sql = "SELECT {$key} AS bucket_key, {$label} AS bucket_label, {$branchName} AS branch_name, COALESCE(SUM({$revenue}), 0) AS revenue FROM orders o LEFT JOIN branches b ON b.id = o.branch_id WHERE LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid') AND {$scope}{$extraSql}{$dateSql}{$branchSql} GROUP BY bucket_key, bucket_label, branch_name ORDER BY bucket_key, branch_name";
         $result = db_query($sql, $extraTypes . $dateTypes . $branchTypes, array_merge($extraParams, $dateParams, $branchParams)) ?: [];
-        return array_map(static fn(array $r): array => ['bucket_key' => (string)($r['bucket_key'] ?? ''), 'bucket_label' => (string)($r['bucket_label'] ?? ''), 'branch_name' => (string)($r['branch_name'] ?? ''), 'revenue' => round((float)($r['revenue'] ?? 0), 2)], $result);
+        return array_map(static fn(array $r): array => ['bucket_key' => (string)($r['bucket_key'] ?? ''), 'bucket_label' => (string)($r['bucket_label'] ?? ''), 'branch_name' => (string)($r['branch_name'] ?? ''), 'type' => $type, 'revenue' => round((float)($r['revenue'] ?? 0), 2)], $result);
     };
 
     $jobs = static function (string $revenue, bool $hasMethod) use ($from, $toEnd, $group, $methodFilter, $itemType, $itemName, $expectedItemType): array {
@@ -440,7 +440,7 @@ function pf_sales_trend_branch_breakdown(array $periodInfo, array $filters): arr
         $exclude = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
         $sql = "SELECT {$key} AS bucket_key, {$label} AS bucket_label, {$branchName} AS branch_name, COALESCE(SUM({$revenue}), 0) AS revenue FROM job_orders jo LEFT JOIN branches b ON b.id = jo.branch_id WHERE LOWER(TRIM(COALESCE(jo.payment_status, ''))) IN ('paid', 'fully paid'){$exclude}{$extraSql}{$dateSql}{$branchSql} GROUP BY bucket_key, bucket_label, branch_name ORDER BY bucket_key, branch_name";
         $result = db_query($sql, $extraTypes . $dateTypes . $branchTypes, array_merge($extraParams, $dateParams, $branchParams)) ?: [];
-        return array_map(static fn(array $r): array => ['bucket_key' => (string)($r['bucket_key'] ?? ''), 'bucket_label' => (string)($r['bucket_label'] ?? ''), 'branch_name' => (string)($r['branch_name'] ?? ''), 'revenue' => round((float)($r['revenue'] ?? 0), 2)], $result);
+        return array_map(static fn(array $r): array => ['bucket_key' => (string)($r['bucket_key'] ?? ''), 'bucket_label' => (string)($r['bucket_label'] ?? ''), 'branch_name' => (string)($r['branch_name'] ?? ''), 'type' => 'Custom', 'revenue' => round((float)($r['revenue'] ?? 0), 2)], $result);
     };
 
     $hasStoreMethod = function_exists('db_table_has_column') ? db_table_has_column('orders', 'payment_method') : pf_reports_table_has_column('orders', 'payment_method');
@@ -451,12 +451,16 @@ function pf_sales_trend_branch_breakdown(array $periodInfo, array $filters): arr
         $rows = array_merge($rows, $jobs(pf_reports_job_order_revenue_expr('jo'), $hasJobMethod));
     }
     $buckets = [];
+    $sourceTotals = [];
     foreach ($rows as $row) {
         $key = (string)$row['bucket_key'];
         $branchName = trim((string)$row['branch_name']);
         if ($key === '' || $branchName === '') continue;
         if (!isset($buckets[$key])) $buckets[$key] = ['bucket_key' => $key, 'bucket_label' => (string)$row['bucket_label'], 'branch_sales' => []];
         $buckets[$key]['branch_sales'][$branchName] = ($buckets[$key]['branch_sales'][$branchName] ?? 0) + (float)$row['revenue'];
+        if (!isset($sourceTotals[$branchName])) $sourceTotals[$branchName] = ['product_sales' => 0.0, 'custom_sales' => 0.0];
+        $sourceKey = ($row['type'] ?? '') === 'Product' ? 'product_sales' : 'custom_sales';
+        $sourceTotals[$branchName][$sourceKey] += (float)$row['revenue'];
     }
     ksort($buckets);
     foreach ($buckets as &$bucket) {
@@ -464,7 +468,15 @@ function pf_sales_trend_branch_breakdown(array $periodInfo, array $filters): arr
         ksort($bucket['branch_sales']);
     }
     unset($bucket);
-    return ['mode' => 'branches', 'series' => $series, 'rows' => array_values($buckets)];
+    $sourceBreakdown = [];
+    foreach ($series as $branchName) {
+        $sourceBreakdown[] = [
+            'branch_name' => $branchName,
+            'product_sales' => round((float)($sourceTotals[$branchName]['product_sales'] ?? 0), 2),
+            'custom_sales' => round((float)($sourceTotals[$branchName]['custom_sales'] ?? 0), 2),
+        ];
+    }
+    return ['mode' => 'branches', 'series' => $series, 'rows' => array_values($buckets), 'source_breakdown' => $sourceBreakdown];
 }
 function pf_sales_page_filtered_breakdown(array $input, $branchId, int $limit = 5000): array
 {

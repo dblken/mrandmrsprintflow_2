@@ -137,8 +137,18 @@ try {
     $salesTrendData = ['mode' => $salesTrendIsAllBranches ? 'branches' : 'mix', 'series' => [], 'rows' => []];
 }
 $salesTrendRows = $salesTrendData['rows'] ?? [];
+$salesSourceBreakdown = $salesTrendData['source_breakdown'] ?? [];
+$sourceBreakdownHasSales = false;
+foreach ($salesSourceBreakdown as $sourceRow) {
+    if ((float)($sourceRow['product_sales'] ?? 0) > 0 || (float)($sourceRow['custom_sales'] ?? 0) > 0) {
+        $sourceBreakdownHasSales = true;
+        break;
+    }
+}
 $salesTrendJson = json_encode($salesTrendData, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 if ($salesTrendJson === false) $salesTrendJson = '{"mode":"mix","series":[],"rows":[]}';
+$salesSourceJson = json_encode($salesSourceBreakdown, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+if ($salesSourceJson === false) $salesSourceJson = '[]';
 $trendHasSales = false;
 foreach ($salesTrendRows as $trendBucket) {
     if ($salesTrendIsAllBranches) {
@@ -266,6 +276,7 @@ function salesPrintInPlace(url) {
 .kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; align-items:stretch; }
 .sales-trend-card { margin-bottom:24px; }
 .sales-trend-chart-wrap { position:relative; height:320px; width:100%; }
+.sales-source-chart-wrap { position:relative; height:260px; width:100%; }
 @media(max-width:640px){ .sales-trend-chart-wrap{ height:260px; } }
 .kpi-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px 20px; position:relative; overflow:hidden; height:100%; display:flex; flex-direction:column; }
 .kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
@@ -488,7 +499,7 @@ function salesPrintInPlace(url) {
                 <div class="sales-list-header">
                     <h3>
                         <svg width="16" height="16" fill="none" stroke="#53C5E0" viewBox="0 0 24 24" style="flex-shrink:0;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 19V5m0 14h16M8 16v-5m4 5V8m4 8V3"/></svg>
-                        Sales Trend
+                        <?php echo $salesTrendIsAllBranches ? 'Branch Sales Comparison' : 'Sales Trend'; ?>
                         <span style="padding:3px 8px;background:#EBF8FF;color:#2C5282;border-radius:6px;font-size:11px;font-weight:600;"><?php echo htmlspecialchars($sales_label); ?></span>
                     </h3>
                     <span style="font-size:12px;color:#64748b;"><?php echo $salesTrendIsAllBranches ? 'Branch comparison' : 'Product and custom revenue'; ?></span>
@@ -497,10 +508,28 @@ function salesPrintInPlace(url) {
                     <div class="sales-breakdown-empty">No sales data for this period.</div>
                 <?php else: ?>
                     <div class="sales-trend-chart-wrap">
-                        <canvas id="salesTrendChart" aria-label="Product and custom sales trend"></canvas>
+                        <canvas id="salesTrendChart" aria-label="Sales trend chart"></canvas>
                     </div>
                 <?php endif; ?>
             </div>
+            <?php if ($salesTrendIsAllBranches): ?>
+            <div class="card sales-trend-card">
+                <div class="sales-list-header">
+                    <h3>
+                        <svg width="16" height="16" fill="none" stroke="#53C5E0" viewBox="0 0 24 24" style="flex-shrink:0;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 19V5m0 14h16M8 16v-5m4 5V8m4 8V3"/></svg>
+                        Sales Source Breakdown by Branch
+                    </h3>
+                    <span style="font-size:12px;color:#64748b;">Product and custom revenue</span>
+                </div>
+                <?php if (!$sourceBreakdownHasSales): ?>
+                    <div class="sales-breakdown-empty">No sales data for this period.</div>
+                <?php else: ?>
+                    <div class="sales-source-chart-wrap">
+                        <canvas id="salesSourceBreakdownChart" aria-label="Sales source breakdown by branch"></canvas>
+                    </div>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
             <div class="card">
                 <div class="sales-list-header">
                     <h3>
@@ -772,5 +801,60 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 </script>
-<?php endif; ?></body>
+<?php if ($salesTrendIsAllBranches && $sourceBreakdownHasSales): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const canvas = document.getElementById('salesSourceBreakdownChart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    const rows = <?php echo $salesSourceJson; ?>;
+    const money = function (value) {
+        return 'PHP ' + Number(value || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    };
+    new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: rows.map(function (row) { return row.branch_name; }),
+            datasets: [
+                {
+                    label: 'Product Sales',
+                    data: rows.map(function (row) { return Number(row.product_sales || 0); }),
+                    backgroundColor: '#53C5E0',
+                    borderColor: '#249bb8',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Custom Sales',
+                    data: rows.map(function (row) { return Number(row.custom_sales || 0); }),
+                    backgroundColor: '#6366f1',
+                    borderColor: '#4f46e5',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { stacked: true, grid: { display: false } },
+                y: {
+                    stacked: true,
+                    beginAtZero: true,
+                    ticks: { callback: function (value) { return money(value); } }
+                }
+            },
+            plugins: {
+                legend: { position: 'top' },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) { return context.dataset.label + ': ' + money(context.parsed.y); }
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
+<?php endif; ?>
+<?php endif; ?>
+</body>
 </html>
