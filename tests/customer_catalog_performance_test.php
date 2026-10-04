@@ -74,6 +74,8 @@ $assert(str_contains($orderCreate, 'SELECT product_id, name, price, category, ph
 $assert(str_contains($products, 'pf_normalize_service_image_path'), 'products use normalized image paths');
 $assert(str_contains($detail, 'printflow_attach_review_media'), 'service detail batches review media queries');
 $assert(str_contains($detail, 'LIMIT ? OFFSET ?'), 'service detail paginates reviews in SQL');
+$assert(str_contains($detail, '$total_reviews = $review_count;') && !str_contains($detail, 'COUNT(DISTINCT r.id) AS total_reviews'), 'service detail reuses the already-computed review count for pagination');
+$assert(!str_contains($detail, 'AVG(r.rating) AS avg_rating'), 'service detail avoids recomputing the review average');
 $assert(str_contains($detail, 'pf-lazy-carousel'), 'service detail carousel lazy-loads off-screen images');
 $assert(str_contains($footer, 'filemtime(__DIR__ . \'/../public/assets/js/pwa.js\')'), 'pwa.js uses filemtime cache busting');
 $assert(str_contains($functions, 'printflow_attach_review_media'), 'shared review media batch helper exists');

@@ -1223,15 +1223,10 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
             array_unshift($review_params, ...$review_user_voted_params);
 
             $review_where_sql = implode(' OR ', $review_where_parts);
-            $review_count_rows = db_query(
-                "SELECT COUNT(DISTINCT r.id) AS total_reviews
-                 FROM reviews r
-                 LEFT JOIN orders o ON o.order_id = r.order_id
-                 WHERE {$review_where_sql}",
-                $review_where_types,
-                $review_where_params
-            ) ?: [];
-            $total_reviews = (int)($review_count_rows[0]['total_reviews'] ?? 0);
+            // service_order_get_page_stats() already computed the same distinct
+            // review count and average for the service header above. Reuse its
+            // count for pagination instead of rescanning reviews here.
+            $total_reviews = $review_count;
 
             $reviews_per_page = 10;
             $poc_page = max(1, (int)($_GET['rpage'] ?? 1));
@@ -1241,7 +1236,6 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
 
             $review_agg_rows = db_query(
                 "SELECT
-                    AVG(r.rating) AS avg_rating,
                     SUM(CASE WHEN r.rating = 5 THEN 1 ELSE 0 END) AS r5,
                     SUM(CASE WHEN r.rating = 4 THEN 1 ELSE 0 END) AS r4,
                     SUM(CASE WHEN r.rating = 3 THEN 1 ELSE 0 END) AS r3,
@@ -1258,7 +1252,6 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                 $review_where_params
             ) ?: [];
             $agg = $review_agg_rows[0] ?? [];
-            $avg_rating = (float)($agg['avg_rating'] ?? 0);
             $rating_counts = [
                 5 => (int)($agg['r5'] ?? 0),
                 4 => (int)($agg['r4'] ?? 0),
