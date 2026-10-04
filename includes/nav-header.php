@@ -671,6 +671,28 @@ if ($initials === '') {
         @media (max-width: 480px) {
             #main-header .pf-header-left a > span { display: none; }
         }
+        /* At tablet widths the old rules hid both the desktop nav and the
+           customer burger, while the bottom nav starts only below 768px. */
+        @media (min-width: 768px) and (max-width: 1023px) {
+            body[data-user-type="Customer"] #main-header .pf-header-mid {
+                display: flex !important;
+                flex: 1 1 auto;
+                min-width: 0;
+                gap: 0.65rem;
+            }
+            body[data-user-type="Customer"] #main-header .pf-burger-btn {
+                display: none !important;
+            }
+            body[data-user-type="Customer"] #main-header .pf-nav-links {
+                flex: 0 0 auto;
+                gap: 0.65rem;
+            }
+            body[data-user-type="Customer"] #main-header .pf-search-wrap {
+                flex: 1 1 200px;
+                min-width: 120px;
+                max-width: 260px;
+            }
+        }
     </style>
     <nav class="container mx-auto px-4 py-3">
         <div class="pf-header-shell">

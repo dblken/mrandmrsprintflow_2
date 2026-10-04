@@ -68,6 +68,8 @@ $assert(str_contains($detail, 'init_service_field_config($service_id'), 'legacy 
 $assert(str_contains($servicesDetail, 'COALESCE(price, 0) AS base_price'), 'service order page maps the schema price column to its base-price view');
 $assert(str_contains($servicesDetail, "db_table_has_column('services', 'video_url')") && str_contains($servicesDetail, 'NULL AS video_url'), 'service order page tolerates deployments without the optional video column');
 $assert(str_contains($servicesDetail, 'WHERE service_id = ? AND status = \'Activated\'') && !str_contains($servicesDetail, 'SELECT * FROM services'), 'service order page keeps the selected active service lookup narrow');
+$assert(str_contains($navHeader, '@media (min-width: 768px) and (max-width: 1023px)') && str_contains($navHeader, 'body[data-user-type="Customer"] #main-header .pf-header-mid'), 'customer Services and Products navigation remains visible across the tablet breakpoint');
+$assert(str_contains($navHeader, 'body[data-user-type="Customer"] #main-header .pf-burger-btn') && str_contains($navHeader, 'display: none !important;'), 'tablet customer header avoids a duplicate burger while retaining mobile navigation');
 $assert(str_contains($orderCreate, 'SELECT product_id, name, price, category, photo_path, product_image, description') && !str_contains($orderCreate, 'SELECT * FROM products'), 'product order page selects only fields used by the selected product');
 $assert(str_contains($products, 'pf_normalize_service_image_path'), 'products use normalized image paths');
 $assert(str_contains($detail, 'printflow_attach_review_media'), 'service detail batches review media queries');
