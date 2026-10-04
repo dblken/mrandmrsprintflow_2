@@ -149,6 +149,39 @@ $salesTrendJson = json_encode($salesTrendData, JSON_UNESCAPED_UNICODE | JSON_HEX
 if ($salesTrendJson === false) $salesTrendJson = '{"mode":"mix","series":[],"rows":[]}';
 $salesSourceJson = json_encode($salesSourceBreakdown, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 if ($salesSourceJson === false) $salesSourceJson = '[]';
+$salesBranchPerformance = [
+    'total_revenue' => 0.0,
+    'top_branch' => '',
+    'top_branch_revenue' => 0.0,
+    'visible_branches' => count($salesSourceBreakdown),
+    'average_revenue' => 0.0,
+    'product_sales' => 0.0,
+    'custom_sales' => 0.0,
+    'product_percent' => 0.0,
+    'custom_percent' => 0.0,
+];
+foreach ($salesSourceBreakdown as $sourceRow) {
+    $productSales = (float)($sourceRow['product_sales'] ?? 0);
+    $customSales = (float)($sourceRow['custom_sales'] ?? 0);
+    $branchRevenue = $productSales + $customSales;
+    $salesBranchPerformance['total_revenue'] += $branchRevenue;
+    $salesBranchPerformance['product_sales'] += $productSales;
+    $salesBranchPerformance['custom_sales'] += $customSales;
+    if ($branchRevenue > $salesBranchPerformance['top_branch_revenue']) {
+        $salesBranchPerformance['top_branch'] = (string)($sourceRow['branch_name'] ?? '');
+        $salesBranchPerformance['top_branch_revenue'] = $branchRevenue;
+    }
+}
+$salesBranchPerformance['total_revenue'] = round($salesBranchPerformance['total_revenue'], 2);
+$salesBranchPerformance['product_sales'] = round($salesBranchPerformance['product_sales'], 2);
+$salesBranchPerformance['custom_sales'] = round($salesBranchPerformance['custom_sales'], 2);
+$salesBranchPerformance['average_revenue'] = $salesBranchPerformance['visible_branches'] > 0
+    ? round($salesBranchPerformance['total_revenue'] / $salesBranchPerformance['visible_branches'], 2)
+    : 0.0;
+if ($salesBranchPerformance['total_revenue'] > 0) {
+    $salesBranchPerformance['product_percent'] = round(($salesBranchPerformance['product_sales'] / $salesBranchPerformance['total_revenue']) * 100, 1);
+    $salesBranchPerformance['custom_percent'] = round(100 - $salesBranchPerformance['product_percent'], 1);
+}
 $trendHasSales = false;
 foreach ($salesTrendRows as $trendBucket) {
     if ($salesTrendIsAllBranches) {
@@ -275,6 +308,17 @@ function salesPrintInPlace(url) {
 .sales-toolbar-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; align-items:stretch; }
 .sales-trend-card { margin-bottom:24px; }
+.sales-all-branches-top { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(280px,.85fr); gap:20px; align-items:stretch; margin-bottom:24px; }
+.sales-all-branches-top .sales-trend-card { margin-bottom:0; }
+.sales-performance-summary { display:flex; flex-direction:column; }
+.sales-performance-summary .sales-list-header { margin-bottom:14px; }
+.sales-performance-metric { padding:12px 0; border-bottom:1px solid #f1f5f9; }
+.sales-performance-metric:last-child { border-bottom:0; }
+.sales-performance-label { color:#64748b; font-size:12px; font-weight:600; }
+.sales-performance-value { margin-top:4px; color:#0f172a; font-size:20px; line-height:1.2; font-weight:800; }
+.sales-performance-sub { margin-top:3px; color:#64748b; font-size:12px; }
+.sales-performance-split { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+@media(max-width:960px){ .sales-all-branches-top{ grid-template-columns:1fr; } .sales-all-branches-top .sales-trend-card{ margin-bottom:0; } }
 .sales-trend-chart-wrap { position:relative; height:320px; width:100%; }
 .sales-source-chart-wrap { position:relative; height:260px; width:100%; }
 @media(max-width:640px){ .sales-trend-chart-wrap{ height:260px; } }
@@ -495,6 +539,7 @@ function salesPrintInPlace(url) {
                 </div>
             </div>
 
+<?php if ($salesTrendIsAllBranches): ?><div class="sales-all-branches-top">
             <div class="card sales-trend-card">
                 <div class="sales-list-header">
                     <h3>
@@ -512,6 +557,41 @@ function salesPrintInPlace(url) {
                     </div>
                 <?php endif; ?>
             </div>
+            <div class="card sales-performance-summary">
+                <div class="sales-list-header">
+                    <h3>Branch Performance Summary</h3>
+                    <span style="font-size:12px;color:#64748b;"><?php echo htmlspecialchars($sales_label); ?></span>
+                </div>
+                <div class="sales-performance-metric">
+                    <div class="sales-performance-label">Total Revenue</div>
+                    <div class="sales-performance-value">&#8369;<?php echo number_format((float)$salesBranchPerformance['total_revenue'], 2); ?></div>
+                    <div class="sales-performance-sub">Filtered paid sales</div>
+                </div>
+                <div class="sales-performance-metric">
+                    <div class="sales-performance-label">Top Performing Branch</div>
+                    <div class="sales-performance-value"><?php echo htmlspecialchars($salesBranchPerformance['top_branch'] ?: 'No sales'); ?></div>
+                    <div class="sales-performance-sub">&#8369;<?php echo number_format((float)$salesBranchPerformance['top_branch_revenue'], 2); ?></div>
+                </div>
+                <div class="sales-performance-metric">
+                    <div class="sales-performance-label">Average Revenue per Branch</div>
+                    <div class="sales-performance-value">&#8369;<?php echo number_format((float)$salesBranchPerformance['average_revenue'], 2); ?></div>
+                    <div class="sales-performance-sub"><?php echo number_format((int)$salesBranchPerformance['visible_branches']); ?> visible branches</div>
+                </div>
+                <div class="sales-performance-split">
+                    <div class="sales-performance-metric">
+                        <div class="sales-performance-label">Product Sales</div>
+                        <div class="sales-performance-value">&#8369;<?php echo number_format((float)$salesBranchPerformance['product_sales'], 2); ?></div>
+                        <div class="sales-performance-sub"><?php echo number_format((float)$salesBranchPerformance['product_percent'], 1); ?>% of revenue</div>
+                    </div>
+                    <div class="sales-performance-metric">
+                        <div class="sales-performance-label">Custom Sales</div>
+                        <div class="sales-performance-value">&#8369;<?php echo number_format((float)$salesBranchPerformance['custom_sales'], 2); ?></div>
+                        <div class="sales-performance-sub"><?php echo number_format((float)$salesBranchPerformance['custom_percent'], 1); ?>% of revenue</div>
+                    </div>
+                </div>
+            </div>
+            </div>
+            <?php endif; ?>
             <?php if ($salesTrendIsAllBranches): ?>
             <div class="card sales-trend-card">
                 <div class="sales-list-header">
