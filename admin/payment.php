@@ -315,6 +315,34 @@ $page_title = 'Payments - PrintFlow';
 .orders-table th { padding: 12px 16px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e5e7eb; }
 .orders-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; color: #1f2937; }
 .orders-table tbody tr:hover { background: #f9fafb; }
+.payment-row { cursor: pointer; transition: background .15s ease; }
+.payment-row:focus { outline: 2px solid #0d9488; outline-offset: -2px; }
+.payment-modal-overlay { position: fixed; inset: 0; z-index: 1000; display: none; align-items: center; justify-content: center; padding: 20px; background: rgba(15, 23, 42, .45); }
+.payment-modal-overlay.open { display: flex; }
+.payment-modal { width: 100%; max-width: 650px; max-height: 88vh; overflow: auto; background: #fff; border-radius: 16px; box-shadow: 0 24px 60px rgba(15, 23, 42, .22); }
+.payment-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px 28px 18px; border-bottom: 1px solid #eef2f7; }
+.payment-modal-heading { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.payment-modal-header h3 { margin: 0; color: #1f2937; font-size: 23px; line-height: 1.2; font-weight: 800; }
+.payment-modal-close { width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: #6b7280; font-size: 22px; line-height: 1; cursor: pointer; }
+.payment-modal-close:hover { background: #f3f4f6; }
+.payment-modal-body { padding: 24px 28px 28px; }
+.payment-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.payment-detail-item { min-width: 0; padding: 13px 16px; border: 1px solid #f1f5f9; border-radius: 10px; background: #f8fafc; }
+.payment-detail-item dt { margin: 0 0 7px; color: #94a3b8; font-size: 11px; line-height: 1.2; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+.payment-detail-item dd { margin: 0; color: #1f2937; line-height: 1.45; word-break: break-word; }
+.payment-detail-item--amount { grid-column: 1 / -1; border-color: #c8f1f5; background: #ecfeff; }
+.payment-detail-amount { color: #0f766e !important; font-size: 24px; font-weight: 800; }
+.payment-status-badge { display: inline-flex; align-items: center; padding: 5px 11px; border-radius: 999px; background: #dcfce7; color: #15803d; font-size: 12px; font-weight: 700; }
+.payment-status-badge.is-warning { background: #fef3c7; color: #a16207; }
+.payment-status-badge.is-danger { background: #fee2e2; color: #b91c1c; }
+@media (max-width: 640px) {
+    .payment-modal-overlay { padding: 12px; }
+    .payment-modal { max-height: 92vh; border-radius: 14px; }
+    .payment-modal-header { padding: 18px 20px 16px; }
+    .payment-modal-body { padding: 18px 20px 22px; }
+    .payment-detail-grid { grid-template-columns: 1fr; }
+    .payment-detail-item--amount { grid-column: auto; }
+}
 .pf-pay-badge { display: inline-flex; border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 600; }
 .pf-pay-sub { font-size: 12px; color: #6b7280; margin-top: 2px; }
 @media (max-width: 768px) {
@@ -498,7 +526,8 @@ $page_title = 'Payments - PrintFlow';
                         </tr>
                         <?php else: ?>
                         <?php foreach ($visible as $tx): ?>
-                        <tr>
+                        <?php $paymentPayloadAttr = htmlspecialchars(json_encode($tx, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}', ENT_QUOTES, 'UTF-8'); ?>
+                        <tr class="payment-row" tabindex="0" role="button" data-payment-detail="<?php echo $paymentPayloadAttr; ?>" aria-label="View payment details for <?php echo htmlspecialchars($tx['order']); ?>">
                             <td style="font-weight:500;"><?php echo htmlspecialchars($tx['reference']); ?></td>
                             <td>
                                 <?php echo htmlspecialchars($tx['order']); ?>
@@ -520,7 +549,59 @@ $page_title = 'Payments - PrintFlow';
     </main>
 </div>
 </div>
+<div class="payment-modal-overlay" id="paymentModal" aria-hidden="true">
+    <div class="payment-modal" role="dialog" aria-modal="true" aria-labelledby="paymentModalTitle">
+        <div class="payment-modal-header">
+            <div class="payment-modal-heading">
+                <h3 id="paymentModalTitle">Payment Details</h3>
+                <span class="payment-status-badge" id="paymentModalStatus"></span>
+            </div>
+            <button type="button" class="payment-modal-close" id="paymentModalClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="payment-modal-body">
+            <dl class="payment-detail-grid" id="paymentModalBody"></dl>
+        </div>
+    </div>
+</div>
 <script>
+function paymentEscapeHtml(value) {
+    return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function openPaymentModal(payload) {
+    const modal = document.getElementById('paymentModal');
+    const body = document.getElementById('paymentModalBody');
+    const title = document.getElementById('paymentModalTitle');
+    const statusBadge = document.getElementById('paymentModalStatus');
+    if (!modal || !body || !title || !payload) return;
+    title.textContent = 'Payment ' + (payload.reference || 'Details');
+    const status = String(payload.status || 'Processing');
+    const statusKey = status.toLowerCase();
+    if (statusBadge) {
+        statusBadge.textContent = status;
+        statusBadge.className = 'payment-status-badge' + (statusKey.includes('failed') || statusKey.includes('expired') ? ' is-danger' : (statusKey.includes('processing') ? ' is-warning' : ''));
+    }
+    const rows = [
+        ['Order / Receipt', payload.order],
+        ['Customer', payload.customer],
+        ['Branch', payload.branch],
+        ['Source', payload.source],
+        ['Payment Method', payload.method],
+        ['Date / Time', payload.at ? new Date(String(payload.at).replace(' ', 'T')).toLocaleString() : ''],
+    ];
+    body.innerHTML = rows.map(function (pair) {
+        return '<div class="payment-detail-item"><dt>' + paymentEscapeHtml(pair[0]) + '</dt><dd>' + paymentEscapeHtml(pair[1]) + '</dd></div>';
+    }).join('') + '<div class="payment-detail-item payment-detail-item--amount"><dt>Amount</dt><dd class="payment-detail-amount">&#8369;' + paymentEscapeHtml(Number(payload.amount || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})) + '</dd></div>';
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+}
+
+function closePaymentModal() {
+    const modal = document.getElementById('paymentModal');
+    if (!modal) return;
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+}
 function pfPaymentSubmitFilter() {
     const f = document.getElementById('paymentFilterForm');
     if (f) f.submit();
@@ -537,6 +618,25 @@ function pfReset(fields) {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.payment-row').forEach(function (row) {
+        const open = function () {
+            try { openPaymentModal(JSON.parse(row.getAttribute('data-payment-detail') || '{}')); } catch (e) { console.error(e); }
+        };
+        row.addEventListener('click', open);
+        row.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                open();
+            }
+        });
+    });
+    document.getElementById('paymentModalClose')?.addEventListener('click', closePaymentModal);
+    document.getElementById('paymentModal')?.addEventListener('click', function (e) {
+        if (e.target === e.currentTarget) closePaymentModal();
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closePaymentModal();
+    });
     const f = document.getElementById('paymentFilterForm');
     if (!f) return;
     ['method', 'source', 'status'].forEach(function (name) {
