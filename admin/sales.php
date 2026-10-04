@@ -178,6 +178,19 @@ $salesBranchPerformance['custom_sales'] = round($salesBranchPerformance['custom_
 $salesBranchPerformance['average_revenue'] = $salesBranchPerformance['visible_branches'] > 0
     ? round($salesBranchPerformance['total_revenue'] / $salesBranchPerformance['visible_branches'], 2)
     : 0.0;
+if (!$salesTrendIsAllBranches) {
+    $salesBranchPerformance['visible_branches'] = 1;
+    $salesBranchPerformance['top_branch'] = trim((string)$branchName) ?: 'Selected Branch';
+    foreach ($salesTrendRows as $trendBucket) {
+        $salesBranchPerformance['product_sales'] += (float)($trendBucket['product_sales'] ?? 0);
+        $salesBranchPerformance['custom_sales'] += (float)($trendBucket['custom_sales'] ?? 0);
+    }
+    $salesBranchPerformance['product_sales'] = round($salesBranchPerformance['product_sales'], 2);
+    $salesBranchPerformance['custom_sales'] = round($salesBranchPerformance['custom_sales'], 2);
+    $salesBranchPerformance['total_revenue'] = round($salesBranchPerformance['product_sales'] + $salesBranchPerformance['custom_sales'], 2);
+    $salesBranchPerformance['top_branch_revenue'] = $salesBranchPerformance['total_revenue'];
+    $salesBranchPerformance['average_revenue'] = $salesBranchPerformance['total_revenue'];
+}
 if ($salesBranchPerformance['total_revenue'] > 0) {
     $salesBranchPerformance['product_percent'] = round(($salesBranchPerformance['product_sales'] / $salesBranchPerformance['total_revenue']) * 100, 1);
     $salesBranchPerformance['custom_percent'] = round(100 - $salesBranchPerformance['product_percent'], 1);
@@ -539,7 +552,7 @@ function salesPrintInPlace(url) {
                 </div>
             </div>
 
-<?php if ($salesTrendIsAllBranches): ?><div class="sales-all-branches-top">
+<div class="sales-all-branches-top">
             <div class="card sales-trend-card">
                 <div class="sales-list-header">
                     <h3>
@@ -591,7 +604,6 @@ function salesPrintInPlace(url) {
                 </div>
             </div>
             </div>
-            <?php endif; ?>
             <?php if ($salesTrendIsAllBranches): ?>
             <div class="card sales-trend-card">
                 <div class="sales-list-header">
