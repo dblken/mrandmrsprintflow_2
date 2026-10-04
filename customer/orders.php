@@ -822,6 +822,75 @@ require_once __DIR__ . '/../includes/header.php';
 .orders-theme-page .st-completed, #itemsModal .st-completed { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
 .orders-theme-page .st-cancelled, .orders-theme-page .st-unpaid, #itemsModal .st-cancelled, #itemsModal .st-unpaid { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
 
+.orders-feedback-toast {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-12px);
+    z-index: 100050;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    max-width: min(420px, calc(100vw - 32px));
+    padding: 14px 16px;
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.45;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease, transform 0.22s ease;
+}
+.orders-feedback-toast.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+}
+.orders-feedback-toast.is-success {
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    color: #065f46;
+}
+.orders-feedback-toast.is-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+}
+.orders-feedback-toast-icon {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    margin-top: 1px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 800;
+}
+.orders-feedback-toast.is-success .orders-feedback-toast-icon {
+    background: #10b981;
+    color: #fff;
+}
+.orders-feedback-toast.is-error .orders-feedback-toast-icon {
+    background: #ef4444;
+    color: #fff;
+}
+.orders-feedback-toast-text { flex: 1; min-width: 0; }
+.orders-feedback-toast-close {
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    opacity: 0.65;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 0 0 4px;
+}
+.orders-feedback-toast-close:hover { opacity: 1; }
+
 .rated-status-tag {
     font-size: 0.72rem; font-weight: 700; color: #b45309;
     padding: 4px 10px; background: #fef9c3;
@@ -4028,17 +4097,46 @@ function closeItemsModal() {
 
 // Cancellation Logic
 let cancelOrderId = null, cancelCsrfToken = null;
+let ordersToastHideTimer = null;
+
+function hideOrdersToast() {
+    const toast = document.getElementById('orders-feedback-toast');
+    if (!toast) return;
+    toast.classList.remove('is-visible');
+    window.clearTimeout(ordersToastHideTimer);
+}
+
+function showToast(message, isError) {
+    const safeMessage = String(message || '').trim();
+    if (!safeMessage) return;
+
+    let toast = document.getElementById('orders-feedback-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'orders-feedback-toast';
+        toast.className = 'orders-feedback-toast';
+        toast.setAttribute('role', 'status');
+        toast.setAttribute('aria-live', 'polite');
+        toast.innerHTML = '<span class="orders-feedback-toast-icon" aria-hidden="true"></span><span class="orders-feedback-toast-text"></span><button type="button" class="orders-feedback-toast-close" aria-label="Dismiss">&times;</button>';
+        document.body.appendChild(toast);
+        toast.querySelector('.orders-feedback-toast-close').addEventListener('click', hideOrdersToast);
+    }
+
+    const isErr = !!isError;
+    toast.classList.toggle('is-success', !isErr);
+    toast.classList.toggle('is-error', isErr);
+    toast.querySelector('.orders-feedback-toast-icon').textContent = isErr ? '!' : '\u2713';
+    toast.querySelector('.orders-feedback-toast-text').textContent = safeMessage;
+
+    window.clearTimeout(ordersToastHideTimer);
+    requestAnimationFrame(function () {
+        toast.classList.add('is-visible');
+    });
+    ordersToastHideTimer = window.setTimeout(hideOrdersToast, isErr ? 5000 : 3500);
+}
+
 function notifyCancelResult(message, isError = false) {
-    const safeMessage = String(message || (isError ? 'Something went wrong.' : 'Done.'));
-    if (typeof showToast === 'function') {
-        showToast(safeMessage);
-        return;
-    }
-    // Fallback to ensure users still get feedback if toast script is unavailable.
-    if (isError) {
-        console.error(safeMessage);
-    }
-    window.alert(safeMessage);
+    showToast(message, isError);
 }
 function openCancelModal(id, token) {
     cancelOrderId = id; cancelCsrfToken = token;
@@ -4406,10 +4504,14 @@ function submitOrderCancellation() {
     })
     .then(data => {
         if (data.success) {
-            notifyCancelResult("Order cancelled successfully.");
-            window.location.reload();
+            closeCancelModal();
+            notifyCancelResult('Order cancelled successfully.', false);
+            window.setTimeout(function () {
+                window.location.reload();
+            }, 1400);
+            return;
         } else {
-            notifyCancelResult(data.error || "Failed to cancel.", true);
+            notifyCancelResult(data.error || 'Failed to cancel.', true);
         }
     })
     .catch((error) => {
