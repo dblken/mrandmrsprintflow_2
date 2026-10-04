@@ -377,19 +377,23 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-group-stats .rating-stars svg.pf-star-off { fill: #e5e7eb !important; }
     .pf-group-stats .rating-text { margin-left: 4px; font-weight: 600; font-size: 0.75rem; color: var(--shopee-muted); }
     .pf-group-option {
-        display: block;
+        display: flex;
+        flex-direction: column;
         position: relative;
         width: 100%;
         min-width: 0;
-        padding: 5px;
+        min-height: var(--pf-group-option-card-height, 126px);
+        height: 100%;
+        padding: 6px;
         border-radius: 8px;
         border: 2px solid var(--shopee-border);
         cursor: pointer;
         background: rgba(255, 255, 255, 0.92);
         transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
-        min-height: 0;
         max-width: 100%;
         box-sizing: border-box;
+        overflow: hidden;
+        gap: 5px;
     }
     .pf-group-option:hover { border-color: rgba(15, 52, 65, 0.28); background: #fff; }
     .pf-group-option.is-active {
@@ -411,25 +415,42 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-group-option img {
         display: block;
         width: 100%;
-        height: 64px;
+        height: 70px;
+        flex: 0 0 70px;
+        min-height: 70px;
         object-fit: contain;
         border-radius: 6px;
         background: #f8fafc;
         border: none;
     }
     .pf-group-option-text {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        padding: 0;
-        margin: -1px;
+        position: static;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        width: 100%;
         overflow: hidden;
-        clip: rect(0, 0, 0, 0);
-        white-space: nowrap;
-        border: 0;
+        line-height: 1.15;
     }
-    .pf-group-option-name { font-weight: 700; font-size: 0.78rem; color: #173042; overflow-wrap: anywhere; word-break: break-word; }
-    .pf-group-option-meta { font-size: 0.68rem; color: #64748b; margin-top: 2px; }
+    .pf-group-option-name {
+        font-weight: 700;
+        font-size: 0.68rem;
+        color: #173042;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+    .pf-group-option-meta {
+        font-size: 0.6rem;
+        color: #64748b;
+        margin-top: 2px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
 
     .pf-group-order-fields {
         margin-top: 14px;
@@ -521,19 +542,21 @@ require_once __DIR__ . '/../includes/header.php';
 
     .pf-group-options {
         --pf-group-option-gap: 12px;
-        --pf-group-option-card-height: 78px;
+        --pf-group-option-card-height: 126px;
+        --pf-group-options-padding: 8px;
         display: grid;
         grid-template-columns: repeat(5, minmax(0, 1fr));
+        grid-auto-rows: var(--pf-group-option-card-height);
         align-items: stretch;
         gap: var(--pf-group-option-gap);
         width: 100%;
         min-width: 0;
         max-width: 100%;
-        max-height: calc((var(--pf-group-option-card-height) * 3) + (var(--pf-group-option-gap) * 2) + 4px);
+        max-height: calc((var(--pf-group-option-card-height) * 3) + (var(--pf-group-option-gap) * 2) + (var(--pf-group-options-padding) * 2));
         flex: 0 0 auto;
         overflow-x: hidden;
         overflow-y: auto;
-        padding: 2px;
+        padding: var(--pf-group-options-padding);
         box-sizing: border-box;
         overscroll-behavior: contain;
         scrollbar-gutter: stable;
