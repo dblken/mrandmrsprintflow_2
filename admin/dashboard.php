@@ -510,6 +510,13 @@ if ($dashboard_branch_revenue_json === false) {
 // Best Selling Services bar chart — customization / job-order revenue by service category.
 $dashboard_sales_bar = pf_reports_category_sales_for_dashboard_bar_chart($service_category_sales, 8);
 $dashboard_sales_bar_is_category = true;
+$dashboard_sales_bar_labels = array_map(static function ($r) {
+    $label = trim((string)($r['category'] ?? ''));
+    return mb_substr($label !== '' ? $label : 'Customization', 0, 20);
+}, $dashboard_sales_bar);
+$dashboard_sales_bar_values = array_map(static function ($r) {
+    return round((float)($r['total'] ?? $r['revenue'] ?? 0), 2);
+}, $dashboard_sales_bar);
 
 // ── Customer Locations ────────────────────────────────
 $customer_locations = [];
@@ -1305,7 +1312,6 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 </div>
 
                 <!-- Top Customer Locations -->
-                <?php if (!empty($customer_locations) || !empty($dashboard_branch_chart_payload['locations'])): ?>
                 <div class="dash-card">
                     <div class="dash-card-title">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -1347,6 +1353,9 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         <?php endforeach; ?>
                     </div>
                     <?php else: ?>
+                    <?php if (empty($customer_locations)): ?>
+                    <div class="dash-empty-state dash-empty-state--compact">No customer location data for this period.</div>
+                    <?php else: ?>
                     <?php $max_orders = max(array_column($customer_locations, 'orders')); ?>
                     <div class="loc-list">
                         <?php foreach (array_slice($customer_locations, 0, 5) as $index => $loc):
@@ -1367,8 +1376,9 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         <?php endforeach; ?>
                     </div>
                     <?php endif; ?>
+                    <?php endif; ?>
                 </div>
-                <?php endif; ?>
+
             </div>
 
 
@@ -2291,26 +2301,27 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         })();
 
         // Best Selling Services (ApexCharts) — matches split category totals when available (same as donut)
-        <?php if (!empty($dashboard_sales_bar) || !empty($dashboard_branch_chart_payload['services'])): ?>
         (function () {
             if (dashRenderBranchServiceBars()) return;
             var el = document.getElementById('productsChart');
-            if (!el || typeof ApexCharts === 'undefined') return;
+            var dataWrap = document.getElementById('dash-service-single-chart');
+            if (!el || !dataWrap || typeof ApexCharts === 'undefined') return;
+            var serviceBarLabels = [];
+            var serviceBarValues = [];
+            try {
+                serviceBarLabels = JSON.parse(dataWrap.getAttribute('data-service-bar-labels') || '[]');
+                serviceBarValues = JSON.parse(dataWrap.getAttribute('data-service-bar-values') || '[]');
+            } catch (e) {
+                serviceBarLabels = [];
+                serviceBarValues = [];
+            }
             bindWhenVisible(el.parentElement, function () {
                 var mobileProducts = isDashMobile();
                 var chart = new ApexCharts(el, {
                     chart: { type: 'bar', height: mobileProducts ? 340 : 300, toolbar: { show: false } },
-                    series: [{ name: 'Sales (₱)', data: <?php echo json_encode(array_map(function ($r) {
-                        return round((float)($r['total'] ?? $r['revenue'] ?? 0), 2);
-                    }, $dashboard_sales_bar)); ?> }],
+                    series: [{ name: 'Sales (₱)', data: serviceBarValues }],
                     xaxis: {
-                        categories: <?php echo json_encode(array_map(function ($r) use ($dashboard_sales_bar_is_category) {
-                            if ($dashboard_sales_bar_is_category) {
-                                $label = trim((string)($r['category'] ?? ''));
-                                return mb_substr($label !== '' ? $label : 'Uncategorized product', 0, 20);
-                            }
-                            return mb_substr((string)($r['product_name'] ?? ''), 0, 20);
-                        }, $dashboard_sales_bar)); ?>,
+                        categories: serviceBarLabels,
                         labels: { style: { fontSize: mobileProducts ? '10px' : '11px' } }
                     },
                     yaxis: { labels: { maxWidth: mobileProducts ? 118 : 160, style: { fontSize: mobileProducts ? '10px' : '11px' } } },
@@ -2323,7 +2334,6 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 chart.render();
             });
         })();
-        <?php endif; ?>
         });
     };
     if (document.readyState === 'loading') {
