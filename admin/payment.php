@@ -349,8 +349,11 @@ $page_title = 'Payments - PrintFlow';
 .orders-table tbody tr:hover { background: #f9fafb; }
 .payment-reference-cell { width: 180px; max-width: 180px; }
 .payment-reference { display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.payment-type-pill { display: inline-flex; align-items: center; justify-content: center; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.payment-type-pill.product { background: #ecfdf5; color: #047857; }
+.payment-type-pill.service { background: #eff6ff; color: #1d4ed8; }
 .payment-row { cursor: pointer; transition: background .15s ease; }
-.payment-row:focus, .payment-row:active { outline: none; }
+.payment-row:focus, .payment-row:active { outline: none; background: transparent; }
 .payment-modal-overlay { position: fixed; inset: 0; z-index: 1000; display: none; align-items: center; justify-content: center; padding: 20px; background: rgba(15, 23, 42, .45); }
 .payment-modal-overlay.open { display: flex; }
 .payment-modal { width: 100%; max-width: 640px; max-height: calc(100vh - 32px); overflow: auto; background: #fff; border-radius: 12px; box-shadow: 0 25px 50px rgba(0, 0, 0, .25); }
@@ -364,7 +367,7 @@ $page_title = 'Payments - PrintFlow';
 .payment-detail-item { min-width: 0; margin-bottom: 14px; padding: 12px 14px; border: 0; border-radius: 8px; background: #f9fafb; }
 .payment-detail-item dt { display: block; margin: 0 0 4px; color: #9ca3af; font-size: 11px; line-height: 1.2; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; }
 .payment-detail-item dd { margin: 0; color: #1f2937; font-size: 13px; font-weight: 400; line-height: 1.45; word-break: break-word; }
-.payment-detail-item--amount { grid-column: 1 / -1; background: #ecfeff; }
+.payment-detail-item--amount { background: #ecfeff; }
 .payment-detail-amount { color: #0f766e !important; font-size: 24px; font-weight: 800; }
 .payment-status-badge { display: inline-flex; align-items: center; padding: 5px 11px; border-radius: 999px; background: #dcfce7; color: #15803d; font-size: 12px; font-weight: 700; }
 .payment-status-badge.is-warning { background: #fef3c7; color: #a16207; }
@@ -544,25 +547,28 @@ $page_title = 'Payments - PrintFlow';
                     <thead>
                         <tr>
                             <th>Reference</th>
+                            <th>Date</th>
+                            <th>Type</th>
                             <th>Order / Receipt</th>
                             <th>Customer</th>
                             <th>Source</th>
                             <th>Amount</th>
                             <th>Method</th>
                             <th>Status</th>
-                            <th>Date / Time</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (!$visible): ?>
                         <tr>
-                            <td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No payment transactions found.</td>
+                            <td colspan="9" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No payment transactions found.</td>
                         </tr>
                         <?php else: ?>
                         <?php foreach ($visible as $tx): ?>
                         <?php $paymentPayloadAttr = htmlspecialchars(json_encode($tx, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}', ENT_QUOTES, 'UTF-8'); ?>
                         <tr class="payment-row" tabindex="0" role="button" data-payment-detail="<?php echo $paymentPayloadAttr; ?>" aria-label="View payment details for <?php echo htmlspecialchars($tx['order']); ?>">
                             <td class="payment-reference-cell" title="<?php echo htmlspecialchars($tx['reference']); ?>"><span class="payment-reference" style="font-weight:500;"><?php echo htmlspecialchars($tx['reference']); ?></span></td>
+                            <td><?php echo htmlspecialchars(date('M j, Y', strtotime($tx['at']))); ?></td>
+                            <td><span class="payment-type-pill <?php echo $tx['order_type'] === 'Custom Order' ? 'service' : 'product'; ?>"><?php echo $tx['order_type'] === 'Custom Order' ? 'Service' : 'Product'; ?></span></td>
                             <td>
                                 <?php echo htmlspecialchars($tx['order']); ?>
                                 <div class="pf-pay-sub"><?php echo htmlspecialchars($tx['branch']); ?></div>
@@ -572,7 +578,6 @@ $page_title = 'Payments - PrintFlow';
                             <td style="font-weight:600;color:#111827;"><?php echo format_currency($tx['amount']); ?></td>
                             <td><?php echo htmlspecialchars($tx['method']); ?></td>
                             <td><?php echo pf_status_badge($tx['status']); ?></td>
-                            <td><?php echo htmlspecialchars(date('M j, Y g:i A', strtotime($tx['at']))); ?></td>
                         </tr>
                         <?php endforeach; ?>
                         <?php endif; ?>
