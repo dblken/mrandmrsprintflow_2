@@ -63,13 +63,26 @@ if (isset($_SESSION['user_id'])) {
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
                 </svg>
                 Dashboard
-            </a>
-            <a href="<?php echo $base_path; ?>/manager/orders.php" class="nav-item <?php echo $current_page === 'orders.php' ? 'active' : ''; ?>">
-                <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/>
-                </svg>
-                Orders
-            </a>
+            </a>            <?php $manager_order_nav_active = in_array($current_page, ['orders.php', 'customizations.php', 'job_orders.php'], true); ?>
+            <div class="nav-group<?php echo $manager_order_nav_active ? ' expanded' : ''; ?>" data-nav-group="manager-orders">
+                <button type="button" class="nav-item nav-parent <?php echo $manager_order_nav_active ? 'active' : ''; ?>" data-nav-toggle="manager-orders" aria-expanded="<?php echo $manager_order_nav_active ? 'true' : 'false'; ?>" aria-controls="nav-subitems-manager-orders">
+                    <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5h6a2 2 0 012 2v12a2 2 0 01-2 2H9a2 2 0 01-2-2V7a2 2 0 012-2zm0 0V3h6v2M9 11h6M9 15h4"/>
+                    </svg>
+                    <span class="nav-label">Orders</span>
+                    <svg class="nav-chevron" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </button>
+                <div class="nav-subitems" id="nav-subitems-manager-orders">
+                    <a href="<?php echo $base_path; ?>/manager/orders.php" class="nav-subitem <?php echo $current_page === 'orders.php' ? 'active' : ''; ?>" data-nav-page="orders.php">
+                        Product Orders
+                    </a>
+                    <a href="<?php echo $base_path; ?>/manager/customizations.php" class="nav-subitem <?php echo in_array($current_page, ['customizations.php', 'job_orders.php'], true) ? 'active' : ''; ?>" data-nav-page="customizations.php">
+                        Custom Orders
+                    </a>
+                </div>
+            </div>
             <a href="<?php echo $base_path; ?>/manager/payment.php" class="nav-item <?php echo $current_page === 'payment.php' ? 'active' : ''; ?>">
                 <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
@@ -88,12 +101,6 @@ if (isset($_SESSION['user_id'])) {
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"/>
                 </svg>
                 Expense
-            </a>
-            <a href="<?php echo $base_path; ?>/manager/customizations.php" class="nav-item <?php echo in_array($current_page, ['job_orders.php','customizations.php']) ? 'active' : ''; ?>">
-                <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
-                </svg>
-                Customization
             </a>
 
             <a href="<?php echo $base_path; ?>/manager/customers.php" class="nav-item <?php echo $current_page === 'customers.php' ? 'active' : ''; ?>">
@@ -302,7 +309,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
             }
         } else {
-            var activeItem = nav.querySelector('a.nav-item.active');
+            var activeItem = nav.querySelector('a.nav-subitem.active, a.nav-item.active');
             if (activeItem) {
                 requestAnimationFrame(function() {
                     activeItem.scrollIntoView({ block: 'nearest', behavior: 'auto' });
@@ -323,7 +330,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } catch (e) {}
         }, true);
     }
-    nav.querySelectorAll('a.nav-item').forEach(function(link) {
+    nav.querySelectorAll('a.nav-item, a.nav-subitem').forEach(function(link) {
         link.addEventListener('click', function() {
             if (window.innerWidth <= 768) {
                 var sb = document.getElementById('adminSidebar');
@@ -338,6 +345,26 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+    function initManagerOrdersNavGroup() {
+        var group = document.querySelector('[data-nav-group="manager-orders"]');
+        if (!group) return;
+        var button = group.querySelector('[data-nav-toggle]');
+        if (button && button.dataset.pfNavBound !== '1') {
+            button.dataset.pfNavBound = '1';
+            button.addEventListener('click', function () {
+                var expanded = !group.classList.contains('expanded');
+                group.classList.toggle('expanded', expanded);
+                button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            });
+        }
+        group.querySelectorAll('.nav-subitem').forEach(function (link) {
+            link.addEventListener('click', function () {
+                group.classList.add('expanded');
+                button.setAttribute('aria-expanded', 'true');
+            });
+        });
+    }
+    document.addEventListener('DOMContentLoaded', initManagerOrdersNavGroup);
     // Notification badge updates are handled by notifications.js (loaded below)
 </script>
 
