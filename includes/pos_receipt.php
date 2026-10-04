@@ -103,25 +103,18 @@ function printflow_pos_build_receipt(int $orderId, float $amountTendered = 0.0, 
         ];
     }
     $total = 0.0;
-    $storedDiscountAmount = 0.0;
-    $hasPosDiscountColumns = function_exists('db_table_has_column') && db_table_has_column('orders', 'pos_discount_amount');
     foreach ($linkedOrderIds as $linkedOrderId) {
         $linkedRows = db_query(
-            $hasPosDiscountColumns
-                ? 'SELECT total_amount, pos_discount_amount FROM orders WHERE order_id = ? LIMIT 1'
-                : 'SELECT total_amount FROM orders WHERE order_id = ? LIMIT 1',
+            'SELECT total_amount FROM orders WHERE order_id = ? LIMIT 1',
             'i',
             [(int)$linkedOrderId]
         ) ?: [];
         $total += (float)($linkedRows[0]['total_amount'] ?? 0);
-        if ($hasPosDiscountColumns) {
-            $storedDiscountAmount += (float)($linkedRows[0]['pos_discount_amount'] ?? 0);
-        }
     }
     if ($total <= 0) {
         $total = (float)$order['total_amount'];
     }
-    $discountAmount = $storedDiscountAmount > 0 ? $storedDiscountAmount : max(0, $subtotal - $total);
+    $discountAmount = max(0, $subtotal - $total);
     $shop = printflow_load_runtime_config(
         'shop',
         dirname(__DIR__) . '/public/assets/uploads/shop_config.json'
@@ -176,10 +169,6 @@ function printflow_pos_build_receipt(int $orderId, float $amountTendered = 0.0, 
             'code' => (string)($order['discount_code'] ?? ''),
             'description' => (string)($order['discount_description'] ?? ''),
             'percent' => (float)($order['discount_percent'] ?? 0),
-            'type' => (string)($order['pos_discount_type'] ?? ''),
-            'value' => (float)($order['pos_discount_value'] ?? 0),
-            'reason' => (string)($order['pos_discount_reason'] ?? ''),
-            'notes' => (string)($order['pos_discount_notes'] ?? ''),
             'amount' => round($discountAmount, 2),
         ],
         'total' => round($total, 2),

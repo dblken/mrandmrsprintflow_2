@@ -128,87 +128,6 @@ $salesData['by_item'] = array_values($itemTotals);
 usort($salesData['by_item'], static fn($a, $b) => (($b['revenue'] ?? 0) <=> ($a['revenue'] ?? 0)));
 
 $salesSummary = pf_sales_summary_from_transactions($salesData['transactions']);
-$salesTrendIsAllBranches = printflow_branch_value_is_all($branchId);
-try {
-    $salesTrendData = $salesTrendIsAllBranches
-        ? pf_sales_trend_branch_breakdown($salesPeriodInfo, $salesFilters)
-        : ['mode' => 'mix', 'series' => ['Product Sales', 'Custom Sales'], 'rows' => pf_sales_trend_breakdown($salesPeriodInfo, $branchId, $salesFilters)];
-} catch (Throwable $e) {
-    $salesTrendData = ['mode' => $salesTrendIsAllBranches ? 'branches' : 'mix', 'series' => [], 'rows' => []];
-}
-$salesTrendRows = $salesTrendData['rows'] ?? [];
-$salesSourceBreakdown = $salesTrendData['source_breakdown'] ?? [];
-$sourceBreakdownHasSales = false;
-foreach ($salesSourceBreakdown as $sourceRow) {
-    if ((float)($sourceRow['product_sales'] ?? 0) > 0 || (float)($sourceRow['custom_sales'] ?? 0) > 0) {
-        $sourceBreakdownHasSales = true;
-        break;
-    }
-}
-$salesTrendJson = json_encode($salesTrendData, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
-if ($salesTrendJson === false) $salesTrendJson = '{"mode":"mix","series":[],"rows":[]}';
-$salesSourceJson = json_encode($salesSourceBreakdown, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
-if ($salesSourceJson === false) $salesSourceJson = '[]';
-$salesBranchPerformance = [
-    'total_revenue' => 0.0,
-    'top_branch' => '',
-    'top_branch_revenue' => 0.0,
-    'visible_branches' => count($salesSourceBreakdown),
-    'average_revenue' => 0.0,
-    'product_sales' => 0.0,
-    'custom_sales' => 0.0,
-    'product_percent' => 0.0,
-    'custom_percent' => 0.0,
-];
-foreach ($salesSourceBreakdown as $sourceRow) {
-    $productSales = (float)($sourceRow['product_sales'] ?? 0);
-    $customSales = (float)($sourceRow['custom_sales'] ?? 0);
-    $branchRevenue = $productSales + $customSales;
-    $salesBranchPerformance['total_revenue'] += $branchRevenue;
-    $salesBranchPerformance['product_sales'] += $productSales;
-    $salesBranchPerformance['custom_sales'] += $customSales;
-    if ($branchRevenue > $salesBranchPerformance['top_branch_revenue']) {
-        $salesBranchPerformance['top_branch'] = (string)($sourceRow['branch_name'] ?? '');
-        $salesBranchPerformance['top_branch_revenue'] = $branchRevenue;
-    }
-}
-$salesBranchPerformance['total_revenue'] = round($salesBranchPerformance['total_revenue'], 2);
-$salesBranchPerformance['product_sales'] = round($salesBranchPerformance['product_sales'], 2);
-$salesBranchPerformance['custom_sales'] = round($salesBranchPerformance['custom_sales'], 2);
-$salesBranchPerformance['average_revenue'] = $salesBranchPerformance['visible_branches'] > 0
-    ? round($salesBranchPerformance['total_revenue'] / $salesBranchPerformance['visible_branches'], 2)
-    : 0.0;
-if (!$salesTrendIsAllBranches) {
-    $salesBranchPerformance['visible_branches'] = 1;
-    $salesBranchPerformance['top_branch'] = trim((string)$branchName) ?: 'Selected Branch';
-    foreach ($salesTrendRows as $trendBucket) {
-        $salesBranchPerformance['product_sales'] += (float)($trendBucket['product_sales'] ?? 0);
-        $salesBranchPerformance['custom_sales'] += (float)($trendBucket['custom_sales'] ?? 0);
-    }
-    $salesBranchPerformance['product_sales'] = round($salesBranchPerformance['product_sales'], 2);
-    $salesBranchPerformance['custom_sales'] = round($salesBranchPerformance['custom_sales'], 2);
-    $salesBranchPerformance['total_revenue'] = round($salesBranchPerformance['product_sales'] + $salesBranchPerformance['custom_sales'], 2);
-    $salesBranchPerformance['top_branch_revenue'] = $salesBranchPerformance['total_revenue'];
-    $salesBranchPerformance['average_revenue'] = $salesBranchPerformance['total_revenue'];
-}
-if ($salesBranchPerformance['total_revenue'] > 0) {
-    $salesBranchPerformance['product_percent'] = round(($salesBranchPerformance['product_sales'] / $salesBranchPerformance['total_revenue']) * 100, 1);
-    $salesBranchPerformance['custom_percent'] = round(100 - $salesBranchPerformance['product_percent'], 1);
-}
-$trendHasSales = false;
-foreach ($salesTrendRows as $trendBucket) {
-    if ($salesTrendIsAllBranches) {
-        foreach (($trendBucket['branch_sales'] ?? []) as $branchSale) {
-            if ((float)$branchSale > 0) {
-                $trendHasSales = true;
-                break 2;
-            }
-        }
-    } elseif ((float)($trendBucket['product_sales'] ?? 0) > 0 || (float)($trendBucket['custom_sales'] ?? 0) > 0) {
-        $trendHasSales = true;
-        break;
-    }
-}
 $branchTotals = [];
 foreach ($salesData['transactions'] as $row) {
     $amount = (float)($row['amount'] ?? 0);
@@ -269,7 +188,6 @@ function sales_transaction_modal_payload(array $row): array
         'payment_status' => sales_format_label($row['payment_status'] ?? ''),
         'payment_method' => sales_method_display($row['payment_method'] ?? ''),
         'order_status' => sales_format_label($row['status'] ?? ''),
-        'discount' => number_format((float)($row['discount_amount'] ?? 0), 2),
         'amount' => number_format((float)($row['amount'] ?? 0), 2),
         'record_type' => ($refType === 'job' || $type === 'service') ? 'Customization / Service Order' : 'Store Product Order',
         'linked_order' => $linkedOrder > 0 ? '#' . $linkedOrder : '',
@@ -321,46 +239,6 @@ function salesPrintInPlace(url) {
 .sales-toolbar-summary { font-size:13px; color:#6b7280; }
 .sales-toolbar-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; align-items:stretch; }
-.sales-trend-card { margin-bottom:24px; }
-.sales-all-branches-top { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(280px,.85fr); gap:20px; align-items:stretch; margin-bottom:24px; }
-.sales-all-branches-top .sales-trend-card { margin-bottom:0; }
-.sales-performance-summary { display:flex; flex-direction:column; gap:14px; padding:12px; border:1px solid #eef2f7; border-radius:14px; background:radial-gradient(circle at top right, rgba(83,197,224,0.12), transparent 34%), linear-gradient(180deg, #fbfdff 0%, #f8fafc 100%); box-shadow:inset 0 1px 0 rgba(255,255,255,0.75); }
-.sales-performance-summary .pf-branch-summary-title { margin:0 0 10px; font-size:11px; font-weight:700; letter-spacing:.02em; text-transform:uppercase; color:#475569; }
-.sales-performance-summary .pf-branch-summary-grid { display:grid; gap:10px; }
-.sales-performance-summary .pf-branch-stat { display:grid; grid-template-columns:42px minmax(0, 1fr); gap:12px; align-items:center; padding:12px; border-radius:12px; background:rgba(255,255,255,.88); border:1px solid rgba(226,232,240,.92); box-shadow:0 10px 25px rgba(15,23,42,.04); }
-.sales-performance-summary .pf-branch-stat-icon { width:42px; height:42px; border-radius:12px; display:inline-flex; align-items:center; justify-content:center; }
-.sales-performance-summary .pf-branch-stat-icon svg { width:18px; height:18px; }
-.sales-performance-summary .pf-branch-stat-copy { min-width:0; }
-.sales-performance-summary .pf-branch-stat-total .pf-branch-stat-icon { background:linear-gradient(180deg, #ecf8fb 0%, #f0fafc 100%); color:#00232b; }
-.sales-performance-summary .pf-branch-stat-top .pf-branch-stat-icon { background:linear-gradient(180deg, #dcfce7 0%, #f0fdf4 100%); color:#16a34a; }
-.sales-performance-summary .pf-branch-stat-avg .pf-branch-stat-icon { background:linear-gradient(180deg, #ffedd5 0%, #fff7ed 100%); color:#f97316; }
-.sales-performance-summary .pf-branch-stat-label { font-size:11px; font-weight:600; color:#64748b; margin-bottom:4px; line-height:1.35; }
-.sales-performance-summary .pf-branch-stat-value { font-size:12px; font-weight:700; color:#00232b; line-height:1.25; }
-.sales-performance-summary .pf-branch-stat-sub { font-size:11px; font-weight:600; margin-top:3px; line-height:1.35; }
-.sales-performance-summary .pf-branch-stat-sub.pos { color:#16a34a; }
-.sales-performance-summary .pf-branch-stat-sub.neu { color:#475569; }
-.sales-performance-summary .pf-branch-breakdown { border-top:1px solid #e5e7eb; padding-top:14px; }
-.sales-performance-summary .pf-branch-section-title { margin:0 0 10px; font-size:11px; font-weight:700; letter-spacing:.02em; text-transform:uppercase; color:#475569; }
-.sales-performance-summary .pf-branch-breakdown-row { display:grid; gap:6px; margin-bottom:10px; }
-.sales-performance-summary .pf-branch-breakdown-row:last-child { margin-bottom:0; }
-.sales-performance-summary .pf-branch-breakdown-meta { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
-.sales-performance-summary .pf-branch-breakdown-meta span { font-size:11px; font-weight:600; color:#64748b; }
-.sales-performance-summary .pf-branch-breakdown-meta strong { font-size:12px; font-weight:700; color:#00232b; line-height:1.25; }
-.sales-performance-summary .pf-branch-breakdown-bar { height:8px; background:#e2e8f0; border-radius:999px; overflow:hidden; }
-.sales-performance-summary .pf-branch-breakdown-bar > span { display:block; height:100%; border-radius:inherit; }
-.sales-performance-summary .pf-branch-breakdown-bar--product > span { background:linear-gradient(90deg, #00232b 0%, #0F4C5C 100%); }
-.sales-performance-summary .pf-branch-breakdown-bar--custom > span { background:linear-gradient(90deg, #53C5E0 0%, #3498DB 100%); }
-.sales-performance-summary .sales-list-header { margin-bottom:14px; }
-.sales-performance-metric { padding:12px 0; border-bottom:1px solid #f1f5f9; }
-.sales-performance-metric:last-child { border-bottom:0; }
-.sales-performance-label { color:#64748b; font-size:12px; font-weight:600; }
-.sales-performance-value { margin-top:4px; color:#0f172a; font-size:20px; line-height:1.2; font-weight:800; }
-.sales-performance-sub { margin-top:3px; color:#64748b; font-size:12px; }
-.sales-performance-split { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-@media(max-width:960px){ .sales-all-branches-top{ grid-template-columns:1fr; } .sales-all-branches-top .sales-trend-card{ margin-bottom:0; } }
-.sales-trend-chart-wrap { position:relative; height:320px; width:100%; }
-.sales-source-chart-wrap { position:relative; height:260px; width:100%; }
-@media(max-width:640px){ .sales-trend-chart-wrap{ height:260px; } }
 .kpi-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px 20px; position:relative; overflow:hidden; height:100%; display:flex; flex-direction:column; }
 .kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
 .kpi-card.indigo::before { background:linear-gradient(90deg,#6366f1,#818cf8); }
@@ -392,38 +270,18 @@ function salesPrintInPlace(url) {
 .sales-txn-table .sales-breakdown-pill { max-width:100%; overflow:hidden; text-overflow:ellipsis; }
 .sales-txn-row { cursor:pointer; transition:background .15s; }
 .sales-txn-row:hover { background:#f0fdfa !important; }
-.sales-txn-row-extra { display:none; }
-.sales-item-row-extra { display:none; }
-.sales-txn-expand { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; margin-top:12px; padding:10px 14px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; color:#374151; font-size:13px; font-weight:600; cursor:pointer; }
-.sales-txn-expand:hover { background:#f9fafb; border-color:#9ca3af; }
-.sales-txn-expand svg { transition:transform .2s ease; }
-.sales-txn-expand[aria-expanded="true"] svg { transform:rotate(180deg); }
-.sales-txn-modal-overlay { position: fixed; inset: 0; z-index: 1000; display: none; align-items: center; justify-content: center; padding: 20px; background: rgba(15, 23, 42, .45); }
-.sales-txn-modal-overlay.open { display: flex; }
-.sales-txn-modal { width: 100%; max-width: 640px; max-height: calc(100vh - 32px); overflow: auto; background: #fff; border-radius: 12px; box-shadow: 0 25px 50px rgba(0, 0, 0, .25); }
-.sales-txn-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 24px; border-bottom: 1px solid #f3f4f6; }
-.sales-txn-modal-heading { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
-.sales-txn-modal-header h3 { margin: 0 0 2px; color: #1f2937; font-size: 18px; line-height: 1.2; font-weight: 700; }
-.sales-txn-modal-close { width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: #6b7280; font-size: 22px; line-height: 1; cursor: pointer; }
-.sales-txn-modal-close:hover { background: #f3f4f6; }
-.sales-txn-modal-body { padding: 24px; }
-.sales-txn-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
-.sales-txn-detail-item { min-width: 0; margin-bottom: 14px; padding: 12px 14px; border: 0; border-radius: 8px; background: #f9fafb; }
-.sales-txn-detail-item dt { display: block; margin: 0 0 4px; color: #9ca3af; font-size: 11px; line-height: 1.2; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; }
-.sales-txn-detail-item dd { margin: 0; color: #1f2937; font-size: 13px; font-weight: 400; line-height: 1.45; word-break: break-word; }
-.sales-txn-detail-item--amount { background: #ecfeff; }
-.sales-txn-detail-amount { color: #0f766e !important; font-size: 24px; font-weight: 800; }
-.sales-txn-status-badge { display: inline-flex; align-items: center; padding: 5px 11px; border-radius: 999px; background: #dcfce7; color: #15803d; font-size: 12px; font-weight: 700; }
-.sales-txn-status-badge.is-warning { background: #fef3c7; color: #a16207; }
-.sales-txn-status-badge.is-danger { background: #fee2e2; color: #b91c1c; }
-@media (max-width: 640px) {
-    .sales-txn-modal-overlay { padding: 12px; }
-    .sales-txn-modal { max-height: 92vh; border-radius: 14px; }
-    .sales-txn-modal-header { padding: 18px 20px; }
-    .sales-txn-modal-body { padding: 18px 20px; }
-    .sales-txn-detail-grid { grid-template-columns: 1fr; }
-    .sales-txn-detail-item--amount { grid-column: auto; }
-}
+.sales-txn-modal-overlay { position:fixed; inset:0; background:rgba(15,23,42,.45); z-index:1000; display:none; align-items:center; justify-content:center; padding:20px; }
+.sales-txn-modal-overlay.open { display:flex; }
+.sales-txn-modal { background:#fff; border-radius:14px; width:100%; max-width:520px; max-height:90vh; overflow:auto; box-shadow:0 20px 50px rgba(0,0,0,.18); }
+.sales-txn-modal-header { display:flex; align-items:center; justify-content:space-between; padding:18px 22px; border-bottom:1px solid #f3f4f6; }
+.sales-txn-modal-header h3 { margin:0; font-size:18px; font-weight:700; color:#111827; }
+.sales-txn-modal-close { border:0; background:transparent; color:#6b7280; cursor:pointer; width:32px; height:32px; border-radius:8px; font-size:22px; line-height:1; }
+.sales-txn-modal-close:hover { background:#f3f4f6; }
+.sales-txn-modal-body { padding:20px 22px; }
+.sales-txn-detail-grid { display:grid; grid-template-columns:130px 1fr; gap:10px 16px; font-size:13px; }
+.sales-txn-detail-grid dt { margin:0; font-weight:600; color:#6b7280; }
+.sales-txn-detail-grid dd { margin:0; color:#111827; word-break:break-word; }
+.sales-txn-detail-amount { font-size:22px; font-weight:800; color:#0f766e; margin-top:4px; }
 .sales-breakdown-pill { display:inline-flex; align-items:center; justify-content:center; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; background:#ecfdf5; color:#047857; }
 .sales-breakdown-empty { min-height:110px; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:13px; border:1px dashed #d1d5db; border-radius:10px; background:#fff; text-align:center; }
 .filter-panel { position:absolute; top:calc(100% + 6px); right:0; width:320px; max-height:min(560px,calc(100vh - 120px)); overflow-y:auto; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; }
@@ -593,111 +451,6 @@ function salesPrintInPlace(url) {
                 </div>
             </div>
 
-<div class="sales-all-branches-top">
-            <div class="card sales-trend-card">
-                <div class="sales-list-header">
-                    <h3>
-                        <svg width="16" height="16" fill="none" stroke="#53C5E0" viewBox="0 0 24 24" style="flex-shrink:0;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 19V5m0 14h16M8 16v-5m4 5V8m4 8V3"/></svg>
-                        <?php echo $salesTrendIsAllBranches ? 'Branch Sales Comparison' : 'Sales Trend'; ?>
-                        <span style="padding:3px 8px;background:#EBF8FF;color:#2C5282;border-radius:6px;font-size:11px;font-weight:600;"><?php echo htmlspecialchars($sales_label); ?></span>
-                    </h3>
-                    <span style="font-size:12px;color:#64748b;"><?php echo $salesTrendIsAllBranches ? 'Branch comparison' : 'Product and custom revenue'; ?></span>
-                </div>
-                <?php if (!$trendHasSales): ?>
-                    <div class="sales-breakdown-empty">No sales data for this period.</div>
-                <?php else: ?>
-                    <div class="sales-trend-chart-wrap">
-                        <canvas id="salesTrendChart" aria-label="Sales trend chart"></canvas>
-                    </div>
-                <?php endif; ?>
-            </div>
-            <aside class="sales-performance-summary">
-                <h4 class="pf-branch-summary-title">Sales Summary</h4>
-                <div class="pf-branch-summary-grid">
-                    <?php $salesTopPct = $salesBranchPerformance['total_revenue'] > 0 ? (($salesBranchPerformance['top_branch_revenue'] / $salesBranchPerformance['total_revenue']) * 100) : 0; ?>
-                    <div class="pf-branch-stat pf-branch-stat-total">
-                        <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .672-3 1.5S10.343 11 12 11s3 .672 3 1.5S13.657 14 12 14m0-6V6m0 8v2m9-4a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
-                        <div class="pf-branch-stat-copy">
-                            <div class="pf-branch-stat-label">Total Revenue</div>
-                            <div class="pf-branch-stat-value">&#8369;<?php echo number_format((float)$salesBranchPerformance['total_revenue'], 0); ?></div>
-                            <div class="pf-branch-stat-sub neu"><?php echo number_format((int)$salesBranchPerformance['visible_branches']); ?> branch<?php echo $salesBranchPerformance['visible_branches'] === 1 ? '' : 'es'; ?> shown</div>
-                        </div>
-                    </div>
-<?php if ($salesTrendIsAllBranches): ?>
-                    <div class="pf-branch-stat pf-branch-stat-top">
-                        <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81H7.03a1 1 0 00.95-.69l1.07-3.292z"/></svg></div>
-                        <div class="pf-branch-stat-copy">
-                            <div class="pf-branch-stat-label">Top Performing Branch</div>
-                            <div class="pf-branch-stat-value"><?php echo htmlspecialchars($salesBranchPerformance['top_branch'] ?: 'No sales'); ?></div>
-                            <div class="pf-branch-stat-sub pos">&#8369;<?php echo number_format((float)$salesBranchPerformance['top_branch_revenue'], 0); ?> (<?php echo number_format((float)$salesTopPct, 1); ?>%)</div>
-                        </div>
-                    </div>
-                    <div class="pf-branch-stat pf-branch-stat-avg">
-                        <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 11V5a1 1 0 012 0v6h6a1 1 0 110 2h-6v6a1 1 0 11-2 0v-6H5a1 1 0 110-2h6z"/></svg></div>
-                        <div class="pf-branch-stat-copy">
-                            <div class="pf-branch-stat-label">Average Revenue per Branch</div>
-                            <div class="pf-branch-stat-value">&#8369;<?php echo number_format((float)$salesBranchPerformance['average_revenue'], 0); ?></div>
-                            <div class="pf-branch-stat-sub neu">Across visible branches</div>
-                        </div>
-                    </div>
-<?php else: ?>
-                    <div class="pf-branch-stat pf-branch-stat-avg">
-                        <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h10"/></svg></div>
-                        <div class="pf-branch-stat-copy">
-                            <div class="pf-branch-stat-label">Sales Transactions</div>
-                            <div class="pf-branch-stat-value"><?php echo number_format((int)($salesSummary['transaction_count'] ?? 0)); ?></div>
-                            <div class="pf-branch-stat-sub neu">Filtered paid sales</div>
-                        </div>
-                    </div>
-                    <div class="pf-branch-stat pf-branch-stat-total">
-                        <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0v10l-8 4-8-4V7m16 0l-8 4m-8-4l8 4m0 0v10"/></svg></div>
-                        <div class="pf-branch-stat-copy">
-                            <div class="pf-branch-stat-label">Product Sales</div>
-                            <div class="pf-branch-stat-value">&#8369;<?php echo number_format((float)$salesBranchPerformance['product_sales'], 0); ?></div>
-                            <div class="pf-branch-stat-sub neu">Filtered product revenue</div>
-                        </div>
-                    </div>
-                    <div class="pf-branch-stat pf-branch-stat-top">
-                        <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0v10l-8 4-8-4V7m16 0l-8 4m-8-4l8 4m0 0v10"/></svg></div>
-                        <div class="pf-branch-stat-copy">
-                            <div class="pf-branch-stat-label">Custom Sales</div>
-                            <div class="pf-branch-stat-value">&#8369;<?php echo number_format((float)$salesBranchPerformance['custom_sales'], 0); ?></div>
-                            <div class="pf-branch-stat-sub neu">Filtered custom revenue</div>
-                        </div>
-                    </div>
-<?php endif; ?>
-                </div>
-                <div class="pf-branch-breakdown">
-                    <h4 class="pf-branch-section-title">Revenue Contribution Breakdown</h4>
-                    <div class="pf-branch-breakdown-row">
-                        <div class="pf-branch-breakdown-meta"><span>Product Sales</span><strong>&#8369;<?php echo number_format((float)$salesBranchPerformance['product_sales'], 0); ?> &middot; <?php echo number_format((float)$salesBranchPerformance['product_percent'], 1); ?>%</strong></div>
-                        <div class="pf-branch-breakdown-bar pf-branch-breakdown-bar--product"><span style="width:<?php echo max(0, min(100, (float)$salesBranchPerformance['product_percent'])); ?>%"></span></div>
-                    </div>
-                    <div class="pf-branch-breakdown-row">
-                        <div class="pf-branch-breakdown-meta"><span>Custom Sales</span><strong>&#8369;<?php echo number_format((float)$salesBranchPerformance['custom_sales'], 0); ?> &middot; <?php echo number_format((float)$salesBranchPerformance['custom_percent'], 1); ?>%</strong></div>
-                        <div class="pf-branch-breakdown-bar pf-branch-breakdown-bar--custom"><span style="width:<?php echo max(0, min(100, (float)$salesBranchPerformance['custom_percent'])); ?>%"></span></div>
-                    </div>
-                </div>
-            </aside>
-            </div>
-            <?php if ($salesTrendIsAllBranches): ?>
-            <div class="card sales-trend-card" style="display:none;">
-                <div class="sales-list-header">
-                    <h3>
-                        <svg width="16" height="16" fill="none" stroke="#53C5E0" viewBox="0 0 24 24" style="flex-shrink:0;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 19V5m0 14h16M8 16v-5m4 5V8m4 8V3"/></svg>
-                        Sales Source Breakdown by Branch
-                    </h3>
-                    <span style="font-size:12px;color:#64748b;">Product and custom revenue</span>
-                </div>
-                <?php if (!$sourceBreakdownHasSales): ?>
-                    <div class="sales-breakdown-empty">No sales data for this period.</div>
-                <?php else: ?>
-                    <div class="sales-source-chart-wrap">
-                        <canvas id="salesSourceBreakdownChart" aria-label="Sales source breakdown by branch"></canvas>
-                    </div>
-                <?php endif; ?>
-            </div>
-            <?php endif; ?>
             <div class="card">
                 <div class="sales-list-header">
                     <h3>
@@ -726,16 +479,10 @@ function salesPrintInPlace(url) {
                                 <div class="sales-breakdown-empty">No product or service sales for this period.</div>
                             <?php else: ?>
                                 <table class="sales-breakdown-table"><thead><tr><th>Type</th><th>Item</th><th class="num">Sales</th></tr></thead><tbody>
-                                <?php foreach ($salesData['by_item'] as $itemIndex => $row): ?>
-                                    <tr class="<?php echo $itemIndex >= 5 ? 'sales-item-row-extra' : ''; ?>"><td><span class="sales-breakdown-pill<?php echo sales_type_pill_class($row['type'] ?? ''); ?>"><?php echo htmlspecialchars((string)$row['type']); ?></span></td><td><?php echo htmlspecialchars((string)$row['item_name']); ?></td><td class="num">&#8369;<?php echo number_format((float)$row['revenue'], 2); ?></td></tr>
+                                <?php foreach (array_slice($salesData['by_item'], 0, 12) as $row): ?>
+                                    <tr><td><span class="sales-breakdown-pill<?php echo sales_type_pill_class($row['type'] ?? ''); ?>"><?php echo htmlspecialchars((string)$row['type']); ?></span></td><td><?php echo htmlspecialchars((string)$row['item_name']); ?></td><td class="num">&#8369;<?php echo number_format((float)$row['revenue'], 2); ?></td></tr>
                                 <?php endforeach; ?>
                                 </tbody></table>
-                                <?php if (count($salesData['by_item']) > 5): ?>
-                                    <button type="button" class="sales-txn-expand" id="salesItemExpand" aria-expanded="false">
-                                        <span data-item-expand-label>View all <?php echo number_format(count($salesData['by_item'])); ?> products/services</span>
-                                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m6 9 6 6 6-6"/></svg>
-                                    </button>
-                                <?php endif; ?>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -746,14 +493,14 @@ function salesPrintInPlace(url) {
                     <?php else: ?>
                         <div class="sales-txn-wrap">
                             <table class="sales-breakdown-table sales-txn-table">
-                                <thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Order</th><th>Customer</th><th>Branch</th><th>Payment</th><th>Method</th><th>Status</th><th class="num">Discount</th><th class="num">Amount</th></tr></thead>
+                                <thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Order</th><th>Customer</th><th>Branch</th><th>Payment</th><th>Method</th><th>Status</th><th class="num">Amount</th></tr></thead>
                                 <tbody>
-                                <?php foreach ($salesData['transactions'] as $transactionIndex => $row): ?>
+                                <?php foreach ($salesData['transactions'] as $row): ?>
                                     <?php
                                     $txnPayload = sales_transaction_modal_payload($row);
                                     $txnPayloadAttr = htmlspecialchars(json_encode($txnPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}', ENT_QUOTES, 'UTF-8');
                                     ?>
-                                    <tr class="sales-txn-row<?php echo $transactionIndex >= 10 ? ' sales-txn-row-extra' : ''; ?>" tabindex="0" role="button" data-sales-txn="<?php echo $txnPayloadAttr; ?>" aria-label="View transaction details for order #<?php echo (int)($row['id'] ?? 0); ?>">
+                                    <tr class="sales-txn-row" tabindex="0" role="button" data-sales-txn="<?php echo $txnPayloadAttr; ?>" aria-label="View transaction details for order #<?php echo (int)($row['id'] ?? 0); ?>">
                                         <td><?php echo htmlspecialchars(date('M j, Y g:i A', strtotime((string)$row['sales_date']))); ?></td>
                                         <td><span class="sales-breakdown-pill<?php echo sales_type_pill_class($row['type'] ?? ''); ?>"><?php echo htmlspecialchars((string)$row['type']); ?></span></td>
                                         <td><?php echo htmlspecialchars((string)($row['item_name'] ?? '-')); ?></td>
@@ -763,19 +510,12 @@ function salesPrintInPlace(url) {
                                         <td><?php echo htmlspecialchars(sales_format_label($row['payment_status'] ?? '')); ?></td>
                                         <td><?php echo htmlspecialchars(sales_method_display($row['payment_method'] ?? '')); ?></td>
                                         <td><?php echo htmlspecialchars(sales_format_label($row['status'] ?? '')); ?></td>
-                                        <td class="num">&#8369;<?php echo number_format((float)($row['discount_amount'] ?? 0), 2); ?></td>
                                         <td class="num">&#8369;<?php echo number_format((float)$row['amount'], 2); ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                                 </tbody>
-                                <tfoot><tr class="sales-breakdown-total-row"><td colspan="10">Total Amount</td><td class="num">&#8369;<?php echo number_format((float)($salesSummary['total_sales'] ?? 0), 2); ?></td></tr></tfoot>
+                                <tfoot><tr class="sales-breakdown-total-row"><td colspan="9">Total Amount</td><td class="num">&#8369;<?php echo number_format((float)($salesSummary['total_sales'] ?? 0), 2); ?></td></tr></tfoot>
                             </table>
-                            <?php if (count($salesData['transactions']) > 10): ?>
-                                <button type="button" class="sales-txn-expand" id="salesTxnExpand" aria-expanded="false">
-                                    <span data-expand-label>View all <?php echo number_format(count($salesData['transactions'])); ?> transactions</span>
-                                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m6 9 6 6 6-6"/></svg>
-                                </button>
-                            <?php endif; ?>
                         </div>
                     <?php endif; ?>
                 </div>
@@ -787,10 +527,7 @@ function salesPrintInPlace(url) {
 <div class="sales-txn-modal-overlay" id="salesTxnModal" aria-hidden="true">
     <div class="sales-txn-modal" role="dialog" aria-modal="true" aria-labelledby="salesTxnModalTitle">
         <div class="sales-txn-modal-header">
-            <div class="sales-txn-modal-heading">
-                <h3 id="salesTxnModalTitle">Transaction Details</h3>
-                <span class="sales-txn-status-badge" id="salesTxnModalStatus"></span>
-            </div>
+            <h3 id="salesTxnModalTitle">Transaction Details</h3>
             <button type="button" class="sales-txn-modal-close" id="salesTxnModalClose" aria-label="Close">&times;</button>
         </div>
         <div class="sales-txn-modal-body">
@@ -808,15 +545,8 @@ function openSalesTxnModal(payload) {
     const modal = document.getElementById('salesTxnModal');
     const body = document.getElementById('salesTxnModalBody');
     const title = document.getElementById('salesTxnModalTitle');
-    const statusBadge = document.getElementById('salesTxnModalStatus');
     if (!modal || !body || !payload) return;
     title.textContent = 'Transaction ' + (payload.order || '');
-    if (statusBadge) {
-        const status = String(payload.order_status || 'Recorded');
-        const statusKey = status.toLowerCase();
-        statusBadge.textContent = status;
-        statusBadge.className = 'sales-txn-status-badge' + (statusKey.includes('cancel') || statusKey.includes('reject') ? ' is-danger' : (statusKey.includes('pending') || statusKey.includes('to pay') ? ' is-warning' : ''));
-    }
     const rows = [
         ['Date', payload.date],
         ['Type', payload.type],
@@ -830,10 +560,9 @@ function openSalesTxnModal(payload) {
         ['Record Type', payload.record_type],
     ];
     if (payload.linked_order) rows.push(['Linked Store Order', payload.linked_order]);
-    if (Number(String(payload.discount || '0').replace(/,/g, '')) > 0) rows.push(['Discount', '₱' + payload.discount]);
     body.innerHTML = rows.map(function (pair) {
-        return '<div class="sales-txn-detail-item"><dt>' + salesEscapeHtml(pair[0]) + '</dt><dd>' + salesEscapeHtml(pair[1]) + '</dd></div>';
-    }).join('') + '<div class="sales-txn-detail-item sales-txn-detail-item--amount"><dt>Amount</dt><dd class="sales-txn-detail-amount">&#8369;' + salesEscapeHtml(payload.amount) + '</dd></div>';
+        return '<dt>' + salesEscapeHtml(pair[0]) + '</dt><dd>' + salesEscapeHtml(pair[1]) + '</dd>';
+    }).join('') + '<dt>Amount</dt><dd class="sales-txn-detail-amount">&#8369;' + salesEscapeHtml(payload.amount) + '</dd>';
     modal.classList.add('open');
     modal.setAttribute('aria-hidden', 'false');
 }
@@ -846,26 +575,6 @@ function closeSalesTxnModal() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-    const expandItems = document.getElementById('salesItemExpand');
-    expandItems?.addEventListener('click', function () {
-        const expanded = expandItems.getAttribute('aria-expanded') === 'true';
-        document.querySelectorAll('.sales-item-row-extra').forEach(function (row) {
-            row.style.display = expanded ? 'none' : 'table-row';
-        });
-        expandItems.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-        const label = expandItems.querySelector('[data-item-expand-label]');
-        if (label) label.textContent = expanded ? 'View all products/services' : 'Show fewer products/services';
-    });
-    const expandTransactions = document.getElementById('salesTxnExpand');
-    expandTransactions?.addEventListener('click', function () {
-        const expanded = expandTransactions.getAttribute('aria-expanded') === 'true';
-        document.querySelectorAll('.sales-txn-row-extra').forEach(function (row) {
-            row.style.display = expanded ? 'none' : 'table-row';
-        });
-        expandTransactions.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-        const label = expandTransactions.querySelector('[data-expand-label]');
-        if (label) label.textContent = expanded ? 'View all transactions' : 'Show fewer transactions';
-    });
     document.querySelectorAll('.sales-txn-row').forEach(function (row) {
         const open = function () {
             try {
@@ -926,131 +635,5 @@ function submitSalesFilter(form) {
     form.submit();
 }
 </script>
-<?php if ($trendHasSales): ?>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const canvas = document.getElementById('salesTrendChart');
-    if (!canvas || typeof Chart === 'undefined') return;
-    const trend = <?php echo $salesTrendJson; ?>;
-    const rows = trend.rows || [];
-    const branchComparison = trend.mode === 'branches';
-    const money = function (value) {
-        return 'PHP ' + Number(value || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-    };
-    new Chart(canvas.getContext('2d'), {
-        type: 'bar',
-        data: {
-            labels: rows.map(function (row) { return row.bucket_label; }),
-            datasets: branchComparison
-                ? (trend.series || []).map(function (branchName, index) {
-                    const colors = ['#53C5E0', '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
-                    return {
-                        label: branchName,
-                        data: rows.map(function (row) { return Number((row.branch_sales || {})[branchName] || 0); }),
-                        backgroundColor: colors[index % colors.length],
-                        borderColor: colors[index % colors.length],
-                        borderWidth: 1
-                    };
-                })
-                : [
-                    {
-                        label: 'Product Sales',
-                        data: rows.map(function (row) { return Number(row.product_sales || 0); }),
-                        backgroundColor: '#53C5E0',
-                        borderColor: '#249bb8',
-                        borderWidth: 1
-                    },
-                    {
-                        label: 'Custom Sales',
-                        data: rows.map(function (row) { return Number(row.custom_sales || 0); }),
-                        backgroundColor: '#6366f1',
-                        borderColor: '#4f46e5',
-                        borderWidth: 1
-                    }
-                ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            scales: {
-                x: { stacked: !branchComparison, grid: { display: false } },
-                y: {
-                    stacked: !branchComparison,
-                    beginAtZero: true,
-                    ticks: { callback: function (value) { return money(value); } }
-                }
-            },
-            plugins: {
-                legend: { position: 'top' },
-                tooltip: {
-                    callbacks: {
-                        label: function (context) { return context.dataset.label + ': ' + money(context.parsed.y); },
-                        footer: function (items) {
-                            const total = items.reduce(function (sum, item) { return sum + Number(item.parsed.y || 0); }, 0);
-                            return 'Total: ' + money(total);
-                        }
-                    }
-                }
-            }
-        }
-    });
-});
-</script>
-<?php if ($salesTrendIsAllBranches && $sourceBreakdownHasSales): ?>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const canvas = document.getElementById('salesSourceBreakdownChart');
-    if (!canvas || typeof Chart === 'undefined') return;
-    const rows = <?php echo $salesSourceJson; ?>;
-    const money = function (value) {
-        return 'PHP ' + Number(value || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-    };
-    new Chart(canvas.getContext('2d'), {
-        type: 'bar',
-        data: {
-            labels: rows.map(function (row) { return row.branch_name; }),
-            datasets: [
-                {
-                    label: 'Product Sales',
-                    data: rows.map(function (row) { return Number(row.product_sales || 0); }),
-                    backgroundColor: '#53C5E0',
-                    borderColor: '#249bb8',
-                    borderWidth: 1
-                },
-                {
-                    label: 'Custom Sales',
-                    data: rows.map(function (row) { return Number(row.custom_sales || 0); }),
-                    backgroundColor: '#6366f1',
-                    borderColor: '#4f46e5',
-                    borderWidth: 1
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                x: { stacked: true, grid: { display: false } },
-                y: {
-                    stacked: true,
-                    beginAtZero: true,
-                    ticks: { callback: function (value) { return money(value); } }
-                }
-            },
-            plugins: {
-                legend: { position: 'top' },
-                tooltip: {
-                    callbacks: {
-                        label: function (context) { return context.dataset.label + ': ' + money(context.parsed.y); }
-                    }
-                }
-            }
-        }
-    });
-});
-</script>
-<?php endif; ?>
-<?php endif; ?>
 </body>
 </html>

@@ -490,14 +490,6 @@ function printflow_receipt_format_text(array $receipt, int $columns = 32): strin
     }
     $out[] = $line;
     $out[] = printflow_receipt_pair('Subtotal', printflow_receipt_money($receipt['subtotal'] ?? 0), $columns);
-    $discount = is_array($receipt['discount'] ?? null) ? $receipt['discount'] : [];
-    if ((float)($discount['amount'] ?? 0) > 0) {
-        $discountLabel = 'Discount';
-        if (trim((string)($discount['reason'] ?? '')) !== '') {
-            $discountLabel .= ' (' . trim((string)$discount['reason']) . ')';
-        }
-        $out[] = printflow_receipt_pair($discountLabel, '-' . printflow_receipt_money($discount['amount']), $columns);
-    }
     $out[] = $line;
     $out[] = printflow_receipt_pair('TOTAL', printflow_receipt_money($receipt['total'] ?? 0), $columns);
     $out[] = $line;

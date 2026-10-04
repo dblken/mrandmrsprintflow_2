@@ -52,93 +52,6 @@ function pos_table_has_column(string $table, string $column): bool {
     return $cache[$key] = !empty($rows);
 }
 
-function pos_ensure_order_discount_columns(): void {
-    static $checked = false;
-    if ($checked) return;
-    $checked = true;
-
-    $columns = [
-        'pos_subtotal_amount' => "ALTER TABLE orders ADD COLUMN pos_subtotal_amount DECIMAL(12,2) DEFAULT NULL AFTER total_amount",
-        'pos_discount_type' => "ALTER TABLE orders ADD COLUMN pos_discount_type VARCHAR(20) DEFAULT NULL AFTER pos_subtotal_amount",
-        'pos_discount_value' => "ALTER TABLE orders ADD COLUMN pos_discount_value DECIMAL(12,2) DEFAULT NULL AFTER pos_discount_type",
-        'pos_discount_amount' => "ALTER TABLE orders ADD COLUMN pos_discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER pos_discount_value",
-        'pos_discount_reason' => "ALTER TABLE orders ADD COLUMN pos_discount_reason VARCHAR(120) DEFAULT NULL AFTER pos_discount_amount",
-        'pos_discount_notes' => "ALTER TABLE orders ADD COLUMN pos_discount_notes TEXT DEFAULT NULL AFTER pos_discount_reason",
-        'pos_discount_applied_by' => "ALTER TABLE orders ADD COLUMN pos_discount_applied_by INT DEFAULT NULL AFTER pos_discount_notes",
-        'pos_discount_applied_at' => "ALTER TABLE orders ADD COLUMN pos_discount_applied_at DATETIME DEFAULT NULL AFTER pos_discount_applied_by",
-    ];
-
-    foreach ($columns as $column => $sql) {
-        if (!db_table_has_column('orders', $column, true)) {
-            db_execute($sql);
-            db_table_has_column('orders', $column, true);
-        }
-    }
-}
-
-function pos_discount_allowed_reasons(): array {
-    return [
-        'Senior Citizen',
-        'PWD',
-        'Promo',
-        'Employee Discount',
-        'Customer Request',
-        'Others',
-    ];
-}
-
-function pos_validate_checkout_discount(array $payload, float $subtotal): array {
-    $discount = $payload['discount'] ?? [];
-    if (!is_array($discount)) $discount = [];
-
-    $type = strtolower(trim((string)($discount['type'] ?? 'none')));
-    if ($type === '') $type = 'none';
-    if (!in_array($type, ['none', 'fixed', 'percentage'], true)) {
-        throw new RuntimeException('Invalid discount type.', 400);
-    }
-
-    $rawValue = $discount['value'] ?? 0;
-    if ($rawValue === '' || $rawValue === null) {
-        $value = 0.0;
-    } elseif (is_string($rawValue) && !is_numeric(trim($rawValue))) {
-        throw new RuntimeException('Invalid discount value.', 400);
-    } else {
-        $value = (float)$rawValue;
-    }
-    if (!is_finite($value)) {
-        throw new RuntimeException('Invalid discount value.', 400);
-    }
-
-    if ($type === 'none' || $value <= 0 || $subtotal <= 0) {
-        return ['type' => 'none', 'value' => 0.0, 'amount' => 0.0, 'reason' => '', 'notes' => '', 'final_total' => round(max(0, $subtotal), 2)];
-    }
-    if ($value < 0) throw new RuntimeException('Discount value cannot be negative.', 400);
-    if ($type === 'percentage' && $value > 100) throw new RuntimeException('Percentage discount cannot exceed 100%.', 400);
-    if ($type === 'fixed' && $value > $subtotal) throw new RuntimeException('Fixed discount cannot exceed the order subtotal.', 400);
-
-    $reason = trim((string)($discount['reason'] ?? ''));
-    $notes = trim((string)($discount['notes'] ?? ''));
-    if ($reason === '') {
-        throw new RuntimeException('Discount reason is required.', 400);
-    }
-    if (!in_array($reason, pos_discount_allowed_reasons(), true)) {
-        throw new RuntimeException('Invalid discount reason.', 400);
-    }
-    if (strlen($reason) > 120) $reason = substr($reason, 0, 120);
-    if (strlen($notes) > 1000) $notes = substr($notes, 0, 1000);
-    $amount = $type === 'percentage' ? round($subtotal * ($value / 100), 2) : round($value, 2);
-    $amount = round(min(max(0, $amount), $subtotal), 2);
-
-    return [
-        'type' => $type,
-        'value' => round($value, 2),
-        'amount' => $amount,
-        'reason' => $reason,
-        'notes' => $notes,
-        'final_total' => round(max(0, $subtotal - $amount), 2),
-    ];
-}
-
 function pos_get_walkin_customer_id(): int {
     global $conn;
 
@@ -1573,7 +1486,6 @@ $checkoutStaffId = $checkout_actor_user_id;
 
 printflow_ensure_product_branch_stock_table();
 printflow_ensure_product_inventory_transaction_schema();
-pos_ensure_order_discount_columns();
 
 $productIdsToPrefetch = [];
 foreach ($items as $item) {
@@ -1647,23 +1559,11 @@ foreach ($baseStockDemand as $productId => $requiredQty) {
         exit;
     }
 }
-try {
-    $posDiscount = pos_validate_checkout_discount($data, round((float)$total_amount, 2));
-} catch (RuntimeException $discountError) {
-    $code = (int)$discountError->getCode();
-    if ($code >= 400 && $code < 600) http_response_code($code);
-    echo json_encode(['success' => false, 'message' => $discountError->getMessage()]);
-    exit;
-}
-$subtotal_amount = round((float)$total_amount, 2);
-$discount_amount = round((float)$posDiscount['amount'], 2);
-$final_total_amount = round((float)$posDiscount['final_total'], 2);
-
-if (!$isPayMongo && $amount_tendered < $final_total_amount) {
+if (!$isPayMongo && $amount_tendered < $total_amount) {
     http_response_code(400);
     echo json_encode([
         'success' => false,
-        'message' => 'Amount paid must be at least ₱' . number_format($final_total_amount, 2) . '.',
+        'message' => 'Amount paid must be at least ₱' . number_format($total_amount, 2) . '.',
     ]);
     exit;
 }
@@ -1705,34 +1605,15 @@ try {
     $linkedOrderIds = [];
     $primaryOrderId = null;
     $order_id = null;
-    $remainingDiscountAmount = $discount_amount;
-    $remainingDiscountSubtotal = $subtotal_amount;
-    $groupIndex = 0;
-    $groupCount = count($orderGroups);
 
     foreach ($orderGroups as $group) {
         $groupItems = $group['items'];
         $order_type = (string)$group['type'];
         $has_service = ($order_type === 'custom');
-        $groupSubtotal = pos_checkout_group_total($groupItems, $products_cache);
-        $groupDiscount = 0.0;
-        if ($discount_amount > 0 && $subtotal_amount > 0) {
-            if ($groupIndex === $groupCount - 1) {
-                $groupDiscount = round($remainingDiscountAmount, 2);
-            } else {
-                $groupDiscount = round($discount_amount * ($groupSubtotal / $subtotal_amount), 2);
-                $groupDiscount = min($groupDiscount, $remainingDiscountAmount);
-            }
-            $remainingDiscountAmount = round(max(0, $remainingDiscountAmount - $groupDiscount), 2);
-            $remainingDiscountSubtotal = round(max(0, $remainingDiscountSubtotal - $groupSubtotal), 2);
-        }
-        $groupTotal = round(max(0, $groupSubtotal - $groupDiscount), 2);
+        $groupTotal = pos_checkout_group_total($groupItems, $products_cache);
         if ($isPayMongo && $isMixedCart && $order_type === 'product') {
-            $groupSubtotal = $subtotal_amount;
-            $groupDiscount = $discount_amount;
-            $groupTotal = round($final_total_amount, 2);
+            $groupTotal = round($total_amount, 2);
         }
-        $groupIndex++;
         $order_status = $isPayMongo ? 'Pending' : ($has_service ? 'Pending' : 'Completed');
         $reference_id = $groupItems[0]['id'] ?? null;
 
@@ -1759,26 +1640,12 @@ try {
             $priceFinalParams[] = $checkoutStaffId;
         }
 
-        $discountColumns = ', pos_subtotal_amount, pos_discount_type, pos_discount_value, pos_discount_amount, pos_discount_reason, pos_discount_notes, pos_discount_applied_by, pos_discount_applied_at';
-        $discountValues = ', ?, ?, ?, ?, ?, ?, ?, ' . ($groupDiscount > 0 ? 'NOW()' : 'NULL');
-        $discountTypes = 'dsddssi';
-        $discountParams = [
-            round((float)$groupSubtotal, 2),
-            (string)$posDiscount['type'],
-            (float)$posDiscount['value'],
-            round((float)$groupDiscount, 2),
-            (string)$posDiscount['reason'],
-            (string)$posDiscount['notes'],
-            $groupDiscount > 0 ? $checkoutStaffId : null,
-        ];
-
         $order_result = db_execute(
-            "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source{$discountColumns}{$amountPaidColumns}{$priceFinalColumns})
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'pos'{$discountValues}{$amountPaidValues}{$priceFinalValues})",
-            'iiidssssss' . $discountTypes . $amountPaidTypes . $priceFinalTypes,
+            "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source{$amountPaidColumns}{$priceFinalColumns})
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",
+            'iiidssssss' . $amountPaidTypes . $priceFinalTypes,
             array_merge(
                 [$customer_id, $branch_id, $reference_id, $groupTotal, $order_status, $initial_payment_status, $payment_method, $posBundleReference, $selectedTransactionAt, $order_type],
-                $discountParams,
                 $amountPaidParams,
                 $priceFinalParams
             )
@@ -2152,14 +2019,6 @@ try {
             $sync_warning = 'Sale completed, but production sync needs follow-up.';
             error_log('PrintFlow POS checkout sync warning for order #' . $syncOrderId . ': ' . $syncError->getMessage());
         }
-    }
-
-    if ($discount_amount > 0) {
-        log_activity(
-            $checkoutStaffId,
-            'POS Discount Applied',
-            'Applied ' . (string)$posDiscount['type'] . ' discount of ₱' . number_format($discount_amount, 2) . ' to POS order #' . (int)$order_id . '. Reason: ' . ((string)$posDiscount['reason'] !== '' ? (string)$posDiscount['reason'] : 'N/A')
-        );
     }
 
     if ($isPayMongo) {
