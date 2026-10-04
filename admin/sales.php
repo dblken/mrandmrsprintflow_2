@@ -392,6 +392,7 @@ function salesPrintInPlace(url) {
 .sales-txn-row { cursor:pointer; transition:background .15s; }
 .sales-txn-row:hover { background:#f0fdfa !important; }
 .sales-txn-row-extra { display:none; }
+.sales-item-row-extra { display:none; }
 .sales-txn-expand { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; margin-top:12px; padding:10px 14px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; color:#374151; font-size:13px; font-weight:600; cursor:pointer; }
 .sales-txn-expand:hover { background:#f9fafb; border-color:#9ca3af; }
 .sales-txn-expand svg { transition:transform .2s ease; }
@@ -710,10 +711,16 @@ function salesPrintInPlace(url) {
                                 <div class="sales-breakdown-empty">No product or service sales for this period.</div>
                             <?php else: ?>
                                 <table class="sales-breakdown-table"><thead><tr><th>Type</th><th>Item</th><th class="num">Sales</th></tr></thead><tbody>
-                                <?php foreach (array_slice($salesData['by_item'], 0, 12) as $row): ?>
-                                    <tr><td><span class="sales-breakdown-pill<?php echo sales_type_pill_class($row['type'] ?? ''); ?>"><?php echo htmlspecialchars((string)$row['type']); ?></span></td><td><?php echo htmlspecialchars((string)$row['item_name']); ?></td><td class="num">&#8369;<?php echo number_format((float)$row['revenue'], 2); ?></td></tr>
+                                <?php foreach ($salesData['by_item'] as $itemIndex => $row): ?>
+                                    <tr class="<?php echo $itemIndex >= 5 ? 'sales-item-row-extra' : ''; ?>"><td><span class="sales-breakdown-pill<?php echo sales_type_pill_class($row['type'] ?? ''); ?>"><?php echo htmlspecialchars((string)$row['type']); ?></span></td><td><?php echo htmlspecialchars((string)$row['item_name']); ?></td><td class="num">&#8369;<?php echo number_format((float)$row['revenue'], 2); ?></td></tr>
                                 <?php endforeach; ?>
                                 </tbody></table>
+                                <?php if (count($salesData['by_item']) > 5): ?>
+                                    <button type="button" class="sales-txn-expand" id="salesItemExpand" aria-expanded="false">
+                                        <span data-item-expand-label>View all <?php echo number_format(count($salesData['by_item'])); ?> products/services</span>
+                                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m6 9 6 6 6-6"/></svg>
+                                    </button>
+                                <?php endif; ?>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -812,6 +819,16 @@ function closeSalesTxnModal() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
+    const expandItems = document.getElementById('salesItemExpand');
+    expandItems?.addEventListener('click', function () {
+        const expanded = expandItems.getAttribute('aria-expanded') === 'true';
+        document.querySelectorAll('.sales-item-row-extra').forEach(function (row) {
+            row.style.display = expanded ? 'none' : 'table-row';
+        });
+        expandItems.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+        const label = expandItems.querySelector('[data-item-expand-label]');
+        if (label) label.textContent = expanded ? 'View all products/services' : 'Show fewer products/services';
+    });
     const expandTransactions = document.getElementById('salesTxnExpand');
     expandTransactions?.addEventListener('click', function () {
         const expanded = expandTransactions.getAttribute('aria-expanded') === 'true';
