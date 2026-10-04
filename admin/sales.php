@@ -128,6 +128,20 @@ $salesData['by_item'] = array_values($itemTotals);
 usort($salesData['by_item'], static fn($a, $b) => (($b['revenue'] ?? 0) <=> ($a['revenue'] ?? 0)));
 
 $salesSummary = pf_sales_summary_from_transactions($salesData['transactions']);
+try {
+    $salesTrendData = pf_sales_trend_breakdown($salesPeriodInfo, $branchId, $salesFilters);
+} catch (Throwable $e) {
+    $salesTrendData = [];
+}
+$salesTrendJson = json_encode($salesTrendData, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+if ($salesTrendJson === false) $salesTrendJson = '[]';
+$trendHasSales = false;
+foreach ($salesTrendData as $trendBucket) {
+    if ((float)($trendBucket['product_sales'] ?? 0) > 0 || (float)($trendBucket['custom_sales'] ?? 0) > 0) {
+        $trendHasSales = true;
+        break;
+    }
+}
 $branchTotals = [];
 foreach ($salesData['transactions'] as $row) {
     $amount = (float)($row['amount'] ?? 0);
@@ -239,6 +253,9 @@ function salesPrintInPlace(url) {
 .sales-toolbar-summary { font-size:13px; color:#6b7280; }
 .sales-toolbar-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; align-items:stretch; }
+.sales-trend-card { margin-bottom:24px; }
+.sales-trend-chart-wrap { position:relative; height:320px; width:100%; }
+@media(max-width:640px){ .sales-trend-chart-wrap{ height:260px; } }
 .kpi-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px 20px; position:relative; overflow:hidden; height:100%; display:flex; flex-direction:column; }
 .kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
 .kpi-card.indigo::before { background:linear-gradient(90deg,#6366f1,#818cf8); }
@@ -451,6 +468,23 @@ function salesPrintInPlace(url) {
                 </div>
             </div>
 
+            <div class="card sales-trend-card">
+                <div class="sales-list-header">
+                    <h3>
+                        <svg width="16" height="16" fill="none" stroke="#53C5E0" viewBox="0 0 24 24" style="flex-shrink:0;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 19V5m0 14h16M8 16v-5m4 5V8m4 8V3"/></svg>
+                        Sales Trend
+                        <span style="padding:3px 8px;background:#EBF8FF;color:#2C5282;border-radius:6px;font-size:11px;font-weight:600;"><?php echo htmlspecialchars($sales_label); ?></span>
+                    </h3>
+                    <span style="font-size:12px;color:#64748b;">Product and custom revenue</span>
+                </div>
+                <?php if (!$trendHasSales): ?>
+                    <div class="sales-breakdown-empty">No sales data for this period.</div>
+                <?php else: ?>
+                    <div class="sales-trend-chart-wrap">
+                        <canvas id="salesTrendChart" aria-label="Product and custom sales trend"></canvas>
+                    </div>
+                <?php endif; ?>
+            </div>
             <div class="card">
                 <div class="sales-list-header">
                     <h3>
@@ -635,5 +669,63 @@ function submitSalesFilter(form) {
     form.submit();
 }
 </script>
-</body>
+<?php if ($trendHasSales): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const canvas = document.getElementById('salesTrendChart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    const rows = <?php echo $salesTrendJson; ?>;
+    const money = function (value) {
+        return 'PHP ' + Number(value || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    };
+    new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: rows.map(function (row) { return row.bucket_label; }),
+            datasets: [
+                {
+                    label: 'Product Sales',
+                    data: rows.map(function (row) { return Number(row.product_sales || 0); }),
+                    backgroundColor: '#53C5E0',
+                    borderColor: '#249bb8',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Custom Sales',
+                    data: rows.map(function (row) { return Number(row.custom_sales || 0); }),
+                    backgroundColor: '#6366f1',
+                    borderColor: '#4f46e5',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                x: { stacked: true, grid: { display: false } },
+                y: {
+                    stacked: true,
+                    beginAtZero: true,
+                    ticks: { callback: function (value) { return money(value); } }
+                }
+            },
+            plugins: {
+                legend: { position: 'top' },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) { return context.dataset.label + ': ' + money(context.parsed.y); },
+                        footer: function (items) {
+                            const total = items.reduce(function (sum, item) { return sum + Number(item.parsed.y || 0); }, 0);
+                            return 'Total: ' + money(total);
+                        }
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
+<?php endif; ?></body>
 </html>
