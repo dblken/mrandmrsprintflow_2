@@ -117,7 +117,44 @@ function printflow_catalog_service_card_stats_map(array $service_rows): array {
         $reviewSelect = ['id', 'rating'];
         if ($serviceColumn !== '') $reviewSelect[] = $serviceColumn;
         if ($orderColumn !== '') $reviewSelect[] = $orderColumn;
-        $reviewRows = db_query('SELECT ' . implode(', ', $reviewSelect) . ' FROM reviews') ?: [];
+
+        // Restrict rating work to reviews that can match a service shown on this
+        // page. Previously every review and every referenced order's item hints
+        // were loaded and filtered in PHP, so catalog latency grew with all
+        // customer review history rather than the visible services.
+        $reviewWhere = [];
+        $reviewTypes = '';
+        $reviewParams = [];
+        foreach ($serviceAliases as $aliases) {
+            foreach (array_keys($aliases) as $alias) {
+                if ($serviceColumn !== '') {
+                    $reviewWhere[] = "LOWER(TRIM(COALESCE(r.{$serviceColumn}, ''))) = LOWER(?)";
+                    $reviewTypes .= 's';
+                    $reviewParams[] = $alias;
+                }
+                if ($orderColumn !== '') {
+                    $reviewWhere[] = "EXISTS (
+                        SELECT 1
+                        FROM order_items oi
+                        LEFT JOIN products p ON p.product_id = oi.product_id
+                        WHERE oi.order_id = r.{$orderColumn}
+                          AND (LOWER(TRIM(COALESCE(p.name, ''))) = LOWER(?)
+                               OR LOWER(COALESCE(oi.customization_data, '')) LIKE LOWER(?))
+                    )";
+                    $reviewTypes .= 'ss';
+                    $reviewParams[] = $alias;
+                    $reviewParams[] = '%' . $alias . '%';
+                }
+            }
+        }
+        $reviewRows = $reviewWhere !== []
+            ? (db_query(
+                'SELECT ' . implode(', ', array_map(static fn(string $column): string => 'r.' . $column, $reviewSelect))
+                . ' FROM reviews r WHERE ' . implode(' OR ', $reviewWhere),
+                $reviewTypes,
+                $reviewParams
+            ) ?: [])
+            : [];
 
         $orderIds = [];
         foreach ($reviewRows as $reviewRow) {

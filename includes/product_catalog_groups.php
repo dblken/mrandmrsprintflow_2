@@ -328,7 +328,11 @@ function printflow_customer_catalog_entries(?string $categoryFilter, int $offset
         ];
     }
 
-    $sql = "SELECT p.* FROM products p
+    // Product tiles use only these fields. Avoid transferring descriptions,
+    // option blobs, and other detail-page data for every catalog result.
+    $sql = "SELECT p.product_id, p.name, p.category, p.price,
+                   p.photo_path, p.product_image, p.stock_quantity
+            FROM products p
             WHERE p.status = 'Activated'
             AND p.product_id NOT IN (SELECT product_id FROM product_catalog_group_members)";
     $params = [];
