@@ -399,16 +399,30 @@ function salesPrintInPlace(url) {
 .sales-txn-expand[aria-expanded="true"] svg { transform:rotate(180deg); }
 .sales-txn-modal-overlay { position:fixed; inset:0; background:rgba(15,23,42,.45); z-index:1000; display:none; align-items:center; justify-content:center; padding:20px; }
 .sales-txn-modal-overlay.open { display:flex; }
-.sales-txn-modal { background:#fff; border-radius:14px; width:100%; max-width:520px; max-height:90vh; overflow:auto; box-shadow:0 20px 50px rgba(0,0,0,.18); }
-.sales-txn-modal-header { display:flex; align-items:center; justify-content:space-between; padding:18px 22px; border-bottom:1px solid #f3f4f6; }
-.sales-txn-modal-header h3 { margin:0; font-size:18px; font-weight:700; color:#111827; }
+.sales-txn-modal { background:#fff; border-radius:16px; width:100%; max-width:650px; max-height:88vh; overflow:auto; box-shadow:0 24px 60px rgba(15,23,42,.22); }
+.sales-txn-modal-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:22px 28px 18px; border-bottom:1px solid #eef2f7; }
+.sales-txn-modal-heading { display:flex; flex-direction:column; align-items:flex-start; gap:8px; min-width:0; }
+.sales-txn-modal-header h3 { margin:0; font-size:23px; line-height:1.2; font-weight:800; color:#1f2937; }
 .sales-txn-modal-close { border:0; background:transparent; color:#6b7280; cursor:pointer; width:32px; height:32px; border-radius:8px; font-size:22px; line-height:1; }
 .sales-txn-modal-close:hover { background:#f3f4f6; }
-.sales-txn-modal-body { padding:20px 22px; }
-.sales-txn-detail-grid { display:grid; grid-template-columns:130px 1fr; gap:10px 16px; font-size:13px; }
-.sales-txn-detail-grid dt { margin:0; font-weight:600; color:#6b7280; }
-.sales-txn-detail-grid dd { margin:0; color:#111827; word-break:break-word; }
-.sales-txn-detail-amount { font-size:22px; font-weight:800; color:#0f766e; margin-top:4px; }
+.sales-txn-modal-body { padding:24px 28px 28px; }
+.sales-txn-detail-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; font-size:13px; }
+.sales-txn-detail-item { min-width:0; padding:13px 16px; border-radius:10px; background:#f8fafc; border:1px solid #f1f5f9; }
+.sales-txn-detail-item dt { margin:0 0 7px; font-size:11px; line-height:1.2; text-transform:uppercase; letter-spacing:.03em; font-weight:700; color:#94a3b8; }
+.sales-txn-detail-item dd { margin:0; color:#1f2937; word-break:break-word; line-height:1.45; }
+.sales-txn-detail-item--amount { grid-column:1 / -1; background:#ecfeff; border-color:#c8f1f5; }
+.sales-txn-detail-amount { font-size:24px; font-weight:800; color:#0f766e; margin-top:0; }
+.sales-txn-status-badge { display:inline-flex; align-items:center; padding:5px 11px; border-radius:999px; background:#dcfce7; color:#15803d; font-size:12px; font-weight:700; }
+.sales-txn-status-badge.is-warning { background:#fef3c7; color:#a16207; }
+.sales-txn-status-badge.is-danger { background:#fee2e2; color:#b91c1c; }
+@media (max-width:640px) {
+.sales-txn-modal-overlay { padding:12px; }
+.sales-txn-modal { max-height:92vh; border-radius:14px; }
+.sales-txn-modal-header { padding:18px 20px 16px; }
+.sales-txn-modal-body { padding:18px 20px 22px; }
+.sales-txn-detail-grid { grid-template-columns:1fr; }
+.sales-txn-detail-item--amount { grid-column:auto; }
+}
 .sales-breakdown-pill { display:inline-flex; align-items:center; justify-content:center; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; background:#ecfdf5; color:#047857; }
 .sales-breakdown-empty { min-height:110px; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:13px; border:1px dashed #d1d5db; border-radius:10px; background:#fff; text-align:center; }
 .filter-panel { position:absolute; top:calc(100% + 6px); right:0; width:320px; max-height:min(560px,calc(100vh - 120px)); overflow-y:auto; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; }
@@ -771,7 +785,10 @@ function salesPrintInPlace(url) {
 <div class="sales-txn-modal-overlay" id="salesTxnModal" aria-hidden="true">
     <div class="sales-txn-modal" role="dialog" aria-modal="true" aria-labelledby="salesTxnModalTitle">
         <div class="sales-txn-modal-header">
-            <h3 id="salesTxnModalTitle">Transaction Details</h3>
+            <div class="sales-txn-modal-heading">
+                <h3 id="salesTxnModalTitle">Transaction Details</h3>
+                <span class="sales-txn-status-badge" id="salesTxnModalStatus"></span>
+            </div>
             <button type="button" class="sales-txn-modal-close" id="salesTxnModalClose" aria-label="Close">&times;</button>
         </div>
         <div class="sales-txn-modal-body">
@@ -789,8 +806,15 @@ function openSalesTxnModal(payload) {
     const modal = document.getElementById('salesTxnModal');
     const body = document.getElementById('salesTxnModalBody');
     const title = document.getElementById('salesTxnModalTitle');
+    const statusBadge = document.getElementById('salesTxnModalStatus');
     if (!modal || !body || !payload) return;
     title.textContent = 'Transaction ' + (payload.order || '');
+    if (statusBadge) {
+        const status = String(payload.order_status || 'Recorded');
+        const statusKey = status.toLowerCase();
+        statusBadge.textContent = status;
+        statusBadge.className = 'sales-txn-status-badge' + (statusKey.includes('cancel') || statusKey.includes('reject') ? ' is-danger' : (statusKey.includes('pending') || statusKey.includes('to pay') ? ' is-warning' : ''));
+    }
     const rows = [
         ['Date', payload.date],
         ['Type', payload.type],
@@ -805,8 +829,8 @@ function openSalesTxnModal(payload) {
     ];
     if (payload.linked_order) rows.push(['Linked Store Order', payload.linked_order]);
     body.innerHTML = rows.map(function (pair) {
-        return '<dt>' + salesEscapeHtml(pair[0]) + '</dt><dd>' + salesEscapeHtml(pair[1]) + '</dd>';
-    }).join('') + '<dt>Amount</dt><dd class="sales-txn-detail-amount">&#8369;' + salesEscapeHtml(payload.amount) + '</dd>';
+        return '<div class="sales-txn-detail-item"><dt>' + salesEscapeHtml(pair[0]) + '</dt><dd>' + salesEscapeHtml(pair[1]) + '</dd></div>';
+    }).join('') + '<div class="sales-txn-detail-item sales-txn-detail-item--amount"><dt>Amount</dt><dd class="sales-txn-detail-amount">&#8369;' + salesEscapeHtml(payload.amount) + '</dd></div>';
     modal.classList.add('open');
     modal.setAttribute('aria-hidden', 'false');
 }
