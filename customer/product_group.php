@@ -520,17 +520,23 @@ require_once __DIR__ . '/../includes/header.php';
     }
 
     .pf-group-options {
+        --pf-group-option-gap: 12px;
+        --pf-group-option-card-height: 78px;
         display: grid;
         grid-template-columns: repeat(5, minmax(0, 1fr));
         align-items: stretch;
-        gap: 8px;
+        gap: var(--pf-group-option-gap);
         width: 100%;
         min-width: 0;
         max-width: 100%;
+        max-height: calc((var(--pf-group-option-card-height) * 3) + (var(--pf-group-option-gap) * 2) + 4px);
         flex: 0 0 auto;
-        overflow: visible;
+        overflow-x: hidden;
+        overflow-y: auto;
         padding: 2px;
         box-sizing: border-box;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
     }
     @media (max-width: 900px) {
         .pf-group-options {
