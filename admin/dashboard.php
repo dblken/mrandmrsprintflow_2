@@ -1296,7 +1296,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     </div>
                 </div>
 
-            <!-- Order Status + Top Location -->
+            <!-- Order Status + Inventory Alerts -->
             <div class="dash-grid">
                 <!-- Order Status Breakdown -->
                 <div class="dash-card">
@@ -1309,94 +1309,6 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     </div>
                     <div id="status-legend" class="dash-single-chart-legend <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['statuses'])) ? 'is-hidden' : ''; ?>" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
                     <div id="dash-status-branch-charts" class="dash-branch-chart-grid is-status <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['statuses'])) ? '' : 'is-hidden'; ?>"></div>
-                </div>
-
-                <!-- Top Customer Locations -->
-                <div class="dash-card">
-                    <div class="dash-card-title">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                        Top Customer Locations
-                    </div>
-                    <?php if ($branchId === 'all' && !empty($dashboard_branch_chart_payload['locations'])): ?>
-                    <div class="dash-branch-chart-grid dash-location-branch-grid">
-                        <?php foreach ($dashboard_branch_chart_payload['locations'] as $locBranch): ?>
-                            <?php
-                                $locRows = array_slice($locBranch['rows'] ?? [], 0, 5);
-                                $locMax = 0;
-                                foreach ($locRows as $locRow) {
-                                    $locMax = max($locMax, (int)($locRow['value'] ?? 0));
-                                }
-                            ?>
-                            <div class="dash-branch-chart-card dash-location-branch-card">
-                                <div class="dash-branch-chart-title"><?php echo htmlspecialchars((string)($locBranch['branch_name'] ?? 'Branch')); ?></div>
-                                <?php if (empty($locRows)): ?>
-                                    <div class="dash-empty-state dash-empty-state--compact">No customer location data for this branch.</div>
-                                <?php endif; ?>
-                                <div class="loc-list loc-list--branch">
-                                    <?php foreach ($locRows as $index => $loc): ?>
-                                        <?php $pct = $locMax > 0 ? (((int)($loc['value'] ?? 0) / $locMax) * 100) : 0; ?>
-                                        <div class="loc-row">
-                                            <div class="loc-header">
-                                                <div class="loc-name">
-                                                    <span class="loc-rank">#<?php echo $index + 1; ?></span>
-                                                    <span class="loc-city"><?php echo htmlspecialchars((string)($loc['label'] ?? 'Unknown')); ?></span>
-                                                </div>
-                                                <div class="loc-value"><?php echo (int)($loc['value'] ?? 0); ?></div>
-                                            </div>
-                                            <div class="loc-bar-wrap">
-                                                <div class="loc-bar" style="width:<?php echo max(3, min(100, $pct)); ?>%;"></div>
-                                            </div>
-                                        </div>
-                                    <?php endforeach; ?>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                    <?php else: ?>
-                    <?php if (empty($customer_locations)): ?>
-                    <div class="dash-empty-state dash-empty-state--compact">No customer location data for this period.</div>
-                    <?php else: ?>
-                    <?php $max_orders = max(array_column($customer_locations, 'orders')); ?>
-                    <div class="loc-list">
-                        <?php foreach (array_slice($customer_locations, 0, 5) as $index => $loc):
-                            $pct = $max_orders > 0 ? ($loc['orders'] / $max_orders) * 100 : 0;
-                        ?>
-                        <div class="loc-row">
-                            <div class="loc-header">
-                                <div class="loc-name">
-                                    <span class="loc-rank">#<?php echo $index + 1; ?></span>
-                                    <span class="loc-city"><?php echo htmlspecialchars(trim($loc['city'])); ?></span>
-                                </div>
-                                <div class="loc-value"><?php echo $loc['orders']; ?></div>
-                            </div>
-                            <div class="loc-bar-wrap">
-                                <div class="loc-bar" style="width:<?php echo $pct; ?>%;"></div>
-                            </div>
-                        </div>
-                        <?php endforeach; ?>
-                    </div>
-                    <?php endif; ?>
-                    <?php endif; ?>
-                </div>
-
-            </div>
-
-
-
-            <!-- Best Selling Services + Low Stock Alerts -->
-            <div class="dash-grid">
-                <!-- Best Selling Services -->
-                <div class="dash-card">
-                    <div class="dash-card-title">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"/></svg>
-                        Best Selling Services
-                    </div>
-                    <?php if (!empty($dashboard_sales_bar) || !empty($dashboard_branch_chart_payload['services'])): ?>
-                    <div id="dash-service-single-chart" class="products-chart <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? 'is-hidden' : ''; ?>" data-service-bar-labels="<?php echo htmlspecialchars(json_encode($dashboard_sales_bar_labels, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-service-bar-values="<?php echo htmlspecialchars(json_encode($dashboard_sales_bar_values, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><div id="productsChart"></div></div>
-                    <div id="dash-service-branch-charts" class="dash-branch-chart-grid <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? '' : 'is-hidden'; ?>"></div>
-                    <?php else: ?>
-                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No service sales data yet</div>
-                    <?php endif; ?>
                 </div>
 
                 <!-- Inventory Alerts -->
@@ -1499,6 +1411,94 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     </table>
                     <?php else: ?>
                     <div class="dash-empty-state dash-empty-state--compact">No inventory alerts for this filter.</div>
+                    <?php endif; ?>
+                </div>
+
+            </div>
+
+
+
+            <!-- Best Selling Services + Top Location -->
+            <div class="dash-grid">
+                <!-- Best Selling Services -->
+                <div class="dash-card">
+                    <div class="dash-card-title">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"/></svg>
+                        Best Selling Services
+                    </div>
+                    <?php if (!empty($dashboard_sales_bar) || !empty($dashboard_branch_chart_payload['services'])): ?>
+                    <div id="dash-service-single-chart" class="products-chart <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? 'is-hidden' : ''; ?>" data-service-bar-labels="<?php echo htmlspecialchars(json_encode($dashboard_sales_bar_labels, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-service-bar-values="<?php echo htmlspecialchars(json_encode($dashboard_sales_bar_values, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><div id="productsChart"></div></div>
+                    <div id="dash-service-branch-charts" class="dash-branch-chart-grid <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? '' : 'is-hidden'; ?>"></div>
+                    <?php else: ?>
+                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No service sales data yet</div>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Top Customer Locations -->
+                <div class="dash-card">
+                    <div class="dash-card-title">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        Top Customer Locations
+                    </div>
+                    <?php if ($branchId === 'all' && !empty($dashboard_branch_chart_payload['locations'])): ?>
+                    <div class="dash-branch-chart-grid dash-location-branch-grid">
+                        <?php foreach ($dashboard_branch_chart_payload['locations'] as $locBranch): ?>
+                            <?php
+                                $locRows = array_slice($locBranch['rows'] ?? [], 0, 5);
+                                $locMax = 0;
+                                foreach ($locRows as $locRow) {
+                                    $locMax = max($locMax, (int)($locRow['value'] ?? 0));
+                                }
+                            ?>
+                            <div class="dash-branch-chart-card dash-location-branch-card">
+                                <div class="dash-branch-chart-title"><?php echo htmlspecialchars((string)($locBranch['branch_name'] ?? 'Branch')); ?></div>
+                                <?php if (empty($locRows)): ?>
+                                    <div class="dash-empty-state dash-empty-state--compact">No customer location data for this branch.</div>
+                                <?php endif; ?>
+                                <div class="loc-list loc-list--branch">
+                                    <?php foreach ($locRows as $index => $loc): ?>
+                                        <?php $pct = $locMax > 0 ? (((int)($loc['value'] ?? 0) / $locMax) * 100) : 0; ?>
+                                        <div class="loc-row">
+                                            <div class="loc-header">
+                                                <div class="loc-name">
+                                                    <span class="loc-rank">#<?php echo $index + 1; ?></span>
+                                                    <span class="loc-city"><?php echo htmlspecialchars((string)($loc['label'] ?? 'Unknown')); ?></span>
+                                                </div>
+                                                <div class="loc-value"><?php echo (int)($loc['value'] ?? 0); ?></div>
+                                            </div>
+                                            <div class="loc-bar-wrap">
+                                                <div class="loc-bar" style="width:<?php echo max(3, min(100, $pct)); ?>%;"></div>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php else: ?>
+                    <?php if (empty($customer_locations)): ?>
+                    <div class="dash-empty-state dash-empty-state--compact">No customer location data for this period.</div>
+                    <?php else: ?>
+                    <?php $max_orders = max(array_column($customer_locations, 'orders')); ?>
+                    <div class="loc-list">
+                        <?php foreach (array_slice($customer_locations, 0, 5) as $index => $loc):
+                            $pct = $max_orders > 0 ? ($loc['orders'] / $max_orders) * 100 : 0;
+                        ?>
+                        <div class="loc-row">
+                            <div class="loc-header">
+                                <div class="loc-name">
+                                    <span class="loc-rank">#<?php echo $index + 1; ?></span>
+                                    <span class="loc-city"><?php echo htmlspecialchars(trim($loc['city'])); ?></span>
+                                </div>
+                                <div class="loc-value"><?php echo $loc['orders']; ?></div>
+                            </div>
+                            <div class="loc-bar-wrap">
+                                <div class="loc-bar" style="width:<?php echo $pct; ?>%;"></div>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
                     <?php endif; ?>
                 </div>
             </div>
