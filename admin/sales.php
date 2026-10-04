@@ -128,16 +128,27 @@ $salesData['by_item'] = array_values($itemTotals);
 usort($salesData['by_item'], static fn($a, $b) => (($b['revenue'] ?? 0) <=> ($a['revenue'] ?? 0)));
 
 $salesSummary = pf_sales_summary_from_transactions($salesData['transactions']);
+$salesTrendIsAllBranches = printflow_branch_value_is_all($branchId);
 try {
-    $salesTrendData = pf_sales_trend_breakdown($salesPeriodInfo, $branchId, $salesFilters);
+    $salesTrendData = $salesTrendIsAllBranches
+        ? pf_sales_trend_branch_breakdown($salesPeriodInfo, $salesFilters)
+        : ['mode' => 'mix', 'series' => ['Product Sales', 'Custom Sales'], 'rows' => pf_sales_trend_breakdown($salesPeriodInfo, $branchId, $salesFilters)];
 } catch (Throwable $e) {
-    $salesTrendData = [];
+    $salesTrendData = ['mode' => $salesTrendIsAllBranches ? 'branches' : 'mix', 'series' => [], 'rows' => []];
 }
+$salesTrendRows = $salesTrendData['rows'] ?? [];
 $salesTrendJson = json_encode($salesTrendData, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
-if ($salesTrendJson === false) $salesTrendJson = '[]';
+if ($salesTrendJson === false) $salesTrendJson = '{"mode":"mix","series":[],"rows":[]}';
 $trendHasSales = false;
-foreach ($salesTrendData as $trendBucket) {
-    if ((float)($trendBucket['product_sales'] ?? 0) > 0 || (float)($trendBucket['custom_sales'] ?? 0) > 0) {
+foreach ($salesTrendRows as $trendBucket) {
+    if ($salesTrendIsAllBranches) {
+        foreach (($trendBucket['branch_sales'] ?? []) as $branchSale) {
+            if ((float)$branchSale > 0) {
+                $trendHasSales = true;
+                break 2;
+            }
+        }
+    } elseif ((float)($trendBucket['product_sales'] ?? 0) > 0 || (float)($trendBucket['custom_sales'] ?? 0) > 0) {
         $trendHasSales = true;
         break;
     }
@@ -480,7 +491,7 @@ function salesPrintInPlace(url) {
                         Sales Trend
                         <span style="padding:3px 8px;background:#EBF8FF;color:#2C5282;border-radius:6px;font-size:11px;font-weight:600;"><?php echo htmlspecialchars($sales_label); ?></span>
                     </h3>
-                    <span style="font-size:12px;color:#64748b;">Product and custom revenue</span>
+                    <span style="font-size:12px;color:#64748b;"><?php echo $salesTrendIsAllBranches ? 'Branch comparison' : 'Product and custom revenue'; ?></span>
                 </div>
                 <?php if (!$trendHasSales): ?>
                     <div class="sales-breakdown-empty">No sales data for this period.</div>
@@ -695,7 +706,9 @@ function submitSalesFilter(form) {
 document.addEventListener('DOMContentLoaded', function () {
     const canvas = document.getElementById('salesTrendChart');
     if (!canvas || typeof Chart === 'undefined') return;
-    const rows = <?php echo $salesTrendJson; ?>;
+    const trend = <?php echo $salesTrendJson; ?>;
+    const rows = trend.rows || [];
+    const branchComparison = trend.mode === 'branches';
     const money = function (value) {
         return 'PHP ' + Number(value || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
     };
@@ -703,31 +716,42 @@ document.addEventListener('DOMContentLoaded', function () {
         type: 'bar',
         data: {
             labels: rows.map(function (row) { return row.bucket_label; }),
-            datasets: [
-                {
-                    label: 'Product Sales',
-                    data: rows.map(function (row) { return Number(row.product_sales || 0); }),
-                    backgroundColor: '#53C5E0',
-                    borderColor: '#249bb8',
-                    borderWidth: 1
-                },
-                {
-                    label: 'Custom Sales',
-                    data: rows.map(function (row) { return Number(row.custom_sales || 0); }),
-                    backgroundColor: '#6366f1',
-                    borderColor: '#4f46e5',
-                    borderWidth: 1
-                }
-            ]
+            datasets: branchComparison
+                ? (trend.series || []).map(function (branchName, index) {
+                    const colors = ['#53C5E0', '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+                    return {
+                        label: branchName,
+                        data: rows.map(function (row) { return Number((row.branch_sales || {})[branchName] || 0); }),
+                        backgroundColor: colors[index % colors.length],
+                        borderColor: colors[index % colors.length],
+                        borderWidth: 1
+                    };
+                })
+                : [
+                    {
+                        label: 'Product Sales',
+                        data: rows.map(function (row) { return Number(row.product_sales || 0); }),
+                        backgroundColor: '#53C5E0',
+                        borderColor: '#249bb8',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Custom Sales',
+                        data: rows.map(function (row) { return Number(row.custom_sales || 0); }),
+                        backgroundColor: '#6366f1',
+                        borderColor: '#4f46e5',
+                        borderWidth: 1
+                    }
+                ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
             scales: {
-                x: { stacked: true, grid: { display: false } },
+                x: { stacked: !branchComparison, grid: { display: false } },
                 y: {
-                    stacked: true,
+                    stacked: !branchComparison,
                     beginAtZero: true,
                     ticks: { callback: function (value) { return money(value); } }
                 }
