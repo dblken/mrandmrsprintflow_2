@@ -347,19 +347,21 @@ $page_title = 'Payments - PrintFlow';
 .orders-table th { padding: 12px 16px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e5e7eb; }
 .orders-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; color: #1f2937; }
 .orders-table tbody tr:hover { background: #f9fafb; }
+.payment-reference-cell { width: 180px; max-width: 180px; }
+.payment-reference { display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .payment-row { cursor: pointer; transition: background .15s ease; }
-.payment-row:focus { outline: 2px solid #0d9488; outline-offset: -2px; }
+.payment-row:focus, .payment-row:active { outline: none; }
 .payment-modal-overlay { position: fixed; inset: 0; z-index: 1000; display: none; align-items: center; justify-content: center; padding: 20px; background: rgba(15, 23, 42, .45); }
 .payment-modal-overlay.open { display: flex; }
-.payment-modal { width: 100%; max-width: 650px; max-height: 88vh; overflow: auto; background: #fff; border-radius: 16px; box-shadow: 0 24px 60px rgba(15, 23, 42, .22); }
+.payment-modal { width: 100%; max-width: 640px; max-height: 88vh; overflow: auto; background: #fff; border-radius: 16px; box-shadow: 0 24px 60px rgba(15, 23, 42, .22); }
 .payment-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px 28px 18px; border-bottom: 1px solid #eef2f7; }
 .payment-modal-heading { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
-.payment-modal-header h3 { margin: 0; color: #1f2937; font-size: 23px; line-height: 1.2; font-weight: 800; }
+.payment-modal-header h3 { margin: 0; color: #1f2937; font-size: 18px; line-height: 1.2; font-weight: 800; }
 .payment-modal-close { width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: #6b7280; font-size: 22px; line-height: 1; cursor: pointer; }
 .payment-modal-close:hover { background: #f3f4f6; }
 .payment-modal-body { padding: 24px 28px 28px; }
-.payment-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.payment-detail-item { min-width: 0; padding: 13px 16px; border: 1px solid #f1f5f9; border-radius: 10px; background: #f8fafc; }
+.payment-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.payment-detail-item { min-width: 0; padding: 14px 16px; border: 1px solid #f1f5f9; border-radius: 10px; background: #f8fafc; }
 .payment-detail-item dt { margin: 0 0 7px; color: #94a3b8; font-size: 11px; line-height: 1.2; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
 .payment-detail-item dd { margin: 0; color: #1f2937; line-height: 1.45; word-break: break-word; }
 .payment-detail-item--amount { grid-column: 1 / -1; border-color: #c8f1f5; background: #ecfeff; }
@@ -560,7 +562,7 @@ $page_title = 'Payments - PrintFlow';
                         <?php foreach ($visible as $tx): ?>
                         <?php $paymentPayloadAttr = htmlspecialchars(json_encode($tx, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}', ENT_QUOTES, 'UTF-8'); ?>
                         <tr class="payment-row" tabindex="0" role="button" data-payment-detail="<?php echo $paymentPayloadAttr; ?>" aria-label="View payment details for <?php echo htmlspecialchars($tx['order']); ?>">
-                            <td style="font-weight:500;"><?php echo htmlspecialchars($tx['reference']); ?></td>
+                            <td class="payment-reference-cell" title="<?php echo htmlspecialchars($tx['reference']); ?>"><span class="payment-reference" style="font-weight:500;"><?php echo htmlspecialchars($tx['reference']); ?></span></td>
                             <td>
                                 <?php echo htmlspecialchars($tx['order']); ?>
                                 <div class="pf-pay-sub"><?php echo htmlspecialchars($tx['branch']); ?></div>
