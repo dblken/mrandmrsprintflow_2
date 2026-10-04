@@ -1476,8 +1476,8 @@ $online_closed_count = 0;
             }
             .customizations-data-table thead { display: none !important; }
             .customizations-data-table tr.customization-row {
-                display: flex !important;
-                flex-direction: column !important;
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
                 width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
@@ -1493,15 +1493,16 @@ $online_closed_count = 0;
                 box-sizing: border-box !important;
             }
             .customizations-data-table tr.customization-row td {
-                display: grid !important;
-                grid-template-columns: 88px minmax(0, 1fr) !important;
-                align-items: center !important;
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                gap: 4px !important;
                 width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
                 height: auto !important;
-                padding: 8px 12px !important;
-                overflow: hidden !important;
+                padding: 7px 10px !important;
+                overflow: visible !important;
                 border-bottom: 1px solid #f1f5f9 !important;
                 box-sizing: border-box !important;
                 text-align: left !important;
@@ -1528,8 +1529,14 @@ $online_closed_count = 0;
                 grid-column: auto !important;
                 background: #fff !important;
             }
+            .customizations-data-table tr.customization-row .order-code-cell { grid-column: 1 !important; grid-row: 1 !important; }
+            .customizations-data-table tr.customization-row .customization-info-cell { grid-column: 2 !important; grid-row: 1 !important; }
+            .customizations-data-table tr.customization-row .needed-date-cell { grid-column: 1 !important; grid-row: 2 !important; }
+            .customizations-data-table tr.customization-row .status-col-cell { grid-column: 2 !important; grid-row: 2 !important; }
+            .customizations-data-table tr.customization-row .customer-cell { grid-column: 1 !important; grid-row: 3 !important; }
+            .customizations-data-table tr.customization-row .created-cell { grid-column: 2 !important; grid-row: 3 !important; }
             .customizations-data-table tr.customization-row .order-code-cell {
-                padding-top: 11px !important;
+                padding-top: 8px !important;
                 background: #f8fafc !important;
                 font-weight: 700 !important;
             }
@@ -1541,13 +1548,6 @@ $online_closed_count = 0;
                 white-space: normal !important;
                 overflow-wrap: anywhere;
             }
-            .customizations-data-table tr.customization-row .customization-info-cell {
-                display: grid !important;
-                align-items: start !important;
-            }
-            .customizations-data-table tr.customization-row .customization-info-cell::before {
-                display: block !important;
-            }
             .customizations-data-table tr.customization-row .customization-info-cell > *,
             .customizations-data-table tr.customization-row .customization-info-cell .min-w-0 {
                 min-width: 0;
@@ -1557,6 +1557,11 @@ $online_closed_count = 0;
             .customizations-data-table tr.customization-row .table-text-sub {
                 width: 100% !important;
                 max-width: none !important;
+                white-space: normal !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
+                overflow-wrap: anywhere !important;
+                word-break: normal !important;
             }
             .customizations-data-table tr.customization-row .status-col-inner {
                 align-items: flex-start !important;
@@ -1570,7 +1575,9 @@ $online_closed_count = 0;
             }
             .customizations-data-table tr.customization-row .action-col-cell {
                 display: block !important;
-                padding: 10px 12px !important;
+                grid-column: 1 / -1 !important;
+                grid-row: 4 !important;
+                padding: 8px 10px !important;
                 overflow: visible !important;
                 border-bottom: 0 !important;
             }
@@ -1593,8 +1600,20 @@ $online_closed_count = 0;
         }
 
         @container customization-list (max-width: 430px) {
+            .customizations-data-table tr.customization-row {
+                grid-template-columns: minmax(0, 1fr) !important;
+            }
+            .customizations-data-table tr.customization-row .order-code-cell,
+            .customizations-data-table tr.customization-row .customization-info-cell,
+            .customizations-data-table tr.customization-row .needed-date-cell,
+            .customizations-data-table tr.customization-row .status-col-cell,
+            .customizations-data-table tr.customization-row .customer-cell,
+            .customizations-data-table tr.customization-row .created-cell,
+            .customizations-data-table tr.customization-row .action-col-cell {
+                grid-column: 1 / -1 !important;
+                grid-row: auto !important;
+            }
             .customizations-data-table tr.customization-row td {
-                grid-template-columns: 74px minmax(0, 1fr) !important;
                 padding-left: 10px !important;
                 padding-right: 10px !important;
             }
