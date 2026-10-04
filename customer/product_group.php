@@ -323,18 +323,13 @@ require_once __DIR__ . '/../includes/header.php';
         box-sizing: border-box;
     }
     .pf-group-buy-stack {
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 8px;
-        width: 118px;
-        max-width: 100%;
-        flex-shrink: 0;
+        display: contents;
     }
     .pf-group-buy-stack .pf-group-qty-section {
         margin-bottom: 0;
         align-items: stretch;
-        width: 100%;
+        width: 148px;
+        max-width: 100%;
     }
     .pf-group-buy-stack .pf-group-qty-control {
         width: 100%;
@@ -591,27 +586,33 @@ require_once __DIR__ . '/../includes/header.php';
     }
     .pf-group-selection .shopee-footer.pf-group-options-actions {
         display: grid;
-        grid-template-columns: auto auto 118px;
-        grid-template-rows: auto auto;
+        grid-template-columns: minmax(132px, 148px) auto auto minmax(118px, 148px);
+        grid-template-rows: auto;
         justify-content: end;
         align-items: end;
-        column-gap: 8px;
+        column-gap: 10px;
         row-gap: 8px;
     }
-    .pf-group-selection .shopee-footer.pf-group-options-actions .pf-group-action-price {
+    .pf-group-selection .shopee-footer.pf-group-options-actions .pf-group-qty-section {
         grid-column: 1;
-        grid-row: 2;
-        align-self: center;
-        margin-right: 0;
+        grid-row: 1;
+        align-self: end;
+    }
+    .pf-group-selection .shopee-footer.pf-group-options-actions .pf-group-action-price {
+        grid-column: 2;
+        grid-row: 1;
+        align-self: end;
+        margin: 0 2px 10px 0;
     }
     .pf-group-selection .shopee-footer.pf-group-options-actions .shopee-btn-cart {
-        grid-column: 2;
-        grid-row: 2;
-        align-self: center;
-    }
-    .pf-group-selection .shopee-footer.pf-group-options-actions .pf-group-buy-stack {
         grid-column: 3;
-        grid-row: 1 / span 2;
+        grid-row: 1;
+        align-self: end;
+    }
+    .pf-group-selection .shopee-footer.pf-group-options-actions .shopee-btn-buy {
+        grid-column: 4;
+        grid-row: 1;
+        align-self: end;
     }
     .pf-group-selection .pf-group-options-actions {
         margin-top: 0;
@@ -662,28 +663,48 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-group-options-error[hidden] {
         display: none;
     }
+    @media (max-width: 640px) {
+        .pf-group-selection .shopee-footer.pf-group-options-actions {
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            justify-content: stretch;
+            align-items: stretch;
+        }
+        .pf-group-selection .shopee-footer.pf-group-options-actions .pf-group-qty-section {
+            grid-column: 1;
+            grid-row: 1;
+            width: 100%;
+            align-self: stretch;
+        }
+        .pf-group-selection .shopee-footer.pf-group-options-actions .pf-group-action-price {
+            grid-column: 2;
+            grid-row: 1;
+            align-self: end;
+            justify-self: end;
+            margin: 0 0 10px;
+            text-align: right;
+        }
+        .pf-group-selection .shopee-footer.pf-group-options-actions .shopee-btn-cart {
+            grid-column: 1;
+            grid-row: 2;
+            width: 100%;
+        }
+        .pf-group-selection .shopee-footer.pf-group-options-actions .shopee-btn-buy {
+            grid-column: 2;
+            grid-row: 2;
+            width: 100%;
+        }
+    }
     @media (max-width: 480px) {
-        .pf-group-buy-stack {
-            width: min(100%, 210px);
-        }
         .pf-group-qty-section {
-            align-items: center;
-        }
-        .pf-group-selection .shopee-footer {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
+            align-items: stretch;
         }
         .pf-group-action-price {
             width: auto;
-            text-align: center;
-            margin: 0;
+            text-align: right;
         }
         .pf-group-selection .shopee-btn-cart,
         .pf-group-selection .shopee-btn-buy {
-            width: min(100%, 210px);
+            width: 100%;
             min-width: 0;
             height: 42px;
             min-height: 42px;
