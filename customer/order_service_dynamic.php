@@ -1526,9 +1526,15 @@ textarea.notes-textarea::-webkit-resizer { display: none !important; }
     overflow-wrap: normal;
     word-break: keep-all;
 }
+@media (max-width: 1200px) {
+    .service-action-row > div:first-child { display: none; }
+    .service-action-buttons { flex: 1 1 100%; width: 100%; flex-wrap: wrap; }
+    .service-action-buttons > button[name="action"][value="inquire_now"] { flex: 1 1 190px; }
+}
 @media (max-width: 760px) {
     .service-action-row > div:first-child { display: none; }
     .service-action-buttons { justify-content: stretch; flex-wrap: wrap; width: 100%; }
+    .service-action-buttons > button[name="action"][value="inquire_now"] { flex-basis: 100%; }
     .service-action-buttons > a,
     .service-action-buttons > button { flex: 1 1 100%; width: 100%; }
     .service-action-buttons > button {
