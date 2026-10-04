@@ -420,6 +420,8 @@ $page_title = 'Dashboard - Manager | PrintFlow';
         .dash-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:20px; display:flex; flex-direction:column; height:100%; min-width:0; }
         .dash-card-title { font-size:15px; font-weight:700; color:#1f2937; margin-bottom:16px; display:flex; align-items:center; gap:8px; }
         .dash-card-title svg { width:18px; height:18px; color:#53C5E0; }
+        .dash-empty-state { min-height:180px; display:flex; align-items:center; justify-content:center; text-align:center; color:#9ca3af; font-size:13px; font-weight:400; padding:28px 12px; }
+        .dash-empty-state--compact { min-height:110px; }
         .ana-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.05); transition:box-shadow .2s; display:flex; flex-direction:column; padding:0; }
         .ana-card:hover { box-shadow:0 4px 12px rgba(0,0,0,.08); }
         .ana-hd { display:flex; align-items:center; justify-content:space-between; padding:18px 20px; border-bottom:1px solid #f3f4f6; gap:10px; flex-wrap:wrap; flex-shrink:0; }

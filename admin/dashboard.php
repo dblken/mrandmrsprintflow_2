@@ -1431,7 +1431,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <div id="dash-service-single-chart" class="products-chart <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? 'is-hidden' : ''; ?>" data-service-bar-labels="<?php echo htmlspecialchars(json_encode($dashboard_sales_bar_labels, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-service-bar-values="<?php echo htmlspecialchars(json_encode($dashboard_sales_bar_values, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><div id="productsChart"></div></div>
                     <div id="dash-service-branch-charts" class="dash-branch-chart-grid <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? '' : 'is-hidden'; ?>"></div>
                     <?php else: ?>
-                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No service sales data yet</div>
+                    <div class="dash-empty-state">No service sales data yet</div>
                     <?php endif; ?>
                 </div>
 
