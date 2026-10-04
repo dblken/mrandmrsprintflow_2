@@ -665,7 +665,7 @@ function salesPrintInPlace(url) {
             </aside>
             </div>
             <?php if ($salesTrendIsAllBranches): ?>
-            <div class="card sales-trend-card">
+            <div class="card sales-trend-card" style="display:none;">
                 <div class="sales-list-header">
                     <h3>
                         <svg width="16" height="16" fill="none" stroke="#53C5E0" viewBox="0 0 24 24" style="flex-shrink:0;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 19V5m0 14h16M8 16v-5m4 5V8m4 8V3"/></svg>
