@@ -828,10 +828,14 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                         Order Status Breakdown
                     </div>
+                    <?php if (!empty($order_status)): ?>
                     <div class="chart-wrap" style="height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;">
                         <canvas id="statusChart"></canvas>
                     </div>
                     <div id="status-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:12px; padding:0 10px;"></div>
+                    <?php else: ?>
+                    <div class="dash-empty-state">No order status data for this period.</div>
+                    <?php endif; ?>
                 </div>
 
                 <!-- Top Customer Locations -->
@@ -861,7 +865,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                         <?php endforeach; ?>
                     </div>
                     <?php else: ?>
-                    <div class="dash-card-empty" style="color:#9ca3af; font-size:13px;">No location data yet</div>
+                    <div class="dash-empty-state dash-empty-state--compact">No customer location data for this period.</div>
                     <?php endif; ?>
                 </div>
             </div>
@@ -877,7 +881,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     <?php if (!empty($dashboard_sales_bar)): ?>
                     <div class="products-chart"><div id="productsChart"></div></div>
                     <?php else: ?>
-                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No service sales data for this filter.</div>
+                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No service sales data yet</div>
                     <?php endif; ?>
                 </div>
 
