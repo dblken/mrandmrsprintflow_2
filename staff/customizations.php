@@ -1807,6 +1807,143 @@ $online_closed_count = 0;
                 padding-right: 10px;
             }
         }
+
+        /* Phone widths use the existing card markup so the wide desktop table
+           and its colgroup cannot impose a horizontal minimum on order data. */
+        @media (max-width: 640px) {
+            .pf-staff-customizations-root .pf-custom-tabs {
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                justify-content: flex-start !important;
+                overscroll-behavior-inline: contain;
+            }
+            .pf-staff-customizations-root .customizations-table-scroll {
+                display: none !important;
+            }
+            .pf-staff-customizations-root .customizations-mobile-list {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+            .pf-staff-customizations-root .customizations-mobile-list-entry {
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                box-sizing: border-box;
+            }
+            .pf-staff-customizations-root .customization-mobile-card {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                grid-auto-rows: minmax(0, auto);
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                gap: 0;
+                overflow: visible;
+                box-sizing: border-box;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__section,
+            .pf-staff-customizations-root .customization-mobile-card__meta-row {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+                justify-content: flex-start;
+                gap: 4px;
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                padding: 8px 9px;
+                box-sizing: border-box;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__section--order {
+                grid-column: 1;
+                grid-row: 1;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__section:not(.customization-mobile-card__section--order) {
+                grid-column: 2;
+                grid-row: 1;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__meta {
+                display: contents;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__meta-row:nth-child(1) {
+                grid-column: 1;
+                grid-row: 2;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__meta-row:nth-child(2) {
+                grid-column: 2;
+                grid-row: 2;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__meta-row:nth-child(3) {
+                grid-column: 1;
+                grid-row: 3;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__meta-row:nth-child(4) {
+                grid-column: 2;
+                grid-row: 3;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__label {
+                width: 100%;
+                max-width: 100%;
+                white-space: normal;
+                overflow-wrap: anywhere;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__meta-row .customization-mobile-card__label {
+                margin: 0;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__order,
+            .pf-staff-customizations-root .customization-mobile-card__value,
+            .pf-staff-customizations-root .customization-mobile-card__details,
+            .pf-staff-customizations-root .customization-mobile-card__details > * {
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                white-space: normal;
+                overflow: visible;
+                text-overflow: clip;
+                overflow-wrap: anywhere;
+                word-break: normal;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__status {
+                justify-content: flex-start;
+                min-width: 0;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__status .status-badge-pill {
+                min-width: 0;
+                max-width: 100%;
+                white-space: normal;
+                overflow-wrap: anywhere;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__footer {
+                grid-column: 1 / -1;
+                grid-row: 4;
+                display: flex;
+                justify-content: center;
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                padding: 8px 10px;
+                box-sizing: border-box;
+            }
+            .pf-staff-customizations-root .customization-mobile-card__footer .table-action-btn {
+                display: inline-flex;
+                width: auto;
+                min-width: 112px;
+                max-width: 100%;
+                min-height: 42px;
+                margin: 0 auto;
+                padding: 10px 24px;
+                box-sizing: border-box;
+                white-space: nowrap;
+            }
+            .pf-staff-customizations-root .customizations-mobile-section-label {
+                max-width: 100%;
+                box-sizing: border-box;
+            }
+        }
         .production-field-invalid {
             border-color: #dc2626 !important;
             box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12) !important;
@@ -2426,11 +2563,16 @@ $online_closed_count = 0;
                                     ></span>
                                 </div>
                                 <div class="customization-mobile-card__meta-row">
-                                    <span class="customization-mobile-card__label">Order Date</span>
+                                    <span class="customization-mobile-card__label">Created</span>
                                     <span
                                         class="customization-mobile-card__value"
                                         :title="formatOrderBusinessDate(item.jo)"
                                         x-text="formatOrderBusinessDate(item.jo)"
+                                    ></span>
+                                    <span
+                                        class="customization-mobile-card__value customization-mobile-card__due-date"
+                                        x-show="item.jo.due_date"
+                                        x-text="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''"
                                     ></span>
                                 </div>
                             </div>
@@ -2442,7 +2584,7 @@ $online_closed_count = 0;
                                     class="table-action-btn"
                                     :disabled="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB')"
                                     :style="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'opacity:0.65;cursor:wait;' : ''"
-                                    x-text="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'Loading...' : 'View Order'"
+                                    x-text="loadingDetailKey === detailKeyFor(item.jo.id, item.jo.order_type || 'JOB') ? 'Loading...' : 'View'"
                                 ></button>
                             </div>
                         </article>

@@ -32,3 +32,13 @@ $assert(str_contains($twoColumnCss, 'overflow-x: visible !important;'), 'mobile 
 $assert(!str_contains($twoColumnCss, 'overflow-x: hidden !important;'), 'mobile card overflow is not hidden at the table wrapper');
 $assert(str_contains($source, 'data-label="Created"') && str_contains($source, 'x-text="formatOrderBusinessDate(item.jo)"'), 'created date and order data bindings remain intact');
 $assert(str_contains($source, 'class="pf-urgent-request-badge"') && str_contains($source, 'x-text="getDisplayOrderCode(item.jo)"'), 'order number and urgent request badge markup remain intact');
+$phoneStart = strpos($source, '@media (max-width: 640px)', strpos($source, 'customization-mobile-card__meta-row'));
+$phoneCss = $phoneStart === false ? '' : substr($source, $phoneStart, strpos($source, '.production-field-invalid', $phoneStart) - $phoneStart);
+$assert($phoneStart !== false, 'phone layout has a dedicated, bounded responsive rule');
+$assert(str_contains($phoneCss, '.customizations-table-scroll') && str_contains($phoneCss, 'display: none !important;'), 'phone layout avoids the desktop table and its colgroup sizing');
+$assert(str_contains($phoneCss, '.customizations-mobile-list') && str_contains($phoneCss, 'display: block !important;'), 'phone layout uses the existing mobile card list');
+$assert(str_contains($phoneCss, 'grid-template-columns: repeat(2, minmax(0, 1fr))'), 'phone cards keep both columns inside the card');
+$assert(str_contains($phoneCss, '.customization-mobile-card__footer') && str_contains($phoneCss, 'min-width: 112px;'), 'phone View action is centered and compact with a tap target');
+$assert(str_contains($phoneCss, '.pf-custom-tabs') && str_contains($phoneCss, 'justify-content: flex-start !important;') && str_contains($phoneCss, 'overscroll-behavior-inline: contain;'), 'status-tab scrolling stays within the tab strip');
+$assert(str_contains($source, '>Created</span>') && str_contains($source, 'customization-mobile-card__due-date'), 'mobile cards retain creation and due dates');
+$assert(str_contains($source, "'Loading...' : 'View'"), 'compact View button retains its existing loading and click behavior');
