@@ -42,3 +42,4 @@ $assert(str_contains($phoneCss, '.customization-mobile-card__footer') && str_con
 $assert(str_contains($phoneCss, '.pf-custom-tabs') && str_contains($phoneCss, 'justify-content: flex-start !important;') && str_contains($phoneCss, 'overscroll-behavior-inline: contain;'), 'status-tab scrolling stays within the tab strip');
 $assert(str_contains($source, '>Created</span>') && str_contains($source, 'customization-mobile-card__due-date'), 'mobile cards retain creation and due dates');
 $assert(str_contains($source, "'Loading...' : 'View'"), 'compact View button retains its existing loading and click behavior');
+$assert(str_contains($source, '<template x-if="isValidOrderListRow(item)">') && !str_contains($source, 'x-else-if='), 'mobile cards use a directive supported by the bundled Alpine runtime');

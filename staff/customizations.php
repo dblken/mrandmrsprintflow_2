@@ -2512,7 +2512,7 @@ $online_closed_count = 0;
                                 x-text="item.label"
                             ></div>
                         </template>
-                        <template x-else-if="isValidOrderListRow(item)">
+                        <template x-if="isValidOrderListRow(item)">
                         <article
                             class="customization-mobile-card"
                             @click="openOrderListItem(item)"
