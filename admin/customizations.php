@@ -320,7 +320,7 @@ $kpi_pending = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE jo.status
 $kpi_active  = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE jo.status IN ('IN_PRODUCTION','PROCESSING','PRINTING')" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
 $kpi_done    = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE jo.status = 'COMPLETED'" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
 
-$page_title = 'Customizations - Admin | PrintFlow';
+$page_title = 'Custom Orders - Admin | PrintFlow';
 
 // Status badge helper (Local rename to avoid conflict)
 function custom_status_badge($status) {
@@ -1059,7 +1059,7 @@ function custom_payment_badge($status) {
         document.addEventListener('printflow:page-init', function () { printflowOpenJobFromQuery(0); });
         </script>
         <header class="pf-mobile-branch-inline">
-            <h1 class="page-title">Customizations</h1>
+            <h1 class="page-title">Custom Orders</h1>
             <?php if (!defined('MANAGER_PANEL') || !MANAGER_PANEL) { render_branch_selector($branchCtx); } ?>
         </header>
 

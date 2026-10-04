@@ -64,21 +64,17 @@
         live.querySelectorAll('a.nav-item').forEach(function (a) {
             a.classList.toggle('active', normPath(a.href) === current);
         });
-
-        var customersGroup = live.querySelector('[data-nav-group="customers"]');
-        if (customersGroup) {
+        live.querySelectorAll('[data-nav-group]').forEach(function (group) {
             var anySubActive = false;
-            customersGroup.querySelectorAll('a.nav-subitem').forEach(function (a) {
+            group.querySelectorAll('a.nav-subitem').forEach(function (a) {
                 var isActive = normPath(a.href) === current;
                 a.classList.toggle('active', isActive);
                 if (isActive) anySubActive = true;
             });
-
-            var parent = customersGroup.querySelector('.nav-parent');
+            var parent = group.querySelector('.nav-parent');
             if (parent) parent.classList.toggle('active', anySubActive);
-        }
+        });
     }
-
     document.addEventListener('turbo:before-render', function (ev) {
         var nb = ev.detail && ev.detail.newBody;
         if (!nb) return;
@@ -93,7 +89,8 @@
             live.querySelectorAll('a.nav-subitem').forEach(function (a) {
                 a.classList.toggle('active', normPath(a.href) === wantSub);
             });
-            var group = live.querySelector('[data-nav-group="customers"]');
+            var incomingGroup = newActiveSub.closest('[data-nav-group]');
+            var group = incomingGroup ? live.querySelector('[data-nav-group="' + incomingGroup.getAttribute('data-nav-group') + '"]') : null;
             if (group) {
                 var parent = group.querySelector('.nav-parent');
                 if (parent) parent.classList.toggle('active', true);

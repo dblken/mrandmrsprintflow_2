@@ -66,13 +66,34 @@ if (isset($_SESSION['user_id'])) {
                 </svg>
                 Dashboard
             </a>
-
-            <a href="<?php echo $base_path; ?>/admin/orders_management.php" class="nav-item <?php echo $current_page === 'orders_management.php' ? 'active' : ''; ?>">
-                <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/>
-                </svg>
-                Orders
-            </a>
+            <?php
+            $order_management_active = in_array($current_page, ['orders_management.php', 'customizations.php', 'job_orders.php'], true);
+            ?>
+            <div class="nav-group<?php echo $order_management_active ? ' expanded' : ''; ?>" data-nav-group="order-management" data-nav-initial-expanded="<?php echo $order_management_active ? '1' : '0'; ?>">
+                <button
+                    type="button"
+                    class="nav-item nav-parent <?php echo $order_management_active ? 'active' : ''; ?>"
+                    data-nav-toggle="order-management"
+                    aria-expanded="<?php echo $order_management_active ? 'true' : 'false'; ?>"
+                    aria-controls="nav-subitems-order-management"
+                >
+                    <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5h6a2 2 0 012 2v12a2 2 0 01-2 2H9a2 2 0 01-2-2V7a2 2 0 012-2zm0 0V3h6v2M9 11h6M9 15h4"/>
+                    </svg>
+                    <span class="nav-label">Order Management</span>
+                    <svg class="nav-chevron" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </button>
+                <div class="nav-subitems" id="nav-subitems-order-management">
+                    <a href="<?php echo $base_path; ?>/admin/orders_management.php" class="nav-subitem <?php echo $current_page === 'orders_management.php' ? 'active' : ''; ?>" data-nav-page="orders_management.php">
+                        Product Orders
+                    </a>
+                    <a href="<?php echo $base_path; ?>/admin/customizations.php" class="nav-subitem <?php echo in_array($current_page, ['customizations.php', 'job_orders.php'], true) ? 'active' : ''; ?>" data-nav-page="customizations.php">
+                        Custom Orders
+                    </a>
+                </div>
+            </div>
 
             <a href="<?php echo $base_path; ?>/admin/payment.php" class="nav-item <?php echo $current_page === 'payment.php' ? 'active' : ''; ?>">
                 <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -93,13 +114,6 @@ if (isset($_SESSION['user_id'])) {
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"/>
                 </svg>
                 Expense
-            </a>
-
-            <a href="<?php echo $base_path; ?>/admin/customizations.php" class="nav-item <?php echo in_array($current_page, ['job_orders.php','customizations.php']) ? 'active' : ''; ?>">
-                <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
-                </svg>
-                Customization
             </a>
 
             <?php
@@ -448,8 +462,56 @@ document.addEventListener('click', function(event) {
         printflowSyncCustomersNavActiveOnly();
     }
 
+    function printflowSetOrderManagementNavExpanded(group, expanded, persist) {
+        if (!group) return;
+        group.classList.toggle('expanded', expanded);
+        var btn = group.querySelector('[data-nav-toggle]');
+        if (btn) btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        if (persist !== false) {
+            try {
+                sessionStorage.setItem('printflow_nav_order_management_expanded', expanded ? '1' : '0');
+            } catch (e) {}
+        }
+    }
+
+    function printflowSyncOrderManagementNavActiveOnly() {
+        var group = document.querySelector('[data-nav-group="order-management"]');
+        if (!group) return;
+        var currentPath = printflowNavPath(window.location.href);
+        var anyActive = false;
+        group.querySelectorAll('.nav-subitem').forEach(function (link) {
+            var isActive = printflowNavPath(link.href) === currentPath;
+            link.classList.toggle('active', isActive);
+            if (isActive) anyActive = true;
+        });
+        var parent = group.querySelector('.nav-parent');
+        if (parent) parent.classList.toggle('active', anyActive);
+    }
+
+    function printflowInitOrderManagementNavGroup() {
+        var group = document.querySelector('[data-nav-group="order-management"]');
+        if (!group) return;
+        var btn = group.querySelector('[data-nav-toggle]');
+        if (btn && btn.dataset.pfNavBound !== '1') {
+            btn.dataset.pfNavBound = '1';
+            btn.addEventListener('click', function () {
+                printflowSetOrderManagementNavExpanded(group, !group.classList.contains('expanded'), true);
+            });
+        }
+        if (group.dataset.pfSubBound !== '1') {
+            group.dataset.pfSubBound = '1';
+            group.querySelectorAll('.nav-subitem').forEach(function (link) {
+                link.addEventListener('click', function () {
+                    printflowSetOrderManagementNavExpanded(group, true, true);
+                });
+            });
+        }
+        printflowSyncOrderManagementNavActiveOnly();
+    }
     document.addEventListener('DOMContentLoaded', printflowInitCustomersNavGroup);
+    document.addEventListener('DOMContentLoaded', printflowInitOrderManagementNavGroup);
     document.addEventListener('printflow:page-init', printflowSyncCustomersNavActiveOnly);
+    document.addEventListener('printflow:page-init', printflowSyncOrderManagementNavActiveOnly);
 
     document.addEventListener('DOMContentLoaded', function() {
         var nav = document.querySelector('#printflow-persistent-sidebar .sidebar-nav') || document.querySelector('.sidebar-nav');

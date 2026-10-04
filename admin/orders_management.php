@@ -228,7 +228,7 @@ function admin_status_badge_style(string $displayStatus): string {
     };
 }
 
-$page_title = 'Orders Management - Admin';
+$page_title = 'Product Orders - Admin';
 
 // AJAX Partial Response
 if (isset($_GET['ajax'])) {
@@ -1252,7 +1252,7 @@ if (isset($_GET['ajax'])) {
             document.addEventListener('printflow:page-init', printflowOpenOrderFromQuery);
         </script>
         <header class="pf-mobile-branch-inline">
-            <h1 class="page-title">Orders <span class="pf-mobile-title-extra">Management</span></h1>
+            <h1 class="page-title">Product Orders</h1>
             <?php if (!defined('MANAGER_PANEL') || !MANAGER_PANEL) { render_branch_selector($branchCtx); } ?>
         </header>
 
