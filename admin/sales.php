@@ -596,7 +596,7 @@ function salesPrintInPlace(url) {
                 <?php endif; ?>
             </div>
             <aside class="sales-performance-summary">
-                <h4 class="pf-branch-summary-title">Branch Summary</h4>
+                <h4 class="pf-branch-summary-title">Sales Summary</h4>
                 <div class="pf-branch-summary-grid">
                     <?php $salesTopPct = $salesBranchPerformance['total_revenue'] > 0 ? (($salesBranchPerformance['top_branch_revenue'] / $salesBranchPerformance['total_revenue']) * 100) : 0; ?>
                     <div class="pf-branch-stat pf-branch-stat-total">
@@ -607,6 +607,7 @@ function salesPrintInPlace(url) {
                             <div class="pf-branch-stat-sub neu"><?php echo number_format((int)$salesBranchPerformance['visible_branches']); ?> branch<?php echo $salesBranchPerformance['visible_branches'] === 1 ? '' : 'es'; ?> shown</div>
                         </div>
                     </div>
+<?php if ($salesTrendIsAllBranches): ?>
                     <div class="pf-branch-stat pf-branch-stat-top">
                         <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81H7.03a1 1 0 00.95-.69l1.07-3.292z"/></svg></div>
                         <div class="pf-branch-stat-copy">
@@ -623,6 +624,32 @@ function salesPrintInPlace(url) {
                             <div class="pf-branch-stat-sub neu">Across visible branches</div>
                         </div>
                     </div>
+<?php else: ?>
+                    <div class="pf-branch-stat pf-branch-stat-avg">
+                        <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h10"/></svg></div>
+                        <div class="pf-branch-stat-copy">
+                            <div class="pf-branch-stat-label">Sales Transactions</div>
+                            <div class="pf-branch-stat-value"><?php echo number_format((int)($salesSummary['transaction_count'] ?? 0)); ?></div>
+                            <div class="pf-branch-stat-sub neu">Filtered paid sales</div>
+                        </div>
+                    </div>
+                    <div class="pf-branch-stat pf-branch-stat-total">
+                        <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0v10l-8 4-8-4V7m16 0l-8 4m-8-4l8 4m0 0v10"/></svg></div>
+                        <div class="pf-branch-stat-copy">
+                            <div class="pf-branch-stat-label">Product Sales</div>
+                            <div class="pf-branch-stat-value">&#8369;<?php echo number_format((float)$salesBranchPerformance['product_sales'], 0); ?></div>
+                            <div class="pf-branch-stat-sub neu">Filtered product revenue</div>
+                        </div>
+                    </div>
+                    <div class="pf-branch-stat pf-branch-stat-top">
+                        <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0v10l-8 4-8-4V7m16 0l-8 4m-8-4l8 4m0 0v10"/></svg></div>
+                        <div class="pf-branch-stat-copy">
+                            <div class="pf-branch-stat-label">Custom Sales</div>
+                            <div class="pf-branch-stat-value">&#8369;<?php echo number_format((float)$salesBranchPerformance['custom_sales'], 0); ?></div>
+                            <div class="pf-branch-stat-sub neu">Filtered custom revenue</div>
+                        </div>
+                    </div>
+<?php endif; ?>
                 </div>
                 <div class="pf-branch-breakdown">
                     <h4 class="pf-branch-section-title">Revenue Contribution Breakdown</h4>
