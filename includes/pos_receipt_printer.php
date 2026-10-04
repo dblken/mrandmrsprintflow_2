@@ -457,11 +457,15 @@ function printflow_receipt_format_text(array $receipt, int $columns = 32): strin
         if (trim($addr) !== '') $out[] = printflow_receipt_center($addr, $columns);
     }
     if (!empty($company['contact'])) $out[] = printflow_receipt_center((string)$company['contact'], $columns);
-    $out[] = printflow_receipt_center('OFFICIAL POS RECEIPT', $columns);
+    $out[] = printflow_receipt_center('UNOFFICIAL SALES RECEIPT', $columns);
+    $out[] = printflow_receipt_center('Transaction reference only', $columns);
+    foreach (printflow_receipt_wrap('This is an unofficial sales receipt for transaction reference only. It is not an official receipt or sales invoice.', $columns) as $disclaimerLine) {
+        $out[] = printflow_receipt_center($disclaimerLine, $columns);
+    }
     if (!empty($receipt['reprint'])) $out[] = printflow_receipt_center('REPRINT COPY', $columns);
     $out[] = $eq;
     $out[] = printflow_receipt_center('RECEIPT INFO', $columns);
-    $out[] = printflow_receipt_pair('Receipt No.', (string)($receipt['receipt_number'] ?? ''), $columns);
+    $out[] = printflow_receipt_pair('Receipt Reference No.', (string)($receipt['receipt_number'] ?? ''), $columns);
     foreach (printflow_receipt_labeled_value_lines('Date/Time', printflow_receipt_format_datetime($receipt['date_time'] ?? ''), $columns) as $dateLine) {
         $out[] = $dateLine;
     }
@@ -500,7 +504,11 @@ function printflow_receipt_format_text(array $receipt, int $columns = 32): strin
     }
     $out[] = $eq;
     $out[] = printflow_receipt_center('Thank you!', $columns);
-    $out[] = printflow_receipt_center('Please keep this receipt.', $columns);
+    $out[] = printflow_receipt_center('This is an unofficial sales', $columns);
+    $out[] = printflow_receipt_center('receipt for transaction', $columns);
+    $out[] = printflow_receipt_center('reference only. It is not an', $columns);
+    $out[] = printflow_receipt_center('official receipt or sales invoice.', $columns);
+    $out[] = printflow_receipt_center('Please keep this transaction reference.', $columns);
     $out[] = '';
     $out[] = '';
 

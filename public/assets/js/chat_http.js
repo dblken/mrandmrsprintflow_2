@@ -203,7 +203,7 @@
         card.type = 'button';
         card.className = 'conv-card' + (Number(conversation.order_id) === state.activeId ? ' active' : '');
         card.dataset.orderId = String(conversation.order_id || '');
-        const name = isStaff ? (conversation.customer_name || 'Customer') : (conversation.staff_name || 'PrintFlow Team');
+        const name = isStaff ? (conversation.customer_name || 'Customer') : (conversation.staff_name || 'PrintFlow Staff');
         const avatarPath = resolvedAvatar(conversation);
 
         const avatar = document.createElement('div');
@@ -330,7 +330,7 @@
             card.classList.toggle('active', Number(card.dataset.orderId) === orderId);
         });
 
-        const name = isStaff ? (conversation.customer_name || conversation.name || 'Customer') : (conversation.staff_name || conversation.name || 'PrintFlow Team');
+        const name = isStaff ? (conversation.customer_name || conversation.name || 'Customer') : (conversation.staff_name || conversation.name || 'PrintFlow Staff');
         const meta = conversation.product_name || conversation.meta || `Order #${orderId}`;
         if (el('name')) el('name').textContent = name;
         if (el('meta')) el('meta').textContent = `${meta} · Order #${orderId}`;
@@ -497,7 +497,7 @@
         renderSeen(data.last_seen_message_id);
         if (el('online')) el('online').style.display = data.partner?.is_online ? 'inline-block' : 'none';
         if (data.partner) {
-            const partnerName = data.partner.name || el('name')?.textContent || (isStaff ? 'Customer' : 'PrintFlow Team');
+            const partnerName = data.partner.name || el('name')?.textContent || (isStaff ? 'Customer' : 'PrintFlow Staff');
             if (data.partner.name && el('name')) el('name').textContent = data.partner.name;
             setAvatar(el('avatar'), data.partner.avatar_url || data.partner.avatar || '', partnerName, false);
         }
@@ -774,7 +774,14 @@
     window.goToMessage = goToMessage;
     window.openDetails = openDetails;
     window.openOrderDetails = openDetails;
-    window.openChat = (id, name, meta, avatar) => openConversation({ order_id: id, customer_name: name, staff_name: name, product_name: meta, customer_avatar: avatar, staff_avatar: avatar });
+    window.openChat = (id, name, meta, avatar) => openConversation({
+        order_id: id,
+        customer_name: isStaff ? name : 'Customer',
+        staff_name: isStaff ? name : 'PrintFlow Staff',
+        product_name: meta,
+        customer_avatar: avatar,
+        staff_avatar: avatar
+    });
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind, { once: true });
     else bind();

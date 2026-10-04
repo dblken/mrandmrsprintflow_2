@@ -60,8 +60,13 @@ if ($customer_id && empty($_SESSION['cart'])) {
 
 define('CART_MAX', 99);
 
-function cart_key(int $product_id, ?int $variant_id): string {
-    return $product_id . '_' . ($variant_id ?? '0');
+function cart_key(int $product_id, ?int $variant_id, array $customization = []): string {
+    $base = $product_id . '_' . ($variant_id ?? '0');
+    if ($customization === []) {
+        return $base;
+    }
+    ksort($customization);
+    return $base . '_' . substr(md5(json_encode($customization, JSON_UNESCAPED_UNICODE)), 0, 12);
 }
 
 function cart_count(): int {
@@ -79,6 +84,23 @@ if ($action === 'add') {
     if ($product_id <= 0) {
         echo json_encode(['success' => false, 'message' => 'Invalid product.']);
         exit;
+    }
+
+    $customization = [];
+    if (isset($input['customization']) && is_array($input['customization'])) {
+        foreach ($input['customization'] as $key => $value) {
+            $label = trim((string) $key);
+            $text = trim((string) $value);
+            if ($label !== '' && $text !== '') {
+                $customization[$label] = $text;
+            }
+        }
+    }
+    $branch_id = (int) ($input['branch_id'] ?? 0);
+    if ($branch_id <= 0) {
+        $branch_id = function_exists('printflow_get_default_admin_branch_id')
+            ? (int) printflow_get_default_admin_branch_id()
+            : 1;
     }
 
     $product = db_query(
@@ -129,7 +151,22 @@ if ($action === 'add') {
         }
     }
 
-    $key           = cart_key($product_id, $variant_id);
+    [$branch_stock_qty] = printflow_product_effective_stock($product_id, $branch_id);
+    $optionStockCheck = printflow_product_option_stock_validate($product_id, $branch_id, $customization, $quantity);
+    if (!empty($optionStockCheck['uses_option_stock']) && empty($optionStockCheck['ok'])) {
+        echo json_encode(['success' => false, 'message' => (string) ($optionStockCheck['message'] ?? 'Selected variant is out of stock.')]);
+        exit;
+    }
+    if ($quantity > (int) $branch_stock_qty && empty($optionStockCheck['uses_option_stock'])) {
+        echo json_encode(['success' => false, 'message' => 'Quantity exceeds available stock.']);
+        exit;
+    }
+    if ((int) $branch_stock_qty <= 0 && empty($optionStockCheck['uses_option_stock'])) {
+        echo json_encode(['success' => false, 'message' => 'This product is currently out of stock.']);
+        exit;
+    }
+
+    $key           = cart_key($product_id, $variant_id, $customization);
     $current_total = cart_count();
     $available     = CART_MAX - $current_total;
 
@@ -163,6 +200,9 @@ if ($action === 'add') {
             'variant_name' => $variant_name,
             'quantity'     => $quantity,
             'price'        => $price,
+            'branch_id'    => $branch_id,
+            'customization'=> $customization,
+            'type'         => 'Product',
         ];
     }
 
@@ -180,6 +220,16 @@ if ($action === 'buy_now') {
     $catalogGroupId = (int) ($input['catalog_group_id'] ?? 0);
     $quantity = max(1, min(999, (int) ($input['quantity'] ?? 1)));
     $branch_id = (int) ($input['branch_id'] ?? 0);
+    $customization = [];
+    if (isset($input['customization']) && is_array($input['customization'])) {
+        foreach ($input['customization'] as $key => $value) {
+            $label = trim((string) $key);
+            $text = trim((string) $value);
+            if ($label !== '' && $text !== '') {
+                $customization[$label] = $text;
+            }
+        }
+    }
 
     if ($product_id <= 0) {
         echo json_encode(['success' => false, 'message' => 'Invalid product.']);
@@ -214,7 +264,7 @@ if ($action === 'buy_now') {
     }
 
     [$branch_stock_qty] = printflow_product_effective_stock($product_id, $branch_id);
-    $optionStockCheck = printflow_product_option_stock_validate($product_id, $branch_id, [], $quantity);
+    $optionStockCheck = printflow_product_option_stock_validate($product_id, $branch_id, $customization, $quantity);
     if (!empty($optionStockCheck['uses_option_stock']) && empty($optionStockCheck['ok'])) {
         echo json_encode(['success' => false, 'message' => (string) ($optionStockCheck['message'] ?? 'Selected variant is out of stock.')]);
         exit;
@@ -242,7 +292,7 @@ if ($action === 'buy_now') {
         'design_name'     => null,
         'design_mime'     => null,
         'uploaded_files'  => [],
-        'customization'   => [],
+        'customization'   => $customization,
     ];
 
     echo json_encode([

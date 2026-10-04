@@ -293,6 +293,10 @@ try {
 
             $sender_type = $resolve_sender_type((string) $msg['sender'], (string) $m_type, $meta_data);
             $is_self = $sender_type !== null ? ($sender_type === $current_user_type) : false;
+            $public_sender_name = (string)($msg['sender_name'] ?? '');
+            if ($user_type === 'Customer' && $sender_type === 'staff') {
+                $public_sender_name = printflow_chat_public_staff_label();
+            }
 
             // Wrap locally stored media in proxy endpoints so playback works even
             // when direct /uploads access is blocked or rewritten by hosting rules.
@@ -326,7 +330,7 @@ try {
             if ($m_type === 'order_card') {
                 $preview = printflow_order_notification_preview((int) $order_id);
                 $order_card_service_name = trim((string) ($preview['display_name'] ?? '')) ?: 'Order update';
-                $order_card_customer_name = trim((string) ($msg['sender_name'] ?? '')) ?: 'Customer';
+                $order_card_customer_name = trim($public_sender_name) ?: 'Customer';
                 $order_card_image = trim((string) ($preview['image_url'] ?? ''));
                 if ($order_card_image === '') {
                     $order_card_image = $default_order_thumbnail;
@@ -356,7 +360,7 @@ try {
                 'reply_message' => $msg['reply_message'] ?? null,
                 'reply_image' => $msg['reply_image'] ?? null,
                 'reply_sender_id' => $msg['reply_sender_id'] ?? null,
-                'sender_name' => $msg['sender_name'],
+                'sender_name' => $public_sender_name,
                 'sender_role' => $msg['sender_role'],
                 'sender_avatar' => $sender_avatar,
                 'is_pinned' => (bool) ($msg['is_pinned'] ?? false),
@@ -399,6 +403,14 @@ try {
         throw new Exception("Could not fetch reactions. Database returned an error: " . $db_err);
     }
     $reactions = $reactions_raw ?: [];
+    if ($user_type === 'Customer') {
+        foreach ($reactions as &$reaction) {
+            if (($reaction['sender'] ?? '') === 'Staff') {
+                $reaction['reactor_name'] = printflow_chat_public_staff_label();
+            }
+        }
+        unset($reaction);
+    }
 
     // 2. Fetch partner online/typing status. Read state is written only by the
     // authenticated POST mark_seen endpoint, never as a side effect of polling.
@@ -437,7 +449,9 @@ try {
         if ($av_res) {
             $partner['avatar'] = $av_res[0]['profile_picture'];
             $partner['id'] = (int) $av_res[0]['user_id'];
-            $partner['name'] = trim(($av_res[0]['first_name'] ?? '') . ' ' . ($av_res[0]['last_name'] ?? '')) ?: 'Customer Support';
+            $partner['name'] = $user_type === 'Customer'
+                ? printflow_chat_public_staff_label()
+                : (trim(($av_res[0]['first_name'] ?? '') . ' ' . ($av_res[0]['last_name'] ?? '')) ?: 'Customer Support');
         }
     } else {
         $av_res = db_query("SELECT c.customer_id, c.profile_picture, c.first_name, c.last_name FROM customers c WHERE c.customer_id = (SELECT customer_id FROM orders WHERE order_id = ?)", 'i', [$order_id]);
@@ -460,7 +474,7 @@ try {
     }
 
     // 6. Fetch all pinned messages for the Pinned Bar
-    $pinned_sql = "SELECT m.message_id as id, m.message, m.message_type, m.image_path, m.file_type, m.created_at,
+    $pinned_sql = "SELECT m.message_id as id, m.sender, m.message, m.message_type, m.image_path, m.file_type, m.created_at,
                 CASE 
                     WHEN m.sender = 'Customer' THEN (SELECT CONCAT(first_name, ' ', last_name) FROM customers WHERE customer_id = m.sender_id)
                     WHEN m.sender = 'Staff' THEN (SELECT CONCAT(first_name, ' ', last_name) FROM users WHERE user_id = m.sender_id)
@@ -483,6 +497,9 @@ try {
         }
         $pm['image_path'] = $image_path;
         $pm['created_at'] = date('M j, h:i A', strtotime($pm['created_at']));
+        if ($user_type === 'Customer' && ($pm['sender'] ?? '') === 'Staff') {
+            $pm['sender_name'] = printflow_chat_public_staff_label();
+        }
         $pinned_messages[] = $pm;
     }
 

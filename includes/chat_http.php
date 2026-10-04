@@ -159,6 +159,13 @@ if (!function_exists('printflow_chat_profile_image_url')) {
     }
 }
 
+if (!function_exists('printflow_chat_public_staff_label')) {
+    function printflow_chat_public_staff_label(): string
+    {
+        return 'PrintFlow Staff';
+    }
+}
+
 if (!function_exists('printflow_chat_unread_count')) {
     /** Count unread messages sent by the other chat participant. */
     function printflow_chat_unread_count(int $user_id, string $user_type): int

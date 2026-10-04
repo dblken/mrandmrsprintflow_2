@@ -121,16 +121,16 @@ receipt_format_check(
 );
 
 receipt_format_check(
-    str_contains($customer, 'Official Online Receipt')
+    str_contains($customer, 'UNOFFICIAL SALES RECEIPT')
         && str_contains($customer, 'Order Number')
         && str_contains($customer, 'Payment Status')
         && str_contains($customer, 'Reference')
         && str_contains($customer, 'materials.join'),
-    'online-specific receipt data is preserved'
+    'online-specific unofficial receipt data is preserved'
 );
 
 receipt_format_check(
-    str_contains($pos, 'Official POS Receipt')
+    str_contains($pos, 'UNOFFICIAL SALES RECEIPT')
         && str_contains($pos, 'Print Receipt')
         && str_contains($pos, 'renderPosReceiptQr'),
     'POS receipt implementation remains present'

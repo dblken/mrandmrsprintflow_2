@@ -2207,6 +2207,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             margin-top: 5px;
         }
 
+        .receipt-subtext {
+            margin-top: 2px;
+            font-size: 8px;
+            font-weight: 700;
+            color: #334155;
+            text-transform: uppercase;
+        }
+
+        .receipt-disclaimer {
+            margin-top: 4px;
+            font-size: 8px;
+            line-height: 1.35;
+            color: #475569;
+        }
+
         .receipt-section {
             padding-top: 6px;
             margin-top: 6px;
@@ -3714,7 +3729,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         ${company.address ? `<div>${escapeHtml(company.address)}</div>` : ''}
                         ${company.contact ? `<div>${escapeHtml(company.contact)}</div>` : ''}
                     </div>
-                    <div class="receipt-pill">Official POS Receipt</div>
+                    <div class="receipt-pill">UNOFFICIAL SALES RECEIPT</div>
+                    <div class="receipt-subtext">Transaction reference only</div>
+                    <div class="receipt-disclaimer">This is an unofficial sales receipt for transaction reference only. It is not an official receipt or sales invoice.</div>
                     ${receipt?.reprint ? '<div class="receipt-pill">REPRINT COPY</div>' : ''}
                 </div>
 
@@ -3723,7 +3740,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     ${receipt.qr_payload ? `<div class="receipt-qr-wrap"><div id="pos-receipt-qr"></div><div class="receipt-qr-caption">Scan for order details</div></div>` : ''}
                     <div class="receipt-info-grid">
                         <div class="receipt-info-card">
-                            <div class="receipt-label">Receipt No.</div>
+                            <div class="receipt-label">Receipt Reference No.</div>
                             <div class="receipt-value receipt-value--strong">${escapeHtml(receipt.receipt_number || '')}</div>
                         </div>
                         <div class="receipt-info-card">
@@ -3780,7 +3797,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                 <div class="receipt-footer">
                     <strong>Thank you for choosing PrintFlow!</strong>
-                    <p>Please keep this receipt for your records.</p>
+                    <p>This is an unofficial sales receipt for transaction reference only. It is not an official receipt or sales invoice.</p>
+                    <p>Please keep this transaction reference for your records.</p>
                 </div>
 
                 <div class="receipt-online-store">

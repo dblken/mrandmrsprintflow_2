@@ -604,7 +604,13 @@ if ($initials === '') {
             #main-header .pf-header-right #pwa-install-btn {
                 display: none !important;
             }
-            #main-header .pf-header-right [data-pf-profile-wrap] {
+            /* Tablet keeps header profile; phones with bottom nav use Profile tab (see customer-mobile-bottom-nav.css). */
+            @media (min-width: 768px) {
+                body.pf-has-mobile-bottom-nav #main-header .pf-header-right [data-pf-profile-wrap] {
+                    display: block;
+                }
+            }
+            body:not(.pf-has-mobile-bottom-nav) #main-header .pf-header-right [data-pf-profile-wrap] {
                 display: block;
             }
             #main-header .pf-mobile-icon-row {

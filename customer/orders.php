@@ -1944,6 +1944,23 @@ require_once __DIR__ . '/../includes/header.php';
     margin-top: 12px;
 }
 
+.receipt-subtext {
+    margin-top: 6px;
+    font-size: 11px;
+    font-weight: 800;
+    color: #0f766e;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.receipt-disclaimer {
+    max-width: 300px;
+    margin: 6px auto 0;
+    font-size: 11px;
+    line-height: 1.45;
+    color: #64748b;
+}
+
 .receipt-section {
     padding-top: 14px;
     margin-top: 14px;
@@ -3113,7 +3130,9 @@ function buildReceiptHtml(receipt) {
                 ${company.address ? `<div>${receiptEscape(company.address)}</div>` : ''}
                 ${company.contact ? `<div>${receiptEscape(company.contact)}</div>` : ''}
             </div>
-            <div class="receipt-pill">Official Online Receipt</div>
+            <div class="receipt-pill">UNOFFICIAL SALES RECEIPT</div>
+            <div class="receipt-subtext">Transaction reference only</div>
+            <div class="receipt-disclaimer">This is an unofficial sales receipt for transaction reference only. It is not an official receipt or sales invoice.</div>
         </div>
 
         <div class="receipt-section">
@@ -3121,7 +3140,7 @@ function buildReceiptHtml(receipt) {
             ${receipt.qr_payload ? `<div class="receipt-qr-wrap"><div id="customer-receipt-qr"></div><div class="receipt-qr-caption">Scan for order details</div></div>` : ''}
             <div class="receipt-info-grid">
                 <div class="receipt-info-card">
-                    <div class="receipt-label">Receipt No.</div>
+                    <div class="receipt-label">Receipt Reference No.</div>
                     <div class="receipt-value receipt-value--strong">${receiptEscape(receipt.receipt_number || '')}</div>
                 </div>
                 <div class="receipt-info-card">
@@ -3129,7 +3148,7 @@ function buildReceiptHtml(receipt) {
                     <div class="receipt-value">${receiptEscape(receipt.order_number || '')}</div>
                 </div>
                 <div class="receipt-info-card">
-                    <div class="receipt-label">Receipt Date</div>
+                    <div class="receipt-label">Transaction Date</div>
                     <div class="receipt-value">${receiptEscape(receipt.date_time_display || formatReceiptDateTime(receipt.date_time))}</div>
                 </div>
             </div>
@@ -3176,8 +3195,9 @@ function buildReceiptHtml(receipt) {
 
         <div class="receipt-footer">
             <strong>Thank you for choosing PrintFlow!</strong>
-            <p>Please present this receipt when claiming your order.</p>
-            <p>Keep this receipt for your records.</p>
+            <p>This is an unofficial sales receipt for transaction reference only. It is not an official receipt or sales invoice.</p>
+            <p>Please present this transaction reference when claiming your order.</p>
+            <p>Keep this transaction reference for your records.</p>
         </div>
     `;
 }

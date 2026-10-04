@@ -16,9 +16,9 @@ $assert(strpos($payment, 'receipt_order_id=') !== false && strpos($payment, 'Dow
 $assert(strpos($itemsApi, '$is_ready_made_product') !== false && strpos($itemsApi, '? $provider_is_paid') !== false, 'Ready-made receipt eligibility requires the verified PayMongo ledger state.');
 $assert(strpos($itemsApi, "WHERE o.order_id = ? AND o.customer_id = ?") !== false, 'Receipt data remains scoped to the authenticated order owner.');
 $assert(strpos($itemsApi, "printflow_customer_receipt_is_available") !== false, 'Existing service receipt eligibility remains available.');
-$assert(strpos($orders, 'Official Online Receipt') !== false, 'Online receipt keeps the existing online receipt design context.');
+$assert(strpos($orders, 'UNOFFICIAL SALES RECEIPT') !== false, 'Online receipt uses the unofficial receipt label.');
 $assert(strpos($orders, 'Claim Status') !== false && strpos($orders, 'Ready to Claim') !== false, 'Online receipt declares ready-made claim status.');
-$assert(strpos($orders, 'Please present this receipt when claiming your order.') !== false, 'Online receipt includes claim guidance.');
+$assert(strpos($orders, 'Please present this transaction reference when claiming your order.') !== false, 'Online receipt includes claim guidance.');
 $assert(strpos($orders, 'Visit our Online Store') === false, 'Online receipt has no redundant store QR section.');
 $assert(strpos($pos, 'Visit our Online Store') !== false, 'POS preview keeps its store QR section.');
 $assert(strpos($printer, 'printflow_pos_online_store_url()') !== false, 'POS thermal printing keeps its store QR behavior.');
