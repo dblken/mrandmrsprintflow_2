@@ -813,6 +813,112 @@ $online_closed_count = 0;
             min-width: 0;
         }
 
+        /* Order detail modal — customer specification grid (dynamic fields per service) */
+        .pf-customization-spec-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 10px;
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+        .pf-customization-spec-cell {
+            padding: 8px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            background: #fff;
+            min-width: 0;
+            overflow-wrap: break-word;
+            box-sizing: border-box;
+        }
+        .pf-customization-spec-cell--full {
+            grid-column: 1 / -1;
+        }
+        .pf-customization-spec-label {
+            display: block;
+            font-size: 10px;
+            font-weight: 600;
+            color: #6b7280;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+        .pf-customization-spec-value {
+            font-size: 12px;
+            font-weight: 500;
+            color: #1f2937;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+        .pf-modal-design-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+        }
+        .pf-modal-design-action-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 14px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            color: #334155;
+            text-decoration: none;
+            cursor: pointer;
+            box-sizing: border-box;
+            min-width: 88px;
+            text-align: center;
+            line-height: 1.25;
+        }
+        a.pf-modal-design-action-btn {
+            text-decoration: none;
+        }
+        .modal-panel button.pf-modal-design-action-btn,
+        .modal-panel a.pf-modal-design-action-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+        @media (max-width: 768px) {
+            .modal-panel .pf-customization-modal-body {
+                padding: 16px !important;
+            }
+            .modal-panel .pf-customization-order-details {
+                padding: 12px !important;
+                margin-bottom: 16px !important;
+            }
+            .modal-panel .pf-customization-item-block {
+                padding: 10px !important;
+                margin-bottom: 12px !important;
+            }
+            .modal-panel .pf-customization-spec-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 8px;
+            }
+            .modal-panel .pf-customization-spec-cell {
+                padding: 6px 8px;
+            }
+            .modal-panel .pf-modal-design-actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .modal-panel .pf-modal-design-action-btn {
+                width: 100%;
+                max-width: 100%;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                text-align: center !important;
+            }
+        }
+
         .source-badge-pill {
             min-width: 76px;
             text-align: center;
@@ -2655,7 +2761,7 @@ $online_closed_count = 0;
                 </div>
 
                 <!-- Modal Body -->
-                <div style="padding:24px;">
+                <div class="pf-customization-modal-body" style="padding:24px;">
 
                     <!-- Customer Row -->
                     <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid #f3f4f6;">
@@ -2673,10 +2779,10 @@ $online_closed_count = 0;
 
                     <!-- Dynamic Order Details (service-specific fields from customization_data) -->
                     <template x-if="currentJo.items && currentJo.items.length > 0">
-                        <div style="margin-bottom:20px; padding:16px; border-radius:12px; border:1px solid #e5e7eb; background:#f9fafb;">
+                        <div class="pf-customization-order-details" style="margin-bottom:20px; padding:16px; border-radius:12px; border:1px solid #e5e7eb; background:#f9fafb;">
                             <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;display:block;margin-bottom:12px;">Order Details (Customer Specifications)</label>
                             <template x-for="(item, idx) in currentJo.items" :key="item.order_item_id || idx">
-                                <div style="margin-bottom:16px; padding:12px; background:#fff; border:1px solid #e5e7eb; border-radius:8px;">
+                                <div class="pf-customization-item-block" style="margin-bottom:16px; padding:12px; background:#fff; border:1px solid #e5e7eb; border-radius:8px;">
                                     <div class="modal-wrap-text modal-item-title" style="font-size:13px; font-weight:700; color:#1f2937; margin-bottom:10px;" x-text="getDynamicProductName(item) + ' × ' + item.quantity"></div>
                                     <template x-if="staffProductServiceImageUrl(item)">
                                         <div style="margin-bottom:12px;">
@@ -2691,12 +2797,11 @@ $online_closed_count = 0;
                                                  onerror="this.style.display='none'">
                                         </div>
                                     </template>
-                                    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:10px;">
+                                    <div class="pf-customization-spec-grid">
                                         <template x-for="([k, v]) in getDisplayableCustom(item.customization, item)" :key="k">
-                                            <div style="padding:8px; border:1px solid #e5e7eb; border-radius:6px; background:#fff; min-width:0; overflow-wrap:break-word;">
-                                                <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:2px;" x-text="getCustomLabel(k)"></div>
-                                                <div style="font-size:12px; font-weight:500; color:#1f2937; word-break:break-word; overflow-wrap:break-word;"
-                                                     x-text="formatCustomValuePlain(v)"></div>
+                                            <div class="pf-customization-spec-cell" :class="{ 'pf-customization-spec-cell--full': staffSpecGridCellFullWidth(k, v) }">
+                                                <span class="pf-customization-spec-label" x-text="getCustomLabel(k)"></span>
+                                                <div class="pf-customization-spec-value" x-text="formatCustomValuePlain(v)"></div>
                                                 <a x-show="isDisplayableLink(v)" :href="sanitizeStaffLink(v)" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:#4f46e5;font-weight:600;margin-top:4px;display:inline-block;">Open link →</a>
                                             </div>
                                         </template>
@@ -2720,17 +2825,17 @@ $online_closed_count = 0;
                                                          onerror="this.style.display='none';">
                                                 </div>
                                             </template>
-                                                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                                    <div class="pf-modal-design-actions">
                                                         <button type="button"
-                                                                @click="previewFile = staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)"
-                                                                style="padding:8px 12px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-size:12px; font-weight:600; color:#334155; cursor:pointer;">
+                                                                class="pf-modal-design-action-btn"
+                                                                @click="previewFile = staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)">
                                                             View
                                                         </button>
-                                                        <a :href="staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)"
+                                                        <a class="pf-modal-design-action-btn"
+                                                           :href="staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)"
                                                            target="_blank"
                                                            rel="noopener noreferrer"
-                                                           download
-                                                           style="padding:8px 12px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-size:12px; font-weight:600; color:#334155; text-decoration:none;">
+                                                           download>
                                                             Download
                                                         </a>
                                                     </div>
@@ -6227,6 +6332,18 @@ window.pfServiceFieldCatalog = (() => {
             },
             getDisplayableCustom(custom, item = null) {
                 return this.staffBuildItemDisplaySpecs(custom, item).entries;
+            },
+            staffSpecGridCellFullWidth(key, value) {
+                const label = String(this.getCustomLabel(key) || key || '').trim().toLowerCase();
+                if (label === 'notes' || label.includes('special instruction') || label.includes('additional note')) {
+                    return true;
+                }
+                const meta = this.staffCustomizationFieldMeta(key);
+                if (meta.group === 'notes') return true;
+                const text = this.staffCustomizationValueText(value);
+                if (text && text.length > 120) return true;
+                if (this.isDisplayableLink(value)) return true;
+                return false;
             },
             staffOrderNotesRenderedInItemSpecs() {
                 const orderNote = this.combinedCustomerNotes().trim();
