@@ -458,6 +458,23 @@
         background: var(--staff-sidebar-scrollbar-thumb-hover);
     }
 
+    /* Orders parent: urgent badge beside label, chevron stays at trailing edge */
+    html.printflow-staff .nav-item.nav-parent .nav-label {
+        flex: 1;
+        min-width: 0;
+    }
+
+    html.printflow-staff .nav-item.nav-parent .nav-badge--orders-parent {
+        margin-left: auto;
+        margin-right: 4px;
+        flex-shrink: 0;
+    }
+
+    html.printflow-staff .nav-item.nav-parent .nav-chevron {
+        margin-left: 0;
+        flex-shrink: 0;
+    }
+
     /* KPI / stat accents */
     html.printflow-staff .kpi-card::before,
     html.printflow-staff .kpi-card.indigo::before,
