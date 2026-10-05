@@ -304,8 +304,11 @@ $page_title = 'My Profile - Staff';
 .main-content { background: var(--pf-bg); color: var(--pf-text-main); }
 
 /* 1. SINGLE MAIN CONTAINER */
-.profile-container {
+.staff-profile-page .profile-container {
     max-width: 1100px;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     margin: 20px auto;
     padding: 1.5rem;
     background: var(--pf-card);
@@ -314,21 +317,14 @@ $page_title = 'My Profile - Staff';
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
 }
 
-/* 2. LAYOUT STRUCTURE */
-.profile-grid-main {
+/* 2. LAYOUT STRUCTURE — desktop sidebar + content; stack below breakpoint */
+.staff-profile-page .profile-grid-main {
     display: grid;
-    grid-template-columns: 280px 1fr;
-    gap: 1.5rem;
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: 2.5rem;
     align-items: start;
-}
-
-@media (max-width: 992px) {
-    .profile-grid-main { grid-template-columns: 1fr; gap: 2rem; }
-    .profile-container { padding: 1.5rem; }
-    .profile-sidebar-wrap {
-        position: static !important;
-        top: auto !important;
-    }
+    width: 100%;
+    min-width: 0;
 }
 
 /* ─ SIDEBAR (LEFT SIDE) ─ */
@@ -385,8 +381,13 @@ $page_title = 'My Profile - Staff';
 /* ─ MAIN CONTENT ─ */
 .section-title { font-size: 0.85rem; font-weight: 800; color: var(--pf-accent); margin-bottom: 1.25rem; display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px; }
 
-.form-grid-layout { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
-@media (max-width: 576px) { .form-grid-layout { grid-template-columns: 1fr; } }
+.staff-profile-page .form-grid-layout {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    width: 100%;
+    min-width: 0;
+}
 
 .field-wrap { width: 100%; }
 .field-label { display: block; font-size: 0.65rem; font-weight: 800; color: var(--pf-text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -424,7 +425,7 @@ html.printflow-staff.printflow-staff-pos .avatar-ring svg {
 .id-modal-img { display:block; max-width:85vw; max-height:85vh; border: 4px solid #fff; }
 
 /* Customer-profile-aligned section navigation and cards */
-.profile-container {
+.staff-profile-page .profile-container {
     padding: 2.5rem;
     border-radius: 16px;
     box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
@@ -432,11 +433,7 @@ html.printflow-staff.printflow-staff-pos .avatar-ring svg {
     color: #64748b;
     line-height: 1.5;
 }
-.profile-grid-main {
-    grid-template-columns: 280px minmax(0, 1fr);
-    gap: 2.5rem;
-}
-.profile-sidebar-wrap {
+.staff-profile-page .profile-sidebar-wrap {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
@@ -488,13 +485,15 @@ html.printflow-staff.printflow-staff-pos .avatar-ring svg {
     text-align: right;
     overflow-wrap: anywhere;
 }
-.profile-main-inner {
+.staff-profile-page .profile-main-inner {
     display: flex;
     flex-direction: column;
     gap: 2rem;
     min-width: 0;
+    width: 100%;
+    max-width: 100%;
 }
-.profile-section-card {
+.staff-profile-page .profile-section-card {
     display: none;
     background: #fff;
     padding: 1.5rem;
@@ -502,8 +501,12 @@ html.printflow-staff.printflow-staff-pos .avatar-ring svg {
     border-radius: 14px;
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
     margin-bottom: 0;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
 }
-.profile-section-card.is-active {
+.staff-profile-page .profile-section-card.is-active {
     display: block;
 }
 .section-title {
@@ -643,34 +646,59 @@ html.printflow-staff.printflow-staff-pos .avatar-ring svg {
     background: #f1f5f9;
     color: #0f172a;
 }
+/* Narrow / tablet: stack summary, nav, and section content (must follow desktop grid rule) */
+@media (max-width: 1024px) {
+    .staff-profile-page .profile-grid-main {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+    .staff-profile-page .profile-sidebar-wrap {
+        position: static;
+        top: auto;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+    }
+    .staff-profile-page .profile-main-inner {
+        width: 100%;
+        max-width: 100%;
+    }
+    .staff-profile-page .form-grid-layout {
+        grid-template-columns: 1fr;
+    }
+    .staff-profile-page .profile-section-card {
+        scroll-margin-top: 88px;
+    }
+}
+
 @media (max-width: 768px) {
-    .profile-container {
+    .staff-profile-page .profile-container {
         margin: 20px 1rem;
         padding: 1.5rem 1rem;
         border-radius: 12px;
     }
-    .profile-status-grid {
+    .staff-profile-page .profile-status-grid {
         grid-template-columns: 1fr;
     }
-    .profile-actions-row {
+    .staff-profile-page .profile-actions-row {
         justify-content: stretch;
     }
-    .btn-teal-save {
+    .staff-profile-page .btn-teal-save {
         width: 100%;
         padding: 12px 20px;
         min-height: 48px;
     }
-    .profile-nav-item a {
+    .staff-profile-page .profile-nav-item a {
         padding: 12px 14px;
     }
-    .form-input {
+    .staff-profile-page .form-input {
         padding: 12px;
         min-height: 44px;
     }
 }
     </style>
 </head>
-<body data-turbo="false" class="printflow-staff">
+<body data-turbo="false" class="printflow-staff staff-profile-page">
 
 <div class="dashboard-container">
     <?php include __DIR__ . '/../includes/staff_sidebar.php'; ?>
@@ -977,9 +1005,31 @@ html.printflow-staff.printflow-staff-pos .avatar-ring svg {
         const panels = Array.from(document.querySelectorAll('.profile-section-card'));
         const navLinks = Array.from(document.querySelectorAll('.account-nav-link'));
 
-        function activateSection(id) {
+        function profileScrollOffset() {
+            const header = document.querySelector('.staff-profile-page header');
+            const burger = document.getElementById('mobileBurger');
+            let offset = 16;
+            if (header) offset += header.getBoundingClientRect().height;
+            if (burger && window.getComputedStyle(burger).display !== 'none') {
+                offset = Math.max(offset, 72);
+            }
+            return offset;
+        }
+
+        function scrollProfileSectionIntoView(panel) {
+            if (!panel) return;
+            const offset = profileScrollOffset();
+            const top = panel.getBoundingClientRect().top + window.scrollY - offset;
+            window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+        }
+
+        function activateSection(id, scrollIntoView) {
             panels.forEach(panel => panel.classList.toggle('is-active', panel.id === id));
             navLinks.forEach(link => link.classList.toggle('active', link.dataset.section === id));
+            if (scrollIntoView) {
+                const panel = id ? document.getElementById(id) : null;
+                requestAnimationFrame(() => scrollProfileSectionIntoView(panel));
+            }
         }
 
         navLinks.forEach(link => {
@@ -988,15 +1038,14 @@ html.printflow-staff.printflow-staff-pos .avatar-ring svg {
                 const id = this.dataset.section;
                 const panel = id ? document.getElementById(id) : null;
                 if (!panel) return;
-                activateSection(id);
+                activateSection(id, true);
                 history.replaceState(null, '', '#' + id);
-                panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             });
         });
 
         const hashSection = (window.location.hash || '').replace(/^#/, '');
         if (hashSection && document.getElementById(hashSection)) {
-            activateSection(hashSection);
+            activateSection(hashSection, true);
         }
     });
     const addrApi = <?php echo json_encode(BASE_PATH . '/public/api_address_public.php'); ?>;
