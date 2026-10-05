@@ -1469,7 +1469,17 @@ $online_closed_count = 0;
                 min-width: 0 !important;
                 overflow-x: visible !important;
             }
-            .customizations-data-table,
+            .customizations-data-table {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                table-layout: auto !important;
+                overflow: visible !important;
+            }
+            .customizations-data-table colgroup {
+                display: none !important;
+            }
             .customizations-data-table tbody {
                 display: block !important;
                 width: 100% !important;
@@ -1488,7 +1498,7 @@ $online_closed_count = 0;
                 min-height: 0 !important;
                 margin: 0 0 12px !important;
                 padding: 0 !important;
-                gap: 0 !important;
+                gap: 8px !important;
                 overflow: visible !important;
                 border: 1px solid #e2e8f0 !important;
                 border-radius: 12px !important;
@@ -1500,7 +1510,7 @@ $online_closed_count = 0;
                 flex-direction: column !important;
                 align-items: flex-start !important;
                 gap: 4px !important;
-                width: 100% !important;
+                width: auto !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
                 height: auto !important;
@@ -1509,6 +1519,7 @@ $online_closed_count = 0;
                 border-bottom: 1px solid #f1f5f9 !important;
                 box-sizing: border-box !important;
                 text-align: left !important;
+                white-space: normal !important;
             }
             .customizations-data-table tr.customization-row td::before {
                 content: attr(data-label) !important;
@@ -1572,9 +1583,10 @@ $online_closed_count = 0;
             }
             .customizations-data-table tr.customization-row .status-badge-pill {
                 width: auto !important;
-                min-width: 92px !important;
+                min-width: 0 !important;
                 max-width: 100% !important;
-                white-space: nowrap;
+                white-space: normal !important;
+                overflow-wrap: anywhere !important;
             }
             .customizations-data-table tr.customization-row .action-col-cell {
                 display: block !important;
@@ -1613,6 +1625,31 @@ $online_closed_count = 0;
         @container customization-list (max-width: 430px) {
             .customizations-data-table tr.customization-row td {
                 padding: 6px 8px !important;
+            }
+        }
+
+        /* Viewport fallback: same width constraints when the list card is narrow
+           (matches @container customization-list max-width: 680px). */
+        @media (max-width: 680px) {
+            .pf-staff-customizations-root .customizations-data-table {
+                min-width: 0 !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                table-layout: auto !important;
+            }
+            .pf-staff-customizations-root .customizations-data-table colgroup {
+                display: none !important;
+            }
+            .pf-staff-customizations-root .customizations-data-table tr.customization-row {
+                width: 100% !important;
+                max-width: 100% !important;
+                column-gap: 8px !important;
+            }
+            .pf-staff-customizations-root .customizations-data-table tr.customization-row td {
+                width: auto !important;
+                min-width: 0 !important;
+                max-width: 100% !important;
+                white-space: normal !important;
             }
         }
 
