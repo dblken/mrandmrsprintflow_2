@@ -64,7 +64,7 @@ if ($deepLinkOrderId > 0 && !in_array($deepLinkJobType, ['JOB', 'CUSTOMIZATION',
     redirect((defined('BASE_PATH') ? BASE_PATH : '') . '/staff/customizations.php?order_id=' . $deepLinkOrderId . '&job_type=ORDER');
 }
 
-$page_title = 'Customizations - PrintFlow';
+$page_title = 'Custom Orders - PrintFlow';
 $showLatestCustomizationOnly = false;
 $staffCustomizationRole = ($_SESSION['user_type'] ?? '') === 'Staff'
     ? printflow_get_staff_access_role()
@@ -2159,8 +2159,8 @@ $online_closed_count = 0;
         <div id="staffJoCustomizationsPage" x-data="joManager('ALL')" class="pf-staff-customizations-root" @keydown.escape.window="onSvcEscape()" x-effect="document.body.classList.toggle('pf-revision-modal-open', showRevisionModal)">
         <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
             <div>
-                <h1 class="page-title">Customizations</h1>
-                <p class="page-subtitle">Track and manage all custom jobs</p>
+                <h1 class="page-title">Custom Orders</h1>
+                <p class="page-subtitle">Track and manage custom printing jobs</p>
             </div>
         </header>
 
@@ -2257,7 +2257,7 @@ $online_closed_count = 0;
             <div class="card overflow-visible pf-customizations-table-card">
                 <div class="toolbar-container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
                     <div class="toolbar-group toolbar-group--title">
-                        <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;white-space:nowrap;">Customization List</h3>
+                        <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;white-space:nowrap;">Custom Orders List</h3>
                     </div>
                     <div class="toolbar-group toolbar-group--actions" style="margin-left: auto; display: flex; gap: 8px;">
     

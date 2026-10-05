@@ -104,12 +104,43 @@ if (isset($_SESSION['user_id'])) {
                 POS (Walk-in)
             </a>
             <?php endif; ?>
-            <a href="<?php echo $base_path; ?>/staff/orders.php" class="nav-item menu-link <?php echo in_array($current_page, ['orders.php', 'order_details.php']) ? 'active' : ''; ?>">
-                <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-                </svg>
-                <?php echo $is_pos_staff ? 'Walk-in Orders' : 'Online Orders'; ?>
-            </a>
+            <?php
+            $staff_order_nav_active = in_array($current_page, ['orders.php', 'order_details.php', 'customizations.php', 'job_orders_management.php'], true);
+            $staff_product_orders_active = in_array($current_page, ['orders.php', 'order_details.php'], true);
+            $staff_custom_orders_active = ($current_page === 'customizations.php');
+            ?>
+            <div class="nav-group<?php echo $staff_order_nav_active ? ' expanded' : ''; ?>" data-nav-group="staff-orders" data-nav-initial-expanded="<?php echo $staff_order_nav_active ? '1' : '0'; ?>">
+                <button
+                    type="button"
+                    class="nav-item nav-parent menu-link <?php echo $staff_order_nav_active ? 'active' : ''; ?>"
+                    data-nav-toggle="staff-orders"
+                    aria-expanded="<?php echo $staff_order_nav_active ? 'true' : 'false'; ?>"
+                    aria-controls="nav-subitems-staff-orders"
+                >
+                    <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5h6a2 2 0 012 2v12a2 2 0 01-2 2H9a2 2 0 01-2-2V7a2 2 0 012-2zm0 0V3h6v2M9 11h6M9 15h4"/>
+                    </svg>
+                    <span class="nav-label">Orders</span>
+                    <svg class="nav-chevron" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </button>
+                <div class="nav-subitems" id="nav-subitems-staff-orders">
+                    <a href="<?php echo $base_path; ?>/staff/orders.php" class="nav-subitem menu-link <?php echo $staff_product_orders_active ? 'active' : ''; ?>" data-nav-page="orders.php">
+                        Product Orders
+                    </a>
+                    <a href="<?php echo $base_path; ?>/staff/customizations.php" class="nav-subitem menu-link <?php echo $staff_custom_orders_active ? 'active' : ''; ?>" data-nav-page="customizations.php">
+                        Custom Orders
+                        <span
+                            class="nav-badge nav-badge--sidebar-slot"
+                            data-urgent-customizations-badge
+                            data-urgent-badge-mode="visibility"
+                            style="visibility:hidden;"
+                            aria-hidden="true"
+                        ></span>
+                    </a>
+                </div>
+            </div>
             <?php if ($is_online_staff): ?>
             <a href="<?php echo $base_path; ?>/staff/chats.php" class="nav-item menu-link <?php echo $current_page === 'chats.php' ? 'active' : ''; ?>">
                 <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -119,27 +150,6 @@ if (isset($_SESSION['user_id'])) {
                 <span class="nav-badge nav-badge--sidebar-slot" data-chat-unread-badge data-chat-badge-mode="visibility" style="visibility:<?php echo $_staff_unread_chat > 0 ? 'visible' : 'hidden'; ?>;"><?php echo $_staff_unread_chat > 99 ? '99+' : ($_staff_unread_chat > 0 ? (int)$_staff_unread_chat : ''); ?></span>
             </a>
             <?php endif; ?>
-            <a href="<?php echo $base_path; ?>/staff/customizations.php" class="nav-item menu-link <?php echo $current_page === 'customizations.php' ? 'active' : ''; ?>">
-                <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
-                </svg>
-                Customizations
-                <span
-                    class="nav-badge nav-badge--sidebar-slot"
-                    data-urgent-customizations-badge
-                    data-urgent-badge-mode="visibility"
-                    style="visibility:hidden;"
-                    aria-hidden="true"
-                ></span>
-            </a>
-            <?php /* HIDDEN: Customizations V2 page is no longer in use
-            <a href="<?php echo $base_path; ?>/staff/customizations_v2.php" class="nav-item menu-link <?php echo $current_page === 'customizations_v2.php' ? 'active' : ''; ?>">
-                <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
-                </svg>
-                Customizations V2
-            </a>
-            */ ?>
             <a href="<?php echo $base_path; ?><?php echo $is_online_staff ? '/staff/online/products.php' : '/staff/products.php'; ?>" class="nav-item menu-link <?php echo $current_page === 'products.php' ? 'active' : ''; ?>">
                 <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/>
@@ -290,7 +300,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     });
                 }
             } else {
-                var activeItem = nav.querySelector('a.nav-item.active');
+                var activeItem = nav.querySelector('a.nav-item.active, a.nav-subitem.active');
                 if (activeItem) {
                     requestAnimationFrame(function() {
                         activeItem.scrollIntoView({ block: 'nearest', behavior: 'auto' });
@@ -311,6 +321,53 @@ document.addEventListener('DOMContentLoaded', function() {
             }, true);
         }
     }
+
+    function initStaffOrdersNavGroup() {
+        var group = document.querySelector('[data-nav-group="staff-orders"]');
+        if (!group) return;
+
+        var btn = group.querySelector('[data-nav-toggle]');
+        if (btn && btn.dataset.pfNavBound !== '1') {
+            btn.dataset.pfNavBound = '1';
+            btn.addEventListener('click', function () {
+                var expanded = !group.classList.contains('expanded');
+                group.classList.toggle('expanded', expanded);
+                btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                try {
+                    sessionStorage.setItem('printflow_nav_staff_orders_expanded', expanded ? '1' : '0');
+                } catch (e) {}
+            });
+        }
+
+        if (group.dataset.pfSubBound !== '1') {
+            group.dataset.pfSubBound = '1';
+            group.querySelectorAll('.nav-subitem').forEach(function (link) {
+                link.addEventListener('click', function () {
+                    group.classList.add('expanded');
+                    if (btn) btn.setAttribute('aria-expanded', 'true');
+                    try {
+                        sessionStorage.setItem('printflow_nav_staff_orders_expanded', '1');
+                    } catch (e) {}
+                });
+            });
+        }
+
+        var initialExpanded = group.getAttribute('data-nav-initial-expanded') === '1';
+        if (initialExpanded) {
+            group.classList.add('expanded');
+            if (btn) btn.setAttribute('aria-expanded', 'true');
+        } else {
+            try {
+                var stored = sessionStorage.getItem('printflow_nav_staff_orders_expanded');
+                if (stored === '1') {
+                    group.classList.add('expanded');
+                    if (btn) btn.setAttribute('aria-expanded', 'true');
+                }
+            } catch (e) {}
+        }
+    }
+
+    initStaffOrdersNavGroup();
 });
 </script>
 

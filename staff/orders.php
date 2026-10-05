@@ -641,7 +641,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
     exit;
 }
 
-$page_title = 'Orders - Staff';
+$page_title = 'Product Orders - PrintFlow';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -2810,11 +2810,11 @@ $page_title = 'Orders - Staff';
         <header>
             <div>
                 <?php if ($is_pos_staff): ?>
-                    <h1 class="page-title">Walk-in Sales</h1>
+                    <h1 class="page-title">Product Orders</h1>
                     <p class="page-subtitle">View completed in-store product transactions.</p>
                 <?php else: ?>
-                    <h1 class="page-title">Orders Management</h1>
-                    <p class="page-subtitle">Track and manage all customer orders and payment statuses.</p>
+                    <h1 class="page-title">Product Orders</h1>
+                    <p class="page-subtitle">Track and manage customer product orders and payment statuses.</p>
                 <?php endif; ?>
             </div>
         </header>
@@ -2893,7 +2893,7 @@ $page_title = 'Orders - Staff';
             <div class="card staff-orders-table-card overflow-visible">
                 <div class="toolbar-container" style="display: flex !important; justify-content: space-between !important; align-items: center !important; flex-wrap: wrap !important; gap: 16px !important; width: 100% !important;">
                     <div class="toolbar-group toolbar-group--title" style="flex: 0 1 auto !important;">
-                        <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0; white-space:nowrap;"><?php echo $is_pos_staff ? 'Completed Walk-in Sales' : 'Orders List'; ?></h3>
+                        <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0; white-space:nowrap;"><?php echo $is_pos_staff ? 'Completed Product Orders' : 'Product Orders List'; ?></h3>
                     </div>
                     <div class="toolbar-group toolbar-group--actions" style="display: flex !important; gap: 8px !important; margin-left: auto !important; flex: 0 1 auto !important; justify-content: flex-end !important;">
 
