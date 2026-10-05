@@ -1469,13 +1469,14 @@ $online_closed_count = 0;
                 min-width: 0 !important;
                 overflow-x: visible !important;
             }
+            /* display:contents — table boxes ignore min-width:0 in Chrome when
+               display:block; contents lets tbody/rows respect the card width. */
             .customizations-data-table {
-                display: block !important;
+                display: contents !important;
                 width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
                 table-layout: auto !important;
-                overflow: visible !important;
             }
             .customizations-data-table colgroup {
                 display: none !important;
@@ -1632,10 +1633,17 @@ $online_closed_count = 0;
            (matches @container customization-list max-width: 680px). */
         @media (max-width: 680px) {
             .pf-staff-customizations-root .customizations-data-table {
+                display: contents !important;
                 min-width: 0 !important;
                 width: 100% !important;
                 max-width: 100% !important;
                 table-layout: auto !important;
+            }
+            .pf-staff-customizations-root .customizations-data-table tbody {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
             }
             .pf-staff-customizations-root .customizations-data-table colgroup {
                 display: none !important;
