@@ -1489,7 +1489,7 @@ $online_closed_count = 0;
                 margin: 0 0 12px !important;
                 padding: 0 !important;
                 gap: 0 !important;
-                overflow: hidden !important;
+                overflow: visible !important;
                 border: 1px solid #e2e8f0 !important;
                 border-radius: 12px !important;
                 background: #fff !important;
@@ -1583,19 +1583,25 @@ $online_closed_count = 0;
                 padding: 8px 10px !important;
                 overflow: visible !important;
                 border-bottom: 0 !important;
+                text-align: center !important;
             }
             .customizations-data-table tr.customization-row .action-col-cell::before { display: none !important; }
-            .customizations-data-table tr.customization-row .action-btn-group,
-            .customizations-data-table tr.customization-row .table-action-btn {
+            .customizations-data-table tr.customization-row .action-btn-group {
                 display: flex !important;
+                justify-content: center !important;
                 width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
                 box-sizing: border-box !important;
             }
             .customizations-data-table tr.customization-row .table-action-btn {
-                min-height: 40px !important;
-                padding: 9px 10px !important;
+                display: inline-flex !important;
+                width: auto !important;
+                min-width: 112px !important;
+                max-width: 100% !important;
+                min-height: 42px !important;
+                padding: 10px 24px !important;
+                box-sizing: border-box !important;
             }
             .customizations-data-table tr.customization-row .row-indicator {
                 top: 0 !important;
@@ -1808,8 +1814,9 @@ $online_closed_count = 0;
             }
         }
 
-        /* Phone widths use the existing card markup so the wide desktop table
-           and its colgroup cannot impose a horizontal minimum on order data. */
+        /* Phone widths: keep the table/card renderer (container query below).
+           Do not swap to .customizations-mobile-list — that duplicate markup does
+           not share Alpine row cells and left phones with section labels only. */
         @media (max-width: 640px) {
             .pf-staff-customizations-root .pf-custom-tabs {
                 width: 100%;
@@ -1817,131 +1824,6 @@ $online_closed_count = 0;
                 min-width: 0;
                 justify-content: flex-start !important;
                 overscroll-behavior-inline: contain;
-            }
-            .pf-staff-customizations-root .customizations-table-scroll {
-                display: none !important;
-            }
-            .pf-staff-customizations-root .customizations-mobile-list {
-                display: block !important;
-                width: 100% !important;
-                max-width: 100% !important;
-                min-width: 0 !important;
-                box-sizing: border-box !important;
-            }
-            .pf-staff-customizations-root .customizations-mobile-list-entry {
-                width: 100%;
-                max-width: 100%;
-                min-width: 0;
-                box-sizing: border-box;
-            }
-            .pf-staff-customizations-root .customization-mobile-card {
-                display: grid;
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-                grid-auto-rows: minmax(0, auto);
-                width: 100%;
-                max-width: 100%;
-                min-width: 0;
-                gap: 0;
-                overflow: visible;
-                box-sizing: border-box;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__section,
-            .pf-staff-customizations-root .customization-mobile-card__meta-row {
-                display: flex;
-                flex-direction: column;
-                align-items: flex-start;
-                justify-content: flex-start;
-                gap: 4px;
-                width: 100%;
-                max-width: 100%;
-                min-width: 0;
-                padding: 8px 9px;
-                box-sizing: border-box;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__section--order {
-                grid-column: 1;
-                grid-row: 1;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__section:not(.customization-mobile-card__section--order) {
-                grid-column: 2;
-                grid-row: 1;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__meta {
-                display: contents;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__meta-row:nth-child(1) {
-                grid-column: 1;
-                grid-row: 2;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__meta-row:nth-child(2) {
-                grid-column: 2;
-                grid-row: 2;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__meta-row:nth-child(3) {
-                grid-column: 1;
-                grid-row: 3;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__meta-row:nth-child(4) {
-                grid-column: 2;
-                grid-row: 3;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__label {
-                width: 100%;
-                max-width: 100%;
-                white-space: normal;
-                overflow-wrap: anywhere;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__meta-row .customization-mobile-card__label {
-                margin: 0;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__order,
-            .pf-staff-customizations-root .customization-mobile-card__value,
-            .pf-staff-customizations-root .customization-mobile-card__details,
-            .pf-staff-customizations-root .customization-mobile-card__details > * {
-                width: 100%;
-                max-width: 100%;
-                min-width: 0;
-                white-space: normal;
-                overflow: visible;
-                text-overflow: clip;
-                overflow-wrap: anywhere;
-                word-break: normal;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__status {
-                justify-content: flex-start;
-                min-width: 0;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__status .status-badge-pill {
-                min-width: 0;
-                max-width: 100%;
-                white-space: normal;
-                overflow-wrap: anywhere;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__footer {
-                grid-column: 1 / -1;
-                grid-row: 4;
-                display: flex;
-                justify-content: center;
-                width: 100%;
-                max-width: 100%;
-                min-width: 0;
-                padding: 8px 10px;
-                box-sizing: border-box;
-            }
-            .pf-staff-customizations-root .customization-mobile-card__footer .table-action-btn {
-                display: inline-flex;
-                width: auto;
-                min-width: 112px;
-                max-width: 100%;
-                min-height: 42px;
-                margin: 0 auto;
-                padding: 10px 24px;
-                box-sizing: border-box;
-                white-space: nowrap;
-            }
-            .pf-staff-customizations-root .customizations-mobile-section-label {
-                max-width: 100%;
-                box-sizing: border-box;
             }
         }
         .production-field-invalid {
