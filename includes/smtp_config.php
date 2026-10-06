@@ -7,14 +7,14 @@
 
 return [
     // ── SMTP Credentials ─────────────────────────────────────────────────────
-    'smtp_host'     => 'smtp.gmail.com',       // e.g. smtp.gmail.com, smtp.zoho.com
-    'smtp_port'     => 587,
-    'smtp_user'     => 'kentlloydvillanueva.edu@gmail.com', // <-- REPLACE with your Gmail
-    'smtp_pass'     => 'yjtgffjkwrccjsmc',    // <-- REPLACE with Gmail App Password (not your real password)
-    'smtp_secure'   => 'tls',                  // 'tls' (port 587) or 'ssl' (port 465)
+    'smtp_host'     => 'smtp.hostinger.com',       // e.g. smtp.gmail.com, smtp.zoho.com
+    'smtp_port'     => 465,
+    'smtp_user'     => 'printflow@mrandmrsprintflow.com', // <-- REPLACE with your Gmail
+    'smtp_pass'     => 'Printflow@123',    // <-- REPLACE with Gmail App Password (not your real password)
+    'smtp_secure'   => 'ssl',                  // 'tls' (port 587) or 'ssl' (port 465)
 
     // ── Sender identity ───────────────────────────────────────────────────────
-    'from_email'    => 'kentlloydvillanueva.edu@gmail.com', // Must match smtp_user for Gmail
+    'from_email'    => 'printflow@mrandmrsprintflow.com', // Must match smtp_user for Gmail
     'from_name'     => 'PrintFlow',
 
     // ── OTP settings ─────────────────────────────────────────────────────────
