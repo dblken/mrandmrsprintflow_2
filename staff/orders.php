@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/staff_order_status_buckets.php';
+require_once __DIR__ . '/../includes/expired_product_order_archive.php';
 
 require_role('Staff');
 printflow_require_staff_module('orders');
@@ -119,18 +120,24 @@ $date_from_filter = $_GET['date_from'] ?? '';
 $date_to_filter        = $_GET['date_to']   ?? '';
 $customer_filter       = $_GET['customer']  ?? '';
 $sort_by               = $_GET['sort']           ?? 'newest';
+$display_status_filter = strtoupper(trim((string)($_GET['display_status'] ?? '')));
+$valid_display_status_filters = ['PAID', 'EXPIRED', 'COMPLETED'];
+if (!in_array($display_status_filter, $valid_display_status_filters, true)) {
+    $display_status_filter = '';
+}
 
 $active_filters = [];
 if (!$is_pos_staff && $status_filter !== 'ALL') $active_filters['status'] = $status_filter;
 if ($date_from_filter !== '')      $active_filters['date_from']      = $date_from_filter;
 if ($date_to_filter !== '')        $active_filters['date_to']        = $date_to_filter;
 if ($customer_filter !== '')       $active_filters['customer']       = $customer_filter;
+if ($display_status_filter !== '') $active_filters['display_status'] = $display_status_filter;
 if ($sort_by !== 'newest')         $active_filters['sort']           = $sort_by;
 $pagination_params = $active_filters;
 if (isset($_GET['status']) && in_array($status_filter, $valid_status_filters, true)) {
     $pagination_params['status'] = $status_filter;
 }
-$active_filter_parts = [$customer_filter, $date_from_filter, $date_to_filter];
+$active_filter_parts = [$customer_filter, $date_from_filter, $date_to_filter, $display_status_filter];
 if (!$is_pos_staff && $status_filter !== 'ALL') {
     $active_filter_parts[] = $status_filter;
 }
@@ -316,6 +323,12 @@ function staff_orders_attach_provider_payments(array &$orders): void {
 $sql_conditions = " AND o.order_type = 'product' AND {$staffOrderScopeSql}";
 $params = [];
 $types = '';
+if (!$is_pos_staff) {
+    $sql_conditions .= ' AND ' . printflow_expired_product_order_exclude_archived_sql('o');
+}
+if ($display_status_filter !== '') {
+    $sql_conditions .= ' AND ' . printflow_expired_product_order_display_filter_sql($display_status_filter, 'o');
+}
 if ($status_filter !== 'ALL') {
     if ($status_filter === 'PAYMENT') {
         $sql_conditions .= ' AND ' . staff_orders_sql_payment_bucket('o');
@@ -535,6 +548,29 @@ function staff_orders_product_name(array $order): string {
     }
 
     return $display_items;
+}
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'archived' && !$is_pos_staff) {
+    header('Content-Type: application/json; charset=utf-8');
+    $archivedRows = printflow_expired_product_order_fetch_archived($staffBranchId, $staffOrderScopeSql, 200, 0);
+    staff_orders_attach_provider_payments($archivedRows);
+    foreach ($archivedRows as &$archivedRow) {
+        $archivedRow['order_code'] = printflow_format_order_code($archivedRow['order_id'] ?? 0, $archivedRow['order_sku'] ?? '');
+        $archivedRow['display_status'] = staff_orders_display_status(
+            (string)($archivedRow['status'] ?? ''),
+            is_array($archivedRow['provider_payment'] ?? null) ? $archivedRow['provider_payment'] : null
+        );
+        $archivedRow['formatted_total'] = format_currency((float)($archivedRow['total_amount'] ?? 0));
+        $archivedRow['formatted_date'] = format_date((string)($archivedRow['order_date'] ?? ''));
+        $archivedRow['product_name'] = staff_orders_product_name($archivedRow);
+    }
+    unset($archivedRow);
+    echo json_encode([
+        'success' => true,
+        'count' => count($archivedRows),
+        'orders' => $archivedRows,
+    ], JSON_UNESCAPED_SLASHES);
+    exit;
 }
 
 // Handle specific AJAX request for drawing the table
@@ -1868,6 +1904,7 @@ $page_title = 'Product Orders - PrintFlow';
             customer:       () => document.getElementById('fp_customer')?.value       || '',
             date_from:      () => document.getElementById('fp_date_from')?.value      || '',
             date_to:        () => document.getElementById('fp_date_to')?.value        || '',
+            display_status: () => document.getElementById('fp_display_status')?.value || '',
         };
         for (const [key, getter] of Object.entries(fields)) {
             let val = (overrides[key] !== undefined) ? overrides[key] : getter();
@@ -2035,8 +2072,58 @@ $page_title = 'Product Orders - PrintFlow';
             const el = document.getElementById('fp_' + f);
             if (el) el.value = '';
         });
+        if (fields.includes('display_status')) {
+            document.querySelectorAll('input[name="fp_display_status_radio"]').forEach(r => { r.checked = false; });
+        }
         fetchUpdatedTable({ page: 1 });
     }
+
+    function setDisplayStatusFilter(value) {
+        const hidden = document.getElementById('fp_display_status');
+        if (hidden) hidden.value = value || '';
+        fetchUpdatedTable({ page: 1, display_status: value || '' });
+    }
+
+    async function openArchivedOrdersModal() {
+        const modal = document.getElementById('archivedOrdersModal');
+        const body = document.getElementById('archivedOrdersModalBody');
+        if (!modal || !body) return;
+        modal.classList.add('open');
+        modal.setAttribute('aria-hidden', 'false');
+        body.innerHTML = '<div style="padding:32px;text-align:center;color:#64748b;">Loading archived orders...</div>';
+        try {
+            const res = await fetch(staffUrl('staff/orders.php?ajax=archived'), { credentials: 'same-origin', cache: 'no-store' });
+            const data = await res.json();
+            if (!data.success || !Array.isArray(data.orders) || data.orders.length === 0) {
+                body.innerHTML = '<div style="padding:32px;text-align:center;color:#64748b;">No archived expired orders.</div>';
+                return;
+            }
+            let html = '<div class="table-responsive"><table class="orders-table orders-table--online" style="width:100%;"><thead><tr>'
+                + '<th>Order Code</th><th>Product</th><th>Customer</th><th>Date</th><th>Total</th><th>Status</th></tr></thead><tbody>';
+            data.orders.forEach(function(row) {
+                html += '<tr><td>' + esc(row.order_code || '') + '</td>'
+                    + '<td>' + esc(row.product_name || '') + '</td>'
+                    + '<td>' + esc(row.customer_name || '') + '</td>'
+                    + '<td>' + esc(row.formatted_date || '') + '</td>'
+                    + '<td>' + esc(row.formatted_total || '') + '</td>'
+                    + '<td>' + esc(row.display_status || 'Expired') + '</td></tr>';
+            });
+            html += '</tbody></table></div>';
+            body.innerHTML = html;
+        } catch (e) {
+            body.innerHTML = '<div style="padding:32px;text-align:center;color:#dc2626;">Failed to load archived orders.</div>';
+        }
+    }
+
+    function closeArchivedOrdersModal() {
+        const modal = document.getElementById('archivedOrdersModal');
+        if (!modal) return;
+        modal.classList.remove('open');
+        modal.setAttribute('aria-hidden', 'true');
+    }
+    window.setDisplayStatusFilter = setDisplayStatusFilter;
+    window.openArchivedOrdersModal = openArchivedOrdersModal;
+    window.closeArchivedOrdersModal = closeArchivedOrdersModal;
 
     function ordersPage() {
         return {
@@ -2063,6 +2150,12 @@ $page_title = 'Product Orders - PrintFlow';
             },
             
             init() {
+                const archivedBtn = document.getElementById('btn-open-archived-orders');
+                if (archivedBtn) {
+                    archivedBtn.addEventListener('click', function() {
+                        openArchivedOrdersModal();
+                    });
+                }
                 window.addEventListener('filter-badge-update', e => { this.hasActiveFilters = (e.detail.badge > 0); });
                 window.addEventListener('sort-changed', e => { this.activeSort = e.detail.sortKey; this.sortOpen = false; });
                 
@@ -2929,6 +3022,13 @@ $page_title = 'Product Orders - PrintFlow';
                                 </div>
                             </div>
 
+                            <?php if (!$is_pos_staff): ?>
+                            <button type="button" class="toolbar-btn" id="btn-open-archived-orders" style="display:flex;align-items:center;gap:6px;">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18"/><path d="M5 7l1 12h12l1-12"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/></svg>
+                                Archived
+                            </button>
+                            <?php endif; ?>
+
                             <!-- Filter Button -->
                             <div style="position:relative;">
                                 <button class="toolbar-btn" :class="{ active: filterOpen || hasActiveFilters }" @click="filterOpen = !filterOpen; sortOpen = false">
@@ -2957,6 +3057,25 @@ $page_title = 'Product Orders - PrintFlow';
                                             <input type="date" id="fp_date_to" class="filter-input" value="<?php echo htmlspecialchars($date_to_filter); ?>" @change="applyFilters()">
                                         </div>
                                     </div>
+
+                                    <!-- Payment display status -->
+                                    <?php if (!$is_pos_staff): ?>
+                                    <div class="filter-section">
+                                        <div class="filter-section-head">
+                                            <span class="filter-label" style="margin:0;">Payment status</span>
+                                            <button type="button" @click="resetFilterField(['display_status'])" class="filter-reset-link">Reset</button>
+                                        </div>
+                                        <input type="hidden" id="fp_display_status" value="<?php echo htmlspecialchars($display_status_filter); ?>">
+                                        <div style="display:grid; gap:6px;">
+                                            <?php foreach (['PAID' => 'Paid', 'EXPIRED' => 'Expired', 'COMPLETED' => 'Completed'] as $dsKey => $dsLabel): ?>
+                                            <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#374151;cursor:pointer;">
+                                                <input type="radio" name="fp_display_status_radio" value="<?php echo $dsKey; ?>" <?php echo $display_status_filter === $dsKey ? 'checked' : ''; ?> @change="setDisplayStatusFilter('<?php echo $dsKey; ?>')">
+                                                <?php echo htmlspecialchars($dsLabel); ?>
+                                            </label>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    </div>
+                                    <?php endif; ?>
 
                                     <!-- Keyword Search -->
                                     <input type="hidden" id="fp_status" value="<?php echo htmlspecialchars($status_filter); ?>">
@@ -3280,6 +3399,23 @@ $page_title = 'Product Orders - PrintFlow';
     }
     .pf-confirm-title { font-size: 20px; font-weight: 800; color: #0f172a; margin-bottom: 12px; }
     .pf-confirm-text { font-size: 15px; color: #64748b; line-height: 1.6; margin-bottom: 32px; }
+</style>
+
+<div id="archivedOrdersModal" class="pf-modal-overlay" aria-hidden="true" role="dialog" aria-modal="true" style="display:none;">
+    <div class="pf-modal-card" style="max-width:960px;width:95%;max-height:85vh;display:flex;flex-direction:column;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #e5e7eb;">
+            <h3 style="margin:0;font-size:18px;font-weight:800;color:#0f172a;">Archived Expired Orders</h3>
+            <button type="button" class="filter-close-btn" onclick="closeArchivedOrdersModal()" aria-label="Close">×</button>
+        </div>
+        <div id="archivedOrdersModalBody" style="padding:16px 20px;overflow:auto;flex:1;"></div>
+        <div style="padding:12px 20px;border-top:1px solid #e5e7eb;font-size:12px;color:#64748b;">
+            Unpaid QRPH orders expired for more than 7 days. They remain here until an Admin clears them from Products Management.
+        </div>
+    </div>
+</div>
+<style>
+#archivedOrdersModal.open { display:flex !important; align-items:center; justify-content:center; }
+#archivedOrdersModal .pf-modal-card { background:#fff; border-radius:16px; box-shadow:0 25px 50px rgba(15,23,42,.18); }
 </style>
 
 <div id="pfConfirmModal" role="dialog" aria-modal="true">
