@@ -19,6 +19,11 @@ $assert(strpos($itemsApi, "printflow_customer_receipt_is_available") !== false, 
 $assert(strpos($orders, 'UNOFFICIAL SALES RECEIPT') !== false, 'Online receipt uses the unofficial receipt label.');
 $assert(strpos($orders, 'Claim Status') !== false && strpos($orders, 'Ready to Claim') !== false, 'Online receipt declares ready-made claim status.');
 $assert(strpos($orders, 'Please present this transaction reference when claiming your order.') !== false, 'Online receipt includes claim guidance.');
+$buildStart = strpos($orders, 'function buildReceiptHtml');
+$buildEnd = strpos($orders, 'function openReceiptModal', $buildStart !== false ? $buildStart : 0);
+$buildReceipt = ($buildStart !== false && $buildEnd !== false) ? substr($orders, $buildStart, $buildEnd - $buildStart) : '';
+$assert($buildReceipt !== '' && substr_count($buildReceipt, '<span>Payment Method</span>') === 1, 'Customer receipt shows payment method only in the Payment section.');
+$assert($buildReceipt !== '' && strpos($buildReceipt, 'receipt-payment-chip') === false, 'Customer receipt does not duplicate payment method in the Customer section.');
 $assert(strpos($orders, 'Visit our Online Store') === false, 'Online receipt has no redundant store QR section.');
 $assert(strpos($pos, 'Visit our Online Store') !== false, 'POS preview keeps its store QR section.');
 $assert(strpos($printer, 'printflow_pos_online_store_url()') !== false, 'POS thermal printing keeps its store QR behavior.');

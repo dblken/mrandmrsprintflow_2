@@ -3230,7 +3230,6 @@ function buildReceiptHtml(receipt) {
                     <div class="receipt-customer-name">${receiptEscape(customer.name || 'Customer')}</div>
                     ${contact ? `<div class="receipt-value" style="margin-top:4px;">${receiptEscape(contact)}</div>` : ''}
                 </div>
-                <div class="receipt-payment-chip">${receiptEscape(payment.method || 'Paid')}</div>
             </div>
         </div>
 
@@ -3257,7 +3256,6 @@ function buildReceiptHtml(receipt) {
                 <div class="receipt-total-line receipt-total-line--grand"><span>Total Paid</span><span>${formatMoney(receipt.total || 0)}</span></div>
             </div>
             <div class="receipt-payment-breakdown">
-                <div class="receipt-total-line"><span>Payment Method</span><strong>${receiptEscape(payment.method || 'Not Specified')}</strong></div>
                 <div class="receipt-total-line"><span>Amount Paid</span><strong>${formatMoney(payment.amount_paid || receipt.total || 0)}</strong></div>
             </div>
         </div>
