@@ -1812,8 +1812,13 @@ try {
             if ($joStaffBranch !== null && !printflow_order_in_branch($orderId, $joStaffBranch)) {
                 throw new Exception('Unauthorized');
             }
-            $row = db_query('SELECT id FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1', 'i', [$orderId]);
-            $jobId = $row[0]['id'] ?? null;
+            $hintJob = (int)($_GET['job_order_id'] ?? $_POST['job_order_id'] ?? 0);
+            $hintItem = (int)($_GET['order_item_id'] ?? $_POST['order_item_id'] ?? 0);
+            $jobId = printflow_resolve_linked_job_order_id(
+                $orderId,
+                $hintJob > 0 ? $hintJob : null,
+                $hintItem > 0 ? $hintItem : null
+            );
             // Checkout sometimes leaves orders without job_orders if job creation failed — backfill from order_items (same rules as checkout)
             if ($jobId === null) {
                 $created = JobOrderService::ensureJobsForStoreOrder($orderId);

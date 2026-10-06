@@ -894,6 +894,83 @@ function printflow_notification_is_revision_submission(array $notification): boo
     return false;
 }
 
+function printflow_notification_is_change_item_submission(array $notification): bool
+{
+    $dataId = (int) ($notification['data_id'] ?? 0);
+    if ($dataId <= 0) {
+        return false;
+    }
+    $message = strtolower(trim((string) ($notification['message'] ?? '')));
+    return str_contains($message, 'change item');
+}
+
+/**
+ * Whether this store order is managed on staff Custom Orders (services/customizations), including POS service jobs.
+ */
+function printflow_order_uses_customizations_page(int $orderId): bool
+{
+    $orderId = (int) $orderId;
+    if ($orderId <= 0) {
+        return false;
+    }
+
+    $orderType = 'product';
+    if (db_table_has_column('orders', 'order_type')) {
+        $orderRows = db_query('SELECT order_type FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]);
+        if (!empty($orderRows)) {
+            $orderType = strtolower(trim((string) ($orderRows[0]['order_type'] ?? 'product')));
+        }
+    }
+
+    if ($orderType === 'custom') {
+        return true;
+    }
+
+    $jobRows = db_query('SELECT id FROM job_orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]);
+    if (!empty($jobRows)) {
+        return true;
+    }
+
+    $preview = printflow_order_notification_preview($orderId);
+    return strtolower(trim((string) ($preview['item_kind'] ?? ''))) === 'service';
+}
+
+function printflow_staff_change_item_notification_url(int $orderId): string
+{
+    $base = printflow_notification_base_path();
+    $orderId = (int) $orderId;
+    if ($orderId <= 0) {
+        return $base . '/staff/customizations.php';
+    }
+
+    require_once __DIR__ . '/change_item_workflow.php';
+
+    $params = [
+        'order_id' => $orderId,
+        'job_type' => 'ORDER',
+        'status' => 'CHANGED_ITEMS',
+        'open_changed_item' => '1',
+    ];
+
+    $active = printflow_change_item_get_active($orderId);
+    if ($active !== null) {
+        $changeItemId = (int) ($active['change_item_id'] ?? 0);
+        if ($changeItemId > 0) {
+            $params['change_item_id'] = $changeItemId;
+        }
+        $jobOrderId = (int) ($active['job_order_id'] ?? 0);
+        if ($jobOrderId > 0) {
+            $params['job_order_id'] = $jobOrderId;
+        }
+        $orderItemId = (int) ($active['order_item_id'] ?? 0);
+        if ($orderItemId > 0) {
+            $params['order_item_id'] = $orderItemId;
+        }
+    }
+
+    return $base . '/staff/customizations.php?' . http_build_query($params);
+}
+
 function printflow_review_notification_debug(array $notification, array $context = []): void {
     $env = strtolower(trim((string)(getenv('APP_ENV') ?: '')));
     if (getenv('PRINTFLOW_NOTIFICATION_DEBUG') !== '1' && !in_array($env, ['dev', 'development', 'local'], true)) return;
@@ -927,6 +1004,13 @@ function staff_notification_target_url(array $n): string {
     // decision before the broad legacy "review" keyword check below.
     if (printflow_notification_is_revision_submission($n)) {
         return $base . '/staff/customizations.php?order_id=' . $data_id . '&job_type=ORDER&status=PENDING';
+    }
+
+    if ($data_id > 0 && printflow_notification_is_change_item_submission($n)) {
+        if (printflow_order_uses_customizations_page($data_id)) {
+            return printflow_staff_change_item_notification_url($data_id);
+        }
+        return printflow_staff_order_management_url($data_id, false);
     }
 
     $is_rating = (

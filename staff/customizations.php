@@ -46,22 +46,11 @@ if ($deepLinkOrderId > 0 && !in_array($deepLinkJobType, ['JOB', 'CUSTOMIZATION',
         }
     }
 
-    // For custom/service orders: try to find a linked job_orders row for a cleaner display
-    $linkedJob = db_query(
-        "SELECT id FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1",
-        'i',
-        [$deepLinkOrderId]
-    );
-    $linkedJobId = (int)($linkedJob[0]['id'] ?? 0);
-    if ($linkedJobId > 0) {
-        // Redirect to the specific job order view
-        redirect((defined('BASE_PATH') ? BASE_PATH : '') . '/staff/customizations.php?order_id=' . $linkedJobId . '&job_type=JOB');
-    }
-    // Custom order exists but no job_orders row yet (e.g. ordered via order_review.php).
-    // Stay on customizations.php — the page will show the order from the orders table.
-    // Do NOT redirect to orders.php; that page only shows product orders.
-    // Fall through to render customizations.php normally with the order_id context.
-    redirect((defined('BASE_PATH') ? BASE_PATH : '') . '/staff/customizations.php?order_id=' . $deepLinkOrderId . '&job_type=ORDER');
+    // Normalize deep links to the store order_id + ORDER view (avoids opening the wrong job/service).
+    $qs = $_GET;
+    $qs['order_id'] = $deepLinkOrderId;
+    $qs['job_type'] = 'ORDER';
+    redirect((defined('BASE_PATH') ? BASE_PATH : '') . '/staff/customizations.php?' . http_build_query($qs));
 }
 
 $page_title = 'Custom Orders - PrintFlow';
@@ -4510,10 +4499,41 @@ window.pfServiceFieldCatalog = (() => {
             clearDeepLinkParams() {
                 try {
                     const url = new URL(window.location.href);
-                    ['order_id', 'status', 'job_type', 'source_order_id', 'return_to_pos', 'mode'].forEach(key => url.searchParams.delete(key));
+                    [
+                        'order_id', 'status', 'job_type', 'source_order_id', 'return_to_pos', 'mode',
+                        'open_changed_item', 'change_item_id', 'job_order_id', 'order_item_id'
+                    ].forEach(key => url.searchParams.delete(key));
                     window.history.replaceState({}, document.title, url.toString());
                 } catch (e) {
                     console.warn('Unable to clear customization deep-link params', e);
+                }
+            },
+            async focusOpenChangeItemDeepLink(expectedChangeItemId = 0) {
+                if (this.detailError) {
+                    this.showStaffAlert('Order Not Found', this.detailError);
+                    return;
+                }
+                const active = this.changeItemActiveRequest(this.currentJo);
+                const activeId = parseInt(active && active.id ? active.id : 0, 10);
+                const expectedId = parseInt(expectedChangeItemId || 0, 10);
+                if (expectedId > 0 && activeId > 0 && expectedId !== activeId) {
+                    this.showStaffAlert(
+                        'Change Item Not Found',
+                        'The change item request from this notification could not be matched to this order. Please locate the order manually in Changed Items.'
+                    );
+                    return;
+                }
+                if (!active && expectedId > 0) {
+                    this.showStaffAlert(
+                        'Change Item Not Found',
+                        'No active change item request was found for this order. It may have been completed or removed.'
+                    );
+                    return;
+                }
+                await this.$nextTick();
+                const panel = document.querySelector('.pf-change-item-review');
+                if (panel && typeof panel.scrollIntoView === 'function') {
+                    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             },
             isPosPricingMode() {
@@ -4644,8 +4664,23 @@ window.pfServiceFieldCatalog = (() => {
                 const params = new URLSearchParams({ id: String(orderId) });
                 if (options.includeAssignments) params.set('include_assignments', '1');
                 if (options.ensureJob) params.set('ensure_job', '1');
+                if (options.jobOrderId) params.set('job_order_id', String(options.jobOrderId));
+                if (options.orderItemId) params.set('order_item_id', String(options.orderItemId));
                 const res = await fetch(`${this.staffApiUrl('get_order_for_modal.php')}?${params.toString()}`);
                 return this.parseJsonResponse(res);
+            },
+            deepLinkJobHintsFromUrl() {
+                try {
+                    const params = new URLSearchParams(window.location.search);
+                    const jobOrderId = parseInt(params.get('job_order_id') || '0', 10);
+                    const orderItemId = parseInt(params.get('order_item_id') || '0', 10);
+                    return {
+                        jobOrderId: Number.isFinite(jobOrderId) && jobOrderId > 0 ? jobOrderId : 0,
+                        orderItemId: Number.isFinite(orderItemId) && orderItemId > 0 ? orderItemId : 0,
+                    };
+                } catch (e) {
+                    return { jobOrderId: 0, orderItemId: 0 };
+                }
             },
             async loadModalAssignments(orderId, cacheKey, requestToken) {
                 if (!orderId) return;
@@ -7348,8 +7383,11 @@ window.pfServiceFieldCatalog = (() => {
                 const orderId = params.get('order_id');
                 const sourceOrderId = params.get('source_order_id');
                 const initialStatus = params.get('status');
+                const openChangedItem = params.get('open_changed_item') === '1';
+                const expectedChangeItemId = parseInt(params.get('change_item_id') || '0', 10);
                 const returnToPOS = params.get('return_to_pos') === '1';
                 const mode = (params.get('mode') || '').trim().toLowerCase();
+                const deepLinkHints = this.deepLinkJobHintsFromUrl();
                 this.detailContextMode = mode === 'pos_pricing' ? 'pos_pricing' : 'production_view';
                 this.deepLinkExpectedStatus = initialStatus ? initialStatus.toUpperCase().replace(/\s+/g, '_') : '';
                 this.deepLinkSourceOrderId = sourceOrderId || '';
@@ -7425,8 +7463,18 @@ window.pfServiceFieldCatalog = (() => {
                         this.clearDeepLinkParams();
                     }
                 } else if (orderId) {
-                    const jobType = params.get('job_type') || 'JOB';
-                    await this.viewDetails(parseInt(orderId, 10), jobType);
+                    const jobType = (params.get('job_type') || 'ORDER').toUpperCase();
+                    const parsedOrderId = parseInt(orderId, 10);
+                    if (jobType === 'ORDER') {
+                        await this.viewDetails(parsedOrderId, 'ORDER', deepLinkHints);
+                    } else {
+                        await this.viewDetails(parsedOrderId, jobType);
+                    }
+                    if (openChangedItem) {
+                        await this.focusOpenChangeItemDeepLink(expectedChangeItemId);
+                    } else if (this.detailError) {
+                        this.showStaffAlert('Order Not Found', this.detailError);
+                    }
                     this.clearDeepLinkParams();
                 } else if (sourceOrderId) {
                     const parsedSourceOrderId = parseInt(sourceOrderId, 10);
@@ -8207,8 +8255,11 @@ window.pfServiceFieldCatalog = (() => {
                 this.navigateFromKpi('URGENT');
             },
 
-            async viewDetails(id, orderType = 'JOB') {
+            async viewDetails(id, orderType = 'JOB', deepLinkHints = null) {
                 let order = this.findOrder(id, orderType);
+                const jobHints = deepLinkHints && typeof deepLinkHints === 'object'
+                    ? deepLinkHints
+                    : { jobOrderId: 0, orderItemId: 0 };
                 if (orderType === 'SERVICE' || (order && order.order_type) === 'SERVICE') {
                     await this.openSvcModal(id);
                     return;
@@ -8293,7 +8344,9 @@ window.pfServiceFieldCatalog = (() => {
                     try {
                         const detailRes = await this.fetchOrderModalSummary(regularOrderId, {
                             includeAssignments: true,
-                            ensureJob: this.isPosPricingMode()
+                            ensureJob: this.isPosPricingMode(),
+                            jobOrderId: jobHints.jobOrderId || 0,
+                            orderItemId: jobHints.orderItemId || 0,
                         });
                         if (detailRes.success && detailRes.data && requestToken === this.detailRequestToken) {
                             this.finishDetailLoadWith(detailRes.data, 'ORDER', cacheKey);

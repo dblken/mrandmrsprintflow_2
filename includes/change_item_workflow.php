@@ -659,6 +659,73 @@ function printflow_change_item_get_active(int $orderId): ?array
     return $rows[0] ?? null;
 }
 
+/**
+ * Pick the job_orders row that matches the active change item or newest line job — not the oldest job on the order.
+ */
+function printflow_resolve_linked_job_order_id(int $orderId, ?int $preferJobOrderId = null, ?int $preferOrderItemId = null): ?int
+{
+    $orderId = (int) $orderId;
+    if ($orderId <= 0) {
+        return null;
+    }
+
+    if ($preferJobOrderId !== null && (int) $preferJobOrderId > 0) {
+        $preferred = db_query(
+            'SELECT id FROM job_orders WHERE id = ? AND order_id = ? LIMIT 1',
+            'ii',
+            [(int) $preferJobOrderId, $orderId]
+        ) ?: [];
+        if (!empty($preferred[0]['id'])) {
+            return (int) $preferred[0]['id'];
+        }
+    }
+
+    $active = printflow_change_item_get_active($orderId);
+    if ($active !== null) {
+        $changeJobId = (int) ($active['job_order_id'] ?? 0);
+        if ($changeJobId > 0) {
+            $rows = db_query(
+                'SELECT id FROM job_orders WHERE id = ? AND order_id = ? LIMIT 1',
+                'ii',
+                [$changeJobId, $orderId]
+            ) ?: [];
+            if (!empty($rows[0]['id'])) {
+                return (int) $rows[0]['id'];
+            }
+        }
+        $changeOrderItemId = (int) ($active['order_item_id'] ?? 0);
+        if ($changeOrderItemId > 0) {
+            $rows = db_query(
+                'SELECT id FROM job_orders WHERE order_id = ? AND order_item_id = ? ORDER BY id DESC LIMIT 1',
+                'ii',
+                [$orderId, $changeOrderItemId]
+            ) ?: [];
+            if (!empty($rows[0]['id'])) {
+                return (int) $rows[0]['id'];
+            }
+        }
+    }
+
+    if ($preferOrderItemId !== null && (int) $preferOrderItemId > 0) {
+        $rows = db_query(
+            'SELECT id FROM job_orders WHERE order_id = ? AND order_item_id = ? ORDER BY id DESC LIMIT 1',
+            'ii',
+            [$orderId, (int) $preferOrderItemId]
+        ) ?: [];
+        if (!empty($rows[0]['id'])) {
+            return (int) $rows[0]['id'];
+        }
+    }
+
+    $rows = db_query(
+        'SELECT id FROM job_orders WHERE order_id = ? ORDER BY id DESC LIMIT 1',
+        'i',
+        [$orderId]
+    ) ?: [];
+
+    return !empty($rows[0]['id']) ? (int) $rows[0]['id'] : null;
+}
+
 function printflow_change_item_get_history(int $orderId): array
 {
     if (!printflow_change_item_ensure_schema()) {
