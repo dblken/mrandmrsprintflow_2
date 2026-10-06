@@ -606,3 +606,103 @@ function printflow_nested_service_options_price_total(array $post, array $field_
 
     return $total;
 }
+
+/**
+ * Calculate service unit price from saved field configs and a customization payload (POS cart / checkout).
+ *
+ * @return array{ok:bool, unit_price:float, message:string}
+ */
+function printflow_calculate_service_unit_price(int $serviceId, array $customization): array
+{
+    if ($serviceId <= 0) {
+        return ['ok' => false, 'unit_price' => 0.0, 'message' => 'Invalid service.'];
+    }
+
+    $rows = db_query(
+        'SELECT COALESCE(price, 0) AS base_price FROM services WHERE service_id = ? LIMIT 1',
+        'i',
+        [$serviceId]
+    );
+    if (empty($rows)) {
+        return ['ok' => false, 'unit_price' => 0.0, 'message' => 'Service not found.'];
+    }
+
+    $basePrice = (float)($rows[0]['base_price'] ?? 0);
+
+    if (!function_exists('get_service_field_config')) {
+        require_once __DIR__ . '/service_field_config_helper.php';
+    }
+
+    $fieldConfigs = get_service_field_config($serviceId);
+    if (empty($fieldConfigs)) {
+        if ($basePrice <= 0) {
+            return [
+                'ok' => false,
+                'unit_price' => 0.0,
+                'message' => 'Price could not be calculated for this service.',
+            ];
+        }
+
+        return ['ok' => true, 'unit_price' => round($basePrice, 2), 'message' => ''];
+    }
+
+    $fieldValues = printflow_service_field_values_from_customization($customization, $fieldConfigs);
+    $optionsTotal = 0.0;
+
+    foreach ($fieldConfigs as $key => $config) {
+        if (empty($config['visible'])) {
+            continue;
+        }
+        $type = (string)($config['type'] ?? '');
+        if (!in_array($type, ['radio', 'select', 'dimension'], true)) {
+            continue;
+        }
+
+        $selectedValue = trim((string)($fieldValues[$key] ?? ''));
+
+        if ($type === 'dimension') {
+            $width = trim((string)($fieldValues[$key . '_width'] ?? $fieldValues['width'] ?? $customization[$key . '_width'] ?? ''));
+            $height = trim((string)($fieldValues[$key . '_height'] ?? $fieldValues['height'] ?? $customization[$key . '_height'] ?? ''));
+            if ($width !== '' && $height !== '') {
+                $selectedValue = $width . '×' . $height;
+            }
+        }
+
+        if ($selectedValue === '' || strcasecmp($selectedValue, 'Others') === 0) {
+            continue;
+        }
+
+        foreach (($config['options'] ?? []) as $option) {
+            $optValue = is_array($option) ? trim((string)($option['value'] ?? '')) : trim((string)$option);
+            $optPrice = is_array($option) ? (float)($option['price'] ?? 0) : 0.0;
+            if ($optValue === '') {
+                continue;
+            }
+
+            $matched = false;
+            if ($type === 'dimension') {
+                $matched = printflow_normalize_service_dim_compare($selectedValue) === printflow_normalize_service_dim_compare($optValue);
+            } else {
+                $matched = strcasecmp($selectedValue, $optValue) === 0;
+            }
+
+            if ($matched) {
+                $optionsTotal += max(0.0, $optPrice);
+                break;
+            }
+        }
+    }
+
+    $optionsTotal += printflow_nested_service_options_price_total($fieldValues, $fieldConfigs);
+    $unitPrice = round($basePrice + $optionsTotal, 2);
+
+    if ($unitPrice <= 0) {
+        return [
+            'ok' => false,
+            'unit_price' => 0.0,
+            'message' => 'Price could not be calculated. Check your specifications and try again.',
+        ];
+    }
+
+    return ['ok' => true, 'unit_price' => $unitPrice, 'message' => ''];
+}

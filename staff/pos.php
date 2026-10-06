@@ -4630,6 +4630,32 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
         }
 
+        function resolveServiceModalPricing() {
+            let unitPrice = 0;
+            let quantity = 1;
+            if (posEstimatedPriceController && typeof posEstimatedPriceController.recalculate === 'function') {
+                const result = posEstimatedPriceController.recalculate();
+                unitPrice = Number(result.unitPrice);
+                quantity = Number(result.quantity);
+            } else if (typeof window.calculateEstimatedPrice === 'function') {
+                const result = window.calculateEstimatedPrice();
+                unitPrice = Number(result.unitPrice);
+                quantity = Number(result.quantity);
+            }
+            if (!Number.isFinite(unitPrice)) unitPrice = 0;
+            if (!Number.isFinite(quantity) || quantity < 1) quantity = 1;
+            return { unitPrice, quantity };
+        }
+
+        function applyServicePricingToCustomization(customization, unitPrice, quantity) {
+            const safeUnit = Math.round(unitPrice * 100) / 100;
+            const safeQty = Math.max(1, parseInt(String(quantity), 10) || 1);
+            customization.calculated_unit_price = safeUnit.toFixed(2);
+            customization.calculated_estimated_price = (safeUnit * safeQty).toFixed(2);
+            customization.quantity = String(safeQty);
+            return { unitPrice: safeUnit, quantity: safeQty };
+        }
+
         async function openServiceModal(serviceId, serviceName) {
             console.log('openServiceModal called:', serviceId, serviceName);
             const overlay = document.getElementById('service-modal-overlay');
@@ -4894,14 +4920,26 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
             }
 
-            // Add service to cart with price = 0 (will be set in Customizations V2)
+            // Add service to cart with calculated unit price from the modal estimator
+            const pricing = resolveServiceModalPricing();
+            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization['quantity'] || pricing.quantity);
+            if (priced.unitPrice <= 0) {
+                await showPOSAlert(
+                    'Price Required',
+                    'Could not calculate a valid price from your selections. Review the specifications or contact a manager.',
+                    'warning'
+                );
+                return;
+            }
+
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
                 name: serviceName,
-                price: 0,
-                qty: parseInt(customization['quantity'] || 1),
+                price: priced.unitPrice,
+                qty: priced.quantity,
                 customization: customization,
-                is_service: true
+                is_service: true,
+                price_set: true
             }, { fxSourceEl: posLastServiceCardEl });
 
             if (result.success) closeServiceModal();
@@ -5267,13 +5305,27 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
+            const pricing = resolveServiceModalPricing();
+            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization.quantity || pricing.quantity);
+            if (priced.unitPrice <= 0) {
+                await showPOSAlert(
+                    'Price Required',
+                    'Could not calculate a valid price from your selections. Review the specifications or contact a manager.',
+                    'warning'
+                );
+                isAddingToOrder = false;
+                setServiceAddButtonBusy(false);
+                return;
+            }
+
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
                 name: serviceName,
-                price: 0,
-                qty: parseInt(customization.quantity || 1, 10),
+                price: priced.unitPrice,
+                qty: priced.quantity,
                 customization: customization,
-                is_service: true
+                is_service: true,
+                price_set: true
             }, { silentErrors: true, fxSourceEl: posLastServiceCardEl });
 
             if (result.success) {
@@ -6343,9 +6395,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const div = document.createElement('div');
                     div.className = 'pos-cart-item';
 
-                    // Check if item is a service (price = 0 or is_service flag)
-                    const isService = item.is_service || item.price === 0;
+                    // Unpriced services (legacy manual pricing) show Set Price; calculated services show unit price.
+                    const unitPrice = parseFloat(item.price) || 0;
+                    const isService = item.is_service === true;
                     const priceWasSet = item.price_set === true;
+                    const needsManualPrice = unitPrice <= 0 && (isService || !priceWasSet);
 
                     // Check if material has been set in customization
                     const hasMaterialSet = item.customization && (
@@ -6363,7 +6417,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     }
 
                     const variantLabel = posCartItemVariantLabel(item);
-                    const priceHtml = (isService && !priceWasSet && !hasMaterialSet)
+                    const priceHtml = needsManualPrice && !hasMaterialSet
                         ? `<button type="button" class="pos-btn-set-price" onclick="redirectToSetPrice(${index})" title="Click to set price in Customizations">
                     <i class="fas fa-tag"></i> Set Price
                   </button>`
@@ -6679,10 +6733,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 message = 'Enter Customer Name';
             }
 
-            // Check if cart has any services with price = 0
-            const hasUnpricedService = cart.some(i => (i.is_service || i.price === 0) && i.price === 0);
-
-            if (hasUnpricedService) {
+            // Block checkout if any item has no valid price
+            const hasUnpricedItem = cart.some(i => (parseFloat(i.price) || 0) <= 0);
                 canCheckout = false;
                 message = 'Set Price First';
                 icon.className = 'fas fa-lock';
@@ -6739,9 +6791,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
-            // Block checkout if any item has price = 0
-            const hasUnpricedService = cart.some(i => (i.is_service || i.price === 0) && i.price === 0);
-            if (hasUnpricedService) {
+            // Block checkout if any item has no valid price
+            const hasUnpricedItem = cart.some(i => (parseFloat(i.price) || 0) <= 0);
+            if (hasUnpricedItem) {
                 await showPOSAlert('Price Required', 'Please set the price for all items before completing the sale.\n\nClick the yellow "Set Price" button on items to set their price in Customizations.', 'warning');
                 return;
             }

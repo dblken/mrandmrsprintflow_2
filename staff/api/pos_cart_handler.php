@@ -292,6 +292,19 @@ try {
                 if (!empty($serviceValidationErrors)) {
                     throw new PosCartValidationException($serviceValidationErrors);
                 }
+
+                $priceCalc = printflow_calculate_service_unit_price($product_id, $serviceCustomization);
+                if (!$priceCalc['ok']) {
+                    throw new PosCartValidationException([
+                        'price' => (string)($priceCalc['message'] ?? 'Price could not be calculated.'),
+                    ]);
+                }
+                $price = (float)$priceCalc['unit_price'];
+                $preparedCustomization = $serviceCustomization;
+                $preparedCustomization['calculated_unit_price'] = number_format($price, 2, '.', '');
+                $preparedCustomization['calculated_estimated_price'] = number_format($price * $qty, 2, '.', '');
+                $customization = $preparedCustomization;
+                $custom_json = json_encode($customization);
             }
 
             $product = db_query("SELECT name, price FROM products WHERE product_id = ?", 'i', [$product_id]);
@@ -307,7 +320,11 @@ try {
             // Services do not consume products.stock_quantity.
             // For products, always use branch-effective stock so POS checks are accurate.
             $stock = null;
-            $preparedCustomization = is_array($customization) ? $customization : [];
+            if (!$is_service) {
+                $preparedCustomization = is_array($customization) ? $customization : [];
+            } elseif (!isset($preparedCustomization)) {
+                $preparedCustomization = is_array($customization) ? $customization : [];
+            }
             if (!$is_service) {
                 if (empty($product)) {
                     throw new Exception('Product not found.');
@@ -385,7 +402,8 @@ try {
                     'qty' => $qty,
                     'stock' => $stock,
                     'customization' => $preparedCustomization,
-                    'is_service' => $is_service
+                    'is_service' => $is_service,
+                    'price_set' => $is_service ? true : !empty($data['price_set']),
                 ];
             }
             break;
