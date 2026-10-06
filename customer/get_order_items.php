@@ -1206,7 +1206,7 @@ foreach ($items as $lineIndex => $item) {
     $has_design_thumb = $has_own_design && ($design_serve_id > 0 || !empty($designMeta['direct_url']));
     $design_url = null;
     if ($has_own_design && is_array($designMeta)) {
-        $design_url = $designMeta['direct_url'] ?? $designMeta['serve_url'] ?? $designMeta['url'] ?? null;
+        $design_url = $designMeta['serve_url'] ?? $designMeta['url'] ?? $designMeta['direct_url'] ?? null;
     }
     if ($design_url === null && $has_design_thumb && $design_serve_id > 0) {
         $design_url = $base_path . '/public/serve_design.php?type=order_item&id=' . $design_serve_id;

@@ -747,6 +747,13 @@ function printflow_change_item_public_record(array $row): array
     return $record;
 }
 
+function printflow_change_item_media_serve_url(string $type, int $id): string
+{
+    $base = function_exists('pf_app_base_path') ? rtrim((string) pf_app_base_path(), '/') : '';
+    $type = preg_replace('/[^a-z_]/', '', strtolower($type));
+    return $base . '/public/serve_design.php?type=' . rawurlencode($type) . '&id=' . max(0, $id);
+}
+
 function printflow_change_item_proof_url(array $row): string
 {
     $path = trim((string)($row['proof_path'] ?? ''));
@@ -756,11 +763,11 @@ function printflow_change_item_proof_url(array $row): string
     if (preg_match('#^https?://#i', $path)) {
         return $path;
     }
-    $base = function_exists('pf_app_base_path') ? rtrim((string) pf_app_base_path(), '/') : '';
-    if (strpos($path, '/uploads/') === 0) {
-        return $base . $path;
+    $changeItemId = (int)($row['change_item_id'] ?? 0);
+    if ($changeItemId > 0 && str_starts_with(str_replace('\\', '/', $path), '/uploads/change_items/')) {
+        return printflow_change_item_media_serve_url('change_item_proof', $changeItemId);
     }
-    return $base . (strpos($path, '/') === 0 ? $path : '/' . $path);
+    return printflow_change_item_storage_path_to_url($path);
 }
 
 function printflow_change_item_proof_is_image(array $row): bool
@@ -829,7 +836,7 @@ function printflow_change_item_upload_proof(array $file, int $orderId): array
     ];
 }
 
-function printflow_change_item_storage_path_to_url(string $path): string
+function printflow_change_item_storage_path_to_url(string $path, int $evidenceId = 0, int $changeItemId = 0): string
 {
     $path = trim($path);
     if ($path === '') {
@@ -838,7 +845,14 @@ function printflow_change_item_storage_path_to_url(string $path): string
     if (preg_match('#^https?://#i', $path)) {
         return $path;
     }
-    $base = function_exists('pf_app_base_path') ? rtrim((string) pf_app_base_path(), '') : '';
+    $normalized = str_replace('\\', '/', $path);
+    if ($evidenceId > 0) {
+        return printflow_change_item_media_serve_url('change_item_evidence', $evidenceId);
+    }
+    if ($changeItemId > 0 && str_starts_with($normalized, '/uploads/change_items/')) {
+        return printflow_change_item_media_serve_url('change_item_proof', $changeItemId);
+    }
+    $base = function_exists('pf_app_base_path') ? rtrim((string) pf_app_base_path(), '/') : '';
     if (strpos($path, '/uploads/') === 0) {
         return $base . $path;
     }
@@ -1090,7 +1104,7 @@ function printflow_change_item_evidence_for_api(int $changeItemId, array $reques
         }
         $payload = [
             'id' => (int)($row['evidence_id'] ?? 0),
-            'url' => printflow_change_item_storage_path_to_url($path),
+            'url' => printflow_change_item_storage_path_to_url($path, (int)($row['evidence_id'] ?? 0), $changeItemId),
             'path' => $path,
             'original_name' => (string)($row['original_name'] ?? ''),
             'file_size' => (int)($row['file_size'] ?? 0),
@@ -1107,7 +1121,7 @@ function printflow_change_item_evidence_for_api(int $changeItemId, array $reques
         if ($legacyPath !== '' && printflow_change_item_proof_is_image($requestRow)) {
             $photos[] = [
                 'id' => 0,
-                'url' => printflow_change_item_storage_path_to_url($legacyPath),
+                'url' => printflow_change_item_storage_path_to_url($legacyPath, 0, $changeItemId),
                 'path' => $legacyPath,
                 'original_name' => (string)($requestRow['proof_original_name'] ?? ''),
                 'file_size' => 0,

@@ -93,6 +93,15 @@ if (!function_exists('getOrderDesignImage')) {
             ? $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId
             : null;
 
+        $pickDisplayUrl = static function (?array $resolved) use ($serveUrl): ?string {
+            if ($resolved === null) {
+                return null;
+            }
+            return function_exists('printflow_order_design_display_url')
+                ? printflow_order_design_display_url($serveUrl, $resolved['direct'] ?? null)
+                : ($serveUrl ?: ($resolved['direct'] ?? null));
+        };
+
         $designName = trim((string)($orderItem['design_image_name'] ?? ''));
         if ($designName === '') {
             $designName = trim((string)($custom['design_upload_name'] ?? ($custom['design_upload'] ?? ($custom['Upload Design'] ?? ''))));
@@ -138,7 +147,7 @@ if (!function_exists('getOrderDesignImage')) {
             }
             if ($resolved !== null && $resolved['exists']) {
                 return [
-                    'url'            => $resolved['direct'],
+                    'url'            => $pickDisplayUrl($resolved),
                     'serve_url'      => $serveUrl,
                     'direct_url'     => $resolved['direct'],
                     'exists'         => true,
@@ -217,7 +226,7 @@ if (!function_exists('getOrderDesignImage')) {
                         error_log('FULL PATH: ' . (string)$resolved['disk']);
                     }
                     return [
-                        'url'            => $resolved['direct'],
+                        'url'            => $pickDisplayUrl($resolved),
                         'serve_url'      => $serveUrl,
                         'direct_url'     => $resolved['direct'],
                         'exists'         => true,
@@ -249,7 +258,7 @@ if (!function_exists('getOrderDesignImage')) {
             $resolved = $resolvePath($text);
             if ($resolved !== null && $resolved['exists']) {
                 return [
-                    'url'            => $resolved['direct'],
+                    'url'            => $pickDisplayUrl($resolved),
                     'serve_url'      => $serveUrl,
                     'direct_url'     => $resolved['direct'],
                     'exists'         => true,

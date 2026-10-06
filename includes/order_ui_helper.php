@@ -690,7 +690,7 @@ if (!function_exists('pf_order_ui_resolve_customer_upload_url')) {
         if (function_exists('getOrderDesignImage') && (int)($item['order_item_id'] ?? 0) > 0) {
             $resolved = getOrderDesignImage($item, ['heal' => false]);
             if (!empty($resolved['exists'])) {
-                return $resolved['direct_url'] ?? $resolved['serve_url'] ?? $resolved['url'];
+                return $resolved['serve_url'] ?? $resolved['url'] ?? $resolved['direct_url'];
             }
         }
 

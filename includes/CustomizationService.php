@@ -1992,7 +1992,7 @@ class CustomizationService
             : null;
 
         if ($designUrl === null && $orderItemId > 0 && $hasDesignFile) {
-            $designUrl = $designMeta['direct_url'] ?? $designMeta['serve_url'] ?? $serveUrl;
+            $designUrl = $designMeta['serve_url'] ?? $designMeta['url'] ?? $designMeta['direct_url'] ?? $serveUrl;
         }
 
         $referenceUrl = $candidateReferenceUrl;
