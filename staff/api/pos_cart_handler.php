@@ -510,6 +510,12 @@ try {
             if ($price < 0) throw new Exception('Price cannot be negative.');
             $_SESSION['pos_cart'][$index]['price'] = $price;
             $_SESSION['pos_cart'][$index]['price_set'] = true;
+            if (!empty($data['customization']) && is_array($data['customization'])) {
+                $existing = is_array($_SESSION['pos_cart'][$index]['customization'] ?? null)
+                    ? $_SESSION['pos_cart'][$index]['customization']
+                    : [];
+                $_SESSION['pos_cart'][$index]['customization'] = array_merge($existing, $data['customization']);
+            }
             break;
 
         case 'update_service_link':

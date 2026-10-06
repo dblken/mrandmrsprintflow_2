@@ -3773,6 +3773,19 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return (parseFloat(item.price) || 0) > 0;
         }
 
+        /** Line total shown in cart (estimate until staff confirms final price). */
+        function posCartItemDisplayLineTotal(item) {
+            const qty = Math.max(1, parseInt(item?.qty, 10) || 1);
+            if (posCartItemStaffPricingComplete(item)) {
+                return (parseFloat(item.price) || 0) * qty;
+            }
+            const estUnit = posCartItemEstimatedUnitPrice(item);
+            if (estUnit > 0) {
+                return estUnit * qty;
+            }
+            return (parseFloat(item.price) || 0) * qty;
+        }
+
         function posCartItemEstimatedUnitPrice(item) {
             const c = item && item.customization ? item.customization : {};
             const qty = Math.max(1, parseInt(item?.qty, 10) || 1);
@@ -6662,11 +6675,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 cont.innerHTML = '';
                 cart.forEach((item, index) => {
                     const unitPrice = posCartItemEstimatedUnitPrice(item);
-                    const countsInTotal = posCartItemCountsInCheckoutTotal(item);
-                    const rowTotal = countsInTotal ? unitPrice * item.qty : 0;
-                    if (countsInTotal) {
-                        currentTotal += rowTotal;
-                    }
+                    const displayLineTotal = posCartItemDisplayLineTotal(item);
+                    currentTotal += displayLineTotal;
                     const div = document.createElement('div');
                     div.className = 'pos-cart-item';
 
@@ -6700,8 +6710,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     }
 
                     const totalDisplay = showSetPrice && isServiceLine && unitPrice > 0 && item.price_set !== true
-                        ? `<span style="font-size:12px;color:#64748b;">Est. ${formatMoney(unitPrice * item.qty)}</span>`
-                        : formatMoney(rowTotal);
+                        ? `<span style="font-size:12px;color:#64748b;">Est. ${formatMoney(displayLineTotal)}</span>`
+                        : formatMoney(displayLineTotal);
 
                     div.innerHTML = `
                 <div class="pos-cart-item-top">
@@ -6726,9 +6736,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 });
             }
 
+            const hasPendingServicePricing = cart.some(i => i.is_service === true && !posCartItemStaffPricingComplete(i));
             const fTotal = formatMoney(currentTotal);
-            document.getElementById('pos-subtotal').textContent = fTotal;
-            document.getElementById('pos-total').textContent = fTotal;
+            const subtotalEl = document.getElementById('pos-subtotal');
+            const totalEl = document.getElementById('pos-total');
+            if (subtotalEl) subtotalEl.textContent = hasPendingServicePricing ? ('Est. ' + fTotal) : fTotal;
+            if (totalEl) totalEl.textContent = hasPendingServicePricing ? ('Est. ' + fTotal) : fTotal;
 
             calculateChange();
             updateCheckoutState();

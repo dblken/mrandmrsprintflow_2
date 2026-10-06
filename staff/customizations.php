@@ -3222,8 +3222,9 @@ $online_closed_count = 0;
                                     <div style="position:relative;">
                                         <span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); font-weight:800; color:#0f766e; font-size:20px;">₱</span>
                                         <input type="text" 
+                                               x-ref="jobPriceInput"
                                                placeholder="0.00"
-                                               x-init="$watch('showDetailsModal', v => { if(v) $nextTick(() => { const raw = String(jobPriceInput !== null && jobPriceInput !== undefined ? jobPriceInput : '').trim(); $el.value = raw !== '' ? Number(raw).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : ''; }); })"
+                                               x-effect="if (showDetailsModal) syncJobPriceInputField()"
                                                x-on:input="
                                                    let val = $event.target.value.replace(/[^0-9.]/g, '');
                                                    let parts = val.split('.');
@@ -3619,10 +3620,13 @@ $online_closed_count = 0;
                                 <button type="button" @click="jobAction('APPROVED')" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Approve to Set Price</button>
                                 <button type="button" @click="openRevisionModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Request Additional Details</button>
                             </div>
-                            <div x-show="modalWorkflowStatus(currentJo) === 'APPROVED' && (!isPosSimplifiedView || !isPosPricingReturnFlow(currentJo))" style="display:flex; gap:8px;">
+                            <div x-show="isPosPricingMode() && modalWorkflowStatus(currentJo) === 'APPROVED'" style="display:flex; gap:8px; flex-wrap:wrap;">
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Confirm Set Price</button>
+                            </div>
+                            <div x-show="!isPosPricingMode() && modalWorkflowStatus(currentJo) === 'APPROVED' && (!isPosSimplifiedView || !isPosPricingReturnFlow(currentJo))" style="display:flex; gap:8px;">
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Set Price</button>
                             </div>
-                            <div x-show="isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'APPROVED' && isPosPricingReturnFlow(currentJo)" style="display:flex; gap:8px;">
+                            <div x-show="!isPosPricingMode() && isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'APPROVED' && isPosPricingReturnFlow(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Continue to POS Payment</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'PAYMENT_CONFIRMED' && canStartProduction(currentJo)" style="display:flex; gap:8px;">
@@ -3650,7 +3654,8 @@ $online_closed_count = 0;
                         <div x-show="footerActionError" x-cloak style="font-size:12px;font-weight:600;color:#dc2626;line-height:1.45;max-width:560px;" x-text="footerActionError"></div>
                     </div>
                     <!-- Right: Close -->
-                    <button @click="closeDetailsModal()" class="btn-secondary">Close</button>
+                    <button x-show="!isPosPricingMode()" @click="closeDetailsModal()" class="btn-secondary">Close</button>
+                    <button x-show="isPosPricingMode()" @click="closeDetailsModal()" class="btn-secondary">Cancel</button>
                 </div>
             </div>
         </div>
@@ -4167,7 +4172,7 @@ window.pfServiceFieldCatalog = (() => {
             availableLamRollsList: [],
             impactPreview: null,
             search: '',
-            jobPriceInput: 0,
+            jobPriceInput: '',
             loadingModalAssignments: false,
             // ── Below-estimate Final Price override confirmation ─────────
             showPriceOverrideModal: false,
@@ -4578,6 +4583,44 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 return jo;
             },
+            resolveJobPriceInputDefault(jo) {
+                if (!jo || typeof jo !== 'object') return '';
+                const finalPrice = Number(jo.final_price);
+                if (Number.isFinite(finalPrice) && finalPrice > 0) {
+                    return finalPrice.toFixed(2);
+                }
+                const estimate = Number(jo.estimated_price || jo.estimated_total || 0);
+                if (Number.isFinite(estimate) && estimate > 0) {
+                    return estimate.toFixed(2);
+                }
+                const derived = this.posCustomizationEstimatedTotal(jo);
+                if (derived > 0) {
+                    return derived.toFixed(2);
+                }
+                return '';
+            },
+            syncJobPriceInputField() {
+                this.$nextTick(() => {
+                    const input = this.$refs.jobPriceInput;
+                    if (!input) return;
+                    let raw = String(this.jobPriceInput ?? '').trim().replace(/,/g, '');
+                    if (raw === '' || !Number.isFinite(parseFloat(raw)) || parseFloat(raw) <= 0) {
+                        const fallback = this.resolveJobPriceInputDefault(this.currentJo);
+                        if (fallback !== '') {
+                            this.jobPriceInput = fallback;
+                            raw = fallback;
+                        }
+                    }
+                    if (raw === '') {
+                        input.value = '';
+                        return;
+                    }
+                    const numeric = parseFloat(raw);
+                    input.value = Number.isFinite(numeric)
+                        ? numeric.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                        : raw;
+                });
+            },
             finishDetailLoadWith(data, orderType, cacheKey) {
                 this.currentJo = this.applyPosSetPriceDeepLinkOverride(
                     this.normalizeStaffOrderDetail({ ...data, order_type: orderType })
@@ -4587,15 +4630,8 @@ window.pfServiceFieldCatalog = (() => {
                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
                 this.paymongoPayment = this.currentJo.provider_payment || null;
                 this.schedulePayMongoPolling();
-                if (this.currentJo.final_price !== null && this.currentJo.final_price !== undefined && String(this.currentJo.final_price).trim() !== '' && Number(this.currentJo.final_price) > 0) {
-                    // Preserve an already-entered/saved valid Final Price as-is.
-                    this.jobPriceInput = this.currentJo.final_price;
-                } else {
-                    // No valid Final Price yet: default to the Estimated Price so staff
-                    // aren't forced to retype the recommended price from scratch.
-                    const defaultEstimate = Number(this.currentJo.estimated_price || this.currentJo.estimated_total || 0);
-                    this.jobPriceInput = defaultEstimate > 0 ? defaultEstimate : '';
-                }
+                this.jobPriceInput = this.resolveJobPriceInputDefault(this.currentJo);
+                this.syncJobPriceInputField();
                 this.productionErrors = { material: '', ink_set: '', ink_consumption: '' };
                 this.restoreSavedInkUsage();
                 this.modalCache[cacheKey] = this.currentJo;
@@ -9154,6 +9190,20 @@ window.pfServiceFieldCatalog = (() => {
                             try {
                                 const state = JSON.parse(savedState);
                                 const itemIndex = state.item_index;
+                                const materialPatch = {};
+                                const primaryMaterial = materialsToSave[0];
+                                if (primaryMaterial) {
+                                    const materialName = String(
+                                        primaryMaterial.item_name
+                                        || primaryMaterial.name
+                                        || primaryMaterial.notes
+                                        || ''
+                                    ).trim();
+                                    if (materialName !== '') {
+                                        materialPatch['Material Selection'] = materialName;
+                                        materialPatch.material_name = materialName;
+                                    }
+                                }
                                 await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
                                     method: 'POST',
                                     headers: {'Content-Type': 'application/json'},
@@ -9161,9 +9211,12 @@ window.pfServiceFieldCatalog = (() => {
                                         action: 'update_price',
                                         index: itemIndex,
                                         price: userEnteredPrice,
+                                        customization: materialPatch,
                                         csrf_token: document.body.getAttribute('data-csrf') || ''
                                     })
                                 });
+                                state.updated_price = userEnteredPrice;
+                                sessionStorage.setItem('pos_cart_state', JSON.stringify(state));
                                 await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
                                     method: 'POST',
                                     headers: {'Content-Type': 'application/json'},
