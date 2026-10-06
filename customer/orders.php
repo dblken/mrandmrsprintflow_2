@@ -3264,7 +3264,7 @@ function buildReceiptHtml(receipt) {
 
         <div class="receipt-footer">
             <strong>Thank you for choosing PrintFlow!</strong>
-            <p>This is an unofficial sales receipt for transaction reference only. It is not an official receipt or sales invoice.</p>
+            <p>This is an unofficial sales receipt for transaction reference only.</p>
             <p>Please present this transaction reference when claiming your order.</p>
             <p>Keep this transaction reference for your records.</p>
         </div>
