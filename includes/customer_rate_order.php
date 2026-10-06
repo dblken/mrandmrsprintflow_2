@@ -87,6 +87,7 @@ function customer_rate_order_load(int $order_id, int $customer_id): ?array
     $existing_rating = $already_rated ? (int)$existing[0]['rating'] : 0;
     $existing_message = $already_rated ? (string)($existing[0]['review_message'] ?? '') : '';
     $needs_message_update = $already_rated && (trim($existing_message) === '' || $existing_message === '(No comment provided)');
+    $prompt_dismissed = customer_review_prompt_is_dismissed($customer_id, $order_id);
 
     return [
         'order' => $order,
@@ -99,7 +100,81 @@ function customer_rate_order_load(int $order_id, int $customer_id): ?array
         'existing_message' => $existing_message,
         'needs_message_update' => $needs_message_update,
         'can_submit' => !$already_rated || $needs_message_update,
-        'can_prompt' => in_array((string)$order['status'], ['Completed', 'To Rate'], true) && (!$already_rated || $needs_message_update),
+        'prompt_dismissed' => $prompt_dismissed,
+        'can_prompt' => in_array((string)$order['status'], ['Completed', 'To Rate'], true)
+            && (!$already_rated || $needs_message_update)
+            && !$prompt_dismissed,
+    ];
+}
+
+function customer_review_prompt_dismissals_table_ready(): bool
+{
+    static $ready = null;
+    if ($ready !== null) {
+        return $ready;
+    }
+    $rows = db_query("SHOW TABLES LIKE 'customer_review_prompt_dismissals'") ?: [];
+    if (empty($rows)) {
+        db_execute(
+            'CREATE TABLE IF NOT EXISTS customer_review_prompt_dismissals (
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                customer_id INT NOT NULL,
+                order_id INT NOT NULL,
+                dismissed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY uq_customer_review_prompt_dismiss (customer_id, order_id),
+                KEY idx_order_id (order_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+    }
+    $rows = db_query("SHOW TABLES LIKE 'customer_review_prompt_dismissals'") ?: [];
+    $ready = !empty($rows);
+
+    return $ready;
+}
+
+function customer_review_prompt_is_dismissed(int $customer_id, int $order_id): bool
+{
+    if ($customer_id <= 0 || $order_id <= 0 || !customer_review_prompt_dismissals_table_ready()) {
+        return false;
+    }
+    $rows = db_query(
+        'SELECT id FROM customer_review_prompt_dismissals WHERE customer_id = ? AND order_id = ? LIMIT 1',
+        'ii',
+        [$customer_id, $order_id]
+    );
+
+    return !empty($rows);
+}
+
+function customer_review_prompt_dismiss(int $customer_id, int $order_id): bool
+{
+    if ($customer_id <= 0 || $order_id <= 0 || !customer_review_prompt_dismissals_table_ready()) {
+        return false;
+    }
+
+    $result = db_execute(
+        'INSERT INTO customer_review_prompt_dismissals (customer_id, order_id, dismissed_at)
+         VALUES (?, ?, NOW())
+         ON DUPLICATE KEY UPDATE dismissed_at = VALUES(dismissed_at)',
+        'ii',
+        [$customer_id, $order_id]
+    );
+
+    return $result !== false;
+}
+
+function customer_review_prompt_payload_from_context(?array $context): ?array
+{
+    if ($context === null || empty($context['can_prompt'])) {
+        return null;
+    }
+
+    return [
+        'order_id' => (int)$context['order_id'],
+        'order_code' => (string)$context['order_code'],
+        'service_label' => (string)$context['service_type_label'],
+        'message' => 'Your order has been successfully picked up. We hope to see you again!',
     ];
 }
 
@@ -294,7 +369,7 @@ function customer_rate_order_handle_post(int $order_id, int $customer_id, array 
 
         return [
             'success' => true,
-            'message' => 'Thank you! Your review has been submitted.',
+            'message' => 'Your feedback has been submitted successfully.',
             'order_id' => $order_id,
             'review_id' => $new_review_id,
         ];

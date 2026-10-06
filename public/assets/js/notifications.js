@@ -1191,6 +1191,8 @@
                 });
 
                 var highestId = getLastToastNotificationId();
+                var completionByOrder = {};
+                var isCustomerUi = (USER_TYPE || '').toLowerCase() === 'customer';
                 for (var i = 0; i < notifs.length; i++) {
                     var item = notifs[i];
                     var itemId = parseInt(item.id, 10) || 0;
@@ -1202,21 +1204,28 @@
                         highestId = Math.max(highestId, itemId);
                     }
                     var targetUrl = normalizeNotificationTarget((item && item.link) ? item.link : ((item && item.target_url) ? item.target_url : getNotifUrl(item.type, item.data_id, item.message, item.id, item.order_type, item.review_id)));
-                    var isCustomerUi = (USER_TYPE || '').toLowerCase() === 'customer';
-                    var onOrdersPage = /\/customer\/orders\.php/i.test(window.location.pathname);
-                    if (isCustomerUi && onOrdersPage && window.PFOrderReview && typeof window.PFOrderReview.isCompletedReviewNotice === 'function' && window.PFOrderReview.isCompletedReviewNotice(item)) {
-                        var completedOrderId = parseInt(item.data_id, 10) || 0;
-                        if (completedOrderId > 0) {
-                            document.dispatchEvent(new CustomEvent('pf:completed-order', {
-                                detail: {
-                                    orderId: completedOrderId,
-                                    message: item.message || item.title || '',
-                                },
-                            }));
-                        }
+                    var completedOrderId = parseInt(item.data_id, 10) || 0;
+                    if (isCustomerUi && completedOrderId > 0 && window.PFOrderReview && typeof window.PFOrderReview.isCompletedReviewNotice === 'function' && window.PFOrderReview.isCompletedReviewNotice(item)) {
+                        completionByOrder[completedOrderId] = (window.PFOrderReview.pickBetterCompletionNotice
+                            ? window.PFOrderReview.pickBetterCompletionNotice(completionByOrder[completedOrderId], item)
+                            : item);
                         continue;
                     }
                     showToast(item.title || 'PrintFlow', item.message, targetUrl, item.image || '', item.fallback || '');
+                }
+
+                if (isCustomerUi && window.PFOrderReview && typeof window.PFOrderReview.openCompletedPrompt === 'function') {
+                    Object.keys(completionByOrder).forEach(function(orderKey) {
+                        var merged = completionByOrder[orderKey];
+                        var orderId = parseInt(orderKey, 10) || 0;
+                        if (orderId <= 0 || !merged) return;
+                        document.dispatchEvent(new CustomEvent('pf:completed-order', {
+                            detail: {
+                                orderId: orderId,
+                                message: merged.message || merged.title || '',
+                            },
+                        }));
+                    });
                 }
 
                 setLastToastNotificationId(highestId);

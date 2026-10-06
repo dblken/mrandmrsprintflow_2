@@ -26,14 +26,7 @@ if (isset($_GET['review_prompt'])) {
 }
 if ($review_prompt_id > 0) {
     $review_ctx = customer_rate_order_load($review_prompt_id, $customer_id);
-    if ($review_ctx && !empty($review_ctx['can_prompt'])) {
-        $review_prompt_payload = [
-            'order_id' => (int)$review_ctx['order_id'],
-            'order_code' => (string)$review_ctx['order_code'],
-            'service_label' => (string)$review_ctx['service_type_label'],
-            'message' => 'Your order has been successfully picked up. We hope to see you again!',
-        ];
-    }
+    $review_prompt_payload = customer_review_prompt_payload_from_context($review_ctx);
 }
 // Mark notification as read if parameter present
 if (isset($_GET['mark_read'])) {
@@ -438,7 +431,6 @@ usort($orders, static function (array $a, array $b) use ($orders_list_active_tab
 $page_title = 'My Orders - PrintFlow';
 $use_customer_css = true;
 require_once __DIR__ . '/../includes/header.php';
-require __DIR__ . '/partials/rate_order_styles.php';
 ?>
 
 <style>
@@ -3088,28 +3080,6 @@ window.addEventListener('DOMContentLoaded', () => {
     </div>
 </div>
 
-<div id="completedReviewModal" class="pf-rate-surface" aria-hidden="true">
-    <div class="pf-review-dialog" role="dialog" aria-modal="true" aria-labelledby="completedReviewTitle" onclick="event.stopPropagation()">
-        <h2 id="completedReviewTitle">Order completed</h2>
-        <p id="completedReviewMessage">Your order has been successfully picked up. We hope to see you again!</p>
-        <p id="completedReviewMeta" style="font-size:0.82rem;margin-top:-0.75rem;"></p>
-        <div class="pf-review-dialog-actions">
-            <button type="button" class="rate-btn-secondary" id="completedReviewSkipBtn">Skip for now</button>
-            <button type="button" class="rate-btn-primary" id="completedReviewRateBtn">Rate Us</button>
-        </div>
-    </div>
-</div>
-
-<div id="orderReviewModal" class="pf-rate-surface" aria-hidden="true">
-    <div class="pf-review-dialog pf-review-dialog--wide" role="dialog" aria-modal="true" aria-labelledby="orderReviewTitle" onclick="event.stopPropagation()">
-        <div class="pf-review-modal-head">
-            <h2 id="orderReviewTitle">Rate your order</h2>
-            <button type="button" class="pf-review-modal-close" id="orderReviewCloseBtn" aria-label="Close">&times;</button>
-        </div>
-        <div id="orderReviewFormMount"></div>
-    </div>
-</div>
-
 <script>
 function imIsLongFormSpecKey(k) {
     const s = String(k || '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -5047,12 +5017,12 @@ document.addEventListener('keydown', e => {
     closeItemsModal();
 });
 </script>
-<script>
-window.PFReviewConfig = <?php echo json_encode([
-    'baseUrl' => BASE_URL,
-    'initialPrompt' => $review_prompt_payload,
-], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
-</script>
-<script src="<?php echo BASE_URL; ?>/public/assets/js/customer-order-review.js"></script>
+
+<?php
+// Pass orders-page deep-link prompt into global review config (merged in footer).
+if (!empty($review_prompt_payload)) {
+    $GLOBALS['pf_review_initial_prompt'] = $review_prompt_payload;
+}
+?>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

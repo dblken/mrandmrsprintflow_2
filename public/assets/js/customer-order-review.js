@@ -2,48 +2,15 @@
     'use strict';
 
     const cfg = window.PFReviewConfig || {};
-    const baseUrl = String(cfg.baseUrl || '').replace(/\/$/, '');
-    const dismissedKey = (orderId) => 'pf_review_skip_' + orderId;
-    const promptedKey = (orderId) => 'pf_review_prompted_' + orderId;
+    const baseUrl = String(cfg.baseUrl || (window.PFConfig && window.PFConfig.basePath) || '').replace(/\/$/, '');
+    const apiUrl = String(cfg.apiUrl || (baseUrl ? baseUrl + '/customer/api_review_prompt.php' : ''));
+    const csrfToken = String(cfg.csrfToken || '');
 
     let modalOpen = false;
     let activeOrderId = 0;
     let formBoundRoot = null;
-
-    function isOrdersPage() {
-        return /\/customer\/orders\.php/i.test(window.location.pathname);
-    }
-
-    function isDismissed(orderId) {
-        if (!orderId) return true;
-        try {
-            return sessionStorage.getItem(dismissedKey(orderId)) === '1';
-        } catch (e) {
-            return false;
-        }
-    }
-
-    function markDismissed(orderId) {
-        if (!orderId) return;
-        try {
-            sessionStorage.setItem(dismissedKey(orderId), '1');
-        } catch (e) {}
-    }
-
-    function wasPrompted(orderId) {
-        if (!orderId) return true;
-        try {
-            return sessionStorage.getItem(promptedKey(orderId)) === '1';
-        } catch (e) {}
-        return false;
-    }
-
-    function markPrompted(orderId) {
-        if (!orderId) return;
-        try {
-            sessionStorage.setItem(promptedKey(orderId), '1');
-        } catch (e) {}
-    }
+    const promptedThisSession = new Set();
+    const dismissCache = new Map();
 
     function notify(message, isError) {
         if (typeof window.showToast === 'function') {
@@ -52,7 +19,38 @@
         }
         if (typeof window.showOrdersToast === 'function') {
             window.showOrdersToast(message, !!isError);
+            return;
         }
+        showFallbackToast(message, !!isError);
+    }
+
+    function showFallbackToast(message, isError) {
+        let container = document.getElementById('pf-toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'pf-toast-container';
+            container.style.position = 'fixed';
+            container.style.bottom = '24px';
+            container.style.right = '24px';
+            container.style.zIndex = '99999';
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+            container.style.gap = '10px';
+            container.style.maxWidth = '340px';
+            document.body.appendChild(container);
+        }
+        const toast = document.createElement('div');
+        toast.style.background = '#ffffff';
+        toast.style.border = '1px solid #e5e7eb';
+        toast.style.borderLeft = '4px solid ' + (isError ? '#ef4444' : '#22c55e');
+        toast.style.borderRadius = '8px';
+        toast.style.boxShadow = '0 4px 16px rgba(0,0,0,.12)';
+        toast.style.padding = '12px 16px';
+        toast.style.fontSize = '.875rem';
+        toast.style.color = isError ? '#b91c1c' : '#166534';
+        toast.textContent = message;
+        container.appendChild(toast);
+        setTimeout(function () { if (toast.parentNode) toast.remove(); }, 6000);
     }
 
     function completedModal() {
@@ -78,9 +76,59 @@
         formBoundRoot = null;
     }
 
-    function openCompletedPrompt(orderId, message, orderCode, serviceLabel) {
+    async function fetchPromptStatus(orderId) {
         orderId = parseInt(orderId, 10) || 0;
-        if (!orderId || modalOpen || isDismissed(orderId) || wasPrompted(orderId)) {
+        if (!orderId || !apiUrl) {
+            return null;
+        }
+        if (dismissCache.has(orderId)) {
+            return dismissCache.get(orderId);
+        }
+        try {
+            const res = await fetch(apiUrl + '?order_id=' + encodeURIComponent(orderId), { credentials: 'include' });
+            const data = await res.json();
+            if (data && data.success) {
+                dismissCache.set(orderId, data);
+                return data;
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    async function persistDismiss(orderId) {
+        orderId = parseInt(orderId, 10) || 0;
+        if (!orderId || !apiUrl) return false;
+        try {
+            const res = await fetch(apiUrl, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({
+                    action: 'dismiss',
+                    order_id: orderId,
+                    csrf_token: csrfToken,
+                }),
+            });
+            const data = await res.json();
+            if (data && data.success) {
+                dismissCache.set(orderId, { success: true, can_prompt: false, dismissed: true });
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    }
+
+    function completionMessageScore(text) {
+        const lower = String(text || '').toLowerCase();
+        if (lower.indexOf('picked up') !== -1 || lower.indexOf('successfully picked') !== -1) return 3;
+        if (lower.indexOf('order completed') !== -1) return 2;
+        if (lower.indexOf('has been completed') !== -1 || lower.indexOf('your order has been completed') !== -1) return 1;
+        return 0;
+    }
+
+    async function openCompletedPrompt(orderId, message, orderCode, serviceLabel) {
+        orderId = parseInt(orderId, 10) || 0;
+        if (!orderId || modalOpen || promptedThisSession.has(orderId)) {
             return;
         }
 
@@ -89,18 +137,25 @@
             return;
         }
 
+        const status = await fetchPromptStatus(orderId);
+        if (!status || !status.can_prompt) {
+            return;
+        }
+
+        orderCode = orderCode || status.order_code || '';
+        serviceLabel = serviceLabel || status.service_label || '';
+        message = message || status.message || 'Your order has been successfully picked up. We hope to see you again!';
+
         const el = completedModal();
         if (!el) return;
 
         activeOrderId = orderId;
         modalOpen = true;
-        markPrompted(orderId);
+        promptedThisSession.add(orderId);
 
         const msgEl = document.getElementById('completedReviewMessage');
         const metaEl = document.getElementById('completedReviewMeta');
-        if (msgEl) {
-            msgEl.textContent = message || 'Your order has been successfully picked up. We hope to see you again!';
-        }
+        if (msgEl) msgEl.textContent = message;
         if (metaEl) {
             const parts = [];
             if (orderCode) parts.push('Order ' + orderCode);
@@ -131,7 +186,7 @@
                 headers: { Accept: 'text/html' },
             });
             if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
+                const err = await res.json().catch(function () { return {}; });
                 throw new Error(err.error || 'Unable to load the review form.');
             }
             const html = await res.text();
@@ -163,11 +218,11 @@
 
         let selectedFiles = [];
 
-        stars.forEach((btn) => {
+        stars.forEach(function (btn) {
             btn.addEventListener('click', function () {
                 const value = Number(this.dataset.value || 0);
                 if (ratingInput) ratingInput.value = String(value);
-                stars.forEach((s, idx) => s.classList.toggle('active', idx < value));
+                stars.forEach(function (s, idx) { s.classList.toggle('active', idx < value); });
             });
         });
 
@@ -183,7 +238,7 @@
         function updateFileInput() {
             if (!imageInput) return;
             const dt = new DataTransfer();
-            selectedFiles.forEach((file) => dt.items.add(file));
+            selectedFiles.forEach(function (file) { dt.items.add(file); });
             imageInput.files = dt.files;
         }
 
@@ -195,7 +250,7 @@
                     this.value = '';
                     return;
                 }
-                newFiles.forEach((file) => {
+                newFiles.forEach(function (file) {
                     if (!file.type.startsWith('image/')) return;
                     if (file.size > 5 * 1024 * 1024) {
                         notify(file.name + ' is too large. Max 5MB.', true);
@@ -203,11 +258,11 @@
                     }
                     selectedFiles.push(file);
                     const reader = new FileReader();
-                    reader.onload = (e) => {
+                    reader.onload = function (e) {
                         const div = document.createElement('div');
                         div.className = 'upload-box';
                         div.innerHTML = '<img src="' + e.target.result + '"><button type="button" class="remove-btn">&times;</button>';
-                        div.querySelector('.remove-btn').onclick = () => {
+                        div.querySelector('.remove-btn').onclick = function () {
                             const idx = selectedFiles.indexOf(file);
                             if (idx > -1) selectedFiles.splice(idx, 1);
                             div.remove();
@@ -237,15 +292,14 @@
                     this.value = '';
                     return;
                 }
-                const url = URL.createObjectURL(file);
-                videoPreview.src = url;
+                videoPreview.src = URL.createObjectURL(file);
                 videoPreviewArea.style.display = 'block';
                 addVideoBtn.style.display = 'none';
             });
 
             const removeVideoBtn = root.querySelector('.pf-rate-video-remove');
             if (removeVideoBtn) {
-                removeVideoBtn.addEventListener('click', () => {
+                removeVideoBtn.addEventListener('click', function () {
                     videoInput.value = '';
                     videoPreview.src = '';
                     videoPreviewArea.style.display = 'none';
@@ -255,15 +309,13 @@
         }
 
         if (cancelBtn) {
-            cancelBtn.addEventListener('click', () => {
-                const orderId = parseInt(root.dataset.orderId || '0', 10);
-                markDismissed(orderId);
+            cancelBtn.addEventListener('click', function () {
                 closeReviewModal();
             });
         }
 
         if (form) {
-            form.addEventListener('submit', async (event) => {
+            form.addEventListener('submit', async function (event) {
                 event.preventDefault();
                 const rating = Number(ratingInput && ratingInput.value ? ratingInput.value : 0);
                 if (rating < 1 || rating > 5) {
@@ -290,12 +342,11 @@
                     if (!data.success) {
                         throw new Error(data.error || 'Could not submit your review.');
                     }
-                    notify(data.message || 'Thank you! Your review has been submitted.', false);
+                    notify(data.message || 'Your feedback has been submitted successfully.', false);
                     closeReviewModal();
+                    dismissCache.set(orderIdFromRoot(root), { success: true, can_prompt: false, dismissed: false });
                     if (typeof window.refreshOrdersList === 'function') {
                         window.refreshOrdersList();
-                    } else {
-                        window.location.reload();
                     }
                 } catch (err) {
                     notify(String(err.message || err), true);
@@ -308,25 +359,27 @@
         }
     }
 
+    function orderIdFromRoot(root) {
+        return parseInt(root && root.dataset ? root.dataset.orderId : '0', 10) || 0;
+    }
+
     function wireUi() {
         const completed = completedModal();
         if (completed) {
-            completed.addEventListener('click', (e) => {
-                if (e.target === completed) {
-                    markDismissed(parseInt(completed.dataset.orderId || '0', 10));
-                    closeCompletedModal();
-                }
+            completed.addEventListener('click', function (e) {
+                if (e.target === completed) closeCompletedModal();
             });
             const skipBtn = document.getElementById('completedReviewSkipBtn');
             const rateBtn = document.getElementById('completedReviewRateBtn');
             if (skipBtn) {
-                skipBtn.addEventListener('click', () => {
-                    markDismissed(parseInt(completed.dataset.orderId || activeOrderId || '0', 10));
+                skipBtn.addEventListener('click', async function () {
+                    const orderId = parseInt(completed.dataset.orderId || activeOrderId || '0', 10);
+                    await persistDismiss(orderId);
                     closeCompletedModal();
                 });
             }
             if (rateBtn) {
-                rateBtn.addEventListener('click', () => {
+                rateBtn.addEventListener('click', function () {
                     const orderId = parseInt(completed.dataset.orderId || activeOrderId || '0', 10);
                     openReviewForm(orderId);
                 });
@@ -335,14 +388,14 @@
 
         const review = reviewModal();
         if (review) {
-            review.addEventListener('click', (e) => {
+            review.addEventListener('click', function (e) {
                 if (e.target === review) closeReviewModal();
             });
             const closeBtn = document.getElementById('orderReviewCloseBtn');
             if (closeBtn) closeBtn.addEventListener('click', closeReviewModal);
         }
 
-        document.addEventListener('click', (e) => {
+        document.addEventListener('click', function (e) {
             const trigger = e.target.closest('[data-pf-open-review]');
             if (!trigger) return;
             e.preventDefault();
@@ -352,30 +405,40 @@
         });
     }
 
+    function isCompletedReviewNotice(item) {
+        const msg = ((item && item.message) || '') + ' ' + ((item && item.title) || '');
+        const lower = msg.toLowerCase();
+        if (lower.indexOf('new message') !== -1 && lower.indexOf('completed') === -1 && lower.indexOf('picked up') === -1) {
+            return false;
+        }
+        return lower.indexOf('picked up') !== -1
+            || lower.indexOf('successfully picked') !== -1
+            || lower.indexOf('order completed') !== -1
+            || lower.indexOf('your order has been completed') !== -1
+            || lower.indexOf('how was your experience') !== -1
+            || lower.indexOf('leave a review') !== -1;
+    }
+
+    function pickBetterCompletionNotice(existing, candidate) {
+        if (!existing) return candidate;
+        const existingScore = completionMessageScore((existing.message || '') + ' ' + (existing.title || ''));
+        const candidateScore = completionMessageScore((candidate.message || '') + ' ' + (candidate.title || ''));
+        return candidateScore >= existingScore ? candidate : existing;
+    }
+
     window.PFOrderReview = {
-        openCompletedPrompt,
-        openReviewForm,
-        closeCompletedModal,
-        closeReviewModal,
-        isCompletedReviewNotice: function (item) {
-            const msg = ((item && item.message) || '') + ' ' + ((item && item.title) || '');
-            const lower = msg.toLowerCase();
-            return lower.indexOf('picked up') !== -1
-                || lower.indexOf('successfully picked') !== -1
-                || (lower.indexOf('order completed') !== -1)
-                || (lower.indexOf('how was your experience') !== -1);
-        },
+        openCompletedPrompt: openCompletedPrompt,
+        openReviewForm: openReviewForm,
+        closeCompletedModal: closeCompletedModal,
+        closeReviewModal: closeReviewModal,
+        isCompletedReviewNotice: isCompletedReviewNotice,
+        pickBetterCompletionNotice: pickBetterCompletionNotice,
+        completionMessageScore: completionMessageScore,
     };
 
-    document.addEventListener('pf:completed-order', (event) => {
-        if (!isOrdersPage()) return;
+    document.addEventListener('pf:completed-order', function (event) {
         const detail = event.detail || {};
-        openCompletedPrompt(
-            detail.orderId,
-            detail.message,
-            detail.orderCode,
-            detail.serviceLabel
-        );
+        openCompletedPrompt(detail.orderId, detail.message, detail.orderCode, detail.serviceLabel);
     });
 
     function boot() {
