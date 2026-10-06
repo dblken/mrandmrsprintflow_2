@@ -262,6 +262,222 @@ function pf_sales_export_filter_meta(array $filters, array $periodInfo): array
  *   filter_meta:array<string,string>
  * }
  */
+/** Complete paid-only aggregated trend data without the transaction-list limit. */
+function pf_sales_trend_breakdown(array $periodInfo, $branchId, array $filters): array
+{
+    $from = (string)($periodInfo['from'] ?? '');
+    $toEnd = (string)($periodInfo['to_end'] ?? '');
+    $period = (string)($periodInfo['period'] ?? 'today');
+    $fromTs = $from !== '' ? strtotime($from) : time();
+    $toTs = $toEnd !== '' ? strtotime($toEnd) : $fromTs;
+    $days = max(1, (int)floor(($toTs - $fromTs) / 86400) + 1);
+    if ($period === 'today' && $days <= 1) {
+        $group = static fn(string $e): array => ["DATE_FORMAT({$e}, '%Y-%m-%d %H:00:00')", "DATE_FORMAT({$e}, '%l %p')"];
+    } elseif ($days <= 31) {
+        $group = static fn(string $e): array => ["DATE({$e})", "DATE_FORMAT({$e}, '%b %e')"];
+    } elseif ($days <= 180) {
+        $group = static fn(string $e): array => ["DATE_SUB(DATE({$e}), INTERVAL WEEKDAY({$e}) DAY)", "DATE_FORMAT(DATE_SUB(DATE({$e}), INTERVAL WEEKDAY({$e}) DAY), '%b %e')"];
+    } else {
+        $group = static fn(string $e): array => ["DATE_FORMAT({$e}, '%Y-%m-01')", "DATE_FORMAT({$e}, '%b %Y')"];
+    }
+    $typeFilter = strtolower(trim((string)($filters['type'] ?? 'all')));
+    $methodFilter = strtolower(trim((string)($filters['method'] ?? 'all')));
+    $parts = explode('|', trim((string)($filters['item'] ?? '')), 2);
+    $itemType = strtolower(trim((string)($parts[0] ?? '')));
+    $itemName = trim((string)($parts[1] ?? ''));
+    $expectedItemType = $itemType === 'product' ? 'product' : 'service';
+
+    $store = static function (string $scope, string $type, string $revenue, bool $hasMethod) use ($branchId, $from, $toEnd, $group, $methodFilter, $itemType, $itemName, $expectedItemType): array {
+        [$key, $label] = $group('o.order_date');
+        [$dateSql, $dateTypes, $dateParams] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
+        [$branchSql, $branchTypes, $branchParams] = branch_where_parts('o', $branchId);
+        $extraSql = '';
+        $extraTypes = '';
+        $extraParams = [];
+        if ($methodFilter === 'cash') {
+            if (!$hasMethod) return [];
+            $extraSql .= " AND LOWER(TRIM(COALESCE(o.payment_method, ''))) = 'cash'";
+        } elseif ($methodFilter === 'qrph' && $hasMethod) {
+            $extraSql .= " AND LOWER(TRIM(COALESCE(o.payment_method, ''))) <> 'cash'";
+        }
+        if ($itemName !== '' && $itemType === $expectedItemType && (($type === 'Product' && $expectedItemType === 'product') || ($type === 'Custom' && $expectedItemType === 'service'))) {
+            $fallback = strtolower($type === 'Product' ? 'Product Order' : 'Customization');
+            $extraSql .= " AND LOWER(COALESCE((SELECT GROUP_CONCAT(DISTINCT NULLIF(TRIM(p_group.name), '') ORDER BY p_group.name SEPARATOR ', ') FROM order_items oi_group LEFT JOIN products p_group ON p_group.product_id = oi_group.product_id WHERE oi_group.order_id = o.order_id), '{$fallback}')) = LOWER(?)";
+            $extraTypes = 's';
+            $extraParams[] = $itemName;
+        }
+        $sql = "SELECT {$key} AS bucket_key, {$label} AS bucket_label, COALESCE(SUM({$revenue}), 0) AS revenue FROM orders o WHERE LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid') AND {$scope}{$extraSql}{$dateSql}{$branchSql} GROUP BY bucket_key, bucket_label ORDER BY bucket_key";
+        $result = db_query($sql, $extraTypes . $dateTypes . $branchTypes, array_merge($extraParams, $dateParams, $branchParams)) ?: [];
+        return array_map(static fn(array $r): array => ['bucket_key' => (string)($r['bucket_key'] ?? ''), 'bucket_label' => (string)($r['bucket_label'] ?? ''), 'type' => $type, 'revenue' => round((float)($r['revenue'] ?? 0), 2)], $result);
+    };
+
+    $jobs = static function (string $revenue, bool $hasMethod) use ($branchId, $from, $toEnd, $group, $methodFilter, $itemType, $itemName, $expectedItemType): array {
+        $dateExpr = pf_reports_job_order_sales_date_expr('jo');
+        [$key, $label] = $group($dateExpr);
+        [$dateSql, $dateTypes, $dateParams] = pf_reports_date_expr_where($dateExpr, $from, $toEnd);
+        [$branchSql, $branchTypes, $branchParams] = branch_where_parts('jo', $branchId);
+        $extraSql = '';
+        $extraTypes = '';
+        $extraParams = [];
+        if ($methodFilter === 'cash') {
+            if (!$hasMethod) return [];
+            $extraSql .= " AND LOWER(TRIM(COALESCE(jo.payment_method, ''))) = 'cash'";
+        } elseif ($methodFilter === 'qrph' && $hasMethod) {
+            $extraSql .= " AND LOWER(TRIM(COALESCE(jo.payment_method, ''))) <> 'cash'";
+        }
+        if ($itemName !== '' && $itemType === $expectedItemType && $expectedItemType === 'service') {
+            $extraSql .= " AND LOWER(COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'customization')) = LOWER(?)";
+            $extraTypes = 's';
+            $extraParams[] = $itemName;
+        }
+        $exclude = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
+        $sql = "SELECT {$key} AS bucket_key, {$label} AS bucket_label, COALESCE(SUM({$revenue}), 0) AS revenue FROM job_orders jo WHERE LOWER(TRIM(COALESCE(jo.payment_status, ''))) IN ('paid', 'fully paid'){$exclude}{$extraSql}{$dateSql}{$branchSql} GROUP BY bucket_key, bucket_label ORDER BY bucket_key";
+        $result = db_query($sql, $extraTypes . $dateTypes . $branchTypes, array_merge($extraParams, $dateParams, $branchParams)) ?: [];
+        return array_map(static fn(array $r): array => ['bucket_key' => (string)($r['bucket_key'] ?? ''), 'bucket_label' => (string)($r['bucket_label'] ?? ''), 'type' => 'Custom', 'revenue' => round((float)($r['revenue'] ?? 0), 2)], $result);
+    };
+
+    $hasStoreMethod = function_exists('db_table_has_column') ? db_table_has_column('orders', 'payment_method') : pf_reports_table_has_column('orders', 'payment_method');
+    $hasJobMethod = function_exists('db_table_has_column') ? db_table_has_column('job_orders', 'payment_method') : pf_reports_table_has_column('job_orders', 'payment_method');
+    $rows = [];
+    if ($typeFilter !== 'service') $rows = array_merge($rows, $store(pf_reports_store_product_order_scope_sql('o'), 'Product', pf_reports_store_order_revenue_expr('o'), $hasStoreMethod));
+    if ($typeFilter !== 'product') {
+        $rows = array_merge($rows, $store(pf_reports_store_custom_order_scope_sql('o'), 'Custom', pf_reports_store_order_revenue_expr('o'), $hasStoreMethod));
+        $rows = array_merge($rows, $jobs(pf_reports_job_order_revenue_expr('jo'), $hasJobMethod));
+    }
+    $buckets = [];
+    foreach ($rows as $row) {
+        $key = (string)$row['bucket_key'];
+        if ($key === '') continue;
+        if (!isset($buckets[$key])) $buckets[$key] = ['bucket_key' => $key, 'bucket_label' => (string)$row['bucket_label'], 'product_sales' => 0.0, 'custom_sales' => 0.0];
+        if ($row['type'] === 'Product') $buckets[$key]['product_sales'] += (float)$row['revenue'];
+        else $buckets[$key]['custom_sales'] += (float)$row['revenue'];
+    }
+    ksort($buckets);
+    foreach ($buckets as &$bucket) {
+        $bucket['product_sales'] = round($bucket['product_sales'], 2);
+        $bucket['custom_sales'] = round($bucket['custom_sales'], 2);
+    }
+    unset($bucket);
+    return array_values($buckets);
+}
+/** Complete paid-only trend data grouped by active branch for the All Branches view. */
+function pf_sales_trend_branch_breakdown(array $periodInfo, array $filters): array
+{
+    $from = (string)($periodInfo['from'] ?? '');
+    $toEnd = (string)($periodInfo['to_end'] ?? '');
+    $period = (string)($periodInfo['period'] ?? 'today');
+    $fromTs = $from !== '' ? strtotime($from) : time();
+    $toTs = $toEnd !== '' ? strtotime($toEnd) : $fromTs;
+    $days = max(1, (int)floor(($toTs - $fromTs) / 86400) + 1);
+    if ($period === 'today' && $days <= 1) {
+        $group = static fn(string $e): array => ["DATE_FORMAT({$e}, '%Y-%m-%d %H:00:00')", "DATE_FORMAT({$e}, '%l %p')"];
+    } elseif ($days <= 31) {
+        $group = static fn(string $e): array => ["DATE({$e})", "DATE_FORMAT({$e}, '%b %e')"];
+    } elseif ($days <= 180) {
+        $group = static fn(string $e): array => ["DATE_SUB(DATE({$e}), INTERVAL WEEKDAY({$e}) DAY)", "DATE_FORMAT(DATE_SUB(DATE({$e}), INTERVAL WEEKDAY({$e}) DAY), '%b %e')"];
+    } else {
+        $group = static fn(string $e): array => ["DATE_FORMAT({$e}, '%Y-%m-01')", "DATE_FORMAT({$e}, '%b %Y')"];
+    }
+    $typeFilter = strtolower(trim((string)($filters['type'] ?? 'all')));
+    $methodFilter = strtolower(trim((string)($filters['method'] ?? 'all')));
+    $parts = explode('|', trim((string)($filters['item'] ?? '')), 2);
+    $itemType = strtolower(trim((string)($parts[0] ?? '')));
+    $itemName = trim((string)($parts[1] ?? ''));
+    $expectedItemType = $itemType === 'product' ? 'product' : 'service';
+    $series = [];
+    foreach (get_all_branches() as $branch) {
+        $name = trim((string)($branch['branch_name'] ?? ''));
+        if ($name !== '') $series[] = $name;
+    }
+    $series = array_values(array_unique($series));
+    $rows = [];
+
+    $store = static function (string $scope, string $type, string $revenue, bool $hasMethod) use ($from, $toEnd, $group, $methodFilter, $itemType, $itemName, $expectedItemType): array {
+        [$key, $label] = $group('o.order_date');
+        $branchName = "COALESCE(NULLIF(TRIM(b.branch_name), ''), CONCAT('Branch #', o.branch_id))";
+        [$dateSql, $dateTypes, $dateParams] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
+        [$branchSql, $branchTypes, $branchParams] = branch_where_parts('o', 'all');
+        $extraSql = '';
+        $extraTypes = '';
+        $extraParams = [];
+        if ($methodFilter === 'cash') {
+            if (!$hasMethod) return [];
+            $extraSql .= " AND LOWER(TRIM(COALESCE(o.payment_method, ''))) = 'cash'";
+        } elseif ($methodFilter === 'qrph' && $hasMethod) {
+            $extraSql .= " AND LOWER(TRIM(COALESCE(o.payment_method, ''))) <> 'cash'";
+        }
+        if ($itemName !== '' && $itemType === $expectedItemType && (($type === 'Product' && $expectedItemType === 'product') || ($type === 'Custom' && $expectedItemType === 'service'))) {
+            $fallback = strtolower($type === 'Product' ? 'Product Order' : 'Customization');
+            $extraSql .= " AND LOWER(COALESCE((SELECT GROUP_CONCAT(DISTINCT NULLIF(TRIM(p_group.name), '') ORDER BY p_group.name SEPARATOR ', ') FROM order_items oi_group LEFT JOIN products p_group ON p_group.product_id = oi_group.product_id WHERE oi_group.order_id = o.order_id), '{$fallback}')) = LOWER(?)";
+            $extraTypes = 's';
+            $extraParams[] = $itemName;
+        }
+        $sql = "SELECT {$key} AS bucket_key, {$label} AS bucket_label, {$branchName} AS branch_name, COALESCE(SUM({$revenue}), 0) AS revenue FROM orders o LEFT JOIN branches b ON b.id = o.branch_id WHERE LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid') AND {$scope}{$extraSql}{$dateSql}{$branchSql} GROUP BY bucket_key, bucket_label, branch_name ORDER BY bucket_key, branch_name";
+        $result = db_query($sql, $extraTypes . $dateTypes . $branchTypes, array_merge($extraParams, $dateParams, $branchParams)) ?: [];
+        return array_map(static fn(array $r): array => ['bucket_key' => (string)($r['bucket_key'] ?? ''), 'bucket_label' => (string)($r['bucket_label'] ?? ''), 'branch_name' => (string)($r['branch_name'] ?? ''), 'type' => $type, 'revenue' => round((float)($r['revenue'] ?? 0), 2)], $result);
+    };
+
+    $jobs = static function (string $revenue, bool $hasMethod) use ($from, $toEnd, $group, $methodFilter, $itemType, $itemName, $expectedItemType): array {
+        $dateExpr = pf_reports_job_order_sales_date_expr('jo');
+        [$key, $label] = $group($dateExpr);
+        $branchName = "COALESCE(NULLIF(TRIM(b.branch_name), ''), CONCAT('Branch #', jo.branch_id))";
+        [$dateSql, $dateTypes, $dateParams] = pf_reports_date_expr_where($dateExpr, $from, $toEnd);
+        [$branchSql, $branchTypes, $branchParams] = branch_where_parts('jo', 'all');
+        $extraSql = '';
+        $extraTypes = '';
+        $extraParams = [];
+        if ($methodFilter === 'cash') {
+            if (!$hasMethod) return [];
+            $extraSql .= " AND LOWER(TRIM(COALESCE(jo.payment_method, ''))) = 'cash'";
+        } elseif ($methodFilter === 'qrph' && $hasMethod) {
+            $extraSql .= " AND LOWER(TRIM(COALESCE(jo.payment_method, ''))) <> 'cash'";
+        }
+        if ($itemName !== '' && $itemType === $expectedItemType && $expectedItemType === 'service') {
+            $extraSql .= " AND LOWER(COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'customization')) = LOWER(?)";
+            $extraTypes = 's';
+            $extraParams[] = $itemName;
+        }
+        $exclude = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
+        $sql = "SELECT {$key} AS bucket_key, {$label} AS bucket_label, {$branchName} AS branch_name, COALESCE(SUM({$revenue}), 0) AS revenue FROM job_orders jo LEFT JOIN branches b ON b.id = jo.branch_id WHERE LOWER(TRIM(COALESCE(jo.payment_status, ''))) IN ('paid', 'fully paid'){$exclude}{$extraSql}{$dateSql}{$branchSql} GROUP BY bucket_key, bucket_label, branch_name ORDER BY bucket_key, branch_name";
+        $result = db_query($sql, $extraTypes . $dateTypes . $branchTypes, array_merge($extraParams, $dateParams, $branchParams)) ?: [];
+        return array_map(static fn(array $r): array => ['bucket_key' => (string)($r['bucket_key'] ?? ''), 'bucket_label' => (string)($r['bucket_label'] ?? ''), 'branch_name' => (string)($r['branch_name'] ?? ''), 'type' => 'Custom', 'revenue' => round((float)($r['revenue'] ?? 0), 2)], $result);
+    };
+
+    $hasStoreMethod = function_exists('db_table_has_column') ? db_table_has_column('orders', 'payment_method') : pf_reports_table_has_column('orders', 'payment_method');
+    $hasJobMethod = function_exists('db_table_has_column') ? db_table_has_column('job_orders', 'payment_method') : pf_reports_table_has_column('job_orders', 'payment_method');
+    if ($typeFilter !== 'service') $rows = array_merge($rows, $store(pf_reports_store_product_order_scope_sql('o'), 'Product', pf_reports_store_order_revenue_expr('o'), $hasStoreMethod));
+    if ($typeFilter !== 'product') {
+        $rows = array_merge($rows, $store(pf_reports_store_custom_order_scope_sql('o'), 'Custom', pf_reports_store_order_revenue_expr('o'), $hasStoreMethod));
+        $rows = array_merge($rows, $jobs(pf_reports_job_order_revenue_expr('jo'), $hasJobMethod));
+    }
+    $buckets = [];
+    $sourceTotals = [];
+    foreach ($rows as $row) {
+        $key = (string)$row['bucket_key'];
+        $branchName = trim((string)$row['branch_name']);
+        if ($key === '' || $branchName === '') continue;
+        if (!isset($buckets[$key])) $buckets[$key] = ['bucket_key' => $key, 'bucket_label' => (string)$row['bucket_label'], 'branch_sales' => []];
+        $buckets[$key]['branch_sales'][$branchName] = ($buckets[$key]['branch_sales'][$branchName] ?? 0) + (float)$row['revenue'];
+        if (!isset($sourceTotals[$branchName])) $sourceTotals[$branchName] = ['product_sales' => 0.0, 'custom_sales' => 0.0];
+        $sourceKey = ($row['type'] ?? '') === 'Product' ? 'product_sales' : 'custom_sales';
+        $sourceTotals[$branchName][$sourceKey] += (float)$row['revenue'];
+    }
+    ksort($buckets);
+    foreach ($buckets as &$bucket) {
+        foreach ($series as $branchName) $bucket['branch_sales'][$branchName] = round((float)($bucket['branch_sales'][$branchName] ?? 0), 2);
+        ksort($bucket['branch_sales']);
+    }
+    unset($bucket);
+    $sourceBreakdown = [];
+    foreach ($series as $branchName) {
+        $sourceBreakdown[] = [
+            'branch_name' => $branchName,
+            'product_sales' => round((float)($sourceTotals[$branchName]['product_sales'] ?? 0), 2),
+            'custom_sales' => round((float)($sourceTotals[$branchName]['custom_sales'] ?? 0), 2),
+        ];
+    }
+    return ['mode' => 'branches', 'series' => $series, 'rows' => array_values($buckets), 'source_breakdown' => $sourceBreakdown];
+}
 function pf_sales_page_filtered_breakdown(array $input, $branchId, int $limit = 5000): array
 {
     $periodInfo = pf_sales_resolve_period($input);
