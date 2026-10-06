@@ -830,7 +830,6 @@ if ($initials === '') {
                         <div data-pf-cart-menu class="pf-notif-dropdown" style="position: absolute; top: calc(100% + 10px); right: 0; width: 320px; max-height: 480px; flex-direction: column; overflow: hidden;">
                             <div class="pf-notif-header">
                                 <span>My Cart</span>
-                                <a href="<?php echo htmlspecialchars($base_url . '/customer/cart.php'); ?>" class="pf-notif-action-link" style="color:#0f6b93; text-decoration:none; font-weight:800;">View cart</a>
                             </div>
                             <div class="pf-notif-list">
                                 <?php

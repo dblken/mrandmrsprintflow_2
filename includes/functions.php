@@ -597,6 +597,14 @@ function printflow_staff_notification_visible(array $notification, ?int $branchI
 
     $staffRole = function_exists('printflow_get_staff_access_role') ? printflow_get_staff_access_role() : null;
     $type = (string)($notification['type'] ?? '');
+    if ($staffRole === 'pos') {
+        if (!function_exists('printflow_notification_is_message')) {
+            require_once __DIR__ . '/notification_images.php';
+        }
+        if (printflow_notification_is_message($notification)) {
+            return false;
+        }
+    }
     if ($staffRole !== null) {
         if (!function_exists('printflow_staff_notification_type_allowed')) {
             require_once __DIR__ . '/staff_status_filters.php';
@@ -7972,7 +7980,7 @@ function printflow_send_order_update_legacy($order_id, $step, $custom_text = '',
             'message_type' => 'order_card',
             'button_label' => 'Leave a Review',
             'action_type' => 'rate',
-            'action_url'  => "{$base}/customer/rate_order.php?order_id={$order_id}",
+            'action_url'  => "{$base}/customer/orders.php?tab=completed&highlight={$order_id}&review_prompt=1",
         ],
         'cancelled' => [
             'message'      => "Your order has been cancelled. Please contact our team if you need help with the next step.",
@@ -7985,7 +7993,7 @@ function printflow_send_order_update_legacy($order_id, $step, $custom_text = '',
             'message_type' => 'order_card',
             'button_label' => 'Leave a Review',
             'action_type' => 'rate',
-            'action_url'  => "{$base}/customer/rate_order.php?order_id={$order_id}",
+            'action_url'  => "{$base}/customer/orders.php?tab=completed&highlight={$order_id}&review_prompt=1",
         ],
     ];
 

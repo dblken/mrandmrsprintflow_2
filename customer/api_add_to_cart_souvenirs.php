@@ -52,8 +52,8 @@ $quantity = (int)($fields['quantity'] ?? 1);
 $custom_print = trim($fields['custom_print'] ?? '');
 $notes = trim($fields['notes'] ?? '');
 
-if ($branch_id < 1) {
-    echo json_encode(['success' => false, 'message' => $requiredMsg]);
+if ($branch_id < 1 || empty(db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id]))) {
+    echo json_encode(['success' => false, 'message' => 'Please select a valid branch.']);
     exit;
 }
 

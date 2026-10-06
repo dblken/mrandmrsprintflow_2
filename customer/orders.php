@@ -9,11 +9,25 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/change_item_workflow.php';
+require_once __DIR__ . '/../includes/customer_rate_order.php';
 
 require_role('Customer');
 ensure_ratings_table_exists();
 
 $customer_id = get_user_id();
+$review_prompt_payload = null;
+$review_prompt_id = 0;
+if (isset($_GET['review_prompt'])) {
+    if ((string)$_GET['review_prompt'] === '1' && !empty($_GET['highlight'])) {
+        $review_prompt_id = (int)$_GET['highlight'];
+    } else {
+        $review_prompt_id = (int)$_GET['review_prompt'];
+    }
+}
+if ($review_prompt_id > 0) {
+    $review_ctx = customer_rate_order_load($review_prompt_id, $customer_id);
+    $review_prompt_payload = customer_review_prompt_payload_from_context($review_ctx);
+}
 // Mark notification as read if parameter present
 if (isset($_GET['mark_read'])) {
     $notification_id = (int)$_GET['mark_read'];
@@ -744,7 +758,7 @@ require_once __DIR__ . '/../includes/header.php';
         font-size: 0.75rem;
     }
 }
-.orders-theme-page .card-actions-inline { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.orders-theme-page .card-actions-inline { display: flex; gap: 0.5rem; flex-wrap: wrap; position: relative; z-index: 4; }
 @media (max-width: 640px) {
     .orders-theme-page .card-actions-inline { width: 100%; gap: 0.65rem; }
 }
@@ -798,6 +812,9 @@ require_once __DIR__ . '/../includes/header.php';
     color: #f97316 !important;
     border: 1px solid rgba(249, 115, 22, 0.4) !important;
     border-radius: 10px !important;
+    position: relative;
+    z-index: 5;
+    pointer-events: auto;
 }
 .orders-theme-page .btn-rate-order:hover {
     background: #f97316 !important;
@@ -2843,9 +2860,7 @@ require_once __DIR__ . '/../includes/header.php';
                                         <button type="button" class="action-button btn-main-blue" style="padding: 0.45rem 0.85rem; font-size: 0.68rem;" onclick="openItemsModal(<?php echo $order['order_id']; ?>, event)">View Details</button>
                                         <?php if (in_array($order['status'], ['Completed', 'To Rate', 'Rated'], true)): ?>
                                             <?php if (empty($order['rating_value'])): ?>
-                                                <a href="<?php echo BASE_URL; ?>/customer/rate_order.php?order_id=<?php echo $order['order_id']; ?>" class="action-button btn-rate-order" style="padding: 0.45rem 0.85rem; font-size: 0.68rem;">
-                                                    ★ Rate
-                                                </a>
+                                                <button type="button" class="action-button btn-rate-order" style="padding: 0.45rem 0.85rem; font-size: 0.68rem; position: relative; z-index: 10;" data-pf-open-review="<?php echo (int)$order['order_id']; ?>" onclick="event.stopPropagation(); if (window.PFOrderReview && typeof window.PFOrderReview.openReviewForm === 'function') { window.PFOrderReview.openReviewForm(<?php echo (int)$order['order_id']; ?>, this); }">★ Rate</button>
                                             <?php else: ?>
                                                 <a href="<?php echo BASE_URL; ?>/customer/reviews.php?order_id=<?php echo $order['order_id']; ?>" class="action-button btn-rate-order" style="padding: 0.45rem 0.85rem; font-size: 0.68rem;">
                                                     ★ Rated
@@ -3230,7 +3245,6 @@ function buildReceiptHtml(receipt) {
                     <div class="receipt-customer-name">${receiptEscape(customer.name || 'Customer')}</div>
                     ${contact ? `<div class="receipt-value" style="margin-top:4px;">${receiptEscape(contact)}</div>` : ''}
                 </div>
-                <div class="receipt-payment-chip">${receiptEscape(payment.method || 'Paid')}</div>
             </div>
         </div>
 
@@ -3257,14 +3271,12 @@ function buildReceiptHtml(receipt) {
                 <div class="receipt-total-line receipt-total-line--grand"><span>Total Paid</span><span>${formatMoney(receipt.total || 0)}</span></div>
             </div>
             <div class="receipt-payment-breakdown">
-                <div class="receipt-total-line"><span>Payment Method</span><strong>${receiptEscape(payment.method || 'Not Specified')}</strong></div>
                 <div class="receipt-total-line"><span>Amount Paid</span><strong>${formatMoney(payment.amount_paid || receipt.total || 0)}</strong></div>
             </div>
         </div>
 
         <div class="receipt-footer">
             <strong>Thank you for choosing PrintFlow!</strong>
-            <p>This is an unofficial sales receipt for transaction reference only. It is not an official receipt or sales invoice.</p>
             <p>Please present this transaction reference when claiming your order.</p>
             <p>Keep this transaction reference for your records.</p>
         </div>
@@ -4044,7 +4056,7 @@ function openItemsModal(orderId, event, options = {}) {
                         ${['Completed', 'To Rate', 'Rated'].includes(data.status) ? (
                             data.rating_data
                                 ? `<a href="${data.rating_data.view_url}" class="im-order-action im-order-action--rate"><svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg><span>View Your Review</span></a>`
-                                : `<a href="${CUSTOMER_BASE_URL}/customer/rate_order.php?order_id=${data.order_id}" class="im-order-action im-order-action--rate"><svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg><span>Rate This Order</span></a>`
+                                : `<button type="button" class="im-order-action im-order-action--rate" data-pf-open-review="${data.order_id}"><svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg><span>Rate This Order</span></button>`
                         ) : ''}
 
                         ${data.can_cancel ? `
@@ -4055,7 +4067,7 @@ function openItemsModal(orderId, event, options = {}) {
             </div>
         `;
 
-        const reviewAction = document.querySelector('#imBody a[href*="rate_order.php"], #imBody a[href*="reviews.php?order_id="]');
+        const reviewAction = document.querySelector('#imBody [data-pf-open-review], #imBody a[href*="reviews.php?order_id="]');
         if (reviewAction) {
             reviewAction.className = 'im-order-action im-order-action--rate';
             if (!reviewAction.querySelector('svg')) {
@@ -4063,7 +4075,8 @@ function openItemsModal(orderId, event, options = {}) {
             }
             const reviewLabel = reviewAction.querySelector('span') || reviewAction;
             if (reviewAction.querySelector('span')) {
-                reviewAction.querySelector('span').textContent = reviewAction.href.includes('reviews.php?order_id=')
+                const isViewReview = reviewAction.matches('a[href*="reviews.php?order_id="]');
+                reviewAction.querySelector('span').textContent = isViewReview
                     ? 'View Your Review'
                     : 'Rate This Order';
             }
@@ -4994,7 +5007,25 @@ async function refreshOrdersList() {
 })();
 
 initOrdersTabsScroller();
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeItemsModal(); });
+document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (document.getElementById('orderReviewModal')?.classList.contains('open')) {
+        window.PFOrderReview?.closeReviewModal?.();
+        return;
+    }
+    if (document.getElementById('completedReviewModal')?.classList.contains('open')) {
+        window.PFOrderReview?.closeCompletedModal?.();
+        return;
+    }
+    closeItemsModal();
+});
 </script>
+
+<?php
+// Pass orders-page deep-link prompt into global review config (merged in footer).
+if (!empty($review_prompt_payload)) {
+    $GLOBALS['pf_review_initial_prompt'] = $review_prompt_payload;
+}
+?>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

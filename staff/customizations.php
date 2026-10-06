@@ -220,8 +220,40 @@ $online_closed_count = 0;
             color: #fff;
         }
         .pf-staff-customizations-root .kpi-row {
-            gap: 16px;
-            margin-bottom: 24px;
+            gap: 12px;
+            margin-top: 0;
+            margin-bottom: 12px !important;
+        }
+        .pf-staff-customizations-root .kpi-row .kpi-card {
+            height: auto !important;
+        }
+        .pf-staff-customizations-root > header {
+            margin-bottom: 12px !important;
+            padding-left: 32px;
+            padding-right: 32px;
+            box-sizing: border-box;
+        }
+        .pf-staff-customizations-root .pf-customizations-page-header {
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+        }
+        .pf-staff-customizations-root .pf-customizations-page-intro .page-title {
+            margin: 0 !important;
+            line-height: 1.2 !important;
+        }
+        .pf-staff-customizations-root .pf-customizations-page-intro .page-subtitle {
+            margin: 2px 0 0 !important;
+            line-height: 1.35 !important;
+        }
+        .pf-staff-customizations-root .pf-customizations-page-header .pf-urgent-attention-banner {
+            margin: 0 !important;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .pf-staff-customizations-root > main {
+            padding-top: 0 !important;
         }
 
         .pf-staff-customizations-root .kpi-card--link {
@@ -265,8 +297,8 @@ $online_closed_count = 0;
             justify-content: space-between;
             gap: 12px;
             flex-wrap: wrap;
-            margin: 0 0 16px;
-            padding: 12px 16px;
+            margin: 0 0 10px;
+            padding: 10px 14px;
             border-radius: 12px;
             border: 1px solid #fdba74;
             background: linear-gradient(90deg, #fff7ed 0%, #ffedd5 100%);
@@ -342,8 +374,18 @@ $online_closed_count = 0;
         }
 
         .pf-staff-customizations-root .pf-customizations-table-card {
-            margin-top: 8px;
+            margin-top: 0 !important;
+            margin-bottom: 16px !important;
+            padding-top: 16px !important;
+            padding-bottom: 16px !important;
             container: customization-list / inline-size;
+        }
+        .pf-staff-customizations-root .pf-customizations-table-card .toolbar-container {
+            gap: 10px;
+            margin-bottom: 0;
+        }
+        .pf-staff-customizations-root .pf-customizations-table-card .toolbar-group--tabs {
+            margin-top: 0 !important;
         }
 
         .pf-custom-tabs {
@@ -358,9 +400,9 @@ $online_closed_count = 0;
             overflow-y: visible;
             scrollbar-width: none;
             -ms-overflow-style: none;
-            margin: 8px 0 12px;
-            padding-top: 6px;
-            padding-bottom: 4px;
+            margin: 4px 0 8px;
+            padding-top: 0;
+            padding-bottom: 2px;
         }
 
         .pf-custom-tabs::-webkit-scrollbar {
@@ -1041,8 +1083,16 @@ $online_closed_count = 0;
             white-space: nowrap;
         }
         .status-badge-pill {
-            min-width: 100px;
+            display: inline-block;
+            width: auto;
+            min-width: 0;
             max-width: 100%;
+            box-sizing: border-box;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: center;
+            vertical-align: middle;
         }
         .pf-pill {
             display: inline-flex;
@@ -1052,9 +1102,22 @@ $online_closed_count = 0;
             border-radius: 20px;
             font-size: 12px;
             font-weight: 600;
-            line-height: 1;
+            line-height: 1.2;
             white-space: nowrap;
             max-width: 100%;
+        }
+        /* Status text: single line with ellipsis when column is narrow */
+        .pf-pill.status-badge-pill {
+            display: block;
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+            padding: 4px 10px;
+            line-height: 1.25;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: center;
         }
         .order-code-cell,
         .customization-info-cell {
@@ -1281,26 +1344,37 @@ $online_closed_count = 0;
             box-sizing: border-box;
             vertical-align: middle;
         }
-        .customizations-data-table .col-order { width: 14%; }
+        .customizations-data-table .col-order { width: 12%; }
+        .customizations-data-table .col-customer { width: 12%; }
         .customizations-data-table .col-info { width: 20%; }
-        .customizations-data-table .col-needed { width: 12%; }
-        .customizations-data-table .col-status { width: 12%; }
-        .customizations-data-table .col-customer { width: 14%; }
-        .customizations-data-table .col-created { width: 16%; }
-        .customizations-data-table .col-action { width: 12%; }
-        .customizations-data-table th:nth-child(4),
-        .customizations-data-table td:nth-child(4),
-        .customizations-data-table th:nth-child(7),
-        .customizations-data-table td:nth-child(7) {
+        .customizations-data-table .col-created { width: 17%; }
+        .customizations-data-table .col-needed { width: 11%; }
+        .customizations-data-table thead th.col-head-needed {
+            white-space: nowrap;
+        }
+        .customizations-data-table .col-status { width: 15%; }
+        .customizations-data-table .col-action { width: 13%; }
+        .customizations-data-table thead th,
+        .customizations-data-table tbody td {
+            text-align: left !important;
+        }
+        .customizations-data-table thead th.col-head-status,
+        .customizations-data-table .status-col-cell {
             text-align: center !important;
         }
-        .customizations-data-table th:nth-child(6),
-        .customizations-data-table td:nth-child(6) {
-            text-align: left !important;
+        .customizations-data-table thead th.col-head-action,
+        .customizations-data-table .action-col-cell {
+            text-align: center !important;
+        }
+        .customizations-data-table .created-cell .table-text-main {
             white-space: nowrap;
         }
         .needed-date-cell .table-text-main {
             color: #334155;
+            white-space: nowrap;
+        }
+        .customizations-data-table .status-col-cell {
+            min-width: 118px;
         }
         .customizations-data-table .status-col-inner,
         .customizations-data-table .action-btn-group {
@@ -1308,6 +1382,23 @@ $online_closed_count = 0;
             margin-right: 0;
             padding-left: 0;
             padding-right: 0;
+        }
+        .customizations-data-table .customization-info-cell .pf-customization-info-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        .customizations-data-table .order-code-cell,
+        .customizations-data-table .customer-cell,
+        .customizations-data-table .customization-info-cell,
+        .customizations-data-table .created-cell,
+        .customizations-data-table .needed-date-cell {
+            padding-left: 16px !important;
+            padding-right: 16px !important;
         }
         .customizations-mobile-list { display: none; }
 
@@ -1342,12 +1433,27 @@ $online_closed_count = 0;
 
         /* Mobile Fixes for Staff Customizations */
         @media (max-width: 768px) {
+            .pf-staff-customizations-root > header {
+                padding-left: 16px !important;
+                padding-right: 16px !important;
+                margin-bottom: 8px !important;
+            }
+            .pf-staff-customizations-root .pf-customizations-page-header {
+                gap: 6px !important;
+            }
             .main-content header {
                 padding: 16px 20px 12px !important;
                 flex-direction: column !important;
                 align-items: flex-start !important;
                 gap: 12px !important;
                 margin-bottom: 4px !important;
+            }
+            .pf-staff-customizations-root > header.pf-customizations-page-header {
+                padding: 0 16px !important;
+                margin-bottom: 8px !important;
+                min-height: 0 !important;
+                align-items: stretch !important;
+                background: transparent !important;
             }
 
             #mobileBurger {
@@ -1371,7 +1477,11 @@ $online_closed_count = 0;
             .kpi-row {
                 grid-template-columns: repeat(2, 1fr) !important;
                 gap: 10px !important;
-                margin-bottom: 16px !important;
+                margin-bottom: 10px !important;
+            }
+            .pf-staff-customizations-root .pf-customizations-table-card {
+                padding-top: 14px !important;
+                padding-bottom: 14px !important;
             }
 
             .kpi-card {
@@ -1537,20 +1647,26 @@ $online_closed_count = 0;
                 padding-bottom: 12px !important;
                 min-width: 0;
             }
-            .customizations-data-table .col-order { width: 13%; }
+            .customizations-data-table .col-order { width: 11%; }
+            .customizations-data-table .col-customer { width: 11%; }
             .customizations-data-table .col-info { width: 19%; }
-            .customizations-data-table .col-needed { width: 11%; }
-            .customizations-data-table .col-status { width: 11%; }
-            .customizations-data-table .col-customer { width: 13%; }
-            .customizations-data-table .col-created { width: 14%; }
-            .customizations-data-table .col-action { width: 11%; }
+            .customizations-data-table .col-created { width: 15%; }
+            .customizations-data-table .col-needed { width: 10%; }
+            .customizations-data-table thead th.col-head-needed {
+                white-space: nowrap;
+            }
+            .customizations-data-table .col-status { width: 14%; }
+            .customizations-data-table .col-action { width: 10%; }
             .customizations-data-table .status-badge-pill,
-            .customizations-data-table .pf-pill {
+            .customizations-data-table .pf-pill.status-badge-pill {
                 min-width: 0;
                 max-width: 100%;
-                padding-left: 7px;
-                padding-right: 7px;
+                padding-left: 8px;
+                padding-right: 8px;
                 font-size: 10px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
             .customizations-data-table .table-action-btn {
                 min-width: 0;
@@ -1651,11 +1767,11 @@ $online_closed_count = 0;
                 background: #fff !important;
             }
             .customizations-data-table tr.customization-row .order-code-cell { grid-column: 1 !important; grid-row: 1 !important; }
-            .customizations-data-table tr.customization-row .customization-info-cell { grid-column: 2 !important; grid-row: 1 !important; }
-            .customizations-data-table tr.customization-row .needed-date-cell { grid-column: 1 !important; grid-row: 2 !important; }
-            .customizations-data-table tr.customization-row .status-col-cell { grid-column: 2 !important; grid-row: 2 !important; }
-            .customizations-data-table tr.customization-row .customer-cell { grid-column: 1 !important; grid-row: 3 !important; }
-            .customizations-data-table tr.customization-row .created-cell { grid-column: 2 !important; grid-row: 3 !important; }
+            .customizations-data-table tr.customization-row .customer-cell { grid-column: 2 !important; grid-row: 1 !important; }
+            .customizations-data-table tr.customization-row .customization-info-cell { grid-column: 1 !important; grid-row: 2 !important; }
+            .customizations-data-table tr.customization-row .created-cell { grid-column: 2 !important; grid-row: 2 !important; }
+            .customizations-data-table tr.customization-row .needed-date-cell { grid-column: 1 !important; grid-row: 3 !important; }
+            .customizations-data-table tr.customization-row .status-col-cell { grid-column: 2 !important; grid-row: 3 !important; }
             .customizations-data-table tr.customization-row .order-code-cell {
                 padding-top: 8px !important;
                 background: #f8fafc !important;
@@ -1689,11 +1805,12 @@ $online_closed_count = 0;
                 justify-content: flex-start !important;
             }
             .customizations-data-table tr.customization-row .status-badge-pill {
-                width: auto !important;
+                width: 100% !important;
                 min-width: 0 !important;
                 max-width: 100% !important;
-                white-space: normal !important;
-                overflow-wrap: anywhere !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
             }
             .customizations-data-table tr.customization-row .action-col-cell {
                 display: block !important;
@@ -1918,7 +2035,8 @@ $online_closed_count = 0;
                 width: auto;
                 max-width: 100%;
                 min-width: 92px;
-                white-space: nowrap;
+                white-space: normal;
+                text-align: center;
             }
             .customization-mobile-card__footer {
                 width: 100%;
@@ -2157,26 +2275,26 @@ $online_closed_count = 0;
     ?>
     <div class="main-content">
         <div id="staffJoCustomizationsPage" x-data="joManager('ALL')" class="pf-staff-customizations-root" @keydown.escape.window="onSvcEscape()" x-effect="document.body.classList.toggle('pf-revision-modal-open', showRevisionModal)">
-        <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
-            <div>
+        <header class="pf-customizations-page-header">
+            <div class="pf-customizations-page-intro">
                 <h1 class="page-title">Custom Orders</h1>
                 <p class="page-subtitle">Track and manage custom printing jobs</p>
+            </div>
+            <div
+                x-show="urgentOrderCount > 0"
+                x-cloak
+                class="pf-urgent-attention-banner"
+                role="status"
+            >
+                <div class="pf-urgent-attention-banner__message">
+                    <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                    <span x-text="urgentBannerMessage()"></span>
+                </div>
+                <button type="button" class="pf-urgent-attention-banner__action" @click="focusUrgentOrders()">View Now</button>
             </div>
         </header>
 
         <main>
-                <div
-                    x-show="urgentOrderCount > 0"
-                    x-cloak
-                    class="pf-urgent-attention-banner"
-                    role="status"
-                >
-                    <div class="pf-urgent-attention-banner__message">
-                        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
-                        <span x-text="urgentBannerMessage()"></span>
-                    </div>
-                    <button type="button" class="pf-urgent-attention-banner__action" @click="focusUrgentOrders()">View Now</button>
-                </div>
                 <div class="kpi-row">
                  <?php if ($isPosCustomizationView): ?>
                 <div
@@ -2425,18 +2543,18 @@ $online_closed_count = 0;
                 <div class="overflow-x-auto -mx-6 px-6 customizations-table-scroll" style="clear:both;">
                     <table class="w-full text-sm text-left border-separate border-spacing-0 customizations-data-table">
                         <colgroup>
-                            <col class="col-order"><col class="col-info"><col class="col-needed"><col class="col-status">
-                            <col class="col-customer"><col class="col-created"><col class="col-action">
+                            <col class="col-order"><col class="col-customer"><col class="col-info"><col class="col-created">
+                            <col class="col-needed"><col class="col-status"><col class="col-action">
                         </colgroup>
                         <thead class="bg-gray-50/50">
                             <tr>
-                                <th class="pl-6 pr-4 py-4 border-b border-gray-100">Order Code</th>
-                                <th class="px-4 py-4 border-b border-gray-100">Customization Info</th>
-                                <th class="px-4 py-4 border-b border-gray-100">Needed Date</th>
-                                <th class="px-4 py-4 border-b border-gray-100 text-center">Status</th>
-                                <th class="px-4 py-4 border-b border-gray-100">Customer</th>
-                                <th class="px-4 py-4 border-b border-gray-100">Order Date</th>
-                                <th class="px-4 py-4 border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
+                                <th class="py-4 border-b border-gray-100">Order Code</th>
+                                <th class="py-4 border-b border-gray-100">Customer</th>
+                                <th class="py-4 border-b border-gray-100">Customization Info</th>
+                                <th class="py-4 border-b border-gray-100">Order Date</th>
+                                <th class="py-4 border-b border-gray-100 col-head-needed">Needed Date</th>
+                                <th class="py-4 border-b border-gray-100 text-center col-head-status">Status</th>
+                                <th class="py-4 border-b border-gray-100 text-center uppercase tracking-widest text-[10px] col-head-action">Action</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
@@ -2451,7 +2569,7 @@ $online_closed_count = 0;
                                         </td>
                                     </template>
                                     <template x-if="isValidOrderListRow(item)">
-                                        <td class="pl-6 pr-4 py-4 relative order-code-cell" data-label="Order">
+                                        <td class="py-4 relative order-code-cell" data-label="Order">
                                             <div class="row-indicator"></div>
                                             <div class="pf-order-code-stack">
                                                 <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(item.jo)" x-text="getDisplayOrderCode(item.jo)"></span>
@@ -2461,41 +2579,39 @@ $online_closed_count = 0;
                                         </td>
                                     </template>
                                     <template x-if="isValidOrderListRow(item)">
-                                        <td class="px-4 py-4 customization-info-cell" data-label="Details">
-                                            <div class="flex items-center gap-3">
-                                                <div class="flex flex-col gap-0 min-w-0">
-                                                    <div class="table-text-main truncate-ellipsis" :title="getRowDisplayName(item.jo)" x-text="getRowDisplayName(item.jo)"></div>
-                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(item.jo)"></div>
-                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type === 'SERVICE'">Service purchase</div>
-                                                </div>
-                                            </div>
-                                        </td>
-                                    </template>
-                                    <template x-if="isValidOrderListRow(item)">
-                                        <td class="px-4 py-4 needed-date-cell" data-label="Needed Date">
-                                            <div class="table-text-main truncate-ellipsis" :title="formatOrderNeededDate(item.jo, true)" x-text="formatOrderNeededDate(item.jo)"></div>
-                                        </td>
-                                    </template>
-                                    <template x-if="isValidOrderListRow(item)">
-                                        <td class="px-4 py-4 status-col-cell" data-label="Status">
-                                            <div class="status-col-inner">
-                                                <div :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(item.jo)"></div>
-                                            </div>
-                                        </td>
-                                    </template>
-                                    <template x-if="isValidOrderListRow(item)">
-                                        <td class="px-4 py-4 customer-cell" data-label="Customer">
+                                        <td class="py-4 customer-cell" data-label="Customer">
                                             <div class="table-text-main truncate-ellipsis" :title="(item.jo.first_name + ' ' + (item.jo.last_name || '')).trim()" x-text="item.jo.first_name + ' ' + (item.jo.last_name || '')"></div>
                                         </td>
                                     </template>
                                     <template x-if="isValidOrderListRow(item)">
-                                        <td class="px-4 py-4 text-right created-cell" data-label="Created">
+                                        <td class="py-4 customization-info-cell" data-label="Details">
+                                            <div class="pf-customization-info-stack">
+                                                <div class="table-text-main truncate-ellipsis" :title="getRowDisplayName(item.jo)" x-text="getRowDisplayName(item.jo)"></div>
+                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(item.jo)"></div>
+                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type === 'SERVICE'">Service purchase</div>
+                                            </div>
+                                        </td>
+                                    </template>
+                                    <template x-if="isValidOrderListRow(item)">
+                                        <td class="py-4 created-cell" data-label="Order Date">
                                             <div class="table-text-main truncate-ellipsis" :title="formatOrderBusinessDate(item.jo)" x-text="formatOrderBusinessDate(item.jo)"></div>
                                             <div class="table-text-sub uppercase truncate-ellipsis" :title="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''" x-text="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''"></div>
                                         </td>
                                     </template>
                                     <template x-if="isValidOrderListRow(item)">
-                                        <td class="px-4 py-4 action-col-cell" data-label="Action">
+                                        <td class="py-4 needed-date-cell" data-label="Needed Date">
+                                            <div class="table-text-main truncate-ellipsis" :title="formatOrderNeededDate(item.jo, true)" x-text="formatOrderNeededDate(item.jo)"></div>
+                                        </td>
+                                    </template>
+                                    <template x-if="isValidOrderListRow(item)">
+                                        <td class="py-4 status-col-cell" data-label="Status">
+                                            <div class="status-col-inner">
+                                                <div :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" :title="getStatusLabel(item.jo)" x-text="getStatusLabel(item.jo)"></div>
+                                            </div>
+                                        </td>
+                                    </template>
+                                    <template x-if="isValidOrderListRow(item)">
+                                        <td class="py-4 action-col-cell" data-label="Action">
                                             <div class="action-btn-group">
                                                 <button
                                                     @click.stop="openOrderListItem(item)"
@@ -2510,13 +2626,13 @@ $online_closed_count = 0;
                             </template>
                             <template x-for="rowIndex in (loadingOrders && orders.length === 0 ? 6 : 0)" :key="'skeleton-' + rowIndex">
                                 <tr aria-hidden="true">
-                                    <td class="pl-6 pr-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton"></span><span class="pf-customization-skeleton medium" style="margin-top:8px;"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton short"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
+                                    <td class="py-5"><span class="pf-customization-skeleton medium"></span></td>
+                                    <td class="py-5"><span class="pf-customization-skeleton medium"></span></td>
+                                    <td class="py-5"><span class="pf-customization-skeleton"></span><span class="pf-customization-skeleton medium" style="margin-top:8px;"></span></td>
+                                    <td class="py-5"><span class="pf-customization-skeleton"></span></td>
+                                    <td class="py-5"><span class="pf-customization-skeleton short"></span></td>
+                                    <td class="py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
+                                    <td class="py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
                                 </tr>
                             </template>
                             <tr x-show="ordersError && orders.length === 0" x-cloak>
@@ -2584,7 +2700,7 @@ $online_closed_count = 0;
                                 <div class="customization-mobile-card__meta-row">
                                     <span class="customization-mobile-card__label">Status</span>
                                     <div class="customization-mobile-card__status">
-                                        <span :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(item.jo)"></span>
+                                        <span :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" :title="getStatusLabel(item.jo)" x-text="getStatusLabel(item.jo)"></span>
                                     </div>
                                 </div>
                                 <div class="customization-mobile-card__meta-row">
@@ -3693,7 +3809,7 @@ $online_closed_count = 0;
                     <div class="pf-revision-modal-actions">
                         <button type="button" @click="closeRevisionModal()" class="pf-entry-btn pf-entry-out" style="height:38px; min-width:96px; padding:0 16px; justify-content:center; background:#fff;">Cancel</button>
                         <button type="button" @click="submitRevision()" class="pf-entry-btn pf-entry-in" style="height:38px; min-width:170px; padding:0 16px; justify-content:center; background:#10b981; border-color:#10b981; color:#fff;" :disabled="revisionSubmitting || !isRevisionFormValid()" :style="(revisionSubmitting || !isRevisionFormValid()) ? 'opacity:.55;cursor:not-allowed;' : ''">
-                            <span x-show="!revisionSubmitting">Send Revision Request</span>
+                            <span x-show="!revisionSubmitting">Send Request</span>
                             <span x-show="revisionSubmitting">Sending...</span>
                         </button>
                     </div>
@@ -7672,7 +7788,7 @@ window.pfServiceFieldCatalog = (() => {
                     CHANGE_ITEM_REQUEST: 'Change Item Request',
                     APPROVED: 'Approved',
                     TO_PAY: 'To Pay',
-                    PAYMENT_CONFIRMED: 'Payment Confirmed',
+                    PAYMENT_CONFIRMED: 'Paid',
                     VERIFY_PAY: 'To Verify',
                     REJECTED: 'Rejected',
                     IN_PRODUCTION: 'In Production',

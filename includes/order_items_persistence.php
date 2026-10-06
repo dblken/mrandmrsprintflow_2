@@ -198,6 +198,22 @@ if (!function_exists('printflow_order_item_row_has_retrievable_design')) {
     }
 }
 
+if (!function_exists('printflow_order_design_display_url')) {
+    /**
+     * Prefer the authorized serve_design endpoint over direct /uploads/* URLs.
+     * Direct paths are blocked on production (403) while files remain readable to PHP.
+     */
+    function printflow_order_design_display_url(?string $serveUrl, ?string $directUrl): ?string
+    {
+        $serveUrl = trim((string)$serveUrl);
+        if ($serveUrl !== '') {
+            return $serveUrl;
+        }
+        $directUrl = trim((string)$directUrl);
+        return $directUrl !== '' ? $directUrl : null;
+    }
+}
+
 if (!function_exists('printflow_write_order_upload_file')) {
     function printflow_write_order_upload_file(string $binary, string $originalName, int $orderItemId, string $prefix = 'design'): ?string
     {

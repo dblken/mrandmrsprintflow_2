@@ -818,6 +818,161 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             letter-spacing: 0.04em;
         }
 
+        /* Product catalog grid — fixed card anatomy so name/price never clip */
+        #products-view {
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .pos-products-grid {
+            gap: 16px;
+            padding: 18px 20px 24px;
+            scroll-padding: 12px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        @media (min-width: 769px) {
+            .pos-products-grid {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+        }
+
+        .pos-products-grid .pos-catalog-card {
+            min-height: 258px;
+            align-self: start;
+            max-width: 100%;
+        }
+
+        .pos-products-grid .pos-catalog-card__media {
+            aspect-ratio: 1;
+            height: 126px;
+            min-height: 126px;
+            max-height: 126px;
+            background: #f8fafc;
+        }
+
+        .pos-products-grid .pos-catalog-card__media img {
+            object-fit: contain;
+            object-position: center;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+
+        .pos-products-grid .pos-catalog-card__body {
+            flex: 0 0 auto;
+            flex-shrink: 0;
+            min-height: 96px;
+            padding: 10px 12px 14px;
+            border-top: 1px solid #eef2f6;
+            background: #ffffff;
+        }
+
+        .pos-products-grid .pos-catalog-card__meta {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 100%;
+            flex-shrink: 0;
+        }
+
+        .pos-products-grid .pos-catalog-card__name {
+            min-height: calc(2 * 1.35 * 13px);
+            line-clamp: 2;
+            flex-shrink: 0;
+        }
+
+        .pos-products-grid .pos-catalog-card__price {
+            margin-top: auto;
+            flex-shrink: 0;
+            padding-top: 6px;
+            font-size: 15px;
+            color: #0f172a;
+        }
+
+        .pos-products-grid .pos-catalog-card.is-selecting {
+            opacity: 0.88;
+            transform: scale(0.985);
+        }
+
+        /* Services catalog grid — same stable card anatomy as products */
+        #services-view {
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .pos-services-grid {
+            gap: 16px;
+            padding: 18px 20px 24px;
+            scroll-padding: 12px;
+            min-height: 0;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        @media (min-width: 900px) {
+            .pos-services-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        @media (min-width: 1280px) {
+            .pos-services-grid {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+        }
+
+        .pos-services-grid .pos-catalog-card {
+            min-height: 248px;
+            align-self: start;
+            max-width: 100%;
+        }
+
+        .pos-services-grid .pos-catalog-card__media {
+            aspect-ratio: 1;
+            height: 118px;
+            min-height: 118px;
+            max-height: 118px;
+            background: #f8fafc;
+        }
+
+        .pos-services-grid .pos-catalog-card__media img {
+            object-fit: contain;
+            object-position: center;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+
+        .pos-services-grid .pos-catalog-card__body {
+            flex: 0 0 auto;
+            flex-shrink: 0;
+            min-height: 92px;
+            padding: 10px 12px 14px;
+            border-top: 1px solid #eef2f6;
+            background: #ffffff;
+        }
+
+        .pos-services-grid .pos-catalog-card__meta {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 100%;
+            flex-shrink: 0;
+        }
+
+        .pos-services-grid .pos-catalog-card__name {
+            min-height: calc(2 * 1.35 * 13px);
+            line-clamp: 2;
+            -webkit-line-clamp: 2;
+            flex-shrink: 0;
+        }
+
+        .pos-services-grid .pos-catalog-card__price {
+            margin-top: auto;
+            flex-shrink: 0;
+            padding-top: 6px;
+            font-size: 14px;
+            color: #0f172a;
+        }
+
         /* Legacy alias for JS filters */
         .pos-card.no-stock {
             opacity: 0.62;
@@ -1690,7 +1845,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             flex: 1;
             overflow-y: auto;
             align-content: start;
-            height: auto;
+            min-height: 0;
         }
 
         .pos-cart-header .pf-pos-cart-icon {
@@ -1722,11 +1877,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         /* Hide scrollbar for grid to look cleaner */
         .pos-products-grid::-webkit-scrollbar,
+        .pos-services-grid::-webkit-scrollbar,
         .pos-cart-list::-webkit-scrollbar {
             width: 6px;
         }
 
         .pos-products-grid::-webkit-scrollbar-thumb,
+        .pos-services-grid::-webkit-scrollbar-thumb,
         .pos-cart-list::-webkit-scrollbar-thumb {
             background: #cbd5e1;
             border-radius: 3px;
@@ -2672,6 +2829,34 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 gap: 10px !important;
             }
 
+            .pos-products-grid .pos-catalog-card {
+                min-height: 236px;
+            }
+
+            .pos-products-grid .pos-catalog-card__media {
+                height: 108px;
+                min-height: 108px;
+                max-height: 108px;
+            }
+
+            .pos-products-grid .pos-catalog-card__body {
+                min-height: 88px;
+            }
+
+            .pos-services-grid .pos-catalog-card {
+                min-height: 228px;
+            }
+
+            .pos-services-grid .pos-catalog-card__media {
+                height: 104px;
+                min-height: 104px;
+                max-height: 104px;
+            }
+
+            .pos-services-grid .pos-catalog-card__body {
+                min-height: 88px;
+            }
+
             .pos-cart-area {
                 width: 100%;
                 max-width: none;
@@ -2877,7 +3062,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         </div>
 
                         <!-- Products View -->
-                        <div id="products-view" style="display: none; height: 100%; flex-direction: column;">
+                        <div id="products-view" style="display: none; height: 100%; min-height: 0; flex-direction: column; overflow: hidden;">
                             <div class="pos-search-header">
                                 <div class="pos-toolbar-field pos-toolbar-search" style="grid-column: 1 / span 2;">
                                     <div class="pos-search-box">
@@ -2904,7 +3089,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         </div>
 
                         <!-- Services View -->
-                        <div id="services-view" style="display: none; height: 100%; flex-direction: column;">
+                        <div id="services-view" style="display: none; height: 100%; min-height: 0; flex-direction: column; overflow: hidden;">
                             <div class="pos-services-header"
                                 style="padding: 24px; border-bottom: 1px solid #e2e8f0; background: #fff; display: flex; justify-content: space-between; align-items: center;">
                                 <div>
@@ -2945,7 +3130,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                                 <?php if (!empty($svc['category'])): ?>
                                                     <span class="pos-catalog-card__meta"><?php echo htmlspecialchars($svc['category']); ?></span>
                                                 <?php endif; ?>
-                                                <p class="pos-catalog-card__name"><?php echo $svc_name; ?></p>
+                                                <p class="pos-catalog-card__name" title="<?php echo $svc_name; ?>"><?php echo $svc_name; ?></p>
                                                 <div class="pos-catalog-card__price"><?php echo $price_text; ?></div>
                                             </div>
                                         </button>
@@ -3792,7 +3977,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                 <div class="receipt-footer">
                     <strong>Thank you for choosing PrintFlow!</strong>
-                    <p>This is an unofficial sales receipt for transaction reference only. It is not an official receipt or sales invoice.</p>
                     <p>Please keep this transaction reference for your records.</p>
                 </div>
 
@@ -4541,6 +4725,32 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
         }
 
+        function resolveServiceModalPricing() {
+            let unitPrice = 0;
+            let quantity = 1;
+            if (posEstimatedPriceController && typeof posEstimatedPriceController.recalculate === 'function') {
+                const result = posEstimatedPriceController.recalculate();
+                unitPrice = Number(result.unitPrice);
+                quantity = Number(result.quantity);
+            } else if (typeof window.calculateEstimatedPrice === 'function') {
+                const result = window.calculateEstimatedPrice();
+                unitPrice = Number(result.unitPrice);
+                quantity = Number(result.quantity);
+            }
+            if (!Number.isFinite(unitPrice)) unitPrice = 0;
+            if (!Number.isFinite(quantity) || quantity < 1) quantity = 1;
+            return { unitPrice, quantity };
+        }
+
+        function applyServicePricingToCustomization(customization, unitPrice, quantity) {
+            const safeUnit = Math.round(unitPrice * 100) / 100;
+            const safeQty = Math.max(1, parseInt(String(quantity), 10) || 1);
+            customization.calculated_unit_price = safeUnit.toFixed(2);
+            customization.calculated_estimated_price = (safeUnit * safeQty).toFixed(2);
+            customization.quantity = String(safeQty);
+            return { unitPrice: safeUnit, quantity: safeQty };
+        }
+
         async function openServiceModal(serviceId, serviceName) {
             console.log('openServiceModal called:', serviceId, serviceName);
             const overlay = document.getElementById('service-modal-overlay');
@@ -4805,14 +5015,26 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
             }
 
-            // Add service to cart with price = 0 (will be set in Customizations V2)
+            // Add service to cart with calculated unit price from the modal estimator
+            const pricing = resolveServiceModalPricing();
+            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization['quantity'] || pricing.quantity);
+            if (priced.unitPrice <= 0) {
+                await showPOSAlert(
+                    'Price Required',
+                    'Could not calculate a valid price from your selections. Review the specifications or contact a manager.',
+                    'warning'
+                );
+                return;
+            }
+
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
                 name: serviceName,
-                price: 0,
-                qty: parseInt(customization['quantity'] || 1),
+                price: priced.unitPrice,
+                qty: priced.quantity,
                 customization: customization,
-                is_service: true
+                is_service: true,
+                price_set: true
             }, { fxSourceEl: posLastServiceCardEl });
 
             if (result.success) closeServiceModal();
@@ -5178,13 +5400,27 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
+            const pricing = resolveServiceModalPricing();
+            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization.quantity || pricing.quantity);
+            if (priced.unitPrice <= 0) {
+                await showPOSAlert(
+                    'Price Required',
+                    'Could not calculate a valid price from your selections. Review the specifications or contact a manager.',
+                    'warning'
+                );
+                isAddingToOrder = false;
+                setServiceAddButtonBusy(false);
+                return;
+            }
+
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
                 name: serviceName,
-                price: 0,
-                qty: parseInt(customization.quantity || 1, 10),
+                price: priced.unitPrice,
+                qty: priced.quantity,
                 customization: customization,
-                is_service: true
+                is_service: true,
+                price_set: true
             }, { silentErrors: true, fxSourceEl: posLastServiceCardEl });
 
             if (result.success) {
@@ -5415,7 +5651,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                 const card = document.createElement('button');
                 card.type = 'button';
-                card.className = `pos-catalog-card pos-card ${outOfStock ? 'no-stock' : ''}`;
+                card.className = `pos-catalog-card pos-product-card pos-card ${outOfStock ? 'no-stock' : ''}`;
+                const nameForTitle = String(p.product_name || 'Unnamed Product');
+                card.title = nameForTitle;
                 if (!outOfStock) {
                     card.onclick = async () => {
                         card.classList.add('is-selecting');
@@ -5445,8 +5683,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             </div>
             <div class="pos-catalog-card__body">
                 <span class="pos-catalog-card__meta">${category}</span>
-                <p class="pos-catalog-card__name">${productName}</p>
-                <div class="pos-catalog-card__price">${priceFormatted}</div>
+                <p class="pos-catalog-card__name" title="${productName}">${productName}</p>
+                <div class="pos-catalog-card__price" aria-label="Price">${priceFormatted}</div>
             </div>
         `;
                 grid.appendChild(card);
@@ -6252,9 +6490,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const div = document.createElement('div');
                     div.className = 'pos-cart-item';
 
-                    // Check if item is a service (price = 0 or is_service flag)
-                    const isService = item.is_service || item.price === 0;
+                    // Unpriced services (legacy manual pricing) show Set Price; calculated services show unit price.
+                    const unitPrice = parseFloat(item.price) || 0;
+                    const isService = item.is_service === true;
                     const priceWasSet = item.price_set === true;
+                    const needsManualPrice = unitPrice <= 0 && (isService || !priceWasSet);
 
                     // Check if material has been set in customization
                     const hasMaterialSet = item.customization && (
@@ -6272,7 +6512,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     }
 
                     const variantLabel = posCartItemVariantLabel(item);
-                    const priceHtml = (isService && !priceWasSet && !hasMaterialSet)
+                    const priceHtml = needsManualPrice && !hasMaterialSet
                         ? `<button type="button" class="pos-btn-set-price" onclick="redirectToSetPrice(${index})" title="Click to set price in Customizations">
                     <i class="fas fa-tag"></i> Set Price
                   </button>`
@@ -6588,10 +6828,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 message = 'Enter Customer Name';
             }
 
-            // Check if cart has any services with price = 0
-            const hasUnpricedService = cart.some(i => (i.is_service || i.price === 0) && i.price === 0);
-
-            if (hasUnpricedService) {
+            // Block checkout if any item has no valid price
+            const hasUnpricedItem = cart.some(i => (parseFloat(i.price) || 0) <= 0);
+            if (hasUnpricedItem) {
                 canCheckout = false;
                 message = 'Set Price First';
                 icon.className = 'fas fa-lock';
@@ -6648,9 +6887,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
-            // Block checkout if any item has price = 0
-            const hasUnpricedService = cart.some(i => (i.is_service || i.price === 0) && i.price === 0);
-            if (hasUnpricedService) {
+            // Block checkout if any item has no valid price
+            const hasUnpricedItem = cart.some(i => (parseFloat(i.price) || 0) <= 0);
+            if (hasUnpricedItem) {
                 await showPOSAlert('Price Required', 'Please set the price for all items before completing the sale.\n\nClick the yellow "Set Price" button on items to set their price in Customizations.', 'warning');
                 return;
             }

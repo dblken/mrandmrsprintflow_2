@@ -102,7 +102,10 @@ function render_dynamic_field($field) {
         case 'select':
             $options = $field['options_json'] ? json_decode($field['options_json'], true) : [];
             $html .= '<select name="' . $name . '" class="form-input w-full" ' . $required . '>';
-            $html .= '<option value="">Select ' . $label . '</option>';
+            $placeholder = preg_match('/upload\s+design|design\s+upload/i', (string)$field['field_label'])
+                ? 'Select Upload Design Option'
+                : 'Select ' . $label;
+            $html .= '<option value="" selected disabled>' . $placeholder . '</option>';
             foreach ($options as $option) {
                 $html .= '<option value="' . htmlspecialchars($option) . '">' . htmlspecialchars($option) . '</option>';
             }

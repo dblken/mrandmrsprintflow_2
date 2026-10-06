@@ -128,6 +128,7 @@ require_once __DIR__ . '/../includes/header.php';
                                 <div class="bg-gray-50 p-5 border border-gray-200">
                                     <label class="block text-sm font-bold text-gray-900 mb-3 uppercase">Select Branch *</label>
                                     <select name="branch_id" class="form-input w-full" required>
+                                        <option value="" selected disabled>Select Branch</option>
                                         <?php foreach($branches as $b): ?>
                                             <option value="<?= $b['id'] ?>"><?= htmlspecialchars($b['branch_name']) ?></option>
                                         <?php endforeach; ?>

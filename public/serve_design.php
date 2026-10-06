@@ -551,6 +551,54 @@ function pf_serve_design_try_job_order_artwork(int $orderItemId, int $orderId = 
     return false;
 }
 
+function pf_serve_change_item_resolve_path(string $storedPath): ?string
+{
+    $storedPath = trim(str_replace('\\', '/', $storedPath));
+    if ($storedPath === '' || !str_starts_with($storedPath, '/uploads/change_items/')) {
+        return null;
+    }
+    $basename = basename($storedPath);
+    if ($basename === '' || $basename === '.' || $basename === '..'
+        || preg_match('/[\x00-\x1F\x7F]/u', $basename)) {
+        return null;
+    }
+
+    $root = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'change_items';
+    $realDirectory = realpath($root);
+    if ($realDirectory === false) {
+        return null;
+    }
+    $realFile = realpath($realDirectory . DIRECTORY_SEPARATOR . $basename);
+    if ($realFile === false
+        || !is_file($realFile)
+        || !is_readable($realFile)
+        || !str_starts_with($realFile, rtrim($realDirectory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR)) {
+        return null;
+    }
+
+    return $realFile;
+}
+
+function pf_serve_change_item_allowed_mimes(string $mediaKind): array
+{
+    if ($mediaKind === 'video') {
+        return ['video/mp4', 'video/quicktime', 'video/webm'];
+    }
+    return ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+}
+
+function pf_serve_change_item_assert_order_access(int $orderId, int $customerId): void
+{
+    global $user_id, $is_staff;
+    if (!$is_staff && (int)$customerId !== (int)$user_id) {
+        http_response_code(403);
+        die('Unauthorized access to this file.');
+    }
+    if ($is_staff && function_exists('printflow_assert_order_branch_access')) {
+        printflow_assert_order_branch_access($orderId);
+    }
+}
+
 // Role-based access (Customers can only see their own, Staff can see all)
 if (!is_logged_in()) {
     http_response_code(403);
@@ -573,6 +621,67 @@ $legacyRevisionNameSelect = function_exists('db_table_has_column') && db_table_h
 $legacyRevisionPathSelect = function_exists('db_table_has_column') && db_table_has_column('order_items', 'revision_design_path')
     ? 'revision_design_path'
     : "'' AS revision_design_path";
+
+if ($type === 'change_item_evidence') {
+    $rows = db_query(
+        'SELECT e.evidence_id, e.media_kind, e.storage_path, e.original_name,
+                r.order_id, r.customer_id
+         FROM change_item_evidence e
+         INNER JOIN change_item_requests r ON r.change_item_id = e.change_item_id
+         WHERE e.evidence_id = ?
+         LIMIT 1',
+        'i',
+        [$id]
+    ) ?: [];
+    if (empty($rows[0])) {
+        pf_serve_design_emit_fallback('Evidence file not found');
+    }
+    $row = $rows[0];
+    pf_serve_change_item_assert_order_access((int)($row['order_id'] ?? 0), (int)($row['customer_id'] ?? 0));
+    $diskPath = pf_serve_change_item_resolve_path((string)($row['storage_path'] ?? ''));
+    if ($diskPath === null) {
+        pf_serve_design_emit_fallback('Evidence file unavailable');
+    }
+    $mime = strtolower((string)(mime_content_type($diskPath) ?: ''));
+    $kind = strtolower((string)($row['media_kind'] ?? 'photo'));
+    if (!in_array($mime, pf_serve_change_item_allowed_mimes($kind), true)) {
+        http_response_code(403);
+        die('Unsupported media type.');
+    }
+    $filename = (string)($row['original_name'] ?? basename($diskPath));
+    pf_serve_design_emit_file($diskPath, $mime, $filename);
+}
+
+if ($type === 'change_item_proof') {
+    $rows = db_query(
+        'SELECT change_item_id, order_id, customer_id, proof_path, proof_original_name
+         FROM change_item_requests
+         WHERE change_item_id = ?
+         LIMIT 1',
+        'i',
+        [$id]
+    ) ?: [];
+    if (empty($rows[0])) {
+        pf_serve_design_emit_fallback('Proof file not found');
+    }
+    $row = $rows[0];
+    pf_serve_change_item_assert_order_access((int)($row['order_id'] ?? 0), (int)($row['customer_id'] ?? 0));
+    $diskPath = pf_serve_change_item_resolve_path((string)($row['proof_path'] ?? ''));
+    if ($diskPath === null) {
+        pf_serve_design_emit_fallback('Proof file unavailable');
+    }
+    $mime = strtolower((string)(mime_content_type($diskPath) ?: ''));
+    $allowed = array_merge(
+        pf_serve_change_item_allowed_mimes('photo'),
+        ['application/pdf']
+    );
+    if (!in_array($mime, $allowed, true)) {
+        http_response_code(403);
+        die('Unsupported media type.');
+    }
+    $filename = (string)($row['proof_original_name'] ?? basename($diskPath));
+    pf_serve_design_emit_file($diskPath, $mime, $filename);
+}
 
 if ($type === 'revision_submission') {
     $orderItemId = (int)($_GET['item_id'] ?? 0);

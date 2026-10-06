@@ -17,6 +17,7 @@ $group = printflow_catalog_group_get($groupId, true);
 if (!$group) {
     redirect(pf_app_base_path() . '/customer/products.php');
 }
+$showBranchBeforeOptions = (bool)preg_match('/\b(sticker|stickers|decal|decals)\b/i', (string)($group['name'] ?? ''));
 
 $members = printflow_catalog_group_members($groupId, true);
 if (empty($members)) {
@@ -154,9 +155,7 @@ if ($cover === $default_product_img) {
     $cover = printflow_catalog_group_fallback_cover_from_members($groupId, $base_path, $default_product_img);
 }
 
-$default_branch_id = function_exists('printflow_get_default_admin_branch_id')
-    ? (int) printflow_get_default_admin_branch_id()
-    : 1;
+$branches = db_query("SELECT id, branch_name FROM branches WHERE status = 'Active' ORDER BY branch_name") ?: [];
 
 $options = [];
 $pf_group_product_stock = [];
@@ -164,28 +163,36 @@ foreach ($members as $m) {
     $pid = (int) ($m['product_id'] ?? 0);
     $rawImg = trim((string) ($m['photo_path'] ?? $m['product_image'] ?? ''));
     $img = $rawImg !== '' ? pf_normalize_service_image_path($rawImg, $base_path, $default_product_img) : $default_product_img;
-    $branchStock = printflow_get_branch_product_stock($pid, $default_branch_id);
-    $stockQty = (int) ($branchStock['stock_quantity'] ?? 0);
-    $variantOptions = [];
-    foreach ((array) ($branchStock['variant_stock_options'] ?? []) as $variantRow) {
-        $variantOptions[] = [
-            'value' => (string) ($variantRow['option_value'] ?? ''),
-            'stock' => (int) ($variantRow['stock_quantity'] ?? 0),
+    $branchStockById = [];
+    foreach ($branches as $branchRow) {
+        $branchId = (int)($branchRow['id'] ?? 0);
+        if ($branchId > 0) {
+            $branchStockById[(string)$branchId] = printflow_get_branch_product_stock($pid, $branchId);
+        }
+    }
+    $pf_group_product_stock[$pid] = ['branches' => []];
+    foreach ($branchStockById as $branchId => $branchData) {
+        $branchVariantOptions = [];
+        foreach ((array)($branchData['variant_stock_options'] ?? []) as $variantRow) {
+            $branchVariantOptions[] = [
+                'value' => (string)($variantRow['option_value'] ?? ''),
+                'stock' => (int)($variantRow['stock_quantity'] ?? 0),
+            ];
+        }
+        $pf_group_product_stock[$pid]['branches'][$branchId] = [
+            'has_variant_stock' => !empty($branchData['has_variant_stock']),
+            'field_key' => (string)($branchData['variant_stock_field_key'] ?? ''),
+            'field_label' => (string)($branchData['variant_stock_field_label'] ?? 'Size'),
+            'options' => $branchVariantOptions,
+            'total_stock' => (int)($branchData['stock_quantity'] ?? 0),
         ];
     }
-    $pf_group_product_stock[$pid] = [
-        'has_variant_stock' => !empty($branchStock['has_variant_stock']),
-        'field_key' => (string) ($branchStock['variant_stock_field_key'] ?? ''),
-        'field_label' => (string) ($branchStock['variant_stock_field_label'] ?? 'Size'),
-        'options' => $variantOptions,
-        'total_stock' => $stockQty,
-    ];
     $options[] = [
         'product_id' => $pid,
         'name' => (string) ($m['name'] ?? ''),
         'price' => (float) ($m['price'] ?? 0),
-        'stock_quantity' => $stockQty,
-        'has_variant_stock' => !empty($branchStock['has_variant_stock']),
+        'stock_quantity' => 0,
+        'has_variant_stock' => false,
         'category' => (string) ($m['category'] ?? ''),
         'image_url' => $img,
     ];
@@ -320,6 +327,16 @@ require_once __DIR__ . '/../includes/header.php';
         border-top: 1px dashed rgba(126, 164, 184, 0.35);
         width: 100%;
         min-width: 0;
+        box-sizing: border-box;
+    }
+    .pf-group-branch-selection {
+        display: grid;
+        gap: 6px;
+        width: 100%;
+        min-width: 0;
+        margin: 0 0 12px;
+        padding: 0 0 12px;
+        border-bottom: 1px dashed rgba(126, 164, 184, 0.35);
         box-sizing: border-box;
     }
     .pf-group-buy-stack {
@@ -816,13 +833,25 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
             </div>
             <div class="pf-group-selection-options">
+                <?php if ($showBranchBeforeOptions): ?>
+                <div class="pf-group-branch-selection">
+                    <label class="pf-group-field-label" for="pf-group-branch">Branch *</label>
+                    <select id="pf-group-branch" class="form-input w-full" required>
+                        <option value="" selected disabled>Select Branch</option>
+                        <?php foreach ($branches as $branch): ?>
+                            <option value="<?php echo (int)$branch['id']; ?>"><?php echo htmlspecialchars($branch['branch_name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <div id="pf-group-branch-error" class="field-error" hidden>Please select a branch.</div>
+                </div>
+                <?php endif; ?>
                 <h2 class="pf-group-options-heading">Available options</h2>
                 <div class="pf-group-options" id="pf-group-options">
                     <?php foreach ($options as $opt):
                         $pid = (int) $opt['product_id'];
                         $ps = $productStatsMap[$pid] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
                         $stockQty = (int) $opt['stock_quantity'];
-                        $stockLabel = $stockQty > 0 ? ($stockQty . ' in stock') : 'Out of stock';
+                        $stockLabel = 'Select branch to view stock';
                         ?>
                         <div class="pf-group-option<?php echo $pid === $selectedId ? ' is-active' : ''; ?>"
                              role="button"
@@ -846,6 +875,16 @@ require_once __DIR__ . '/../includes/header.php';
                     <?php endforeach; ?>
                 </div>
                 <div class="pf-group-right-size">
+                    <?php if (!$showBranchBeforeOptions): ?>
+                    <label class="pf-group-field-label" for="pf-group-branch">Branch *</label>
+                    <select id="pf-group-branch" class="form-input w-full" required>
+                        <option value="" selected disabled>Select Branch</option>
+                        <?php foreach ($branches as $branch): ?>
+                            <option value="<?php echo (int)$branch['id']; ?>"><?php echo htmlspecialchars($branch['branch_name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <div id="pf-group-branch-error" class="field-error" hidden>Please select a branch.</div>
+                    <?php endif; ?>
                     <div id="pf-group-variant-wrap" hidden>
                         <div class="pf-group-field-label" id="pf-group-variant-label">Size *</div>
                         <div class="shopee-opt-group" id="pf-group-variant-options" role="group" aria-labelledby="pf-group-variant-label"></div>
@@ -1058,7 +1097,6 @@ require_once __DIR__ . '/../includes/header.php';
 <script>
 var PF_CSRF_TOKEN = '<?php echo generate_csrf_token(); ?>';
 var PF_GROUP_ID = <?php echo (int)$groupId; ?>;
-var PF_DEFAULT_BRANCH_ID = <?php echo (int) $default_branch_id; ?>;
 var PF_GROUP_PRODUCT_STOCK = <?php echo json_encode($pf_group_product_stock, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
 var PF_GROUP_STATS = <?php echo json_encode([
     'avg_rating' => (float) ($groupStats['avg_rating'] ?? 0),
@@ -1109,7 +1147,10 @@ function pfFormatMoney(n) {
 }
 
 function pfGroupStockConfig(productId) {
-    return PF_GROUP_PRODUCT_STOCK[String(productId)] || PF_GROUP_PRODUCT_STOCK[productId] || null;
+    var productCfg = PF_GROUP_PRODUCT_STOCK[String(productId)] || PF_GROUP_PRODUCT_STOCK[productId] || null;
+    var branchSelect = document.getElementById('pf-group-branch');
+    var branchId = branchSelect ? String(branchSelect.value || '') : '';
+    return productCfg && branchId ? (productCfg.branches[String(branchId)] || null) : null;
 }
 
 function pfGroupSelectedSizeValue() {
@@ -1228,6 +1269,14 @@ function pfGroupGetQuantity() {
 }
 
 function pfGroupValidateBeforeCheckout(productId) {
+    var branchSelect = document.getElementById('pf-group-branch');
+    var branchErr = document.getElementById('pf-group-branch-error');
+    if (!branchSelect || !branchSelect.value) {
+        if (branchErr) branchErr.hidden = false;
+        branchSelect?.focus();
+        return false;
+    }
+    if (branchErr) branchErr.hidden = true;
     var cfg = pfGroupStockConfig(productId);
     var variantErr = document.getElementById('pf-group-variant-error');
     var qtyErr = document.getElementById('pf-group-qty-error');
@@ -1355,7 +1404,7 @@ document.getElementById('pf-group-add-cart').addEventListener('click', async fun
                 product_id: productId,
                 quantity: quantity,
                 customization: customization,
-                branch_id: PF_DEFAULT_BRANCH_ID,
+                branch_id: Number(document.getElementById('pf-group-branch').value),
                 csrf_token: PF_CSRF_TOKEN,
                 catalog_group_id: PF_GROUP_ID
             })
@@ -1426,7 +1475,7 @@ document.getElementById('pf-group-order-now').addEventListener('click', async fu
                 product_id: productId,
                 quantity: quantity,
                 customization: customization,
-                branch_id: PF_DEFAULT_BRANCH_ID,
+                branch_id: Number(document.getElementById('pf-group-branch').value),
                 catalog_group_id: PF_GROUP_ID,
                 csrf_token: PF_CSRF_TOKEN
             })
@@ -1462,6 +1511,28 @@ document.getElementById('pf-group-order-now').addEventListener('click', async fu
     function activeProductId() {
         var active = document.querySelector('.pf-group-option.is-active');
         return active ? parseInt(active.getAttribute('data-product-id') || '0', 10) : 0;
+    }
+    var branchSelect = document.getElementById('pf-group-branch');
+    if (branchSelect) {
+        branchSelect.addEventListener('change', function () {
+            var branchErr = document.getElementById('pf-group-branch-error');
+            if (branchErr) branchErr.hidden = true;
+            document.querySelectorAll('.pf-group-option').forEach(function (option) {
+                var productId = parseInt(option.getAttribute('data-product-id') || '0', 10);
+                var cfg = pfGroupStockConfig(productId);
+                var stock = cfg ? Math.max(0, parseInt(cfg.total_stock || '0', 10)) : 0;
+                option.setAttribute('data-stock', String(stock));
+                var meta = option.querySelector('.pf-group-option-meta');
+                if (meta) {
+                    var price = option.getAttribute('data-price') || '0';
+                    meta.textContent = pfFormatMoney(price) + ' · ' + (cfg ? (stock > 0 ? stock + ' in stock' : 'Out of stock') : 'Select branch to view stock');
+                }
+            });
+            var productId = activeProductId();
+            pfGroupRenderVariantOptions(productId);
+            pfGroupSyncQuantityLimits(productId);
+            pfClearOutOfStockError();
+        });
     }
     if (minusBtn && qtyInput) {
         minusBtn.addEventListener('click', function () {

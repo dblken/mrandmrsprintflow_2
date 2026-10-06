@@ -69,7 +69,10 @@ function printflow_render_product_custom_field(string $field_key, array $config,
 
     if ($type === 'select') {
         $html .= '<select name="' . $name . '" class="shopee-opt-btn pricing-field" ' . $required_attr . ' style="width: 220px; cursor: pointer;">';
-        $html .= '<option value="">Select ' . htmlspecialchars($label) . '</option>';
+        $placeholder = preg_match('/upload\s+design|design\s+upload/i', $label)
+            ? 'Select Upload Design Option'
+            : 'Select ' . htmlspecialchars($label);
+        $html .= '<option value="" selected disabled>' . $placeholder . '</option>';
         foreach ((array)($config['options'] ?? []) as $option) {
             $value = is_array($option) ? (string)($option['value'] ?? '') : (string)$option;
             $price = is_array($option) ? (float)($option['price'] ?? 0) : 0.0;
@@ -149,7 +152,16 @@ function printflow_render_product_custom_field(string $field_key, array $config,
             ]);
         }
     } elseif ($type === 'file') {
-        $html .= '<input type="file" name="' . $name . '" class="field-input" ' . $required_attr . ' style="max-width:420px;">';
+        $mode_required = $required ? ' required' : '';
+        $html .= '<label class="pf-product-design-mode-label" for="' . $name . '_design_mode">Select Upload Design Option' . $required_mark . '</label>';
+        $html .= '<select name="design_input_mode" id="' . $name . '_design_mode" class="field-input pf-product-design-mode"' . $mode_required . ' style="max-width:420px;margin-bottom:10px;">';
+        $html .= '<option value="" selected disabled>Select Upload Design Option</option>';
+        $html .= '<option value="file">Upload File</option>';
+        if (!$required) {
+            $html .= '<option value="later">Send Later</option>';
+        }
+        $html .= '</select>';
+        $html .= '<input type="file" name="' . $name . '" class="field-input pf-product-design-file" disabled ' . ($required ? 'required' : '') . ' style="max-width:420px;display:none;">';
         if ($saved !== '') {
             $html .= '<div style="font-size:12px;color:#64748b;margin-top:8px;">Current file: ' . htmlspecialchars($saved) . '</div>';
         }
@@ -181,10 +193,6 @@ $product = db_query(
 if (empty($product)) { header('Location: products.php'); exit; }
 $product = $product[0];
 $product_field_configs = get_product_field_config($product_id);
-$main_branch_id = function_exists('printflow_get_default_admin_branch_id')
-    ? (int)printflow_get_default_admin_branch_id()
-    : 1;
-
 $error = '';
 $branches = order_create_optional_query("SELECT id, branch_name FROM branches WHERE status = 'Active'") ?: [];
 $branch_stock_map = [];
@@ -199,10 +207,11 @@ foreach ($branches as $branch_row) {
         'name' => (string)($branch_row['branch_name'] ?? ('Branch #' . $bid)),
     ];
 }
-$main_branch_stock = $branch_stock_map[$main_branch_id]['stock'] ?? 0;
 $initial_branch_id = (int)($existing_data['branch_id'] ?? $_POST['branch_id'] ?? 0);
-$initial_stock_branch_id = $initial_branch_id > 0 ? $initial_branch_id : $main_branch_id;
-$initial_stock_qty = $branch_stock_map[$initial_stock_branch_id]['stock'] ?? $main_branch_stock;
+$initial_stock_branch_id = $initial_branch_id;
+$initial_stock_qty = $initial_stock_branch_id > 0
+    ? (int)($branch_stock_map[$initial_stock_branch_id]['stock'] ?? 0)
+    : 0;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_token'] ?? '')) {
     $submission_action = strtolower(trim((string)($_POST['action'] ?? '')));
@@ -231,8 +240,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $value = '';
 
         if ($type === 'file') {
+            $design_mode = trim((string)($_POST['design_input_mode'] ?? ''));
             $file = $_FILES[$field_key] ?? null;
-            if (is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            $has_file = is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+            if ($design_mode !== '' && !in_array($design_mode, ['file', 'later'], true)) {
+                $error = 'Please select a valid upload design option.';
+                break;
+            }
+            if ($required_field && $design_mode === '') {
+                $error = 'Please select an upload design option.';
+                break;
+            }
+            if ($design_mode !== '') {
+                $customization[$label . ' Option'] = $design_mode === 'file' ? 'Upload File' : 'Send Later';
+            }
+            if ($has_file && $design_mode !== 'file') {
+                $error = 'Select Upload File before attaching a design.';
+                break;
+            }
+            if ($has_file) {
                 $valid = service_order_validate_file($file);
                 if (!$valid['ok']) {
                     $error = $valid['error'];
@@ -253,9 +279,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     'name' => $value,
                     'mime' => (string)$valid['mime'],
                 ];
-            } elseif ($required_field) {
-                $error = $label . ' is required.';
-                break;
+            } else {
+                if ($required_field && $design_mode !== 'file') {
+                    $error = 'Please upload the required design file.';
+                    break;
+                }
             }
         } elseif ($type === 'radio') {
             $raw = trim((string)($_POST[$field_key] ?? ''));
@@ -269,6 +297,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             }
         } elseif ($type === 'select') {
             $value = trim((string)($_POST[$field_key] ?? ''));
+            $allowed = [];
+            foreach ((array)($config['options'] ?? []) as $option) {
+                $allowed[] = (string)(is_array($option) ? ($option['value'] ?? '') : $option);
+            }
+            if ($value !== '' && !in_array($value, $allowed, true)) {
+                $error = 'Please select a valid ' . strtolower($label) . '.';
+                break;
+            }
             $priceMap = printflow_product_option_price_map((array)($config['options'] ?? []));
             if ($value !== '' && isset($priceMap[$value])) {
                 $price_delta += (float)$priceMap[$value];
@@ -295,8 +331,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         }
     }
 
-    if (false) {
-        $error = 'Please select a branch.';
+    $active_branch = $branch_id > 0
+        ? order_create_optional_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id])
+        : [];
+    if (empty($active_branch)) {
+        $error = 'Please select a valid branch.';
     } else {
         $optionStockCheck = printflow_product_option_stock_validate($product_id, $branch_id, $customization, $quantity);
         if (!empty($optionStockCheck['uses_option_stock']) && empty($optionStockCheck['ok'])) {
@@ -548,6 +587,7 @@ require_once __DIR__ . '/../includes/header.php';
                             <select name="branch_id" id="poc-branch-select" class="shopee-opt-btn" required style="width: 175px; cursor: pointer;">
                                 <?php 
                                 $saved_branch = $existing_data['branch_id'] ?? ($_POST['branch_id'] ?? '');
+                                ?><option value="" disabled<?php echo ($saved_branch === '' || (int)$saved_branch < 1) ? ' selected' : ''; ?>>Select Branch</option><?php
                                 foreach ($branches as $b): 
                                     $selected = ($saved_branch == $b['id']) ? ' selected' : '';
                                 ?>
@@ -558,7 +598,7 @@ require_once __DIR__ . '/../includes/header.php';
                                 Available stock:
                                 <span id="poc-stock-count"><?php echo number_format($initial_stock_qty); ?></span>
                                 <span id="poc-stock-branch" style="color: #64748b;">
-                                    (<?php echo htmlspecialchars($branch_stock_map[$initial_stock_branch_id]['name'] ?? 'Cabuyao Branch'); ?>)
+                                    (<?php echo htmlspecialchars($branch_stock_map[$initial_stock_branch_id]['name'] ?? 'Select Branch'); ?>)
                                 </span>
                             </div>
                         </div>
@@ -819,7 +859,6 @@ require_once __DIR__ . '/../includes/header.php';
 
 <script>
 window.pfProductBranchStocks = <?php echo json_encode($branch_stock_map, JSON_UNESCAPED_SLASHES); ?>;
-window.pfDefaultStockBranchId = <?php echo (int)$main_branch_id; ?>;
 
 function showStockWarning(max) {
     const warning = document.getElementById('stock-warning');
@@ -837,8 +876,20 @@ function hideStockWarning() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.pf-product-design-mode').forEach(function(select) {
+        const row = select.closest('.shopee-form-row');
+        const fileInput = row && row.querySelector('.pf-product-design-file');
+        if (!fileInput) return;
+        const sync = function() {
+            const showFile = select.value === 'file';
+            fileInput.disabled = !showFile;
+            fileInput.style.display = showFile ? '' : 'none';
+            fileInput.required = showFile && select.required;
+        };
+        select.addEventListener('change', sync);
+        sync();
+    });
     const branchStocks = window.pfProductBranchStocks || {};
-    const defaultBranchId = String(window.pfDefaultStockBranchId || '');
     const branchSelect = document.getElementById('poc-branch-select');
     const qtyInput = document.getElementById('poc-qty');
     const stockCount = document.getElementById('poc-stock-count');
@@ -870,7 +921,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const selectedName = branchSelect?.options?.[branchSelect.selectedIndex]?.text || 'Selected Branch';
             return { stock: 0, name: selectedName };
         }
-        return branchStocks[defaultBranchId] || { stock: 0, name: 'Cabuyao Branch' };
+        return { stock: 0, name: 'Select Branch' };
     };
 
     const syncQtyWithStock = () => {

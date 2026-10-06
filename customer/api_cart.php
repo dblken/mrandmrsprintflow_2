@@ -97,10 +97,12 @@ if ($action === 'add') {
         }
     }
     $branch_id = (int) ($input['branch_id'] ?? 0);
-    if ($branch_id <= 0) {
-        $branch_id = function_exists('printflow_get_default_admin_branch_id')
-            ? (int) printflow_get_default_admin_branch_id()
-            : 1;
+    $activeBranch = $branch_id > 0
+        ? db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id])
+        : [];
+    if (empty($activeBranch)) {
+        echo json_encode(['success' => false, 'message' => 'Please select a valid branch.']);
+        exit;
     }
 
     $product = db_query(
@@ -257,10 +259,12 @@ if ($action === 'buy_now') {
     }
     $product = $product[0];
 
-    if ($branch_id <= 0) {
-        $branch_id = function_exists('printflow_get_default_admin_branch_id')
-            ? (int) printflow_get_default_admin_branch_id()
-            : 1;
+    $activeBranch = $branch_id > 0
+        ? db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id])
+        : [];
+    if (empty($activeBranch)) {
+        echo json_encode(['success' => false, 'message' => 'Please select a valid branch.']);
+        exit;
     }
 
     [$branch_stock_qty] = printflow_product_effective_stock($product_id, $branch_id);

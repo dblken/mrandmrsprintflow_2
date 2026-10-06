@@ -10,11 +10,13 @@ require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
 $customer_id = get_user_id();
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $branch_id = trim($_POST['branch_id'] ?? '1');
+    $branch_id = (int)($_POST['branch_id'] ?? 0);
     $size = trim($_POST['size'] ?? ''); $with_stand = trim($_POST['with_stand'] ?? '');
     $needed_date = trim($_POST['needed_date'] ?? '');
     $quantity = (int)($_POST['quantity'] ?? 1); $notes = trim($_POST['notes'] ?? '');
-    if (empty($size) || empty($needed_date) || $quantity < 1) {
+    if ($branch_id < 1 || empty(db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id]))) {
+        $error = 'Please select a valid branch.';
+    } elseif (empty($size) || empty($needed_date) || $quantity < 1) {
         $error = 'Please fill in Size and Quantity.';
     } elseif (!isset($_FILES['design_file']) || $_FILES['design_file']['error'] !== UPLOAD_ERR_OK) {
         $error = 'Please upload your design.';
@@ -136,6 +138,7 @@ $qty_default = max(1, min(999, (int)($_GET['qty'] ?? 1)));
                     <div class="shopee-form-row">
                         <label class="shopee-form-label">Branch *</label>
                         <select name="branch_id" class="input-field shopee-form-field" required>
+                            <option value="" selected disabled>Select Branch</option>
                             <?php foreach($branches as $b): ?>
                                 <option value="<?php echo $b['id']; ?>"><?php echo htmlspecialchars($b['branch_name']); ?></option>
                             <?php endforeach; ?>

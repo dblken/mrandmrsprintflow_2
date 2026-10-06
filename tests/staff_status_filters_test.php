@@ -27,6 +27,12 @@ $assert(str_contains($filters, 'function printflow_staff_status_filter_options')
 $assert(str_contains($filters, "if (\$role === 'pos')"), 'shared status helper branches for counter staff');
 $assert(str_contains($filters, "'INQUIRY' => 'Inquiry & Design'"), 'shared status helper defines online workflow stages');
 $assert(str_contains($filters, 'printflow_staff_notification_type_options'), 'shared notification allowlist exists');
+$assert(str_contains($filters, "\$types[] = 'Message';") && str_contains($filters, "if (\$role === 'online')"), 'Message notifications limited to online staff');
+
+require_once __DIR__ . '/../includes/staff_status_filters.php';
+$assert(!printflow_staff_notification_type_allowed('Message', 'pos'), 'counter staff cannot receive Message type notifications');
+$assert(printflow_staff_notification_type_allowed('Order', 'pos'), 'counter staff still receives Order notifications');
+$assert(printflow_staff_notification_type_allowed('Message', 'online'), 'online staff still receives Message notifications');
 $assert(str_contains($dashboard, 'printflow_staff_status_filter_options'), 'dashboard uses shared status options');
 $assert(str_contains($dashboard, 'function staffDashboardToolbar()'), 'dashboard alpine state uses external toolbar factory');
 $assert(str_contains($dashboard, 'x-data="staffDashboardToolbar()"'), 'dashboard binds alpine via toolbar factory');

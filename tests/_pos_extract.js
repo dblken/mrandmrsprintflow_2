@@ -19,6 +19,8 @@
         };
         let posLastServiceCardEl = null;
         const POS_CSRF_TOKEN = document.body.dataset.csrf || '';
+        const POS_CAN_CUSTOM_TRANSACTION_DATETIME = 0;
+        let posCustomTransactionState = { enabled: false, date: '', time: '' };
 
         function posCatalogImageUrl(product) {
             if (!product) return POS_DEFAULT_CATALOG_IMG;
@@ -28,6 +30,19 @@
             if (/^https?:\/\//i.test(raw)) return raw;
             const path = raw.startsWith('/') ? raw : '/' + raw;
             return STAFF_BASE_PATH + path;
+        }
+
+        function mergePosProductRecord(existing, incoming) {
+            if (!existing) return incoming || null;
+            if (!incoming) return existing;
+
+            const merged = { ...existing, ...incoming };
+            ['image_url', 'photo_path', 'product_image'].forEach(function(key) {
+                if (!String(merged[key] || '').trim() && String(existing[key] || '').trim()) {
+                    merged[key] = existing[key];
+                }
+            });
+            return merged;
         }
 
         function posPlayAddAnimation(sourceEl) {
@@ -61,6 +76,7 @@
         let pendingPayMongoPrintJob = null;
         let posPayMongoCheckoutPending = false;
         let posPayMongoCheckoutAttemptToken = null;
+        let posSaveCustomerInFlight = false;
         function staffUrl(path) {
             return (STAFF_BASE_PATH || '') + '/' + String(path || '').replace(/^\/+/, '');
         }
@@ -335,6 +351,9 @@
                         ${company.contact ? `<div>${escapeHtml(company.contact)}</div>` : ''}
                     </div>
                     <div class="receipt-pill">UNOFFICIAL SALES RECEIPT</div>
+                    <div class="receipt-subtext">Transaction reference only</div>
+                    <div class="receipt-disclaimer">This is an unofficial sales receipt for transaction reference only. It is not an official receipt or sales invoice.</div>
+                    ${receipt?.reprint ? '<div class="receipt-pill">REPRINT COPY</div>' : ''}
                 </div>
 
                 <div class="receipt-section">
@@ -363,7 +382,6 @@
                             <div class="receipt-customer-name">${escapeHtml(customer.name || 'Walk-in Guest')}</div>
                             ${receiptContact ? `<div class="receipt-value" style="margin-top:4px;">${escapeHtml(receiptContact)}</div>` : ''}
                         </div>
-                        <div class="receipt-payment-chip">${escapeHtml(payment.method || 'Cash')}</div>
                     </div>
                 </div>
 
@@ -400,7 +418,6 @@
 
                 <div class="receipt-footer">
                     <strong>Thank you for choosing PrintFlow!</strong>
-                    <p>This is an unofficial sales receipt for transaction reference only. It is not an official receipt or sales invoice.</p>
                     <p>Please keep this transaction reference for your records.</p>
                 </div>
 
@@ -416,6 +433,7 @@
         let activePosReceipt = null;
         let activePosPrintJob = null;
         let posReceiptPrintProcessing = false;
+        let posReceiptPrintAttempted = false;
 
         const POS_RECEIPT_PRINTER_SPEC = {
             speedMmPerSec: 50,
@@ -515,13 +533,19 @@
         function setPosReceiptPrintState(message = '', failed = false) {
             const status = document.getElementById('receipt-print-result');
             const button = document.getElementById('pos-print-receipt-btn');
+            const reprintButton = document.getElementById('pos-reprint-receipt-btn');
             if (status) {
                 status.textContent = message;
-                status.style.color = failed ? '#b91c1c' : '#0f766e';
+                status.style.color = failed ? '#b91c1c' : (posReceiptPrintAttempted ? '#0f766e' : '#475569');
             }
             if (button) {
-                button.disabled = false;
-                button.textContent = failed ? 'Retry Print' : 'Print Receipt';
+                button.disabled = posReceiptPrintProcessing;
+                button.style.display = (!failed && posReceiptPrintAttempted && !posReceiptPrintProcessing) ? 'none' : '';
+                button.textContent = posReceiptPrintProcessing ? 'Printing...' : (failed ? 'Retry Print' : 'Print Receipt');
+            }
+            if (reprintButton) {
+                reprintButton.disabled = posReceiptPrintProcessing;
+                reprintButton.style.display = (!failed && posReceiptPrintAttempted && !posReceiptPrintProcessing) ? '' : 'none';
             }
         }
 
@@ -532,6 +556,7 @@
             activePosReceipt = receipt || {};
             activePosPrintJob = null;
             posReceiptPrintProcessing = false;
+            posReceiptPrintAttempted = false;
             setPosReceiptPrintState('No physical receipt has been printed yet.');
             printArea.innerHTML = buildReceiptHtml(activePosReceipt);
             resetReceiptFeedAnimation(printArea);
@@ -591,20 +616,90 @@
                         throw new Error(result.message || 'Receipt printing failed.');
                     }
                     activePosPrintJob = result.print_job;
-                    await monitorReceiptPrintJob(result.print_job, { silentSuccess: true });
+                    const confirmed = await monitorReceiptPrintJob(result.print_job, { silentSuccess: true });
+                    if (confirmed === false) {
+                        throw new Error('Receipt printing failed.');
+                    }
                 })();
 
             try {
                 await animationPromise;
-                setPosReceiptPrintState('Receipt printed successfully.');
-                showPOSScanNotice('Transaction completed', 'Receipt printed successfully.', 'success');
-                posReceiptPrintProcessing = false;
                 await printTaskPromise;
+                posReceiptPrintAttempted = true;
+                activePosPrintJob = null;
+                posReceiptPrintProcessing = false;
+                setPosReceiptPrintState('Print attempt completed. If the physical copy failed, use Reprint Receipt.');
+                showPOSScanNotice('Transaction completed', 'Receipt print attempt completed.', 'success');
             } catch (error) {
                 console.error('Receipt printing failed:', error);
                 posReceiptPrintProcessing = false;
                 resetReceiptFeedAnimation(printArea);
                 setPosReceiptPrintState('Receipt printing failed.', true);
+            }
+        }
+
+        async function confirmReprintReceipt() {
+            if (posReceiptPrintProcessing || !activePosReceipt?.order_id) return;
+            const confirmed = await showPOSConfirm(
+                'Reprint Receipt?',
+                'Are you sure you want to reprint this receipt?',
+                'Reprint',
+                'confirm'
+            );
+            if (!confirmed) return;
+            await reprintReceipt();
+        }
+
+        async function reprintReceipt() {
+            if (posReceiptPrintProcessing || !activePosReceipt?.order_id) return;
+            const printArea = document.getElementById('receipt-print-area');
+            const receiptForDisplay = { ...activePosReceipt, reprint: true };
+            resetReceiptFeedAnimation(printArea);
+            if (printArea) {
+                printArea.innerHTML = buildReceiptHtml(receiptForDisplay);
+            }
+            renderPosReceiptQr(activePosReceipt?.qr_payload);
+            renderPosOnlineStoreQr();
+            void printArea.offsetHeight;
+
+            const durationMs = estimatePosReceiptPrintDurationMs(printArea);
+            posReceiptPrintProcessing = true;
+            setPosReceiptPrintState('Reprinting receipt...');
+
+            const animationPromise = runReceiptFeedAnimation(printArea, durationMs);
+            const reprintTaskPromise = (async () => {
+                const response = await fetch(staffUrl('staff/api/pos_receipt_print.php'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action: 'reprint',
+                        order_id: Number(activePosReceipt.order_id),
+                        csrf_token: POS_CSRF_TOKEN
+                    })
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success || !result.print_job?.ok) {
+                    throw new Error(result.message || 'Receipt reprint failed.');
+                }
+                activePosPrintJob = result.print_job;
+                const confirmed = await monitorReceiptPrintJob(result.print_job, { silentSuccess: true });
+                if (confirmed === false) {
+                    throw new Error('Receipt reprint failed.');
+                }
+            })();
+
+            try {
+                await animationPromise;
+                await reprintTaskPromise;
+                activePosPrintJob = null;
+                posReceiptPrintProcessing = false;
+                setPosReceiptPrintState('Reprint attempt completed. If the physical copy failed, you can reprint again.');
+                showPOSScanNotice('Receipt reprint', 'Receipt reprint attempt completed.', 'success');
+            } catch (error) {
+                console.error('Receipt reprint failed:', error);
+                posReceiptPrintProcessing = false;
+                resetReceiptFeedAnimation(printArea);
+                setPosReceiptPrintState('Receipt reprint failed.', true);
             }
         }
 
@@ -632,7 +727,10 @@
                     throw new Error(result.message || 'Receipt print job could not be retried.');
                 }
                 activePosPrintJob = result.print_job || {ok: true, job_id: jobId};
-                await monitorReceiptPrintJob(activePosPrintJob, { silentSuccess: silentStatus });
+                const confirmed = await monitorReceiptPrintJob(activePosPrintJob, { silentSuccess: silentStatus });
+                if (confirmed === false) {
+                    throw new Error('Receipt print job failed.');
+                }
             } catch (error) {
                 console.error('Receipt print retry failed:', error);
                 if (!silentStatus) {
@@ -679,7 +777,7 @@
             const silentSuccess = !!options.silentSuccess;
             if (!printJob?.ok || !printJob?.job_id) {
                 await showReceiptPrintFailure(printJob, printJob?.message || 'The receipt could not be queued for the configured printer.');
-                return;
+                return false;
             }
 
             if (!silentSuccess) {
@@ -703,7 +801,7 @@
                             setPosReceiptPrintState('Receipt printed successfully.');
                             showPOSScanNotice('Transaction completed', 'Receipt printed successfully.', 'success');
                         }
-                        return;
+                        return true;
                     }
                     if (response.ok && status === 'failed') {
                         await showReceiptPrintFailure(
@@ -711,7 +809,7 @@
                             result?.job?.error_message || 'PushPrinter reported that the receipt could not be printed.',
                             lastStatusResult
                         );
-                        return;
+                        return false;
                     }
                 } catch (error) {
                     lastStatusResult = {
@@ -732,6 +830,7 @@
                 'PushPrinter did not confirm the receipt in time.',
                 lastStatusResult
             );
+            return false;
         }
 
         async function downloadReceiptPdf() {
@@ -747,17 +846,123 @@
             }).from(element).save();
         }
 
+        function posCustomerSearchText(data) {
+            if (!data || !data.element) {
+                return (data && data.text) ? String(data.text).toLowerCase() : '';
+            }
+            const el = data.element;
+            return [
+                data.text,
+                el.getAttribute('data-first'),
+                el.getAttribute('data-last'),
+                el.getAttribute('data-email'),
+                el.getAttribute('data-phone'),
+            ].filter(Boolean).join(' ').toLowerCase();
+        }
+
+        function isPosGuestCustomerSelected() {
+            return $('#pos-customer').val() === 'guest';
+        }
+
+        function getPosGuestDisplayName() {
+            const el = document.getElementById('pos-guest-name');
+            return el ? String(el.value || '').trim() : '';
+        }
+
+        function togglePosGuestNameField() {
+            const wrap = document.getElementById('pos-guest-name-wrap');
+            if (!wrap) return;
+            const show = isPosGuestCustomerSelected();
+            wrap.style.display = show ? 'block' : 'none';
+            const nameInput = document.getElementById('pos-guest-name');
+            if (nameInput) {
+                if (show) {
+                    nameInput.setAttribute('required', 'required');
+                } else {
+                    nameInput.removeAttribute('required');
+                }
+            }
+        }
+
+        function posCheckoutCustomerPayload() {
+            const customerId = $('#pos-customer').val();
+            const payload = { customer_id: customerId };
+            if (customerId === 'guest') {
+                payload.guest_display_name = getPosGuestDisplayName();
+            }
+            return payload;
+        }
+
+        function formatPosCustomerOption(customer) {
+            if (!customer.id) return customer.text;
+            if (customer.id === 'guest') {
+                return $('<div class="pos-customer-option pos-customer-option--guest"><div class="pos-customer-option__name">Walk-in Customer (Guest)</div></div>');
+            }
+            const el = customer.element;
+            const first = el ? (el.getAttribute('data-first') || '') : '';
+            const last = el ? (el.getAttribute('data-last') || '') : '';
+            const email = el ? (el.getAttribute('data-email') || '') : '';
+            const phone = el ? (el.getAttribute('data-phone') || '') : '';
+            const name = (first + ' ' + last).trim();
+            const primary = name || email || customer.text;
+            const secondary = name ? (email || phone || '') : (phone || '');
+            const wrap = $('<div class="pos-customer-option"><div class="pos-customer-option__name"></div></div>');
+            wrap.find('.pos-customer-option__name').text(primary);
+            if (secondary) {
+                wrap.append($('<div class="pos-customer-option__email"></div>').text(secondary));
+            }
+            return wrap;
+        }
+
+        function formatPosCustomerSelection(customer) {
+            if (!customer.id) return customer.text;
+            if (customer.id === 'guest') return 'Walk-in Customer (Guest)';
+            const el = customer.element;
+            const first = el ? (el.getAttribute('data-first') || '') : '';
+            const last = el ? (el.getAttribute('data-last') || '') : '';
+            const name = (first + ' ' + last).trim();
+            return name || customer.text;
+        }
+
         // Initialize Select2 for customer dropdown
         $(document).ready(function () {
             $('#pos-customer').select2({
-                placeholder: '-- Select Customer --',
+                placeholder: 'Select customer...',
                 allowClear: false,
                 width: '100%',
-                minimumResultsForSearch: 0 // Always show search box
+                minimumResultsForSearch: 0,
+                dropdownParent: $('body'),
+                dropdownCssClass: 'pos-customer-select-dropdown',
+                templateResult: formatPosCustomerOption,
+                templateSelection: formatPosCustomerSelection,
+                matcher: function(params, data) {
+                    if ($.trim(params.term) === '') return data;
+                    if (typeof data.text === 'undefined') return null;
+                    return posCustomerSearchText(data).indexOf(params.term.toLowerCase()) > -1 ? data : null;
+                },
+                language: {
+                    noResults: function() { return 'No matching customers'; }
+                }
+            }).on('select2:open', function() {
+                setTimeout(function() {
+                    var field = document.querySelector('.select2-container--open .select2-search__field');
+                    if (!field) return;
+                    field.setAttribute('placeholder', 'Search customer by name or email...');
+                    field.focus({ preventScroll: true });
+                }, 0);
+            }).on('change', function() {
+                togglePosGuestNameField();
+                updateCheckoutState();
             });
+
+            const guestNameEl = document.getElementById('pos-guest-name');
+            if (guestNameEl) {
+                guestNameEl.addEventListener('input', updateCheckoutState);
+            }
 
             // Set default to guest
             $('#pos-customer').val('guest').trigger('change');
+            togglePosGuestNameField();
         });
 
         function showPOSMode(mode) {
@@ -788,6 +993,7 @@
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
+            updatePosTransactionDateTimeSummaryUI();
             fetchProducts();
             refreshCart(); // Initialize cart from session
             const pendingPayMongo = sessionStorage.getItem('pos_paymongo_pending');
@@ -830,6 +1036,12 @@
                         if (state.customer) {
                             $('#pos-customer').val(state.customer).trigger('change');
                         }
+                        if (state.guest_display_name) {
+                            const guestNameInput = document.getElementById('pos-guest-name');
+                            if (guestNameInput) {
+                                guestNameInput.value = state.guest_display_name;
+                            }
+                        }
                         // Update cart item price if available
                         if (state.item_index !== undefined && state.updated_price !== undefined) {
                             await syncedCartAction('update_price', { 
@@ -857,7 +1069,7 @@
                 const response = await fetchWithTimeout(staffUrl('staff/api/pos_cart_handler.php'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action, ...payload })
+                    body: JSON.stringify({ action, ...payload, csrf_token: POS_CSRF_TOKEN })
                 }, Number(options.timeoutMs || 15000));
                 const responseText = await response.text();
                 let data;
@@ -954,6 +1166,32 @@
             });
         }
 
+        function resolveServiceModalPricing() {
+            let unitPrice = 0;
+            let quantity = 1;
+            if (posEstimatedPriceController && typeof posEstimatedPriceController.recalculate === 'function') {
+                const result = posEstimatedPriceController.recalculate();
+                unitPrice = Number(result.unitPrice);
+                quantity = Number(result.quantity);
+            } else if (typeof window.calculateEstimatedPrice === 'function') {
+                const result = window.calculateEstimatedPrice();
+                unitPrice = Number(result.unitPrice);
+                quantity = Number(result.quantity);
+            }
+            if (!Number.isFinite(unitPrice)) unitPrice = 0;
+            if (!Number.isFinite(quantity) || quantity < 1) quantity = 1;
+            return { unitPrice, quantity };
+        }
+
+        function applyServicePricingToCustomization(customization, unitPrice, quantity) {
+            const safeUnit = Math.round(unitPrice * 100) / 100;
+            const safeQty = Math.max(1, parseInt(String(quantity), 10) || 1);
+            customization.calculated_unit_price = safeUnit.toFixed(2);
+            customization.calculated_estimated_price = (safeUnit * safeQty).toFixed(2);
+            customization.quantity = String(safeQty);
+            return { unitPrice: safeUnit, quantity: safeQty };
+        }
+
         async function openServiceModal(serviceId, serviceName) {
             console.log('openServiceModal called:', serviceId, serviceName);
             const overlay = document.getElementById('service-modal-overlay');
@@ -979,6 +1217,7 @@
                 }
                 overlay.dataset.csrfToken = data.csrf_token;
                 body.innerHTML = data.fields_html;
+                posAllowPastNeededDateInputs(body);
                 footerActions.style.display = 'block';
                 isAddingToOrder = false;
                 setServiceAddButtonBusy(false);
@@ -1054,6 +1293,7 @@
         async function posStageMediaUpload(file, field = 'design') {
             const fd = new FormData();
             fd.append('field', field);
+            fd.append('csrf_token', POS_CSRF_TOKEN);
             fd.append(field === 'reference' ? 'reference_file' : 'design_file', file);
             const res = await fetch(staffUrl('staff/api/pos_upload_design.php'), {
                 method: 'POST',
@@ -1216,14 +1456,26 @@
                 }
             }
 
-            // Add service to cart with price = 0 (will be set in Customizations V2)
+            // Add service to cart with calculated unit price from the modal estimator
+            const pricing = resolveServiceModalPricing();
+            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization['quantity'] || pricing.quantity);
+            if (priced.unitPrice <= 0) {
+                await showPOSAlert(
+                    'Price Required',
+                    'Could not calculate a valid price from your selections. Review the specifications or contact a manager.',
+                    'warning'
+                );
+                return;
+            }
+
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
                 name: serviceName,
-                price: 0,
-                qty: parseInt(customization['quantity'] || 1),
+                price: priced.unitPrice,
+                qty: priced.quantity,
                 customization: customization,
-                is_service: true
+                is_service: true,
+                price_set: true
             }, { fxSourceEl: posLastServiceCardEl });
 
             if (result.success) closeServiceModal();
@@ -1589,13 +1841,27 @@
                 return;
             }
 
+            const pricing = resolveServiceModalPricing();
+            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization.quantity || pricing.quantity);
+            if (priced.unitPrice <= 0) {
+                await showPOSAlert(
+                    'Price Required',
+                    'Could not calculate a valid price from your selections. Review the specifications or contact a manager.',
+                    'warning'
+                );
+                isAddingToOrder = false;
+                setServiceAddButtonBusy(false);
+                return;
+            }
+
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
                 name: serviceName,
-                price: 0,
-                qty: parseInt(customization.quantity || 1, 10),
+                price: priced.unitPrice,
+                qty: priced.quantity,
                 customization: customization,
-                is_service: true
+                is_service: true,
+                price_set: true
             }, { silentErrors: true, fxSourceEl: posLastServiceCardEl });
 
             if (result.success) {
@@ -1815,6 +2081,10 @@
                 return;
             }
 
+            filtered.sort(function (a, b) {
+                return String(a.product_name || '').localeCompare(String(b.product_name || ''), undefined, { sensitivity: 'base' });
+            });
+
             filtered.forEach((p) => {
                 const outOfStock = p.stock_quantity <= 0;
                 const imgUrl = escapeHtml(posCatalogImageUrl(p));
@@ -1822,7 +2092,9 @@
 
                 const card = document.createElement('button');
                 card.type = 'button';
-                card.className = `pos-catalog-card pos-card ${outOfStock ? 'no-stock' : ''}`;
+                card.className = `pos-catalog-card pos-product-card pos-card ${outOfStock ? 'no-stock' : ''}`;
+                const nameForTitle = String(p.product_name || 'Unnamed Product');
+                card.title = nameForTitle;
                 if (!outOfStock) {
                     card.onclick = async () => {
                         card.classList.add('is-selecting');
@@ -1852,8 +2124,8 @@
             </div>
             <div class="pos-catalog-card__body">
                 <span class="pos-catalog-card__meta">${category}</span>
-                <p class="pos-catalog-card__name">${productName}</p>
-                <div class="pos-catalog-card__price">${priceFormatted}</div>
+                <p class="pos-catalog-card__name" title="${productName}">${productName}</p>
+                <div class="pos-catalog-card__price" aria-label="Price">${priceFormatted}</div>
             </div>
         `;
                 grid.appendChild(card);
@@ -1918,6 +2190,8 @@
 
         function isProtectedPosBarcodeTarget(target) {
             if (!target || target === document.body) return false;
+            if (target.closest && target.closest('.select2-container--open, .select2-dropdown, .select2-search__field')) return true;
+            if (target.closest && target.closest('#customer-modal')) return true;
             if (target.closest && target.closest('.pos-barcode-entry')) return true;
             if (target.isContentEditable) return true;
             const tag = String(target.tagName || '').toLowerCase();
@@ -2091,8 +2365,12 @@
                     availability = data.availability || (product ? 'available' : null);
                     if (product && availability === 'available') {
                         const existingIndex = products.findIndex(p => String(p.product_id) === String(product.product_id));
-                        if (existingIndex >= 0) products[existingIndex] = product;
-                        else products.push(product);
+                        if (existingIndex >= 0) {
+                            product = mergePosProductRecord(products[existingIndex], product);
+                            products[existingIndex] = product;
+                        } else {
+                            products.push(product);
+                        }
                     }
                 } catch (e) {
                     showPOSScanNotice('Network Error', 'Network error while scanning barcode.', 'error');
@@ -2239,8 +2517,10 @@
                 inputHtml = `<input type="file" id="custom_field_${idx}" name="${reqName}" accept="${(req.accept || '').replace(/"/g, '&quot;')}" style="${baseStyle}" data-field-name="${reqName}">`;
                 div.innerHTML = label + inputHtml;
             } else if (req.type === 'date') {
-                const minDate = new Date().toISOString().split('T')[0];
-                inputHtml = `<input type="date" id="custom_field_${idx}" name="${reqName}" min="${minDate}" style="${baseStyle}" data-field-name="${reqName}">`;
+                const isNeededDate = (reqName && reqName.includes('needed_date'))
+                    || (req.label && String(req.label).toLowerCase().includes('needed date'));
+                const minAttr = isNeededDate ? '' : ` min="${new Date().toISOString().split('T')[0]}"`;
+                inputHtml = `<input type="date" id="custom_field_${idx}" name="${reqName}"${minAttr} style="${baseStyle}" data-field-name="${reqName}">`;
                 div.innerHTML = label + inputHtml;
             } else {
                 const ph = (req.placeholder || '').replace(/"/g, '&quot;');
@@ -2651,9 +2931,11 @@
                     const div = document.createElement('div');
                     div.className = 'pos-cart-item';
 
-                    // Check if item is a service (price = 0 or is_service flag)
-                    const isService = item.is_service || item.price === 0;
+                    // Unpriced services (legacy manual pricing) show Set Price; calculated services show unit price.
+                    const unitPrice = parseFloat(item.price) || 0;
+                    const isService = item.is_service === true;
                     const priceWasSet = item.price_set === true;
+                    const needsManualPrice = unitPrice <= 0 && (isService || !priceWasSet);
 
                     // Check if material has been set in customization
                     const hasMaterialSet = item.customization && (
@@ -2671,7 +2953,7 @@
                     }
 
                     const variantLabel = posCartItemVariantLabel(item);
-                    const priceHtml = (isService && !priceWasSet && !hasMaterialSet)
+                    const priceHtml = needsManualPrice && !hasMaterialSet
                         ? `<button type="button" class="pos-btn-set-price" onclick="redirectToSetPrice(${index})" title="Click to set price in Customizations">
                     <i class="fas fa-tag"></i> Set Price
                   </button>`
@@ -2720,6 +3002,212 @@
             document.getElementById('tender-group').style.display = isPayMongo ? 'none' : '';
             document.getElementById('change-group').style.display = isPayMongo ? 'none' : '';
             updateCheckoutState();
+        }
+
+        function posAllowPastNeededDateInputs(root) {
+            const scope = root || document;
+            scope.querySelectorAll('input[type="date"]').forEach(function(input) {
+                const name = String(input.name || '').toLowerCase();
+                const id = String(input.id || '').toLowerCase();
+                if (name === 'needed_date' || id === 'needed_date' || name.indexOf('needed_date') !== -1) {
+                    input.removeAttribute('min');
+                }
+            });
+        }
+
+        function toggleConfirmTransactionDate() {
+            const toggle = document.getElementById('pos-confirm-use-custom-date');
+            const fields = document.getElementById('pos-confirm-transaction-date-fields');
+            const err = document.getElementById('pos-confirm-transaction-date-error');
+            const enabled = !!toggle?.checked;
+            if (fields) {
+                fields.classList.toggle('is-visible', enabled);
+                fields.hidden = !enabled;
+            }
+            ['pos-confirm-transaction-date', 'pos-confirm-transaction-time'].forEach(function(id) {
+                const input = document.getElementById(id);
+                if (input) {
+                    input.disabled = !enabled;
+                }
+            });
+            if (err) {
+                err.hidden = true;
+            }
+        }
+
+        function formatPosCustomTransactionDateTimeLabel(dateStr, timeStr) {
+            if (!dateStr || !timeStr) {
+                return '';
+            }
+            const dateParts = dateStr.split('-').map(function(part) { return parseInt(part, 10); });
+            const timeParts = timeStr.split(':');
+            if (dateParts.length !== 3 || timeParts.length < 2) {
+                return '';
+            }
+            const d = new Date(dateParts[0], dateParts[1] - 1, dateParts[2], parseInt(timeParts[0], 10), parseInt(timeParts[1], 10));
+            if (Number.isNaN(d.getTime())) {
+                return '';
+            }
+            return d.toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            });
+        }
+
+        function syncPosCustomTransactionHiddenFields() {
+            const useEl = document.getElementById('pos-hidden-use-custom-transaction-datetime');
+            const dateEl = document.getElementById('pos-hidden-custom-transaction-date');
+            const timeEl = document.getElementById('pos-hidden-custom-transaction-time');
+            const useCustom = posCustomTransactionState.enabled ? 1 : 0;
+            if (useEl) {
+                useEl.value = String(useCustom);
+            }
+            if (dateEl) {
+                dateEl.value = useCustom ? (posCustomTransactionState.date || '') : '';
+            }
+            if (timeEl) {
+                timeEl.value = useCustom ? (posCustomTransactionState.time || '') : '';
+            }
+        }
+
+        function updatePosTransactionDateTimeSummaryUI() {
+            const summary = document.getElementById('pos-transaction-datetime-summary');
+            if (!summary) {
+                syncPosCustomTransactionHiddenFields();
+                return;
+            }
+            if (posCustomTransactionState.enabled && posCustomTransactionState.date && posCustomTransactionState.time) {
+                const label = formatPosCustomTransactionDateTimeLabel(posCustomTransactionState.date, posCustomTransactionState.time);
+                summary.textContent = label ? ('Date/Time: ' + label) : 'Date/Time: Current server time';
+                summary.classList.toggle('is-custom', !!label);
+            } else {
+                summary.textContent = 'Date/Time: Current server time';
+                summary.classList.remove('is-custom');
+            }
+            syncPosCustomTransactionHiddenFields();
+        }
+
+        function openPosTransactionDateTimeModal() {
+            if (!POS_CAN_CUSTOM_TRANSACTION_DATETIME) {
+                return;
+            }
+            const modal = document.getElementById('pos-transaction-datetime-modal');
+            if (!modal) {
+                return;
+            }
+            const toggle = document.getElementById('pos-confirm-use-custom-date');
+            const dateInput = document.getElementById('pos-confirm-transaction-date');
+            const timeInput = document.getElementById('pos-confirm-transaction-time');
+            const err = document.getElementById('pos-confirm-transaction-date-error');
+            if (toggle) {
+                toggle.checked = posCustomTransactionState.enabled;
+            }
+            if (dateInput) {
+                dateInput.value = posCustomTransactionState.date;
+            }
+            if (timeInput) {
+                timeInput.value = posCustomTransactionState.time;
+            }
+            if (err) {
+                err.hidden = true;
+            }
+            toggleConfirmTransactionDate();
+            modal.hidden = false;
+            modal.setAttribute('aria-hidden', 'false');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closePosTransactionDateTimeModal() {
+            const modal = document.getElementById('pos-transaction-datetime-modal');
+            if (!modal) {
+                return;
+            }
+            modal.hidden = true;
+            modal.setAttribute('aria-hidden', 'true');
+            document.body.style.overflow = '';
+        }
+
+        function savePosTransactionDateTimeModal() {
+            const toggle = document.getElementById('pos-confirm-use-custom-date');
+            const enabled = !!toggle?.checked;
+            const date = document.getElementById('pos-confirm-transaction-date')?.value || '';
+            const time = document.getElementById('pos-confirm-transaction-time')?.value || '';
+            const err = document.getElementById('pos-confirm-transaction-date-error');
+            if (enabled && (!date || !time)) {
+                if (err) {
+                    err.hidden = false;
+                }
+                return;
+            }
+            if (err) {
+                err.hidden = true;
+            }
+            posCustomTransactionState = {
+                enabled: enabled,
+                date: enabled ? date : '',
+                time: enabled ? normalizePosCustomTransactionTime(time) : ''
+            };
+            updatePosTransactionDateTimeSummaryUI();
+            closePosTransactionDateTimeModal();
+        }
+
+        function validatePosCheckoutTransactionDateTime() {
+            if (!POS_CAN_CUSTOM_TRANSACTION_DATETIME) {
+                return true;
+            }
+            if (!posCustomTransactionState.enabled) {
+                return true;
+            }
+            if (posCustomTransactionState.date && posCustomTransactionState.time) {
+                return true;
+            }
+            openPosTransactionDateTimeModal();
+            const err = document.getElementById('pos-confirm-transaction-date-error');
+            if (err) {
+                err.hidden = false;
+            }
+            return false;
+        }
+
+        function resetPosCheckoutTransactionDateTime() {
+            if (!POS_CAN_CUSTOM_TRANSACTION_DATETIME) {
+                return;
+            }
+            posCustomTransactionState = { enabled: false, date: '', time: '' };
+            updatePosTransactionDateTimeSummaryUI();
+        }
+
+        function normalizePosCustomTransactionTime(timeStr) {
+            const raw = String(timeStr || '').trim();
+            if (/^\d{2}:\d{2}$/.test(raw)) {
+                return raw;
+            }
+            if (/^\d{2}:\d{2}:\d{2}$/.test(raw)) {
+                return raw.slice(0, 5);
+            }
+            return raw;
+        }
+
+        function posCheckoutCustomTransactionPayload() {
+            if (!POS_CAN_CUSTOM_TRANSACTION_DATETIME) {
+                return {
+                    use_custom_transaction_datetime: 0,
+                    custom_transaction_date: '',
+                    custom_transaction_time: ''
+                };
+            }
+            syncPosCustomTransactionHiddenFields();
+            const useCustom = posCustomTransactionState.enabled ? 1 : 0;
+            const payload = {
+                use_custom_transaction_datetime: useCustom,
+                custom_transaction_date: useCustom ? String(posCustomTransactionState.date || '') : '',
+                custom_transaction_time: useCustom ? normalizePosCustomTransactionTime(posCustomTransactionState.time) : ''
+            };
+            return payload;
         }
 
         function isPayMongoPaymentMethod(method) {
@@ -2776,12 +3264,14 @@
             if (!customer) {
                 canCheckout = false;
                 message = 'Select Customer';
+            } else if (customer === 'guest' && !getPosGuestDisplayName()) {
+                canCheckout = false;
+                message = 'Enter Customer Name';
             }
 
-            // Check if cart has any services with price = 0
-            const hasUnpricedService = cart.some(i => (i.is_service || i.price === 0) && i.price === 0);
-
-            if (hasUnpricedService) {
+            // Block checkout if any item has no valid price
+            const hasUnpricedItem = cart.some(i => (parseFloat(i.price) || 0) <= 0);
+            if (hasUnpricedItem) {
                 canCheckout = false;
                 message = 'Set Price First';
                 icon.className = 'fas fa-lock';
@@ -2831,10 +3321,16 @@
                 await showPOSAlert('Select Customer', 'Please select a customer before checkout.', 'warning');
                 return;
             }
+            if (customer === 'guest' && !getPosGuestDisplayName()) {
+                await showPOSAlert('Customer Name Required', 'Enter the walk-in customer\'s name for the receipt.', 'warning');
+                const guestField = document.getElementById('pos-guest-name');
+                if (guestField) guestField.focus();
+                return;
+            }
 
-            // Block checkout if any item has price = 0
-            const hasUnpricedService = cart.some(i => (i.is_service || i.price === 0) && i.price === 0);
-            if (hasUnpricedService) {
+            // Block checkout if any item has no valid price
+            const hasUnpricedItem = cart.some(i => (parseFloat(i.price) || 0) <= 0);
+            if (hasUnpricedItem) {
                 await showPOSAlert('Price Required', 'Please set the price for all items before completing the sale.\n\nClick the yellow "Set Price" button on items to set their price in Customizations.', 'warning');
                 return;
             }
@@ -2852,8 +3348,13 @@
                 ? `Create a Dynamic QR Ph payment for ${formatMoney(currentTotal)}? The sale remains unpaid until PayMongo confirms it.`
                 : `Confirm sale of ${formatMoney(currentTotal)} using ${pm}?\nChange due: ${formatMoney(changeAmount)}`;
 
+            if (!validatePosCheckoutTransactionDateTime()) {
+                await showPOSAlert('Transaction Date & Time', 'Please choose both a date and time, or turn off custom date/time.', 'warning');
+                return;
+            }
+
             posCheckoutConfirmOpen = true;
-            const confirmed = await showPOSConfirm('Confirm Transaction', confirmMsg);
+            const confirmed = await showPOSConfirm('Confirm Transaction', confirmMsg, 'Confirm', 'confirm');
             posCheckoutConfirmOpen = false;
             if (!confirmed) return;
 
@@ -2865,14 +3366,23 @@
             posPayMongoCheckoutPending = true;
             const payload = {
                 action: 'walkin_checkout',
-                customer_id: $('#pos-customer').val(),
+                ...posCheckoutCustomerPayload(),
                 payment_method: pm,
                 reference_number: '',
                 amount_tendered: tendered,
                 csrf_token: POS_CSRF_TOKEN,
                 checkout_token: checkoutToken,
-                items: cart.map(posCheckoutItemPayload)
+                items: cart.map(posCheckoutItemPayload),
+                ...posCheckoutCustomTransactionPayload()
             };
+            console.log('[POS CHECKOUT] custom transaction datetime', {
+                use_custom_transaction_datetime: payload.use_custom_transaction_datetime,
+                custom_transaction_date: payload.custom_transaction_date,
+                custom_transaction_time: payload.custom_transaction_time,
+                selected_transaction_at: payload.use_custom_transaction_datetime
+                    ? `${payload.custom_transaction_date} ${payload.custom_transaction_time}:00`
+                    : null
+            });
 
             let checkoutData = null;
             let checkoutErrorMessage = '';
@@ -2946,6 +3456,7 @@
             document.getElementById('pos-tendered').value = '';
             toggleReferenceField();
             calculateChange();
+            resetPosCheckoutTransactionDateTime();
 
             if (checkoutData.receipt && checkoutData.order_id) {
                 try {
@@ -2971,6 +3482,10 @@
             if (!clearResult.success) {
                 cart = [];
                 renderCart();
+            }
+            const guestNameInput = document.getElementById('pos-guest-name');
+            if (guestNameInput) {
+                guestNameInput.value = '';
             }
             updateCheckoutState();
         }
@@ -3209,6 +3724,10 @@
 
         function openNewCustomerModal() {
             document.getElementById('customer-modal').style.display = 'flex';
+            setTimeout(function() {
+                var first = document.getElementById('nc-first');
+                if (first) first.focus();
+            }, 50);
         }
         function closeCustomerModal() {
             document.getElementById('customer-modal').style.display = 'none';
@@ -3244,45 +3763,100 @@
                 return;
             }
 
+            if (posSaveCustomerInFlight) {
+                console.log('[POS] saveCustomer: ignored — request already in progress');
+                return;
+            }
+
             const btn = document.getElementById('nc-save-btn');
-            btn.textContent = 'Creating customer...';
+            posSaveCustomerInFlight = true;
             btn.disabled = true;
+            btn.textContent = 'Creating customer...';
+
+            let successAlert = null;
+            let errorAlert = null;
 
             try {
-                const res = await fetch(staffUrl('staff/api/pos_add_customer.php'), {
+                const apiUrl = staffUrl('staff/api/pos_add_customer.php');
+                console.log('[POS] saveCustomer: request start', apiUrl);
+
+                const res = await fetchWithTimeout(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
                     body: JSON.stringify({
                         first_name: first,
                         last_name: last,
                         email: email,
-                        contact_number: phone
+                        contact_number: phone,
+                        csrf_token: POS_CSRF_TOKEN
                     })
-                });
-                const data = await res.json();
+                }, 45000);
+
+                console.log('[POS] saveCustomer: response status', res.status);
+
+                const raw = await res.text();
+                // TEMP DEBUG: remove after Add Customer failure is diagnosed
+                console.log('[POS] saveCustomer: raw response', raw);
+
+                let data;
+                try {
+                    data = JSON.parse(raw);
+                } catch (parseErr) {
+                    throw new Error(raw && raw.trim() ? raw.trim().slice(0, 240) : 'Invalid server response.');
+                }
                 if (data.success) {
                     const sel = $('#pos-customer');
-                    const displayText = `${first} ${last} - ${email}`;
-                    const opt = $('<option></option>').attr('value', data.customer_id).text(displayText);
+                    const opt = $('<option></option>')
+                        .attr('value', data.customer_id)
+                        .attr('data-first', first)
+                        .attr('data-last', last)
+                        .attr('data-email', email)
+                        .attr('data-phone', phone);
+                    opt.text(first + ' ' + last + ' - ' + email);
                     sel.append(opt);
-                    sel.val(data.customer_id).trigger('change');
+                    sel.val(String(data.customer_id)).trigger('change');
                     closeCustomerModal();
 
-                    // Clear form
                     document.getElementById('nc-first').value = '';
                     document.getElementById('nc-last').value = '';
                     document.getElementById('nc-email').value = '';
                     document.getElementById('nc-phone').value = '';
 
-                    // Show success message
-                    await showPOSAlert('Customer Created', `Customer created successfully!\n\nA password setup email has been sent to ${email}.\nThe customer can use this email to create their account password.`, 'success');
+                    const msg = data.message
+                        || `Customer created successfully!\n\nA password setup email will be sent to ${email}.\nThe customer can use this email to create their account password.`;
+                    successAlert = { title: 'Customer Created', message: msg, type: 'success' };
+                    console.log('[POS] saveCustomer: success', data.customer_id);
                 } else {
-                    await showPOSAlert('Error', 'Failed: ' + (data.message || 'Unknown error'), 'error');
+                    errorAlert = {
+                        title: 'Could Not Create Customer',
+                        message: data.message || 'Unknown error',
+                        type: 'error'
+                    };
                 }
             } catch (e) {
-                console.error('Error:', e);
-                await showPOSAlert('Network Error', 'Network error. Please try again.', 'error');
+                console.error('[POS] saveCustomer: error', e);
+                const isTimeout = e && (e.name === 'AbortError' || String(e.message || '').toLowerCase().includes('abort'));
+                errorAlert = {
+                    title: isTimeout ? 'Request Timed Out' : 'Network Error',
+                    message: isTimeout
+                        ? 'Creating the customer took too long. Check your connection and try again, or verify the customer was not already created.'
+                        : (e.message || 'Network error. Please try again.'),
+                    type: 'error'
+                };
             } finally {
+                posSaveCustomerInFlight = false;
+            }
+
+            if (successAlert) {
+                console.log('[POS] saveCustomer: showing success alert');
+                await showPOSAlert(successAlert.title, successAlert.message, successAlert.type);
+            } else if (errorAlert) {
+                console.log('[POS] saveCustomer: showing error alert');
+                await showPOSAlert(errorAlert.title, errorAlert.message, errorAlert.type);
+            }
+
+            if (btn) {
                 btn.textContent = 'Create Customer & Send Email';
                 btn.disabled = false;
             }
@@ -3313,18 +3887,25 @@
                 await showPOSAlert('Customer Required', 'Please select a customer first.', 'warning');
                 return;
             }
+            if (customer === 'guest' && !getPosGuestDisplayName()) {
+                await showPOSAlert('Customer Name Required', 'Enter the walk-in customer\'s name before continuing.', 'warning');
+                const guestField = document.getElementById('pos-guest-name');
+                if (guestField) guestField.focus();
+                return;
+            }
 
             // Store cart state in session storage
             sessionStorage.setItem('pos_cart_state', JSON.stringify({
                 cart: cart,
                 customer: customer,
+                guest_display_name: customer === 'guest' ? getPosGuestDisplayName() : '',
                 item_index: index
             }));
 
             // Create a temporary customization entry
             const payload = {
                 action: 'create_pending_customization',
-                customer_id: customer,
+                ...posCheckoutCustomerPayload(),
                 csrf_token: POS_CSRF_TOKEN,
                 item: {
                     id: item.product_id,

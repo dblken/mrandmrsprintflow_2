@@ -522,8 +522,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
             }
         }
         
+        $selectedBranchIsActive = $selected_branch_id > 0
+            ? db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$selected_branch_id])
+            : [];
         if ($selected_branch_id < 1 && $needs_branch_selection) {
             $order_error = 'Please select a branch for pickup.';
+        } elseif (empty($selectedBranchIsActive)) {
+            $order_error = 'Please select a valid branch for pickup.';
         } else {
             foreach ($items_to_review as $reviewItem) {
                 if (!review_item_is_product($reviewItem)) {
@@ -2576,13 +2581,15 @@ require_once __DIR__ . '/../includes/header.php';
                 <div style="margin-bottom: 0;">
                     <label class="review-input-label" style="margin-bottom: 0.5rem; display: block;">Pickup Branch *</label>
                     <select name="branch_id" id="branch_id" class="input-field" required style="background: #ffffff; border: 1px solid #d1d5db; color: #374151; font-weight: 500; font-size: 0.9rem; padding: 0.75rem; border-radius: 8px; cursor: pointer; transition: all 0.2s; width: 100%; display: block;">
+                        <?php $postedBranchId = (int)($_POST['branch_id'] ?? 0); ?>
+                        <option value="" <?php echo $postedBranchId > 0 ? '' : 'selected'; ?> disabled>Select Branch</option>
                         <?php foreach ($branches as $b): ?>
-                            <option value="<?php echo $b['id']; ?>"><?php echo htmlspecialchars($b['branch_name']); ?></option>
+                            <option value="<?php echo $b['id']; ?>" <?php echo $postedBranchId === (int)$b['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($b['branch_name']); ?></option>
                         <?php endforeach; ?>
                     </select>
-                    <div id="branch-error" style="display: <?php echo ($order_error === 'Please select a branch for pickup.') ? 'flex' : 'none'; ?>; align-items: center; gap: 6px; color: #ef4444; font-size: 0.875rem; margin-top: 0.5rem; font-weight: 600;">
+                    <div id="branch-error" style="display: <?php echo (strpos(strtolower($order_error), 'branch') !== false) ? 'flex' : 'none'; ?>; align-items: center; gap: 6px; color: #ef4444; font-size: 0.875rem; margin-top: 0.5rem; font-weight: 600;">
                         <svg width="16" height="16" fill="currentColor" viewBox="0 0 20 20" style="flex-shrink: 0;"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg>
-                        Please select a branch for pickup.
+                        <?php echo htmlspecialchars($order_error !== '' && strpos(strtolower($order_error), 'branch') !== false ? $order_error : 'Please select a branch for pickup.'); ?>
                     </div>
                 </div>
                 <?php endif; ?>

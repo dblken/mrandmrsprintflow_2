@@ -10,12 +10,14 @@ require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
 $customer_id = get_user_id();
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $branch_id = trim($_POST['branch_id'] ?? '1');
+    $branch_id = (int)($_POST['branch_id'] ?? 0);
     $layout_type = trim($_POST['layout_type'] ?? '');
     $rush = trim($_POST['rush'] ?? '');
     $needed_date = trim($_POST['needed_date'] ?? '');
     $description = trim($_POST['description'] ?? '');
-    if (empty($layout_type) || empty($needed_date)) {
+    if ($branch_id < 1 || empty(db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id]))) {
+        $error = 'Please select a valid branch.';
+    } elseif (empty($layout_type) || empty($needed_date)) {
         $error = 'Please select type of layout and provide needed date.';
     } else {
         $tmp_dir = service_order_temp_dir();
@@ -141,6 +143,7 @@ $layout_types = ['Logo', 'Banner', 'Invitation', 'Poster', 'Other'];
                     <div class="shopee-form-row">
                         <label class="shopee-form-label">Branch *</label>
                         <select name="branch_id" class="input-field shopee-form-field" required>
+                            <option value="" selected disabled>Select Branch</option>
                             <?php foreach($branches as $b): ?>
                                 <option value="<?php echo $b['id']; ?>"><?php echo htmlspecialchars($b['branch_name']); ?></option>
                             <?php endforeach; ?>

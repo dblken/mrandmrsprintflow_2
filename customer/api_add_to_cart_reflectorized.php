@@ -49,7 +49,13 @@ $isSignage = (strpos($type, 'Sign') !== false || strpos($type, 'Street') !== fal
 $fields = [];
 $fields['service_type'] = $raw_fields['service_type'] ?? 'Reflectorized Signage';
 $fields['product_type'] = $type;
-$fields['branch_id'] = trim($raw_fields['branch_id'] ?? '1');
+$fields['branch_id'] = trim($raw_fields['branch_id'] ?? '');
+$branchId = (int)$fields['branch_id'];
+if ($branchId < 1 || empty(db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branchId]))) {
+    http_response_code(422);
+    echo json_encode(['success' => false, 'message' => 'Please select a valid branch.']);
+    exit;
+}
 $fields['needed_date'] = trim($raw_fields['needed_date'] ?? '');
 
 $fields['quantity'] = 1;

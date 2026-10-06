@@ -89,8 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $is_logo_only = ($design_type === 'Logo Only');
     $proceed = false;
     
-    if ($branch_id <= 0) {
-        $error = 'Please select a branch.';
+    if ($branch_id <= 0 || empty(db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id]))) {
+        $error = 'Please select a valid branch.';
     } elseif (empty($shirt_source)) {
         $error = 'Please select whether the shop or customer will provide the shirt.';
     } elseif (empty($design_type)) {
@@ -273,6 +273,7 @@ if ($display_img !== '' && strpos($display_img, 'http') === false && $display_im
                 <div class="shopee-form-row">
                     <label class="shopee-form-label">Branch *</label>
                     <select name="branch_id" class="input-field shopee-form-field" required>
+                        <option value="" disabled<?php echo empty($_POST['branch_id']) ? ' selected' : ''; ?>>Select Branch</option>
                         <?php foreach($branches as $b): ?>
                             <option value="<?php echo $b['id']; ?>" <?php echo ((string)($b['id']) === (string)($_POST['branch_id'] ?? '')) ? 'selected' : ''; ?>>
                                 <?php echo htmlspecialchars($b['branch_name']); ?>

@@ -15,6 +15,7 @@ require_once __DIR__ . '/../../includes/provider_payments.php';
 require_once __DIR__ . '/../../includes/pos_receipt.php';
 require_once __DIR__ . '/../../includes/pos_receipt_printer.php';
 require_once __DIR__ . '/../../includes/pos_draft_lifecycle.php';
+require_once __DIR__ . '/../../includes/service_order_helper.php';
 
 function pos_payload_item_is_service(array $item): bool {
     if (!empty($item['is_service'])) {
@@ -1001,6 +1002,42 @@ function pos_extract_order_item_display_name(array $item): string {
     return $baseName !== '' ? $baseName : 'Item';
 }
 
+/**
+ * Recompute service line prices from specifications; reject tampered or missing pricing.
+ */
+function pos_checkout_validate_service_item_prices(array $items): ?string
+{
+    foreach ($items as $item) {
+        if (!pos_payload_item_is_service((array)$item)) {
+            continue;
+        }
+
+        $customization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+        $serviceId = (int)($customization['service_id'] ?? $item['id'] ?? 0);
+        $qty = max(1, (int)($item['qty'] ?? 1));
+        $calc = printflow_calculate_service_unit_price($serviceId, $customization);
+        if (!$calc['ok']) {
+            return (string)($calc['message'] ?? 'Service price could not be validated.');
+        }
+
+        $expectedUnit = (float)$calc['unit_price'];
+        $cartUnit = (float)($item['price'] ?? 0);
+        if ($cartUnit <= 0) {
+            return 'A service item has no valid price. Remove it and add it again with complete specifications.';
+        }
+        if (abs($cartUnit - $expectedUnit) > 0.02) {
+            $label = trim((string)($item['name'] ?? 'Service'));
+            return 'Cart price for "' . $label . '" does not match the selected options. Refresh the page and try again.';
+        }
+
+        if ($qty < 1 || $qty > 100) {
+            return 'Invalid quantity for a service item.';
+        }
+    }
+
+    return null;
+}
+
 function pos_checkout_group_total(array $groupItems, array $products_cache): float
 {
     $total = 0.0;
@@ -1360,6 +1397,13 @@ $payment_method = sanitize($data['payment_method'] ?? 'Cash');
 $reference_number = sanitize($data['reference_number'] ?? '');
 $amount_tendered = (float)($data['amount_tendered'] ?? 0);
 $items = $data['items'];
+
+$servicePriceError = pos_checkout_validate_service_item_prices($items);
+if ($servicePriceError !== null) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => $servicePriceError]);
+    exit;
+}
 
 $pm_lc = strtolower(trim($payment_method));
 $allowedPosPaymentMethods = [

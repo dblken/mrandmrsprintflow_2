@@ -1250,6 +1250,37 @@ function _ft_detect_social(string $url): array {
         });
     })();
     </script>
+    <?php if ($_ft_is_logged_in_customer): ?>
+        <?php
+        require_once __DIR__ . '/customer_rate_order.php';
+        $pf_review_initial_prompt = $GLOBALS['pf_review_initial_prompt'] ?? null;
+        if ($pf_review_initial_prompt === null && isset($_GET['review_prompt'])) {
+            $pf_review_prompt_id = 0;
+            if ((string)$_GET['review_prompt'] === '1' && !empty($_GET['highlight'])) {
+                $pf_review_prompt_id = (int)$_GET['highlight'];
+            } else {
+                $pf_review_prompt_id = (int)$_GET['review_prompt'];
+            }
+            if ($pf_review_prompt_id > 0) {
+                $pf_review_ctx = customer_rate_order_load($pf_review_prompt_id, (int)get_user_id());
+                $pf_review_initial_prompt = customer_review_prompt_payload_from_context($pf_review_ctx);
+            }
+        }
+        require __DIR__ . '/../customer/partials/rate_order_styles.php';
+        require __DIR__ . '/customer_review_modals.php';
+        $pf_review_csrf = function_exists('generate_csrf_token') ? generate_csrf_token() : '';
+        $pf_review_js_ver = @filemtime(__DIR__ . '/../public/assets/js/customer-order-review.js') ?: time();
+        ?>
+        <script>
+        window.PFReviewConfig = Object.assign({}, window.PFReviewConfig || {}, {
+            baseUrl: <?php echo json_encode(isset($base_url) ? rtrim((string)$base_url, '/') : (defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '')); ?>,
+            apiUrl: <?php echo json_encode((isset($base_url) ? rtrim((string)$base_url, '/') : '') . '/customer/api_review_prompt.php'); ?>,
+            csrfToken: <?php echo json_encode($pf_review_csrf); ?>,
+            initialPrompt: <?php echo json_encode($pf_review_initial_prompt); ?>
+        });
+        </script>
+        <script src="<?php echo $base_url; ?>/public/assets/js/customer-order-review.js?v=<?php echo $pf_review_js_ver; ?>"></script>
+    <?php endif; ?>
     <?php $notif_js_ver = @filemtime(__DIR__ . '/../public/assets/js/notifications.js') ?: time(); ?>
     <script src="<?php echo $base_url; ?>/public/assets/js/notifications.js?v=<?php echo $notif_js_ver; ?>" defer></script>
     <script src="<?php echo $base_url; ?>/public/assets/js/inactivity_logout.js" defer></script>
