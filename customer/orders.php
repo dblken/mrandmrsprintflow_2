@@ -9,11 +9,32 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/change_item_workflow.php';
+require_once __DIR__ . '/../includes/customer_rate_order.php';
 
 require_role('Customer');
 ensure_ratings_table_exists();
 
 $customer_id = get_user_id();
+$review_prompt_payload = null;
+$review_prompt_id = 0;
+if (isset($_GET['review_prompt'])) {
+    if ((string)$_GET['review_prompt'] === '1' && !empty($_GET['highlight'])) {
+        $review_prompt_id = (int)$_GET['highlight'];
+    } else {
+        $review_prompt_id = (int)$_GET['review_prompt'];
+    }
+}
+if ($review_prompt_id > 0) {
+    $review_ctx = customer_rate_order_load($review_prompt_id, $customer_id);
+    if ($review_ctx && !empty($review_ctx['can_prompt'])) {
+        $review_prompt_payload = [
+            'order_id' => (int)$review_ctx['order_id'],
+            'order_code' => (string)$review_ctx['order_code'],
+            'service_label' => (string)$review_ctx['service_type_label'],
+            'message' => 'Your order has been successfully picked up. We hope to see you again!',
+        ];
+    }
+}
 // Mark notification as read if parameter present
 if (isset($_GET['mark_read'])) {
     $notification_id = (int)$_GET['mark_read'];
@@ -417,6 +438,7 @@ usort($orders, static function (array $a, array $b) use ($orders_list_active_tab
 $page_title = 'My Orders - PrintFlow';
 $use_customer_css = true;
 require_once __DIR__ . '/../includes/header.php';
+require __DIR__ . '/partials/rate_order_styles.php';
 ?>
 
 <style>
@@ -2843,9 +2865,7 @@ require_once __DIR__ . '/../includes/header.php';
                                         <button type="button" class="action-button btn-main-blue" style="padding: 0.45rem 0.85rem; font-size: 0.68rem;" onclick="openItemsModal(<?php echo $order['order_id']; ?>, event)">View Details</button>
                                         <?php if (in_array($order['status'], ['Completed', 'To Rate', 'Rated'], true)): ?>
                                             <?php if (empty($order['rating_value'])): ?>
-                                                <a href="<?php echo BASE_URL; ?>/customer/rate_order.php?order_id=<?php echo $order['order_id']; ?>" class="action-button btn-rate-order" style="padding: 0.45rem 0.85rem; font-size: 0.68rem;">
-                                                    ★ Rate
-                                                </a>
+                                                <button type="button" class="action-button btn-rate-order" style="padding: 0.45rem 0.85rem; font-size: 0.68rem;" data-pf-open-review="<?php echo (int)$order['order_id']; ?>">★ Rate</button>
                                             <?php else: ?>
                                                 <a href="<?php echo BASE_URL; ?>/customer/reviews.php?order_id=<?php echo $order['order_id']; ?>" class="action-button btn-rate-order" style="padding: 0.45rem 0.85rem; font-size: 0.68rem;">
                                                     ★ Rated
@@ -3065,6 +3085,28 @@ window.addEventListener('DOMContentLoaded', () => {
         <h2 class="text-xl font-black text-slate-900 mb-2">Change Item Request Submitted</h2>
         <p class="text-slate-600 font-medium text-sm mb-6" style="line-height:1.6;">Your request has been sent to our team for review.</p>
         <button type="button" class="cm-btn cm-btn-submit" style="width:100%;" onclick="closeChangeItemSuccessModal()">OK</button>
+    </div>
+</div>
+
+<div id="completedReviewModal" class="pf-rate-surface" aria-hidden="true">
+    <div class="pf-review-dialog" role="dialog" aria-modal="true" aria-labelledby="completedReviewTitle" onclick="event.stopPropagation()">
+        <h2 id="completedReviewTitle">Order completed</h2>
+        <p id="completedReviewMessage">Your order has been successfully picked up. We hope to see you again!</p>
+        <p id="completedReviewMeta" style="font-size:0.82rem;margin-top:-0.75rem;"></p>
+        <div class="pf-review-dialog-actions">
+            <button type="button" class="rate-btn-secondary" id="completedReviewSkipBtn">Skip for now</button>
+            <button type="button" class="rate-btn-primary" id="completedReviewRateBtn">Rate Us</button>
+        </div>
+    </div>
+</div>
+
+<div id="orderReviewModal" class="pf-rate-surface" aria-hidden="true">
+    <div class="pf-review-dialog pf-review-dialog--wide" role="dialog" aria-modal="true" aria-labelledby="orderReviewTitle" onclick="event.stopPropagation()">
+        <div class="pf-review-modal-head">
+            <h2 id="orderReviewTitle">Rate your order</h2>
+            <button type="button" class="pf-review-modal-close" id="orderReviewCloseBtn" aria-label="Close">&times;</button>
+        </div>
+        <div id="orderReviewFormMount"></div>
     </div>
 </div>
 
@@ -4041,7 +4083,7 @@ function openItemsModal(orderId, event, options = {}) {
                         ${['Completed', 'To Rate', 'Rated'].includes(data.status) ? (
                             data.rating_data
                                 ? `<a href="${data.rating_data.view_url}" class="im-order-action im-order-action--rate"><svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg><span>View Your Review</span></a>`
-                                : `<a href="${CUSTOMER_BASE_URL}/customer/rate_order.php?order_id=${data.order_id}" class="im-order-action im-order-action--rate"><svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg><span>Rate This Order</span></a>`
+                                : `<button type="button" class="im-order-action im-order-action--rate" data-pf-open-review="${data.order_id}"><svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg><span>Rate This Order</span></button>`
                         ) : ''}
 
                         ${data.can_cancel ? `
@@ -4052,7 +4094,7 @@ function openItemsModal(orderId, event, options = {}) {
             </div>
         `;
 
-        const reviewAction = document.querySelector('#imBody a[href*="rate_order.php"], #imBody a[href*="reviews.php?order_id="]');
+        const reviewAction = document.querySelector('#imBody [data-pf-open-review], #imBody a[href*="reviews.php?order_id="]');
         if (reviewAction) {
             reviewAction.className = 'im-order-action im-order-action--rate';
             if (!reviewAction.querySelector('svg')) {
@@ -4060,7 +4102,8 @@ function openItemsModal(orderId, event, options = {}) {
             }
             const reviewLabel = reviewAction.querySelector('span') || reviewAction;
             if (reviewAction.querySelector('span')) {
-                reviewAction.querySelector('span').textContent = reviewAction.href.includes('reviews.php?order_id=')
+                const isViewReview = reviewAction.matches('a[href*="reviews.php?order_id="]');
+                reviewAction.querySelector('span').textContent = isViewReview
                     ? 'View Your Review'
                     : 'Rate This Order';
             }
@@ -4991,7 +5034,25 @@ async function refreshOrdersList() {
 })();
 
 initOrdersTabsScroller();
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeItemsModal(); });
+document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (document.getElementById('orderReviewModal')?.classList.contains('open')) {
+        window.PFOrderReview?.closeReviewModal?.();
+        return;
+    }
+    if (document.getElementById('completedReviewModal')?.classList.contains('open')) {
+        window.PFOrderReview?.closeCompletedModal?.();
+        return;
+    }
+    closeItemsModal();
+});
 </script>
+<script>
+window.PFReviewConfig = <?php echo json_encode([
+    'baseUrl' => BASE_URL,
+    'initialPrompt' => $review_prompt_payload,
+], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+</script>
+<script src="<?php echo BASE_URL; ?>/public/assets/js/customer-order-review.js"></script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

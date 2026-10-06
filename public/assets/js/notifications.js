@@ -1202,6 +1202,20 @@
                         highestId = Math.max(highestId, itemId);
                     }
                     var targetUrl = normalizeNotificationTarget((item && item.link) ? item.link : ((item && item.target_url) ? item.target_url : getNotifUrl(item.type, item.data_id, item.message, item.id, item.order_type, item.review_id)));
+                    var isCustomerUi = (USER_TYPE || '').toLowerCase() === 'customer';
+                    var onOrdersPage = /\/customer\/orders\.php/i.test(window.location.pathname);
+                    if (isCustomerUi && onOrdersPage && window.PFOrderReview && typeof window.PFOrderReview.isCompletedReviewNotice === 'function' && window.PFOrderReview.isCompletedReviewNotice(item)) {
+                        var completedOrderId = parseInt(item.data_id, 10) || 0;
+                        if (completedOrderId > 0) {
+                            document.dispatchEvent(new CustomEvent('pf:completed-order', {
+                                detail: {
+                                    orderId: completedOrderId,
+                                    message: item.message || item.title || '',
+                                },
+                            }));
+                        }
+                        continue;
+                    }
                     showToast(item.title || 'PrintFlow', item.message, targetUrl, item.image || '', item.fallback || '');
                 }
 

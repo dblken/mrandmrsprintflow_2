@@ -7972,7 +7972,7 @@ function printflow_send_order_update_legacy($order_id, $step, $custom_text = '',
             'message_type' => 'order_card',
             'button_label' => 'Leave a Review',
             'action_type' => 'rate',
-            'action_url'  => "{$base}/customer/rate_order.php?order_id={$order_id}",
+            'action_url'  => "{$base}/customer/orders.php?tab=completed&highlight={$order_id}&review_prompt=1",
         ],
         'cancelled' => [
             'message'      => "Your order has been cancelled. Please contact our team if you need help with the next step.",
@@ -7985,7 +7985,7 @@ function printflow_send_order_update_legacy($order_id, $step, $custom_text = '',
             'message_type' => 'order_card',
             'button_label' => 'Leave a Review',
             'action_type' => 'rate',
-            'action_url'  => "{$base}/customer/rate_order.php?order_id={$order_id}",
+            'action_url'  => "{$base}/customer/orders.php?tab=completed&highlight={$order_id}&review_prompt=1",
         ],
     ];
 
