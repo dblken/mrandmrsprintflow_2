@@ -33,7 +33,7 @@ $category_filter = $filters['category'];
 $status_filter = $filters['status_filter'];
 $sort_by = $filters['sort'];
 $page = max(1, (int)($_GET['page'] ?? 1));
-$per_page = 15;
+$per_page = 10;
 $expenseFilterOpen = ($_GET['filter_open'] ?? '') === '1';
 
 $activeFilterCount = count(array_filter([
