@@ -1305,8 +1305,11 @@ $online_closed_count = 0;
         .customizations-data-table .col-order { width: 12%; }
         .customizations-data-table .col-customer { width: 12%; }
         .customizations-data-table .col-info { width: 20%; }
-        .customizations-data-table .col-created { width: 18%; }
-        .customizations-data-table .col-needed { width: 10%; }
+        .customizations-data-table .col-created { width: 17%; }
+        .customizations-data-table .col-needed { width: 11%; }
+        .customizations-data-table thead th.col-head-needed {
+            white-space: nowrap;
+        }
         .customizations-data-table .col-status { width: 15%; }
         .customizations-data-table .col-action { width: 13%; }
         .customizations-data-table thead th,
@@ -1586,8 +1589,11 @@ $online_closed_count = 0;
             .customizations-data-table .col-order { width: 11%; }
             .customizations-data-table .col-customer { width: 11%; }
             .customizations-data-table .col-info { width: 19%; }
-            .customizations-data-table .col-created { width: 16%; }
-            .customizations-data-table .col-needed { width: 9%; }
+            .customizations-data-table .col-created { width: 15%; }
+            .customizations-data-table .col-needed { width: 10%; }
+            .customizations-data-table thead th.col-head-needed {
+                white-space: nowrap;
+            }
             .customizations-data-table .col-status { width: 14%; }
             .customizations-data-table .col-action { width: 10%; }
             .customizations-data-table .status-badge-pill,
@@ -2485,7 +2491,7 @@ $online_closed_count = 0;
                                 <th class="py-4 border-b border-gray-100">Customer</th>
                                 <th class="py-4 border-b border-gray-100">Customization Info</th>
                                 <th class="py-4 border-b border-gray-100">Order Date</th>
-                                <th class="py-4 border-b border-gray-100">Needed Date</th>
+                                <th class="py-4 border-b border-gray-100 col-head-needed">Needed Date</th>
                                 <th class="py-4 border-b border-gray-100 text-center col-head-status">Status</th>
                                 <th class="py-4 border-b border-gray-100 text-center uppercase tracking-widest text-[10px] col-head-action">Action</th>
                             </tr>
