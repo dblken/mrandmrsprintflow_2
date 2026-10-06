@@ -3773,19 +3773,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return (parseFloat(item.price) || 0) > 0;
         }
 
-        /** Line total shown in cart (estimate until staff confirms final price). */
-        function posCartItemDisplayLineTotal(item) {
-            const qty = Math.max(1, parseInt(item?.qty, 10) || 1);
-            if (posCartItemStaffPricingComplete(item)) {
-                return (parseFloat(item.price) || 0) * qty;
-            }
-            const estUnit = posCartItemEstimatedUnitPrice(item);
-            if (estUnit > 0) {
-                return estUnit * qty;
-            }
-            return (parseFloat(item.price) || 0) * qty;
-        }
-
         function posCartItemEstimatedUnitPrice(item) {
             const c = item && item.customization ? item.customization : {};
             const qty = Math.max(1, parseInt(item?.qty, 10) || 1);
@@ -6675,8 +6662,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 cont.innerHTML = '';
                 cart.forEach((item, index) => {
                     const unitPrice = posCartItemEstimatedUnitPrice(item);
-                    const displayLineTotal = posCartItemDisplayLineTotal(item);
-                    currentTotal += displayLineTotal;
+                    const pricingComplete = posCartItemStaffPricingComplete(item);
+                    const countsInTotal = posCartItemCountsInCheckoutTotal(item);
+                    const confirmedLineTotal = (parseFloat(item.price) || 0) * (item.qty || 1);
+                    if (countsInTotal) {
+                        currentTotal += confirmedLineTotal;
+                    }
                     const div = document.createElement('div');
                     div.className = 'pos-cart-item';
 
@@ -6684,6 +6675,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const showEditPrice = posCartItemShowsEditPriceButton(item);
                     const isServiceLine = posCartItemRequiresSetPrice(item);
                     const materialLabel = posCartItemMaterialLabel(item);
+                    const showEstimateBesideRemove = showSetPrice && isServiceLine && unitPrice > 0 && item.price_set !== true;
+                    const estimateBesideRemoveHtml = showEstimateBesideRemove
+                        ? `<span class="pos-item-estimate-label" style="font-size:12px;font-weight:600;color:#64748b;white-space:nowrap;">Estimated Price: ${formatMoney(unitPrice)}</span>`
+                        : '';
 
                     if (item.customization && typeof item.customization === 'object') {
                         try {
@@ -6694,33 +6689,37 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const variantLabel = posCartItemVariantLabel(item);
                     let priceHtml;
                     if (showSetPrice) {
-                        const estimateLine = isServiceLine && unitPrice > 0 && item.price_set !== true
-                            ? `<div class="pos-item-price-estimate" style="font-size:12px;color:#64748b;font-weight:600;margin-bottom:4px;">Est. ${formatMoney(unitPrice)}</div>`
-                            : '';
-                        priceHtml = `${estimateLine}<button type="button" class="pos-btn-set-price" onclick="redirectToSetPrice(${index})" title="Set material and final price">
+                        priceHtml = `<button type="button" class="pos-btn-set-price" onclick="redirectToSetPrice(${index})" title="Set material and final price">
                     <i class="fas fa-tag"></i> Set Price
                   </button>`;
                     } else if (showEditPrice) {
-                        priceHtml = `<div class="pos-item-price">${formatMoney(item.price)}</div>
-                  <button type="button" class="pos-btn-set-price" style="margin-top:6px;font-size:12px;padding:4px 8px;" onclick="redirectToSetPrice(${index})" title="Edit material and final price">
+                        priceHtml = `<button type="button" class="pos-btn-set-price" style="font-size:12px;padding:4px 8px;" onclick="redirectToSetPrice(${index})" title="Edit material and final price">
                     <i class="fas fa-pen"></i> Edit Price
                   </button>`;
                     } else {
                         priceHtml = `<div class="pos-item-price">${formatMoney(item.price)}</div>`;
                     }
 
-                    const totalDisplay = showSetPrice && isServiceLine && unitPrice > 0 && item.price_set !== true
-                        ? `<span style="font-size:12px;color:#64748b;">Est. ${formatMoney(displayLineTotal)}</span>`
-                        : formatMoney(displayLineTotal);
+                    let totalDisplay;
+                    if (pricingComplete || (!isServiceLine && (parseFloat(item.price) || 0) > 0)) {
+                        totalDisplay = formatMoney(confirmedLineTotal);
+                    } else if (isServiceLine) {
+                        totalDisplay = '<span style="font-size:12px;color:#94a3b8;">—</span>';
+                    } else {
+                        totalDisplay = formatMoney(confirmedLineTotal);
+                    }
 
                     div.innerHTML = `
                 <div class="pos-cart-item-top">
                     <div class="pos-item-details">
                         <div class="pos-item-name">${escapeHtml(item.name)}${variantLabel ? `<div style="font-size:11px; color:#64748b; margin-top:2px;">${escapeHtml(variantLabel)}</div>` : ''}${materialLabel ? `<div style="font-size:11px;color:#64748b;margin-top:2px;">Material: ${escapeHtml(materialLabel)}</div>` : ''}</div>
                     </div>
-                    <button type="button" class="pos-item-remove" onclick="removeByCartIndex(${index})" title="Remove item" aria-label="Remove item">
-                        <i class="fas fa-trash-alt"></i> Remove
-                    </button>
+                    <div class="pos-cart-item-top-actions" style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+                        ${estimateBesideRemoveHtml}
+                        <button type="button" class="pos-item-remove" onclick="removeByCartIndex(${index})" title="Remove item" aria-label="Remove item">
+                            <i class="fas fa-trash-alt"></i> Remove
+                        </button>
+                    </div>
                 </div>
                 <div class="pos-cart-item-bottom">
                     <div class="pos-item-action">${priceHtml}</div>
@@ -6736,12 +6735,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 });
             }
 
-            const hasPendingServicePricing = cart.some(i => i.is_service === true && !posCartItemStaffPricingComplete(i));
             const fTotal = formatMoney(currentTotal);
-            const subtotalEl = document.getElementById('pos-subtotal');
-            const totalEl = document.getElementById('pos-total');
-            if (subtotalEl) subtotalEl.textContent = hasPendingServicePricing ? ('Est. ' + fTotal) : fTotal;
-            if (totalEl) totalEl.textContent = hasPendingServicePricing ? ('Est. ' + fTotal) : fTotal;
+            document.getElementById('pos-subtotal').textContent = fTotal;
+            document.getElementById('pos-total').textContent = fTotal;
 
             calculateChange();
             updateCheckoutState();
