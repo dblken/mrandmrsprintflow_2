@@ -3693,7 +3693,7 @@ $online_closed_count = 0;
                     <div class="pf-revision-modal-actions">
                         <button type="button" @click="closeRevisionModal()" class="pf-entry-btn pf-entry-out" style="height:38px; min-width:96px; padding:0 16px; justify-content:center; background:#fff;">Cancel</button>
                         <button type="button" @click="submitRevision()" class="pf-entry-btn pf-entry-in" style="height:38px; min-width:170px; padding:0 16px; justify-content:center; background:#10b981; border-color:#10b981; color:#fff;" :disabled="revisionSubmitting || !isRevisionFormValid()" :style="(revisionSubmitting || !isRevisionFormValid()) ? 'opacity:.55;cursor:not-allowed;' : ''">
-                            <span x-show="!revisionSubmitting">Send Revision Request</span>
+                            <span x-show="!revisionSubmitting">Send Request</span>
                             <span x-show="revisionSubmitting">Sending...</span>
                         </button>
                     </div>
