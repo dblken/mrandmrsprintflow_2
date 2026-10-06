@@ -29,7 +29,7 @@ $sortBy = strtolower(trim((string)($_GET['sort'] ?? 'newest')));
 $from = trim((string)($_GET['from'] ?? ''));
 $to = trim((string)($_GET['to'] ?? ''));
 $page = max(1, (int)($_GET['page'] ?? 1));
-$perPage = 25;
+$perPage = 10;
 
 if (!in_array($period, ['today', 'week', 'month', 'custom', 'all'], true)) {
     $period = 'today';
@@ -268,7 +268,20 @@ $paid = array_values(array_filter($transactions, fn($r) => $r['status'] === 'Pai
 $totalSales = array_sum(array_column($paid, 'amount'));
 $cashSales = array_sum(array_column(array_filter($paid, fn($r) => $r['method'] === 'Cash'), 'amount'));
 $qrSales = array_sum(array_column(array_filter($paid, fn($r) => $r['method'] === 'QR Ph'), 'amount'));
+$totalPages = max(1, (int)ceil(count($transactions) / $perPage));
+$page = min($page, $totalPages);
 $visible = array_slice($transactions, ($page - 1) * $perPage, $perPage);
+$paginationParams = array_filter([
+    'branch_id' => printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$branchId,
+    'sort' => $sortBy !== 'newest' ? $sortBy : null,
+    'period' => $period !== 'today' ? $period : null,
+    'from' => $from,
+    'to' => $to,
+    'method' => $methodFilter !== 'all' ? $methodFilter : null,
+    'source' => $sourceFilter !== 'all' ? $sourceFilter : null,
+    'status' => $statusFilter !== 'all' ? $statusFilter : null,
+    'search' => $search,
+], static fn($v) => $v !== null && $v !== '');
 $activeFilters = count(array_filter([
     $search,
     $from,
@@ -337,8 +350,6 @@ $page_title = 'Payments - PrintFlow';
 .fp-preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
 .fp-preset-btn { height: 34px; border: 1px solid #e5e7eb; border-radius: 7px; background: #fff; color: #374151; font-size: 12px; font-weight: 500; cursor: pointer; }
 .fp-preset-btn:hover, .fp-preset-btn.active { border-color: #00232b; background: #ecf8fb; color: #00232b; font-weight: 700; }
-.filter-panel-close { border: 0; background: transparent; color: #374151; cursor: pointer; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; }
-.filter-panel-close:hover { background: #f3f4f6; }
 .filter-actions { padding: 14px 18px; border-top: 1px solid #f3f4f6; }
 .filter-btn-reset { width: 100%; height: 36px; border: 1px solid #e5e7eb; background: #fff; border-radius: 8px; font-size: 13px; font-weight: 500; color: #374151; cursor: pointer; }
 .filter-btn-reset:hover { background: #f9fafb; }
@@ -461,9 +472,6 @@ $page_title = 'Payments - PrintFlow';
                         <form class="filter-panel" id="paymentFilterForm" x-show="filterOpen" x-cloak @click.outside="filterOpen = false" method="get">
                             <div class="filter-panel-header">
                                 <span>Filter</span>
-                                <button type="button" class="filter-panel-close" aria-label="Close filter" @click="filterOpen = false">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                                </button>
                             </div>
                             <input type="hidden" name="branch_id" value="<?php echo printflow_branch_value_is_all($branchId) ? 'all' : (int)$branchId; ?>">
                             <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sortBy); ?>">
@@ -583,6 +591,9 @@ $page_title = 'Payments - PrintFlow';
                         <?php endif; ?>
                     </tbody>
                 </table>
+            </div>
+            <div id="paymentsPagination">
+                <?php echo render_pagination($page, $totalPages, $paginationParams); ?>
             </div>
         </div>
     </main>

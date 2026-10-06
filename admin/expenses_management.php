@@ -33,7 +33,7 @@ $category_filter = $filters['category'];
 $status_filter = $filters['status_filter'];
 $sort_by = $filters['sort'];
 $page = max(1, (int)($_GET['page'] ?? 1));
-$per_page = 15;
+$per_page = 10;
 $expenseFilterOpen = ($_GET['filter_open'] ?? '') === '1';
 
 $activeFilterCount = count(array_filter([
@@ -304,8 +304,6 @@ function expensePrintInPlace(url) {
 .fp-preset-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
 .fp-preset-btn{height:34px;border:1px solid #e5e7eb;border-radius:7px;background:#fff;color:#374151;font-size:12px;font-weight:500;cursor:pointer}
 .fp-preset-btn:hover,.fp-preset-btn.active{border-color:#00232b;background:#ecf8fb;color:#00232b;font-weight:700}
-.filter-panel-close{border:0;background:transparent;color:#374151;cursor:pointer;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px}
-.filter-panel-close:hover{background:#f3f4f6}
 .filter-panel-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #f3f4f6;font-size:14px;font-weight:700;color:#111827}
 .btn-action{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:30px;min-height:30px;padding:0 10px;min-width:60px;border:1px solid transparent;background:transparent;border-radius:6px;font-size:12px;font-weight:500;line-height:1;cursor:pointer;white-space:nowrap;text-decoration:none;vertical-align:middle;flex-shrink:0}
 .btn-action.teal{color:#14b8a6;border-color:#14b8a6}.btn-action.teal:hover{background:#14b8a6;color:#fff}
@@ -414,9 +412,6 @@ function expensePrintInPlace(url) {
                     <div class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false">
                         <div class="filter-panel-header">
                             <span>Filter</span>
-                            <button type="button" class="filter-panel-close" aria-label="Close filter" @click="filterOpen = false">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                            </button>
                         </div>
                         <div class="filter-section">
                             <div class="filter-section-head"><span class="filter-section-label">Period</span></div>
