@@ -220,8 +220,21 @@ $online_closed_count = 0;
             color: #fff;
         }
         .pf-staff-customizations-root .kpi-row {
-            gap: 16px;
-            margin-bottom: 24px;
+            gap: 12px;
+            margin-top: 0;
+            margin-bottom: 12px !important;
+        }
+        .pf-staff-customizations-root .kpi-row .kpi-card {
+            height: auto !important;
+        }
+        .pf-staff-customizations-root > header {
+            margin-bottom: 12px !important;
+        }
+        .pf-staff-customizations-root > main {
+            padding-top: 0 !important;
+        }
+        .pf-staff-customizations-root > main > .pf-urgent-attention-banner {
+            margin-bottom: 10px !important;
         }
 
         .pf-staff-customizations-root .kpi-card--link {
@@ -265,8 +278,8 @@ $online_closed_count = 0;
             justify-content: space-between;
             gap: 12px;
             flex-wrap: wrap;
-            margin: 0 0 16px;
-            padding: 12px 16px;
+            margin: 0 0 10px;
+            padding: 10px 14px;
             border-radius: 12px;
             border: 1px solid #fdba74;
             background: linear-gradient(90deg, #fff7ed 0%, #ffedd5 100%);
@@ -342,8 +355,18 @@ $online_closed_count = 0;
         }
 
         .pf-staff-customizations-root .pf-customizations-table-card {
-            margin-top: 8px;
+            margin-top: 0 !important;
+            margin-bottom: 16px !important;
+            padding-top: 16px !important;
+            padding-bottom: 16px !important;
             container: customization-list / inline-size;
+        }
+        .pf-staff-customizations-root .pf-customizations-table-card .toolbar-container {
+            gap: 10px;
+            margin-bottom: 0;
+        }
+        .pf-staff-customizations-root .pf-customizations-table-card .toolbar-group--tabs {
+            margin-top: 0 !important;
         }
 
         .pf-custom-tabs {
@@ -358,9 +381,9 @@ $online_closed_count = 0;
             overflow-y: visible;
             scrollbar-width: none;
             -ms-overflow-style: none;
-            margin: 8px 0 12px;
-            padding-top: 6px;
-            padding-bottom: 4px;
+            margin: 4px 0 8px;
+            padding-top: 0;
+            padding-bottom: 2px;
         }
 
         .pf-custom-tabs::-webkit-scrollbar {
@@ -1420,7 +1443,11 @@ $online_closed_count = 0;
             .kpi-row {
                 grid-template-columns: repeat(2, 1fr) !important;
                 gap: 10px !important;
-                margin-bottom: 16px !important;
+                margin-bottom: 10px !important;
+            }
+            .pf-staff-customizations-root .pf-customizations-table-card {
+                padding-top: 14px !important;
+                padding-bottom: 14px !important;
             }
 
             .kpi-card {
@@ -2214,7 +2241,7 @@ $online_closed_count = 0;
     ?>
     <div class="main-content">
         <div id="staffJoCustomizationsPage" x-data="joManager('ALL')" class="pf-staff-customizations-root" @keydown.escape.window="onSvcEscape()" x-effect="document.body.classList.toggle('pf-revision-modal-open', showRevisionModal)">
-        <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
+        <header class="pf-customizations-page-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
             <div>
                 <h1 class="page-title">Custom Orders</h1>
                 <p class="page-subtitle">Track and manage custom printing jobs</p>
