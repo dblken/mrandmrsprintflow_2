@@ -818,6 +818,94 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             letter-spacing: 0.04em;
         }
 
+        /* Product catalog grid — fixed card anatomy so name/price never clip */
+        #products-view {
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .pos-products-grid {
+            gap: 16px;
+            padding: 18px 20px 24px;
+            scroll-padding: 12px;
+            grid-template-columns: repeat(auto-fill, minmax(min(100%, 158px), 1fr));
+        }
+
+        @media (min-width: 768px) {
+            .pos-products-grid {
+                grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
+            }
+        }
+
+        @media (min-width: 1200px) {
+            .pos-products-grid {
+                grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+            }
+        }
+
+        @media (min-width: 1280px) {
+            .pos-products-grid {
+                grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+            }
+        }
+
+        .pos-products-grid .pos-catalog-card {
+            min-height: 258px;
+            align-self: start;
+            max-width: 100%;
+        }
+
+        .pos-products-grid .pos-catalog-card__media {
+            aspect-ratio: 1;
+            height: 126px;
+            min-height: 126px;
+            max-height: 126px;
+            background: #f8fafc;
+        }
+
+        .pos-products-grid .pos-catalog-card__media img {
+            object-fit: contain;
+            object-position: center;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+
+        .pos-products-grid .pos-catalog-card__body {
+            flex: 0 0 auto;
+            flex-shrink: 0;
+            min-height: 96px;
+            padding: 10px 12px 14px;
+            border-top: 1px solid #eef2f6;
+            background: #ffffff;
+        }
+
+        .pos-products-grid .pos-catalog-card__meta {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 100%;
+            flex-shrink: 0;
+        }
+
+        .pos-products-grid .pos-catalog-card__name {
+            min-height: calc(2 * 1.35 * 13px);
+            line-clamp: 2;
+            flex-shrink: 0;
+        }
+
+        .pos-products-grid .pos-catalog-card__price {
+            margin-top: auto;
+            flex-shrink: 0;
+            padding-top: 6px;
+            font-size: 15px;
+            color: #0f172a;
+        }
+
+        .pos-products-grid .pos-catalog-card.is-selecting {
+            opacity: 0.88;
+            transform: scale(0.985);
+        }
+
         /* Legacy alias for JS filters */
         .pos-card.no-stock {
             opacity: 0.62;
@@ -2672,6 +2760,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 gap: 10px !important;
             }
 
+            .pos-products-grid .pos-catalog-card {
+                min-height: 236px;
+            }
+
+            .pos-products-grid .pos-catalog-card__media {
+                height: 108px;
+                min-height: 108px;
+                max-height: 108px;
+            }
+
+            .pos-products-grid .pos-catalog-card__body {
+                min-height: 88px;
+            }
+
             .pos-cart-area {
                 width: 100%;
                 max-width: none;
@@ -2877,7 +2979,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         </div>
 
                         <!-- Products View -->
-                        <div id="products-view" style="display: none; height: 100%; flex-direction: column;">
+                        <div id="products-view" style="display: none; height: 100%; min-height: 0; flex-direction: column; overflow: hidden;">
                             <div class="pos-search-header">
                                 <div class="pos-toolbar-field pos-toolbar-search" style="grid-column: 1 / span 2;">
                                     <div class="pos-search-box">
@@ -5414,7 +5516,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                 const card = document.createElement('button');
                 card.type = 'button';
-                card.className = `pos-catalog-card pos-card ${outOfStock ? 'no-stock' : ''}`;
+                card.className = `pos-catalog-card pos-product-card pos-card ${outOfStock ? 'no-stock' : ''}`;
+                const nameForTitle = String(p.product_name || 'Unnamed Product');
+                card.title = nameForTitle;
                 if (!outOfStock) {
                     card.onclick = async () => {
                         card.classList.add('is-selecting');
@@ -5444,8 +5548,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             </div>
             <div class="pos-catalog-card__body">
                 <span class="pos-catalog-card__meta">${category}</span>
-                <p class="pos-catalog-card__name">${productName}</p>
-                <div class="pos-catalog-card__price">${priceFormatted}</div>
+                <p class="pos-catalog-card__name" title="${productName}">${productName}</p>
+                <div class="pos-catalog-card__price" aria-label="Price">${priceFormatted}</div>
             </div>
         `;
                 grid.appendChild(card);
