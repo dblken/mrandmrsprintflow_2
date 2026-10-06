@@ -828,24 +828,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             gap: 16px;
             padding: 18px 20px 24px;
             scroll-padding: 12px;
-            grid-template-columns: repeat(auto-fill, minmax(min(100%, 158px), 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
-        @media (min-width: 768px) {
+        @media (min-width: 769px) {
             .pos-products-grid {
-                grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
-            }
-        }
-
-        @media (min-width: 1200px) {
-            .pos-products-grid {
-                grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
-            }
-        }
-
-        @media (min-width: 1280px) {
-            .pos-products-grid {
-                grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+                grid-template-columns: repeat(4, minmax(0, 1fr));
             }
         }
 
