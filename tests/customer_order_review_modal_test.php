@@ -22,6 +22,8 @@ $assert(strpos($rateOrderInclude, 'customer_review_prompt_dismissals') !== false
 $assert(strpos($api, "action !== 'dismiss'") !== false, 'Review prompt API supports permanent dismiss.');
 $assert(strpos($notifJs, 'completionByOrder') !== false, 'Notification poll merges completion notices per order.');
 $assert(strpos($reviewJs, 'persistDismiss') !== false, 'Review modal skip persists through API.');
+$assert(strpos($rateOrderInclude, 'VALUES ({$placeholders}, NOW())') === false, 'Review insert no longer appends an extra NOW() placeholder.');
+$assert(strpos($reviewJs, 'setModalOpenState') !== false, 'Review modal toggles aria-hidden when opening and closing.');
 $assert(strpos($reviewJs, 'Your feedback has been submitted successfully.') !== false, 'Review success toast uses required message.');
 
 if ($failures !== []) {

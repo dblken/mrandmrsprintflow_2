@@ -285,20 +285,19 @@ function customer_rate_order_handle_post(int $order_id, int $customer_id, array 
         }
 
         if ($needs_message_update) {
-            $update_cols = "rating = ?, {$review_message_col} = ?";
+            $update_sets = "rating = ?, {$review_message_col} = ?";
             $update_types = 'is';
             $update_vals = [$rating, $message];
             if ($review_has_video) {
-                $update_cols .= ', video_path = COALESCE(?, video_path)';
+                $update_sets .= ', video_path = COALESCE(?, video_path)';
                 $update_types .= 's';
                 $update_vals[] = $video_path;
             }
-            $update_cols .= ' WHERE id = ?';
             $update_types .= 'i';
             $update_vals[] = $review_id;
 
             $updated = db_execute(
-                "UPDATE reviews SET {$update_cols}",
+                "UPDATE reviews SET {$update_sets} WHERE id = ?",
                 $update_types,
                 $update_vals
             );
@@ -334,7 +333,7 @@ function customer_rate_order_handle_post(int $order_id, int $customer_id, array 
 
             $placeholders = implode(',', array_fill(0, count($cols), '?'));
             $insert_result = db_execute(
-                'INSERT INTO reviews (' . implode(', ', $cols) . ") VALUES ({$placeholders}, NOW())",
+                'INSERT INTO reviews (' . implode(', ', $cols) . ') VALUES (' . $placeholders . ')',
                 $types,
                 $vals
             );

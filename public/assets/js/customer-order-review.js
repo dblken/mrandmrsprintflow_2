@@ -9,8 +9,65 @@
     let modalOpen = false;
     let activeOrderId = 0;
     let formBoundRoot = null;
+    let lastFocusBeforeModal = null;
+    let reviewSubmitInFlight = false;
     const promptedThisSession = new Set();
     const dismissCache = new Map();
+
+    function rememberFocus(fallbackEl) {
+        const candidate = fallbackEl || document.activeElement;
+        if (candidate && typeof candidate.focus === 'function' && candidate !== document.body) {
+            lastFocusBeforeModal = candidate;
+        }
+    }
+
+    function restoreFocus() {
+        const target = lastFocusBeforeModal;
+        lastFocusBeforeModal = null;
+        if (target && typeof target.focus === 'function' && document.contains(target)) {
+            try {
+                target.focus({ preventScroll: true });
+            } catch (e) {
+                target.focus();
+            }
+        }
+    }
+
+    function focusFirstInModal(modalEl, root) {
+        const scope = root || modalEl;
+        if (!scope) return;
+        const preferred = scope.querySelector('.pf-rate-star, .pf-rate-message, #completedReviewSkipBtn, #completedReviewRateBtn, button, [href], input, textarea, select');
+        if (preferred && typeof preferred.focus === 'function') {
+            preferred.focus({ preventScroll: true });
+        }
+    }
+
+    function setModalOpenState(modalEl, isOpen, options) {
+        options = options || {};
+        if (!modalEl) return;
+        const dialog = modalEl.querySelector('[role="dialog"]');
+
+        if (isOpen) {
+            modalEl.classList.add('open');
+            modalEl.setAttribute('aria-hidden', 'false');
+            if (dialog) {
+                dialog.setAttribute('aria-modal', 'true');
+            }
+            requestAnimationFrame(function () {
+                focusFirstInModal(modalEl, options.focusRoot || dialog);
+            });
+            return;
+        }
+
+        if (document.activeElement && modalEl.contains(document.activeElement) && typeof document.activeElement.blur === 'function') {
+            document.activeElement.blur();
+        }
+        modalEl.classList.remove('open');
+        modalEl.setAttribute('aria-hidden', 'true');
+        if (!options.skipRestoreFocus) {
+            restoreFocus();
+        }
+    }
 
     function notify(message, isError) {
         if (typeof window.showToast === 'function') {
@@ -63,17 +120,18 @@
 
     function closeCompletedModal() {
         const el = completedModal();
-        if (el) el.classList.remove('open');
+        setModalOpenState(el, false);
         modalOpen = false;
         activeOrderId = 0;
     }
 
-    function closeReviewModal() {
+    function closeReviewModal(options) {
         const el = reviewModal();
-        if (el) el.classList.remove('open');
+        setModalOpenState(el, false, options || {});
         const mount = document.getElementById('orderReviewFormMount');
         if (mount) mount.innerHTML = '';
         formBoundRoot = null;
+        reviewSubmitInFlight = false;
     }
 
     async function fetchPromptStatus(orderId) {
@@ -164,13 +222,14 @@
         }
 
         el.dataset.orderId = String(orderId);
-        el.classList.add('open');
+        setModalOpenState(el, true, { focusRoot: el.querySelector('.pf-review-dialog') });
     }
 
-    async function openReviewForm(orderId) {
+    async function openReviewForm(orderId, triggerEl) {
         orderId = parseInt(orderId, 10) || 0;
         if (!orderId) return;
 
+        rememberFocus(triggerEl);
         closeCompletedModal();
 
         const el = reviewModal();
@@ -178,7 +237,7 @@
         if (!el || !mount) return;
 
         mount.innerHTML = '<div class="flex flex-col items-center justify-center py-10"><div class="w-8 h-8 border-4 border-slate-200 border-t-teal-400 rounded-full animate-spin"></div><p class="mt-3 text-slate-500 text-sm font-semibold">Loading review form...</p></div>';
-        el.classList.add('open');
+        setModalOpenState(el, true, { focusRoot: el.querySelector('.pf-review-dialog') });
 
         try {
             const res = await fetch(baseUrl + '/customer/rate_order.php?order_id=' + encodeURIComponent(orderId) + '&fragment=1', {
@@ -191,9 +250,12 @@
             }
             const html = await res.text();
             mount.innerHTML = '<div class="pf-rate-surface">' + html + '</div>';
-            bindReviewForm(mount.querySelector('.pf-rate-form-root'));
+            const root = mount.querySelector('.pf-rate-form-root');
+            bindReviewForm(root);
+            focusFirstInModal(el, root);
         } catch (err) {
-            mount.innerHTML = '<div class="rate-error">' + String(err.message || err) + '</div>';
+            mount.innerHTML = '<div class="rate-error" role="alert">' + String(err.message || err) + '</div>';
+            focusFirstInModal(el, mount);
         }
     }
 
@@ -310,6 +372,7 @@
 
         if (cancelBtn) {
             cancelBtn.addEventListener('click', function () {
+                rememberFocus(cancelBtn);
                 closeReviewModal();
             });
         }
@@ -317,6 +380,9 @@
         if (form) {
             form.addEventListener('submit', async function (event) {
                 event.preventDefault();
+                if (reviewSubmitInFlight) {
+                    return;
+                }
                 const rating = Number(ratingInput && ratingInput.value ? ratingInput.value : 0);
                 if (rating < 1 || rating > 5) {
                     notify('Please select a star rating.', true);
@@ -332,6 +398,7 @@
                     submitBtn.disabled = true;
                     submitBtn.textContent = 'Submitting...';
                 }
+                reviewSubmitInFlight = true;
 
                 const fd = new FormData(form);
                 fd.set('ajax', '1');
@@ -343,17 +410,27 @@
                         throw new Error(data.error || 'Could not submit your review.');
                     }
                     notify(data.message || 'Your feedback has been submitted successfully.', false);
-                    closeReviewModal();
                     dismissCache.set(orderIdFromRoot(root), { success: true, can_prompt: false, dismissed: false });
+                    closeReviewModal({ skipRestoreFocus: false });
                     if (typeof window.refreshOrdersList === 'function') {
                         window.refreshOrdersList();
                     }
                 } catch (err) {
                     notify(String(err.message || err), true);
+                    let inlineError = root.querySelector('.pf-rate-inline-error');
+                    if (!inlineError) {
+                        inlineError = document.createElement('div');
+                        inlineError.className = 'rate-error pf-rate-inline-error';
+                        inlineError.setAttribute('role', 'alert');
+                        form.insertBefore(inlineError, form.firstChild);
+                    }
+                    inlineError.textContent = String(err.message || err);
                     if (submitBtn) {
                         submitBtn.disabled = false;
                         submitBtn.textContent = 'Submit Review';
                     }
+                } finally {
+                    reviewSubmitInFlight = false;
                 }
             });
         }
@@ -373,6 +450,7 @@
             const rateBtn = document.getElementById('completedReviewRateBtn');
             if (skipBtn) {
                 skipBtn.addEventListener('click', async function () {
+                    rememberFocus(skipBtn);
                     const orderId = parseInt(completed.dataset.orderId || activeOrderId || '0', 10);
                     await persistDismiss(orderId);
                     closeCompletedModal();
@@ -381,7 +459,7 @@
             if (rateBtn) {
                 rateBtn.addEventListener('click', function () {
                     const orderId = parseInt(completed.dataset.orderId || activeOrderId || '0', 10);
-                    openReviewForm(orderId);
+                    openReviewForm(orderId, rateBtn);
                 });
             }
         }
@@ -392,7 +470,12 @@
                 if (e.target === review) closeReviewModal();
             });
             const closeBtn = document.getElementById('orderReviewCloseBtn');
-            if (closeBtn) closeBtn.addEventListener('click', closeReviewModal);
+            if (closeBtn) {
+                closeBtn.addEventListener('click', function () {
+                    rememberFocus(closeBtn);
+                    closeReviewModal();
+                });
+            }
         }
 
         document.addEventListener('click', function (e) {
@@ -401,7 +484,7 @@
             e.preventDefault();
             const orderId = parseInt(trigger.getAttribute('data-pf-open-review') || '0', 10);
             if (!orderId) return;
-            openReviewForm(orderId);
+            openReviewForm(orderId, trigger);
         });
     }
 
