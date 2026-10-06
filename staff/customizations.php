@@ -1042,12 +1042,14 @@ $online_closed_count = 0;
         }
         .status-badge-pill {
             display: inline-flex;
-            width: max-content;
+            width: fit-content;
             min-width: 0;
             max-width: 100%;
             box-sizing: border-box;
             flex: 0 1 auto;
-            white-space: nowrap;
+            white-space: normal;
+            text-align: center;
+            overflow-wrap: anywhere;
         }
         .pf-pill {
             display: inline-flex;
@@ -1923,7 +1925,8 @@ $online_closed_count = 0;
                 width: auto;
                 max-width: 100%;
                 min-width: 92px;
-                white-space: nowrap;
+                white-space: normal;
+                text-align: center;
             }
             .customization-mobile-card__footer {
                 width: 100%;
