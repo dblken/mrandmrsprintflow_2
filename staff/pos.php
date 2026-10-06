@@ -6735,6 +6735,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             // Block checkout if any item has no valid price
             const hasUnpricedItem = cart.some(i => (parseFloat(i.price) || 0) <= 0);
+            if (hasUnpricedItem) {
                 canCheckout = false;
                 message = 'Set Price First';
                 icon.className = 'fas fa-lock';
