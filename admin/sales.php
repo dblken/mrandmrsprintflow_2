@@ -427,8 +427,6 @@ function salesPrintInPlace(url) {
 .sales-breakdown-empty { min-height:110px; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:13px; border:1px dashed #d1d5db; border-radius:10px; background:#fff; text-align:center; }
 .filter-panel { position:absolute; top:calc(100% + 6px); right:0; width:320px; max-height:min(560px,calc(100vh - 120px)); overflow-y:auto; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; }
 .filter-panel-header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid #f3f4f6; font-size:14px; font-weight:700; color:#111827; }
-.filter-panel-close { border:0; background:transparent; color:#374151; cursor:pointer; width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center; border-radius:8px; }
-.filter-panel-close:hover { background:#f3f4f6; }
 .filter-section { padding:14px 18px; border-bottom:1px solid #f3f4f6; }
 .filter-section-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
 .filter-section-label { font-size:13px; font-weight:600; color:#374151; }
@@ -484,9 +482,6 @@ function salesPrintInPlace(url) {
                         <div class="filter-panel" id="salesFilterPanel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false">
                             <div class="filter-panel-header">
                                 <span>Filter</span>
-                                <button type="button" class="filter-panel-close" id="salesFilterClose" aria-label="Close filter" @click="filterOpen = false">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                                </button>
                             </div>
                             <form method="GET" id="salesFilterForm">
                                 <input type="hidden" name="branch_id" value="<?php echo htmlspecialchars($salesBranchParam); ?>">
