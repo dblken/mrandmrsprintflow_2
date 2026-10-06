@@ -12,6 +12,7 @@ require_once __DIR__ . '/../includes/payment_verification.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/change_item_workflow.php';
+require_once __DIR__ . '/../includes/pos_customer_helpers.php';
 
 header('Content-Type: application/json');
 
@@ -49,6 +50,7 @@ if (empty($order_row)) {
 }
 
 $o = $order_row[0];
+$o['customer_full_name'] = printflow_pos_order_customer_display_name($o);
 $resolvedOrderSource = strtolower(trim((string)($o['order_source'] ?? 'customer')));
 $isPosSource = in_array($resolvedOrderSource, ['pos', 'walk-in'], true);
 if (get_user_type() === 'Staff') {

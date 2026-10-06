@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/customer_id_verification.php';
+require_once __DIR__ . '/../includes/pos_customer_helpers.php';
 
 require_role(['Admin', 'Manager']);
 // Ensure $base_path is defined
@@ -86,7 +87,7 @@ $per_page = 10;
 [$custBranchSql, $custBranchTypes, $custBranchParams] = ($viewerBranch)
     ? branch_customers_belong_where_sql((int)$viewerBranch, 'customers')
     : ['', '', []];
-$sql = "SELECT * FROM customers WHERE 1=1" . $custBranchSql;
+$sql = "SELECT * FROM customers WHERE 1=1" . printflow_pos_sql_exclude_placeholder_customers('customers') . $custBranchSql;
 $params = $custBranchParams;
 $types = $custBranchTypes;
 
@@ -236,7 +237,13 @@ if ($viewerBranch) {
     [$w, $t, $p] = branch_customers_belong_where_sql($bid, 'c');
 
     // 1. Total Customers (branch-scoped)
-    $total_customers = (int)(db_query("SELECT COUNT(*) as count FROM customers c WHERE 1=1" . $w, $t, $p)[0]['count'] ?? 0);
+    $total_customers = (int)(db_query(
+        "SELECT COUNT(*) as count FROM customers c WHERE 1=1"
+        . printflow_pos_sql_exclude_placeholder_customers('c')
+        . $w,
+        $t,
+        $p
+    )[0]['count'] ?? 0);
 
     // 2. Returning Customers (branch-scoped)
     $new_this_month = (int)(db_query("
@@ -283,10 +290,14 @@ if ($viewerBranch) {
     ", 'ii', [$bid, $bid])[0]['total'] ?? 0);
 } else {
     // 1. Total Customers
-    $total_customers = (int)(db_query("SELECT COUNT(*) as count FROM customers")[0]['count'] ?? 0);
+    $placeholderExclude = printflow_pos_sql_exclude_placeholder_customers('customers');
+    $total_customers = (int)(db_query("SELECT COUNT(*) as count FROM customers WHERE 1=1" . $placeholderExclude)[0]['count'] ?? 0);
 
     // 2. New This Month
-    $new_this_month = (int)(db_query("SELECT COUNT(*) as count FROM customers WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())")[0]['count'] ?? 0);
+    $new_this_month = (int)(db_query(
+        "SELECT COUNT(*) as count FROM customers WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())"
+        . $placeholderExclude
+    )[0]['count'] ?? 0);
 
     // 3. Active (Last 30 Days)
     $active_30_days = (int)(db_query("

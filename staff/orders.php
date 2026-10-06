@@ -13,6 +13,9 @@ require_once __DIR__ . '/../includes/staff_order_status_buckets.php';
 require_role('Staff');
 printflow_require_staff_module('orders');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
+require_once __DIR__ . '/../includes/pos_customer_helpers.php';
+
+printflow_pos_ensure_orders_guest_display_name_column();
 
 $branch_ctx    = init_branch_context(false);
 $staffBranchId = (int)$branch_ctx['selected_branch_id'];
@@ -368,7 +371,11 @@ if ($customer_filter !== '') {
     $types .= 'ssss';
 }
 
-$sql = "SELECT o.*, COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), 'Walk-in Customer (Guest)') as customer_name,
+$sql = "SELECT o.*, COALESCE(
+            NULLIF(TRIM(o.pos_guest_display_name), ''),
+            NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
+            'Walk-in Customer (Guest)'
+        ) as customer_name,
         (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id) as order_sku,
         (SELECT GROUP_CONCAT(COALESCE(p.name, 'Custom Product') SEPARATOR ', ') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id) as item_names,
         (SELECT oi.customization_data FROM order_items oi WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1) as first_item_customization

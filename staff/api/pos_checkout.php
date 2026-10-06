@@ -16,6 +16,7 @@ require_once __DIR__ . '/../../includes/pos_receipt.php';
 require_once __DIR__ . '/../../includes/pos_receipt_printer.php';
 require_once __DIR__ . '/../../includes/pos_draft_lifecycle.php';
 require_once __DIR__ . '/../../includes/service_order_helper.php';
+require_once __DIR__ . '/../../includes/pos_customer_helpers.php';
 
 function pos_payload_item_is_service(array $item): bool {
     if (!empty($item['is_service'])) {
@@ -73,99 +74,18 @@ function pos_is_shared_walkin_placeholder_email(string $email): bool {
     return strtolower(trim($email)) === 'walkin@pos.local';
 }
 
-/** @return array{first:string,last:string} */
-function pos_parse_guest_display_name(string $raw): array {
-    $name = preg_replace('/\s+/u', ' ', trim($raw)) ?? trim($raw);
-    if ($name === '') {
-        return ['first' => '', 'last' => ''];
-    }
-    $parts = preg_split('/\s+/u', $name, 2) ?: [];
-    return [
-        'first' => trim((string)($parts[0] ?? '')),
-        'last' => trim((string)($parts[1] ?? '')),
-    ];
-}
-
-function pos_create_name_only_pos_customer(string $displayName): int {
-    global $conn;
-
-    $parsed = pos_parse_guest_display_name($displayName);
-    if ($parsed['first'] === '') {
-        throw new RuntimeException('Please enter the walk-in customer\'s name.', 400);
-    }
-    $lastName = $parsed['last'] !== '' ? $parsed['last'] : '-';
-    $email = 'pos.guest.' . bin2hex(random_bytes(8)) . '@pos.local';
-    $passwordHash = password_hash(bin2hex(random_bytes(16)), PASSWORD_BCRYPT);
-
-    if (function_exists('printflow_ensure_customers_auth_provider_column')) {
-        printflow_ensure_customers_auth_provider_column();
-    }
-
-    $insertOk = printflow_run_guarded_account_insert(function () use ($parsed, $lastName, $email, $passwordHash) {
-        return db_execute(
-            "INSERT INTO customers (first_name, last_name, email, contact_number, password_hash, status, auth_provider, created_by_system, created_at)
-             VALUES (?, ?, ?, '', ?, 'Activated', 'local', 1, NOW())",
-            'ssss',
-            [$parsed['first'], $lastName, $email, $passwordHash]
-        );
-    });
-
-    if (!$insertOk) {
-        $logDetail = '';
-        if (!empty($GLOBALS['printflow_db_errors']) && is_array($GLOBALS['printflow_db_errors'])) {
-            $lastDbErr = end($GLOBALS['printflow_db_errors']);
-            if (is_array($lastDbErr)) {
-                $stage = trim((string)($lastDbErr['stage'] ?? ''));
-                $errText = trim((string)($lastDbErr['error'] ?? ''));
-                $logDetail = $stage !== '' ? ($stage . ': ' . $errText) : $errText;
-            }
-        }
-        if ($logDetail === '' && $conn instanceof mysqli && $conn->error) {
-            $logDetail = trim((string)$conn->error);
-        }
-        error_log('[pos_checkout] name-only guest insert failed: ' . ($logDetail !== '' ? $logDetail : 'db_execute returned false'));
-        throw new RuntimeException('Could not save the walk-in customer name.', 500);
-    }
-
-    $customerId = is_numeric($insertOk) ? (int)$insertOk : (int)($conn->insert_id ?? 0);
-    if ($customerId <= 0) {
-        throw new RuntimeException('Could not save the walk-in customer name.', 500);
-    }
-
-    return $customerId;
-}
-
 function pos_resolve_checkout_customer_id(array $data): int {
-    $rawCustomer = $data['customer_id'] ?? null;
-    if ($rawCustomer !== null && $rawCustomer !== '' && $rawCustomer !== 'guest') {
-        $customerId = (int)$rawCustomer;
-        if ($customerId <= 0) {
-            throw new RuntimeException('Please select a valid customer.', 400);
-        }
-        $rows = db_query(
-            'SELECT customer_id FROM customers WHERE customer_id = ? LIMIT 1',
-            'i',
-            [$customerId]
-        ) ?: [];
-        if ($rows === []) {
-            throw new RuntimeException('The selected customer could not be found.', 400);
-        }
-        return $customerId;
+    return printflow_pos_resolve_checkout_customer_context($data)['customer_id'];
+}
+
+function pos_checkout_guest_display_name_insert_sql(?string $guestDisplayName): array {
+    printflow_pos_ensure_orders_guest_display_name_column();
+    $guestDisplayName = printflow_pos_sanitize_guest_display_name($guestDisplayName ?? '');
+    if ($guestDisplayName === '' || !pos_table_has_column('orders', 'pos_guest_display_name')) {
+        return ['', '', [], ''];
     }
 
-    $guestName = trim((string)($data['guest_display_name'] ?? ''));
-    if ($guestName === '') {
-        throw new RuntimeException('Please enter the walk-in customer\'s name.', 400);
-    }
-    if (function_exists('mb_strlen')) {
-        if (mb_strlen($guestName) > 120) {
-            throw new RuntimeException('Customer name is too long.', 400);
-        }
-    } elseif (strlen($guestName) > 120) {
-        throw new RuntimeException('Customer name is too long.', 400);
-    }
-
-    return pos_create_name_only_pos_customer($guestName);
+    return [', pos_guest_display_name', ', ?', [$guestDisplayName], 's'];
 }
 
 function pos_prepare_order_for_paymongo_checkout(
@@ -1246,7 +1166,9 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
     $transaction_open = false;
 
     try {
-        $customer_id = pos_resolve_checkout_customer_id($data);
+        $checkoutCustomer = printflow_pos_resolve_checkout_customer_context($data);
+        $customer_id = $checkoutCustomer['customer_id'];
+        $posGuestDisplayName = $checkoutCustomer['pos_guest_display_name'];
     } catch (RuntimeException $customerError) {
         $code = (int)$customerError->getCode();
         if ($code >= 400 && $code < 600) {
@@ -1286,11 +1208,12 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
 
         // Create a hidden draft POS order so customizations still satisfies table
         // constraints, but keep it out of normal staff lists until checkout finalizes.
+        [$guestCol, $guestVal, $guestParams, $guestTypes] = pos_checkout_guest_display_name_insert_sql($posGuestDisplayName);
         $order_result = db_execute(
-            "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, order_date, updated_at, order_type, order_source)
-             VALUES (?, ?, ?, 0, 'Draft', 'Unpaid', 'Cash', NOW(), NOW(), 'custom', 'pos_draft')",
-            'iii',
-            [$customer_id, $branch_id, $product_id]
+            "INSERT INTO orders (customer_id{$guestCol}, branch_id, reference_id, total_amount, status, payment_status, payment_method, order_date, updated_at, order_type, order_source)
+             VALUES (?{$guestVal}, ?, ?, 0, 'Draft', 'Unpaid', 'Cash', NOW(), NOW(), 'custom', 'pos_draft')",
+            'i' . $guestTypes . 'iii',
+            array_merge([$customer_id], $guestParams, [$branch_id, $product_id])
         );
         if (!$order_result) {
             $conn->rollback();
@@ -1509,7 +1432,9 @@ if ($isPayMongo && !empty($sessionContext['pos_paymongo_checkouts'][$checkoutTok
 }
 
 try {
-    $customer_id = pos_resolve_checkout_customer_id($data);
+    $checkoutCustomer = printflow_pos_resolve_checkout_customer_context($data);
+    $customer_id = $checkoutCustomer['customer_id'];
+    $posGuestDisplayName = $checkoutCustomer['pos_guest_display_name'];
 } catch (RuntimeException $customerError) {
     $code = (int)$customerError->getCode();
     if ($code >= 400 && $code < 600) {
@@ -1684,12 +1609,15 @@ try {
             $priceFinalParams[] = $checkoutStaffId;
         }
 
+        [$guestCol, $guestVal, $guestParams, $guestTypes] = pos_checkout_guest_display_name_insert_sql($posGuestDisplayName);
         $order_result = db_execute(
-            "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source{$amountPaidColumns}{$priceFinalColumns})
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",
-            'iiidssssss' . $amountPaidTypes . $priceFinalTypes,
+            "INSERT INTO orders (customer_id{$guestCol}, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source{$amountPaidColumns}{$priceFinalColumns})
+             VALUES (?{$guestVal}, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",
+            'i' . $guestTypes . 'iiidssssss' . $amountPaidTypes . $priceFinalTypes,
             array_merge(
-                [$customer_id, $branch_id, $reference_id, $groupTotal, $order_status, $initial_payment_status, $payment_method, $posBundleReference, $selectedTransactionAt, $order_type],
+                [$customer_id],
+                $guestParams,
+                [$branch_id, $reference_id, $groupTotal, $order_status, $initial_payment_status, $payment_method, $posBundleReference, $selectedTransactionAt, $order_type],
                 $amountPaidParams,
                 $priceFinalParams
             )

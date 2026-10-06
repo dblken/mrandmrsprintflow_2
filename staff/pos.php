@@ -7297,17 +7297,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const email = document.getElementById('nc-email').value.trim();
             const phone = document.getElementById('nc-phone').value.trim();
 
-            // Validation
-            if (!first) {
-                await showPOSAlert('Missing Info', 'First name is required.', 'warning');
-                document.getElementById('nc-first').focus();
-                return;
-            }
-            if (!last) {
-                await showPOSAlert('Missing Info', 'Last name is required.', 'warning');
-                document.getElementById('nc-last').focus();
-                return;
-            }
             if (!email) {
                 await showPOSAlert('Missing Info', 'Email address is required.', 'warning');
                 document.getElementById('nc-email').focus();
@@ -7365,15 +7354,28 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     throw new Error(raw && raw.trim() ? raw.trim().slice(0, 240) : 'Invalid server response.');
                 }
                 if (data.success) {
+                    const linkedExisting = !!data.linked_existing;
+                    const resolvedFirst = (data.first_name || first || '').trim();
+                    const resolvedLast = (data.last_name || last || '').trim();
                     const sel = $('#pos-customer');
-                    const opt = $('<option></option>')
-                        .attr('value', data.customer_id)
-                        .attr('data-first', first)
-                        .attr('data-last', last)
-                        .attr('data-email', email)
-                        .attr('data-phone', phone);
-                    opt.text(first + ' ' + last + ' - ' + email);
-                    sel.append(opt);
+                    const existingOpt = sel.find('option[value="' + String(data.customer_id) + '"]');
+                    if (existingOpt.length) {
+                        existingOpt
+                            .attr('data-first', resolvedFirst)
+                            .attr('data-last', resolvedLast)
+                            .attr('data-email', email)
+                            .attr('data-phone', phone);
+                    } else {
+                        const opt = $('<option></option>')
+                            .attr('value', data.customer_id)
+                            .attr('data-first', resolvedFirst)
+                            .attr('data-last', resolvedLast)
+                            .attr('data-email', email)
+                            .attr('data-phone', phone);
+                        const labelName = (resolvedFirst + ' ' + resolvedLast).trim() || email;
+                        opt.text(labelName + ' - ' + email);
+                        sel.append(opt);
+                    }
                     sel.val(String(data.customer_id)).trigger('change');
                     closeCustomerModal();
 
@@ -7383,8 +7385,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     document.getElementById('nc-phone').value = '';
 
                     const msg = data.message
-                        || `Customer created successfully!\n\nA password setup email will be sent to ${email}.\nThe customer can use this email to create their account password.`;
-                    successAlert = { title: 'Customer Created', message: msg, type: 'success' };
+                        || (linkedExisting
+                            ? 'The existing customer account was selected for this order.'
+                            : `Customer created successfully!\n\nA password setup email will be sent to ${email}.\nThe customer can use this email to create their account password.`);
+                    successAlert = {
+                        title: linkedExisting ? 'Customer Linked' : 'Customer Created',
+                        message: msg,
+                        type: 'success'
+                    };
                     console.log('[POS] saveCustomer: success', data.customer_id);
                 } else {
                     errorAlert = {
