@@ -86,8 +86,28 @@ function pos_cart_custom_value(array $customization, string $key, ?string $label
     if ($key === 'branch') {
         $candidates[] = 'branch_id';
     }
-    if ($key === 'design_file') {
-        array_push($candidates, 'design_upload_path', 'design_upload_name', 'design_upload', 'Upload Design', 'Design', 'design_file_link', 'design_link', 'Upload Design Link', 'Design Link');
+    $keyBlob = strtolower(trim($key . ' ' . (string)$label));
+    $isDesignUploadKey = in_array(strtolower(trim($key)), ['design_file', 'upload_design', 'design_upload', 'upload_design_file'], true)
+        || (str_contains($keyBlob, 'design') && str_contains($keyBlob, 'upload'))
+        || str_contains($keyBlob, 'upload design');
+    if ($key === 'design_file' || $isDesignUploadKey) {
+        array_push(
+            $candidates,
+            'design_file',
+            'upload_design',
+            'design_upload',
+            'design_upload_path',
+            'design_upload_name',
+            'design_upload',
+            'Upload Design',
+            'Design',
+            'design_file_link',
+            'design_link',
+            'Upload Design Link',
+            'Design Link',
+            $key . '_link',
+            ($label !== null && $label !== '' ? $label . ' Link' : '')
+        );
     }
 
     foreach ($candidates as $candidate) {
@@ -147,7 +167,7 @@ function pos_cart_validate_nested_required(array $fieldConfig, array $customizat
             continue;
         }
         $optionValue = trim((string)($option['value'] ?? ''));
-        if ($optionValue === '' || strcasecmp($optionValue, $selected) !== 0) {
+        if ($optionValue === '' || !printflow_service_option_values_match($selected, $optionValue)) {
             continue;
         }
         foreach (($option['nested_fields'] ?? []) as $nestedIndex => $nestedField) {

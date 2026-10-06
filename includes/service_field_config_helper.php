@@ -308,6 +308,67 @@ function printflow_service_field_build_conditional_rules(string $targetFieldKey,
     return $rules;
 }
 
+/**
+ * @return list<string> File field keys that accept a customer/staff design upload.
+ */
+function printflow_service_field_design_upload_field_keys(array $allConfigs): array
+{
+    $keys = [];
+    foreach ($allConfigs as $fieldKey => $config) {
+        if (!is_string($fieldKey) || $fieldKey === '' || !is_array($config)) {
+            continue;
+        }
+        if (strtolower(trim((string)($config['type'] ?? ''))) !== 'file') {
+            continue;
+        }
+        $blob = strtolower($fieldKey . ' ' . trim((string)($config['label'] ?? '')));
+        if (str_contains($blob, 'design') || (str_contains($blob, 'upload') && !str_contains($blob, 'reference'))) {
+            $keys[] = $fieldKey;
+        }
+    }
+
+    return $keys;
+}
+
+/**
+ * Option disable_field targets may use a different key than the configured upload field (e.g. upload_design vs design_file).
+ */
+function printflow_service_field_conditional_target_matches_field(string $targetKey, string $fieldKey, array $allConfigs): bool
+{
+    $targetKey = trim($targetKey);
+    $fieldKey = trim($fieldKey);
+    if ($targetKey === '' || $fieldKey === '') {
+        return false;
+    }
+    if (strcasecmp($targetKey, $fieldKey) === 0) {
+        return true;
+    }
+
+    $fieldCfg = $allConfigs[$fieldKey] ?? null;
+    if (!is_array($fieldCfg) || strtolower(trim((string)($fieldCfg['type'] ?? ''))) !== 'file') {
+        return false;
+    }
+
+    $designKeys = printflow_service_field_design_upload_field_keys($allConfigs);
+    if ($designKeys === [] || !in_array($fieldKey, $designKeys, true)) {
+        return false;
+    }
+
+    if (in_array($targetKey, $designKeys, true)) {
+        return true;
+    }
+
+    $knownAliases = ['upload_design', 'design_file', 'design_upload', 'upload_design_file', 'design_upload_file'];
+    $targetNorm = strtolower($targetKey);
+    $fieldNorm = strtolower($fieldKey);
+    if (in_array($targetNorm, $knownAliases, true) && in_array($fieldNorm, $knownAliases, true)) {
+        return true;
+    }
+
+    return str_contains($targetNorm, 'design')
+        || (str_contains($targetNorm, 'upload') && !str_contains($targetNorm, 'reference'));
+}
+
 function printflow_service_field_hidden_by_option_rules(string $targetFieldKey, array $allConfigs, array $values): bool
 {
     foreach ($allConfigs as $sourceKey => $sourceCfg) {
@@ -331,7 +392,7 @@ function printflow_service_field_hidden_by_option_rules(string $targetFieldKey, 
                 continue;
             }
             $targetKey = trim((string)($rule['target_field_key'] ?? ''));
-            if ($targetKey === '' || $targetKey !== $targetFieldKey) {
+            if ($targetKey === '' || !printflow_service_field_conditional_target_matches_field($targetKey, $targetFieldKey, $allConfigs)) {
                 continue;
             }
             $optVal = trim((string)($option['value'] ?? ''));

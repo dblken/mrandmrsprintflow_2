@@ -3564,6 +3564,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return ['id' => (int) $b['id'], 'name' => $b['branch_name']];
         }, $branches ?: [])); ?>;
         window.POS_SET_PRICE_SERVICE_IDS = <?php echo json_encode(array_values(array_unique($pos_set_price_service_ids))); ?>;
+        window.POS_SERVICE_CATALOG = <?php echo json_encode(array_map(static function ($svc) {
+            return [
+                'service_id' => (int) ($svc['service_id'] ?? 0),
+                'name' => (string) ($svc['name'] ?? ''),
+                'pricing_type' => (string) ($svc['pricing_type'] ?? 'custom'),
+            ];
+        }, $pos_services ?: [])); ?>;
 
         let products = [];
         let cart = [];
@@ -3697,6 +3704,19 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return !!(c['Material Selection'] || c['Material Brand'] || c['Material'] || c.temp_plate_material || c.material_type);
         }
 
+        function posServiceCatalogMeta(serviceId) {
+            const sid = Number(serviceId) || 0;
+            return (window.POS_SERVICE_CATALOG || []).find(entry => Number(entry.service_id) === sid) || null;
+        }
+
+        function posServiceUsesStaffPricingFlow(serviceId, serviceName, customization) {
+            if (posServiceRequiresSetPrice(serviceId, serviceName, customization)) {
+                return true;
+            }
+            const meta = posServiceCatalogMeta(serviceId);
+            return !!(meta && String(meta.pricing_type || '').toLowerCase() === 'custom');
+        }
+
         function posServiceRequiresSetPrice(serviceId, serviceName, customization) {
             const ids = window.POS_SET_PRICE_SERVICE_IDS || [];
             const sid = Number(serviceId) || 0;
@@ -3718,7 +3738,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         function posCartItemShowsSetPriceButton(item) {
             if (posCartItemRequiresSetPrice(item)) {
-                return item.price_set !== true;
+                return item.price_set !== true && !posCartItemHasMaterialSet(item);
             }
             const unitPrice = parseFloat(item.price) || 0;
             const isService = item.is_service === true;
@@ -5106,7 +5126,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
-            const requiresSetPrice = posServiceRequiresSetPrice(serviceId, serviceName, customization);
+            const requiresStaffPricing = posServiceUsesStaffPricingFlow(serviceId, serviceName, customization);
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
                 name: serviceName,
@@ -5114,7 +5134,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 qty: priced.quantity,
                 customization: customization,
                 is_service: true,
-                price_set: !requiresSetPrice
+                price_set: !requiresStaffPricing
             }, { fxSourceEl: posLastServiceCardEl });
 
             if (result.success) closeServiceModal();
@@ -5533,7 +5553,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
-            const requiresSetPrice = posServiceRequiresSetPrice(serviceId, serviceName, customization);
+            body.querySelectorAll('input[type="radio"]:checked').forEach(radio => {
+                const row = radio.closest('.shopee-form-row');
+                if (!row || !isServiceFieldActive(row)) return;
+                const radioValue = normalizeLayoutCustomizationValue(row, radio.value);
+                setCustomizationValue(customization, row, radio, radioValue);
+            });
+
+            const requiresStaffPricing = posServiceUsesStaffPricingFlow(serviceId, serviceName, customization);
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
                 name: serviceName,
@@ -5541,7 +5568,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 qty: priced.quantity,
                 customization: customization,
                 is_service: true,
-                price_set: !requiresSetPrice
+                price_set: !requiresStaffPricing
             }, { silentErrors: true, fxSourceEl: posLastServiceCardEl });
 
             if (result.success) {
@@ -5563,7 +5590,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         return [key, { row, message }];
                     })));
                 }
-                await showPOSAlert('Incomplete Fields', result.message || 'Some required order details are missing.', 'warning');
+                const errorDetail = result.errors
+                    ? Object.values(result.errors).filter(Boolean).join('\n')
+                    : '';
+                await showPOSAlert(
+                    'Incomplete Fields',
+                    errorDetail || result.message || 'Some required order details are missing.',
+                    'warning'
+                );
                 isAddingToOrder = false;
                 setServiceAddButtonBusy(false);
             }

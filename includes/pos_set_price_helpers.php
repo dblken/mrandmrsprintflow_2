@@ -5,6 +5,30 @@
  * even when an estimated unit price is shown in the cart.
  */
 
+/**
+ * Services that show an estimate in POS but still need staff material/final pricing in Customizations.
+ */
+function printflow_service_requires_staff_pricing_flow(int $serviceId, ?string $name = null, ?string $category = null): bool
+{
+    if ($serviceId <= 0) {
+        return false;
+    }
+    if (printflow_service_requires_pos_set_price($serviceId, $name, $category)) {
+        return true;
+    }
+
+    if (!function_exists('printflow_catalog_pricing_metadata_map')) {
+        require_once __DIR__ . '/customer_service_catalog.php';
+    }
+    $meta = printflow_catalog_pricing_metadata_map([$serviceId]);
+    $pricing = $meta[$serviceId] ?? null;
+    if (is_array($pricing) && (string)($pricing['pricing_type'] ?? '') === 'custom') {
+        return true;
+    }
+
+    return false;
+}
+
 function printflow_service_requires_pos_set_price(int $serviceId, ?string $name = null, ?string $category = null): bool
 {
     $blob = strtolower(trim((string)$name . ' ' . (string)$category));
@@ -54,7 +78,7 @@ function pos_cart_item_requires_pos_set_price(array $item): bool
     $custom = pos_cart_item_customization_array($item);
     $serviceId = (int)($item['product_id'] ?? $custom['service_id'] ?? 0);
     $name = (string)($item['name'] ?? '');
-    if (printflow_service_requires_pos_set_price($serviceId, $name, null)) {
+    if (printflow_service_requires_staff_pricing_flow($serviceId, $name, null)) {
         return true;
     }
 
@@ -117,6 +141,12 @@ function pos_cart_resolve_price_set_on_add(bool $isService, array $data, array $
 
     if (array_key_exists('price_set', $data)) {
         return (bool)$data['price_set'];
+    }
+
+    $serviceId = (int)($itemSeed['product_id'] ?? ($itemSeed['customization']['service_id'] ?? 0));
+    $seedName = (string)($itemSeed['name'] ?? ($itemSeed['customization']['service_type'] ?? ''));
+    if ($serviceId > 0 && printflow_service_requires_staff_pricing_flow($serviceId, $seedName, null)) {
+        return false;
     }
 
     if (pos_cart_item_requires_pos_set_price($itemSeed)) {

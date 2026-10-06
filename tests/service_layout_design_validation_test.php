@@ -76,4 +76,19 @@ layout_test_assert(
     'upload required for with_layout slug'
 );
 
+$designFileField = $uploadField;
+$designFileConfigs = [
+    'layout' => $layoutField,
+    'design_file' => $designFileField,
+];
+layout_test_assert(
+    printflow_service_field_conditional_target_matches_field('upload_design', 'design_file', $designFileConfigs),
+    'disable_field target upload_design matches design_file field key'
+);
+$withoutLayoutValues = ['layout' => 'without_layout'];
+layout_test_assert(
+    !printflow_service_field_is_active($designFileField, $withoutLayoutValues, 'design_file', $designFileConfigs),
+    'design_file inactive when layout option targets upload_design alias'
+);
+
 echo "All service_layout_design_validation tests passed.\n";
