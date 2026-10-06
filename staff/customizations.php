@@ -229,12 +229,31 @@ $online_closed_count = 0;
         }
         .pf-staff-customizations-root > header {
             margin-bottom: 12px !important;
+            padding-left: 32px;
+            padding-right: 32px;
+            box-sizing: border-box;
+        }
+        .pf-staff-customizations-root .pf-customizations-page-header {
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+        }
+        .pf-staff-customizations-root .pf-customizations-page-intro .page-title {
+            margin: 0 !important;
+            line-height: 1.2 !important;
+        }
+        .pf-staff-customizations-root .pf-customizations-page-intro .page-subtitle {
+            margin: 2px 0 0 !important;
+            line-height: 1.35 !important;
+        }
+        .pf-staff-customizations-root .pf-customizations-page-header .pf-urgent-attention-banner {
+            margin: 0 !important;
+            width: 100%;
+            box-sizing: border-box;
         }
         .pf-staff-customizations-root > main {
             padding-top: 0 !important;
-        }
-        .pf-staff-customizations-root > main > .pf-urgent-attention-banner {
-            margin-bottom: 10px !important;
         }
 
         .pf-staff-customizations-root .kpi-card--link {
@@ -1414,12 +1433,27 @@ $online_closed_count = 0;
 
         /* Mobile Fixes for Staff Customizations */
         @media (max-width: 768px) {
+            .pf-staff-customizations-root > header {
+                padding-left: 16px !important;
+                padding-right: 16px !important;
+                margin-bottom: 8px !important;
+            }
+            .pf-staff-customizations-root .pf-customizations-page-header {
+                gap: 6px !important;
+            }
             .main-content header {
                 padding: 16px 20px 12px !important;
                 flex-direction: column !important;
                 align-items: flex-start !important;
                 gap: 12px !important;
                 margin-bottom: 4px !important;
+            }
+            .pf-staff-customizations-root > header.pf-customizations-page-header {
+                padding: 0 16px !important;
+                margin-bottom: 8px !important;
+                min-height: 0 !important;
+                align-items: stretch !important;
+                background: transparent !important;
             }
 
             #mobileBurger {
@@ -2241,26 +2275,26 @@ $online_closed_count = 0;
     ?>
     <div class="main-content">
         <div id="staffJoCustomizationsPage" x-data="joManager('ALL')" class="pf-staff-customizations-root" @keydown.escape.window="onSvcEscape()" x-effect="document.body.classList.toggle('pf-revision-modal-open', showRevisionModal)">
-        <header class="pf-customizations-page-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-            <div>
+        <header class="pf-customizations-page-header">
+            <div class="pf-customizations-page-intro">
                 <h1 class="page-title">Custom Orders</h1>
                 <p class="page-subtitle">Track and manage custom printing jobs</p>
+            </div>
+            <div
+                x-show="urgentOrderCount > 0"
+                x-cloak
+                class="pf-urgent-attention-banner"
+                role="status"
+            >
+                <div class="pf-urgent-attention-banner__message">
+                    <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                    <span x-text="urgentBannerMessage()"></span>
+                </div>
+                <button type="button" class="pf-urgent-attention-banner__action" @click="focusUrgentOrders()">View Now</button>
             </div>
         </header>
 
         <main>
-                <div
-                    x-show="urgentOrderCount > 0"
-                    x-cloak
-                    class="pf-urgent-attention-banner"
-                    role="status"
-                >
-                    <div class="pf-urgent-attention-banner__message">
-                        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
-                        <span x-text="urgentBannerMessage()"></span>
-                    </div>
-                    <button type="button" class="pf-urgent-attention-banner__action" @click="focusUrgentOrders()">View Now</button>
-                </div>
                 <div class="kpi-row">
                  <?php if ($isPosCustomizationView): ?>
                 <div
