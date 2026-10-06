@@ -71,29 +71,7 @@ function pos_cart_item_requires_pos_set_price(array $item): bool
     if (!$isService && function_exists('pos_cart_item_is_service')) {
         $isService = pos_cart_item_is_service($item);
     }
-    if (!$isService) {
-        return false;
-    }
-
-    $custom = pos_cart_item_customization_array($item);
-    $serviceId = (int)($item['product_id'] ?? $custom['service_id'] ?? 0);
-    $name = (string)($item['name'] ?? '');
-    if (printflow_service_requires_staff_pricing_flow($serviceId, $name, null)) {
-        return true;
-    }
-
-    foreach (['sintra_type', 'board_thickness', 'Board Thickness', 'Sintra_Type'] as $key) {
-        if (trim((string)($custom[$key] ?? '')) !== '') {
-            return true;
-        }
-    }
-
-    $serviceType = strtolower(trim((string)($custom['service_type'] ?? '')));
-    if (str_contains($serviceType, 'sintra') || str_contains($serviceType, 'standee')) {
-        return true;
-    }
-
-    return false;
+    return $isService;
 }
 
 function pos_cart_item_has_final_material(array $item): bool
@@ -143,15 +121,5 @@ function pos_cart_resolve_price_set_on_add(bool $isService, array $data, array $
         return (bool)$data['price_set'];
     }
 
-    $serviceId = (int)($itemSeed['product_id'] ?? ($itemSeed['customization']['service_id'] ?? 0));
-    $seedName = (string)($itemSeed['name'] ?? ($itemSeed['customization']['service_type'] ?? ''));
-    if ($serviceId > 0 && printflow_service_requires_staff_pricing_flow($serviceId, $seedName, null)) {
-        return false;
-    }
-
-    if (pos_cart_item_requires_pos_set_price($itemSeed)) {
-        return false;
-    }
-
-    return true;
+    return false;
 }

@@ -20,6 +20,18 @@ $assert(pos_cart_item_requires_pos_set_price([
     'customization' => ['service_id' => 12],
     'price_set' => false,
 ]), 'cart sintraboard item requires set price');
+$assert(pos_cart_item_requires_pos_set_price([
+    'is_service' => true,
+    'product_id' => 67,
+    'name' => 'Stickers Decals',
+    'customization' => ['service_id' => 67],
+    'price_set' => true,
+]), 'all POS service lines require staff pricing flow');
+$assert(!pos_cart_item_requires_pos_set_price([
+    'is_service' => false,
+    'product_id' => 5,
+    'name' => 'Bond Paper',
+]), 'ready-made products do not require set price');
 $assert(pos_cart_item_needs_pos_set_price_completion([
     'is_service' => true,
     'product_id' => 12,
