@@ -504,9 +504,6 @@ function printflow_receipt_format_text(array $receipt, int $columns = 32): strin
     }
     $out[] = $eq;
     $out[] = printflow_receipt_center('Thank you!', $columns);
-    foreach (printflow_receipt_wrap('This is an unofficial sales receipt for transaction reference only.', $columns) as $footerLine) {
-        $out[] = printflow_receipt_center($footerLine, $columns);
-    }
     $out[] = printflow_receipt_center('Please keep this transaction reference.', $columns);
     $out[] = '';
     $out[] = '';
