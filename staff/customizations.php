@@ -7771,7 +7771,22 @@ window.pfServiceFieldCatalog = (() => {
             },
 
             /** Resolves job_orders.id from store order_id when job_order_id was missing (API limit / older rows). */
+            resolveChangeItemJobId() {
+                const active = this.changeItemActiveRequest(this.currentJo);
+                const fromChange = parseInt(active?.job_order_id || 0, 10);
+                if (Number.isFinite(fromChange) && fromChange > 0) {
+                    if (this.currentJo) {
+                        this.currentJo.job_order_id = fromChange;
+                    }
+                    return fromChange;
+                }
+                return null;
+            },
             async resolveEffectiveJobId() {
+                const changeItemJobId = this.resolveChangeItemJobId();
+                if (changeItemJobId) {
+                    return changeItemJobId;
+                }
                 let jid = this.effectiveJobId();
                 if (jid != null && !Number.isNaN(jid) && jid > 0) return jid;
                 const j = this.currentJo;
@@ -10269,9 +10284,63 @@ window.pfServiceFieldCatalog = (() => {
                     month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
                 });
             },
+            async completeChangeItemRework(machineId = null) {
+                const orderId = this.resolveChangeItemOrderId(this.currentJo);
+                if (!orderId) {
+                    this.showStaffAlert('Error', 'No linked order found for this Change Item.');
+                    return false;
+                }
+                const active = this.changeItemActiveRequest(this.currentJo);
+                const changeItemId = parseInt(active?.id || active?.change_item_id || 0, 10);
+                const fd = new FormData();
+                fd.append('order_id', String(orderId));
+                fd.append('status', 'Completed');
+                fd.append('expected_status', this.currentJo?.status || '');
+                fd.append('complete_change_item', '1');
+                if (changeItemId > 0) {
+                    fd.append('change_item_id', String(changeItemId));
+                }
+                fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+
+                const endpoint = this.staffApiUrl('update_order_status_process.php');
+                const res = await this.parseJsonResponse(
+                    await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Accept': 'application/json' },
+                        body: fd
+                    }),
+                    'Complete Change Item',
+                    endpoint
+                );
+
+                if (res.success) {
+                    this.modalCache = {};
+                    this.modalCacheLoadedAt = {};
+                    await this.loadOrders({ force: true });
+                    if (this.showDetailsModal && this.currentJo) {
+                        await this.viewDetails(
+                            this.currentJo.order_id || this.currentJo.id,
+                            this.currentJo.order_type || 'ORDER',
+                            this.deepLinkJobHintsFromUrl()
+                        );
+                    }
+                    this.showStaffAlert(
+                        res.already_completed ? 'Completed' : 'Success',
+                        res.message || 'Change Item marked as completed.'
+                    );
+                    return true;
+                }
+                this.showStaffAlert('Error', res.error || 'Failed to complete the Change Item request.');
+                return false;
+            },
             async completeOrder(machineId = null) {
                 if (!this.beginModalAction()) return;
                 try {
+                    if (this.changeItemReworkInProgress(this.currentJo)) {
+                        await this.completeChangeItemRework(machineId);
+                        return;
+                    }
+
                     const isPosPendingFlow = this.isPosSimplifiedView && this.getPosWalkInBucket(this.currentJo) === 'PENDING';
                     if (this.currentJo.order_type === 'ORDER' || (isPosPendingFlow && (this.currentJo.order_id || this.currentJo.id))) {
                         const orderId = this.currentJo.order_id || this.currentJo.id;

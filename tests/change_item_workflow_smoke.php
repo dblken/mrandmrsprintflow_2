@@ -59,6 +59,9 @@ change_item_test_assert(strpos($functions, "if (\$data_id > 0 && printflow_notif
 change_item_test_assert(strpos($workflow, 'printflow_resolve_linked_job_order_id') !== false, 'linked job resolver prefers change item job');
 change_item_test_assert(strpos(file_get_contents($root . '/staff/get_order_for_modal.php'), 'printflow_resolve_linked_job_order_id') !== false, 'order modal uses linked job resolver');
 change_item_test_assert(strpos($staffCustomizations, 'focusOpenChangeItemDeepLink') !== false, 'customizations deep link focuses change item panel');
+change_item_test_assert(strpos($workflow, 'printflow_change_item_complete_staff_action') !== false, 'server completes change item via linked job');
+change_item_test_assert(strpos(file_get_contents($root . '/staff/update_order_status_process.php'), 'printflow_change_item_complete_staff_action') !== false, 'order status endpoint routes change item completion');
+change_item_test_assert(strpos($staffCustomizations, 'completeChangeItemRework') !== false, 'customizations uses change item completion flow');
 change_item_test_assert(strpos($staffCustomizations, "job_type=ORDER") !== false || strpos($staffCustomizations, "'ORDER'") !== false, 'customizations deep link defaults to ORDER view');
 change_item_test_assert(strpos($staffCustomizations, "'CHANGED_ITEMS'") !== false, 'staff customizations exposes Changed Items tab');
 change_item_test_assert(strpos($workflow, 'change_item_pending_review') !== false, 'change item batch summary exposes pending review flag');

@@ -1791,6 +1791,192 @@ function printflow_change_item_reject(int $changeItemId, string $reason, int $st
     }
 }
 
+function printflow_workflow_status_key(string $status): string
+{
+    $key = strtoupper(str_replace([' ', '-'], '_', trim($status)));
+    return match ($key) {
+        'TO_RECEIVE', 'READY_FOR_PICKUP', 'READY_FOR_COLLECTION' => 'READY_FOR_PICKUP',
+        default => $key,
+    };
+}
+
+function printflow_workflow_status_compatible(string $expected, string $actual): bool
+{
+    $expectedKey = printflow_workflow_status_key($expected);
+    $actualKey = printflow_workflow_status_key($actual);
+    if ($expectedKey === $actualKey) {
+        return true;
+    }
+    $productionLike = ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'];
+    if (in_array($expectedKey, $productionLike, true) && in_array($actualKey, $productionLike, true)) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Complete an active Change Item rework by completing the linked job order.
+ * Preserves the parent store order status (e.g. Completed).
+ *
+ * @return array<string,mixed>
+ */
+function printflow_change_item_complete_staff_action(
+    int $orderId,
+    int $changeItemId = 0,
+    string $expectedWorkflowStatus = ''
+): array {
+    if (!printflow_change_item_ensure_schema()) {
+        throw new RuntimeException('Change Item is not available.');
+    }
+
+    $orderId = (int) $orderId;
+    if ($orderId <= 0) {
+        throw new InvalidArgumentException('Order ID is required.');
+    }
+
+    global $conn;
+    $started = !printflow_db_in_transaction($conn);
+    if ($started && !$conn->begin_transaction()) {
+        throw new RuntimeException('Unable to start the Change Item completion transaction.');
+    }
+
+    try {
+        if ($changeItemId > 0) {
+            $rows = db_query(
+                'SELECT * FROM change_item_requests WHERE change_item_id = ? AND order_id = ? LIMIT 1 FOR UPDATE',
+                'ii',
+                [$changeItemId, $orderId]
+            ) ?: [];
+        } else {
+            $rows = db_query(
+                'SELECT * FROM change_item_requests WHERE order_id = ? AND active_flag = 1 ORDER BY change_item_id DESC LIMIT 1 FOR UPDATE',
+                'i',
+                [$orderId]
+            ) ?: [];
+        }
+
+        if ($rows === []) {
+            throw new InvalidArgumentException('No active Change Item request was found for this order.');
+        }
+
+        $change = $rows[0];
+        $changeItemId = (int) ($change['change_item_id'] ?? 0);
+        $requestStatus = printflow_change_item_normalize_status((string) ($change['request_status'] ?? ''));
+
+        if ($requestStatus === 'COMPLETED') {
+            if ($started) {
+                $conn->commit();
+            }
+            return [
+                'success' => true,
+                'changed' => false,
+                'already_completed' => true,
+                'change_item_completed' => true,
+                'change_item_id' => $changeItemId,
+                'order_id' => $orderId,
+                'message' => 'This Change Item request is already completed.',
+            ];
+        }
+
+        if (in_array($requestStatus, ['REJECTED', 'CANCELLED'], true)) {
+            throw new InvalidArgumentException('This Change Item request cannot be completed because it was ' . strtolower(str_replace('_', ' ', $requestStatus)) . '.');
+        }
+
+        if (!in_array($requestStatus, ['IN_REWORK', 'APPROVED'], true)) {
+            throw new InvalidArgumentException('This Change Item request is not ready to be marked completed.');
+        }
+
+        $jobOrderId = (int) ($change['job_order_id'] ?? 0);
+        if ($jobOrderId <= 0) {
+            $resolved = printflow_resolve_linked_job_order_id(
+                $orderId,
+                null,
+                (int) ($change['order_item_id'] ?? 0)
+            );
+            $jobOrderId = (int) ($resolved ?? 0);
+        }
+        if ($jobOrderId <= 0) {
+            throw new RuntimeException('No production job is linked to this Change Item request.');
+        }
+
+        $jobRows = db_query(
+            'SELECT id, status FROM job_orders WHERE id = ? AND order_id = ? LIMIT 1 FOR UPDATE',
+            'ii',
+            [$jobOrderId, $orderId]
+        ) ?: [];
+        if ($jobRows === []) {
+            throw new RuntimeException('Linked production job not found for this Change Item.');
+        }
+
+        $jobStatus = (string) ($jobRows[0]['status'] ?? '');
+        $jobStatusKey = printflow_workflow_status_key($jobStatus);
+
+        if ($expectedWorkflowStatus !== '') {
+            if (!printflow_workflow_status_compatible($expectedWorkflowStatus, $jobStatus)) {
+                if ($jobStatusKey === 'COMPLETED') {
+                    printflow_change_item_on_job_status_change($jobOrderId, 'COMPLETED');
+                    if ($started) {
+                        $conn->commit();
+                    }
+                    return [
+                        'success' => true,
+                        'changed' => false,
+                        'already_completed' => true,
+                        'change_item_completed' => true,
+                        'change_item_id' => $changeItemId,
+                        'job_order_id' => $jobOrderId,
+                        'order_id' => $orderId,
+                        'message' => 'This Change Item request is already completed.',
+                    ];
+                }
+                throw new RuntimeException(
+                    'CHANGE_ITEM_STATUS_CONFLICT:' . $jobStatus
+                );
+            }
+        }
+
+        if ($jobStatusKey === 'COMPLETED') {
+            printflow_change_item_on_job_status_change($jobOrderId, 'COMPLETED');
+            if ($started) {
+                $conn->commit();
+            }
+            return [
+                'success' => true,
+                'changed' => false,
+                'already_completed' => true,
+                'change_item_completed' => true,
+                'change_item_id' => $changeItemId,
+                'job_order_id' => $jobOrderId,
+                'order_id' => $orderId,
+                'message' => 'This Change Item request is already completed.',
+            ];
+        }
+
+        require_once __DIR__ . '/JobOrderService.php';
+        JobOrderService::updateStatus($jobOrderId, 'COMPLETED', null, '', false);
+
+        if ($started) {
+            $conn->commit();
+        }
+
+        return [
+            'success' => true,
+            'changed' => true,
+            'already_completed' => false,
+            'change_item_completed' => true,
+            'change_item_id' => $changeItemId,
+            'job_order_id' => $jobOrderId,
+            'order_id' => $orderId,
+            'message' => 'Change Item marked as completed.',
+        ];
+    } catch (Throwable $e) {
+        if ($started && printflow_db_in_transaction($conn)) {
+            $conn->rollback();
+        }
+        throw $e;
+    }
+}
+
 function printflow_change_item_on_job_status_change(int $jobOrderId, string $newStatus): void
 {
     if (!printflow_change_item_ensure_schema()) {
