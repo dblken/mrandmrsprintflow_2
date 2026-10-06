@@ -1041,8 +1041,13 @@ $online_closed_count = 0;
             white-space: nowrap;
         }
         .status-badge-pill {
-            min-width: 100px;
+            display: inline-flex;
+            width: max-content;
+            min-width: 0;
             max-width: 100%;
+            box-sizing: border-box;
+            flex: 0 1 auto;
+            white-space: nowrap;
         }
         .pf-pill {
             display: inline-flex;
@@ -7672,7 +7677,7 @@ window.pfServiceFieldCatalog = (() => {
                     CHANGE_ITEM_REQUEST: 'Change Item Request',
                     APPROVED: 'Approved',
                     TO_PAY: 'To Pay',
-                    PAYMENT_CONFIRMED: 'Payment Confirmed',
+                    PAYMENT_CONFIRMED: 'Payment Received',
                     VERIFY_PAY: 'To Verify',
                     REJECTED: 'Rejected',
                     IN_PRODUCTION: 'In Production',
