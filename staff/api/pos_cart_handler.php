@@ -13,6 +13,7 @@ require_once __DIR__ . '/../../includes/product_option_stock.php';
 require_once __DIR__ . '/../../includes/service_field_config_helper.php';
 require_once __DIR__ . '/../../includes/service_order_helper.php';
 require_once __DIR__ . '/../../includes/pos_draft_lifecycle.php';
+require_once __DIR__ . '/../../includes/pos_set_price_helpers.php';
 
 // Require staff or admin role
 if (!has_role(['Admin', 'Staff'])) {
@@ -395,6 +396,12 @@ try {
                     throw new Exception('Insufficient stock.');
                 }
                 
+                $cartSeed = [
+                    'product_id' => $product_id,
+                    'name' => (string)$name,
+                    'customization' => $preparedCustomization ?? (is_array($customization) ? $customization : []),
+                    'is_service' => $is_service,
+                ];
                 $_SESSION['pos_cart'][] = [
                     'product_id' => $product_id,
                     'name' => $name,
@@ -403,7 +410,7 @@ try {
                     'stock' => $stock,
                     'customization' => $preparedCustomization,
                     'is_service' => $is_service,
-                    'price_set' => $is_service ? true : !empty($data['price_set']),
+                    'price_set' => pos_cart_resolve_price_set_on_add($is_service, $data, $cartSeed),
                 ];
             }
             break;

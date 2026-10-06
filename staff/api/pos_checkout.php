@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../includes/pos_receipt_printer.php';
 require_once __DIR__ . '/../../includes/pos_draft_lifecycle.php';
 require_once __DIR__ . '/../../includes/service_order_helper.php';
 require_once __DIR__ . '/../../includes/pos_customer_helpers.php';
+require_once __DIR__ . '/../../includes/pos_set_price_helpers.php';
 
 function pos_payload_item_is_service(array $item): bool {
     if (!empty($item['is_service'])) {
@@ -964,21 +965,45 @@ function pos_checkout_validate_service_item_prices(array $items): ?string
             continue;
         }
 
-        $customization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
-        $serviceId = (int)($customization['service_id'] ?? $item['id'] ?? 0);
-        $qty = max(1, (int)($item['qty'] ?? 1));
+        $itemRow = (array)$item;
+        $customization = is_array($itemRow['customization'] ?? null) ? $itemRow['customization'] : [];
+        $serviceId = (int)($customization['service_id'] ?? $itemRow['id'] ?? 0);
+        $qty = max(1, (int)($itemRow['qty'] ?? 1));
+        $cartUnit = (float)($itemRow['price'] ?? 0);
+
+        $requiresSetPrice = pos_cart_item_requires_pos_set_price([
+            'product_id' => $serviceId,
+            'name' => (string)($itemRow['name'] ?? ''),
+            'customization' => $customization,
+            'is_service' => true,
+            'price_set' => !empty($itemRow['price_set']),
+        ]);
+
+        if ($requiresSetPrice) {
+            if (empty($itemRow['price_set'])) {
+                $label = trim((string)($itemRow['name'] ?? 'Sintraboard item'));
+                return 'Set Price and materials for "' . $label . '" before completing this sale.';
+            }
+            if ($cartUnit <= 0) {
+                return 'A service item has no valid final price. Use Set Price to confirm the amount.';
+            }
+            if ($qty < 1 || $qty > 100) {
+                return 'Invalid quantity for a service item.';
+            }
+            continue;
+        }
+
         $calc = printflow_calculate_service_unit_price($serviceId, $customization);
         if (!$calc['ok']) {
             return (string)($calc['message'] ?? 'Service price could not be validated.');
         }
 
         $expectedUnit = (float)$calc['unit_price'];
-        $cartUnit = (float)($item['price'] ?? 0);
         if ($cartUnit <= 0) {
             return 'A service item has no valid price. Remove it and add it again with complete specifications.';
         }
         if (abs($cartUnit - $expectedUnit) > 0.02) {
-            $label = trim((string)($item['name'] ?? 'Service'));
+            $label = trim((string)($itemRow['name'] ?? 'Service'));
             return 'Cart price for "' . $label . '" does not match the selected options. Refresh the page and try again.';
         }
 

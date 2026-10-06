@@ -10,6 +10,7 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
+require_once __DIR__ . '/../includes/pos_set_price_helpers.php';
 
 $posPayMongoMode = printflow_paymongo_mode();
 $posPayMongoAvailable = in_array($posPayMongoMode, ['test', 'live'], true)
@@ -64,6 +65,7 @@ try {
 
 // Fetch active services from DB (same catalog fields as customer/services.php)
 $pos_services = [];
+$pos_set_price_service_ids = [];
 $pos_default_catalog_img = (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/assets/images/services/default.png';
 $pos_base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 try {
@@ -101,6 +103,9 @@ try {
             'display_price' => $display_price,
             'pricing_type' => (string) ($pricing['pricing_type'] ?? 'custom'),
         ];
+        if (printflow_service_requires_pos_set_price($sid, (string) ($row['name'] ?? ''), (string) ($row['category'] ?? ''))) {
+            $pos_set_price_service_ids[] = $sid;
+        }
     }
 } catch (Exception $e) {
 }
@@ -3558,6 +3563,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         window.POS_BRANCHES = <?php echo json_encode(array_map(function ($b) {
             return ['id' => (int) $b['id'], 'name' => $b['branch_name']];
         }, $branches ?: [])); ?>;
+        window.POS_SET_PRICE_SERVICE_IDS = <?php echo json_encode(array_values(array_unique($pos_set_price_service_ids))); ?>;
 
         let products = [];
         let cart = [];
@@ -3680,9 +3686,51 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 name: item.name || null,
                 customization: posCheckoutCustomizationPayload(item.customization),
                 is_service: item.is_service || false,
+                price_set: item.price_set === true,
                 pending_order_id: item.pending_order_id || 0,
                 pending_customization_id: item.pending_customization_id || 0
             };
+        }
+
+        function posCartItemHasMaterialSet(item) {
+            const c = item && item.customization ? item.customization : {};
+            return !!(c['Material Selection'] || c['Material Brand'] || c['Material'] || c.temp_plate_material || c.material_type);
+        }
+
+        function posServiceRequiresSetPrice(serviceId, serviceName, customization) {
+            const ids = window.POS_SET_PRICE_SERVICE_IDS || [];
+            const sid = Number(serviceId) || 0;
+            if (sid > 0 && ids.includes(sid)) return true;
+            const name = String(serviceName || '').toLowerCase();
+            if (name.includes('sintraboard') || name.includes('standee') || name.includes('sintra board')) return true;
+            const c = customization || {};
+            if (c.sintra_type || c['Board Thickness'] || c.board_thickness) return true;
+            const serviceType = String(c.service_type || '').toLowerCase();
+            return serviceType.includes('sintra') || serviceType.includes('standee');
+        }
+
+        function posCartItemRequiresSetPrice(item) {
+            if (!item || item.is_service !== true) return false;
+            const c = item.customization || {};
+            const sid = Number(item.product_id || c.service_id || 0);
+            return posServiceRequiresSetPrice(sid, item.name, c);
+        }
+
+        function posCartItemShowsSetPriceButton(item) {
+            if (posCartItemRequiresSetPrice(item)) {
+                return item.price_set !== true;
+            }
+            const unitPrice = parseFloat(item.price) || 0;
+            const isService = item.is_service === true;
+            const priceWasSet = item.price_set === true;
+            return unitPrice <= 0 && (isService || !priceWasSet) && !posCartItemHasMaterialSet(item);
+        }
+
+        function posCartItemCountsInCheckoutTotal(item) {
+            if (posCartItemRequiresSetPrice(item)) {
+                return item.price_set === true;
+            }
+            return (parseFloat(item.price) || 0) > 0;
         }
 
         function posVariantOptionsList(product) {
@@ -5027,6 +5075,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
+            const requiresSetPrice = posServiceRequiresSetPrice(serviceId, serviceName, customization);
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
                 name: serviceName,
@@ -5034,7 +5083,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 qty: priced.quantity,
                 customization: customization,
                 is_service: true,
-                price_set: true
+                price_set: !requiresSetPrice
             }, { fxSourceEl: posLastServiceCardEl });
 
             if (result.success) closeServiceModal();
@@ -5413,6 +5462,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
+            const requiresSetPrice = posServiceRequiresSetPrice(serviceId, serviceName, customization);
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
                 name: serviceName,
@@ -5420,7 +5470,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 qty: priced.quantity,
                 customization: customization,
                 is_service: true,
-                price_set: true
+                price_set: !requiresSetPrice
             }, { silentErrors: true, fxSourceEl: posLastServiceCardEl });
 
             if (result.success) {
@@ -6485,25 +6535,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             } else {
                 cont.innerHTML = '';
                 cart.forEach((item, index) => {
-                    const rowTotal = item.price * item.qty;
-                    currentTotal += rowTotal;
+                    const unitPrice = parseFloat(item.price) || 0;
+                    const countsInTotal = posCartItemCountsInCheckoutTotal(item);
+                    const rowTotal = countsInTotal ? unitPrice * item.qty : 0;
+                    if (countsInTotal) {
+                        currentTotal += rowTotal;
+                    }
                     const div = document.createElement('div');
                     div.className = 'pos-cart-item';
 
-                    // Unpriced services (legacy manual pricing) show Set Price; calculated services show unit price.
-                    const unitPrice = parseFloat(item.price) || 0;
-                    const isService = item.is_service === true;
-                    const priceWasSet = item.price_set === true;
-                    const needsManualPrice = unitPrice <= 0 && (isService || !priceWasSet);
-
-                    // Check if material has been set in customization
-                    const hasMaterialSet = item.customization && (
-                        item.customization['Material Selection'] || 
-                        item.customization['Material Brand'] || 
-                        item.customization['Material'] ||
-                        item.customization['temp_plate_material'] ||
-                        item.customization['material_type']
-                    );
+                    const showSetPrice = posCartItemShowsSetPriceButton(item);
+                    const requiresSetPriceFlow = posCartItemRequiresSetPrice(item);
 
                     if (item.customization && typeof item.customization === 'object') {
                         try {
@@ -6512,11 +6554,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     }
 
                     const variantLabel = posCartItemVariantLabel(item);
-                    const priceHtml = needsManualPrice && !hasMaterialSet
-                        ? `<button type="button" class="pos-btn-set-price" onclick="redirectToSetPrice(${index})" title="Click to set price in Customizations">
+                    let priceHtml;
+                    if (showSetPrice) {
+                        const estimateLine = requiresSetPriceFlow && unitPrice > 0
+                            ? `<div class="pos-item-price-estimate" style="font-size:12px;color:#64748b;font-weight:600;margin-bottom:4px;">Est. ${formatMoney(unitPrice)}</div>`
+                            : '';
+                        priceHtml = `${estimateLine}<button type="button" class="pos-btn-set-price" onclick="redirectToSetPrice(${index})" title="Set material and final price">
                     <i class="fas fa-tag"></i> Set Price
-                  </button>`
-                        : `<div class="pos-item-price">${formatMoney(item.price)}</div>`;
+                  </button>`;
+                    } else {
+                        priceHtml = `<div class="pos-item-price">${formatMoney(item.price)}</div>`;
+                    }
+
+                    const totalDisplay = showSetPrice && requiresSetPriceFlow && unitPrice > 0
+                        ? `<span style="font-size:12px;color:#64748b;">Est. ${formatMoney(unitPrice * item.qty)}</span>`
+                        : formatMoney(rowTotal);
 
                     div.innerHTML = `
                 <div class="pos-cart-item-top">
@@ -6534,7 +6586,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         <input class="pos-qty-val" value="${item.qty}" readonly aria-label="Quantity">
                         <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, 1)" aria-label="Increase quantity">&plus;</button>
                     </div>
-                    <div class="pos-item-total">${formatMoney(rowTotal)}</div>
+                    <div class="pos-item-total">${totalDisplay}</div>
                 </div>
             `;
                     cont.appendChild(div);
@@ -6828,8 +6880,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 message = 'Enter Customer Name';
             }
 
+            const needsSetPrice = cart.some(i => posCartItemShowsSetPriceButton(i));
+            if (needsSetPrice) {
+                canCheckout = false;
+                message = 'Set Price First';
+                icon.className = 'fas fa-lock';
+                text.textContent = message;
+                btn.disabled = true;
+                return;
+            }
+
             // Block checkout if any item has no valid price
-            const hasUnpricedItem = cart.some(i => (parseFloat(i.price) || 0) <= 0);
+            const hasUnpricedItem = cart.some(i => !posCartItemCountsInCheckoutTotal(i) || (parseFloat(i.price) || 0) <= 0);
             if (hasUnpricedItem) {
                 canCheckout = false;
                 message = 'Set Price First';
@@ -6887,8 +6949,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
+            const needsSetPrice = cart.some(i => posCartItemShowsSetPriceButton(i));
+            if (needsSetPrice) {
+                await showPOSAlert('Price Required', 'Please set the material and final price for Sintraboard items before completing the sale.\n\nClick "Set Price" on the cart item to continue.', 'warning');
+                return;
+            }
+
             // Block checkout if any item has no valid price
-            const hasUnpricedItem = cart.some(i => (parseFloat(i.price) || 0) <= 0);
+            const hasUnpricedItem = cart.some(i => !posCartItemCountsInCheckoutTotal(i) || (parseFloat(i.price) || 0) <= 0);
             if (hasUnpricedItem) {
                 await showPOSAlert('Price Required', 'Please set the price for all items before completing the sale.\n\nClick the yellow "Set Price" button on items to set their price in Customizations.', 'warning');
                 return;
