@@ -17,6 +17,7 @@ $group = printflow_catalog_group_get($groupId, true);
 if (!$group) {
     redirect(pf_app_base_path() . '/customer/products.php');
 }
+$showBranchBeforeOptions = (bool)preg_match('/\b(sticker|stickers|decal|decals)\b/i', (string)($group['name'] ?? ''));
 
 $members = printflow_catalog_group_members($groupId, true);
 if (empty($members)) {
@@ -326,6 +327,16 @@ require_once __DIR__ . '/../includes/header.php';
         border-top: 1px dashed rgba(126, 164, 184, 0.35);
         width: 100%;
         min-width: 0;
+        box-sizing: border-box;
+    }
+    .pf-group-branch-selection {
+        display: grid;
+        gap: 6px;
+        width: 100%;
+        min-width: 0;
+        margin: 0 0 12px;
+        padding: 0 0 12px;
+        border-bottom: 1px dashed rgba(126, 164, 184, 0.35);
         box-sizing: border-box;
     }
     .pf-group-buy-stack {
@@ -822,6 +833,18 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
             </div>
             <div class="pf-group-selection-options">
+                <?php if ($showBranchBeforeOptions): ?>
+                <div class="pf-group-branch-selection">
+                    <label class="pf-group-field-label" for="pf-group-branch">Branch *</label>
+                    <select id="pf-group-branch" class="form-input w-full" required>
+                        <option value="" selected disabled>Select Branch</option>
+                        <?php foreach ($branches as $branch): ?>
+                            <option value="<?php echo (int)$branch['id']; ?>"><?php echo htmlspecialchars($branch['branch_name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <div id="pf-group-branch-error" class="field-error" hidden>Please select a branch.</div>
+                </div>
+                <?php endif; ?>
                 <h2 class="pf-group-options-heading">Available options</h2>
                 <div class="pf-group-options" id="pf-group-options">
                     <?php foreach ($options as $opt):
@@ -852,6 +875,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <?php endforeach; ?>
                 </div>
                 <div class="pf-group-right-size">
+                    <?php if (!$showBranchBeforeOptions): ?>
                     <label class="pf-group-field-label" for="pf-group-branch">Branch *</label>
                     <select id="pf-group-branch" class="form-input w-full" required>
                         <option value="" selected disabled>Select Branch</option>
@@ -860,6 +884,7 @@ require_once __DIR__ . '/../includes/header.php';
                         <?php endforeach; ?>
                     </select>
                     <div id="pf-group-branch-error" class="field-error" hidden>Please select a branch.</div>
+                    <?php endif; ?>
                     <div id="pf-group-variant-wrap" hidden>
                         <div class="pf-group-field-label" id="pf-group-variant-label">Size *</div>
                         <div class="shopee-opt-group" id="pf-group-variant-options" role="group" aria-labelledby="pf-group-variant-label"></div>
