@@ -6971,16 +6971,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     console.log('[POS CHECKOUT] checkout completed', { orderId: data.order_id });
                     checkoutData = data;
                 } else {
+                    const failStage = (data && data.stage) ? String(data.stage) : '';
+                    const failMessage = (data && data.message) ? String(data.message) : '';
                     console.error('[POS CHECKOUT] ERROR', {
-                        status: res.status,
-                        stage: data.stage || '',
-                        message: data.message || ''
+                        httpStatus: res.status,
+                        stage: failStage,
+                        message: failMessage,
+                        body: data
                     });
-                    checkoutErrorMessage = data.message
-                        || ('Checkout failed with HTTP ' + res.status + '.');
+                    checkoutErrorMessage = failMessage
+                        || (failStage ? ('Checkout failed at ' + failStage + ' (HTTP ' + res.status + ').') : ('Checkout failed with HTTP ' + res.status + '.'));
                 }
             } catch (e) {
-                console.error('[POS CHECKOUT] ERROR', e);
+                const errMsg = (e && e.message) ? String(e.message) : String(e);
+                console.error('[POS CHECKOUT] ERROR', errMsg, e);
                 checkoutErrorMessage = e.name === 'AbortError'
                     ? 'Checkout took too long to respond. Please refresh the POS and check Store Orders before trying again.'
                     : ('Network error: ' + e.message);

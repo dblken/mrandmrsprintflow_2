@@ -88,6 +88,38 @@ function pos_checkout_guest_display_name_insert_sql(?string $guestDisplayName): 
     return [', pos_guest_display_name', ', ?', [$guestDisplayName], 's'];
 }
 
+function pos_checkout_order_insert_types(string $guestTypes, string $amountPaidTypes, string $priceFinalTypes): string {
+    $core = ($guestTypes !== '' ? 'is' : 'i') . 'iidssssss';
+
+    return $core . $amountPaidTypes . $priceFinalTypes;
+}
+
+function pos_checkout_draft_order_insert_types(string $guestTypes): string {
+    return ($guestTypes !== '' ? 'is' : 'i') . 'ii';
+}
+
+function pos_checkout_safe_db_failure_message(string $fallback): string {
+    if (!function_exists('printflow_db_errors')) {
+        return $fallback;
+    }
+    $errors = printflow_db_errors();
+    if (!is_array($errors) || $errors === []) {
+        return $fallback;
+    }
+    $last = end($errors);
+    if (!is_array($last)) {
+        return $fallback;
+    }
+    $stage = trim((string)($last['stage'] ?? ''));
+    $errText = trim((string)($last['error'] ?? ''));
+    if ($errText === '') {
+        return $fallback;
+    }
+    error_log('[pos_checkout] db failure' . ($stage !== '' ? (' stage=' . $stage) : '') . ': ' . $errText);
+
+    return $fallback;
+}
+
 function pos_prepare_order_for_paymongo_checkout(
     int $orderId,
     int $staffId,
@@ -1212,12 +1244,16 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         $order_result = db_execute(
             "INSERT INTO orders (customer_id{$guestCol}, branch_id, reference_id, total_amount, status, payment_status, payment_method, order_date, updated_at, order_type, order_source)
              VALUES (?{$guestVal}, ?, ?, 0, 'Draft', 'Unpaid', 'Cash', NOW(), NOW(), 'custom', 'pos_draft')",
-            'i' . $guestTypes . 'iii',
+            pos_checkout_draft_order_insert_types($guestTypes),
             array_merge([$customer_id], $guestParams, [$branch_id, $product_id])
         );
         if (!$order_result) {
             $conn->rollback();
-            echo json_encode(['success' => false, 'message' => 'Failed to create draft order.']);
+            echo json_encode([
+                'success' => false,
+                'stage' => 'draft_order_insert',
+                'message' => pos_checkout_safe_db_failure_message('Failed to create draft order.'),
+            ]);
             exit;
         }
 
@@ -1613,7 +1649,7 @@ try {
         $order_result = db_execute(
             "INSERT INTO orders (customer_id{$guestCol}, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source{$amountPaidColumns}{$priceFinalColumns})
              VALUES (?{$guestVal}, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",
-            'i' . $guestTypes . 'iiidssssss' . $amountPaidTypes . $priceFinalTypes,
+            pos_checkout_order_insert_types($guestTypes, $amountPaidTypes, $priceFinalTypes),
             array_merge(
                 [$customer_id],
                 $guestParams,
@@ -1625,7 +1661,12 @@ try {
 
         if (!$order_result) {
             $conn->rollback();
-            echo json_encode(['success' => false, 'message' => 'Failed to create order.']);
+            $checkout_stage = 'order_insert';
+            echo json_encode([
+                'success' => false,
+                'stage' => 'order_insert',
+                'message' => pos_checkout_safe_db_failure_message('Failed to create order. No sale was saved.'),
+            ]);
             exit;
         }
 

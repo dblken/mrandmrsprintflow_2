@@ -26,6 +26,11 @@ $assert(strpos($helpers, 'function printflow_pos_is_placeholder_customer_email('
 
 $assert(strpos($checkout, 'function pos_create_name_only_pos_customer(') === false, 'checkout no longer inserts pos.guest customers');
 $assert(strpos($checkout, 'pos_checkout_guest_display_name_insert_sql') !== false, 'checkout persists order-level guest display name');
+$assert(strpos($checkout, 'function pos_checkout_order_insert_types(') !== false, 'checkout uses explicit order insert bind types');
+$assert(
+    strpos($checkout, "'i' . \$guestTypes . 'iiidssssss'") === false,
+    'checkout no longer uses mismatched order insert bind types'
+);
 $assert(strpos($checkout, 'printflow_pos_resolve_checkout_customer_context') !== false, 'checkout uses shared resolver');
 
 $assert(strpos($receipt, 'pos_guest_display_name') !== false, 'receipt reads order-level guest display name');
