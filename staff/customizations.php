@@ -1041,15 +1041,16 @@ $online_closed_count = 0;
             white-space: nowrap;
         }
         .status-badge-pill {
-            display: inline-flex;
-            width: fit-content;
+            display: inline-block;
+            width: auto;
             min-width: 0;
             max-width: 100%;
             box-sizing: border-box;
-            flex: 0 1 auto;
-            white-space: normal;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
             text-align: center;
-            overflow-wrap: anywhere;
+            vertical-align: middle;
         }
         .pf-pill {
             display: inline-flex;
@@ -1059,21 +1060,21 @@ $online_closed_count = 0;
             border-radius: 20px;
             font-size: 12px;
             font-weight: 600;
-            line-height: 1;
+            line-height: 1.2;
             white-space: nowrap;
             max-width: 100%;
         }
-        /* Keep status text inside its colored badge when table columns get
-           narrow (for example at high browser zoom or tablet widths). */
+        /* Status text: single line with ellipsis when column is narrow */
         .pf-pill.status-badge-pill {
-            width: max-content;
+            display: block;
+            width: 100%;
             min-width: 0;
             max-width: 100%;
-            padding: 4px 8px;
-            line-height: 1.2;
-            white-space: normal;
-            overflow-wrap: normal;
-            word-break: normal;
+            padding: 4px 10px;
+            line-height: 1.25;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
             text-align: center;
         }
         .order-code-cell,
@@ -1301,12 +1302,12 @@ $online_closed_count = 0;
             box-sizing: border-box;
             vertical-align: middle;
         }
-        .customizations-data-table .col-order { width: 14%; }
-        .customizations-data-table .col-info { width: 20%; }
-        .customizations-data-table .col-needed { width: 12%; }
-        .customizations-data-table .col-status { width: 12%; }
+        .customizations-data-table .col-order { width: 12%; }
+        .customizations-data-table .col-needed { width: 11%; }
+        .customizations-data-table .col-info { width: 18%; }
+        .customizations-data-table .col-status { width: 15%; }
         .customizations-data-table .col-customer { width: 14%; }
-        .customizations-data-table .col-created { width: 16%; }
+        .customizations-data-table .col-created { width: 18%; }
         .customizations-data-table .col-action { width: 12%; }
         .customizations-data-table th:nth-child(4),
         .customizations-data-table td:nth-child(4),
@@ -1321,6 +1322,10 @@ $online_closed_count = 0;
         }
         .needed-date-cell .table-text-main {
             color: #334155;
+            white-space: nowrap;
+        }
+        .customizations-data-table .status-col-cell {
+            min-width: 118px;
         }
         .customizations-data-table .status-col-inner,
         .customizations-data-table .action-btn-group {
@@ -1557,20 +1562,23 @@ $online_closed_count = 0;
                 padding-bottom: 12px !important;
                 min-width: 0;
             }
-            .customizations-data-table .col-order { width: 13%; }
-            .customizations-data-table .col-info { width: 19%; }
-            .customizations-data-table .col-needed { width: 11%; }
-            .customizations-data-table .col-status { width: 11%; }
+            .customizations-data-table .col-order { width: 12%; }
+            .customizations-data-table .col-needed { width: 10%; }
+            .customizations-data-table .col-info { width: 17%; }
+            .customizations-data-table .col-status { width: 14%; }
             .customizations-data-table .col-customer { width: 13%; }
-            .customizations-data-table .col-created { width: 14%; }
-            .customizations-data-table .col-action { width: 11%; }
+            .customizations-data-table .col-created { width: 16%; }
+            .customizations-data-table .col-action { width: 10%; }
             .customizations-data-table .status-badge-pill,
-            .customizations-data-table .pf-pill {
+            .customizations-data-table .pf-pill.status-badge-pill {
                 min-width: 0;
                 max-width: 100%;
-                padding-left: 7px;
-                padding-right: 7px;
+                padding-left: 8px;
+                padding-right: 8px;
                 font-size: 10px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
             .customizations-data-table .table-action-btn {
                 min-width: 0;
@@ -1671,8 +1679,8 @@ $online_closed_count = 0;
                 background: #fff !important;
             }
             .customizations-data-table tr.customization-row .order-code-cell { grid-column: 1 !important; grid-row: 1 !important; }
-            .customizations-data-table tr.customization-row .customization-info-cell { grid-column: 2 !important; grid-row: 1 !important; }
-            .customizations-data-table tr.customization-row .needed-date-cell { grid-column: 1 !important; grid-row: 2 !important; }
+            .customizations-data-table tr.customization-row .needed-date-cell { grid-column: 2 !important; grid-row: 1 !important; }
+            .customizations-data-table tr.customization-row .customization-info-cell { grid-column: 1 !important; grid-row: 2 !important; }
             .customizations-data-table tr.customization-row .status-col-cell { grid-column: 2 !important; grid-row: 2 !important; }
             .customizations-data-table tr.customization-row .customer-cell { grid-column: 1 !important; grid-row: 3 !important; }
             .customizations-data-table tr.customization-row .created-cell { grid-column: 2 !important; grid-row: 3 !important; }
@@ -1709,12 +1717,12 @@ $online_closed_count = 0;
                 justify-content: flex-start !important;
             }
             .customizations-data-table tr.customization-row .status-badge-pill {
-                width: auto !important;
+                width: 100% !important;
                 min-width: 0 !important;
                 max-width: 100% !important;
-                white-space: normal !important;
-                overflow-wrap: normal !important;
-                word-break: normal !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
             }
             .customizations-data-table tr.customization-row .action-col-cell {
                 display: block !important;
@@ -2447,14 +2455,14 @@ $online_closed_count = 0;
                 <div class="overflow-x-auto -mx-6 px-6 customizations-table-scroll" style="clear:both;">
                     <table class="w-full text-sm text-left border-separate border-spacing-0 customizations-data-table">
                         <colgroup>
-                            <col class="col-order"><col class="col-info"><col class="col-needed"><col class="col-status">
+                            <col class="col-order"><col class="col-needed"><col class="col-info"><col class="col-status">
                             <col class="col-customer"><col class="col-created"><col class="col-action">
                         </colgroup>
                         <thead class="bg-gray-50/50">
                             <tr>
                                 <th class="pl-6 pr-4 py-4 border-b border-gray-100">Order Code</th>
-                                <th class="px-4 py-4 border-b border-gray-100">Customization Info</th>
                                 <th class="px-4 py-4 border-b border-gray-100">Needed Date</th>
+                                <th class="px-4 py-4 border-b border-gray-100">Customization Info</th>
                                 <th class="px-4 py-4 border-b border-gray-100 text-center">Status</th>
                                 <th class="px-4 py-4 border-b border-gray-100">Customer</th>
                                 <th class="px-4 py-4 border-b border-gray-100">Order Date</th>
@@ -2483,6 +2491,11 @@ $online_closed_count = 0;
                                         </td>
                                     </template>
                                     <template x-if="isValidOrderListRow(item)">
+                                        <td class="px-4 py-4 needed-date-cell" data-label="Needed Date">
+                                            <div class="table-text-main truncate-ellipsis" :title="formatOrderNeededDate(item.jo, true)" x-text="formatOrderNeededDate(item.jo)"></div>
+                                        </td>
+                                    </template>
+                                    <template x-if="isValidOrderListRow(item)">
                                         <td class="px-4 py-4 customization-info-cell" data-label="Details">
                                             <div class="flex items-center gap-3">
                                                 <div class="flex flex-col gap-0 min-w-0">
@@ -2494,14 +2507,9 @@ $online_closed_count = 0;
                                         </td>
                                     </template>
                                     <template x-if="isValidOrderListRow(item)">
-                                        <td class="px-4 py-4 needed-date-cell" data-label="Needed Date">
-                                            <div class="table-text-main truncate-ellipsis" :title="formatOrderNeededDate(item.jo, true)" x-text="formatOrderNeededDate(item.jo)"></div>
-                                        </td>
-                                    </template>
-                                    <template x-if="isValidOrderListRow(item)">
                                         <td class="px-4 py-4 status-col-cell" data-label="Status">
                                             <div class="status-col-inner">
-                                                <div :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(item.jo)"></div>
+                                                <div :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" :title="getStatusLabel(item.jo)" x-text="getStatusLabel(item.jo)"></div>
                                             </div>
                                         </td>
                                     </template>
@@ -2533,8 +2541,8 @@ $online_closed_count = 0;
                             <template x-for="rowIndex in (loadingOrders && orders.length === 0 ? 6 : 0)" :key="'skeleton-' + rowIndex">
                                 <tr aria-hidden="true">
                                     <td class="pl-6 pr-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton"></span><span class="pf-customization-skeleton medium" style="margin-top:8px;"></span></td>
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton short"></span></td>
+                                    <td class="px-4 py-5"><span class="pf-customization-skeleton"></span><span class="pf-customization-skeleton medium" style="margin-top:8px;"></span></td>
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton"></span></td>
@@ -2606,7 +2614,7 @@ $online_closed_count = 0;
                                 <div class="customization-mobile-card__meta-row">
                                     <span class="customization-mobile-card__label">Status</span>
                                     <div class="customization-mobile-card__status">
-                                        <span :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(item.jo)"></span>
+                                        <span :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" :title="getStatusLabel(item.jo)" x-text="getStatusLabel(item.jo)"></span>
                                     </div>
                                 </div>
                                 <div class="customization-mobile-card__meta-row">
