@@ -4984,6 +4984,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             // All visible rows
             body.querySelectorAll('.shopee-form-row').forEach(row => {
                 if (row.style.display === 'none') return; // skip hidden conditional rows
+                if (row.dataset.pfFieldInactive === '1' || row.classList.contains('pf-field-conditionally-disabled')) return;
                 const label = row.querySelector('.shopee-form-label');
                 if (!label) return;
                 const labelText = label.innerText.replace('*', '').trim();
@@ -4991,7 +4992,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                 // Radio
                 const checkedRadio = row.querySelector('input[type="radio"]:checked');
-                if (checkedRadio) { customization[labelText] = checkedRadio.value; return; }
+                if (checkedRadio) {
+                    customization[labelText] = normalizeLayoutCustomizationValue(row, checkedRadio.value);
+                    return;
+                }
 
                 // Select (non-branch)
                 const sel = row.querySelector('select:not([name="branch_id"])');
@@ -5039,7 +5043,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
 
                 const uploadGroup = row.querySelector('.pf-file-upload-group[data-pf-required="1"]');
-                if (uploadGroup && isRequired) {
+                if (uploadGroup && isRequired && isServiceUploadGroupRequired(uploadGroup)) {
                     const fileInput = uploadGroup.querySelector('.pf-design-file-input');
                     const linkInput = uploadGroup.querySelector('.pf-design-link-input');
                     const hasFile = !!(fileInput && fileInput.files && fileInput.files.length > 0);
@@ -5125,12 +5129,49 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             btn.textContent = isBusy ? 'Adding...' : 'Add to Order';
         }
 
+        function pfLayoutOptionCanonical(value) {
+            const raw = String(value || '').trim().toLowerCase();
+            if (!raw) return null;
+            const slug = raw.replace(/[\s-]+/g, '_').replace(/_+/g, '_');
+            if (slug === 'without_layout' || slug === 'withoutlayout' || raw === 'without layout') return 'without_layout';
+            if (slug === 'with_layout' || slug === 'withlayout' || raw === 'with layout') return 'with_layout';
+            if (slug.includes('without') && slug.includes('layout')) return 'without_layout';
+            if (slug.includes('with') && slug.includes('layout')) return 'with_layout';
+            return null;
+        }
+
+        function normalizeLayoutCustomizationValue(row, value) {
+            if (!row) return value;
+            const key = String(serviceFieldKey(row) || '').toLowerCase();
+            const label = serviceFieldLabel(row).toLowerCase();
+            if (key.includes('layout') || label === 'layout') {
+                const canon = pfLayoutOptionCanonical(value);
+                if (canon) return canon;
+            }
+            return value;
+        }
+
         function isServiceFieldVisible(row) {
             if (!row || row.hidden) return false;
             const style = window.getComputedStyle(row);
             if (style.display === 'none' || style.visibility === 'hidden') return false;
             const hiddenParent = row.parentElement ? row.parentElement.closest('[style*="display:none"], [style*="display: none"]') : null;
             return !hiddenParent;
+        }
+
+        function isServiceFieldActive(row) {
+            if (!isServiceFieldVisible(row)) return false;
+            if (row.dataset.pfFieldInactive === '1') return false;
+            if (row.classList.contains('pf-field-conditionally-disabled')) return false;
+            return true;
+        }
+
+        function isServiceUploadGroupRequired(group) {
+            if (!group || group.getAttribute('data-pf-required') !== '1') return false;
+            const row = group.closest('.shopee-form-row');
+            if (!isServiceFieldActive(row)) return false;
+            if (group.dataset.pfConditionallyRequired === '0') return false;
+            return true;
         }
 
         function serviceFieldLabel(row) {
@@ -5258,6 +5299,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         function validateServiceOrderForm() {
+            if (typeof updateConditionalFields === 'function') {
+                updateConditionalFields();
+            }
             const body = document.getElementById('sm-fields-body');
             const errors = {};
             if (!body) return { valid: false, errors };
@@ -5268,7 +5312,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             };
 
             body.querySelectorAll('.shopee-form-row').forEach(row => {
-                if (!isServiceFieldVisible(row)) return;
+                if (!isServiceFieldActive(row)) return;
                 const requiredInputs = Array.from(row.querySelectorAll('[required]')).filter(input => {
                     if (input.disabled) return false;
                     const hiddenParent = input.closest('[style*="display:none"], [style*="display: none"]');
@@ -5324,8 +5368,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
 
             body.querySelectorAll('.pf-file-upload-group[data-pf-required="1"]').forEach(group => {
+                if (!isServiceUploadGroupRequired(group)) return;
                 const row = group.closest('.shopee-form-row');
-                if (!row || !isServiceFieldVisible(row)) return;
                 const fileInput = group.querySelector('.pf-design-file-input');
                 const linkInput = group.querySelector('.pf-design-link-input');
                 const hasFile = !!(fileInput && fileInput.files && fileInput.files.length > 0);
@@ -5381,11 +5425,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             customization.service_type = serviceName;
 
             body.querySelectorAll('.shopee-form-row').forEach(row => {
-                if (!isServiceFieldVisible(row)) return;
+                if (!isServiceFieldActive(row)) return;
 
                 const checkedRadio = row.querySelector('input[type="radio"]:checked');
                 if (checkedRadio) {
-                    let radioValue = checkedRadio.value;
+                    let radioValue = normalizeLayoutCustomizationValue(row, checkedRadio.value);
                     if (radioValue === 'Others') {
                         const radioOther = row.querySelector('input[name="' + checkedRadio.name + '_other"]');
                         if (radioOther && radioOther.value.trim()) {
@@ -5398,7 +5442,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                 const sel = row.querySelector('select:not([name="branch_id"])');
                 if (sel && sel.value) {
-                    let selectValue = sel.value;
+                    let selectValue = normalizeLayoutCustomizationValue(row, sel.value);
                     const otherValue = sel.getAttribute('data-other-option') || 'Others';
                     if (selectValue === otherValue) {
                         const selectOther = row.querySelector('input[name="' + sel.name + '_other"]');

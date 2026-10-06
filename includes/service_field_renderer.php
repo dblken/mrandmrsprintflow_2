@@ -666,7 +666,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $required_data = $config['required'] ? ' data-pf-required="1"' : '';
             $initial_mode = $saved_link !== '' ? 'link' : '';
 
-            $html .= '<div class="pf-file-upload-group" data-pf-file-upload="1" data-pf-design-initial="' . htmlspecialchars($initial_mode, ENT_QUOTES, 'UTF-8') . '"' . $required_data . ' style="max-width:100%;width:100%;">';
+            $conditional_required_data = $config['required'] ? ' data-pf-conditionally-required="1"' : '';
+            $html .= '<div class="pf-file-upload-group" data-pf-file-upload="1" data-pf-design-initial="' . htmlspecialchars($initial_mode, ENT_QUOTES, 'UTF-8') . '"' . $required_data . $conditional_required_data . ' style="max-width:100%;width:100%;">';
             $html .= '<label class="pf-design-mode-label" for="' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '_mode">Select Upload Design Option' . ($config['required'] ? ' *' : '') . '</label>';
             $html .= '<select name="design_input_mode" id="' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '_mode" class="input-field pf-design-mode-select"' . ($config['required'] ? ' required' : '') . '>';
             $html .= '<option value="" disabled' . ($initial_mode === '' ? ' selected' : '') . '>Select Upload Design Option</option>';
@@ -1583,8 +1584,25 @@ if (!window.__pfServiceFieldDelegatesBound) {
 
 // --- Conditional Fields Logic ---
 
+function pfLayoutOptionCanonical(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return null;
+    const slug = raw.replace(/[\s-]+/g, '_').replace(/_+/g, '_');
+    if (slug === 'without_layout' || slug === 'withoutlayout' || raw === 'without layout') return 'without_layout';
+    if (slug === 'with_layout' || slug === 'withlayout' || raw === 'with layout') return 'with_layout';
+    if (slug.includes('without') && slug.includes('layout')) return 'without_layout';
+    if (slug.includes('with') && slug.includes('layout')) return 'with_layout';
+    return null;
+}
+
 function pfConditionalValuesMatch(currentVal, triggerValue) {
-    return String(currentVal || '').trim().toLowerCase() === String(triggerValue || '').trim().toLowerCase();
+    const a = String(currentVal || '').trim();
+    const b = String(triggerValue || '').trim();
+    if (!a || !b) return false;
+    if (a.toLowerCase() === b.toLowerCase()) return true;
+    const ca = pfLayoutOptionCanonical(a);
+    const cb = pfLayoutOptionCanonical(b);
+    return ca !== null && cb !== null && ca === cb;
 }
 
 function pfGetConditionalParentValue(parentField) {

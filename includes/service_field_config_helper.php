@@ -338,13 +338,130 @@ function printflow_service_field_hidden_by_option_rules(string $targetFieldKey, 
             if ($optVal === '') {
                 continue;
             }
-            if (strcasecmp($selected, $optVal) === 0) {
+            if (printflow_service_option_values_match($selected, $optVal)) {
                 return true;
             }
         }
     }
 
     return false;
+}
+
+/**
+ * Whether a configured field represents layout choice (With / Without Layout).
+ */
+function printflow_service_field_is_layout_field(string $fieldKey, array $config): bool
+{
+    if (strcasecmp(trim($fieldKey), 'layout') === 0) {
+        return true;
+    }
+    return strcasecmp(trim((string)($config['label'] ?? '')), 'layout') === 0;
+}
+
+/**
+ * Normalize layout option labels/values to with_layout | without_layout for storage and matching.
+ */
+function printflow_layout_option_canonical(string $value): ?string
+{
+    $raw = strtolower(trim($value));
+    if ($raw === '') {
+        return null;
+    }
+    $slug = preg_replace('/[\s\-]+/', '_', $raw);
+    $slug = preg_replace('/_+/', '_', (string)$slug);
+    if (in_array($slug, ['without_layout', 'withoutlayout'], true) || $raw === 'without layout') {
+        return 'without_layout';
+    }
+    if (in_array($slug, ['with_layout', 'withlayout'], true) || $raw === 'with layout') {
+        return 'with_layout';
+    }
+    if (str_contains($slug, 'without') && str_contains($slug, 'layout')) {
+        return 'without_layout';
+    }
+    if (str_contains($slug, 'with') && str_contains($slug, 'layout')) {
+        return 'with_layout';
+    }
+    return null;
+}
+
+/**
+ * Compare option trigger values, including layout label ↔ slug equivalence.
+ */
+function printflow_service_option_values_match(string $selected, string $optionValue): bool
+{
+    $a = trim($selected);
+    $b = trim($optionValue);
+    if ($a === '' || $b === '') {
+        return false;
+    }
+    if (strcasecmp($a, $b) === 0) {
+        return true;
+    }
+    $ca = printflow_layout_option_canonical($a);
+    $cb = printflow_layout_option_canonical($b);
+    return $ca !== null && $cb !== null && $ca === $cb;
+}
+
+/**
+ * Align layout keys in a value map so conditionals work with labels or slugs.
+ *
+ * @param array<string, mixed> $values
+ * @param array<string, array> $fieldConfigs
+ * @return array<string, mixed>
+ */
+function printflow_service_field_normalize_layout_values(array $values, array $fieldConfigs): array
+{
+    foreach ($fieldConfigs as $fieldKey => $config) {
+        if (!is_string($fieldKey) || $fieldKey === '' || !is_array($config)) {
+            continue;
+        }
+        if (!printflow_service_field_is_layout_field($fieldKey, $config)) {
+            continue;
+        }
+        $current = printflow_service_field_resolve_parent_value($fieldKey, $values);
+        if ($current === '') {
+            continue;
+        }
+        $canonical = printflow_layout_option_canonical($current);
+        if ($canonical === null) {
+            continue;
+        }
+        $values[$fieldKey] = $canonical;
+        $label = trim((string)($config['label'] ?? ''));
+        if ($label !== '') {
+            $values[$label] = $canonical;
+        }
+    }
+    return $values;
+}
+
+/**
+ * Persist layout selections as with_layout / without_layout in customization payloads.
+ *
+ * @param array<string, mixed> $customization
+ * @param array<string, array> $fieldConfigs
+ */
+function printflow_apply_layout_canonical_to_customization(array &$customization, array $fieldConfigs): void
+{
+    foreach ($fieldConfigs as $fieldKey => $config) {
+        if (!is_string($fieldKey) || $fieldKey === '' || !is_array($config)) {
+            continue;
+        }
+        if (!printflow_service_field_is_layout_field($fieldKey, $config)) {
+            continue;
+        }
+        $label = trim((string)($config['label'] ?? ''));
+        $keys = array_unique(array_filter([$fieldKey, $label, 'Layout', 'layout']));
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $customization)) {
+                continue;
+            }
+            $canonical = printflow_layout_option_canonical((string)$customization[$key]);
+            if ($canonical !== null) {
+                $customization[$key] = $canonical;
+            }
+        }
+    }
 }
 
 /**
@@ -519,7 +636,7 @@ function printflow_service_field_is_active(array $config, array $values, string 
         }
         return false;
     }
-    $matches = strcasecmp($parentVal, $triggerValue) === 0;
+    $matches = printflow_service_option_values_match($parentVal, $triggerValue);
     if (printflow_service_field_conditional_mode($config) === 'hide_when') {
         return !$matches;
     }

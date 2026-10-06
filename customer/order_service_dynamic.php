@@ -371,6 +371,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     // Validate all required fields dynamically
     if (empty($error)) {
         $field_values = printflow_service_field_values_from_post($_POST);
+        $field_values = printflow_service_field_normalize_layout_values($field_values, $field_configs);
         foreach ($field_configs as $key => $config) {
             if (!$config['visible']) continue;
 
@@ -676,6 +677,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 }
             }
             printflow_merge_nested_service_fields_into_customization($field_configs, $customization, $_POST, $_FILES);
+            printflow_apply_layout_canonical_to_customization($customization, $field_configs);
             if ($branch_id > 0) {
                 $branch_row = db_query('SELECT branch_name FROM branches WHERE id = ? LIMIT 1', 'i', [$branch_id]);
                 if (!empty($branch_row) && trim((string)($branch_row[0]['branch_name'] ?? '')) !== '') {
@@ -2171,6 +2173,8 @@ document.addEventListener('DOMContentLoaded', function() {
             rows.forEach(row => {
                 if (row.dataset.pfFieldInactive === '1') return;
                 if (row.offsetParent === null) return;
+                const uploadGroup = row.querySelector('.pf-file-upload-group[data-pf-required="1"]');
+                if (uploadGroup && uploadGroup.dataset.pfConditionallyRequired === '0') return;
 
                 row.querySelectorAll('.pf-custom-size-panel.dim-others-inputs, .dim-others-inputs.pf-custom-size-panel').forEach(panel => {
                     if (typeof pfIsCustomSizePanelVisible === 'function' && !pfIsCustomSizePanelVisible(panel)) return;

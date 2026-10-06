@@ -197,6 +197,7 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
     }
 
     $fieldValues = printflow_service_field_values_from_customization($customization, $configs);
+    $fieldValues = printflow_service_field_normalize_layout_values($fieldValues, $configs);
 
     foreach ($configs as $fieldKey => $config) {
         if (empty($config['visible']) || empty($config['required']) || !printflow_service_field_is_active($config, $fieldValues, (string)$fieldKey, $configs)) {
@@ -289,6 +290,12 @@ try {
 
             if ($is_service) {
                 $serviceCustomization = is_array($customization) ? $customization : [];
+                $serviceFieldConfigs = function_exists('get_service_field_config')
+                    ? get_service_field_config($product_id)
+                    : [];
+                if (!empty($serviceFieldConfigs)) {
+                    printflow_apply_layout_canonical_to_customization($serviceCustomization, $serviceFieldConfigs);
+                }
                 $serviceValidationErrors = pos_cart_validate_service_payload($product_id, $serviceCustomization, $qty);
                 if (!empty($serviceValidationErrors)) {
                     throw new PosCartValidationException($serviceValidationErrors);
