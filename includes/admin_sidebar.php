@@ -253,6 +253,10 @@ if (isset($_SESSION['user_id'])) {
                 </svg>
                 Activity Logs
             </a>
+            <a href="<?php echo $base_path; ?>/admin/backup_management.php" class="nav-item <?php echo $current_page === 'backup_management.php' ? 'active' : ''; ?>">
+                <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M6 4h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2zm4 7h4m-4 4h6"/></svg>
+                Backup Management
+            </a>
         </div>
 
         <!-- Account -->
