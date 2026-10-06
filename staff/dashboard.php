@@ -13,6 +13,7 @@ require_role('Staff');
 printflow_require_staff_module('dashboard');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
 require_once __DIR__ . '/../includes/staff_status_filters.php';
+require_once __DIR__ . '/../includes/staff_dashboard_revenue.php';
 
 $staffCtx = init_branch_context();
 $staffBranchId = $staffCtx['selected_branch_id'] === 'all' ? (int)($_SESSION['branch_id'] ?? 1) : (int)$staffCtx['selected_branch_id'];
@@ -150,18 +151,35 @@ if ($has_timeframe_range) {
 $today_orders_res = db_query($today_orders_sql, $today_orders_types, $today_orders_params);
 $total_orders_today = $today_orders_res[0]['count'] ?? 0;
 
-// Total Sales Today (Scoped)
-$sales_today_sql = "SELECT SUM(total_amount) as total FROM orders WHERE status != 'Cancelled' AND branch_id = ? AND {$staffOrderScopeSqlNoAlias}";
-$sales_today_types = 'i';
-$sales_today_params = [$staffBranchId];
-if ($has_timeframe_range) {
-    $sales_today_sql .= " AND $timeframe_sql_no_alias";
-    $sales_today_types .= 'ss';
-    $sales_today_params[] = $range_start;
-    $sales_today_params[] = $range_end;
+// Total Revenue KPI (Online Operations Staff — aligned with api_dashboard_stats.php)
+if ($is_pos_staff) {
+    $sales_today_sql = "SELECT SUM(total_amount) as total FROM orders WHERE status != 'Cancelled' AND branch_id = ? AND {$staffOrderScopeSqlNoAlias}";
+    $sales_today_types = 'i';
+    $sales_today_params = [$staffBranchId];
+    if ($has_timeframe_range) {
+        $sales_today_sql .= " AND $timeframe_sql_no_alias";
+        $sales_today_types .= 'ss';
+        $sales_today_params[] = $range_start;
+        $sales_today_params[] = $range_end;
+    }
+    $sales_today_res = db_query($sales_today_sql, $sales_today_types, $sales_today_params);
+    $total_sales_today = $sales_today_res[0]['total'] ?? 0;
+} else {
+    $salesTimeMeta = $has_timeframe_range
+        ? ['start' => $range_start, 'end' => $range_end, 'sql' => $timeframe_sql, 'types' => 'ss', 'params' => [$range_start, $range_end]]
+        : ['sql' => '1=1', 'types' => '', 'params' => []];
+    $salesBounds = printflow_staff_dashboard_time_bounds_meta($salesTimeMeta);
+    $salesRevenueSql = printflow_staff_dashboard_should_compute_revenue($status_filter, $staffAccessMeta['key'] ?? null)
+        ? printflow_staff_online_dashboard_revenue_sql('o')
+        : '0=1';
+    $sales_today_sql = "SELECT COALESCE(SUM(o.total_amount), 0) AS total
+        FROM orders o
+        WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$salesBounds['sql']} AND {$salesRevenueSql}";
+    $sales_today_types = 'i' . $salesBounds['types'];
+    $sales_today_params = array_merge([$staffBranchId], $salesBounds['params']);
+    $sales_today_res = db_query($sales_today_sql, $sales_today_types, $sales_today_params);
+    $total_sales_today = $sales_today_res[0]['total'] ?? 0;
 }
-$sales_today_res = db_query($sales_today_sql, $sales_today_types, $sales_today_params);
-$total_sales_today = $sales_today_res[0]['total'] ?? 0;
 
 // --- Dashboard Global/Summary Metrics ---
 $completed_products_sql = $hasOrderType
