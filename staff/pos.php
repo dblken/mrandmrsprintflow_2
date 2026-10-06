@@ -894,6 +894,85 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             transform: scale(0.985);
         }
 
+        /* Services catalog grid — same stable card anatomy as products */
+        #services-view {
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .pos-services-grid {
+            gap: 16px;
+            padding: 18px 20px 24px;
+            scroll-padding: 12px;
+            min-height: 0;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        @media (min-width: 900px) {
+            .pos-services-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        @media (min-width: 1280px) {
+            .pos-services-grid {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+        }
+
+        .pos-services-grid .pos-catalog-card {
+            min-height: 248px;
+            align-self: start;
+            max-width: 100%;
+        }
+
+        .pos-services-grid .pos-catalog-card__media {
+            aspect-ratio: 1;
+            height: 118px;
+            min-height: 118px;
+            max-height: 118px;
+            background: #f8fafc;
+        }
+
+        .pos-services-grid .pos-catalog-card__media img {
+            object-fit: contain;
+            object-position: center;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+
+        .pos-services-grid .pos-catalog-card__body {
+            flex: 0 0 auto;
+            flex-shrink: 0;
+            min-height: 92px;
+            padding: 10px 12px 14px;
+            border-top: 1px solid #eef2f6;
+            background: #ffffff;
+        }
+
+        .pos-services-grid .pos-catalog-card__meta {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 100%;
+            flex-shrink: 0;
+        }
+
+        .pos-services-grid .pos-catalog-card__name {
+            min-height: calc(2 * 1.35 * 13px);
+            line-clamp: 2;
+            -webkit-line-clamp: 2;
+            flex-shrink: 0;
+        }
+
+        .pos-services-grid .pos-catalog-card__price {
+            margin-top: auto;
+            flex-shrink: 0;
+            padding-top: 6px;
+            font-size: 14px;
+            color: #0f172a;
+        }
+
         /* Legacy alias for JS filters */
         .pos-card.no-stock {
             opacity: 0.62;
@@ -1766,7 +1845,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             flex: 1;
             overflow-y: auto;
             align-content: start;
-            height: auto;
+            min-height: 0;
         }
 
         .pos-cart-header .pf-pos-cart-icon {
@@ -1798,11 +1877,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         /* Hide scrollbar for grid to look cleaner */
         .pos-products-grid::-webkit-scrollbar,
+        .pos-services-grid::-webkit-scrollbar,
         .pos-cart-list::-webkit-scrollbar {
             width: 6px;
         }
 
         .pos-products-grid::-webkit-scrollbar-thumb,
+        .pos-services-grid::-webkit-scrollbar-thumb,
         .pos-cart-list::-webkit-scrollbar-thumb {
             background: #cbd5e1;
             border-radius: 3px;
@@ -2762,6 +2843,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 min-height: 88px;
             }
 
+            .pos-services-grid .pos-catalog-card {
+                min-height: 228px;
+            }
+
+            .pos-services-grid .pos-catalog-card__media {
+                height: 104px;
+                min-height: 104px;
+                max-height: 104px;
+            }
+
+            .pos-services-grid .pos-catalog-card__body {
+                min-height: 88px;
+            }
+
             .pos-cart-area {
                 width: 100%;
                 max-width: none;
@@ -2994,7 +3089,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         </div>
 
                         <!-- Services View -->
-                        <div id="services-view" style="display: none; height: 100%; flex-direction: column;">
+                        <div id="services-view" style="display: none; height: 100%; min-height: 0; flex-direction: column; overflow: hidden;">
                             <div class="pos-services-header"
                                 style="padding: 24px; border-bottom: 1px solid #e2e8f0; background: #fff; display: flex; justify-content: space-between; align-items: center;">
                                 <div>
@@ -3035,7 +3130,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                                 <?php if (!empty($svc['category'])): ?>
                                                     <span class="pos-catalog-card__meta"><?php echo htmlspecialchars($svc['category']); ?></span>
                                                 <?php endif; ?>
-                                                <p class="pos-catalog-card__name"><?php echo $svc_name; ?></p>
+                                                <p class="pos-catalog-card__name" title="<?php echo $svc_name; ?>"><?php echo $svc_name; ?></p>
                                                 <div class="pos-catalog-card__price"><?php echo $price_text; ?></div>
                                             </div>
                                         </button>
