@@ -93,6 +93,13 @@ try {
             );
         $parentAlreadyCompleted = $canonicalStatus($oldStatus) === 'COMPLETED';
         if ($completeChangeItem || ($changeItemInRework && $parentAlreadyCompleted)) {
+            if (getenv('PRINTFLOW_NOTIFICATION_DEBUG') === '1') {
+                error_log('[order-status][change_item] user_id=' . (int)get_user_id()
+                    . ' role=' . (string)get_user_type()
+                    . ' order_id=' . $orderId
+                    . ' change_item_id=' . $changeItemId
+                    . ' expected_status=' . $expectedStatus);
+            }
             try {
                 $changeResult = printflow_change_item_complete_staff_action(
                     $orderId,

@@ -52,11 +52,30 @@ if (empty($order_row)) {
 $o = $order_row[0];
 $o['customer_full_name'] = printflow_pos_order_customer_display_name($o);
 $resolvedOrderSource = strtolower(trim((string)($o['order_source'] ?? 'customer')));
-$isPosSource = in_array($resolvedOrderSource, ['pos', 'walk-in'], true);
+$isPosSource = in_array($resolvedOrderSource, ['pos', 'walk-in', 'pos_merged'], true);
 if (get_user_type() === 'Staff') {
     $staffAccessRole = printflow_get_staff_access_role();
-    if (($staffAccessRole === 'pos' && !$isPosSource) || ($staffAccessRole === 'online' && $isPosSource)) {
-        echo json_encode(['success' => false, 'error' => 'You do not have access to this order.']);
+    $allowsCrossChannelRead = false;
+    if (printflow_change_item_ensure_schema()) {
+        $changeSummary = printflow_change_item_summary_for_order($order_id);
+        $allowsCrossChannelRead = !empty($changeSummary['active'])
+            || !empty($changeSummary['has_history']);
+    }
+    if (
+        !$allowsCrossChannelRead
+        && (($staffAccessRole === 'pos' && !$isPosSource) || ($staffAccessRole === 'online' && $isPosSource))
+    ) {
+        if (getenv('PRINTFLOW_NOTIFICATION_DEBUG') === '1') {
+            error_log('[get_order_for_modal] access denied order_id=' . $order_id
+                . ' staff_role=' . $staffAccessRole
+                . ' order_source=' . $resolvedOrderSource);
+        }
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'error' => 'You do not have access to this order.',
+            'message' => 'You do not have access to this order.',
+        ]);
         exit;
     }
 }

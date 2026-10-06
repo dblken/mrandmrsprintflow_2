@@ -4140,6 +4140,9 @@ window.pfServiceFieldCatalog = (() => {
             detailContextMode: 'production_view',
             deepLinkExpectedStatus: '',
             deepLinkSourceOrderId: '',
+            deepLinkJobOrderId: 0,
+            deepLinkOrderItemId: 0,
+            deepLinkChangeItemId: 0,
             availableRolls: {},
             allInventoryItems: [],
             materialRules: [],
@@ -4661,13 +4664,24 @@ window.pfServiceFieldCatalog = (() => {
                 }
             },
             async fetchOrderModalSummary(orderId, options = {}) {
-                const params = new URLSearchParams({ id: String(orderId) });
+                const parsedOrderId = parseInt(orderId, 10);
+                if (!Number.isFinite(parsedOrderId) || parsedOrderId <= 0) {
+                    return {
+                        success: false,
+                        error: 'A valid order ID is required to load order details.',
+                    };
+                }
+                const params = new URLSearchParams({ id: String(parsedOrderId) });
                 if (options.includeAssignments) params.set('include_assignments', '1');
                 if (options.ensureJob) params.set('ensure_job', '1');
                 if (options.jobOrderId) params.set('job_order_id', String(options.jobOrderId));
                 if (options.orderItemId) params.set('order_item_id', String(options.orderItemId));
-                const res = await fetch(`${this.staffApiUrl('get_order_for_modal.php')}?${params.toString()}`);
-                return this.parseJsonResponse(res);
+                const endpoint = `${this.staffApiUrl('get_order_for_modal.php')}?${params.toString()}`;
+                if (!endpoint || !/^https?:\/\//i.test(endpoint)) {
+                    return { success: false, error: 'Order details endpoint is not configured.' };
+                }
+                const res = await fetch(endpoint);
+                return this.parseJsonResponse(res, 'Order details', endpoint);
             },
             deepLinkJobHintsFromUrl() {
                 try {
@@ -4681,6 +4695,22 @@ window.pfServiceFieldCatalog = (() => {
                 } catch (e) {
                     return { jobOrderId: 0, orderItemId: 0 };
                 }
+            },
+            resolveOrderDetailHints(jo = null) {
+                const row = jo || this.currentJo || {};
+                const hints = {
+                    jobOrderId: parseInt(this.deepLinkJobOrderId || row.job_order_id || 0, 10) || 0,
+                    orderItemId: parseInt(this.deepLinkOrderItemId || row.order_item_id || 0, 10) || 0,
+                };
+                const active = this.changeItemActiveRequest(row);
+                if (active) {
+                    hints.jobOrderId = hints.jobOrderId || parseInt(active.job_order_id || 0, 10) || 0;
+                    hints.orderItemId = hints.orderItemId || parseInt(active.order_item_id || 0, 10) || 0;
+                }
+                const fromUrl = this.deepLinkJobHintsFromUrl();
+                hints.jobOrderId = hints.jobOrderId || fromUrl.jobOrderId || 0;
+                hints.orderItemId = hints.orderItemId || fromUrl.orderItemId || 0;
+                return hints;
             },
             async loadModalAssignments(orderId, cacheKey, requestToken) {
                 if (!orderId) return;
@@ -7387,10 +7417,15 @@ window.pfServiceFieldCatalog = (() => {
                 const expectedChangeItemId = parseInt(params.get('change_item_id') || '0', 10);
                 const returnToPOS = params.get('return_to_pos') === '1';
                 const mode = (params.get('mode') || '').trim().toLowerCase();
-                const deepLinkHints = this.deepLinkJobHintsFromUrl();
                 this.detailContextMode = mode === 'pos_pricing' ? 'pos_pricing' : 'production_view';
                 this.deepLinkExpectedStatus = initialStatus ? initialStatus.toUpperCase().replace(/\s+/g, '_') : '';
                 this.deepLinkSourceOrderId = sourceOrderId || '';
+                this.deepLinkJobOrderId = parseInt(params.get('job_order_id') || '0', 10) || 0;
+                this.deepLinkOrderItemId = parseInt(params.get('order_item_id') || '0', 10) || 0;
+                this.deepLinkChangeItemId = parseInt(params.get('change_item_id') || '0', 10) || 0;
+                const deepLinkHints = this.resolveOrderDetailHints(
+                    orderId ? { order_id: parseInt(orderId, 10) || 0 } : {}
+                );
 
                 if (initialStatus) {
                     // Map common statuses to tabs
@@ -7451,8 +7486,13 @@ window.pfServiceFieldCatalog = (() => {
                 if (this.isPosPricingMode() && sourceOrderId) {
                     const parsedSourceOrderId = parseInt(sourceOrderId, 10);
                     if (!Number.isNaN(parsedSourceOrderId) && parsedSourceOrderId > 0) {
+                        const resolveEndpoint = this.adminApiUrl(
+                            `job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(parsedSourceOrderId)}`
+                        );
                         const resolved = await this.parseJsonResponse(
-                            await fetch(this.adminApiUrl(`job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(parsedSourceOrderId)}`))
+                            await fetch(resolveEndpoint),
+                            'Resolve job for order',
+                            resolveEndpoint
                         );
 
                         if (resolved.success && resolved.job_id) {
@@ -7479,8 +7519,13 @@ window.pfServiceFieldCatalog = (() => {
                 } else if (sourceOrderId) {
                     const parsedSourceOrderId = parseInt(sourceOrderId, 10);
                     if (!Number.isNaN(parsedSourceOrderId) && parsedSourceOrderId > 0) {
+                        const resolveEndpoint = this.adminApiUrl(
+                            `job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(parsedSourceOrderId)}`
+                        );
                         const resolved = await this.parseJsonResponse(
-                            await fetch(this.adminApiUrl(`job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(parsedSourceOrderId)}`))
+                            await fetch(resolveEndpoint),
+                            'Resolve job for order',
+                            resolveEndpoint
                         );
 
                         if (resolved.success && resolved.job_id) {
@@ -8536,6 +8581,15 @@ window.pfServiceFieldCatalog = (() => {
             },
 
             async parseJsonResponse(r, label = 'Request', endpoint = '') {
+                const resolvedEndpoint = String(endpoint || r?.url || '').trim();
+                if (!r || typeof r.text !== 'function') {
+                    console.error(`[Customizations] ${label} failed`, {
+                        endpoint: resolvedEndpoint,
+                        status: 0,
+                        body: 'Missing fetch response'
+                    });
+                    return { success: false, error: `${label} failed: no response was received.` };
+                }
                 const contentType = r.headers.get('content-type') || '';
                 const text = await r.text();
                 let payload = null;
@@ -8548,7 +8602,7 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 if (!r.ok) {
                     console.error(`[Customizations] ${label} failed`, {
-                        endpoint,
+                        endpoint: resolvedEndpoint,
                         status: r.status,
                         body: text.slice(0, 500)
                     });
@@ -8562,7 +8616,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (payload) {
                     if (!contentType.includes('application/json')) {
                         console.warn(`[Customizations] ${label} returned JSON with an incorrect Content-Type`, {
-                            endpoint,
+                            endpoint: resolvedEndpoint,
                             contentType
                         });
                     }
@@ -8570,7 +8624,7 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 if (!contentType.includes('application/json')) {
                     console.error(`[Customizations] ${label} returned non-JSON`, {
-                        endpoint,
+                        endpoint: resolvedEndpoint,
                         contentType,
                         body: text.slice(0, 500)
                     });
@@ -8580,7 +8634,7 @@ window.pfServiceFieldCatalog = (() => {
                     return JSON.parse(text);
                 } catch (e) {
                     console.error(`[Customizations] ${label} returned invalid JSON`, {
-                        endpoint,
+                        endpoint: resolvedEndpoint,
                         error: e,
                         body: text.slice(0, 500)
                     });
@@ -10316,12 +10370,22 @@ window.pfServiceFieldCatalog = (() => {
                 if (res.success) {
                     this.modalCache = {};
                     this.modalCacheLoadedAt = {};
+                    const refreshOrderId = this.resolveChangeItemOrderId(this.currentJo);
+                    const detailHints = this.resolveOrderDetailHints(this.currentJo);
+                    if (this.currentJo) {
+                        this.currentJo.status = 'COMPLETED';
+                        if (this.currentJo.change_item && this.currentJo.change_item.active) {
+                            this.currentJo.change_item.active = null;
+                        }
+                        this.currentJo.change_item_active = false;
+                        this.currentJo.has_change_item = !!(this.currentJo.change_item && this.currentJo.change_item.has_history);
+                    }
                     await this.loadOrders({ force: true });
-                    if (this.showDetailsModal && this.currentJo) {
+                    if (this.showDetailsModal && refreshOrderId) {
                         await this.viewDetails(
-                            this.currentJo.order_id || this.currentJo.id,
-                            this.currentJo.order_type || 'ORDER',
-                            this.deepLinkJobHintsFromUrl()
+                            refreshOrderId,
+                            'ORDER',
+                            detailHints
                         );
                     }
                     this.showStaffAlert(
