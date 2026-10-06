@@ -682,9 +682,9 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $html .= '</div>';
 
             $html .= '<div class="pf-design-mode-panel" data-pf-design-panel="link"' . ($initial_mode !== 'link' ? ' hidden' : '') . '>';
-            $html .= '<label for="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Design / Canva Link</label>';
+            $html .= '<label for="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Design Link</label>';
             $html .= '<input type="url" name="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" id="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" class="input-field pf-design-link-input" placeholder="https://..." value="' . htmlspecialchars($saved_link, ENT_QUOTES, 'UTF-8') . '" inputmode="url" autocomplete="url" style="max-width:100%;width:100%;">';
-            $html .= '<p style="margin:8px 0 0;font-size:12px;color:#9ca3af;line-height:1.5;">Paste a publicly accessible design, image, or Canva link.</p>';
+            $html .= '<p style="margin:8px 0 0;font-size:12px;color:#9ca3af;line-height:1.5;">Paste a publicly accessible URL for your design file or image.</p>';
             $html .= '</div>';
             $html .= '</div>';
             break;
