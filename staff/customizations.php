@@ -1303,21 +1303,25 @@ $online_closed_count = 0;
             vertical-align: middle;
         }
         .customizations-data-table .col-order { width: 12%; }
-        .customizations-data-table .col-needed { width: 11%; }
-        .customizations-data-table .col-info { width: 18%; }
-        .customizations-data-table .col-status { width: 15%; }
-        .customizations-data-table .col-customer { width: 14%; }
+        .customizations-data-table .col-customer { width: 12%; }
+        .customizations-data-table .col-info { width: 20%; }
         .customizations-data-table .col-created { width: 18%; }
-        .customizations-data-table .col-action { width: 12%; }
-        .customizations-data-table th:nth-child(4),
-        .customizations-data-table td:nth-child(4),
-        .customizations-data-table th:nth-child(7),
-        .customizations-data-table td:nth-child(7) {
+        .customizations-data-table .col-needed { width: 10%; }
+        .customizations-data-table .col-status { width: 15%; }
+        .customizations-data-table .col-action { width: 13%; }
+        .customizations-data-table thead th,
+        .customizations-data-table tbody td {
+            text-align: left !important;
+        }
+        .customizations-data-table thead th.col-head-status,
+        .customizations-data-table .status-col-cell {
             text-align: center !important;
         }
-        .customizations-data-table th:nth-child(6),
-        .customizations-data-table td:nth-child(6) {
-            text-align: left !important;
+        .customizations-data-table thead th.col-head-action,
+        .customizations-data-table .action-col-cell {
+            text-align: center !important;
+        }
+        .customizations-data-table .created-cell .table-text-main {
             white-space: nowrap;
         }
         .needed-date-cell .table-text-main {
@@ -1333,6 +1337,23 @@ $online_closed_count = 0;
             margin-right: 0;
             padding-left: 0;
             padding-right: 0;
+        }
+        .customizations-data-table .customization-info-cell .pf-customization-info-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        .customizations-data-table .order-code-cell,
+        .customizations-data-table .customer-cell,
+        .customizations-data-table .customization-info-cell,
+        .customizations-data-table .created-cell,
+        .customizations-data-table .needed-date-cell {
+            padding-left: 16px !important;
+            padding-right: 16px !important;
         }
         .customizations-mobile-list { display: none; }
 
@@ -1562,12 +1583,12 @@ $online_closed_count = 0;
                 padding-bottom: 12px !important;
                 min-width: 0;
             }
-            .customizations-data-table .col-order { width: 12%; }
-            .customizations-data-table .col-needed { width: 10%; }
-            .customizations-data-table .col-info { width: 17%; }
-            .customizations-data-table .col-status { width: 14%; }
-            .customizations-data-table .col-customer { width: 13%; }
+            .customizations-data-table .col-order { width: 11%; }
+            .customizations-data-table .col-customer { width: 11%; }
+            .customizations-data-table .col-info { width: 19%; }
             .customizations-data-table .col-created { width: 16%; }
+            .customizations-data-table .col-needed { width: 9%; }
+            .customizations-data-table .col-status { width: 14%; }
             .customizations-data-table .col-action { width: 10%; }
             .customizations-data-table .status-badge-pill,
             .customizations-data-table .pf-pill.status-badge-pill {
@@ -1679,11 +1700,11 @@ $online_closed_count = 0;
                 background: #fff !important;
             }
             .customizations-data-table tr.customization-row .order-code-cell { grid-column: 1 !important; grid-row: 1 !important; }
-            .customizations-data-table tr.customization-row .needed-date-cell { grid-column: 2 !important; grid-row: 1 !important; }
+            .customizations-data-table tr.customization-row .customer-cell { grid-column: 2 !important; grid-row: 1 !important; }
             .customizations-data-table tr.customization-row .customization-info-cell { grid-column: 1 !important; grid-row: 2 !important; }
-            .customizations-data-table tr.customization-row .status-col-cell { grid-column: 2 !important; grid-row: 2 !important; }
-            .customizations-data-table tr.customization-row .customer-cell { grid-column: 1 !important; grid-row: 3 !important; }
-            .customizations-data-table tr.customization-row .created-cell { grid-column: 2 !important; grid-row: 3 !important; }
+            .customizations-data-table tr.customization-row .created-cell { grid-column: 2 !important; grid-row: 2 !important; }
+            .customizations-data-table tr.customization-row .needed-date-cell { grid-column: 1 !important; grid-row: 3 !important; }
+            .customizations-data-table tr.customization-row .status-col-cell { grid-column: 2 !important; grid-row: 3 !important; }
             .customizations-data-table tr.customization-row .order-code-cell {
                 padding-top: 8px !important;
                 background: #f8fafc !important;
@@ -2455,18 +2476,18 @@ $online_closed_count = 0;
                 <div class="overflow-x-auto -mx-6 px-6 customizations-table-scroll" style="clear:both;">
                     <table class="w-full text-sm text-left border-separate border-spacing-0 customizations-data-table">
                         <colgroup>
-                            <col class="col-order"><col class="col-needed"><col class="col-info"><col class="col-status">
-                            <col class="col-customer"><col class="col-created"><col class="col-action">
+                            <col class="col-order"><col class="col-customer"><col class="col-info"><col class="col-created">
+                            <col class="col-needed"><col class="col-status"><col class="col-action">
                         </colgroup>
                         <thead class="bg-gray-50/50">
                             <tr>
-                                <th class="pl-6 pr-4 py-4 border-b border-gray-100">Order Code</th>
-                                <th class="px-4 py-4 border-b border-gray-100">Needed Date</th>
-                                <th class="px-4 py-4 border-b border-gray-100">Customization Info</th>
-                                <th class="px-4 py-4 border-b border-gray-100 text-center">Status</th>
-                                <th class="px-4 py-4 border-b border-gray-100">Customer</th>
-                                <th class="px-4 py-4 border-b border-gray-100">Order Date</th>
-                                <th class="px-4 py-4 border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
+                                <th class="py-4 border-b border-gray-100">Order Code</th>
+                                <th class="py-4 border-b border-gray-100">Customer</th>
+                                <th class="py-4 border-b border-gray-100">Customization Info</th>
+                                <th class="py-4 border-b border-gray-100">Order Date</th>
+                                <th class="py-4 border-b border-gray-100">Needed Date</th>
+                                <th class="py-4 border-b border-gray-100 text-center col-head-status">Status</th>
+                                <th class="py-4 border-b border-gray-100 text-center uppercase tracking-widest text-[10px] col-head-action">Action</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
@@ -2481,7 +2502,7 @@ $online_closed_count = 0;
                                         </td>
                                     </template>
                                     <template x-if="isValidOrderListRow(item)">
-                                        <td class="pl-6 pr-4 py-4 relative order-code-cell" data-label="Order">
+                                        <td class="py-4 relative order-code-cell" data-label="Order">
                                             <div class="row-indicator"></div>
                                             <div class="pf-order-code-stack">
                                                 <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(item.jo)" x-text="getDisplayOrderCode(item.jo)"></span>
@@ -2491,41 +2512,39 @@ $online_closed_count = 0;
                                         </td>
                                     </template>
                                     <template x-if="isValidOrderListRow(item)">
-                                        <td class="px-4 py-4 needed-date-cell" data-label="Needed Date">
-                                            <div class="table-text-main truncate-ellipsis" :title="formatOrderNeededDate(item.jo, true)" x-text="formatOrderNeededDate(item.jo)"></div>
+                                        <td class="py-4 customer-cell" data-label="Customer">
+                                            <div class="table-text-main truncate-ellipsis" :title="(item.jo.first_name + ' ' + (item.jo.last_name || '')).trim()" x-text="item.jo.first_name + ' ' + (item.jo.last_name || '')"></div>
                                         </td>
                                     </template>
                                     <template x-if="isValidOrderListRow(item)">
-                                        <td class="px-4 py-4 customization-info-cell" data-label="Details">
-                                            <div class="flex items-center gap-3">
-                                                <div class="flex flex-col gap-0 min-w-0">
-                                                    <div class="table-text-main truncate-ellipsis" :title="getRowDisplayName(item.jo)" x-text="getRowDisplayName(item.jo)"></div>
-                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(item.jo)"></div>
-                                                    <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type === 'SERVICE'">Service purchase</div>
-                                                </div>
+                                        <td class="py-4 customization-info-cell" data-label="Details">
+                                            <div class="pf-customization-info-stack">
+                                                <div class="table-text-main truncate-ellipsis" :title="getRowDisplayName(item.jo)" x-text="getRowDisplayName(item.jo)"></div>
+                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(item.jo)"></div>
+                                                <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="item.jo.order_type === 'SERVICE'">Service purchase</div>
                                             </div>
                                         </td>
                                     </template>
                                     <template x-if="isValidOrderListRow(item)">
-                                        <td class="px-4 py-4 status-col-cell" data-label="Status">
+                                        <td class="py-4 created-cell" data-label="Order Date">
+                                            <div class="table-text-main truncate-ellipsis" :title="formatOrderBusinessDate(item.jo)" x-text="formatOrderBusinessDate(item.jo)"></div>
+                                            <div class="table-text-sub uppercase truncate-ellipsis" :title="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''" x-text="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''"></div>
+                                        </td>
+                                    </template>
+                                    <template x-if="isValidOrderListRow(item)">
+                                        <td class="py-4 needed-date-cell" data-label="Needed Date">
+                                            <div class="table-text-main truncate-ellipsis" :title="formatOrderNeededDate(item.jo, true)" x-text="formatOrderNeededDate(item.jo)"></div>
+                                        </td>
+                                    </template>
+                                    <template x-if="isValidOrderListRow(item)">
+                                        <td class="py-4 status-col-cell" data-label="Status">
                                             <div class="status-col-inner">
                                                 <div :class="getStatusBadgeClass(item.jo)" class="pf-pill status-badge-pill" :title="getStatusLabel(item.jo)" x-text="getStatusLabel(item.jo)"></div>
                                             </div>
                                         </td>
                                     </template>
                                     <template x-if="isValidOrderListRow(item)">
-                                        <td class="px-4 py-4 customer-cell" data-label="Customer">
-                                            <div class="table-text-main truncate-ellipsis" :title="(item.jo.first_name + ' ' + (item.jo.last_name || '')).trim()" x-text="item.jo.first_name + ' ' + (item.jo.last_name || '')"></div>
-                                        </td>
-                                    </template>
-                                    <template x-if="isValidOrderListRow(item)">
-                                        <td class="px-4 py-4 text-right created-cell" data-label="Created">
-                                            <div class="table-text-main truncate-ellipsis" :title="formatOrderBusinessDate(item.jo)" x-text="formatOrderBusinessDate(item.jo)"></div>
-                                            <div class="table-text-sub uppercase truncate-ellipsis" :title="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''" x-text="item.jo.due_date ? 'Due ' + new Date(item.jo.due_date).toLocaleDateString() : ''"></div>
-                                        </td>
-                                    </template>
-                                    <template x-if="isValidOrderListRow(item)">
-                                        <td class="px-4 py-4 action-col-cell" data-label="Action">
+                                        <td class="py-4 action-col-cell" data-label="Action">
                                             <div class="action-btn-group">
                                                 <button
                                                     @click.stop="openOrderListItem(item)"
@@ -2540,13 +2559,13 @@ $online_closed_count = 0;
                             </template>
                             <template x-for="rowIndex in (loadingOrders && orders.length === 0 ? 6 : 0)" :key="'skeleton-' + rowIndex">
                                 <tr aria-hidden="true">
-                                    <td class="pl-6 pr-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton short"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton"></span><span class="pf-customization-skeleton medium" style="margin-top:8px;"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
+                                    <td class="py-5"><span class="pf-customization-skeleton medium"></span></td>
+                                    <td class="py-5"><span class="pf-customization-skeleton medium"></span></td>
+                                    <td class="py-5"><span class="pf-customization-skeleton"></span><span class="pf-customization-skeleton medium" style="margin-top:8px;"></span></td>
+                                    <td class="py-5"><span class="pf-customization-skeleton"></span></td>
+                                    <td class="py-5"><span class="pf-customization-skeleton short"></span></td>
+                                    <td class="py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
+                                    <td class="py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
                                 </tr>
                             </template>
                             <tr x-show="ordersError && orders.length === 0" x-cloak>
