@@ -1063,6 +1063,19 @@ $online_closed_count = 0;
             white-space: nowrap;
             max-width: 100%;
         }
+        /* Keep status text inside its colored badge when table columns get
+           narrow (for example at high browser zoom or tablet widths). */
+        .pf-pill.status-badge-pill {
+            width: max-content;
+            min-width: 0;
+            max-width: 100%;
+            padding: 4px 8px;
+            line-height: 1.2;
+            white-space: normal;
+            overflow-wrap: normal;
+            word-break: normal;
+            text-align: center;
+        }
         .order-code-cell,
         .customization-info-cell {
             min-width: 0;
@@ -1700,7 +1713,8 @@ $online_closed_count = 0;
                 min-width: 0 !important;
                 max-width: 100% !important;
                 white-space: normal !important;
-                overflow-wrap: anywhere !important;
+                overflow-wrap: normal !important;
+                word-break: normal !important;
             }
             .customizations-data-table tr.customization-row .action-col-cell {
                 display: block !important;
