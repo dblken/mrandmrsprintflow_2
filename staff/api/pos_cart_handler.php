@@ -274,7 +274,14 @@ class PosCartValidationException extends Exception
 
     public function __construct(array $errors)
     {
-        parent::__construct('Some required order details are missing.');
+        $message = 'Some required order details are missing.';
+        foreach ($errors as $fieldError) {
+            if (is_string($fieldError) && trim($fieldError) !== '') {
+                $message = trim($fieldError);
+                break;
+            }
+        }
+        parent::__construct($message);
         $this->errors = $errors;
     }
 }
@@ -323,9 +330,18 @@ try {
 
                 $priceCalc = printflow_calculate_service_unit_price($product_id, $serviceCustomization);
                 if (!$priceCalc['ok']) {
-                    throw new PosCartValidationException([
-                        'price' => (string)($priceCalc['message'] ?? 'Price could not be calculated.'),
-                    ]);
+                    $fallbackUnit = (float)($serviceCustomization['calculated_unit_price'] ?? $price ?? 0);
+                    if ($fallbackUnit > 0) {
+                        $priceCalc = [
+                            'ok' => true,
+                            'unit_price' => round($fallbackUnit, 2),
+                            'message' => '',
+                        ];
+                    } else {
+                        throw new PosCartValidationException([
+                            'price' => (string)($priceCalc['message'] ?? 'Price could not be calculated.'),
+                        ]);
+                    }
                 }
                 $price = (float)$priceCalc['unit_price'];
                 $preparedCustomization = $serviceCustomization;

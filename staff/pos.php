@@ -4733,6 +4733,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     throw new Error('Cart server returned an invalid response.');
                 }
                 console.log('syncedCartAction Response:', data);
+                if (data && data.errors && typeof data.errors === 'object') {
+                    console.log('syncedCartAction errors:', data.errors);
+                }
                 if (response.ok && data.success) {
                     cart = data.cart || [];
                     console.log('Updated local cart:', cart);

@@ -91,4 +91,21 @@ layout_test_assert(
     'design_file inactive when layout option targets upload_design alias'
 );
 
+$layoutWithPrice = [
+    'visible' => true,
+    'type' => 'radio',
+    'label' => 'Layout',
+    'options' => [
+        ['value' => 'With Layout', 'price' => 0],
+        ['value' => 'Without Layout', 'price' => 200],
+    ],
+];
+$optionTotal = 0.0;
+foreach ($layoutWithPrice['options'] as $opt) {
+    if (printflow_service_option_values_match('without_layout', (string)($opt['value'] ?? ''))) {
+        $optionTotal += (float)($opt['price'] ?? 0);
+    }
+}
+layout_test_assert($optionTotal === 200.0, 'without_layout slug earns Without Layout option price');
+
 echo "All service_layout_design_validation tests passed.\n";
