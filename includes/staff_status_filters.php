@@ -245,8 +245,9 @@ function printflow_staff_dashboard_status_sql(string $alias, string $filter, ?st
  */
 function printflow_staff_notification_type_options(?string $role = null): array {
     $role = printflow_staff_status_role($role);
-    $types = ['Order', 'Payment', 'Design', 'Job Order', 'Stock', 'System', 'Status', 'Message', 'Payment Issue'];
+    $types = ['Order', 'Payment', 'Design', 'Job Order', 'Stock', 'System', 'Status', 'Payment Issue'];
     if ($role === 'online') {
+        $types[] = 'Message';
         $types[] = 'Rating';
         $types[] = 'Review';
     }
