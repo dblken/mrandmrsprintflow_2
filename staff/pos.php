@@ -3792,7 +3792,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                 <div class="receipt-footer">
                     <strong>Thank you for choosing PrintFlow!</strong>
-                    <p>This is an unofficial sales receipt for transaction reference only.</p>
                     <p>Please keep this transaction reference for your records.</p>
                 </div>
 
