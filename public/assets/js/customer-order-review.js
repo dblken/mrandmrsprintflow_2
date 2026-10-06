@@ -50,6 +50,9 @@
         if (isOpen) {
             modalEl.classList.add('open');
             modalEl.setAttribute('aria-hidden', 'false');
+            modalEl.style.display = 'flex';
+            modalEl.style.visibility = 'visible';
+            modalEl.style.pointerEvents = 'auto';
             if (dialog) {
                 dialog.setAttribute('aria-modal', 'true');
             }
@@ -64,6 +67,9 @@
         }
         modalEl.classList.remove('open');
         modalEl.setAttribute('aria-hidden', 'true');
+        modalEl.style.display = 'none';
+        modalEl.style.visibility = 'hidden';
+        modalEl.style.pointerEvents = 'none';
         if (!options.skipRestoreFocus) {
             restoreFocus();
         }

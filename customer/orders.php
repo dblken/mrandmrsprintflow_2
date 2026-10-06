@@ -758,7 +758,7 @@ require_once __DIR__ . '/../includes/header.php';
         font-size: 0.75rem;
     }
 }
-.orders-theme-page .card-actions-inline { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.orders-theme-page .card-actions-inline { display: flex; gap: 0.5rem; flex-wrap: wrap; position: relative; z-index: 4; }
 @media (max-width: 640px) {
     .orders-theme-page .card-actions-inline { width: 100%; gap: 0.65rem; }
 }
@@ -812,6 +812,9 @@ require_once __DIR__ . '/../includes/header.php';
     color: #f97316 !important;
     border: 1px solid rgba(249, 115, 22, 0.4) !important;
     border-radius: 10px !important;
+    position: relative;
+    z-index: 5;
+    pointer-events: auto;
 }
 .orders-theme-page .btn-rate-order:hover {
     background: #f97316 !important;
@@ -2857,7 +2860,7 @@ require_once __DIR__ . '/../includes/header.php';
                                         <button type="button" class="action-button btn-main-blue" style="padding: 0.45rem 0.85rem; font-size: 0.68rem;" onclick="openItemsModal(<?php echo $order['order_id']; ?>, event)">View Details</button>
                                         <?php if (in_array($order['status'], ['Completed', 'To Rate', 'Rated'], true)): ?>
                                             <?php if (empty($order['rating_value'])): ?>
-                                                <button type="button" class="action-button btn-rate-order" style="padding: 0.45rem 0.85rem; font-size: 0.68rem;" data-pf-open-review="<?php echo (int)$order['order_id']; ?>">★ Rate</button>
+                                                <button type="button" class="action-button btn-rate-order" style="padding: 0.45rem 0.85rem; font-size: 0.68rem; position: relative; z-index: 10;" data-pf-open-review="<?php echo (int)$order['order_id']; ?>" onclick="event.stopPropagation(); if (window.PFOrderReview && typeof window.PFOrderReview.openReviewForm === 'function') { window.PFOrderReview.openReviewForm(<?php echo (int)$order['order_id']; ?>, this); }">★ Rate</button>
                                             <?php else: ?>
                                                 <a href="<?php echo BASE_URL; ?>/customer/reviews.php?order_id=<?php echo $order['order_id']; ?>" class="action-button btn-rate-order" style="padding: 0.45rem 0.85rem; font-size: 0.68rem;">
                                                     ★ Rated

@@ -34,11 +34,16 @@
 
 #completedReviewModal, #orderReviewModal {
     position: fixed; inset: 0; z-index: 100003;
-    display: flex; align-items: center; justify-content: center;
+    display: none;
+    align-items: center; justify-content: center;
     padding: 16px; background: rgba(15, 23, 42, 0.55);
-    opacity: 0; pointer-events: none; transition: opacity .2s ease;
+    opacity: 0; pointer-events: none; visibility: hidden;
+    transition: opacity .2s ease;
 }
-#completedReviewModal.open, #orderReviewModal.open { opacity: 1; pointer-events: auto; }
+#completedReviewModal.open, #orderReviewModal.open {
+    display: flex;
+    opacity: 1; pointer-events: auto; visibility: visible;
+}
 .pf-review-dialog {
     width: 100%; max-width: min(420px, calc(100vw - 32px));
     background: #fff; border-radius: 20px; border: 1px solid #e2e8f0;
