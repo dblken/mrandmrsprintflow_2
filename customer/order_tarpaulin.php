@@ -28,7 +28,7 @@ foreach (['images/tarp price range/', 'assets/images/tarp price range/'] as $sub
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $branch_id = (int)($_POST['branch_id'] ?? 1);
+    $branch_id = (int)($_POST['branch_id'] ?? 0);
     $width = trim($_POST['width'] ?? '');
     $height = trim($_POST['height'] ?? '');
     $unit = trim($_POST['unit'] ?? 'ft');
@@ -40,7 +40,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $needed_date = trim($_POST['needed_date'] ?? '');
     $notes = trim($_POST['notes'] ?? '');
 
-    if (empty($width) || empty($height) || $quantity < 1) {
+    if ($branch_id < 1 || empty(db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id]))) {
+        $error = 'Please select a valid branch.';
+    } elseif (empty($width) || empty($height) || $quantity < 1) {
         $error = 'Please fill in Dimensions (Width, Height) and Quantity.';
     } elseif ((function_exists('mb_strlen') ? mb_strlen($notes) : strlen($notes)) > 500) {
         $error = 'Notes must not exceed 500 characters.';
@@ -184,6 +186,7 @@ if ($sold_count >= 1000) {
                 <div class="shopee-form-row">
                     <label class="shopee-form-label">Branch *</label>
                     <select name="branch_id" class="input-field shopee-form-field" required>
+                        <option value="" selected disabled>Select Branch</option>
                         <?php foreach($branches as $b): ?>
                             <option value="<?php echo $b['id']; ?>"><?php echo htmlspecialchars($b['branch_name']); ?></option>
                         <?php endforeach; ?>

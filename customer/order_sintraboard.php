@@ -35,8 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $quantity = max(1, min(999, $quantity));
 
     $valid_types = ['Flat Type', '2D Type (with Frame)', 'Standee (Back Stand Support)'];
-    if ($branch_id < 1) {
-        $error = 'Please select a branch.';
+    if ($branch_id < 1 || empty(db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id]))) {
+        $error = 'Please select a valid branch.';
     } elseif (empty($sintra_type) || !in_array($sintra_type, $valid_types, true)) {
         $error = 'Please select a Sintraboard Type.';
     } elseif ($dimensions === '') {

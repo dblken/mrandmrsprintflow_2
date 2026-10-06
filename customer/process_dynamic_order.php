@@ -27,7 +27,7 @@ if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
 $product_id = (int)($_POST['product_id'] ?? 0);
 $config_id = (int)($_POST['config_id'] ?? 0);
 $quantity = (int)($_POST['quantity'] ?? 1);
-$branch_id = (int)($_POST['branch_id'] ?? 1);
+$branch_id = (int)($_POST['branch_id'] ?? 0);
 $action = $_POST['action'] ?? 'add_to_cart';
 
 // Validate product
@@ -38,6 +38,15 @@ if (empty($product)) {
     exit;
 }
 $product = $product[0];
+
+$activeBranch = $branch_id > 0
+    ? db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id])
+    : [];
+if (empty($activeBranch)) {
+    $_SESSION['error'] = 'Please select a valid branch.';
+    header('Location: order_dynamic.php?product_id=' . $product_id);
+    exit;
+}
 
 $dynamic_customer = db_query("SELECT * FROM customers WHERE customer_id = ? LIMIT 1", 'i', [get_user_id()])[0] ?? [];
 if ((printflow_custom_order_id_status($dynamic_customer)['status'] ?? 'None') !== 'Verified') {
@@ -112,6 +121,14 @@ foreach ($fields as $field) {
             $_SESSION['error'] = "Please fill required field: " . $field['field_label'];
             header("Location: order_dynamic.php?product_id=" . $product_id);
             exit;
+        }
+        if ($field['field_type'] === 'select' && $value !== '') {
+            $allowed = $field['options_json'] ? json_decode($field['options_json'], true) : [];
+            if (!is_array($allowed) || !in_array((string)$value, array_map('strval', $allowed), true)) {
+                $_SESSION['error'] = "Please select a valid option for: " . $field['field_label'];
+                header("Location: order_dynamic.php?product_id=" . $product_id);
+                exit;
+            }
         }
         $form_data[$field_name] = sanitize($value);
     }

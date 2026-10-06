@@ -359,9 +359,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     $quantity = max(1, min(999, (int)($_POST[$quantity_field_key] ?? $_POST['quantity'] ?? 1)));
     $has_design_field = false;
     
-    // Branch validation removed - automatically selected by default
-    if (false && $branch_id < 1) {
-        $error = 'Please select a branch for pickup.';
+    if (empty($error) && printflow_is_order_submission_action($submission_action)) {
+        $activeBranch = $branch_id > 0
+            ? db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id])
+            : [];
+        if (empty($activeBranch)) {
+            $error = 'Please select a valid branch.';
+        }
     }
     
     // Validate all required fields dynamically
@@ -396,11 +400,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 $has_design_field = true;
                 $link_post_name = service_order_design_link_post_name($key);
                 $design_link_raw = trim((string)($_POST[$link_post_name] ?? ''));
+                $design_mode = trim((string)($_POST['design_input_mode'] ?? ''));
                 $file_input_name = 'design_file';
                 $has_uploaded_file = isset($_FILES[$file_input_name]) && $_FILES[$file_input_name]['error'] === UPLOAD_ERR_OK;
                 $has_design_link = $design_link_raw !== '';
 
-                if ($config['required'] && !$has_uploaded_file && !$has_design_link) {
+                if ($design_mode !== '' && !in_array($design_mode, ['file', 'link'], true)) {
+                    $error = 'Please select a valid upload design option.';
+                    break;
+                }
+                if ($config['required'] && $design_mode === '') {
+                    $error = 'Please select an upload design option.';
+                    break;
+                }
+                if ($has_uploaded_file && $design_mode !== 'file') {
+                    $error = 'Select Upload File before attaching a design.';
+                    break;
+                }
+                if ($has_design_link && $design_mode !== 'link') {
+                    $error = 'Select Use a Link before providing a design link.';
+                    break;
+                }
+                if ($design_mode === 'file' && !$has_uploaded_file && $config['required']) {
+                    $error = 'Please upload the required design file.';
+                    break;
+                }
+                if ($design_mode === 'link' && !$has_design_link && $config['required']) {
+                    $error = 'Please provide the required design link.';
+                    break;
+                }
+
+                if ($config['required'] && $design_mode === '' && !$has_uploaded_file && !$has_design_link) {
                     $error = 'Please upload your design or paste a design link.';
                     break;
                 }
@@ -414,11 +444,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 }
             } elseif ($config['type'] === 'radio' || $config['type'] === 'select') {
                 // Skip branch validation as it's already validated above
-                if ($key === 'branch') continue;
-                
-                if ($config['required'] && empty($_POST[$key])) {
+                if (printflow_service_field_is_branch_field((string)$key, (array)$config)) continue;
+                $postedOption = trim((string)($_POST[$key] ?? ''));
+                if ($config['required'] && $postedOption === '') {
                     $error = 'Please select ' . strtolower($config['label']) . '.';
                     break;
+                }
+                if ($postedOption !== '' && $config['type'] === 'select') {
+                    $allowedOptions = [];
+                    foreach ((array)($config['options'] ?? []) as $option) {
+                        $allowedOptions[] = (string)(is_array($option) ? ($option['value'] ?? '') : $option);
+                    }
+                    if (!in_array($postedOption, $allowedOptions, true)
+                        && !($postedOption === 'Others' && !empty($config['allow_others']))) {
+                        $error = 'Please select a valid ' . strtolower($config['label']) . '.';
+                        break;
+                    }
                 }
                 
                 // If "Others" is selected, check specify input or custom size panel
@@ -547,7 +588,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     continue;
                 }
                 
-                if ($key === 'branch') {
+                if (printflow_service_field_is_branch_field((string)$key, (array)$config)) {
                     continue;
                 }
                 if ($key === $quantity_field_key && ($config['type'] ?? '') === 'quantity') {
@@ -569,6 +610,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 }
                 if ($config['type'] === 'file') {
                     $field_label = $spec_label($config, $key);
+                    $design_mode = trim((string)($_POST['design_input_mode'] ?? ''));
+                    if ($design_mode !== '') {
+                        $customization[$field_label . ' Option'] = $design_mode === 'file' ? 'Upload File' : 'Use a Link';
+                    }
                     if ($design_name !== null && $design_name !== '') {
                         $customization[$field_label] = $design_name;
                     }
@@ -636,7 +681,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 if (!empty($branch_row) && trim((string)($branch_row[0]['branch_name'] ?? '')) !== '') {
                     $branchLabel = 'Branch';
                     foreach ($field_configs as $bk => $bc) {
-                        if ($bk === 'branch' && !empty($bc['visible'])) {
+                        if (printflow_service_field_is_branch_field((string)$bk, (array)$bc) && !empty($bc['visible'])) {
                             $branchLabel = $spec_label($bc, $bk);
                             break;
                         }

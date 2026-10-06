@@ -37,7 +37,7 @@ $error = '';
 $addr_api = (defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/api_address_public.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $branch_id = (int)($_POST['branch_id'] ?? 1);
+    $branch_id = (int)($_POST['branch_id'] ?? 0);
     $width = trim($_POST['width'] ?? '');
     $height = trim($_POST['height'] ?? '');
     $unit = trim($_POST['unit'] ?? 'ft');
@@ -56,7 +56,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $surface_display = ($surface_type === 'Others' && $surface_other) ? $surface_other : $surface_type;
 
-    if (empty($width) || empty($height) || $quantity < 1 || empty($needed_date) || empty($surface_type) || empty($lamination) || empty($installation)) {
+    if ($branch_id < 1 || empty(db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id]))) {
+        $error = 'Please select a valid branch.';
+    } elseif (empty($width) || empty($height) || $quantity < 1 || empty($needed_date) || empty($surface_type) || empty($lamination) || empty($installation)) {
         $error = 'Please fill in all required fields marked with *.';
     } elseif ($installation === 'With Installation' && (empty($province) || empty($city) || empty($barangay) || empty($street))) {
         $error = 'Please complete the installation address.';
@@ -197,6 +199,7 @@ if ($display_img !== '' && strpos($display_img, 'http') === false && $display_im
                 <div class="mb-4" id="card-branch">
                     <label class="block text-sm font-medium text-gray-700 mb-1"><?php echo htmlspecialchars(get_field_label('branch', 'Branch', $field_configs)); ?> *</label>
                     <select name="branch_id" class="input-field" required>
+                        <option value="" selected disabled>Select Branch</option>
                         <?php foreach($branches as $b): ?>
                             <option value="<?php echo $b['id']; ?>"><?php echo htmlspecialchars($b['branch_name']); ?></option>
                         <?php endforeach; ?>

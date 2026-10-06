@@ -162,6 +162,14 @@ function printflow_service_field_date_min_attr(string $fieldKey): string
     return ' min="' . date('Y-m-d') . '"';
 }
 
+function printflow_service_field_is_branch_field(string $fieldKey, array $config = []): bool
+{
+    $key = strtolower(trim($fieldKey));
+    $label = strtolower(trim((string)($config['label'] ?? '')));
+    return in_array($key, ['branch', 'branch_id', 'pickup_branch'], true)
+        || (bool)preg_match('/\\b(branch|select\\s+branch|pickup\\s+branch)\\b/i', $label);
+}
+
 function render_service_field($field_key, $config, $branches = [], $existing_data = [], $all_configs = []) {
     if (!$config['visible']) {
         return '';
@@ -175,7 +183,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
     $field_label = $config['label'];
     
     // Try to find saved value
-    if ($field_key === 'branch') {
+    $is_branch_field = printflow_service_field_is_branch_field((string)$field_key, (array)$config);
+    if ($is_branch_field) {
         $saved_value = $existing_data['branch_id'] ?? '';
     } elseif (($config['type'] ?? '') === 'quantity') {
         $saved_value = $existing_data[$field_key] ?? $existing_data['quantity'] ?? 1;
@@ -192,7 +201,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
     }
     
     $label = htmlspecialchars($config['label']);
-    $is_required = !empty($config['required']);
+    $is_required = $is_branch_field || !empty($config['required']);
     $required_attr = $is_required ? 'required' : '';
     
     // Add unit to label for dimension fields
@@ -200,9 +209,9 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
         $label .= ' (' . htmlspecialchars($config['unit']) . ')';
     }
     
-    $rules = ($all_configs !== [])
+    $rules = $is_branch_field ? [] : (($all_configs !== [])
         ? printflow_service_field_build_conditional_rules($field_key, $config, $all_configs)
-        : printflow_service_field_build_conditional_rules($field_key, $config, [$field_key => $config]);
+        : printflow_service_field_build_conditional_rules($field_key, $config, [$field_key => $config]));
 
     $disabledByOption = false;
     $row_class = 'shopee-form-row';
@@ -293,9 +302,10 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
 
     switch ($config['type']) {
         case 'select':
-            if ($field_key === 'branch') {
+            if ($is_branch_field) {
                 $selected_branch = $existing_data['branch_id'] ?? '';
                 $html .= '<select name="branch_id" id="branch_id" class="shopee-opt-btn" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
+                $html .= '<option value="" disabled' . ($selected_branch === '' || (int)$selected_branch < 1 ? ' selected' : '') . '>Select Branch</option>';
                 foreach ($branches as $b) {
                     $selected = ($selected_branch == $b['id']) ? ' selected' : '';
                     $html .= '<option value="' . (int)$b['id'] . '"' . $selected . '>' . htmlspecialchars($b['branch_name']) . '</option>';
@@ -328,7 +338,10 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                 }
 
                 $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field pf-select-with-others' . (printflow_service_field_uses_custom_size_panel($field_key, $config) ? ' pf-select-custom-size' : '') . '" data-field-key="' . htmlspecialchars($field_key) . '" data-other-option="Others" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
-                $html .= '<option value="">Select ' . $label . '</option>';
+                $placeholder = preg_match('/upload\s+design|design\s+upload/i', (string)$config['label'])
+                    ? 'Select Upload Design Option'
+                    : 'Select ' . $label;
+                $html .= '<option value="" selected disabled>' . $placeholder . '</option>';
                 foreach ($selectOptions as $option) {
                     $optionValue = is_array($option) ? ($option['value'] ?? '') : $option;
                     $optionPrice = is_array($option) ? ($option['price'] ?? 0) : 0;
@@ -651,22 +664,24 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                 ? SERVICE_ORDER_SUPPORTED_FORMATS_LABEL
                 : 'PNG, JPG, JPEG, WEBP, GIF, SVG, PDF, AI, PSD';
             $required_data = $config['required'] ? ' data-pf-required="1"' : '';
-            $initial_mode = $saved_link !== '' ? 'link' : 'file';
+            $initial_mode = $saved_link !== '' ? 'link' : '';
 
             $html .= '<div class="pf-file-upload-group" data-pf-file-upload="1" data-pf-design-initial="' . htmlspecialchars($initial_mode, ENT_QUOTES, 'UTF-8') . '"' . $required_data . ' style="max-width:100%;width:100%;">';
+            $html .= '<label class="pf-design-mode-label" for="' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '_mode">Select Upload Design Option' . ($config['required'] ? ' *' : '') . '</label>';
+            $html .= '<select name="design_input_mode" id="' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '_mode" class="input-field pf-design-mode-select"' . ($config['required'] ? ' required' : '') . '>';
+            $html .= '<option value="" disabled' . ($initial_mode === '' ? ' selected' : '') . '>Select Upload Design Option</option>';
+            $html .= '<option value="file"' . ($initial_mode === 'file' ? ' selected' : '') . '>Upload File</option>';
+            $html .= '<option value="link"' . ($initial_mode === 'link' ? ' selected' : '') . '>Use a Link</option>';
+            $html .= '</select>';
             $html .= '<p class="pf-design-mode-question">How would you like to provide your design?</p>';
-            $html .= '<div class="pf-design-mode-tabs" role="tablist" aria-label="Design input method">';
-            $html .= '<button type="button" class="pf-design-mode-tab' . ($initial_mode === 'file' ? ' active' : '') . '" data-pf-design-mode="file" role="tab" aria-selected="' . ($initial_mode === 'file' ? 'true' : 'false') . '"><span aria-hidden="true">📁</span> Upload File</button>';
-            $html .= '<button type="button" class="pf-design-mode-tab' . ($initial_mode === 'link' ? ' active' : '') . '" data-pf-design-mode="link" role="tab" aria-selected="' . ($initial_mode === 'link' ? 'true' : 'false') . '"><span aria-hidden="true">🔗</span> Use a Link</button>';
-            $html .= '</div>';
 
-            $html .= '<div class="pf-design-mode-panel" data-pf-design-panel="file"' . ($initial_mode === 'link' ? ' hidden' : '') . '>';
+            $html .= '<div class="pf-design-mode-panel" data-pf-design-panel="file"' . ($initial_mode !== 'file' ? ' hidden' : '') . '>';
             $html .= '<div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Upload your design</div>';
             $html .= '<input type="file" name="design_file" id="design_file" accept="' . htmlspecialchars($accept_attr, ENT_QUOTES, 'UTF-8') . '" class="input-field pf-design-file-input" style="max-width:100%;width:100%;margin-bottom:8px;">';
             $html .= '<p class="pf-supported-formats" style="margin:0;font-size:12px;color:#6b7280;line-height:1.5;">Supported: ' . htmlspecialchars($formats_label, ENT_QUOTES, 'UTF-8') . '<br>Maximum file size: 5 MB</p>';
             $html .= '</div>';
 
-            $html .= '<div class="pf-design-mode-panel" data-pf-design-panel="link"' . ($initial_mode === 'link' ? '' : ' hidden') . '>';
+            $html .= '<div class="pf-design-mode-panel" data-pf-design-panel="link"' . ($initial_mode !== 'link' ? ' hidden' : '') . '>';
             $html .= '<label for="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Design / Canva Link</label>';
             $html .= '<input type="url" name="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" id="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" class="input-field pf-design-link-input" placeholder="https://..." value="' . htmlspecialchars($saved_link, ENT_QUOTES, 'UTF-8') . '" inputmode="url" autocomplete="url" style="max-width:100%;width:100%;">';
             $html .= '<p style="margin:8px 0 0;font-size:12px;color:#9ca3af;line-height:1.5;">Paste a publicly accessible design, image, or Canva link.</p>';
@@ -737,10 +752,14 @@ function render_service_fields($service_id, $branches = [], $existing_data = [])
     // Display order is a presentation concern; keep the configured field data,
     // conditional rules, validation, and rendering behavior unchanged.
     $ordered_fields = [];
+    $has_branch_field = false;
     foreach ($configs as $key => $config) {
         $field_key = strtolower(trim((string)$key));
         $field_name = strtolower(trim((string)($config['label'] ?? $key)));
         $field_name = preg_replace('/\s+/', ' ', $field_name);
+        if (printflow_service_field_is_branch_field((string)$key, (array)$config)) {
+            $has_branch_field = true;
+        }
 
         $priority = 3;
         if (
@@ -781,7 +800,22 @@ function render_service_fields($service_id, $branches = [], $existing_data = [])
     });
 
     $html = '';
+    if (!$has_branch_field) {
+        $html .= '<div class="shopee-form-row" id="card-branch" data-field-key="branch">';
+        $html .= '<div class="shopee-form-label pf-field-label-row"><span class="pf-field-label-text">Branch</span><span class="pf-field-required-marker" aria-hidden="true">*</span></div>';
+        $html .= '<div class="shopee-form-field"><select name="branch_id" id="branch_id" class="shopee-opt-btn" required style="width:175px;cursor:pointer;">';
+        $html .= '<option value="" selected disabled>Select Branch</option>';
+        foreach ($branches as $branch) {
+            $html .= '<option value="' . (int)$branch['id'] . '">' . htmlspecialchars((string)$branch['branch_name']) . '</option>';
+        }
+        $html .= '</select></div></div>';
+    }
     foreach ($ordered_fields as $field) {
+        if (printflow_service_field_is_branch_field((string)$field['key'], (array)$field['config'])) {
+            $field['config']['visible'] = true;
+            $field['config']['required'] = true;
+            $field['config']['type'] = 'select';
+        }
         $html .= render_service_field($field['key'], $field['config'], $branches, $existing_data, $configs);
     }
 
@@ -1852,20 +1886,25 @@ function initPfDesignUploadGroups(root) {
     scope.querySelectorAll('.pf-file-upload-group:not([data-pf-design-init])').forEach(group => {
         group.dataset.pfDesignInit = '1';
         const tabs = Array.from(group.querySelectorAll('.pf-design-mode-tab'));
+        const modeSelect = group.querySelector('.pf-design-mode-select');
         const panels = Array.from(group.querySelectorAll('.pf-design-mode-panel'));
         const setMode = (mode) => {
-            const nextMode = mode === 'link' ? 'link' : 'file';
+            const nextMode = mode === 'link' || mode === 'file' ? mode : '';
             group.dataset.pfDesignMode = nextMode;
             tabs.forEach(tab => {
-                const active = (tab.dataset.pfDesignMode || 'file') === nextMode;
+                const active = (tab.dataset.pfDesignMode || '') === nextMode;
                 tab.classList.toggle('active', active);
                 tab.setAttribute('aria-selected', active ? 'true' : 'false');
             });
             panels.forEach(panel => {
-                const show = (panel.dataset.pfDesignPanel || 'file') === nextMode;
+                const show = nextMode !== '' && (panel.dataset.pfDesignPanel || '') === nextMode;
                 if (show) panel.removeAttribute('hidden');
                 else panel.setAttribute('hidden', '');
+                panel.querySelectorAll('input,select,textarea,button').forEach(control => {
+                    control.disabled = !show;
+                });
             });
+            if (modeSelect && modeSelect.value !== nextMode) modeSelect.value = nextMode;
             const row = group.closest('.shopee-form-row');
             if (row) {
                 row.querySelectorAll('.field-error').forEach(el => el.remove());
@@ -1877,6 +1916,9 @@ function initPfDesignUploadGroups(root) {
                 setMode(this.dataset.pfDesignMode || 'file');
             });
         });
+        if (modeSelect) {
+            modeSelect.addEventListener('change', function() { setMode(this.value); });
+        }
         const fileInput = group.querySelector('input[type="file"].pf-design-file-input, input[type="file"][name="design_file"]');
         const linkInput = group.querySelector('.pf-design-link-input');
         const clearLinkInput = () => {
@@ -1905,7 +1947,7 @@ function initPfDesignUploadGroups(root) {
                 }
             });
         }
-        setMode(group.dataset.pfDesignInitial || 'file');
+        setMode(group.dataset.pfDesignInitial || '');
     });
 }
 

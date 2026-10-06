@@ -13,7 +13,7 @@ $customer_id = get_user_id();
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $branch_id = (int)($_POST['branch_id'] ?? 1);
+    $branch_id = (int)($_POST['branch_id'] ?? 0);
     $shape = trim($_POST['shape'] ?? 'Custom'); // Shape hidden for now; default
     $w_in = trim((string)($_POST['width_in'] ?? ''));
     $h_in = trim((string)($_POST['height_in'] ?? ''));
@@ -34,7 +34,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $quantity = max(1, min(999, (int)($_POST['quantity'] ?? 1)));
     $notes = trim($_POST['notes'] ?? '');
 
-    if ($w_in === '' || $h_in === '' || empty($needed_date) || $quantity < 1 || empty($layout)) {
+    if ($branch_id < 1 || empty(db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id]))) {
+        $error = 'Please select a valid branch.';
+    } elseif ($w_in === '' || $h_in === '' || empty($needed_date) || $quantity < 1 || empty($layout)) {
         $error = 'Please fill in all required fields including layout.';
     } elseif ((function_exists('mb_strlen') ? mb_strlen($notes) : strlen($notes)) > 500) {
         $error = 'Notes must not exceed 500 characters.';
@@ -166,6 +168,7 @@ if ($stickers_lam_val !== '' && !in_array($stickers_lam_val, ['With Laminate', '
                 <div class="shopee-form-row" id="card-branch-stickers">
                     <label class="shopee-form-label">Branch *</label>
                     <select name="branch_id" id="stickers_branch_id" class="input-field shopee-form-field" required>
+                        <option value="" selected disabled>Select Branch</option>
                         <?php foreach($branches as $b): ?>
                             <option value="<?php echo $b['id']; ?>"><?php echo htmlspecialchars($b['branch_name']); ?></option>
                         <?php endforeach; ?>

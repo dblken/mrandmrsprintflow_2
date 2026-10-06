@@ -16,7 +16,7 @@ $customer_id = get_user_id();
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $branch_id = (int)($_POST['branch_id'] ?? 1);
+    $branch_id = (int)($_POST['branch_id'] ?? 0);
     $surface_application = trim($_POST['surface_application'] ?? '');
     $surface_other = trim($_POST['surface_other'] ?? '');
     $dimensions = trim($_POST['dimensions'] ?? '');
@@ -28,7 +28,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $surface_display = ($surface_application === 'Others' && $surface_other) ? $surface_other : $surface_application;
 
-    if (empty($surface_display) || empty($dimensions) || empty($layout) || empty($lamination) || $quantity < 1 || empty($needed_date)) {
+    if ($branch_id < 1 || empty(db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id]))) {
+        $error = 'Please select a valid branch.';
+    } elseif (empty($surface_display) || empty($dimensions) || empty($layout) || empty($lamination) || $quantity < 1 || empty($needed_date)) {
         $error = 'Please fill in Branch, Surface, Dimensions, Layout, Lamination, Quantity, and Needed Date.';
     } elseif ((function_exists('mb_strlen') ? mb_strlen($additional_notes) : strlen($additional_notes)) > 500) {
         $error = 'Notes must not exceed 500 characters.';
@@ -148,6 +150,7 @@ if ($display_img !== '' && strpos($display_img, 'http') === false && $display_im
                     <div class="shopee-form-row">
                         <label class="shopee-form-label">Branch *</label>
                         <select name="branch_id" class="input-field shopee-form-field" required>
+                            <option value="" selected disabled>Select Branch</option>
                             <?php foreach ($branches as $b): ?>
                             <option value="<?php echo $b['id']; ?>"><?php echo htmlspecialchars($b['branch_name']); ?></option>
                             <?php endforeach; ?>

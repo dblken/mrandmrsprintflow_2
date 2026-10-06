@@ -74,6 +74,7 @@ $souvenir_type_options = ['Mug', 'Keychain', 'Tote Bag', 'Pen', 'Tumbler', 'T-Sh
                     <div class="shopee-form-row" id="card-branch-souvenir">
                         <label class="shopee-form-label">Branch *</label>
                         <select name="branch_id" id="souvenir_branch_id" class="input-field shopee-form-field" required>
+                            <option value="" selected disabled>Select Branch</option>
                             <?php foreach($branches as $b): ?>
                                 <option value="<?php echo $b['id']; ?>"><?php echo htmlspecialchars($b['branch_name']); ?></option>
                             <?php endforeach; ?>
