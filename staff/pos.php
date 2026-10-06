@@ -5412,17 +5412,39 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             body.querySelectorAll('.pf-file-upload-group[data-pf-required="1"]').forEach(group => {
                 if (!isServiceUploadGroupRequired(group)) return;
                 const row = group.closest('.shopee-form-row');
+                const modeSelect = group.querySelector('.pf-design-mode-select');
+                const designMode = String(
+                    (modeSelect && modeSelect.value) || group.dataset.pfDesignMode || ''
+                ).trim();
                 const fileInput = group.querySelector('.pf-design-file-input');
                 const linkInput = group.querySelector('.pf-design-link-input');
                 const hasFile = !!(fileInput && fileInput.files && fileInput.files.length > 0);
                 const linkValue = linkInput ? String(linkInput.value || '').trim() : '';
-                const hasLink = linkValue !== '';
-                if (!hasFile && !hasLink) {
+                const linkFieldKey = (linkInput && linkInput.name) ? linkInput.name : 'design_link';
+
+                if (designMode === 'file') {
+                    if (!hasFile) {
+                        addError(row, fileInput || group);
+                    }
+                    return;
+                }
+                if (designMode === 'link') {
+                    if (!linkValue) {
+                        addError(row, linkInput || group, linkFieldKey);
+                        return;
+                    }
+                    if (!isValidDesignLink(linkValue)) {
+                        addError(row, linkInput || group, linkFieldKey);
+                    }
+                    return;
+                }
+
+                if (!hasFile && !linkValue) {
                     addError(row, fileInput || linkInput || group);
                     return;
                 }
-                if (hasLink && !isValidDesignLink(linkValue)) {
-                    addError(row, linkInput || group, (linkInput && linkInput.name) || 'design_link');
+                if (linkValue && !hasFile && !isValidDesignLink(linkValue)) {
+                    addError(row, linkInput || group, linkFieldKey);
                 }
             });
 
@@ -5505,6 +5527,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const textarea = row.querySelector('textarea');
                 if (textarea && textarea.value.trim()) setCustomizationValue(customization, row, textarea, textarea.value.trim());
 
+                const uploadGroup = row.querySelector('.pf-file-upload-group');
+                if (uploadGroup) {
+                    const modeSelect = uploadGroup.querySelector('.pf-design-mode-select');
+                    const designMode = String(
+                        (modeSelect && modeSelect.value) || uploadGroup.dataset.pfDesignMode || ''
+                    ).trim();
+                    const fieldKey = serviceFieldKey(row, '');
+                    if (designMode) {
+                        customization.design_input_mode = designMode;
+                        if (fieldKey) {
+                            customization[fieldKey + '_design_input_mode'] = designMode;
+                        }
+                    }
+                }
+
                 const wh = row.querySelector('[data-dimension-role="width"], #width_hidden');
                 const hh = row.querySelector('[data-dimension-role="height"], #height_hidden');
                 if (wh && hh && wh.value && hh.value) {
@@ -5525,10 +5562,19 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const textInput = row.querySelector('input[type="text"]:not(.pf-service-quantity-input):not(.select-others-input):not(.radio-others-input), input[type="number"]:not(#quantity-input):not(.pf-service-quantity-input), input[type="url"].pf-design-link-input');
                 if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
                     if (textInput.classList.contains('pf-design-link-input')) {
-                        const labelText = serviceFieldLabel(row);
-                        customization[labelText + ' Link'] = textInput.value.trim();
+                        const uploadGroup = row.querySelector('.pf-file-upload-group');
+                        const modeSelect = uploadGroup ? uploadGroup.querySelector('.pf-design-mode-select') : null;
+                        const designMode = String(
+                            (modeSelect && modeSelect.value) || (uploadGroup && uploadGroup.dataset.pfDesignMode) || ''
+                        ).trim();
+                        if (designMode === 'link') {
+                            const labelText = serviceFieldLabel(row);
+                            customization[labelText + ' Link'] = textInput.value.trim();
+                            setCustomizationValue(customization, row, textInput, textInput.value.trim());
+                        }
+                    } else {
+                        setCustomizationValue(customization, row, textInput, textInput.value.trim());
                     }
-                    setCustomizationValue(customization, row, textInput, textInput.value.trim());
                 }
             });
 

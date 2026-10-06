@@ -113,6 +113,65 @@ function service_order_extract_design_link_from_customization(array $customizati
 }
 
 /**
+ * Resolved upload design option from a customization payload (POS/cart/API).
+ */
+function service_order_design_input_mode_from_customization(array $customization, string $fieldKey = ''): string
+{
+    $fieldKey = trim($fieldKey);
+    $candidates = [];
+    if ($fieldKey !== '') {
+        $candidates[] = $fieldKey . '_design_input_mode';
+    }
+    $candidates[] = 'design_input_mode';
+
+    foreach ($candidates as $key) {
+        $mode = strtolower(trim((string)($customization[$key] ?? '')));
+        if (in_array($mode, ['file', 'link'], true)) {
+            return $mode;
+        }
+    }
+
+    return '';
+}
+
+/**
+ * Whether the customization carries an uploaded design (not an external URL).
+ */
+function service_order_customization_has_design_file(array $customization, string $fieldKey = '', string $fieldLabel = ''): bool
+{
+    foreach ([
+        'design_upload_path',
+        'design_tmp_path',
+        'design_upload_name',
+        'design_upload',
+        'design_upload_data',
+        'design_file',
+        'upload_design_path',
+        'Upload Design',
+    ] as $key) {
+        if (!empty($customization[$key])) {
+            return true;
+        }
+    }
+
+    if ($fieldKey !== '') {
+        $raw = trim((string)($customization[$fieldKey] ?? ''));
+        if ($raw !== '' && !preg_match('/^https?:\/\//i', $raw)) {
+            return true;
+        }
+    }
+
+    if ($fieldLabel !== '') {
+        $labelValue = trim((string)($customization[$fieldLabel] ?? ''));
+        if ($labelValue !== '' && !preg_match('/^https?:\/\//i', $labelValue)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * Validate uploaded design file
  * - Checks PHP upload error
  * - Enforces 5MB size limit

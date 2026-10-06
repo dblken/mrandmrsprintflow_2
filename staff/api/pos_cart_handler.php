@@ -247,14 +247,40 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
                 $errors[(string)$fieldKey] = 'Quantity must be at least 1.';
             }
         } elseif ($type === 'file') {
-            $linkValue = pos_cart_custom_value($customization, $fieldKey . '_link', $label . ' Link');
-            if ($value === '' && $linkValue === '') {
-                $errors[(string)$fieldKey] = pos_cart_required_message((string)$fieldKey, $label, $type);
+            $designMode = service_order_design_input_mode_from_customization($customization, (string) $fieldKey);
+            $hasUploadedDesign = service_order_customization_has_design_file($customization, (string) $fieldKey, $label);
+            $linkValue = service_order_extract_design_link_from_customization($customization, $label, (string) $fieldKey);
+
+            if ($designMode === 'file') {
+                $linkValue = '';
+            } elseif ($designMode === 'link') {
+                $hasUploadedDesign = false;
+            } elseif ($hasUploadedDesign) {
+                $linkValue = '';
+            }
+
+            if ($designMode === 'link') {
+                if ($linkValue === '') {
+                    $errors[$fieldKey . '_link'] = 'Please provide the required design link.';
+                } else {
+                    $linkCheck = service_order_validate_design_link($linkValue);
+                    if (!$linkCheck['ok']) {
+                        $errors[$fieldKey . '_link'] = $linkCheck['error'];
+                    }
+                }
+            } elseif ($designMode === 'file') {
+                if (!$hasUploadedDesign) {
+                    $errors[(string) $fieldKey] = 'Please upload the required design file.';
+                }
+            } elseif ($hasUploadedDesign) {
+                // Legacy payloads without design_input_mode but with a staged upload.
             } elseif ($linkValue !== '') {
                 $linkCheck = service_order_validate_design_link($linkValue);
                 if (!$linkCheck['ok']) {
                     $errors[$fieldKey . '_link'] = $linkCheck['error'];
                 }
+            } elseif ($value === '' && $linkValue === '') {
+                $errors[(string) $fieldKey] = pos_cart_required_message((string) $fieldKey, $label, $type);
             }
         } elseif ($value === '') {
             $errors[(string)$fieldKey] = pos_cart_required_message((string)$fieldKey, $label, $type);

@@ -1908,6 +1908,11 @@ function initPfDesignUploadGroups(root) {
         const panels = Array.from(group.querySelectorAll('.pf-design-mode-panel'));
         const setMode = (mode) => {
             const nextMode = mode === 'link' || mode === 'file' ? mode : '';
+            if (nextMode === 'file') {
+                clearLinkInput();
+            } else if (nextMode === 'link') {
+                clearFileInput();
+            }
             group.dataset.pfDesignMode = nextMode;
             tabs.forEach(tab => {
                 const active = (tab.dataset.pfDesignMode || '') === nextMode;
