@@ -7694,7 +7694,7 @@ window.pfServiceFieldCatalog = (() => {
                     CHANGE_ITEM_REQUEST: 'Change Item Request',
                     APPROVED: 'Approved',
                     TO_PAY: 'To Pay',
-                    PAYMENT_CONFIRMED: 'Payment Received',
+                    PAYMENT_CONFIRMED: 'Paid',
                     VERIFY_PAY: 'To Verify',
                     REJECTED: 'Rejected',
                     IN_PRODUCTION: 'In Production',
