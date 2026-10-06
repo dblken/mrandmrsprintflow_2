@@ -93,6 +93,22 @@ function pos_cart_item_needs_pos_set_price_completion(array $item): bool
     return empty($item['price_set']);
 }
 
+function printflow_pos_customization_estimated_total(array $customization, int $qty = 1): float
+{
+    $qty = max(1, $qty);
+    $total = (float)($customization['calculated_estimated_price'] ?? 0);
+    if ($total > 0) {
+        return round($total, 2);
+    }
+
+    $unit = (float)($customization['calculated_unit_price'] ?? 0);
+    if ($unit > 0) {
+        return round($unit * $qty, 2);
+    }
+
+    return 0.0;
+}
+
 function pos_cart_resolve_price_set_on_add(bool $isService, array $data, array $itemSeed): bool
 {
     if (!$isService) {

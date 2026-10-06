@@ -4549,10 +4549,40 @@ window.pfServiceFieldCatalog = (() => {
                 this.paymongoPayment = this.currentJo.provider_payment || null;
                 this.schedulePayMongoPolling();
             },
+            posCustomizationEstimatedTotal(jo) {
+                if (!jo || typeof jo !== 'object') return 0;
+                const items = Array.isArray(jo.items) ? jo.items : [];
+                for (const item of items) {
+                    const custom = item && item.customization && typeof item.customization === 'object' ? item.customization : {};
+                    const lineTotal = parseFloat(custom.calculated_estimated_price);
+                    if (Number.isFinite(lineTotal) && lineTotal > 0) return lineTotal;
+                    const unit = parseFloat(custom.calculated_unit_price);
+                    const qty = parseInt(item.quantity || jo.quantity || 1, 10) || 1;
+                    if (Number.isFinite(unit) && unit > 0) return unit * qty;
+                }
+                const details = jo.customization_details && typeof jo.customization_details === 'object' ? jo.customization_details : {};
+                const detailsTotal = parseFloat(details.calculated_estimated_price);
+                if (Number.isFinite(detailsTotal) && detailsTotal > 0) return detailsTotal;
+                const detailsUnit = parseFloat(details.calculated_unit_price);
+                const qty = parseInt(jo.quantity || 1, 10) || 1;
+                if (Number.isFinite(detailsUnit) && detailsUnit > 0) return detailsUnit * qty;
+                return 0;
+            },
+            applyPosEstimatedPriceFields(jo) {
+                if (!jo || typeof jo !== 'object') return jo;
+                const fromPayload = Number(jo.estimated_price || jo.estimated_total || 0);
+                const resolved = fromPayload > 0 ? fromPayload : this.posCustomizationEstimatedTotal(jo);
+                if (resolved > 0) {
+                    jo.estimated_price = resolved;
+                    jo.estimated_total = resolved;
+                }
+                return jo;
+            },
             finishDetailLoadWith(data, orderType, cacheKey) {
                 this.currentJo = this.applyPosSetPriceDeepLinkOverride(
                     this.normalizeStaffOrderDetail({ ...data, order_type: orderType })
                 );
+                this.currentJo = this.applyPosEstimatedPriceFields(this.currentJo);
                 this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
                 this.paymongoPayment = this.currentJo.provider_payment || null;
@@ -4615,12 +4645,23 @@ window.pfServiceFieldCatalog = (() => {
             },
             closeDetailsModal() {
                 this.stopPayMongoPolling();
+                const returnToPOS = (() => {
+                    try {
+                        return new URLSearchParams(window.location.search).get('return_to_pos') === '1';
+                    } catch (e) {
+                        return false;
+                    }
+                })();
+                const wasPosPricing = this.isPosPricingMode() && returnToPOS;
                 this.showDetailsModal = false;
                 this.footerActionError = '';
                 this.detailError = '';
                 this.loadingDetailKey = '';
                 this.loadingModalAssignments = false;
                 this.clearDeepLinkParams();
+                if (wasPosPricing) {
+                    window.location.href = this.staffApiUrl('pos.php?from_customizations=1');
+                }
             },
             async retryLastDetailRequest() {
                 if (!this.detailRetryPayload) return;
@@ -5593,6 +5634,8 @@ window.pfServiceFieldCatalog = (() => {
                     'is_urgent_request',
                     'is_regular_priority',
                     'has_priority_field',
+                    'calculated_unit_price',
+                    'calculated_estimated_price',
                 ].includes(token);
             },
             staffCustomizationIsInternalLabel(label) {
@@ -5668,6 +5711,7 @@ window.pfServiceFieldCatalog = (() => {
                 const hiddenExact = new Set([
                     'branch', 'branch_id', 'branch_name', 'branchname', 'pickup_branch', 'pickupbranch',
                     'service_id', 'customization_id', 'order_id', 'order_item_id', 'product_id', 'config_id',
+                    'calculated_unit_price', 'calculated_estimated_price',
                     'source', 'source_page', 'form_type', 'cart_key',
                     'design_upload_path', 'design_file', 'design_mime', 'design_upload_mime',
                     'design_image', 'design_image_path', 'reference_upload', 'reference_upload_name',
@@ -9297,6 +9341,10 @@ window.pfServiceFieldCatalog = (() => {
             onSvcEscape() {
                 if (this.showRevisionModal) {
                     this.closeRevisionModal();
+                    return;
+                }
+                if (this.showDetailsModal) {
+                    this.closeDetailsModal();
                 }
             },
 

@@ -3733,6 +3733,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return (parseFloat(item.price) || 0) > 0;
         }
 
+        function posCartItemEstimatedUnitPrice(item) {
+            const c = item && item.customization ? item.customization : {};
+            const qty = Math.max(1, parseInt(item?.qty, 10) || 1);
+            const lineTotal = parseFloat(c.calculated_estimated_price);
+            if (Number.isFinite(lineTotal) && lineTotal > 0) {
+                return lineTotal / qty;
+            }
+            const unit = parseFloat(c.calculated_unit_price);
+            if (Number.isFinite(unit) && unit > 0) {
+                return unit;
+            }
+            const cartUnit = parseFloat(item?.price);
+            return Number.isFinite(cartUnit) ? cartUnit : 0;
+        }
+
         function posVariantOptionsList(product) {
             if (!product || !product.has_variant_stock) return [];
             if (Array.isArray(product.variant_stock_options)) {
@@ -4637,9 +4652,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (urlParams.get('from_customizations') === '1') {
                 // Restore customer selection if saved
                 const savedState = sessionStorage.getItem('pos_cart_state');
+                let state = null;
                 if (savedState) {
                     try {
-                        const state = JSON.parse(savedState);
+                        state = JSON.parse(savedState);
                         if (state.customer) {
                             $('#pos-customer').val(state.customer).trigger('change');
                         }
@@ -4649,18 +4665,29 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                 guestNameInput.value = state.guest_display_name;
                             }
                         }
-                        // Update cart item price if available
                         if (state.item_index !== undefined && state.updated_price !== undefined) {
-                            await syncedCartAction('update_price', { 
-                                index: state.item_index, 
-                                price: state.updated_price 
+                            await syncedCartAction('update_price', {
+                                index: state.item_index,
+                                price: state.updated_price
                             });
+                            sessionStorage.removeItem('pos_cart_state');
                         }
                     } catch (e) { }
-                    sessionStorage.removeItem('pos_cart_state');
                 }
-                // Cart price already updated in session — just refresh silently
                 await refreshCart();
+                if (state && state.updated_price === undefined && Array.isArray(state.cart) && state.cart.length > 0 && cart.length === 0) {
+                    for (const savedItem of state.cart) {
+                        await syncedCartAction('add', {
+                            product_id: savedItem.product_id,
+                            name: savedItem.name,
+                            price: posCartItemEstimatedUnitPrice(savedItem),
+                            qty: savedItem.qty || 1,
+                            customization: savedItem.customization || {},
+                            is_service: savedItem.is_service === true,
+                            price_set: savedItem.price_set === true
+                        }, { silentErrors: true });
+                    }
+                }
                 // Clean URL
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
@@ -6535,7 +6562,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             } else {
                 cont.innerHTML = '';
                 cart.forEach((item, index) => {
-                    const unitPrice = parseFloat(item.price) || 0;
+                    const unitPrice = posCartItemEstimatedUnitPrice(item);
                     const countsInTotal = posCartItemCountsInCheckoutTotal(item);
                     const rowTotal = countsInTotal ? unitPrice * item.qty : 0;
                     if (countsInTotal) {
@@ -7569,18 +7596,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         customization_id: parseInt(data.customization_id, 10) || 0
                     }, { silentErrors: true });
 
-                    const hadDesignUpload = !!(
-                        item.customization?.design_upload_data
-                        || item.customization?.design_upload_path
-                        || item.customization?.design_upload
-                    );
-                    if (hadDesignUpload && !data.design_saved) {
-                        await showPOSAlert(
-                            'Upload Warning',
-                            'Your design file may not have saved correctly. If the preview is wrong in Customizations, re-add the item with the image and try Set Price again.',
-                            'warning'
-                        );
-                    }
                     // Deep-link into the pricing/material flow using a POS-specific context.
                     const redirectUrl = new URL(<?php echo json_encode(BASE_PATH . '/staff/customizations.php'); ?>, window.location.origin);
                     redirectUrl.searchParams.set('mode', 'pos_pricing');

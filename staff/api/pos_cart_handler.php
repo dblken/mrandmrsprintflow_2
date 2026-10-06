@@ -547,9 +547,9 @@ try {
         if (!empty($safeIds)) {
             $inStr = implode(',', $safeIds);
             $doneRows = db_query(
-                "SELECT id FROM job_orders
+                "SELECT id FROM customizations
                  WHERE id IN ({$inStr})
-                   AND status IN ('COMPLETED','CLOSED','Completed','Closed','CANCELLED','Cancelled')"
+                   AND UPPER(TRIM(COALESCE(status, ''))) IN ('COMPLETED', 'CANCELLED', 'CLOSED')"
             ) ?: [];
             if (!empty($doneRows)) {
                 $doneIds = array_flip(array_column($doneRows, 'id'));

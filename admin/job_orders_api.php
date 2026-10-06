@@ -79,6 +79,7 @@ require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/job_order_summary.php';
 require_once __DIR__ . '/../includes/change_item_workflow.php';
 require_once __DIR__ . '/../includes/service_field_priority_helper.php';
+require_once __DIR__ . '/../includes/pos_set_price_helpers.php';
 
 function jo_api_attach_change_item_rows(array &$rows): void
 {
@@ -2548,6 +2549,12 @@ try {
             $summary = printflow_customization_summary($details, $cust['service_type'] ?? 'Service');
             $items[0]['product_name'] = $summary['job_title'];
             $items[0]['quantity'] = $summary['quantity'];
+            if ($estimated_total <= 0) {
+                $estimated_total = printflow_pos_customization_estimated_total(
+                    is_array($details) ? $details : [],
+                    (int)($summary['quantity'] ?? 1)
+                );
+            }
 
             if (!empty($cust['order_id'])) {
                 $storeLinePayload = JobOrderService::getStoreOrderItemsPayload((int)$cust['order_id'], false, true);
@@ -3062,9 +3069,37 @@ try {
                 'height_ft'            => $height_ft,
                 'quantity'             => $total_qty,
                 'status'               => $mapped_status,
-                'estimated_total'      => (float)($o['total_amount'] ?? 0),
-                'estimated_price'      => (float)($o['total_amount'] ?? 0),
-                'final_price'          => (float)($o['total_amount'] ?? 0),
+                'estimated_total'      => (function () use ($o, $items_out, $total_qty) {
+                    $estimate = (float)($o['estimated_price'] ?? 0);
+                    if ($estimate > 0) {
+                        return $estimate;
+                    }
+                    foreach ($items_out as $line) {
+                        $custom = is_array($line['customization'] ?? null) ? $line['customization'] : [];
+                        $lineEstimate = printflow_pos_customization_estimated_total($custom, (int)($line['quantity'] ?? $total_qty));
+                        if ($lineEstimate > 0) {
+                            return $lineEstimate;
+                        }
+                    }
+
+                    return (float)($o['total_amount'] ?? 0);
+                })(),
+                'estimated_price'      => (function () use ($o, $items_out, $total_qty) {
+                    $estimate = (float)($o['estimated_price'] ?? 0);
+                    if ($estimate > 0) {
+                        return $estimate;
+                    }
+                    foreach ($items_out as $line) {
+                        $custom = is_array($line['customization'] ?? null) ? $line['customization'] : [];
+                        $lineEstimate = printflow_pos_customization_estimated_total($custom, (int)($line['quantity'] ?? $total_qty));
+                        if ($lineEstimate > 0) {
+                            return $lineEstimate;
+                        }
+                    }
+
+                    return (float)($o['total_amount'] ?? 0);
+                })(),
+                'final_price'          => (float)($o['total_amount'] ?? 0) > 0 ? (float)($o['total_amount'] ?? 0) : 0,
                 'amount_paid'          => (($o['payment_status'] ?? '') === 'Paid') ? (float)($o['total_amount'] ?? 0) : (float)($o['amount_paid'] ?? 0),
                 'job_order_id'         => $linked_job_id > 0 ? $linked_job_id : null,
                 'notes'                => $o['notes'] ?? '',

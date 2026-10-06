@@ -1288,6 +1288,15 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         }
         $_SESSION['pos_pending_orders'][$product_id] = $order_id;
 
+        $posEstimatedTotal = printflow_pos_customization_estimated_total($customization, $qty);
+        if ($posEstimatedTotal > 0 && function_exists('db_table_has_column') && db_table_has_column('orders', 'estimated_price')) {
+            db_execute(
+                'UPDATE orders SET estimated_price = ? WHERE order_id = ?',
+                'di',
+                [$posEstimatedTotal, $order_id]
+            );
+        }
+
         $customization_json = json_encode($customization ?: new stdClass());
         $item_result = db_execute(
             "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data) VALUES (?, ?, ?, 0, ?)",

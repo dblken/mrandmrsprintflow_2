@@ -41,5 +41,7 @@ $checkout = file_get_contents($root . '/staff/api/pos_checkout.php');
 $assert($pos !== false && str_contains($pos, 'posCartItemShowsSetPriceButton'), 'POS cart shows set price button helper');
 $assert($cart !== false && str_contains($cart, 'pos_cart_resolve_price_set_on_add'), 'cart handler respects price_set flag');
 $assert($checkout !== false && str_contains($checkout, 'pos_cart_item_requires_pos_set_price'), 'checkout validates sintraboard set price');
+$assert(str_contains((string) file_get_contents($root . '/includes/pos_set_price_helpers.php'), 'printflow_pos_customization_estimated_total'), 'estimated total helper exists');
+$assert(!str_contains((string) $pos, 'Upload Warning'), 'POS set price flow does not block on upload warning');
 
 echo "OK pos_sintraboard_set_price_test\n";
