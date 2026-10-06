@@ -25,6 +25,33 @@ $staffOrderScopeSql = printflow_staff_order_source_sql('o');
 $staffAccessMeta = printflow_get_staff_access_meta();
 $is_pos_staff = ($staffAccessMeta['key'] ?? '') === 'pos';
 
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'archived' && !$is_pos_staff) {
+    require_once __DIR__ . '/../includes/staff_orders_archived_json.php';
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $payload = printflow_staff_archived_expired_orders_payload($staffBranchId, $staffOrderScopeSql, 200);
+    } catch (Throwable $e) {
+        error_log('[staff/orders.php ajax=archived] ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Failed to load archived orders.',
+            'count' => 0,
+            'orders' => [],
+        ], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+    if (!empty($_GET['debug']) && defined('PRINTFLOW_DEBUG') && PRINTFLOW_DEBUG) {
+        $payload['debug'] = [
+            'endpoint' => 'staff/orders.php?ajax=archived',
+            'branch_id' => $staffBranchId,
+            'user_type' => (string)(get_user_type() ?? ''),
+        ];
+    }
+    echo json_encode($payload, JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 // Auto-open modal if order_id is in URL
 $deepLinkOrderId = (int)($_GET['order_id'] ?? 0);
 
@@ -548,29 +575,6 @@ function staff_orders_product_name(array $order): string {
     }
 
     return $display_items;
-}
-
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'archived' && !$is_pos_staff) {
-    header('Content-Type: application/json; charset=utf-8');
-    $archivedRows = printflow_expired_product_order_fetch_archived($staffBranchId, $staffOrderScopeSql, 200, 0);
-    staff_orders_attach_provider_payments($archivedRows);
-    foreach ($archivedRows as &$archivedRow) {
-        $archivedRow['order_code'] = printflow_format_order_code($archivedRow['order_id'] ?? 0, $archivedRow['order_sku'] ?? '');
-        $archivedRow['display_status'] = staff_orders_display_status(
-            (string)($archivedRow['status'] ?? ''),
-            is_array($archivedRow['provider_payment'] ?? null) ? $archivedRow['provider_payment'] : null
-        );
-        $archivedRow['formatted_total'] = format_currency((float)($archivedRow['total_amount'] ?? 0));
-        $archivedRow['formatted_date'] = format_date((string)($archivedRow['order_date'] ?? ''));
-        $archivedRow['product_name'] = staff_orders_product_name($archivedRow);
-    }
-    unset($archivedRow);
-    echo json_encode([
-        'success' => true,
-        'count' => count($archivedRows),
-        'orders' => $archivedRows,
-    ], JSON_UNESCAPED_SLASHES);
-    exit;
 }
 
 // Handle specific AJAX request for drawing the table
@@ -2087,14 +2091,35 @@ $page_title = 'Product Orders - PrintFlow';
     async function openArchivedOrdersModal() {
         const modal = document.getElementById('archivedOrdersModal');
         const body = document.getElementById('archivedOrdersModalBody');
-        if (!modal || !body) return;
+        if (!modal || !body) {
+            console.error('[Archived Orders] Modal markup missing.');
+            return;
+        }
         modal.classList.add('open');
         modal.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
         body.innerHTML = '<div style="padding:32px;text-align:center;color:#64748b;">Loading archived orders...</div>';
+        const endpoint = staffUrl('staff/api/archived_expired_product_orders.php');
         try {
-            const res = await fetch(staffUrl('staff/orders.php?ajax=archived'), { credentials: 'same-origin', cache: 'no-store' });
-            const data = await res.json();
-            if (!data.success || !Array.isArray(data.orders) || data.orders.length === 0) {
+            const res = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            const raw = await res.text();
+            let data;
+            try {
+                data = JSON.parse(raw);
+            } catch (parseErr) {
+                console.error('[Archived Orders] Non-JSON response', res.status, raw.slice(0, 500));
+                body.innerHTML = '<div style="padding:32px;text-align:center;color:#dc2626;">Failed to load archived orders. (Invalid server response)</div>';
+                return;
+            }
+            if (!res.ok || !data.success) {
+                const msg = (data && data.message) ? esc(data.message) : ('Request failed (HTTP ' + res.status + ').');
+                body.innerHTML = '<div style="padding:32px;text-align:center;color:#dc2626;">' + msg + '</div>';
+                if (data && data.debug) {
+                    console.info('[Archived Orders] debug', data.debug);
+                }
+                return;
+            }
+            if (!Array.isArray(data.orders) || data.orders.length === 0) {
                 body.innerHTML = '<div style="padding:32px;text-align:center;color:#64748b;">No archived expired orders.</div>';
                 return;
             }
@@ -2110,8 +2135,12 @@ $page_title = 'Product Orders - PrintFlow';
             });
             html += '</tbody></table></div>';
             body.innerHTML = html;
+            if (data.debug) {
+                console.info('[Archived Orders] debug', data.debug);
+            }
         } catch (e) {
-            body.innerHTML = '<div style="padding:32px;text-align:center;color:#dc2626;">Failed to load archived orders.</div>';
+            console.error('[Archived Orders] fetch error', e);
+            body.innerHTML = '<div style="padding:32px;text-align:center;color:#dc2626;">Failed to load archived orders. Check your connection and try again.</div>';
         }
     }
 
@@ -2120,6 +2149,7 @@ $page_title = 'Product Orders - PrintFlow';
         if (!modal) return;
         modal.classList.remove('open');
         modal.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
     }
     window.setDisplayStatusFilter = setDisplayStatusFilter;
     window.openArchivedOrdersModal = openArchivedOrdersModal;
@@ -2149,13 +2179,12 @@ $page_title = 'Product Orders - PrintFlow';
                 return staffUrl('public/assets/uploads/profiles/' + image);
             },
             
-            init() {
-                const archivedBtn = document.getElementById('btn-open-archived-orders');
-                if (archivedBtn) {
-                    archivedBtn.addEventListener('click', function() {
-                        openArchivedOrdersModal();
-                    });
+            openArchivedOrdersModal() {
+                if (typeof window.openArchivedOrdersModal === 'function') {
+                    window.openArchivedOrdersModal();
                 }
+            },
+            init() {
                 window.addEventListener('filter-badge-update', e => { this.hasActiveFilters = (e.detail.badge > 0); });
                 window.addEventListener('sort-changed', e => { this.activeSort = e.detail.sortKey; this.sortOpen = false; });
                 
@@ -2997,6 +3026,13 @@ $page_title = 'Product Orders - PrintFlow';
                     </div>
                     <div class="toolbar-group toolbar-group--actions" style="display: flex !important; gap: 8px !important; margin-left: auto !important; flex: 0 1 auto !important; justify-content: flex-end !important;">
 
+                            <?php if (!$is_pos_staff): ?>
+                            <button type="button" class="toolbar-btn" id="btn-open-archived-orders" style="display:flex;align-items:center;gap:6px;" @click="openArchivedOrdersModal()">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18"/><path d="M5 7l1 12h12l1-12"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/></svg>
+                                Archived
+                            </button>
+                            <?php endif; ?>
+
                             <!-- Sort Button -->
                             <div style="position:relative;">
                                 <button class="toolbar-btn" :class="{ active: sortOpen || (activeSort !== 'newest') }" @click="sortOpen = !sortOpen; filterOpen = false">
@@ -3021,13 +3057,6 @@ $page_title = 'Product Orders - PrintFlow';
                                     <?php endforeach; ?>
                                 </div>
                             </div>
-
-                            <?php if (!$is_pos_staff): ?>
-                            <button type="button" class="toolbar-btn" id="btn-open-archived-orders" style="display:flex;align-items:center;gap:6px;">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18"/><path d="M5 7l1 12h12l1-12"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/></svg>
-                                Archived
-                            </button>
-                            <?php endif; ?>
 
                             <!-- Filter Button -->
                             <div style="position:relative;">
@@ -3401,8 +3430,9 @@ $page_title = 'Product Orders - PrintFlow';
     .pf-confirm-text { font-size: 15px; color: #64748b; line-height: 1.6; margin-bottom: 32px; }
 </style>
 
-<div id="archivedOrdersModal" class="pf-modal-overlay" aria-hidden="true" role="dialog" aria-modal="true" style="display:none;">
-    <div class="pf-modal-card" style="max-width:960px;width:95%;max-height:85vh;display:flex;flex-direction:column;">
+<div id="archivedOrdersModal" class="staff-archived-orders-modal" aria-hidden="true" role="dialog" aria-modal="true">
+    <div class="staff-archived-orders-backdrop" onclick="closeArchivedOrdersModal()" aria-hidden="true"></div>
+    <div class="pf-modal-card staff-archived-orders-panel" style="max-width:960px;width:95%;max-height:85vh;display:flex;flex-direction:column;">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #e5e7eb;">
             <h3 style="margin:0;font-size:18px;font-weight:800;color:#0f172a;">Archived Expired Orders</h3>
             <button type="button" class="filter-close-btn" onclick="closeArchivedOrdersModal()" aria-label="Close">×</button>
@@ -3414,8 +3444,22 @@ $page_title = 'Product Orders - PrintFlow';
     </div>
 </div>
 <style>
-#archivedOrdersModal.open { display:flex !important; align-items:center; justify-content:center; }
-#archivedOrdersModal .pf-modal-card { background:#fff; border-radius:16px; box-shadow:0 25px 50px rgba(15,23,42,.18); }
+#archivedOrdersModal.staff-archived-orders-modal {
+    position: fixed; inset: 0; z-index: 10050;
+    display: none; align-items: center; justify-content: center;
+    padding: 20px; pointer-events: none;
+}
+#archivedOrdersModal.staff-archived-orders-modal.open {
+    display: flex; pointer-events: auto;
+}
+#archivedOrdersModal .staff-archived-orders-backdrop {
+    position: absolute; inset: 0; background: rgba(15, 23, 42, 0.45);
+}
+#archivedOrdersModal .staff-archived-orders-panel {
+    position: relative; z-index: 1;
+    background: #fff; border-radius: 16px;
+    box-shadow: 0 25px 50px rgba(15, 23, 42, 0.18);
+}
 </style>
 
 <div id="pfConfirmModal" role="dialog" aria-modal="true">

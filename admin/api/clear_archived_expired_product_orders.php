@@ -9,7 +9,7 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/expired_product_order_archive.php';
 require_once __DIR__ . '/../../includes/staff_access.php';
 
-if (!is_logged_in() || (($_SESSION['user_type'] ?? '') !== 'Admin' && ($_SESSION['role'] ?? '') !== 'Admin')) {
+if (!is_logged_in() || !is_admin()) {
     http_response_code(403);
     echo json_encode(['success' => false, 'message' => 'Admin access required.']);
     exit;
@@ -42,12 +42,26 @@ if ($method === 'POST') {
     $purgeLock = true;
 
     $result = printflow_expired_product_order_purge_archived(null);
-    echo json_encode([
+    $payload = [
         'success' => (bool)($result['ok'] ?? false),
         'message' => (string)($result['message'] ?? ''),
         'deleted_count' => (int)($result['deleted_count'] ?? 0),
+        'eligible_count' => printflow_expired_product_order_archived_count(
+            null,
+            printflow_staff_order_source_sql('o', 'online')
+        ),
         'order_ids' => $result['order_ids'] ?? [],
-    ], JSON_UNESCAPED_SLASHES);
+    ];
+    if (!empty($_GET['debug']) && is_admin() && defined('PRINTFLOW_DEBUG') && PRINTFLOW_DEBUG) {
+        $payload['debug'] = [
+            'endpoint' => 'admin/api/clear_archived_expired_product_orders.php',
+            'action' => 'delete',
+            'user_type' => (string)(get_user_type() ?? ''),
+            'deleted_count' => $payload['deleted_count'],
+            'eligible_count' => $payload['eligible_count'],
+        ];
+    }
+    echo json_encode($payload, JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -56,7 +70,18 @@ $count = printflow_expired_product_order_archived_count(
     printflow_staff_order_source_sql('o', 'online')
 );
 
-echo json_encode([
+$payload = [
     'success' => true,
     'eligible_count' => $count,
-], JSON_UNESCAPED_SLASHES);
+];
+
+if (!empty($_GET['debug']) && is_admin() && defined('PRINTFLOW_DEBUG') && PRINTFLOW_DEBUG) {
+    $payload['debug'] = [
+        'endpoint' => 'admin/api/clear_archived_expired_product_orders.php',
+        'action' => 'count',
+        'user_type' => (string)(get_user_type() ?? ''),
+        'eligible_count' => $count,
+    ];
+}
+
+echo json_encode($payload, JSON_UNESCAPED_SLASHES);
