@@ -1080,7 +1080,7 @@ Stickers &amp; Decals"><?php
 
                     <div class="demo-panel">
                         <h3>4. Delete Demo Data</h3>
-                        <p style="font-size:12px;color:#64748b;margin:0 0 10px;">Type <code>DELETE MEETING DATA</code> to confirm. Deletion uses the batch registry only.</p>
+                        <p style="font-size:12px;color:#64748b;margin:0 0 10px;">Preview the exact registry batch first. Then type <code>DELETE MEETING DATA</code> to confirm. Shared customers and all inventory transactions are protected.</p>
                         <div id="demo-seed-delete-preview" class="demo-summary-grid" style="margin-bottom:12px;">
                             <?php if ($demo_delete_preview && !empty($demo_delete_preview['counts'])): ?>
                                 <?php foreach ($demo_delete_preview['counts'] as $key => $val): ?>
@@ -1097,7 +1097,7 @@ Stickers &amp; Decals"><?php
                         </div>
                         <div class="demo-actions" style="margin-top:10px;">
                             <button type="button" id="demo-seed-delete-preview-btn" class="btn-demo btn-demo-secondary" <?php echo $demo_active_batch ? '' : 'disabled'; ?>>Refresh Delete Preview</button>
-                            <button type="button" id="demo-seed-delete-btn" class="btn-demo btn-demo-danger" <?php echo $demo_active_batch ? '' : 'disabled'; ?>>Delete Demo Data</button>
+                            <button type="button" id="demo-seed-delete-btn" class="btn-demo btn-demo-danger" disabled>Delete Demo Data</button>
                         </div>
                         <div id="demo-seed-delete-status" style="font-size:13px;margin-top:10px;"></div>
                     </div>
@@ -1828,6 +1828,7 @@ function printflowInitSettingsPage() {
 
 function printflowInitDemoSeedTools() {
     const apiUrl = <?php echo json_encode(rtrim($base_path, '/') . '/admin/api/demo_seed_data.php'); ?>;
+    const selectedDemoBatchId = <?php echo json_encode((string)($demo_active_batch['batch_id'] ?? '')); ?>;
     const csrfInput = document.querySelector('input[name="csrf_token"]');
     const csrf = csrfInput ? csrfInput.value : '';
     let previewToken = '';
@@ -1836,6 +1837,7 @@ function printflowInitDemoSeedTools() {
     const importBtn = document.getElementById('demo-seed-import-btn');
     const deleteBtn = document.getElementById('demo-seed-delete-btn');
     const deletePreviewBtn = document.getElementById('demo-seed-delete-preview-btn');
+    let deletePreviewReady = false;
     if (!validateBtn || validateBtn.dataset.pfBound === '1') {
         return;
     }
@@ -1952,19 +1954,52 @@ function printflowInitDemoSeedTools() {
     function renderDeletePreview(preview) {
         const grid = document.getElementById('demo-seed-delete-preview');
         if (!grid || !preview || !preview.counts) return;
-        grid.innerHTML = Object.keys(preview.counts).map(function (key) {
-            return '<div><strong>' + key.replace(/_/g, ' ') + '</strong><br>' + preview.counts[key] + '</div>';
-        }).join('');
+        const batchCell = document.createElement('div');
+        batchCell.style.gridColumn = '1/-1';
+        batchCell.textContent = 'Batch ID: ' + String(preview.batch_id || '(none)');
+        grid.replaceChildren(batchCell);
+        Object.keys(preview.counts).forEach(function (key) {
+            const cell = document.createElement('div');
+            const title = document.createElement('strong');
+            title.textContent = key.replace(/_/g, ' ');
+            cell.append(title, document.createElement('br'), document.createTextNode(String(preview.counts[key])));
+            grid.appendChild(cell);
+        });
+        Object.keys(preview.ids || {}).forEach(function (key) {
+            const cell = document.createElement('div');
+            cell.style.gridColumn = '1/-1';
+            cell.textContent = key.replace(/_/g, ' ') + ' IDs: ' + (preview.ids[key] || []).join(', ');
+            grid.appendChild(cell);
+        });
+        (preview.registry_records || []).forEach(function (row) {
+            const cell = document.createElement('div');
+            cell.style.gridColumn = '1/-1';
+            cell.textContent = 'Seed ' + row.seed_row_key + ': order ' + row.order_id + ', customer ' + row.customer_id + ', item ' + row.order_item_id + ', customization ' + row.customization_id + ', job ' + row.job_order_id + (row.customer_created ? ' (created by import)' : ' (pre-existing customer)');
+            grid.appendChild(cell);
+        });
+        const protectedCell = document.createElement('div');
+        protectedCell.style.gridColumn = '1/-1';
+        protectedCell.textContent = 'Protected: shared customer IDs ' + (((preview.protected || {}).shared_customers || []).join(', ') || 'none') + '. ' + String(((preview.protected || {}).inventory_transactions) || 'Inventory transactions are protected.');
+        grid.appendChild(protectedCell);
         if (preview.recovery_mode) {
-            grid.innerHTML += '<div style="grid-column:1/-1;font-size:12px;color:#92400e;">Broken batch recovery: delete uses demo_seed_rows IDs, then removes remaining rows on those registered order ids only. Inventory is never touched.</div>';
+            const warning = document.createElement('div');
+            warning.style.cssText = 'grid-column:1/-1;font-size:12px;color:#92400e;';
+            warning.textContent = 'Registry integrity needs review. Deletion is disabled.';
+            grid.appendChild(warning);
         }
         if (preview.registry_gaps && preview.registry_gaps.length) {
-            grid.innerHTML += '<div style="grid-column:1/-1;font-size:12px;color:#b91c1c;"><strong>Registry gaps:</strong> ' + preview.registry_gaps.map(function (g) {
+            const warning = document.createElement('div');
+            warning.style.cssText = 'grid-column:1/-1;font-size:12px;color:#b91c1c;';
+            warning.textContent = 'Registry gaps: ' + preview.registry_gaps.map(function (g) {
                 return (g.seed_row_key || '?') + ' missing ' + (g.missing || []).join(', ');
-            }).join('; ') + '</div>';
+            }).join('; ');
+            grid.appendChild(warning);
         }
         if (preview.integrity && preview.integrity.ok === false && preview.recovery_mode !== true) {
-            grid.innerHTML += '<div style="grid-column:1/-1;color:#b91c1c;font-size:12px;"><strong>Integrity warnings:</strong> ' + (preview.integrity.errors || []).join(' ') + '</div>';
+            const warning = document.createElement('div');
+            warning.style.cssText = 'grid-column:1/-1;color:#b91c1c;font-size:12px;';
+            warning.textContent = 'Integrity warnings: ' + (preview.integrity.errors || []).join(' ');
+            grid.appendChild(warning);
         }
     }
 
@@ -2051,11 +2086,32 @@ function printflowInitDemoSeedTools() {
     function loadDeletePreview() {
         const fd = new FormData();
         fd.append('action', 'delete_preview');
+        fd.append('batch_id', selectedDemoBatchId);
         fd.append('csrf_token', csrf);
+        deletePreviewReady = false;
+        if (deleteBtn) deleteBtn.disabled = true;
         fetch(apiUrl, { method: 'POST', body: fd })
             .then(function (res) { return res.json(); })
             .then(function (data) {
-                if (data.preview) renderDeletePreview(data.preview);
+                if (data.preview) {
+                    renderDeletePreview(data.preview);
+                    if (!data.preview.batch_id) {
+                        const grid = document.getElementById('demo-seed-delete-preview');
+                        if (grid) grid.textContent = 'No demo records found.';
+                    }
+                    deletePreviewReady = !!selectedDemoBatchId && data.preview.batch_id === selectedDemoBatchId
+                        && !!data.preview.safe_to_delete
+                        && Number(data.preview.counts.registry_rows || 0) > 0;
+                    if (deleteBtn) deleteBtn.disabled = !deletePreviewReady;
+                    const status = document.getElementById('demo-seed-delete-status');
+                    if (status && !deletePreviewReady) status.textContent = 'Deletion is blocked: batch integrity failed or protected payment, inventory, or notification rows need review.';
+                } else {
+                    const status = document.getElementById('demo-seed-delete-status');
+                    if (status) status.textContent = data.message || 'Could not load the batch preview.';
+                }
+            }).catch(function () {
+                const status = document.getElementById('demo-seed-delete-status');
+                if (status) status.textContent = 'Could not load the batch preview.';
             });
     }
 
@@ -2068,8 +2124,14 @@ function printflowInitDemoSeedTools() {
         deleteBtn.addEventListener('click', function () {
             const status = document.getElementById('demo-seed-delete-status');
             const confirmInput = document.getElementById('demo-seed-delete-confirm');
+            if (!deletePreviewReady || !selectedDemoBatchId) {
+                if (status) status.textContent = 'Load a valid preview for the exact batch before deleting.';
+                return;
+            }
+            if (!window.confirm('Delete demo batch ' + selectedDemoBatchId + '?')) return;
             const fd = new FormData();
             fd.append('action', 'delete_batch');
+            fd.append('batch_id', selectedDemoBatchId);
             fd.append('csrf_token', csrf);
             fd.append('confirm_text', confirmInput ? confirmInput.value : '');
             if (status) status.textContent = 'Deleting...';
@@ -2078,8 +2140,14 @@ function printflowInitDemoSeedTools() {
                 .then(function (res) { return res.json(); })
                 .then(function (data) {
                     if (data.success) {
-                        if (status) status.textContent = (data.message || 'Deleted.') + ' Reloading...';
-                        window.location.reload();
+                        const counts = (data.result && data.result.deleted_counts) || {};
+                        if (status) status.textContent = (data.message || 'Deleted.') + (Object.keys(counts).length ? ' Deleted counts: ' + Object.keys(counts).map(function (key) { return key + '=' + counts[key]; }).join(', ') : '');
+                        deletePreviewReady = false;
+                        deleteBtn.disabled = true;
+                        if (deletePreviewBtn) deletePreviewBtn.disabled = true;
+                        const active = document.getElementById('demo-seed-active-batch');
+                        if (active) active.textContent = data.result && data.result.no_records ? 'No active demo batch.' : 'Batch deleted.';
+                        loadDeletePreview();
                         return;
                     }
                     if (status) status.textContent = data.message || 'Delete failed.';

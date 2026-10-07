@@ -143,26 +143,27 @@ try {
     }
 
     if ($action === 'delete_preview') {
-        $preview = demo_seed_delete_preview();
+        $batchId = trim((string)($_POST['batch_id'] ?? ''));
+        $preview = demo_seed_delete_preview($batchId !== '' ? $batchId : null);
         echo json_encode(['success' => true, 'preview' => $preview]);
         exit;
     }
 
     if ($action === 'delete_batch') {
-        $confirm = trim((string)($_POST['confirm_text'] ?? ''));
+        $batchId = trim((string)($_POST['batch_id'] ?? ''));
+        $confirm = (string)($_POST['confirm_text'] ?? '');
         if ($confirm !== 'DELETE MEETING DATA') {
             throw new RuntimeException('Confirmation text did not match.');
         }
-        $batchId = trim((string)($_POST['batch_id'] ?? ''));
         if ($batchId === '') {
-            $active = demo_seed_active_batch();
-            $batchId = (string)($active['batch_id'] ?? '');
-        }
-        if ($batchId === '') {
-            throw new RuntimeException('No active demo batch is available to delete.');
+            throw new RuntimeException('Preview an exact demo batch before deleting it.');
         }
         $result = demo_seed_delete_batch($batchId, $adminId);
-        echo json_encode(['success' => true, 'message' => 'Demo batch deleted successfully.', 'result' => $result]);
+        echo json_encode([
+            'success' => true,
+            'message' => !empty($result['no_records']) ? 'No demo records found.' : 'Demo batch deleted successfully.',
+            'result' => $result,
+        ]);
         exit;
     }
 
