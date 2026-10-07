@@ -61,15 +61,17 @@ $about_cfg  = printflow_load_runtime_config('about', $logo_dir . 'about_config.j
 
 $demo_active_batch = null;
 $demo_cabuyao_branch_id = 1;
-$demo_delete_preview = null;
+$demo_batches = [];
+$demo_selected_batch_id = '';
+$demo_seed_init_error = '';
 try {
-    demo_seed_ensure_tables();
+    $demo_batches = demo_seed_list_batches();
     $demo_active_batch = demo_seed_active_batch();
     $demo_cabuyao_branch_id = demo_seed_cabuyao_branch_id();
-    if ($demo_active_batch) {
-        $demo_delete_preview = demo_seed_delete_preview((string)($demo_active_batch['batch_id'] ?? ''));
-    }
+    $requestedBatchId = (string)($_GET['demo_batch_id'] ?? ($demo_active_batch['batch_id'] ?? ($demo_batches[0]['batch_id'] ?? '')));
+    if (in_array($requestedBatchId, array_column($demo_batches, 'batch_id'), true)) $demo_selected_batch_id = $requestedBatchId;
 } catch (Throwable $demoSeedInitError) {
+    $demo_seed_init_error = $demoSeedInitError->getMessage();
     error_log('[demo_seed] settings init: ' . $demoSeedInitError->getMessage());
 }
 
@@ -1080,26 +1082,36 @@ Stickers &amp; Decals"><?php
 
                     <div class="demo-panel">
                         <h3>4. Delete Demo Data</h3>
-                        <p style="font-size:12px;color:#64748b;margin:0 0 10px;">Preview the exact registry batch first. Then type <code>DELETE MEETING DATA</code> to confirm. Shared customers and all inventory transactions are protected.</p>
-                        <div id="demo-seed-delete-preview" class="demo-summary-grid" style="margin-bottom:12px;">
-                            <?php if ($demo_delete_preview && !empty($demo_delete_preview['counts'])): ?>
-                                <?php foreach ($demo_delete_preview['counts'] as $key => $val): ?>
-                                    <div><strong><?php echo demo_seed_h(str_replace('_', ' ', (string)$key)); ?></strong><br><?php echo demo_seed_h((string)$val); ?></div>
+                        <p style="font-size:12px;color:#64748b;margin:0 0 10px;">Select the exact CSV registry batch and run Dry Run. Review every verified and protected record before deleting. Shared customers and catalog records are protected. Payment and inventory rows require their own exact batch ownership proof.</p>
+                        <div class="f-group" style="max-width:600px;">
+                            <label for="demo-seed-delete-batch">CSV import batch</label>
+                            <select id="demo-seed-delete-batch">
+                                <option value="">Select an imported batch</option>
+                                <?php foreach ($demo_batches as $batch): ?>
+                                    <option value="<?php echo demo_seed_h($batch['batch_id']); ?>" <?php echo $batch['batch_id'] === $demo_selected_batch_id ? 'selected' : ''; ?>><?php echo demo_seed_h($batch['batch_id'] . ' — ' . $batch['status'] . ' — registry rows: ' . $batch['registry_rows']); ?></option>
                                 <?php endforeach; ?>
-                                <?php if (!empty($demo_delete_preview['recovery_mode'])): ?>
-                                    <div style="grid-column:1/-1;font-size:12px;color:#92400e;">Broken batch recovery: delete uses <code>demo_seed_rows</code> IDs, then removes remaining rows on those registered order ids only. Inventory is never touched.</div>
-                                <?php endif; ?>
-                            <?php endif; ?>
+                            </select>
                         </div>
+                        <label style="display:block;font-size:13px;margin:12px 0;"><input type="checkbox" id="demo-seed-delete-verified-only"> Delete only verified records if the registry is incomplete. Keep all protected or unverified records.</label>
+                        <div id="demo-seed-delete-preview" style="margin-bottom:12px;max-height:600px;overflow:auto;">Run Dry Run to inspect this batch.</div>
                         <div class="f-group" style="max-width:420px;">
                             <label>Confirmation</label>
-                            <input type="text" id="demo-seed-delete-confirm" placeholder="DELETE MEETING DATA" autocomplete="off">
+                            <p style="font-size:13px;">Exact required phrase: <code id="demo-seed-delete-phrase"><?php echo demo_seed_h(DemoSeedDeletionTool::CONFIRMATION); ?></code></p>
+                            <input type="text" id="demo-seed-delete-confirm" placeholder="<?php echo demo_seed_h(DemoSeedDeletionTool::CONFIRMATION); ?>" autocomplete="off">
                         </div>
+                        <label style="display:block;font-size:13px;margin:12px 0;"><input type="checkbox" id="demo-seed-delete-backup"> I created a database backup before this deletion.</label>
                         <div class="demo-actions" style="margin-top:10px;">
-                            <button type="button" id="demo-seed-delete-preview-btn" class="btn-demo btn-demo-secondary" <?php echo $demo_active_batch ? '' : 'disabled'; ?>>Refresh Delete Preview</button>
+                            <button type="button" id="demo-seed-delete-preview-btn" class="btn-demo btn-demo-secondary" <?php echo $demo_batches ? '' : 'disabled'; ?>>Dry Run / Preview</button>
                             <button type="button" id="demo-seed-delete-btn" class="btn-demo btn-demo-danger" disabled>Delete Demo Data</button>
                         </div>
-                        <div id="demo-seed-delete-status" style="font-size:13px;margin-top:10px;"></div>
+                        <div id="demo-seed-delete-status" role="status" style="font-size:13px;margin-top:10px;"><?php echo demo_seed_h($demo_seed_init_error); ?></div>
+                        <pre id="demo-seed-delete-result" style="display:none;white-space:pre-wrap;overflow-wrap:anywhere;"></pre>
+                        <dialog id="demo-seed-delete-dialog" aria-labelledby="demo-seed-delete-dialog-title" style="max-width:640px;width:90%;max-height:80vh;overflow:auto;border:1px solid #e2e8f0;border-radius:10px;padding:24px;">
+                            <h3 id="demo-seed-delete-dialog-title">Confirm demo batch deletion</h3>
+                            <pre id="demo-seed-delete-dialog-counts" style="white-space:pre-wrap;overflow-wrap:anywhere;"></pre>
+                            <p>Only the verified IDs in this dry run will be deleted. Protected records will remain.</p>
+                            <div class="demo-actions"><button type="button" id="demo-seed-delete-cancel" class="btn-demo btn-demo-secondary">Cancel</button><button type="button" id="demo-seed-delete-final" class="btn-demo btn-demo-danger">Confirm deletion</button></div>
+                        </dialog>
                     </div>
 
                     <div class="demo-panel">
@@ -1828,7 +1840,7 @@ function printflowInitSettingsPage() {
 
 function printflowInitDemoSeedTools() {
     const apiUrl = <?php echo json_encode(rtrim($base_path, '/') . '/admin/api/demo_seed_data.php'); ?>;
-    const selectedDemoBatchId = <?php echo json_encode((string)($demo_active_batch['batch_id'] ?? '')); ?>;
+    let selectedDemoBatchId = <?php echo json_encode($demo_selected_batch_id); ?>;
     const csrfInput = document.querySelector('input[name="csrf_token"]');
     const csrf = csrfInput ? csrfInput.value : '';
     let previewToken = '';
@@ -1838,6 +1850,17 @@ function printflowInitDemoSeedTools() {
     const deleteBtn = document.getElementById('demo-seed-delete-btn');
     const deletePreviewBtn = document.getElementById('demo-seed-delete-preview-btn');
     let deletePreviewReady = false;
+    let deletionPreview = null;
+    let deletionPreviewToken = '';
+    let deleteBusy = false;
+    let previewRequest = 0;
+    const deleteBatchSelect = document.getElementById('demo-seed-delete-batch');
+    const deleteVerifiedOnly = document.getElementById('demo-seed-delete-verified-only');
+    const deleteConfirmation = document.getElementById('demo-seed-delete-confirm');
+    const deleteBackup = document.getElementById('demo-seed-delete-backup');
+    const deleteDialog = document.getElementById('demo-seed-delete-dialog');
+    const deleteFinal = document.getElementById('demo-seed-delete-final');
+    const deleteCancel = document.getElementById('demo-seed-delete-cancel');
     if (!validateBtn || validateBtn.dataset.pfBound === '1') {
         return;
     }
@@ -1953,56 +1976,54 @@ function printflowInitDemoSeedTools() {
 
     function renderDeletePreview(preview) {
         const grid = document.getElementById('demo-seed-delete-preview');
-        if (!grid || !preview || !preview.counts) return;
-        const batchCell = document.createElement('div');
-        batchCell.style.gridColumn = '1/-1';
-        batchCell.textContent = 'Batch ID: ' + String(preview.batch_id || '(none)');
-        grid.replaceChildren(batchCell);
-        Object.keys(preview.counts).forEach(function (key) {
-            const cell = document.createElement('div');
-            const title = document.createElement('strong');
-            title.textContent = key.replace(/_/g, ' ');
-            cell.append(title, document.createElement('br'), document.createTextNode(String(preview.counts[key])));
-            grid.appendChild(cell);
-        });
-        Object.keys(preview.ids || {}).forEach(function (key) {
-            const cell = document.createElement('div');
-            cell.style.gridColumn = '1/-1';
-            cell.textContent = key.replace(/_/g, ' ') + ' IDs: ' + (preview.ids[key] || []).join(', ');
-            grid.appendChild(cell);
-        });
-        (preview.registry_records || []).forEach(function (row) {
-            const cell = document.createElement('div');
-            cell.style.gridColumn = '1/-1';
-            cell.textContent = 'Seed ' + row.seed_row_key + ': order ' + row.order_id + ', customer ' + row.customer_id + ', item ' + row.order_item_id + ', customization ' + row.customization_id + ', job ' + row.job_order_id + (row.customer_created ? ' (created by import)' : ' (pre-existing customer)');
-            grid.appendChild(cell);
-        });
-        const protectedCell = document.createElement('div');
-        protectedCell.style.gridColumn = '1/-1';
-        protectedCell.textContent = 'Protected: shared customer IDs ' + (((preview.protected || {}).shared_customers || []).join(', ') || 'none') + '. ' + String(((preview.protected || {}).inventory_transactions) || 'Inventory transactions are protected.');
-        grid.appendChild(protectedCell);
-        if (preview.recovery_mode) {
-            const warning = document.createElement('div');
-            warning.style.cssText = 'grid-column:1/-1;font-size:12px;color:#92400e;';
-            warning.textContent = 'Registry integrity needs review. Deletion is disabled.';
-            grid.appendChild(warning);
+        if (!grid || !preview) return;
+        grid.replaceChildren();
+        function line(parent, text, color) {
+            const paragraph = document.createElement('p');
+            paragraph.textContent = text;
+            if (color) paragraph.style.color = color;
+            parent.appendChild(paragraph);
         }
-        if (preview.registry_gaps && preview.registry_gaps.length) {
-            const warning = document.createElement('div');
-            warning.style.cssText = 'grid-column:1/-1;font-size:12px;color:#b91c1c;';
-            warning.textContent = 'Registry gaps: ' + preview.registry_gaps.map(function (g) {
-                return (g.seed_row_key || '?') + ' missing ' + (g.missing || []).join(', ');
-            }).join('; ');
-            grid.appendChild(warning);
+        function section(title, open) {
+            const details = document.createElement('details');
+            details.open = !!open;
+            const summary = document.createElement('summary');
+            summary.textContent = title;
+            details.appendChild(summary);
+            grid.appendChild(details);
+            return details;
         }
-        if (preview.integrity && preview.integrity.ok === false && preview.recovery_mode !== true) {
-            const warning = document.createElement('div');
-            warning.style.cssText = 'grid-column:1/-1;color:#b91c1c;font-size:12px;';
-            warning.textContent = 'Integrity warnings: ' + (preview.integrity.errors || []).join(' ');
-            grid.appendChild(warning);
-        }
+        line(grid, 'Batch ID: ' + preview.batch_id + ' | Registry rows: ' + preview.registry_rows);
+        line(grid, 'Verified rows: ' + Object.values(preview.counts || {}).reduce(function (a, b) { return a + Number(b); }, 0) + ' | Inventory transaction rows: ' + Number(preview.inventory_transaction_rows || 0) + ' | Inventory/material related rows: ' + Number(preview.inventory_rows || 0));
+        if (preview.no_records) line(grid, 'No demo records found. Zero verified demo rows remain.');
+        (preview.diagnostics || []).forEach(function (message) { line(grid, message, '#92400e'); });
+        if (preview.requires_verified_only && !preview.verified_only) line(grid, 'Review the listed records and select “Delete only verified records” to run a new dry run for an incomplete batch.', '#92400e');
+        const verified = section('Verified — Safe to Delete', true);
+        Object.keys(preview.tables || {}).forEach(function (table) {
+            const records = preview.tables[table];
+            line(verified, table + ': ' + records.length + ' row(s); IDs: ' + records.map(function (record) { return record.id; }).join(', '));
+            const evidence = document.createElement('details');
+            const title = document.createElement('summary');
+            title.textContent = table + ' ownership evidence';
+            evidence.appendChild(title);
+            records.forEach(function (record) { line(evidence, 'ID ' + record.id + ': ' + record.proof); });
+            verified.appendChild(evidence);
+        });
+        const protectedSection = section('Protected / Unverified — Not Deleted', true);
+        Object.keys(preview.protected || {}).forEach(function (table) {
+            line(protectedSection, table + ': ' + preview.protected[table].length + ' row(s)');
+            preview.protected[table].forEach(function (record) { line(protectedSection, 'ID ' + (record.id === null ? JSON.stringify(record.identity) : record.id) + ': ' + record.reason, '#92400e'); });
+        });
+        if (!Object.keys(preview.protected || {}).length) line(protectedSection, 'No protected related rows found. Shared products, services, materials, branches, and staff are outside the deletion scope.');
+        const seeds = section('Exact seed registry links', false);
+        (preview.registry_records || []).forEach(function (row) { line(seeds, JSON.stringify(row)); });
+        const schema = section('Inspected schema, foreign keys, and deletion order', false);
+        const output = document.createElement('pre');
+        output.style.whiteSpace = 'pre-wrap';
+        output.style.overflowWrap = 'anywhere';
+        output.textContent = JSON.stringify({delete_order: preview.delete_order, tables: preview.schema, foreign_keys: preview.foreign_keys}, null, 2);
+        schema.appendChild(output);
     }
-
     validateBtn.addEventListener('click', function () {
         const fileInput = document.getElementById('demo-seed-csv-file');
         const status = document.getElementById('demo-seed-validate-status');
@@ -2083,83 +2104,138 @@ function printflowInitDemoSeedTools() {
         });
     }
 
-    function loadDeletePreview() {
-        const fd = new FormData();
-        fd.append('action', 'delete_preview');
-        fd.append('batch_id', selectedDemoBatchId);
-        fd.append('csrf_token', csrf);
+    function updateDeleteButton() {
+        if (deleteBtn) deleteBtn.disabled = deleteBusy || !deletePreviewReady || !deletionPreview || deleteConfirmation.value !== deletionPreview.confirmation_phrase || !deleteBackup.checked;
+        if (deleteFinal) deleteFinal.disabled = deleteBusy;
+    }
+
+    function invalidateDeletionPreview() {
+        previewRequest++;
+        deletionPreview = null;
+        deletionPreviewToken = '';
         deletePreviewReady = false;
-        if (deleteBtn) deleteBtn.disabled = true;
-        fetch(apiUrl, { method: 'POST', body: fd })
-            .then(function (res) { return res.json(); })
-            .then(function (data) {
-                if (data.preview) {
-                    renderDeletePreview(data.preview);
-                    if (!data.preview.batch_id) {
-                        const grid = document.getElementById('demo-seed-delete-preview');
-                        if (grid) grid.textContent = 'No demo records found.';
-                    }
-                    deletePreviewReady = !!selectedDemoBatchId && data.preview.batch_id === selectedDemoBatchId
-                        && !!data.preview.safe_to_delete
-                        && Number(data.preview.counts.registry_rows || 0) > 0;
-                    if (deleteBtn) deleteBtn.disabled = !deletePreviewReady;
-                    const status = document.getElementById('demo-seed-delete-status');
-                    if (status && !deletePreviewReady) status.textContent = 'Deletion is blocked: batch integrity failed or protected payment, inventory, or notification rows need review.';
-                } else {
-                    const status = document.getElementById('demo-seed-delete-status');
-                    if (status) status.textContent = data.message || 'Could not load the batch preview.';
-                }
-            }).catch(function () {
-                const status = document.getElementById('demo-seed-delete-status');
-                if (status) status.textContent = 'Could not load the batch preview.';
+        if (deleteDialog && deleteDialog.open) deleteDialog.close();
+        const grid = document.getElementById('demo-seed-delete-preview');
+        if (grid) grid.textContent = 'Run Dry Run for the selected batch and deletion mode.';
+        updateDeleteButton();
+    }
+
+    function deletionRequest(fd) {
+        return fetch(apiUrl, {method: 'POST', body: fd, headers: {'Accept': 'application/json'}})
+            .then(function (res) {
+                return res.json().catch(function () { throw new Error('The Admin session or API returned a non-JSON response. Sign in again and run Dry Run.'); });
+            }).then(function (data) {
+                if (!data.success && !data.completed) throw new Error(data.message || 'Demo data request failed.');
+                return data;
             });
     }
 
-    if (deletePreviewBtn) {
-        deletePreviewBtn.addEventListener('click', loadDeletePreview);
-        loadDeletePreview();
-    }
-
-    if (deleteBtn) {
-        deleteBtn.addEventListener('click', function () {
-            const status = document.getElementById('demo-seed-delete-status');
-            const confirmInput = document.getElementById('demo-seed-delete-confirm');
-            if (!deletePreviewReady || !selectedDemoBatchId) {
-                if (status) status.textContent = 'Load a valid preview for the exact batch before deleting.';
-                return;
-            }
-            if (!window.confirm('Delete demo batch ' + selectedDemoBatchId + '?')) return;
-            const fd = new FormData();
-            fd.append('action', 'delete_batch');
-            fd.append('batch_id', selectedDemoBatchId);
-            fd.append('csrf_token', csrf);
-            fd.append('confirm_text', confirmInput ? confirmInput.value : '');
-            if (status) status.textContent = 'Deleting...';
-            deleteBtn.disabled = true;
-            fetch(apiUrl, { method: 'POST', body: fd })
-                .then(function (res) { return res.json(); })
-                .then(function (data) {
-                    if (data.success) {
-                        const counts = (data.result && data.result.deleted_counts) || {};
-                        if (status) status.textContent = (data.message || 'Deleted.') + (Object.keys(counts).length ? ' Deleted counts: ' + Object.keys(counts).map(function (key) { return key + '=' + counts[key]; }).join(', ') : '');
-                        deletePreviewReady = false;
-                        deleteBtn.disabled = true;
-                        if (deletePreviewBtn) deletePreviewBtn.disabled = true;
-                        const active = document.getElementById('demo-seed-active-batch');
-                        if (active) active.textContent = data.result && data.result.no_records ? 'No active demo batch.' : 'Batch deleted.';
-                        loadDeletePreview();
-                        return;
-                    }
-                    if (status) status.textContent = data.message || 'Delete failed.';
-                    deleteBtn.disabled = false;
-                })
-                .catch(function () {
-                    if (status) status.textContent = 'Delete request failed.';
-                    deleteBtn.disabled = false;
-                });
+    function loadDeletePreview(preserveResult) {
+        const status = document.getElementById('demo-seed-delete-status');
+        selectedDemoBatchId = deleteBatchSelect ? deleteBatchSelect.value : '';
+        if (!selectedDemoBatchId || deleteBusy) {
+            if (status && !preserveResult) status.textContent = 'Select an exact imported batch.';
+            return Promise.resolve();
+        }
+        const request = ++previewRequest;
+        const fd = new FormData();
+        fd.append('action', 'delete_preview');
+        fd.append('batch_id', selectedDemoBatchId);
+        fd.append('verified_only', deleteVerifiedOnly.checked ? '1' : '0');
+        fd.append('csrf_token', csrf);
+        deletePreviewReady = false;
+        deletionPreviewToken = '';
+        updateDeleteButton();
+        if (!preserveResult && status) status.textContent = 'Inspecting the exact batch and database dependencies...';
+        return deletionRequest(fd).then(function (data) {
+            if (request !== previewRequest) return;
+            deletionPreview = data.preview;
+            deletionPreviewToken = data.preview_token || '';
+            renderDeletePreview(deletionPreview);
+            deletePreviewReady = deletionPreview.batch_id === selectedDemoBatchId && !!deletionPreview.safe_to_delete && !!deletionPreviewToken;
+            document.getElementById('demo-seed-delete-phrase').textContent = deletionPreview.confirmation_phrase;
+            if (!preserveResult && status) status.textContent = deletionPreview.no_records ? 'No demo records found.' : (deletePreviewReady ? 'Dry run ready. Review the IDs, create a backup, and type the exact phrase.' : 'Review the diagnostic and protected records above. No deletion has run.');
+            updateDeleteButton();
+        }).catch(function (error) {
+            if (request !== previewRequest) return;
+            invalidateDeletionPreview();
+            if (status) status.textContent = error.message;
         });
     }
 
+    if (deleteBatchSelect) deleteBatchSelect.addEventListener('change', function () {
+        selectedDemoBatchId = deleteBatchSelect.value;
+        if (typeof window !== 'undefined' && window.history && window.location) {
+            const pageUrl = new URL(window.location.href);
+            if (selectedDemoBatchId) pageUrl.searchParams.set('demo_batch_id', selectedDemoBatchId);
+            else pageUrl.searchParams.delete('demo_batch_id');
+            window.history.replaceState(null, '', pageUrl);
+        }
+        invalidateDeletionPreview();
+    });
+    if (deleteVerifiedOnly) deleteVerifiedOnly.addEventListener('change', invalidateDeletionPreview);
+    if (deleteConfirmation) deleteConfirmation.addEventListener('input', updateDeleteButton);
+    if (deleteBackup) deleteBackup.addEventListener('change', updateDeleteButton);
+    if (deletePreviewBtn) deletePreviewBtn.addEventListener('click', function () { loadDeletePreview(false); });
+    if (deleteCancel) deleteCancel.addEventListener('click', function () { deleteDialog.close(); });
+
+    if (deleteBtn) deleteBtn.addEventListener('click', function () {
+        if (deleteBtn.disabled || deleteBusy || !deletePreviewReady) return;
+        const lines = ['Batch: ' + selectedDemoBatchId, 'Mode: ' + (deletionPreview.verified_only ? 'Verified records only' : 'Complete verified batch')];
+        let total = 0;
+        (deletionPreview.delete_order || []).forEach(function (table) {
+            const count = Number(deletionPreview.counts[table] || 0);
+            total += count;
+            lines.push(table + ': ' + count);
+        });
+        lines.push('Total rows to delete: ' + total);
+        Object.keys(deletionPreview.protected || {}).forEach(function (table) { lines.push('Protected ' + table + ': ' + deletionPreview.protected[table].length); });
+        document.getElementById('demo-seed-delete-dialog-counts').textContent = lines.join('\n');
+        deleteDialog.showModal();
+    });
+
+    if (deleteFinal) deleteFinal.addEventListener('click', function () {
+        if (deleteBusy || !deletePreviewReady || deleteConfirmation.value !== deletionPreview.confirmation_phrase || !deleteBackup.checked) return;
+        const status = document.getElementById('demo-seed-delete-status');
+        const fd = new FormData();
+        fd.append('action', 'delete_batch');
+        fd.append('batch_id', selectedDemoBatchId);
+        fd.append('preview_token', deletionPreviewToken);
+        fd.append('verified_only', deleteVerifiedOnly.checked ? '1' : '0');
+        fd.append('csrf_token', csrf);
+        fd.append('confirm_text', deleteConfirmation.value);
+        fd.append('backup_confirmed', deleteBackup.checked ? '1' : '0');
+        deleteBusy = true;
+        updateDeleteButton();
+        deletePreviewBtn.disabled = true;
+        deleteBatchSelect.disabled = true;
+        deleteVerifiedOnly.disabled = true;
+        deleteDialog.close();
+        if (status) status.textContent = 'Deleting the locked, verified IDs in one transaction...';
+        deletionRequest(fd).then(function (data) {
+            const result = document.getElementById('demo-seed-delete-result');
+            if (result) { result.style.display = 'block'; result.textContent = JSON.stringify(data.result, null, 2); }
+            if (status) status.textContent = data.message;
+            deleteBusy = false;
+            invalidateDeletionPreview();
+            deleteConfirmation.value = '';
+            deleteBackup.checked = false;
+            const option = deleteBatchSelect.options[deleteBatchSelect.selectedIndex];
+            if (option) option.textContent = selectedDemoBatchId + ' — ' + (data.result.partial ? 'partial' : 'rolled_back') + ' — registry rows: ' + Number(data.result.remaining_registry_rows || 0);
+            return loadDeletePreview(true);
+        }).catch(function (error) {
+            deleteBusy = false;
+            invalidateDeletionPreview();
+            if (status) status.textContent = error.message + ' Run Dry Run again to verify the current batch.';
+        }).finally(function () {
+            deleteBusy = false;
+            deletePreviewBtn.disabled = false;
+            deleteBatchSelect.disabled = false;
+            deleteVerifiedOnly.disabled = false;
+            updateDeleteButton();
+        });
+    });
+    updateDeleteButton();
     const traceBtn = document.getElementById('demo-seed-trace-btn');
     if (traceBtn) {
         traceBtn.addEventListener('click', function () {
@@ -2173,6 +2249,7 @@ function printflowInitDemoSeedTools() {
             const fd = new FormData();
             fd.append('action', 'trace_seed_row');
             fd.append('csrf_token', csrf);
+            fd.append('batch_id', deleteBatchSelect ? deleteBatchSelect.value : '');
             fd.append('seed_row_key', seedRowKey);
             fetch(apiUrl, { method: 'POST', body: fd })
                 .then(function (res) { return res.json(); })
