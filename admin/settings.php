@@ -538,6 +538,7 @@ $page_title = 'Settings - Admin';
     <div class="main-content">
         <header>
             <h1 class="page-title">Settings</h1>
+            <a href="<?php echo htmlspecialchars($base_path, ENT_QUOTES, 'UTF-8'); ?>/admin/archived_orders.php" style="display:inline-block;margin:8px 0;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;text-decoration:none;">Archived Orders</a>
         </header>
 
         <main>

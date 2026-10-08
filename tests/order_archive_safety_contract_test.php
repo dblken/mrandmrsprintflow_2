@@ -21,6 +21,7 @@ $root = dirname(__DIR__);
 $admin = (string)file_get_contents($root . '/admin/archived_orders.php');
 $helper = (string)file_get_contents($root . '/includes/order_archive.php');
 $migration = (string)file_get_contents($root . '/migrations/20261008_create_order_archive_tables.sql');
+$batchMigration = (string)file_get_contents($root . '/migrations/20261008_create_order_archive_batch_events.sql');
 $adminOrders = (string)file_get_contents($root . '/admin/orders_management.php');
 $adminJobOrders = (string)file_get_contents($root . '/admin/job_orders.php');
 $adminDashboard = (string)file_get_contents($root . '/admin/dashboard.php');
@@ -51,6 +52,9 @@ $assert(str_contains($migration, 'CREATE TABLE IF NOT EXISTS `printflow_order_ar
 $assert(str_contains($migration, '`order_id` BIGINT UNSIGNED NOT NULL') && str_contains($migration, 'UNIQUE KEY `uq_printflow_order_archive_order` (`order_id`)'), 'mapping has exact order key and duplicate protection');
 $assert(str_contains($migration, '`restored_at`') && str_contains($migration, '`restored_by`') && str_contains($migration, '`status`'), 'mapping supports restore history');
 $assert(!preg_match('/\b(DELETE|UPDATE|DROP|TRUNCATE|ALTER)\b/i', $migration), 'migration contains no destructive or data-changing SQL');
+$assert(str_contains($batchMigration, 'CREATE TABLE IF NOT EXISTS `printflow_order_archive_batch_events`'), 'batch migration creates isolated metadata only');
+$assert(str_contains($batchMigration, '`manifest_order_ids` LONGTEXT NOT NULL') && str_contains($batchMigration, '`protected_record_notes` TEXT NOT NULL') && str_contains($batchMigration, '`operation_result` VARCHAR(32) NOT NULL'), 'batch migration stores manifest, protected notes, and result');
+$assert(!preg_match('/\b(DELETE|UPDATE|DROP|TRUNCATE|ALTER)\b/i', $batchMigration), 'batch migration has no destructive or data-changing SQL');
 
 $requireAdmin = strpos($admin, "require_role('Admin')");
 $postBranch = strpos($admin, "if (\$_SERVER['REQUEST_METHOD'] === 'POST')");
@@ -60,6 +64,8 @@ $assert(substr_count($admin, 'begin_transaction()') >= 2 && substr_count($admin,
 $assert(str_contains($admin, "'ARCHIVE PRINTFLOW 224 ORDERS'") && str_contains($admin, "'RESTORE SELECTED ORDERS'"), 'archive and restore require typed confirmation');
 $assert(str_contains($admin, 'SELECT order_id FROM orders WHERE order_id IN') && str_contains($admin, 'ORDER BY order_id FOR UPDATE') && str_contains($admin, '$liveIds !== $ids'), 'archive locks and verifies the exact order manifest');
 $assert(str_contains($admin, 'INSERT INTO printflow_order_archive_map') && str_contains($admin, 'foreach ($ids as $orderId)'), 'archive inserts mappings only for exact manifest IDs');
+$assert(substr_count($admin, 'INSERT INTO printflow_order_archive_batch_events') === 1 && !str_contains(substr($admin, strpos($admin, 'if ($action === \'archive_manifest\')'), strpos($admin, '} elseif ($action === \'restore\')') - strpos($admin, 'if ($action === \'archive_manifest\')')), 'INSERT INTO printflow_order_archive_events'), 'archive creates one batch audit event and no per-order archive events');
+$assert(str_contains($helper, "'printflow_order_archive_batch_events'"), 'archive readiness requires the batch audit table');
 $assert(str_contains($admin, "UPDATE printflow_order_archive_map SET status='restored'") && str_contains($admin, "'restore'") && str_contains($admin, 'printflow_order_archive_events'), 'restore updates only mappings and writes an audit event');
 $assert(!preg_match('/\bDELETE\s+FROM\s+(orders|order_items|customers|provider_payments|inventory_transactions)|\bUPDATE\s+(orders|customers|provider_payments|inventory_transactions)\s+SET/i', $admin), 'archive actions preserve original transactional and master rows');
 $assert(str_contains($admin, '25, 44, 288, 306') && !str_contains($admin, 'UPDATE customers') && !str_contains($admin, 'DELETE FROM customers'), 'protected customers are displayed and never mutated');

@@ -39,7 +39,14 @@ if (!function_exists('printflow_order_archive_tables_ready')) {
             's',
             ['printflow_order_archive_events']
         );
-        return $ready = (int)($rows[0]['n'] ?? 0) === 1 && (int)($events[0]['n'] ?? 0) === 1;
+        $batchEvents = db_query(
+            'SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?',
+            's',
+            ['printflow_order_archive_batch_events']
+        );
+        return $ready = (int)($rows[0]['n'] ?? 0) === 1
+            && (int)($events[0]['n'] ?? 0) === 1
+            && (int)($batchEvents[0]['n'] ?? 0) === 1;
     }
 }
 
