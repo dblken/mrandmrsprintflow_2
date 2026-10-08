@@ -1217,6 +1217,20 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
         $review_video_expr = isset($review_cols['video_path']) ? 'r.video_path' : "''";
         $review_helpful_sql = '(SELECT COUNT(*) FROM review_helpful WHERE review_id = r.id) as helpful_count,';
         $review_voted_sql = $review_user_voted_sql . ' as user_voted';
+        $customer_review_counts = ['reviews' => 0, 'images' => 0, 'videos' => 0];
+        if ($current_customer_id > 0) {
+            $customer_review_count_rows = db_query(
+                "SELECT COUNT(*) AS reviews,
+                        COALESCE(SUM((SELECT COUNT(*) FROM review_images ri WHERE ri.review_id = r.id)), 0) AS images,
+                        COALESCE(SUM(CASE WHEN COALESCE({$review_video_expr}, '') <> '' THEN 1 ELSE 0 END), 0) AS videos
+                 FROM reviews r WHERE {$review_user_expr} = ?",
+                'i',
+                [$current_customer_id]
+            ) ?: [];
+            if (!empty($customer_review_count_rows[0])) {
+                $customer_review_counts = array_map('intval', $customer_review_count_rows[0]);
+            }
+        }
 
         $reviews = [];
         if (!empty($review_aliases)) {
@@ -1333,7 +1347,12 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
         }
         ?>
         <div style="margin-top:24px;padding:1.5rem 2rem;background:#fff;border:1px solid #e5e7eb;border-radius:4px;">
-            <h2 class="poc-section-title">Product Ratings</h2>
+            <div class="pf-review-cleanup-head">
+                <h2 class="poc-section-title">Product Ratings</h2>
+                <?php if ($current_customer_id > 0 && $customer_review_counts['reviews'] > 0): ?>
+                    <button type="button" id="pfDeleteAllMyReviews" class="pf-review-delete-button pf-review-delete-all">Delete All My Reviews</button>
+                <?php endif; ?>
+            </div>
 
             <?php if ($total_reviews > 0): ?>
             <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;">
@@ -1466,11 +1485,14 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                                 </div>
                             <?php endif; ?>
 
-                            <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                            <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">
                                 <button type="button" onclick="markHelpful(<?php echo $review['id']; ?>, this)" class="helpful-btn<?php echo $review['user_voted'] ? ' voted' : ''; ?>" <?php echo $review['user_voted'] ? 'data-voted="1"' : ''; ?>>
                                     <svg width="15" height="15" fill="currentColor" viewBox="0 0 20 20"><path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z"/></svg>
                                     <span class="helpful-label"><?php echo $review['user_voted'] ? (int)$review['helpful_count'] : 'Helpful'; ?></span>
                                 </button>
+                                <?php if ($current_customer_id > 0 && (int)($review['user_id'] ?? 0) === $current_customer_id): ?>
+                                    <button type="button" class="pf-review-delete-button pfDeleteOwnedReview" data-review-id="<?php echo (int)$review['id']; ?>" data-review-count="1" data-image-count="<?php echo count($rev_imgs); ?>" data-video-count="<?php echo $has_video ? 1 : 0; ?>">Delete Review</button>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </div>
@@ -1488,6 +1510,89 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
         </div>
     </div>
 </div>
+
+<?php if ($current_customer_id > 0): ?>
+<div id="pfReviewDeleteModal" class="pf-review-delete-modal" aria-hidden="true" style="display:none;">
+    <div class="pf-review-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="pfReviewDeleteTitle">
+        <h2 id="pfReviewDeleteTitle">Permanently delete review data?</h2>
+        <p id="pfReviewDeleteDetails">This deletion is permanent. Only reviews and media owned by your customer account are eligible.</p>
+        <div class="pf-review-delete-actions"><button type="button" id="pfReviewDeleteCancel" class="pf-review-delete-cancel">Cancel</button><button type="button" id="pfReviewDeleteConfirm" class="pf-review-delete-confirm">Delete permanently</button></div>
+    </div>
+</div>
+<div id="pfReviewDeleteStatus" class="pf-review-delete-status" role="status" aria-live="polite"></div>
+<input type="hidden" id="pfReviewDeleteCsrf" value="<?php echo htmlspecialchars(generate_csrf_token(), ENT_QUOTES, 'UTF-8'); ?>">
+<script>
+(function () {
+    'use strict';
+    const apiUrl = <?php echo json_encode(rtrim((string)$base_path, '/') . '/customer/api_delete_reviews.php'); ?>;
+    const modal = document.getElementById('pfReviewDeleteModal');
+    const details = document.getElementById('pfReviewDeleteDetails');
+    const status = document.getElementById('pfReviewDeleteStatus');
+    const csrf = document.getElementById('pfReviewDeleteCsrf').value;
+    const confirmButton = document.getElementById('pfReviewDeleteConfirm');
+    let pending = null;
+    let busy = false;
+    async function fetchCounts() {
+        const response = await fetch(apiUrl, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.error || 'Could not load your review counts.');
+        return data.counts;
+    }
+    async function openConfirmation(action, reviewButton) {
+        pending = { action: action, review_id: reviewButton ? Number(reviewButton.dataset.reviewId) : 0, reviewButton: reviewButton };
+        try {
+            const counts = action === 'delete_all' ? await fetchCounts() : {
+                reviews: Number(reviewButton.dataset.reviewCount || 1),
+                images: Number(reviewButton.dataset.imageCount || 0),
+                videos: Number(reviewButton.dataset.videoCount || 0)
+            };
+            details.textContent = 'This will permanently delete ' + counts.reviews + ' review(s), ' + counts.images + ' image(s), and ' + counts.videos + ' video(s) attached to your review(s). Orders, payments, messages, customer account data, and catalog images are not affected.';
+        } catch (error) {
+            pending = null;
+            status.textContent = error.message || 'Could not load your review counts.';
+            return;
+        }
+        modal.style.display = 'flex';
+        modal.setAttribute('aria-hidden', 'false');
+        confirmButton.focus();
+    }
+    function closeModal() {
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+        pending = null;
+    }
+    document.querySelectorAll('.pfDeleteOwnedReview').forEach(button => button.addEventListener('click', () => openConfirmation('delete_one', button)));
+    const deleteAll = document.getElementById('pfDeleteAllMyReviews');
+    if (deleteAll) deleteAll.addEventListener('click', () => openConfirmation('delete_all', null));
+    document.getElementById('pfReviewDeleteCancel').addEventListener('click', closeModal);
+    modal.addEventListener('click', event => { if (event.target === modal) closeModal(); });
+    confirmButton.addEventListener('click', async () => {
+        if (busy || !pending) return;
+        busy = true;
+        confirmButton.disabled = true;
+        try {
+            const payload = { action: pending.action, csrf_token: csrf };
+            if (pending.action === 'delete_one') payload.review_id = pending.review_id;
+            const response = await fetch(apiUrl, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(payload) });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.success) throw new Error(data.error || 'Review deletion failed.');
+            status.textContent = data.message + ' Deleted ' + data.counts.reviews + ' review(s), ' + data.counts.images + ' image(s), and ' + data.counts.videos + ' video(s).' + (data.missing_media_files ? ' ' + data.missing_media_files + ' media file(s) were already missing.' : '');
+            if (pending.action === 'delete_one' && pending.reviewButton) pending.reviewButton.closest('.poc-review-item')?.remove();
+            if (pending.action === 'delete_all') {
+                document.querySelectorAll('.pfDeleteOwnedReview').forEach(button => button.closest('.poc-review-item')?.remove());
+                deleteAll?.remove();
+            }
+            closeModal();
+        } catch (error) {
+            details.textContent = error.message || 'Review deletion failed.';
+        } finally {
+            busy = false;
+            confirmButton.disabled = false;
+        }
+    });
+})();
+</script>
+<?php endif; ?>
 
 <div id="pocMediaModal" class="poc-media-modal" aria-hidden="true">
     <div class="poc-media-modal-inner" role="dialog" aria-modal="true" aria-label="Media viewer">
@@ -1507,6 +1612,19 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
 
 <style>
 .poc-section-title { font-size:1.1rem;font-weight:700;color:#111827;margin:0 0 0.75rem; }
+.pf-review-cleanup-head { display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap; }
+.pf-review-delete-button { display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:.5rem .8rem;border:1px solid #fecaca;border-radius:8px;background:#fff;color:#b91c1c;font-size:.85rem;font-weight:700;cursor:pointer; }
+.pf-review-delete-button:hover { background:#fef2f2; }
+.pf-review-delete-modal { position:fixed;inset:0;z-index:10050;align-items:center;justify-content:center;padding:1rem;background:rgba(15,23,42,.62); }
+.pf-review-delete-dialog { width:min(100%,480px);padding:1.35rem;border-radius:14px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.28); }
+.pf-review-delete-dialog h2 { margin:0 0 .6rem;color:#0f172a;font-size:1.15rem;font-weight:800; }
+.pf-review-delete-dialog p { margin:0 0 1.1rem;color:#475569;line-height:1.55;overflow-wrap:anywhere; }
+.pf-review-delete-actions { display:flex;justify-content:flex-end;gap:.65rem;flex-wrap:wrap; }
+.pf-review-delete-cancel,.pf-review-delete-confirm { min-height:40px;padding:.55rem .85rem;border-radius:8px;font-weight:700;cursor:pointer; }
+.pf-review-delete-cancel { border:1px solid #cbd5e1;background:#fff;color:#334155; }
+.pf-review-delete-confirm { border:1px solid #b91c1c;background:#b91c1c;color:#fff; }
+.pf-review-delete-status { position:fixed;right:1rem;bottom:1rem;z-index:10051;max-width:min(92vw,440px);padding:.75rem 1rem;border:1px solid #99f6e4;border-radius:10px;background:#f0fdfa;color:#115e59;box-shadow:0 8px 25px rgba(15,23,42,.15); }
+@media (max-width:640px) { .pf-review-delete-status { left:1rem;right:1rem;bottom:1rem;max-width:none; } .pf-review-delete-actions>* { flex:1 1 auto; } }
 .poc-filter-btn.active { background:#0a2530 !important;color:white !important;border-color:#0a2530 !important; }
 .poc-filter-btn:hover { border-color:#0a2530;background:#f0f4f5; }
 .poc-review-item { border-bottom:1px solid #f3f4f6;padding:1.25rem 0; color: #1f2937; }
