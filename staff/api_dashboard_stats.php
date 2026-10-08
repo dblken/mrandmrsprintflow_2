@@ -304,6 +304,7 @@ $staffBranchId = $staffCtx['selected_branch_id'] === 'all'
 $staffAccessMeta = printflow_get_staff_access_meta();
 $staffRole = (string)($staffAccessMeta['key'] ?? 'online');
 $staffOrderScopeSql = printflow_staff_order_source_sql('o', $staffRole);
+$staffOrderScopeSql .= ' AND ' . printflow_order_archive_scope_sql('o');
 
 if (session_status() === PHP_SESSION_ACTIVE) {
     session_write_close();

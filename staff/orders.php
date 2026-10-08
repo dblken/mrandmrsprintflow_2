@@ -348,6 +348,7 @@ function staff_orders_attach_provider_payments(array &$orders): void {
 }
 
 $sql_conditions = " AND o.order_type = 'product' AND {$staffOrderScopeSql}";
+$sql_conditions .= ' AND ' . printflow_order_archive_scope_sql('o');
 $params = [];
 $types = '';
 if (!$is_pos_staff) {
@@ -459,6 +460,7 @@ unset($order);
 // Get KPI statistics (branch-specific)
 // Note: o.order_type = 'product' filter from line 108 is preserved in $sql_conditions
 $kpi_conditions = " AND o.order_type = 'product' AND {$staffOrderScopeSql}";
+$kpi_conditions .= ' AND ' . printflow_order_archive_scope_sql('o');
 $kpi_types = '';
 $kpi_params = [];
 $kpi_conditions .= branch_where('o', $staffBranchId, $kpi_types, $kpi_params);

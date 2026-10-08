@@ -22,7 +22,8 @@ $staffOrderScopeSql = '1=1';
 if (in_array($userType, ['Staff', 'Manager'], true)) {
     $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 1);
     $staffRole = printflow_get_staff_access_role();
-    $staffOrderScopeSql = printflow_staff_order_source_sql('o', $staffRole);
+$staffOrderScopeSql = printflow_staff_order_source_sql('o', $staffRole);
+$staffOrderScopeSql .= ' AND ' . printflow_order_archive_scope_sql('o');
 }
 
 // Load PhpSpreadsheet via Composer Autoloader

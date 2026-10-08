@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/order_archive.php';
+
 /**
  * Staff reports: resolve real catalog service names for Top Selling Services.
  *
@@ -129,6 +131,7 @@ function printflow_staff_report_top_selling_services(array $opts): array {
          LEFT JOIN orders o ON o.order_id = jo.order_id
          WHERE {$jobDateCondition}
            AND jo.branch_id = ?
+           AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
            {$jobStatusSql}",
         'i',
         [$branchId]

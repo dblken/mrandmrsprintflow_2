@@ -18,6 +18,7 @@ $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_i
 $staffAccessMeta = printflow_get_staff_access_meta();
 $staffRole = (string)($staffAccessMeta['key'] ?? 'online');
 $staffOrderScopeSql = printflow_staff_order_source_sql('o', $staffRole);
+$staffOrderScopeSql .= ' AND ' . printflow_order_archive_scope_sql('o');
 $range = $_GET['range'] ?? 'week';
 $report_date = $_GET['date'] ?? date('Y-m-d');
 

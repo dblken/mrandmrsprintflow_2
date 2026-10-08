@@ -9,6 +9,7 @@ if (defined('REPORTS_DASHBOARD_QUERIES_LOADED')) {
 define('REPORTS_DASHBOARD_QUERIES_LOADED', true);
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/order_archive.php';
 require_once __DIR__ . '/branch_context.php';
 
 /** Simple trend-based 3-month forecast from a historical array. */
@@ -45,9 +46,9 @@ function pf_linreg(array $values): float {
 function pf_reports_branch_has_activity($branchId): bool {
     try {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
-        $c1 = (int) (db_query("SELECT COUNT(*) as c FROM orders o WHERE 1=1$b", $bt ?: null, $bp ?: null)[0]['c'] ?? 0);
+        $c1 = (int) (db_query("SELECT COUNT(*) as c FROM orders o WHERE " . printflow_order_archive_scope_sql('o') . "$b", $bt ?: null, $bp ?: null)[0]['c'] ?? 0);
         [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
-        $c2 = (int) (db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE 1=1$bj", $btj ?: null, $bpj ?: null)[0]['c'] ?? 0);
+        $c2 = (int) (db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE " . printflow_order_archive_exclusion_sql('jo.order_id') . "$bj", $btj ?: null, $bpj ?: null)[0]['c'] ?? 0);
         return ($c1 + $c2) > 0;
     } catch (Throwable $e) {
         return false;
@@ -69,7 +70,7 @@ function pf_reports_store_order_paid_completed_expr(string $alias = 'o'): string
 /** Store order with confirmed payment only (legacy/detail filter). */
 function pf_reports_store_order_paid_expr(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
-    return "LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')";
+    return '(' . printflow_order_archive_scope_sql($alias) . " AND LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid'))";
 }
 
 /** Customization / job order counts as paid/completed for revenue exports. */
@@ -87,20 +88,21 @@ function pf_reports_service_order_completed_expr(string $alias = 'so'): string {
 /** Official product/store sales inclusion rule for all reports. */
 function pf_reports_store_order_sales_expr(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
-    return "(LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
-             OR LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed')";
+    $activeArchiveScope = printflow_order_archive_scope_sql($alias);
+    return "({$activeArchiveScope} AND (LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
+             OR LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed'))";
 }
 
 /** Store orders that belong on the Products / Orders page (excludes custom checkout rows). */
 function pf_reports_store_product_order_scope_sql(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
-    return "LOWER(TRIM(COALESCE({$alias}.order_type, 'product'))) = 'product'";
+    return '(' . printflow_order_archive_scope_sql($alias) . " AND LOWER(TRIM(COALESCE({$alias}.order_type, 'product'))) = 'product')";
 }
 
 /** Store orders from custom/service checkout rows (POS or online custom carts). */
 function pf_reports_store_custom_order_scope_sql(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
-    return "LOWER(TRIM(COALESCE({$alias}.order_type, 'product'))) = 'custom'";
+    return '(' . printflow_order_archive_scope_sql($alias) . " AND LOWER(TRIM(COALESCE({$alias}.order_type, 'product'))) = 'custom')";
 }
 
 /**
@@ -133,8 +135,9 @@ function pf_reports_store_order_revenue_expr(string $alias = 'o'): string {
 /** Official customization/job-order sales inclusion rule for all reports. */
 function pf_reports_job_order_sales_expr(string $alias = 'jo'): string {
     $alias = pf_reports_sql_alias($alias, 'jo');
-    return "(LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
-             OR LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed')";
+    $activeArchiveScope = printflow_order_archive_exclusion_sql($alias . '.order_id');
+    return "({$activeArchiveScope} AND (LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
+             OR LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed'))";
 }
 
 /** Official customization/job-order revenue amount. */

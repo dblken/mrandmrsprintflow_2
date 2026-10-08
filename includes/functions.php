@@ -9,6 +9,7 @@ date_default_timezone_set('Asia/Manila');
 
 require_once __DIR__ . '/customization_normalizer.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/order_archive.php';
 require_once __DIR__ . '/email_sms_config.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/ensure_order_source_column.php'; // Ensure order_source column exists
@@ -2173,8 +2174,8 @@ function get_unread_notification_count($user_id, $user_type) {
     if ($user_type === 'Customer') {
         $rows = db_query(
             "SELECT notification_id, customer_id, message, type, data_id, is_read, created_at
-             FROM notifications
-             WHERE customer_id = ? AND is_read = 0
+             FROM notifications n
+             WHERE customer_id = ? AND is_read = 0 AND " . printflow_order_archive_notification_exclusion_sql('n') . "
              ORDER BY created_at DESC, notification_id DESC",
             'i',
             [(int)$user_id]
@@ -2183,8 +2184,8 @@ function get_unread_notification_count($user_id, $user_type) {
     } else {
         $rows = db_query(
             "SELECT notification_id, user_id, message, type, data_id, is_read, created_at
-             FROM notifications
-             WHERE user_id = ? AND is_read = 0 AND type != 'Message'
+             FROM notifications n
+             WHERE user_id = ? AND is_read = 0 AND type != 'Message' AND " . printflow_order_archive_notification_exclusion_sql('n') . "
              ORDER BY created_at DESC, notification_id DESC",
             'i',
             [$user_id]
@@ -2220,8 +2221,8 @@ function get_customer_notifications_for_display($customer_id, $limit = 10, $offs
 
     $rows = db_query(
         "SELECT notification_id, customer_id, message, type, data_id, review_id, is_read, created_at
-         FROM notifications
-         WHERE customer_id = ?
+         FROM notifications n
+         WHERE customer_id = ? AND " . printflow_order_archive_notification_exclusion_sql('n') . "
          ORDER BY created_at DESC
          LIMIT {$limit} OFFSET {$offset}",
         'i',

@@ -21,12 +21,12 @@ try {
     $period = $_GET['period'] ?? 'monthly';
     
     // Build branch filter
-    $branchSql = '';
+    $branchSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id');
     $branchTypes = '';
     $branchParams = [];
     
     if ($branchId !== 'all' && is_numeric($branchId)) {
-        $branchSql = ' AND COALESCE(jo.branch_id, (SELECT ord.branch_id FROM orders ord WHERE ord.order_id = jo.order_id LIMIT 1)) = ?';
+        $branchSql .= ' AND COALESCE(jo.branch_id, (SELECT ord.branch_id FROM orders ord WHERE ord.order_id = jo.order_id LIMIT 1)) = ?';
         $branchTypes = 'i';
         $branchParams = [(int)$branchId];
     }

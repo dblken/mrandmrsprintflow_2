@@ -6,6 +6,7 @@
  */
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/order_archive.php';
 require_role('Customer');
 
 header('Content-Type: application/json');
@@ -28,7 +29,7 @@ try {
                  WHERE oi.order_id = o.order_id
                  ORDER BY oi.order_item_id ASC LIMIT 1) as first_item_customization
          FROM orders o
-         WHERE o.customer_id = ?
+         WHERE o.customer_id = ? AND " . printflow_order_archive_scope_sql('o') . "
          ORDER BY o.order_date DESC
          LIMIT 100",
         'i',
@@ -76,7 +77,7 @@ try {
 
     // Also return notification count so the bell can update
     $notif_count = db_query(
-        "SELECT COUNT(*) as cnt FROM notifications WHERE customer_id = ? AND is_read = 0",
+        "SELECT COUNT(*) as cnt FROM notifications n WHERE customer_id = ? AND is_read = 0 AND " . printflow_order_archive_notification_exclusion_sql('n'),
         'i',
         [$customer_id]
     );

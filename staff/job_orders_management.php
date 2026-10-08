@@ -11,7 +11,7 @@ require_role('Staff');
 $page_title = 'Production Workflow - PrintFlow';
 
 $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 1);
-$joBranchSql = ' AND COALESCE(jo.branch_id, (SELECT o2.branch_id FROM orders o2 WHERE o2.order_id = jo.order_id LIMIT 1)) = ?';
+$joBranchSql = ' AND COALESCE(jo.branch_id, (SELECT o2.branch_id FROM orders o2 WHERE o2.order_id = jo.order_id LIMIT 1)) = ? AND ' . printflow_order_archive_exclusion_sql('jo.order_id');
 $jT = 'i';
 $jP = [$staffBranchId];
 

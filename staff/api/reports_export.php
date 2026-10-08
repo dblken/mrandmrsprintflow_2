@@ -38,7 +38,7 @@ if ($report === 'daily_sales') {
                o.order_date, o.total_amount, o.status, o.payment_status
         FROM orders o
         LEFT JOIN customers c ON o.customer_id = c.customer_id
-        WHERE DATE(o.order_date) = ? AND o.branch_id = ?
+        WHERE DATE(o.order_date) = ? AND o.branch_id = ? AND " . printflow_order_archive_scope_sql('o') . "
         ORDER BY o.order_date ASC
     ", 'si', [$date, $staffBranchId]);
 

@@ -21,6 +21,8 @@ $branch_name = $staffCtx['branch_name'];
 $staffAccessMeta = printflow_get_staff_access_meta();
 $staffOrderScopeSql = printflow_staff_order_source_sql('o', $staffAccessMeta['key'] ?? null);
 $staffOrderScopeSqlNoAlias = printflow_staff_order_source_sql('orders', $staffAccessMeta['key'] ?? null);
+$staffOrderScopeSql .= ' AND ' . printflow_order_archive_scope_sql('o');
+$staffOrderScopeSqlNoAlias .= ' AND ' . printflow_order_archive_scope_sql('orders');
 $is_pos_staff = ($staffAccessMeta['key'] ?? '') === 'pos';
 
 // Some production databases may not have `orders.order_type` (older schema).
@@ -229,7 +231,7 @@ $completed_custom_sql .= $hasOrderType
           AND (s.service_id IS NOT NULL OR jo.id IS NOT NULL)";
 $completed_custom_res = db_query($completed_custom_sql, $completed_custom_types, $completed_custom_params);
 $completed_custom_count = $completed_custom_res[0]['count'] ?? 0;
-$pending_reviews_res = db_query("SELECT COUNT(*) as count FROM reviews");
+$pending_reviews_res = db_query("SELECT COUNT(*) as count FROM reviews r LEFT JOIN orders o ON o.order_id=r.order_id WHERE r.order_id IS NULL OR r.order_id = 0 OR " . printflow_order_archive_scope_sql('o'));
 $pending_reviews_count = $pending_reviews_res[0]['count'] ?? 0;
 
 // Sales Overview (Last 7 Days) for Trend Chart (Scoped)
@@ -324,7 +326,7 @@ $low_stock = db_query("
 // Define missing variables for KPI cards (Staff Dashboard)
 $active_orders_count = $pending_orders + $processing_orders + $ready_orders;
 $all_products_count = db_query("SELECT COUNT(*) as cnt FROM products WHERE status = 'Activated'")[0]['cnt'] ?? 0;
-$pending_reviews_count = db_query("SELECT COUNT(*) as cnt FROM reviews")[0]['cnt'] ?? 0;
+$pending_reviews_count = db_query("SELECT COUNT(*) as cnt FROM reviews r LEFT JOIN orders o ON o.order_id=r.order_id WHERE r.order_id IS NULL OR r.order_id = 0 OR " . printflow_order_archive_scope_sql('o'))[0]['cnt'] ?? 0;
 
 $posKpiMetrics = null;
 $posKpiLinks = null;

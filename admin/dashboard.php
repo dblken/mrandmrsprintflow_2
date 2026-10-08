@@ -111,7 +111,9 @@ $bSql = branch_where('o', $branchId, $bTypes, $bParams);
 // ── KPI: Total Customers ──────────────────────────────
 try {
     [$bSqlFrag, $bT, $bP] = branch_where_parts('o', $branchId);
+    $bSqlFrag .= ' AND ' . printflow_order_archive_scope_sql('o');
     [$jSqlFrag, $jT, $jP] = branch_where_parts('jo', $branchId);
+    $jSqlFrag .= ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id');
     $customerTypes = 'ss' . ($bT ?: '') . 'ss' . ($jT ?: '');
     $customerParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP ?: []);
     $total_customers = db_query(
@@ -141,7 +143,9 @@ try {
 // ── KPI: Total Orders (branch-filtered) ───────────────
 try {
     [$bSqlFrag, $bT3, $bP3] = branch_where_parts('o', $branchId);
+    $bSqlFrag .= ' AND ' . printflow_order_archive_scope_sql('o');
     [$jSqlFrag, $jT3, $jP3] = branch_where_parts('j', $branchId);
+    $jSqlFrag .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id');
     $orderTypes = 'ss' . ($bT3 ?: '') . 'ss' . ($jT3 ?: '');
     $orderParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP3 ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP3 ?: []);
     $total_orders = db_query(
@@ -157,6 +161,7 @@ try {
 // ── KPI: Pending Orders (branch-filtered) ────────────
 try {
     [$bSqlFrag, $bT, $bP] = branch_where_parts('o', $branchId);
+    $bSqlFrag .= ' AND ' . printflow_order_archive_scope_sql('o');
     $pending_orders = db_query(
         "SELECT COUNT(*) as cnt
          FROM orders o
@@ -170,6 +175,7 @@ try {
 // ── Sales Revenue (filtered period, branch-filtered) ─────
 try {
     [$bSqlFrag, $bT2, $bP2] = branch_where_parts('o', $branchId);
+    $bSqlFrag .= ' AND ' . printflow_order_archive_scope_sql('o');
     $daily_sales = db_query(
         "SELECT DATE(o.order_date) as day, SUM(o.total_amount) as revenue, COUNT(*) as orders
          FROM orders o WHERE o.payment_status='Paid' AND o.order_date BETWEEN ? AND ?
@@ -182,6 +188,7 @@ try {
 // ── Order Status Breakdown ────────────────────────────
 try {
     [$bSqlFrag_os, $bT_os, $bP_os] = branch_where_parts('o', $branchId);
+    $bSqlFrag_os .= ' AND ' . printflow_order_archive_scope_sql('o');
     $order_status = db_query(
         "SELECT o.status, COUNT(*) as cnt FROM orders o WHERE o.order_date BETWEEN ? AND ? {$bSqlFrag_os} GROUP BY o.status",
         'ss' . ($bT_os ?: ''), array_merge([$dashFromStart, $dashToEnd], $bP_os ?: [])
@@ -286,6 +293,7 @@ if ($branchId === 'all') {
 
         try {
             [$statusBranchSql, $statusBranchTypes, $statusBranchParams] = branch_where_parts('o', $chartBranchId);
+            $statusBranchSql .= ' AND ' . printflow_order_archive_scope_sql('o');
             $statusRows = db_query(
                 "SELECT o.status, COUNT(*) AS cnt
                  FROM orders o
@@ -338,6 +346,7 @@ if ($dashboard_branch_chart_json === false) {
 // ── Recent Orders (last 5, branch-filtered) ──────────
 try {
     [$bSqlFrag3, $bT3, $bP3] = branch_where_parts('o', $branchId);
+    $bSqlFrag3 .= ' AND ' . printflow_order_archive_scope_sql('o');
     $recent_orders = db_query(
         "SELECT o.order_id, CONCAT(c.first_name, ' ', c.last_name) as customer_name,
                 o.order_date, o.total_amount, o.payment_status, o.status, b.branch_name
@@ -436,7 +445,9 @@ try {
 // ── Top Customers (by spending) ───────────────────────
 try {
     [$bSqlFrag_c, $bT_c, $bP_c] = branch_where_parts('o', $branchId);
+    $bSqlFrag_c .= ' AND ' . printflow_order_archive_scope_sql('o');
     [$bSqlFrag_j, $bT_j, $bP_j] = branch_where_parts('j', $branchId);
+    $bSqlFrag_j .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id');
     $types = ($bT_c ?: '') . ($bT_j ?: '');
     $params = array_merge($bP_c ?: [], $bP_j ?: []);
     $top_customers = db_query(

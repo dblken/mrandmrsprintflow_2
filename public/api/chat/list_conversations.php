@@ -129,7 +129,7 @@ try {
                     'offline'
                ) AS staff_status
         FROM orders o
-        WHERE o.customer_id = ? $search_clause
+        WHERE o.customer_id = ? AND " . printflow_order_archive_scope_sql('o') . " $search_clause
         ORDER BY COALESCE((SELECT MAX(mx.created_at) FROM order_messages mx WHERE mx.order_id = o.order_id), o.order_date) DESC
         LIMIT 100
     ";
@@ -164,7 +164,7 @@ try {
                (SELECT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_type')), p.name, 'Order') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id LIMIT 1) AS product_name
         FROM orders o
         LEFT JOIN customers c ON c.customer_id = o.customer_id
-        WHERE 1 = 1 $branch_clause $search_clause
+        WHERE 1 = 1 AND " . printflow_order_archive_scope_sql('o') . " $branch_clause $search_clause
         AND (
             EXISTS (SELECT 1 FROM order_messages m WHERE m.order_id = o.order_id)
             OR (o.status != 'Cancelled' AND o.order_date >= DATE_SUB(NOW(), INTERVAL 90 DAY))

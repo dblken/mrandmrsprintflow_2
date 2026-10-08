@@ -73,6 +73,7 @@ if (is_logged_in() && is_customer()) {
                  LIMIT 1) AS display_name
          FROM orders o
          WHERE o.customer_id = ?
+           AND " . printflow_order_archive_scope_sql('o') . "
            AND (
                 CAST(o.order_id AS CHAR) LIKE ?
                 OR o.status LIKE ?

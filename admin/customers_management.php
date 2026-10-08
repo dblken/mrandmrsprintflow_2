@@ -249,23 +249,26 @@ if ($viewerBranch) {
     $new_this_month = (int)(db_query("
         SELECT COUNT(DISTINCT cur.customer_id) as count
         FROM (
-            SELECT customer_id FROM orders
-            WHERE order_date >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01') AND branch_id = ?
+            SELECT o.customer_id FROM orders o
+            WHERE o.order_date >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01') AND o.branch_id = ? AND " . printflow_order_archive_scope_sql('o') . "
             UNION
-            SELECT customer_id FROM job_orders
-            WHERE created_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01') AND customer_id IS NOT NULL AND branch_id = ?
+            SELECT jo.customer_id FROM job_orders jo
+            WHERE jo.created_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01') AND jo.customer_id IS NOT NULL AND jo.branch_id = ?
+              AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
         ) cur
         WHERE (
             EXISTS (
                 SELECT 1 FROM orders o
                 WHERE o.customer_id = cur.customer_id
                   AND o.branch_id = ?
+                  AND " . printflow_order_archive_scope_sql('o') . "
                   AND o.order_date < DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
             )
             OR EXISTS (
                 SELECT 1 FROM job_orders jo
                 WHERE jo.customer_id = cur.customer_id
                   AND jo.branch_id = ?
+                  AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
                   AND jo.created_at < DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
             )
         )
@@ -274,18 +277,18 @@ if ($viewerBranch) {
     // 3. Active (Last 30 Days, branch-scoped)
     $active_30_days = (int)(db_query("
         SELECT COUNT(DISTINCT customer_id) as count FROM (
-            SELECT customer_id FROM orders WHERE order_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND branch_id = ?
+            SELECT o.customer_id FROM orders o WHERE o.order_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND o.branch_id = ? AND " . printflow_order_archive_scope_sql('o') . "
             UNION
-            SELECT customer_id FROM job_orders WHERE created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND customer_id IS NOT NULL AND branch_id = ?
+            SELECT jo.customer_id FROM job_orders jo WHERE jo.created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND jo.customer_id IS NOT NULL AND jo.branch_id = ? AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
         ) active_customers
     ", 'ii', [$bid, $bid])[0]['count'] ?? 0);
 
     // 4. Average Spent per Customer (branch-scoped)
     $total_revenue_stats = (float)(db_query("
         SELECT COALESCE(SUM(amount), 0) as total FROM (
-            SELECT total_amount as amount FROM orders WHERE payment_status = 'Paid' AND branch_id = ?
+            SELECT o.total_amount as amount FROM orders o WHERE o.payment_status = 'Paid' AND o.branch_id = ? AND " . printflow_order_archive_scope_sql('o') . "
             UNION ALL
-            SELECT amount_paid as amount FROM job_orders WHERE payment_status = 'PAID' AND customer_id IS NOT NULL AND branch_id = ?
+            SELECT jo.amount_paid as amount FROM job_orders jo WHERE jo.payment_status = 'PAID' AND jo.customer_id IS NOT NULL AND jo.branch_id = ? AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
         ) rev
     ", 'ii', [$bid, $bid])[0]['total'] ?? 0);
 } else {
@@ -302,18 +305,18 @@ if ($viewerBranch) {
     // 3. Active (Last 30 Days)
     $active_30_days = (int)(db_query("
         SELECT COUNT(DISTINCT customer_id) as count FROM (
-            SELECT customer_id FROM orders WHERE order_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+            SELECT o.customer_id FROM orders o WHERE o.order_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND " . printflow_order_archive_scope_sql('o') . "
             UNION
-            SELECT customer_id FROM job_orders WHERE created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND customer_id IS NOT NULL
+            SELECT jo.customer_id FROM job_orders jo WHERE jo.created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND jo.customer_id IS NOT NULL AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
         ) active_customers
     ")[0]['count'] ?? 0);
 
     // 4. Average Spent per Customer
     $total_revenue_stats = (float)(db_query("
         SELECT COALESCE(SUM(amount), 0) as total FROM (
-            SELECT total_amount as amount FROM orders WHERE payment_status = 'Paid'
+            SELECT o.total_amount as amount FROM orders o WHERE o.payment_status = 'Paid' AND " . printflow_order_archive_scope_sql('o') . "
             UNION ALL
-            SELECT amount_paid as amount FROM job_orders WHERE payment_status = 'PAID' AND customer_id IS NOT NULL
+            SELECT jo.amount_paid as amount FROM job_orders jo WHERE jo.payment_status = 'PAID' AND jo.customer_id IS NOT NULL AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
         ) rev
     ")[0]['total'] ?? 0);
 }
