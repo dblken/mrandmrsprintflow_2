@@ -62,14 +62,23 @@ $about_cfg  = printflow_load_runtime_config('about', $logo_dir . 'about_config.j
 $demo_active_batch = null;
 $demo_cabuyao_branch_id = 1;
 $demo_batches = [];
+$demo_active_batches = [];
+$demo_historical_batches = [];
 $demo_selected_batch_id = '';
 $demo_seed_init_error = '';
 try {
     $demo_batches = demo_seed_list_batches();
+    foreach ($demo_batches as $demoBatch) {
+        if (strtolower(trim((string)($demoBatch['status'] ?? ''))) === 'rolled_back') {
+            $demo_historical_batches[] = $demoBatch;
+        } else {
+            $demo_active_batches[] = $demoBatch;
+        }
+    }
     $demo_active_batch = demo_seed_active_batch();
     $demo_cabuyao_branch_id = demo_seed_cabuyao_branch_id();
-    $requestedBatchId = (string)($_GET['demo_batch_id'] ?? ($demo_active_batch['batch_id'] ?? ($demo_batches[0]['batch_id'] ?? '')));
-    if (in_array($requestedBatchId, array_column($demo_batches, 'batch_id'), true)) $demo_selected_batch_id = $requestedBatchId;
+    $requestedBatchId = (string)($_GET['demo_batch_id'] ?? ($demo_active_batch['batch_id'] ?? ($demo_active_batches[0]['batch_id'] ?? '')));
+    if (in_array($requestedBatchId, array_column($demo_active_batches, 'batch_id'), true)) $demo_selected_batch_id = $requestedBatchId;
 } catch (Throwable $demoSeedInitError) {
     $demo_seed_init_error = $demoSeedInitError->getMessage();
     error_log('[demo_seed] settings init: ' . $demoSeedInitError->getMessage());
@@ -1087,10 +1096,21 @@ Stickers &amp; Decals"><?php
                         <div class="f-group" style="max-width:600px;">
                             <label for="demo-seed-delete-batch">CSV import batch</label>
                             <select id="demo-seed-delete-batch">
-                                <option value="">Select an imported batch</option>
-                                <?php foreach ($demo_batches as $batch): ?>
+                                <option value="">Select an active batch</option>
+                                <?php if ($demo_active_batches): ?>
+                                <optgroup label="Active Deletion Targets">
+                                <?php foreach ($demo_active_batches as $batch): ?>
                                     <option value="<?php echo demo_seed_h($batch['batch_id']); ?>" <?php echo $batch['batch_id'] === $demo_selected_batch_id ? 'selected' : ''; ?>><?php echo demo_seed_h($batch['batch_id'] . ' — ' . $batch['status'] . ' — registry rows: ' . $batch['registry_rows']); ?></option>
                                 <?php endforeach; ?>
+                                </optgroup>
+                                <?php endif; ?>
+                                <?php if ($demo_historical_batches): ?>
+                                <optgroup label="Historical / Rolled Back">
+                                <?php foreach ($demo_historical_batches as $batch): ?>
+                                    <option value="" disabled><?php echo demo_seed_h($batch['batch_id'] . ' — status: ' . $batch['status'] . ' — registry rows: ' . $batch['registry_rows']); ?></option>
+                                <?php endforeach; ?>
+                                </optgroup>
+                                <?php endif; ?>
                             </select>
                         </div>
                         <label style="display:block;font-size:13px;margin:12px 0;"><input type="checkbox" id="demo-seed-delete-verified-only"> Delete only verified records if the registry is incomplete. Keep all protected or unverified records.</label>
@@ -1102,7 +1122,7 @@ Stickers &amp; Decals"><?php
                         </div>
                         <label style="display:block;font-size:13px;margin:12px 0;"><input type="checkbox" id="demo-seed-delete-backup"> I created a database backup before this deletion.</label>
                         <div class="demo-actions" style="margin-top:10px;">
-                            <button type="button" id="demo-seed-delete-preview-btn" class="btn-demo btn-demo-secondary" <?php echo $demo_batches ? '' : 'disabled'; ?>>Dry Run / Preview</button>
+                            <button type="button" id="demo-seed-delete-preview-btn" class="btn-demo btn-demo-secondary" <?php echo $demo_active_batches ? '' : 'disabled'; ?>>Dry Run / Preview</button>
                             <button type="button" id="demo-seed-delete-btn" class="btn-demo btn-demo-danger" disabled>Delete Demo Data</button>
                         </div>
                         <div id="demo-seed-delete-status" role="status" style="font-size:13px;margin-top:10px;"><?php echo demo_seed_h($demo_seed_init_error); ?></div>

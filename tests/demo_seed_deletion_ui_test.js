@@ -53,6 +53,8 @@ let passed = 0;
 const pass = (ok, name) => { assert.ok(ok, name); passed++; process.stdout.write('PASS: ' + name + '\n'); };
 
 (async () => {
+    pass(source.includes("$demo_historical_batches[] = $demoBatch") && source.includes('<optgroup label="Historical / Rolled Back">') && source.includes('value="" disabled'), 'rolled-back batches are shown only in a disabled historical group');
+    pass(source.includes("$demo_active_batches[] = $demoBatch") && source.includes("array_column($demo_active_batches, 'batch_id')") && source.includes("$demo_active_batches ? '' : 'disabled'"), 'only non-rolled-back batches can be selected as deletion targets');
     pass(get('delete-btn').disabled && requests.length === 0, 'page load cannot delete or silently run a dry run');
     get('delete-preview-btn').emit('click'); await settle();
     pass(requests[0].batch_id === 'batch-one' && requests[0].action === 'delete_preview' && get('delete-btn').disabled, 'dry run submits exact selected batch and keeps confirmation gate');
