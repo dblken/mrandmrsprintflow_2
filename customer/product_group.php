@@ -225,12 +225,11 @@ require_once __DIR__ . '/../includes/header.php';
         padding: 1.5rem 1.25rem 3rem;
         box-sizing: border-box;
     }
-    .pf-group-profile-gate {
-        display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:0.75rem;
-        margin:0 0 1rem; padding:0.9rem 1rem; border:1px solid #fed7aa; border-radius:0.75rem;
-        background:#fff7ed; color:#9a3412; line-height:1.45;
-    }
-    .pf-group-profile-gate a { color:#0f766e; font-weight:700; white-space:nowrap; text-decoration:none; }
+    .pf-group-profile-gate { display:flex; align-items:center; justify-content:space-between; gap:1rem; background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; border-radius:12px; padding:1rem 1.25rem; margin:0 0 1.5rem; }
+    .pf-group-profile-gate strong { display:block; color:#7c2d12; margin-bottom:0.2rem; }
+    .pf-group-profile-gate span { font-size:0.88rem; line-height:1.45; }
+    .pf-group-profile-gate a { flex-shrink:0; background:#0f766e; color:#fff; text-decoration:none; border-radius:8px; padding:0.55rem 0.9rem; font-weight:800; font-size:0.85rem; }
+    @media (max-width:640px) { .pf-group-profile-gate { align-items:flex-start; flex-direction:column; } .pf-group-profile-gate a { width:100%; text-align:center; } }
     .pf-group-selection {
         border: 1px solid var(--shopee-border);
         border-radius: 16px;
