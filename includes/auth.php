@@ -955,9 +955,10 @@ function login_customer_by_google($email, $first_name, $last_name) {
     }
 
     $sql = "INSERT INTO customers (first_name, middle_name, last_name, dob, gender, email, contact_number, password_hash, auth_provider, created_by_system)
-            VALUES (?, '', ?, NULL, NULL, ?, NULL, NULL, 'google', 1)";
-    $cid = printflow_run_guarded_account_insert(function() use ($sql, $first_name, $last_name, $email) {
-        return db_execute($sql, 'sss', [$first_name, $last_name, $email]);
+            VALUES (?, '', ?, NULL, NULL, ?, NULL, ?, 'google', 1)";
+    $google_placeholder_hash = printflow_google_placeholder_password_hash();
+    $cid = printflow_run_guarded_account_insert(function() use ($sql, $first_name, $last_name, $email, $google_placeholder_hash) {
+        return db_execute($sql, 'ssss', [$first_name, $last_name, $email, $google_placeholder_hash]);
     });
     if (!$cid) {
         return ['success' => false, 'message' => 'Could not create account. Please try again.'];
