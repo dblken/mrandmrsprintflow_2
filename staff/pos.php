@@ -10,6 +10,7 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
+require_once __DIR__ . '/../includes/pos_set_price_helpers.php';
 
 $posPayMongoMode = printflow_paymongo_mode();
 $posPayMongoAvailable = in_array($posPayMongoMode, ['test', 'live'], true)
@@ -64,6 +65,7 @@ try {
 
 // Fetch active services from DB (same catalog fields as customer/services.php)
 $pos_services = [];
+$pos_set_price_service_ids = [];
 $pos_default_catalog_img = (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/assets/images/services/default.png';
 $pos_base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 try {
@@ -101,6 +103,9 @@ try {
             'display_price' => $display_price,
             'pricing_type' => (string) ($pricing['pricing_type'] ?? 'custom'),
         ];
+        if (printflow_service_requires_pos_set_price($sid, (string) ($row['name'] ?? ''), (string) ($row['category'] ?? ''))) {
+            $pos_set_price_service_ids[] = $sid;
+        }
     }
 } catch (Exception $e) {
 }
@@ -3309,6 +3314,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             </div>
             <div id="paymongo-pos-order" style="font-size:13px;font-weight:800;color:#0f172a;margin-bottom:10px;"></div>
             <img id="paymongo-pos-qr" alt="PayMongo QR Ph payment code" style="display:none;width:220px;height:220px;object-fit:contain;margin:0 auto 10px;border:1px solid #e2e8f0;">
+            <div id="paymongo-pos-test-note" style="display:none;padding:10px;margin-bottom:10px;background:#fffbeb;border:1px solid #fcd34d;color:#92400e;font-size:12px;line-height:1.5;">Test Mode payment. Do not scan or pay this QR. Use PayMongo's test simulator to confirm the test payment.</div>
+            <a id="paymongo-pos-test-simulation-link" href="#" target="_blank" rel="noopener noreferrer" style="display:none;margin-bottom:10px;color:#0369a1;font-weight:800;">Open Test Payment Simulator</a>
             <div id="paymongo-pos-countdown" style="font-size:12px;font-weight:800;color:#0f766e;margin-bottom:8px;min-height:18px;"></div>
             <div id="paymongo-pos-status" style="font-size:13px;color:#475569;margin-bottom:14px;">Waiting for payment confirmation.</div>
             <div id="paymongo-pos-reference" style="font-size:12px;color:#0f766e;font-weight:700;margin-bottom:14px;min-height:16px;"></div>
@@ -3558,6 +3565,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         window.POS_BRANCHES = <?php echo json_encode(array_map(function ($b) {
             return ['id' => (int) $b['id'], 'name' => $b['branch_name']];
         }, $branches ?: [])); ?>;
+        window.POS_SET_PRICE_SERVICE_IDS = <?php echo json_encode(array_values(array_unique($pos_set_price_service_ids))); ?>;
+        window.POS_SERVICE_CATALOG = <?php echo json_encode(array_map(static function ($svc) {
+            return [
+                'service_id' => (int) ($svc['service_id'] ?? 0),
+                'name' => (string) ($svc['name'] ?? ''),
+                'pricing_type' => (string) ($svc['pricing_type'] ?? 'custom'),
+            ];
+        }, $pos_services ?: [])); ?>;
 
         let products = [];
         let cart = [];
@@ -3680,9 +3695,99 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 name: item.name || null,
                 customization: posCheckoutCustomizationPayload(item.customization),
                 is_service: item.is_service || false,
+                price_set: item.price_set === true,
                 pending_order_id: item.pending_order_id || 0,
                 pending_customization_id: item.pending_customization_id || 0
             };
+        }
+
+        function posCartItemHasMaterialSet(item) {
+            const c = item && item.customization ? item.customization : {};
+            return !!(
+                c['Material Selection']
+                || c['Material Brand']
+                || c['Material']
+                || c.material_name
+                || c.temp_plate_material
+                || c.material_type
+            );
+        }
+
+        function posCartItemMaterialLabel(item) {
+            const c = item && item.customization ? item.customization : {};
+            for (const key of ['Material Selection', 'Material Brand', 'Material', 'material_name', 'temp_plate_material', 'material_type']) {
+                const val = String(c[key] || '').trim();
+                if (val) return val;
+            }
+            return '';
+        }
+
+        function posCartItemStaffPricingComplete(item) {
+            return !!(item && item.is_service === true && item.price_set === true && posCartItemHasMaterialSet(item));
+        }
+
+        function posServiceCatalogMeta(serviceId) {
+            const sid = Number(serviceId) || 0;
+            return (window.POS_SERVICE_CATALOG || []).find(entry => Number(entry.service_id) === sid) || null;
+        }
+
+        function posServiceUsesStaffPricingFlow(serviceId, serviceName, customization) {
+            if (posServiceRequiresSetPrice(serviceId, serviceName, customization)) {
+                return true;
+            }
+            const meta = posServiceCatalogMeta(serviceId);
+            return !!(meta && String(meta.pricing_type || '').toLowerCase() === 'custom');
+        }
+
+        function posServiceRequiresSetPrice(serviceId, serviceName, customization) {
+            const ids = window.POS_SET_PRICE_SERVICE_IDS || [];
+            const sid = Number(serviceId) || 0;
+            if (sid > 0 && ids.includes(sid)) return true;
+            const name = String(serviceName || '').toLowerCase();
+            if (name.includes('sintraboard') || name.includes('standee') || name.includes('sintra board')) return true;
+            const c = customization || {};
+            if (c.sintra_type || c['Board Thickness'] || c.board_thickness) return true;
+            const serviceType = String(c.service_type || '').toLowerCase();
+            return serviceType.includes('sintra') || serviceType.includes('standee');
+        }
+
+        function posCartItemRequiresSetPrice(item) {
+            return !!(item && item.is_service === true);
+        }
+
+        function posCartItemShowsSetPriceButton(item) {
+            if (posCartItemRequiresSetPrice(item)) {
+                return !posCartItemStaffPricingComplete(item);
+            }
+            const unitPrice = parseFloat(item?.price) || 0;
+            const priceWasSet = item?.price_set === true;
+            return unitPrice <= 0 && !priceWasSet && !posCartItemHasMaterialSet(item);
+        }
+
+        function posCartItemShowsEditPriceButton(item) {
+            return posCartItemStaffPricingComplete(item);
+        }
+
+        function posCartItemCountsInCheckoutTotal(item) {
+            if (posCartItemRequiresSetPrice(item)) {
+                return posCartItemStaffPricingComplete(item);
+            }
+            return (parseFloat(item.price) || 0) > 0;
+        }
+
+        function posCartItemEstimatedUnitPrice(item) {
+            const c = item && item.customization ? item.customization : {};
+            const qty = Math.max(1, parseInt(item?.qty, 10) || 1);
+            const lineTotal = parseFloat(c.calculated_estimated_price);
+            if (Number.isFinite(lineTotal) && lineTotal > 0) {
+                return lineTotal / qty;
+            }
+            const unit = parseFloat(c.calculated_unit_price);
+            if (Number.isFinite(unit) && unit > 0) {
+                return unit;
+            }
+            const cartUnit = parseFloat(item?.price);
+            return Number.isFinite(cartUnit) ? cartUnit : 0;
         }
 
         function posVariantOptionsList(product) {
@@ -4589,9 +4694,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (urlParams.get('from_customizations') === '1') {
                 // Restore customer selection if saved
                 const savedState = sessionStorage.getItem('pos_cart_state');
+                let state = null;
                 if (savedState) {
                     try {
-                        const state = JSON.parse(savedState);
+                        state = JSON.parse(savedState);
                         if (state.customer) {
                             $('#pos-customer').val(state.customer).trigger('change');
                         }
@@ -4601,18 +4707,29 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                 guestNameInput.value = state.guest_display_name;
                             }
                         }
-                        // Update cart item price if available
                         if (state.item_index !== undefined && state.updated_price !== undefined) {
-                            await syncedCartAction('update_price', { 
-                                index: state.item_index, 
-                                price: state.updated_price 
+                            await syncedCartAction('update_price', {
+                                index: state.item_index,
+                                price: state.updated_price
                             });
+                            sessionStorage.removeItem('pos_cart_state');
                         }
                     } catch (e) { }
-                    sessionStorage.removeItem('pos_cart_state');
                 }
-                // Cart price already updated in session — just refresh silently
                 await refreshCart();
+                if (state && state.updated_price === undefined && Array.isArray(state.cart) && state.cart.length > 0 && cart.length === 0) {
+                    for (const savedItem of state.cart) {
+                        await syncedCartAction('add', {
+                            product_id: savedItem.product_id,
+                            name: savedItem.name,
+                            price: posCartItemEstimatedUnitPrice(savedItem),
+                            qty: savedItem.qty || 1,
+                            customization: savedItem.customization || {},
+                            is_service: savedItem.is_service === true,
+                            price_set: savedItem.price_set === true
+                        }, { silentErrors: true });
+                    }
+                }
                 // Clean URL
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
@@ -4638,6 +4755,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     throw new Error('Cart server returned an invalid response.');
                 }
                 console.log('syncedCartAction Response:', data);
+                if (data && data.errors && typeof data.errors === 'object') {
+                    console.log('syncedCartAction errors:', data.errors);
+                }
                 if (response.ok && data.success) {
                     cart = data.cart || [];
                     console.log('Updated local cart:', cart);
@@ -4909,6 +5029,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             // All visible rows
             body.querySelectorAll('.shopee-form-row').forEach(row => {
                 if (row.style.display === 'none') return; // skip hidden conditional rows
+                if (row.dataset.pfFieldInactive === '1' || row.classList.contains('pf-field-conditionally-disabled')) return;
                 const label = row.querySelector('.shopee-form-label');
                 if (!label) return;
                 const labelText = label.innerText.replace('*', '').trim();
@@ -4916,7 +5037,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                 // Radio
                 const checkedRadio = row.querySelector('input[type="radio"]:checked');
-                if (checkedRadio) { customization[labelText] = checkedRadio.value; return; }
+                if (checkedRadio) {
+                    customization[labelText] = normalizeLayoutCustomizationValue(row, checkedRadio.value);
+                    return;
+                }
 
                 // Select (non-branch)
                 const sel = row.querySelector('select:not([name="branch_id"])');
@@ -4964,7 +5088,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
 
                 const uploadGroup = row.querySelector('.pf-file-upload-group[data-pf-required="1"]');
-                if (uploadGroup && isRequired) {
+                if (uploadGroup && isRequired && isServiceUploadGroupRequired(uploadGroup)) {
                     const fileInput = uploadGroup.querySelector('.pf-design-file-input');
                     const linkInput = uploadGroup.querySelector('.pf-design-link-input');
                     const hasFile = !!(fileInput && fileInput.files && fileInput.files.length > 0);
@@ -5034,7 +5158,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 qty: priced.quantity,
                 customization: customization,
                 is_service: true,
-                price_set: true
+                price_set: false
             }, { fxSourceEl: posLastServiceCardEl });
 
             if (result.success) closeServiceModal();
@@ -5049,12 +5173,49 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             btn.textContent = isBusy ? 'Adding...' : 'Add to Order';
         }
 
+        function pfLayoutOptionCanonical(value) {
+            const raw = String(value || '').trim().toLowerCase();
+            if (!raw) return null;
+            const slug = raw.replace(/[\s-]+/g, '_').replace(/_+/g, '_');
+            if (slug === 'without_layout' || slug === 'withoutlayout' || raw === 'without layout') return 'without_layout';
+            if (slug === 'with_layout' || slug === 'withlayout' || raw === 'with layout') return 'with_layout';
+            if (slug.includes('without') && slug.includes('layout')) return 'without_layout';
+            if (slug.includes('with') && slug.includes('layout')) return 'with_layout';
+            return null;
+        }
+
+        function normalizeLayoutCustomizationValue(row, value) {
+            if (!row) return value;
+            const key = String(serviceFieldKey(row) || '').toLowerCase();
+            const label = serviceFieldLabel(row).toLowerCase();
+            if (key.includes('layout') || label === 'layout') {
+                const canon = pfLayoutOptionCanonical(value);
+                if (canon) return canon;
+            }
+            return value;
+        }
+
         function isServiceFieldVisible(row) {
             if (!row || row.hidden) return false;
             const style = window.getComputedStyle(row);
             if (style.display === 'none' || style.visibility === 'hidden') return false;
             const hiddenParent = row.parentElement ? row.parentElement.closest('[style*="display:none"], [style*="display: none"]') : null;
             return !hiddenParent;
+        }
+
+        function isServiceFieldActive(row) {
+            if (!isServiceFieldVisible(row)) return false;
+            if (row.dataset.pfFieldInactive === '1') return false;
+            if (row.classList.contains('pf-field-conditionally-disabled')) return false;
+            return true;
+        }
+
+        function isServiceUploadGroupRequired(group) {
+            if (!group || group.getAttribute('data-pf-required') !== '1') return false;
+            const row = group.closest('.shopee-form-row');
+            if (!isServiceFieldActive(row)) return false;
+            if (group.dataset.pfConditionallyRequired === '0') return false;
+            return true;
         }
 
         function serviceFieldLabel(row) {
@@ -5182,6 +5343,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         function validateServiceOrderForm() {
+            if (typeof updateConditionalFields === 'function') {
+                updateConditionalFields();
+            }
             const body = document.getElementById('sm-fields-body');
             const errors = {};
             if (!body) return { valid: false, errors };
@@ -5192,7 +5356,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             };
 
             body.querySelectorAll('.shopee-form-row').forEach(row => {
-                if (!isServiceFieldVisible(row)) return;
+                if (!isServiceFieldActive(row)) return;
                 const requiredInputs = Array.from(row.querySelectorAll('[required]')).filter(input => {
                     if (input.disabled) return false;
                     const hiddenParent = input.closest('[style*="display:none"], [style*="display: none"]');
@@ -5248,19 +5412,41 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
 
             body.querySelectorAll('.pf-file-upload-group[data-pf-required="1"]').forEach(group => {
+                if (!isServiceUploadGroupRequired(group)) return;
                 const row = group.closest('.shopee-form-row');
-                if (!row || !isServiceFieldVisible(row)) return;
+                const modeSelect = group.querySelector('.pf-design-mode-select');
+                const designMode = String(
+                    (modeSelect && modeSelect.value) || group.dataset.pfDesignMode || ''
+                ).trim();
                 const fileInput = group.querySelector('.pf-design-file-input');
                 const linkInput = group.querySelector('.pf-design-link-input');
                 const hasFile = !!(fileInput && fileInput.files && fileInput.files.length > 0);
                 const linkValue = linkInput ? String(linkInput.value || '').trim() : '';
-                const hasLink = linkValue !== '';
-                if (!hasFile && !hasLink) {
+                const linkFieldKey = (linkInput && linkInput.name) ? linkInput.name : 'design_link';
+
+                if (designMode === 'file') {
+                    if (!hasFile) {
+                        addError(row, fileInput || group);
+                    }
+                    return;
+                }
+                if (designMode === 'link') {
+                    if (!linkValue) {
+                        addError(row, linkInput || group, linkFieldKey);
+                        return;
+                    }
+                    if (!isValidDesignLink(linkValue)) {
+                        addError(row, linkInput || group, linkFieldKey);
+                    }
+                    return;
+                }
+
+                if (!hasFile && !linkValue) {
                     addError(row, fileInput || linkInput || group);
                     return;
                 }
-                if (hasLink && !isValidDesignLink(linkValue)) {
-                    addError(row, linkInput || group, (linkInput && linkInput.name) || 'design_link');
+                if (linkValue && !hasFile && !isValidDesignLink(linkValue)) {
+                    addError(row, linkInput || group, linkFieldKey);
                 }
             });
 
@@ -5305,11 +5491,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             customization.service_type = serviceName;
 
             body.querySelectorAll('.shopee-form-row').forEach(row => {
-                if (!isServiceFieldVisible(row)) return;
+                if (!isServiceFieldActive(row)) return;
 
                 const checkedRadio = row.querySelector('input[type="radio"]:checked');
                 if (checkedRadio) {
-                    let radioValue = checkedRadio.value;
+                    let radioValue = normalizeLayoutCustomizationValue(row, checkedRadio.value);
                     if (radioValue === 'Others') {
                         const radioOther = row.querySelector('input[name="' + checkedRadio.name + '_other"]');
                         if (radioOther && radioOther.value.trim()) {
@@ -5322,7 +5508,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                 const sel = row.querySelector('select:not([name="branch_id"])');
                 if (sel && sel.value) {
-                    let selectValue = sel.value;
+                    let selectValue = normalizeLayoutCustomizationValue(row, sel.value);
                     const otherValue = sel.getAttribute('data-other-option') || 'Others';
                     if (selectValue === otherValue) {
                         const selectOther = row.querySelector('input[name="' + sel.name + '_other"]');
@@ -5342,6 +5528,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                 const textarea = row.querySelector('textarea');
                 if (textarea && textarea.value.trim()) setCustomizationValue(customization, row, textarea, textarea.value.trim());
+
+                const uploadGroup = row.querySelector('.pf-file-upload-group');
+                if (uploadGroup) {
+                    const modeSelect = uploadGroup.querySelector('.pf-design-mode-select');
+                    const designMode = String(
+                        (modeSelect && modeSelect.value) || uploadGroup.dataset.pfDesignMode || ''
+                    ).trim();
+                    const fieldKey = serviceFieldKey(row, '');
+                    if (designMode) {
+                        customization.design_input_mode = designMode;
+                        if (fieldKey) {
+                            customization[fieldKey + '_design_input_mode'] = designMode;
+                        }
+                    }
+                }
 
                 const wh = row.querySelector('[data-dimension-role="width"], #width_hidden');
                 const hh = row.querySelector('[data-dimension-role="height"], #height_hidden');
@@ -5363,10 +5564,19 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const textInput = row.querySelector('input[type="text"]:not(.pf-service-quantity-input):not(.select-others-input):not(.radio-others-input), input[type="number"]:not(#quantity-input):not(.pf-service-quantity-input), input[type="url"].pf-design-link-input');
                 if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
                     if (textInput.classList.contains('pf-design-link-input')) {
-                        const labelText = serviceFieldLabel(row);
-                        customization[labelText + ' Link'] = textInput.value.trim();
+                        const uploadGroup = row.querySelector('.pf-file-upload-group');
+                        const modeSelect = uploadGroup ? uploadGroup.querySelector('.pf-design-mode-select') : null;
+                        const designMode = String(
+                            (modeSelect && modeSelect.value) || (uploadGroup && uploadGroup.dataset.pfDesignMode) || ''
+                        ).trim();
+                        if (designMode === 'link') {
+                            const labelText = serviceFieldLabel(row);
+                            customization[labelText + ' Link'] = textInput.value.trim();
+                            setCustomizationValue(customization, row, textInput, textInput.value.trim());
+                        }
+                    } else {
+                        setCustomizationValue(customization, row, textInput, textInput.value.trim());
                     }
-                    setCustomizationValue(customization, row, textInput, textInput.value.trim());
                 }
             });
 
@@ -5413,6 +5623,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
+            body.querySelectorAll('input[type="radio"]:checked').forEach(radio => {
+                const row = radio.closest('.shopee-form-row');
+                if (!row || !isServiceFieldActive(row)) return;
+                const radioValue = normalizeLayoutCustomizationValue(row, radio.value);
+                setCustomizationValue(customization, row, radio, radioValue);
+            });
+
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
                 name: serviceName,
@@ -5420,7 +5637,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 qty: priced.quantity,
                 customization: customization,
                 is_service: true,
-                price_set: true
+                price_set: false
             }, { silentErrors: true, fxSourceEl: posLastServiceCardEl });
 
             if (result.success) {
@@ -5442,7 +5659,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         return [key, { row, message }];
                     })));
                 }
-                await showPOSAlert('Incomplete Fields', result.message || 'Some required order details are missing.', 'warning');
+                const errorDetail = result.errors
+                    ? Object.values(result.errors).filter(Boolean).join('\n')
+                    : '';
+                await showPOSAlert(
+                    'Incomplete Fields',
+                    errorDetail || result.message || 'Some required order details are missing.',
+                    'warning'
+                );
                 isAddingToOrder = false;
                 setServiceAddButtonBusy(false);
             }
@@ -6485,25 +6709,24 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             } else {
                 cont.innerHTML = '';
                 cart.forEach((item, index) => {
-                    const rowTotal = item.price * item.qty;
-                    currentTotal += rowTotal;
+                    const unitPrice = posCartItemEstimatedUnitPrice(item);
+                    const pricingComplete = posCartItemStaffPricingComplete(item);
+                    const countsInTotal = posCartItemCountsInCheckoutTotal(item);
+                    const confirmedLineTotal = (parseFloat(item.price) || 0) * (item.qty || 1);
+                    if (countsInTotal) {
+                        currentTotal += confirmedLineTotal;
+                    }
                     const div = document.createElement('div');
                     div.className = 'pos-cart-item';
 
-                    // Unpriced services (legacy manual pricing) show Set Price; calculated services show unit price.
-                    const unitPrice = parseFloat(item.price) || 0;
-                    const isService = item.is_service === true;
-                    const priceWasSet = item.price_set === true;
-                    const needsManualPrice = unitPrice <= 0 && (isService || !priceWasSet);
-
-                    // Check if material has been set in customization
-                    const hasMaterialSet = item.customization && (
-                        item.customization['Material Selection'] || 
-                        item.customization['Material Brand'] || 
-                        item.customization['Material'] ||
-                        item.customization['temp_plate_material'] ||
-                        item.customization['material_type']
-                    );
+                    const showSetPrice = posCartItemShowsSetPriceButton(item);
+                    const showEditPrice = posCartItemShowsEditPriceButton(item);
+                    const isServiceLine = posCartItemRequiresSetPrice(item);
+                    const materialLabel = posCartItemMaterialLabel(item);
+                    const showEstimateBesideRemove = showSetPrice && isServiceLine && unitPrice > 0 && item.price_set !== true;
+                    const estimateBesideRemoveHtml = showEstimateBesideRemove
+                        ? `<span class="pos-item-estimate-label" style="font-size:12px;font-weight:600;color:#64748b;white-space:nowrap;">Estimated Price: ${formatMoney(unitPrice)}</span>`
+                        : '';
 
                     if (item.customization && typeof item.customization === 'object') {
                         try {
@@ -6512,20 +6735,39 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     }
 
                     const variantLabel = posCartItemVariantLabel(item);
-                    const priceHtml = needsManualPrice && !hasMaterialSet
-                        ? `<button type="button" class="pos-btn-set-price" onclick="redirectToSetPrice(${index})" title="Click to set price in Customizations">
+                    let priceHtml;
+                    if (showSetPrice) {
+                        priceHtml = `<button type="button" class="pos-btn-set-price" onclick="redirectToSetPrice(${index})" title="Set material and final price">
                     <i class="fas fa-tag"></i> Set Price
-                  </button>`
-                        : `<div class="pos-item-price">${formatMoney(item.price)}</div>`;
+                  </button>`;
+                    } else if (showEditPrice) {
+                        priceHtml = `<button type="button" class="pos-btn-set-price" style="font-size:12px;padding:4px 8px;" onclick="redirectToSetPrice(${index})" title="Edit material and final price">
+                    <i class="fas fa-pen"></i> Edit Price
+                  </button>`;
+                    } else {
+                        priceHtml = `<div class="pos-item-price">${formatMoney(item.price)}</div>`;
+                    }
+
+                    let totalDisplay;
+                    if (pricingComplete || (!isServiceLine && (parseFloat(item.price) || 0) > 0)) {
+                        totalDisplay = formatMoney(confirmedLineTotal);
+                    } else if (isServiceLine) {
+                        totalDisplay = '<span style="font-size:12px;color:#94a3b8;">—</span>';
+                    } else {
+                        totalDisplay = formatMoney(confirmedLineTotal);
+                    }
 
                     div.innerHTML = `
                 <div class="pos-cart-item-top">
                     <div class="pos-item-details">
-                        <div class="pos-item-name">${escapeHtml(item.name)}${variantLabel ? `<div style="font-size:11px; color:#64748b; margin-top:2px;">${escapeHtml(variantLabel)}</div>` : ''}</div>
+                        <div class="pos-item-name">${escapeHtml(item.name)}${variantLabel ? `<div style="font-size:11px; color:#64748b; margin-top:2px;">${escapeHtml(variantLabel)}</div>` : ''}${materialLabel ? `<div style="font-size:11px;color:#64748b;margin-top:2px;">Material: ${escapeHtml(materialLabel)}</div>` : ''}</div>
                     </div>
-                    <button type="button" class="pos-item-remove" onclick="removeByCartIndex(${index})" title="Remove item" aria-label="Remove item">
-                        <i class="fas fa-trash-alt"></i> Remove
-                    </button>
+                    <div class="pos-cart-item-top-actions" style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+                        ${estimateBesideRemoveHtml}
+                        <button type="button" class="pos-item-remove" onclick="removeByCartIndex(${index})" title="Remove item" aria-label="Remove item">
+                            <i class="fas fa-trash-alt"></i> Remove
+                        </button>
+                    </div>
                 </div>
                 <div class="pos-cart-item-bottom">
                     <div class="pos-item-action">${priceHtml}</div>
@@ -6534,7 +6776,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         <input class="pos-qty-val" value="${item.qty}" readonly aria-label="Quantity">
                         <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, 1)" aria-label="Increase quantity">&plus;</button>
                     </div>
-                    <div class="pos-item-total">${formatMoney(rowTotal)}</div>
+                    <div class="pos-item-total">${totalDisplay}</div>
                 </div>
             `;
                     cont.appendChild(div);
@@ -6828,8 +7070,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 message = 'Enter Customer Name';
             }
 
+            const needsSetPrice = cart.some(i => posCartItemShowsSetPriceButton(i));
+            if (needsSetPrice) {
+                canCheckout = false;
+                message = 'Set Price First';
+                icon.className = 'fas fa-lock';
+                text.textContent = message;
+                btn.disabled = true;
+                return;
+            }
+
             // Block checkout if any item has no valid price
-            const hasUnpricedItem = cart.some(i => (parseFloat(i.price) || 0) <= 0);
+            const hasUnpricedItem = cart.some(i => !posCartItemCountsInCheckoutTotal(i) || (parseFloat(i.price) || 0) <= 0);
             if (hasUnpricedItem) {
                 canCheckout = false;
                 message = 'Set Price First';
@@ -6887,8 +7139,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
+            const needsSetPrice = cart.some(i => posCartItemShowsSetPriceButton(i));
+            if (needsSetPrice) {
+                await showPOSAlert('Price Required', 'Please set the material and final price for service items before completing the sale.\n\nClick "Set Price" on the cart item to continue.', 'warning');
+                return;
+            }
+
             // Block checkout if any item has no valid price
-            const hasUnpricedItem = cart.some(i => (parseFloat(i.price) || 0) <= 0);
+            const hasUnpricedItem = cart.some(i => !posCartItemCountsInCheckoutTotal(i) || (parseFloat(i.price) || 0) <= 0);
             if (hasUnpricedItem) {
                 await showPOSAlert('Price Required', 'Please set the price for all items before completing the sale.\n\nClick the yellow "Set Price" button on items to set their price in Customizations.', 'warning');
                 return;
@@ -6971,16 +7229,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     console.log('[POS CHECKOUT] checkout completed', { orderId: data.order_id });
                     checkoutData = data;
                 } else {
+                    const failStage = (data && data.stage) ? String(data.stage) : '';
+                    const failMessage = (data && data.message) ? String(data.message) : '';
                     console.error('[POS CHECKOUT] ERROR', {
-                        status: res.status,
-                        stage: data.stage || '',
-                        message: data.message || ''
+                        httpStatus: res.status,
+                        stage: failStage,
+                        message: failMessage,
+                        body: data
                     });
-                    checkoutErrorMessage = data.message
-                        || ('Checkout failed with HTTP ' + res.status + '.');
+                    checkoutErrorMessage = failMessage
+                        || (failStage ? ('Checkout failed at ' + failStage + ' (HTTP ' + res.status + ').') : ('Checkout failed with HTTP ' + res.status + '.'));
                 }
             } catch (e) {
-                console.error('[POS CHECKOUT] ERROR', e);
+                const errMsg = (e && e.message) ? String(e.message) : String(e);
+                console.error('[POS CHECKOUT] ERROR', errMsg, e);
                 checkoutErrorMessage = e.name === 'AbortError'
                     ? 'Checkout took too long to respond. Please refresh the POS and check Store Orders before trying again.'
                     : ('Network error: ' + e.message);
@@ -7098,9 +7360,23 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function renderPayMongoPosPayment(payment) {
             pendingPayMongoPayment = payment || null;
             const isQr = payment?.payment_flow === 'payment_intent' && payment?.payment_method === 'qrph';
+            const isVerifiedTest = isQr && payment?.mode === 'test' && payment?.livemode === false;
+            const hasLiveQr = isQr && payment?.mode === 'live' && payment?.livemode === true && Boolean(payment?.qr_image_url);
             const qrImage = document.getElementById('paymongo-pos-qr');
-            qrImage.style.display = isQr && payment?.qr_image_url ? 'block' : 'none';
-            if (isQr && payment?.qr_image_url) qrImage.src = payment.qr_image_url;
+            qrImage.style.display = hasLiveQr ? 'block' : 'none';
+            if (hasLiveQr) qrImage.src = payment.qr_image_url;
+            else qrImage.removeAttribute('src');
+            const testNote = document.getElementById('paymongo-pos-test-note');
+            const testLink = document.getElementById('paymongo-pos-test-simulation-link');
+            const simulationUrl = isVerifiedTest ? String(payment?.test_simulation_url || '') : '';
+            testNote.style.display = isVerifiedTest ? 'block' : 'none';
+            if (simulationUrl) {
+                testLink.href = simulationUrl;
+                testLink.style.display = 'inline-block';
+            } else {
+                testLink.removeAttribute('href');
+                testLink.style.display = 'none';
+            }
             document.getElementById('paymongo-pos-title').textContent = 'Dynamic QR Ph';
             document.getElementById('paymongo-pos-order').textContent =
                 `Order #${pendingPayMongoOrderId} - ${formatMoney(Number(payment?.amount || 0) / 100)}`;
@@ -7114,6 +7390,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (status === 'failed') statusLabel.textContent = 'Payment was not completed. Generate a new QR to try again.';
             else if (status === 'expired') statusLabel.textContent = 'QR code expired. Generate a new QR to continue.';
             else if (status === 'paid') statusLabel.textContent = 'Payment confirmed. Complete the transaction to continue.';
+            else if (isVerifiedTest) statusLabel.textContent = simulationUrl ? 'Test Mode: use the simulator; do not scan or pay a QR code.' : 'Test Mode: simulator link unavailable until PayMongo confirms this Test payment.';
             else statusLabel.textContent = 'Waiting for payment confirmation.';
 
             if (paymongoCountdownTimer) window.clearInterval(paymongoCountdownTimer);
@@ -7297,17 +7574,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const email = document.getElementById('nc-email').value.trim();
             const phone = document.getElementById('nc-phone').value.trim();
 
-            // Validation
-            if (!first) {
-                await showPOSAlert('Missing Info', 'First name is required.', 'warning');
-                document.getElementById('nc-first').focus();
-                return;
-            }
-            if (!last) {
-                await showPOSAlert('Missing Info', 'Last name is required.', 'warning');
-                document.getElementById('nc-last').focus();
-                return;
-            }
             if (!email) {
                 await showPOSAlert('Missing Info', 'Email address is required.', 'warning');
                 document.getElementById('nc-email').focus();
@@ -7365,15 +7631,28 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     throw new Error(raw && raw.trim() ? raw.trim().slice(0, 240) : 'Invalid server response.');
                 }
                 if (data.success) {
+                    const linkedExisting = !!data.linked_existing;
+                    const resolvedFirst = (data.first_name || first || '').trim();
+                    const resolvedLast = (data.last_name || last || '').trim();
                     const sel = $('#pos-customer');
-                    const opt = $('<option></option>')
-                        .attr('value', data.customer_id)
-                        .attr('data-first', first)
-                        .attr('data-last', last)
-                        .attr('data-email', email)
-                        .attr('data-phone', phone);
-                    opt.text(first + ' ' + last + ' - ' + email);
-                    sel.append(opt);
+                    const existingOpt = sel.find('option[value="' + String(data.customer_id) + '"]');
+                    if (existingOpt.length) {
+                        existingOpt
+                            .attr('data-first', resolvedFirst)
+                            .attr('data-last', resolvedLast)
+                            .attr('data-email', email)
+                            .attr('data-phone', phone);
+                    } else {
+                        const opt = $('<option></option>')
+                            .attr('value', data.customer_id)
+                            .attr('data-first', resolvedFirst)
+                            .attr('data-last', resolvedLast)
+                            .attr('data-email', email)
+                            .attr('data-phone', phone);
+                        const labelName = (resolvedFirst + ' ' + resolvedLast).trim() || email;
+                        opt.text(labelName + ' - ' + email);
+                        sel.append(opt);
+                    }
                     sel.val(String(data.customer_id)).trigger('change');
                     closeCustomerModal();
 
@@ -7383,8 +7662,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     document.getElementById('nc-phone').value = '';
 
                     const msg = data.message
-                        || `Customer created successfully!\n\nA password setup email will be sent to ${email}.\nThe customer can use this email to create their account password.`;
-                    successAlert = { title: 'Customer Created', message: msg, type: 'success' };
+                        || (linkedExisting
+                            ? 'The existing customer account was selected for this order.'
+                            : `Customer created successfully!\n\nA password setup email will be sent to ${email}.\nThe customer can use this email to create their account password.`);
+                    successAlert = {
+                        title: linkedExisting ? 'Customer Linked' : 'Customer Created',
+                        message: msg,
+                        type: 'success'
+                    };
                     console.log('[POS] saveCustomer: success', data.customer_id);
                 } else {
                     errorAlert = {
@@ -7489,18 +7774,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         customization_id: parseInt(data.customization_id, 10) || 0
                     }, { silentErrors: true });
 
-                    const hadDesignUpload = !!(
-                        item.customization?.design_upload_data
-                        || item.customization?.design_upload_path
-                        || item.customization?.design_upload
-                    );
-                    if (hadDesignUpload && !data.design_saved) {
-                        await showPOSAlert(
-                            'Upload Warning',
-                            'Your design file may not have saved correctly. If the preview is wrong in Customizations, re-add the item with the image and try Set Price again.',
-                            'warning'
-                        );
-                    }
                     // Deep-link into the pricing/material flow using a POS-specific context.
                     const redirectUrl = new URL(<?php echo json_encode(BASE_PATH . '/staff/customizations.php'); ?>, window.location.origin);
                     redirectUrl.searchParams.set('mode', 'pos_pricing');

@@ -32,11 +32,11 @@ $review_type_expr = isset($review_columns['review_type']) ? 'r.review_type' : "'
 $review_service_expr = isset($review_columns['service_type']) ? 'r.service_type' : "''";
 $review_video_expr = isset($review_columns['video_path']) ? 'r.video_path' : "''";
 $review_title_expr = isset($review_columns['title']) ? 'r.title' : (isset($review_columns['review_title']) ? 'r.review_title' : "''");
-$review_branch_from = 'FROM reviews r';
+$review_branch_from = 'FROM reviews r LEFT JOIN orders o ON o.order_id = r.order_id WHERE (r.order_id IS NULL OR r.order_id = 0 OR ' . printflow_order_archive_scope_sql('o') . ')';
 $review_kpi_types = '';
 $review_kpi_params = [];
 if ($reviewBranchFilter !== null) {
-    $review_branch_from .= " LEFT JOIN orders o ON o.order_id = r.order_id WHERE (o.branch_id = ? OR r.order_id IS NULL OR r.order_id = 0)";
+    $review_branch_from .= " AND (o.branch_id = ? OR r.order_id IS NULL OR r.order_id = 0)";
     $review_kpi_types = 'i';
     $review_kpi_params = [(int)$reviewBranchFilter];
 }
@@ -70,7 +70,7 @@ $sql_base = "
     FROM reviews r
     INNER JOIN customers c ON c.customer_id = {$review_customer_expr}
     LEFT JOIN orders o ON o.order_id = r.order_id
-    WHERE 1=1
+    WHERE (r.order_id IS NULL OR r.order_id = 0 OR " . printflow_order_archive_scope_sql('o') . ")
 ";
 $params = [];
 $types = '';
@@ -1184,7 +1184,7 @@ $page_title = 'Review Management - Staff';
                         <span class="kpi-label">Pending Replies</span>
                         <span class="kpi-value">
                             <?php
-                            $pendingWhere = $reviewBranchFilter !== null ? ' AND ' : ' WHERE ';
+                            $pendingWhere = ' AND ';
                             $pending = db_query("SELECT COUNT(*) as c {$review_branch_from}{$pendingWhere}(SELECT COUNT(*) FROM review_replies rr WHERE rr.review_id = r.id) = 0", $review_kpi_types ?: null, $review_kpi_params ?: null);
                             echo $pending[0]['c'] ?? 0;
                             ?>

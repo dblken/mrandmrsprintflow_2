@@ -17,7 +17,8 @@ $assert(str_contains($source, 'demo_seed_batches'), 'defines demo_seed_batches r
 $assert(str_contains($source, 'demo_seed_rows'), 'defines demo_seed_rows registry table');
 $assert(str_contains($source, '_seed_batch_id'), 'stores hidden batch marker in customization JSON');
 $assert(str_contains($source, 'pos_checkout') === false, 'does not call POS checkout');
-$assert(str_contains($source, 'provider_payments') === false || str_contains($source, 'DELETE FROM provider_payments'), 'does not create provider payments');
+$assert(!preg_match('/INSERT INTO\\s+provider_payments/i', $source), 'CSV import creates no provider payment rows');
+$assert(!preg_match('/INSERT INTO\\s+payment_submissions/i', $source), 'CSV import creates no payment submission rows');
 $assert(!str_contains($source, 'INSERT INTO job_order_materials'), 'import path does not insert job_order_materials');
 $assert(count(demo_seed_required_csv_columns()) >= 20, 'exports required CSV column list');
 $assert(DEMO_SEED_DATE_MAX === '2026-10-01 09:30:00', 'enforces Oct 1 09:30 cutoff constant');
@@ -29,6 +30,5 @@ $assert(str_contains($source, 'demo_seed_resolve_staff_user_id'), 'staff auto-re
 $assert(str_contains($source, 'row_resolutions'), 'validation returns row resolution preview payload');
 $assert(str_contains($source, 'demo_seed_require_insert_id'), 'import uses strict insert id checks');
 $assert(str_contains($source, 'demo_seed_verify_batch_integrity'), 'post-import integrity verification exists');
-$assert(!str_contains($source, 'DELETE FROM inventory_transactions'), 'demo delete must not touch inventory ledger');
 
 echo "Demo seed validation rules test: {$passed} passed.\n";

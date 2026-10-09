@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/customer_id_verification.php';
+require_once __DIR__ . '/../includes/pos_customer_helpers.php';
 
 require_role(['Admin', 'Manager']);
 
@@ -47,7 +48,7 @@ $per_page = 10;
     : ['', '', []];
 
 $sql = "SELECT customer_id, first_name, last_name, email, contact_number, id_type, id_image, id_status, id_reject_reason, id_uploaded_at, id_reviewed_at, created_at
-        FROM customers WHERE 1=1" . $custBranchSql;
+        FROM customers WHERE 1=1" . printflow_pos_sql_exclude_placeholder_customers('customers') . $custBranchSql;
 $params = $custBranchParams;
 $types = $custBranchTypes;
 

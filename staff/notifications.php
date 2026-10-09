@@ -147,11 +147,12 @@ if ($search !== '') {
     $params[] = '%' . $search . '%';
     $types .= 's';
 }
+$where .= ' AND ' . printflow_order_archive_notification_exclusion_sql('n');
 
 $per_page = 15;
 $page = max(1, (int)($_GET['page'] ?? 1));
 $all_notifications = db_query(
-    "SELECT * FROM notifications WHERE $where ORDER BY created_at DESC, notification_id DESC",
+    "SELECT * FROM notifications n WHERE $where ORDER BY created_at DESC, notification_id DESC",
     $types,
     $params
 ) ?: [];
@@ -172,7 +173,7 @@ if ($filter === 'all' && $search === '') {
     $filtered_staff_rows = $filtered_notifications;
 } else {
     $all_staff_rows = db_query(
-        "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC, notification_id DESC",
+        "SELECT * FROM notifications n WHERE user_id = ? AND " . printflow_order_archive_notification_exclusion_sql('n') . " ORDER BY created_at DESC, notification_id DESC",
         'i',
         [$staff_id]
     ) ?: [];

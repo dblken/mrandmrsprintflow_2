@@ -96,7 +96,7 @@ $per_page       = 15;
 $branchCtx = init_branch_context(false); // analytics-style — allow All
 $branchId  = $branchCtx['selected_branch_id'];
 // Keep dataset aligned with staff/customizations.php
-$jobCustomizationScopeSql = " AND (
+$jobCustomizationScopeSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . " AND (
     jo.order_id IS NULL
     OR EXISTS (
         SELECT 1
@@ -1241,7 +1241,7 @@ function custom_payment_badge($status) {
                                     // Fetch regular order count for history
                                     $order_count = 0;
                                     if ($jo['customer_id']) {
-                                        $order_count = db_query("SELECT COUNT(*) as c FROM orders WHERE customer_id = ?", "i", [$jo['customer_id']])[0]['c'] ?? 0;
+                                        $order_count = db_query("SELECT COUNT(*) as c FROM orders o WHERE o.customer_id = ? AND " . printflow_order_archive_scope_sql('o'), "i", [$jo['customer_id']])[0]['c'] ?? 0;
                                     }
                                 ?>
                                     <?php $adminOrderCode = (string)($jo['order_code'] ?? admin_customization_order_code($jo)); ?>

@@ -110,6 +110,7 @@ require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/staff_access.php';
 require_once __DIR__ . '/../includes/pos_dashboard_kpi.php';
 require_once __DIR__ . '/../includes/staff_status_filters.php';
+require_once __DIR__ . '/../includes/staff_dashboard_revenue.php';
 
 if ($__pf_debug_requested && defined('PRINTFLOW_DEBUG_SESSION_LOG') && PRINTFLOW_DEBUG_SESSION_LOG) {
     $sessionCookieName = session_name();
@@ -303,6 +304,7 @@ $staffBranchId = $staffCtx['selected_branch_id'] === 'all'
 $staffAccessMeta = printflow_get_staff_access_meta();
 $staffRole = (string)($staffAccessMeta['key'] ?? 'online');
 $staffOrderScopeSql = printflow_staff_order_source_sql('o', $staffRole);
+$staffOrderScopeSql .= ' AND ' . printflow_order_archive_scope_sql('o');
 
 if (session_status() === PHP_SESSION_ACTIVE) {
     session_write_close();
@@ -329,6 +331,15 @@ if (!in_array($timeframe, ['today', 'week', 'month'], true)) {
 $status_filter = printflow_staff_dashboard_normalize_status_filter((string)($_GET['status'] ?? ''), $staffRole);
 
 $timeMeta = pf_dashboard_timeframe_meta($timeframe);
+$revenueTimeBounds = printflow_staff_dashboard_time_bounds_meta($timeMeta);
+$revenueEligible = printflow_staff_dashboard_should_compute_revenue($status_filter, $staffRole);
+$onlineRevenueSql = $revenueEligible ? printflow_staff_online_dashboard_revenue_sql('o') : '0=1';
+$chartRevenueSql = ($staffRole === 'pos')
+    ? "o.status = 'Completed'"
+    : $onlineRevenueSql;
+$chartTimeSql = ($staffRole === 'pos') ? $timeMeta['sql'] : $revenueTimeBounds['sql'];
+$chartTimeTypes = ($staffRole === 'pos') ? $timeMeta['types'] : $revenueTimeBounds['types'];
+$chartTimeParams = ($staffRole === 'pos') ? $timeMeta['params'] : $revenueTimeBounds['params'];
 $statusMeta = printflow_staff_dashboard_status_sql('o', $status_filter, $staffRole);
 $statusLabels = printflow_staff_dashboard_status_labels($staffRole);
 $statusLabel = $status_filter !== '' ? ($statusLabels[$status_filter] ?? $status_filter) : 'All';
@@ -375,19 +386,18 @@ $reviews = db_query(
 ) ?: [];
 $reviewsCount = (int)($reviews[0]['count'] ?? 0);
 
-$revenueSql = ($status_filter === '' || $status_filter === 'COMPLETED') ? "o.status = 'Completed'" : '0=1';
 $revenue = db_query(
     "SELECT COALESCE(SUM(o.total_amount), 0) AS total
      FROM orders o
-     WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$timeMeta['sql']} AND {$revenueSql}",
-    'i' . $timeMeta['types'],
-    array_merge([$staffBranchId], $timeMeta['params'])
+     WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$revenueTimeBounds['sql']} AND {$onlineRevenueSql}",
+    'i' . $revenueTimeBounds['types'],
+    array_merge([$staffBranchId], $revenueTimeBounds['params'])
 ) ?: [];
 $totalRevenue = (float)($revenue[0]['total'] ?? 0);
 
 $chartLabels = [];
 $chartValues = [];
-if ($revenueSql === '0=1') {
+if (!$revenueEligible && $staffRole !== 'pos') {
     if ($timeframe === 'today') {
         for ($hour = 0; $hour < 24; $hour++) {
             $chartLabels[] = str_pad((string)$hour, 2, '0', STR_PAD_LEFT) . ':00';
@@ -415,11 +425,11 @@ if ($revenueSql === '0=1') {
     $rows = db_query(
         "SELECT HOUR(o.order_date) AS bucket_key, COALESCE(SUM(o.total_amount), 0) AS total
          FROM orders o
-         WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$timeMeta['sql']} AND o.status = 'Completed'
+         WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$chartTimeSql} AND {$chartRevenueSql}
          GROUP BY HOUR(o.order_date)
          ORDER BY bucket_key ASC",
-        'i' . $timeMeta['types'],
-        array_merge([$staffBranchId], $timeMeta['params'])
+        'i' . $chartTimeTypes,
+        array_merge([$staffBranchId], $chartTimeParams)
     ) ?: [];
     $map = [];
     foreach ($rows as $row) {
@@ -433,11 +443,11 @@ if ($revenueSql === '0=1') {
     $rows = db_query(
         "SELECT DATE(o.order_date) AS bucket_key, COALESCE(SUM(o.total_amount), 0) AS total
          FROM orders o
-         WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$timeMeta['sql']} AND o.status = 'Completed'
+         WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$chartTimeSql} AND {$chartRevenueSql}
          GROUP BY DATE(o.order_date)
          ORDER BY bucket_key ASC",
-        'i' . $timeMeta['types'],
-        array_merge([$staffBranchId], $timeMeta['params'])
+        'i' . $chartTimeTypes,
+        array_merge([$staffBranchId], $chartTimeParams)
     ) ?: [];
     $map = [];
     foreach ($rows as $row) {
@@ -463,11 +473,11 @@ if ($revenueSql === '0=1') {
     $rows = db_query(
         "SELECT MONTH(o.order_date) AS bucket_key, COALESCE(SUM(o.total_amount), 0) AS total
          FROM orders o
-         WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$timeMeta['sql']} AND o.status = 'Completed'
+         WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$chartTimeSql} AND {$chartRevenueSql}
          GROUP BY MONTH(o.order_date)
          ORDER BY bucket_key ASC",
-        'i' . $timeMeta['types'],
-        array_merge([$staffBranchId], $timeMeta['params'])
+        'i' . $chartTimeTypes,
+        array_merge([$staffBranchId], $chartTimeParams)
     ) ?: [];
     $map = [];
     foreach ($rows as $row) {
@@ -615,6 +625,16 @@ if ($__pf_debug_allowed) {
         'status_filter' => $status_filter,
         'timeframe' => $timeframe,
     ];
+    if ($staffRole !== 'pos') {
+        $payload['debug']['revenue'] = printflow_staff_dashboard_revenue_debug(
+            $staffBranchId,
+            $staffOrderScopeSql,
+            $timeMeta,
+            $status_filter,
+            $staffRole,
+            $totalRevenue
+        );
+    }
     if (function_exists('printflow_db_errors')) {
         $payload['debug']['db_errors'] = printflow_db_errors();
     }

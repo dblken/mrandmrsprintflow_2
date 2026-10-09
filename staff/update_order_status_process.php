@@ -17,6 +17,7 @@ require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
+require_once __DIR__ . '/../includes/change_item_workflow.php';
 
 if (!is_logged_in()) {
     printflow_json_response(['success' => false, 'error' => 'Authentication required.'], 401);
@@ -33,6 +34,9 @@ $orderId = max(0, (int)($_POST['order_id'] ?? 0));
 $newStatus = trim((string)($_POST['status'] ?? ''));
 $expectedStatus = trim((string)($_POST['expected_status'] ?? ''));
 $cancelReason = trim((string)($_POST['cancel_reason'] ?? ''));
+$changeItemId = max(0, (int)($_POST['change_item_id'] ?? 0));
+$completeChangeItem = filter_var($_POST['complete_change_item'] ?? false, FILTER_VALIDATE_BOOLEAN)
+    || $changeItemId > 0;
 
 if (!verify_csrf_token((string)($_POST['csrf_token'] ?? ''))) {
     printflow_json_response([
@@ -76,13 +80,59 @@ try {
     $order = $rows[0];
     $oldStatus = trim((string)($order['status'] ?? ''));
     $canonicalStatus = static function (string $status): string {
-        $key = strtoupper(str_replace([' ', '-'], '_', trim($status)));
-        return match ($key) {
-            'TO_RECEIVE', 'READY_FOR_PICKUP', 'READY_FOR_COLLECTION' => 'READY_FOR_PICKUP',
-            'IN_PRODUCTION', 'PROCESSING', 'PRINTING' => $key,
-            default => $key,
-        };
+        return printflow_workflow_status_key($status);
     };
+
+    if ($newStatus === 'Completed') {
+        $activeChangeItem = printflow_change_item_get_active($orderId);
+        $changeItemInRework = $activeChangeItem !== null
+            && in_array(
+                printflow_change_item_normalize_status((string)($activeChangeItem['request_status'] ?? '')),
+                ['IN_REWORK', 'APPROVED'],
+                true
+            );
+        $parentAlreadyCompleted = $canonicalStatus($oldStatus) === 'COMPLETED';
+        if ($completeChangeItem || ($changeItemInRework && $parentAlreadyCompleted)) {
+            if (getenv('PRINTFLOW_NOTIFICATION_DEBUG') === '1') {
+                error_log('[order-status][change_item] user_id=' . (int)get_user_id()
+                    . ' role=' . (string)get_user_type()
+                    . ' order_id=' . $orderId
+                    . ' change_item_id=' . $changeItemId
+                    . ' expected_status=' . $expectedStatus);
+            }
+            try {
+                $changeResult = printflow_change_item_complete_staff_action(
+                    $orderId,
+                    $changeItemId,
+                    $expectedStatus
+                );
+                if ($transactionStarted) {
+                    $conn->commit();
+                }
+                printflow_json_response($changeResult);
+            } catch (InvalidArgumentException $validationError) {
+                if ($transactionStarted) {
+                    $conn->rollback();
+                }
+                printflow_json_response(['success' => false, 'error' => $validationError->getMessage()], 422);
+            } catch (RuntimeException $runtimeError) {
+                if ($transactionStarted) {
+                    $conn->rollback();
+                }
+                $message = $runtimeError->getMessage();
+                if (str_starts_with($message, 'CHANGE_ITEM_STATUS_CONFLICT:')) {
+                    printflow_json_response([
+                        'success' => false,
+                        'error' => 'This Change Item was updated by another staff member. Please refresh and review the latest status.',
+                        'current_status' => substr($message, strlen('CHANGE_ITEM_STATUS_CONFLICT:')),
+                        'change_item_conflict' => true,
+                    ], 409);
+                }
+                throw $runtimeError;
+            }
+        }
+    }
+
     if ($canonicalStatus($oldStatus) !== $canonicalStatus($expectedStatus)) {
         if ($transactionStarted) $conn->rollback();
         printflow_json_response([

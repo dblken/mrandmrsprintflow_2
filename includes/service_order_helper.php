@@ -113,6 +113,65 @@ function service_order_extract_design_link_from_customization(array $customizati
 }
 
 /**
+ * Resolved upload design option from a customization payload (POS/cart/API).
+ */
+function service_order_design_input_mode_from_customization(array $customization, string $fieldKey = ''): string
+{
+    $fieldKey = trim($fieldKey);
+    $candidates = [];
+    if ($fieldKey !== '') {
+        $candidates[] = $fieldKey . '_design_input_mode';
+    }
+    $candidates[] = 'design_input_mode';
+
+    foreach ($candidates as $key) {
+        $mode = strtolower(trim((string)($customization[$key] ?? '')));
+        if (in_array($mode, ['file', 'link'], true)) {
+            return $mode;
+        }
+    }
+
+    return '';
+}
+
+/**
+ * Whether the customization carries an uploaded design (not an external URL).
+ */
+function service_order_customization_has_design_file(array $customization, string $fieldKey = '', string $fieldLabel = ''): bool
+{
+    foreach ([
+        'design_upload_path',
+        'design_tmp_path',
+        'design_upload_name',
+        'design_upload',
+        'design_upload_data',
+        'design_file',
+        'upload_design_path',
+        'Upload Design',
+    ] as $key) {
+        if (!empty($customization[$key])) {
+            return true;
+        }
+    }
+
+    if ($fieldKey !== '') {
+        $raw = trim((string)($customization[$fieldKey] ?? ''));
+        if ($raw !== '' && !preg_match('/^https?:\/\//i', $raw)) {
+            return true;
+        }
+    }
+
+    if ($fieldLabel !== '') {
+        $labelValue = trim((string)($customization[$fieldLabel] ?? ''));
+        if ($labelValue !== '' && !preg_match('/^https?:\/\//i', $labelValue)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * Validate uploaded design file
  * - Checks PHP upload error
  * - Enforces 5MB size limit
@@ -541,6 +600,10 @@ function printflow_normalize_service_dim_compare(string $s): string {
  * Legacy nested options stored as plain strings are matched with price 0.
  */
 function printflow_nested_service_options_price_total(array $post, array $field_configs): float {
+    if (!function_exists('printflow_service_option_values_match')) {
+        require_once __DIR__ . '/service_field_config_helper.php';
+    }
+    $post = printflow_service_field_normalize_layout_values($post, $field_configs);
     $total = 0.0;
     foreach ($field_configs as $field_key => $config) {
         if (empty($config['visible'])) {
@@ -564,7 +627,7 @@ function printflow_nested_service_options_price_total(array $post, array $field_
             if ($optionValue === '') {
                 continue;
             }
-            if (strcasecmp($selected, $optionValue) !== 0) {
+            if (!printflow_service_option_values_match($selected, $optionValue)) {
                 continue;
             }
 
@@ -594,7 +657,7 @@ function printflow_nested_service_options_price_total(array $post, array $field_
                             $total += max(0.0, $np);
                             break;
                         }
-                    } elseif (strcasecmp($raw, $nv) === 0) {
+                    } elseif (printflow_service_option_values_match($raw, $nv)) {
                         $total += max(0.0, $np);
                         break;
                     }
@@ -647,10 +710,14 @@ function printflow_calculate_service_unit_price(int $serviceId, array $customiza
     }
 
     $fieldValues = printflow_service_field_values_from_customization($customization, $fieldConfigs);
+    $fieldValues = printflow_service_field_normalize_layout_values($fieldValues, $fieldConfigs);
     $optionsTotal = 0.0;
 
     foreach ($fieldConfigs as $key => $config) {
         if (empty($config['visible'])) {
+            continue;
+        }
+        if (!printflow_service_field_is_active($config, $fieldValues, (string)$key, $fieldConfigs)) {
             continue;
         }
         $type = (string)($config['type'] ?? '');
@@ -683,7 +750,7 @@ function printflow_calculate_service_unit_price(int $serviceId, array $customiza
             if ($type === 'dimension') {
                 $matched = printflow_normalize_service_dim_compare($selectedValue) === printflow_normalize_service_dim_compare($optValue);
             } else {
-                $matched = strcasecmp($selectedValue, $optValue) === 0;
+                $matched = printflow_service_option_values_match($selectedValue, $optValue);
             }
 
             if ($matched) {
@@ -697,6 +764,11 @@ function printflow_calculate_service_unit_price(int $serviceId, array $customiza
     $unitPrice = round($basePrice + $optionsTotal, 2);
 
     if ($unitPrice <= 0) {
+        $fallbackUnit = (float)($customization['calculated_unit_price'] ?? 0);
+        if ($fallbackUnit > 0) {
+            return ['ok' => true, 'unit_price' => round($fallbackUnit, 2), 'message' => ''];
+        }
+
         return [
             'ok' => false,
             'unit_price' => 0.0,

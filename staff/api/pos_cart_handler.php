@@ -13,6 +13,7 @@ require_once __DIR__ . '/../../includes/product_option_stock.php';
 require_once __DIR__ . '/../../includes/service_field_config_helper.php';
 require_once __DIR__ . '/../../includes/service_order_helper.php';
 require_once __DIR__ . '/../../includes/pos_draft_lifecycle.php';
+require_once __DIR__ . '/../../includes/pos_set_price_helpers.php';
 
 // Require staff or admin role
 if (!has_role(['Admin', 'Staff'])) {
@@ -85,8 +86,28 @@ function pos_cart_custom_value(array $customization, string $key, ?string $label
     if ($key === 'branch') {
         $candidates[] = 'branch_id';
     }
-    if ($key === 'design_file') {
-        array_push($candidates, 'design_upload_path', 'design_upload_name', 'design_upload', 'Upload Design', 'Design', 'design_file_link', 'design_link', 'Upload Design Link', 'Design Link');
+    $keyBlob = strtolower(trim($key . ' ' . (string)$label));
+    $isDesignUploadKey = in_array(strtolower(trim($key)), ['design_file', 'upload_design', 'design_upload', 'upload_design_file'], true)
+        || (str_contains($keyBlob, 'design') && str_contains($keyBlob, 'upload'))
+        || str_contains($keyBlob, 'upload design');
+    if ($key === 'design_file' || $isDesignUploadKey) {
+        array_push(
+            $candidates,
+            'design_file',
+            'upload_design',
+            'design_upload',
+            'design_upload_path',
+            'design_upload_name',
+            'design_upload',
+            'Upload Design',
+            'Design',
+            'design_file_link',
+            'design_link',
+            'Upload Design Link',
+            'Design Link',
+            $key . '_link',
+            ($label !== null && $label !== '' ? $label . ' Link' : '')
+        );
     }
 
     foreach ($candidates as $candidate) {
@@ -146,7 +167,7 @@ function pos_cart_validate_nested_required(array $fieldConfig, array $customizat
             continue;
         }
         $optionValue = trim((string)($option['value'] ?? ''));
-        if ($optionValue === '' || strcasecmp($optionValue, $selected) !== 0) {
+        if ($optionValue === '' || !printflow_service_option_values_match($selected, $optionValue)) {
             continue;
         }
         foreach (($option['nested_fields'] ?? []) as $nestedIndex => $nestedField) {
@@ -196,6 +217,7 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
     }
 
     $fieldValues = printflow_service_field_values_from_customization($customization, $configs);
+    $fieldValues = printflow_service_field_normalize_layout_values($fieldValues, $configs);
 
     foreach ($configs as $fieldKey => $config) {
         if (empty($config['visible']) || empty($config['required']) || !printflow_service_field_is_active($config, $fieldValues, (string)$fieldKey, $configs)) {
@@ -225,14 +247,40 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
                 $errors[(string)$fieldKey] = 'Quantity must be at least 1.';
             }
         } elseif ($type === 'file') {
-            $linkValue = pos_cart_custom_value($customization, $fieldKey . '_link', $label . ' Link');
-            if ($value === '' && $linkValue === '') {
-                $errors[(string)$fieldKey] = pos_cart_required_message((string)$fieldKey, $label, $type);
+            $designMode = service_order_design_input_mode_from_customization($customization, (string) $fieldKey);
+            $hasUploadedDesign = service_order_customization_has_design_file($customization, (string) $fieldKey, $label);
+            $linkValue = service_order_extract_design_link_from_customization($customization, $label, (string) $fieldKey);
+
+            if ($designMode === 'file') {
+                $linkValue = '';
+            } elseif ($designMode === 'link') {
+                $hasUploadedDesign = false;
+            } elseif ($hasUploadedDesign) {
+                $linkValue = '';
+            }
+
+            if ($designMode === 'link') {
+                if ($linkValue === '') {
+                    $errors[$fieldKey . '_link'] = 'Please provide the required design link.';
+                } else {
+                    $linkCheck = service_order_validate_design_link($linkValue);
+                    if (!$linkCheck['ok']) {
+                        $errors[$fieldKey . '_link'] = $linkCheck['error'];
+                    }
+                }
+            } elseif ($designMode === 'file') {
+                if (!$hasUploadedDesign) {
+                    $errors[(string) $fieldKey] = 'Please upload the required design file.';
+                }
+            } elseif ($hasUploadedDesign) {
+                // Legacy payloads without design_input_mode but with a staged upload.
             } elseif ($linkValue !== '') {
                 $linkCheck = service_order_validate_design_link($linkValue);
                 if (!$linkCheck['ok']) {
                     $errors[$fieldKey . '_link'] = $linkCheck['error'];
                 }
+            } elseif ($value === '' && $linkValue === '') {
+                $errors[(string) $fieldKey] = pos_cart_required_message((string) $fieldKey, $label, $type);
             }
         } elseif ($value === '') {
             $errors[(string)$fieldKey] = pos_cart_required_message((string)$fieldKey, $label, $type);
@@ -252,7 +300,14 @@ class PosCartValidationException extends Exception
 
     public function __construct(array $errors)
     {
-        parent::__construct('Some required order details are missing.');
+        $message = 'Some required order details are missing.';
+        foreach ($errors as $fieldError) {
+            if (is_string($fieldError) && trim($fieldError) !== '') {
+                $message = trim($fieldError);
+                break;
+            }
+        }
+        parent::__construct($message);
         $this->errors = $errors;
     }
 }
@@ -288,6 +343,12 @@ try {
 
             if ($is_service) {
                 $serviceCustomization = is_array($customization) ? $customization : [];
+                $serviceFieldConfigs = function_exists('get_service_field_config')
+                    ? get_service_field_config($product_id)
+                    : [];
+                if (!empty($serviceFieldConfigs)) {
+                    printflow_apply_layout_canonical_to_customization($serviceCustomization, $serviceFieldConfigs);
+                }
                 $serviceValidationErrors = pos_cart_validate_service_payload($product_id, $serviceCustomization, $qty);
                 if (!empty($serviceValidationErrors)) {
                     throw new PosCartValidationException($serviceValidationErrors);
@@ -295,9 +356,18 @@ try {
 
                 $priceCalc = printflow_calculate_service_unit_price($product_id, $serviceCustomization);
                 if (!$priceCalc['ok']) {
-                    throw new PosCartValidationException([
-                        'price' => (string)($priceCalc['message'] ?? 'Price could not be calculated.'),
-                    ]);
+                    $fallbackUnit = (float)($serviceCustomization['calculated_unit_price'] ?? $price ?? 0);
+                    if ($fallbackUnit > 0) {
+                        $priceCalc = [
+                            'ok' => true,
+                            'unit_price' => round($fallbackUnit, 2),
+                            'message' => '',
+                        ];
+                    } else {
+                        throw new PosCartValidationException([
+                            'price' => (string)($priceCalc['message'] ?? 'Price could not be calculated.'),
+                        ]);
+                    }
                 }
                 $price = (float)$priceCalc['unit_price'];
                 $preparedCustomization = $serviceCustomization;
@@ -395,6 +465,12 @@ try {
                     throw new Exception('Insufficient stock.');
                 }
                 
+                $cartSeed = [
+                    'product_id' => $product_id,
+                    'name' => (string)$name,
+                    'customization' => $preparedCustomization ?? (is_array($customization) ? $customization : []),
+                    'is_service' => $is_service,
+                ];
                 $_SESSION['pos_cart'][] = [
                     'product_id' => $product_id,
                     'name' => $name,
@@ -403,7 +479,7 @@ try {
                     'stock' => $stock,
                     'customization' => $preparedCustomization,
                     'is_service' => $is_service,
-                    'price_set' => $is_service ? true : !empty($data['price_set']),
+                    'price_set' => pos_cart_resolve_price_set_on_add($is_service, $data, $cartSeed),
                 ];
             }
             break;
@@ -460,6 +536,12 @@ try {
             if ($price < 0) throw new Exception('Price cannot be negative.');
             $_SESSION['pos_cart'][$index]['price'] = $price;
             $_SESSION['pos_cart'][$index]['price_set'] = true;
+            if (!empty($data['customization']) && is_array($data['customization'])) {
+                $existing = is_array($_SESSION['pos_cart'][$index]['customization'] ?? null)
+                    ? $_SESSION['pos_cart'][$index]['customization']
+                    : [];
+                $_SESSION['pos_cart'][$index]['customization'] = array_merge($existing, $data['customization']);
+            }
             break;
 
         case 'update_service_link':
@@ -540,9 +622,9 @@ try {
         if (!empty($safeIds)) {
             $inStr = implode(',', $safeIds);
             $doneRows = db_query(
-                "SELECT id FROM job_orders
+                "SELECT id FROM customizations
                  WHERE id IN ({$inStr})
-                   AND status IN ('COMPLETED','CLOSED','Completed','Closed','CANCELLED','Cancelled')"
+                   AND UPPER(TRIM(COALESCE(status, ''))) IN ('COMPLETED', 'CANCELLED', 'CLOSED')"
             ) ?: [];
             if (!empty($doneRows)) {
                 $doneIds = array_flip(array_column($doneRows, 'id'));

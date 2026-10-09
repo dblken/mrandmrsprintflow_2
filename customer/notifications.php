@@ -10,6 +10,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_role('Customer');
 
 $customer_id = get_user_id();
+$notificationArchiveScope = printflow_order_archive_notification_exclusion_sql('n');
 $base_url = defined('BASE_URL') ? BASE_URL : '/printflow';
 
 // Mark notification as read
@@ -49,7 +50,7 @@ $offset = ($current_page - 1) * $items_per_page;
 
 // Get total count
 $count_result = db_query(
-    "SELECT COUNT(*) as total FROM notifications WHERE customer_id = ?",
+    "SELECT COUNT(*) as total FROM notifications n WHERE customer_id = ? AND {$notificationArchiveScope}",
     'i',
     [$customer_id]
 );

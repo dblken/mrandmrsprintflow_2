@@ -281,7 +281,7 @@ if (!$gaBranchEmpty && $total_orders > 0) {
             "SELECT p.name, SUM(oi.quantity) as qty FROM order_items oi
              JOIN products p ON oi.product_id=p.product_id
              JOIN orders o ON oi.order_id=o.order_id
-             WHERE 1=1 {$dw} {$b}
+             WHERE " . printflow_order_archive_scope_sql('o') . " {$dw} {$b}
              GROUP BY p.product_id ORDER BY qty DESC LIMIT 1",
             $dt . $bt, array_merge($dp, $bp)
         )[0] ?? null;
@@ -317,7 +317,7 @@ if (!$gaBranchEmpty) {
                     SUM(CASE WHEN {$storeSalesSql} THEN 1 ELSE 0 END) AS orders_store,
                     SUM(CASE WHEN {$storeSalesSql} THEN {$storeRevenueSql} ELSE 0 END) AS revenue_store
              FROM orders o
-             WHERE 1=1{$bo}
+             WHERE " . printflow_order_archive_scope_sql('o') . "{$bo}
              GROUP BY DATE_FORMAT(o.order_date,'%Y-%m')
              ORDER BY mon",
             $bto,
@@ -398,7 +398,8 @@ if (!$gaBranchEmpty) {
              FROM order_items oi
              JOIN products p ON oi.product_id=p.product_id
              JOIN orders o ON oi.order_id=o.order_id
-             WHERE o.order_date >= DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 5 MONTH),'%Y-%m-01')
+             WHERE " . printflow_order_archive_scope_sql('o') . "
+               AND o.order_date >= DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 5 MONTH),'%Y-%m-01')
                AND o.order_date <  DATE_FORMAT(NOW(),'%Y-%m-01') + INTERVAL 1 MONTH$b
              GROUP BY p.product_id, p.name, mon ORDER BY p.name, mon",
             $bt, $bp
@@ -519,7 +520,7 @@ if (!$gaBranchEmpty) {
         [$dw,$dt,$dp] = $getDateWhere('o', 'order_date');
         $status_data = db_query(
             "SELECT o.status, COUNT(*) as cnt FROM orders o
-             WHERE 1=1 {$dw} {$b}
+             WHERE " . printflow_order_archive_scope_sql('o') . " {$dw} {$b}
              GROUP BY o.status ORDER BY cnt DESC",
             $dt . $bt, array_merge($dp, $bp)
         ) ?: [];
@@ -534,7 +535,7 @@ if (!$gaBranchEmpty) {
                 [$bdw,$bdt,$bdp] = $getDateWhere('o', 'order_date');
                 $branchStatusRows = db_query(
                     "SELECT o.status, COUNT(*) as cnt FROM orders o
-                     WHERE 1=1 {$bdw} {$bb}
+                     WHERE " . printflow_order_archive_scope_sql('o') . " {$bdw} {$bb}
                      GROUP BY o.status ORDER BY cnt DESC",
                     $bdt . $bbt,
                     array_merge($bdp, $bbp)
@@ -608,7 +609,7 @@ if (!$gaBranchEmpty) {
                  FROM order_designs
                  GROUP BY order_id
              ) dc ON dc.order_id = o.order_id
-             WHERE 1=1 {$dw} {$b}
+             WHERE " . printflow_order_archive_scope_sql('o') . " {$dw} {$b}
              GROUP BY p.product_id, p.name
              HAVING (
                  SUM(CASE WHEN COALESCE(dc.has_upload, 0) = 1 THEN oi.quantity ELSE 0 END) +
@@ -767,7 +768,7 @@ if (!$gaBranchEmpty) {
         [$b,$bt,$bp] = branch_where_parts('o', $globalAnalyticsBranchId);
         [$dw,$dt,$dp] = ["", "", []]; // Transactions All Time
         $txn_count = (int)(db_query(
-            "SELECT COUNT(*) as cnt FROM orders o WHERE 1=1 {$dw} {$b} {$txn_pay_sql}",
+            "SELECT COUNT(*) as cnt FROM orders o WHERE " . printflow_order_archive_scope_sql('o') . " {$dw} {$b} {$txn_pay_sql}",
             $dt . $bt, array_merge($dp, $bp)
         )[0]['cnt'] ?? 0);
         $txn_pages  = max(1, ceil($txn_count / $txn_per));
@@ -779,7 +780,7 @@ if (!$gaBranchEmpty) {
             "SELECT o.order_id, CONCAT(c.first_name,' ',c.last_name) as customer_name,
                     o.order_date, o.total_amount, o.payment_status, o.status
              FROM orders o LEFT JOIN customers c ON o.customer_id=c.customer_id
-             WHERE 1=1 {$dw2} {$b2} {$txn_pay_sql}
+             WHERE " . printflow_order_archive_scope_sql('o') . " {$dw2} {$b2} {$txn_pay_sql}
              ORDER BY o.order_date DESC LIMIT $txn_per OFFSET $txn_offset",
             $dt2 . $bt2, array_merge($dp2, $bp2)
         ) ?: [];

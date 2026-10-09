@@ -15,6 +15,7 @@ require_once __DIR__ . '/../includes/product_field_config_helper.php';
 require_once __DIR__ . '/../includes/product_stock_status.php';
 require_once __DIR__ . '/../includes/product_catalog_groups.php';
 require_once __DIR__ . '/../includes/product_order_notice.php';
+require_once __DIR__ . '/../includes/expired_product_order_archive.php';
 
 printflow_ensure_product_catalog_groups_schema();
 printflow_ensure_product_order_notice_schema();
@@ -31,6 +32,7 @@ if (!isset($base_path)) {
 
 $current_user = get_logged_in_user();
 $is_manager = (get_user_type() === 'Manager' || (($current_user['role'] ?? '') === 'Manager'));
+$is_admin = (get_user_type() === 'Admin' || (($current_user['role'] ?? '') === 'Admin'));
 
 if ($is_manager && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['branch_id']) && !isset($_GET['branch_id'])) {
     $postedBranchId = trim((string)$_POST['branch_id']);
@@ -2969,6 +2971,9 @@ if (isset($_GET['ajax'])) {
                     <div style="display:flex; align-items:center; gap:8px;">
                         <?php if (!$is_manager): ?>
                         <button class="toolbar-btn" type="button" onclick="openProductModal('create')" style="height:38px; border-color:#3b82f6; color:#3b82f6;">Add Item</button>
+                        <?php if ($is_admin): ?>
+                        <button class="toolbar-btn" type="button" id="btn-clear-archived-expired-orders" style="height:38px; border-color:#b91c1c; color:#b91c1c;">Clear Archived Expired Orders</button>
+                        <?php endif; ?>
                         <button class="toolbar-btn" type="button" onclick="openCatalogGroupCreate()" style="height:38px; border-color:#0d9488; color:#0d9488;">Create Group</button>
                         <button class="toolbar-btn" type="button" onclick="window.openArchiveModal()" style="height:38px; border-color:#6b7280; color:#6b7280; display:flex; align-items:center; gap:6px;">
                             <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -5407,6 +5412,149 @@ function printflowInitProductsPage() {
         modal._pf_bound = true;
         modal.addEventListener('click', function(e) { if (e.target === modal) closeProductStatusModal(); });
     }
+
+    printflowInitClearArchivedExpiredOrders();
+}
+
+function printflowShowAdminFlash(message, isError) {
+    var el = document.getElementById('pfAdminFlashBanner');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'pfAdminFlashBanner';
+        el.setAttribute('role', 'status');
+        el.style.cssText = 'position:fixed;top:16px;right:16px;z-index:10060;max-width:420px;padding:14px 18px;border-radius:12px;font-size:14px;font-weight:600;box-shadow:0 12px 30px rgba(15,23,42,.15);';
+        document.body.appendChild(el);
+    }
+    el.style.background = isError ? '#fef2f2' : '#ecfdf5';
+    el.style.color = isError ? '#b91c1c' : '#047857';
+    el.style.border = isError ? '1px solid #fecaca' : '1px solid #a7f3d0';
+    el.textContent = message;
+    el.style.display = 'block';
+    clearTimeout(el._pf_hide_timer);
+    el._pf_hide_timer = setTimeout(function() { el.style.display = 'none'; }, 6000);
+}
+
+function printflowInitClearArchivedExpiredOrders() {
+    var btn = document.getElementById('btn-clear-archived-expired-orders');
+    var modal = document.getElementById('clearArchivedExpiredModal');
+    var countEl = document.getElementById('clearArchivedExpiredCount');
+    var cancelBtn = document.getElementById('clearArchivedExpiredCancel');
+    var confirmBtn = document.getElementById('clearArchivedExpiredConfirm');
+    if (!btn || !modal) {
+        return;
+    }
+    if (btn._pf_clear_archived_bound) {
+        return;
+    }
+    btn._pf_clear_archived_bound = true;
+
+    var basePath = <?php echo json_encode($base_path, JSON_UNESCAPED_SLASHES); ?>;
+    var deleteInFlight = false;
+
+    function csrfToken() {
+        return window.PF_PRODUCTS_CSRF
+            || document.querySelector('input[name="csrf_token"]')?.value
+            || '';
+    }
+
+    function openModal() {
+        modal.classList.add('open');
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+    }
+    function closeModal() {
+        modal.classList.remove('open');
+        modal.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+    }
+
+    btn.addEventListener('click', async function() {
+        try {
+            var res = await fetch(basePath + '/admin/api/clear_archived_expired_product_orders.php?action=count', {
+                credentials: 'same-origin',
+                cache: 'no-store',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            var raw = await res.text();
+            var data;
+            try {
+                data = JSON.parse(raw);
+            } catch (e) {
+                console.error('[Clear Archived] count non-JSON', res.status, raw.slice(0, 400));
+                printflowShowAdminFlash('Could not load archived order count.', true);
+                return;
+            }
+            if (!res.ok || !data.success) {
+                printflowShowAdminFlash(data.message || 'Could not load archived order count.', true);
+                if (data.debug) console.info('[Clear Archived] debug', data.debug);
+                return;
+            }
+            if (countEl) countEl.textContent = String(data.eligible_count ?? 0);
+            if (data.debug) console.info('[Clear Archived] debug', data.debug);
+            openModal();
+        } catch (e) {
+            console.error('[Clear Archived] count fetch failed', e);
+            printflowShowAdminFlash('Could not load archived order count.', true);
+        }
+    });
+
+    if (cancelBtn && !cancelBtn._pf_clear_archived_bound) {
+        cancelBtn._pf_clear_archived_bound = true;
+        cancelBtn.addEventListener('click', closeModal);
+    }
+    if (!modal._pf_clear_archived_bound) {
+        modal._pf_clear_archived_bound = true;
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal || e.target.classList.contains('clear-archived-expired-backdrop')) {
+                closeModal();
+            }
+        });
+    }
+
+    if (confirmBtn && !confirmBtn._pf_clear_archived_bound) {
+        confirmBtn._pf_clear_archived_bound = true;
+        confirmBtn.addEventListener('click', async function() {
+            if (deleteInFlight) return;
+            deleteInFlight = true;
+            confirmBtn.disabled = true;
+            try {
+                var res = await fetch(basePath + '/admin/api/clear_archived_expired_product_orders.php?action=delete', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    cache: 'no-store',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: JSON.stringify({ csrf_token: csrfToken(), action: 'delete' })
+                });
+                var raw = await res.text();
+                var data;
+                try {
+                    data = JSON.parse(raw);
+                } catch (e) {
+                    console.error('[Clear Archived] delete non-JSON', res.status, raw.slice(0, 400));
+                    printflowShowAdminFlash('Delete request failed (invalid response).', true);
+                    return;
+                }
+                if (!res.ok || !data.success) {
+                    printflowShowAdminFlash(data.message || 'Delete failed.', true);
+                    if (data.debug) console.info('[Clear Archived] debug', data.debug);
+                    return;
+                }
+                printflowShowAdminFlash(data.message || 'Deleted.', false);
+                if (countEl) countEl.textContent = String(data.eligible_count ?? 0);
+                if (data.debug) console.info('[Clear Archived] debug', data.debug);
+                closeModal();
+            } catch (e) {
+                console.error('[Clear Archived] delete failed', e);
+                printflowShowAdminFlash('Delete request failed.', true);
+            } finally {
+                deleteInFlight = false;
+                confirmBtn.disabled = false;
+            }
+        });
+    }
 }
 
 if (document.readyState === 'loading') {
@@ -5417,6 +5565,43 @@ if (document.readyState === 'loading') {
 document.addEventListener('printflow:page-init', printflowInitProductsPage);
 </script>
 <script src="<?php echo $base_path; ?>/public/assets/js/product-form-validation.js?v=2.4"></script>
+
+<?php if ($is_admin): ?>
+<style>
+#clearArchivedExpiredModal {
+    position: fixed; inset: 0; z-index: 10050;
+    display: none; align-items: center; justify-content: center;
+    padding: 20px; pointer-events: none;
+}
+#clearArchivedExpiredModal.open {
+    display: flex; pointer-events: auto;
+}
+#clearArchivedExpiredModal .clear-archived-expired-backdrop {
+    position: absolute; inset: 0; background: rgba(15, 23, 42, 0.45);
+}
+#clearArchivedExpiredModal .clear-archived-expired-panel {
+    position: relative; z-index: 1;
+    max-width: 480px; width: 92%;
+    background: #fff; border-radius: 16px; padding: 24px;
+    box-shadow: 0 25px 50px rgba(15, 23, 42, 0.2);
+}
+</style>
+<div id="clearArchivedExpiredModal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="clearArchivedExpiredTitle">
+    <div class="clear-archived-expired-backdrop" aria-hidden="true"></div>
+    <div class="clear-archived-expired-panel">
+        <h3 id="clearArchivedExpiredTitle" style="margin:0 0 12px;font-size:18px;font-weight:800;color:#0f172a;">Clear Archived Expired Orders</h3>
+        <p style="margin:0 0 12px;font-size:14px;color:#374151;line-height:1.5;">
+            This will permanently delete <strong id="clearArchivedExpiredCount">0</strong> eligible archived expired product order(s).
+            Paid, completed, recovered, and valid orders are never included.
+        </p>
+        <p style="margin:0 0 20px;font-size:13px;color:#b91c1c;font-weight:600;">This action cannot be undone.</p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+            <button type="button" class="toolbar-btn" id="clearArchivedExpiredCancel">Cancel</button>
+            <button type="button" class="toolbar-btn" id="clearArchivedExpiredConfirm" style="background:#b91c1c;color:#fff;border-color:#b91c1c;">Confirm Delete</button>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>
 </body>

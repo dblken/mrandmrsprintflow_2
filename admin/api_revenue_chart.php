@@ -9,6 +9,7 @@
  */
 
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/order_archive.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 
@@ -49,8 +50,8 @@ if ($user_type === 'Manager') {
     $branch_raw = $_GET['branch_id'] ?? 'all';
     $branch_int = ($branch_raw !== 'all' && ctype_digit((string)$branch_raw)) ? (int)$branch_raw : null;
 }
-$oFilter = $branch_int ? " AND branch_id = $branch_int" : '';   // for orders table
-$jFilter = $branch_int ? " AND branch_id = $branch_int" : '';   // for job_orders table
+$oFilter = ' AND ' . printflow_order_archive_scope_sql('orders') . ($branch_int ? " AND branch_id = $branch_int" : '');
+$jFilter = ' AND ' . printflow_order_archive_exclusion_sql('job_orders.order_id') . ($branch_int ? " AND branch_id = $branch_int" : '');
 
 try {
     // ── Date-range mode (global filter) ──────────────────────────────────────

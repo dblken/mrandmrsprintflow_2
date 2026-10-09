@@ -112,6 +112,7 @@ $top_products_insight = []; $insight_custom_usage = []; $revenue_delta = null; $
 
 try {
     [$bSql, $bTypes, $bParams] = branch_where_parts('o', $branchId);
+    $bSql .= ' AND ' . printflow_order_archive_scope_sql('o');
 
     // ── 0. CUSTOMERS (IF REQUESTED) ───────────────────────────────────────────
     if ($isCustomers) {
@@ -123,7 +124,7 @@ try {
         
         $cList = db_query(
             "SELECT c.customer_id, c.first_name, c.last_name, c.email, c.contact_number, c.status, c.created_at,
-                    (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.customer_id) as order_count,
+                    (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.customer_id AND " . printflow_order_archive_scope_sql('o') . ") as order_count,
                     (SELECT SUM({$customerStoreRevenueSql}) FROM orders o WHERE o.customer_id = c.customer_id AND {$customerStoreSalesSql}) as total_spent
              FROM customers c ORDER BY total_spent DESC"
         ) ?: [];
@@ -181,6 +182,7 @@ try {
     }
     if ($show_sales_trend || $show_insights) {
         [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
+        $bo .= ' AND ' . printflow_order_archive_scope_sql('o');
         [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
         $trend_start_key = date('Y-m', strtotime('-11 months'));
         $storeSalesSql = pf_reports_store_order_sales_expr('o');

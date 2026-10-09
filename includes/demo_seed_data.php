@@ -6,6 +6,8 @@ declare(strict_types=1);
  * Does not use POS checkout, PayMongo, or inventory deduction workflows.
  */
 
+require_once __DIR__ . '/demo_seed_deletion.php';
+
 const DEMO_SEED_BATCH_TABLE = 'demo_seed_batches';
 const DEMO_SEED_ROW_TABLE = 'demo_seed_rows';
 const DEMO_SEED_DATE_MIN = '2026-09-07 00:00:00';
@@ -253,84 +255,6 @@ function demo_seed_registry_gap_report(array $snap): array
 }
 
 /** @param list<int> $ids */
-function demo_seed_delete_ids_in(string $table, string $column, array $ids): void
-{
-    if ($ids === [] || !demo_seed_table_exists($table) || !db_table_has_column($table, $column)) {
-        return;
-    }
-    $csv = implode(',', array_map('intval', $ids));
-    demo_seed_require_execute("DELETE FROM {$table} WHERE {$column} IN ({$csv})");
-}
-
-/** @param list<int> $orderIds */
-function demo_seed_delete_for_order_ids(string $table, array $orderIds): void
-{
-    if ($orderIds === [] || !demo_seed_table_exists($table) || !db_table_has_column($table, 'order_id')) {
-        return;
-    }
-    $csv = implode(',', array_map('intval', $orderIds));
-    demo_seed_require_execute("DELETE FROM {$table} WHERE order_id IN ({$csv})");
-}
-
-/**
- * Remove demo batch data. Uses demo_seed_rows IDs first, then order_id-scoped cleanup for broken imports.
- * Never touches inventory_transactions.
- *
- * @return array<string,mixed>
- */
-function demo_seed_purge_batch_data(string $batchId, array $snap): array
-{
-    $orderIds = $snap['order_ids'];
-    $deleted = [
-        'orders' => 0,
-        'order_items' => 0,
-        'customizations' => 0,
-        'job_orders' => 0,
-        'customers' => 0,
-    ];
-
-    if ($orderIds === []) {
-        return $deleted;
-    }
-
-    $jobIdsOnOrders = demo_seed_collect_job_ids($orderIds);
-    if ($jobIdsOnOrders !== []) {
-        demo_seed_delete_ids_in('job_order_ink_usage', 'job_order_id', $jobIdsOnOrders);
-        demo_seed_delete_ids_in('job_order_materials', 'job_order_id', $jobIdsOnOrders);
-        demo_seed_delete_ids_in('job_order_files', 'job_order_id', $jobIdsOnOrders);
-    }
-
-    demo_seed_delete_ids_in('job_orders', 'id', $snap['job_order_ids']);
-    demo_seed_delete_ids_in('customizations', 'customization_id', $snap['customization_ids']);
-    demo_seed_delete_ids_in('order_items', 'order_item_id', $snap['order_item_ids']);
-
-    demo_seed_delete_for_order_ids('job_orders', $orderIds);
-    demo_seed_delete_for_order_ids('customizations', $orderIds);
-    demo_seed_delete_for_order_ids('order_items', $orderIds);
-
-    foreach (['order_status_history', 'order_messages', 'order_notes', 'order_designs'] as $table) {
-        demo_seed_delete_for_order_ids($table, $orderIds);
-    }
-    demo_seed_delete_for_order_ids('payment_submissions', $orderIds);
-    demo_seed_delete_for_order_ids('provider_payments', $orderIds);
-    if (demo_seed_table_exists('change_item_requests')) {
-        demo_seed_delete_for_order_ids('change_item_requests', $orderIds);
-    }
-
-    demo_seed_delete_ids_in('orders', 'order_id', $orderIds);
-    $deleted['orders'] = count($orderIds);
-
-    foreach ($snap['customer_ids'] as $customerId) {
-        if (demo_seed_customer_safe_to_delete($batchId, $customerId)) {
-            demo_seed_require_execute('DELETE FROM customers WHERE customer_id = ?', 'i', [$customerId]);
-            $deleted['customers']++;
-        }
-    }
-
-    return $deleted;
-}
-
-/** @param list<int> $ids */
 function demo_seed_count_rows_by_pk(string $table, string $pkColumn, array $ids): int
 {
     if ($ids === [] || !demo_seed_table_exists($table) || !db_table_has_column($table, $pkColumn)) {
@@ -520,7 +444,7 @@ function demo_seed_trace_visibility_checks(
  */
 function demo_seed_trace_seed_row(string $batchId, string $seedRowKey): array
 {
-    demo_seed_ensure_tables();
+    if (!demo_seed_table_exists(DEMO_SEED_ROW_TABLE)) return ['found' => false, 'message' => 'No demo seed registry table found.'];
     $seedRowKey = trim($seedRowKey);
     $registry = db_query(
         'SELECT * FROM ' . DEMO_SEED_ROW_TABLE . ' WHERE batch_id = ? AND seed_row_key = ? LIMIT 1',
@@ -665,7 +589,7 @@ function demo_seed_active_batch(): ?array
         "SELECT b.*, CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS imported_by_name
          FROM " . DEMO_SEED_BATCH_TABLE . " b
          LEFT JOIN users u ON u.user_id = b.imported_by
-         WHERE b.status = 'active' AND b.rolled_back_at IS NULL
+         WHERE b.status IN ('active', 'partial') AND b.rolled_back_at IS NULL
          ORDER BY b.imported_at DESC
          LIMIT 1"
     ) ?: [];
@@ -2288,61 +2212,19 @@ function demo_seed_optional_history(int $orderId, string $orderStatus, string $o
     );
 }
 
-function demo_seed_delete_preview(?string $batchId = null): array
+function demo_seed_delete_preview(string $batchId, bool $verifiedOnly = false): array
 {
-    demo_seed_ensure_tables();
-    $batch = $batchId
-        ? (db_query('SELECT * FROM ' . DEMO_SEED_BATCH_TABLE . ' WHERE batch_id = ? AND rolled_back_at IS NULL LIMIT 1', 's', [$batchId]) ?: [])[0] ?? null
-        : demo_seed_active_batch();
-    if (!$batch) {
-        return ['batch_id' => null, 'counts' => [], 'integrity' => null, 'registry_gaps' => []];
-    }
-    $batchId = (string)$batch['batch_id'];
-    $snap = demo_seed_registry_snapshot($batchId);
-    $expected = (int)($batch['total_orders'] ?? count($snap['rows']));
-    $gaps = demo_seed_registry_gap_report($snap);
-    $integrity = demo_seed_verify_batch_integrity($batchId, $expected > 0 ? $expected : count($snap['rows']));
+    return demo_seed_deletion_tool()->preview($batchId, $verifiedOnly);
+}
 
-    $registeredCustomers = count(array_filter(
-        $snap['customer_ids'],
-        static fn(int $id): bool => $id > 0
-    ));
+function demo_seed_delete_batch(string $batchId, int $adminId, string $fingerprint, bool $verifiedOnly = false): array
+{
+    return demo_seed_deletion_tool()->delete($batchId, $adminId, $fingerprint, $verifiedOnly);
+}
 
-    $counts = [
-        'registry_rows' => count($snap['rows']),
-        'orders' => count($snap['order_ids']),
-        'order_items' => count($snap['order_item_ids']),
-        'customizations' => count($snap['customization_ids']),
-        'job_orders' => count($snap['job_order_ids']),
-        'customers' => demo_seed_count_deletable_customers($batchId, $snap['customer_ids']),
-        'customers_registered' => $registeredCustomers,
-        'job_order_materials' => demo_seed_count_rows_by_pk('job_order_materials', 'job_order_id', $snap['job_order_ids']),
-        'job_order_ink_usage' => demo_seed_count_rows_by_pk('job_order_ink_usage', 'job_order_id', $snap['job_order_ids']),
-        'job_order_files' => demo_seed_count_rows_by_pk('job_order_files', 'job_order_id', $snap['job_order_ids']),
-        'order_status_history' => demo_seed_count_in('order_status_history', 'order_id', $snap['order_ids']),
-        'order_messages' => demo_seed_count_in('order_messages', 'order_id', $snap['order_ids']),
-        'order_notes' => demo_seed_count_in('order_notes', 'order_id', $snap['order_ids']),
-        'order_designs' => demo_seed_count_in('order_designs', 'order_id', $snap['order_ids']),
-        'payment_submissions' => demo_seed_count_in('payment_submissions', 'order_id', $snap['order_ids']),
-        'provider_payments' => demo_seed_count_in('provider_payments', 'order_id', $snap['order_ids']),
-        'inventory_transactions' => 0,
-    ];
-
-    return [
-        'batch_id' => $batchId,
-        'batch' => $batch,
-        'counts' => $counts,
-        'integrity' => $integrity,
-        'registry_gaps' => $gaps,
-        'recovery_mode' => !($integrity['ok'] ?? false),
-        'delete_scope' => [
-            'batch_id' => $batchId,
-            'order_ids' => $snap['order_ids'],
-            'uses_registry_ids' => true,
-            'order_scoped_cleanup' => !($integrity['ok'] ?? false),
-            'inventory_transactions' => 'never (demo import does not register inventory)',
-        ],
-    ];
+function demo_seed_list_batches(): array
+{
+    return demo_seed_deletion_tool()->batches();
 }
 
 /** @param list<int> $ids */
@@ -2367,110 +2249,6 @@ function demo_seed_count_job_children(string $table, array $orderIds): int
     )[0]['c'] ?? 0);
 }
 
-/** @deprecated Demo import never registers inventory; preview always reports 0. */
-function demo_seed_count_inventory_for_orders(array $orderIds): int
-{
-    return 0;
-}
-
-/** @param list<int> $customerIds */
-function demo_seed_count_deletable_customers(string $batchId, array $customerIds): int
-{
-    if ($customerIds === []) {
-        return 0;
-    }
-    $count = 0;
-    foreach ($customerIds as $customerId) {
-        if ($customerId <= 0) {
-            continue;
-        }
-        $inBatch = db_query(
-            'SELECT 1 FROM ' . DEMO_SEED_ROW_TABLE . ' WHERE batch_id = ? AND customer_id = ? LIMIT 1',
-            'si',
-            [$batchId, $customerId]
-        ) ?: [];
-        if ($inBatch === []) {
-            continue;
-        }
-        $otherOrders = db_query(
-            'SELECT 1 FROM orders o WHERE o.customer_id = ?
-             AND NOT EXISTS (SELECT 1 FROM ' . DEMO_SEED_ROW_TABLE . ' r WHERE r.order_id = o.order_id AND r.batch_id = ?)
-             LIMIT 1',
-            'is',
-            [$customerId, $batchId]
-        ) ?: [];
-        if ($otherOrders === []) {
-            $count++;
-        }
-    }
-    return $count;
-}
-
-function demo_seed_delete_batch(string $batchId, int $adminId): array
-{
-    demo_seed_ensure_tables();
-    $preview = demo_seed_delete_preview($batchId);
-    if (empty($preview['batch_id'])) {
-        throw new RuntimeException('No active demo batch was found to delete.');
-    }
-
-    $batchId = (string)$preview['batch_id'];
-    $snap = demo_seed_registry_snapshot($batchId);
-
-    demo_seed_begin_transaction();
-    try {
-        $purged = demo_seed_purge_batch_data($batchId, $snap);
-
-        if ($snap['order_ids'] === [] && count($snap['rows']) > 0) {
-            demo_seed_require_execute('DELETE FROM ' . DEMO_SEED_ROW_TABLE . ' WHERE batch_id = ?', 's', [$batchId]);
-            demo_seed_require_execute(
-                'UPDATE ' . DEMO_SEED_BATCH_TABLE . ' SET status = ?, rolled_back_at = NOW(), rolled_back_by = ? WHERE batch_id = ?',
-                'sis',
-                ['rolled_back', $adminId, $batchId]
-            );
-            demo_seed_commit_transaction();
-            log_activity($adminId, 'Delete Demo Seed Batch', 'Removed orphan demo registry for batch ' . $batchId . ' (no order ids).');
-            return [
-                'batch_id' => $batchId,
-                'deleted_orders' => 0,
-                'deleted_customers' => 0,
-                'counts' => $preview['counts'],
-                'registry_gaps' => $preview['registry_gaps'] ?? [],
-                'recovery_mode' => true,
-            ];
-        }
-
-        if ($snap['order_ids'] === []) {
-            throw new RuntimeException('Batch registry has no order ids to delete.');
-        }
-
-        demo_seed_require_execute('DELETE FROM ' . DEMO_SEED_ROW_TABLE . ' WHERE batch_id = ?', 's', [$batchId]);
-        demo_seed_require_execute(
-            'UPDATE ' . DEMO_SEED_BATCH_TABLE . ' SET status = ?, rolled_back_at = NOW(), rolled_back_by = ? WHERE batch_id = ?',
-            'sis',
-            ['rolled_back', $adminId, $batchId]
-        );
-
-        demo_seed_commit_transaction();
-    } catch (Throwable $e) {
-        demo_seed_rollback_transaction();
-        throw new RuntimeException('Demo batch delete failed: ' . $e->getMessage(), 0, $e);
-    }
-
-    $message = 'Deleted demo batch ' . $batchId . ' (' . count($snap['order_ids']) . ' orders, ' . ($purged['customers'] ?? 0) . ' customers).';
-    log_activity($adminId, 'Delete Demo Seed Batch', $message);
-
-    return [
-        'batch_id' => $batchId,
-        'deleted_orders' => count($snap['order_ids']),
-        'deleted_customers' => (int)($purged['customers'] ?? 0),
-        'counts' => $preview['counts'],
-        'integrity' => $preview['integrity'] ?? null,
-        'registry_gaps' => $preview['registry_gaps'] ?? [],
-        'recovery_mode' => (bool)($preview['recovery_mode'] ?? false),
-    ];
-}
-
 /** @param list<int> $orderIds */
 function demo_seed_collect_job_ids(array $orderIds): array
 {
@@ -2480,29 +2258,6 @@ function demo_seed_collect_job_ids(array $orderIds): array
     $csv = implode(',', array_map('intval', $orderIds));
     $rows = db_query("SELECT id FROM job_orders WHERE order_id IN ({$csv})") ?: [];
     return array_values(array_filter(array_map(static fn($r) => (int)($r['id'] ?? 0), $rows)));
-}
-
-function demo_seed_customer_safe_to_delete(string $batchId, int $customerId): bool
-{
-    if ($customerId <= 0) {
-        return false;
-    }
-    $inBatch = db_query(
-        'SELECT 1 FROM ' . DEMO_SEED_ROW_TABLE . ' WHERE batch_id = ? AND customer_id = ? LIMIT 1',
-        'si',
-        [$batchId, $customerId]
-    ) ?: [];
-    if ($inBatch === []) {
-        return false;
-    }
-    $other = db_query(
-        'SELECT 1 FROM orders o WHERE o.customer_id = ?
-         AND NOT EXISTS (SELECT 1 FROM ' . DEMO_SEED_ROW_TABLE . ' r WHERE r.order_id = o.order_id AND r.batch_id = ?)
-         LIMIT 1',
-        'is',
-        [$customerId, $batchId]
-    ) ?: [];
-    return $other === [];
 }
 
 function demo_seed_validate_uploaded_file(array $file): ?string

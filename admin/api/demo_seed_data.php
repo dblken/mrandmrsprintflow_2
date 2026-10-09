@@ -5,9 +5,14 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/demo_seed_data.php';
 
-require_role('Admin');
-
 header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
+if (!is_logged_in() || get_user_type() !== 'Admin') {
+    http_response_code(is_logged_in() ? 403 : 401);
+    echo json_encode(['success' => false, 'message' => 'Admin authorization required. Please sign in as an Admin.']);
+    exit;
+}
+require_role('Admin');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -25,7 +30,12 @@ $action = trim((string)($_POST['action'] ?? ''));
 $adminId = (int)get_user_id();
 
 try {
-    demo_seed_ensure_tables();
+    if (!in_array($action, ['delete_preview', 'delete_batch', 'list_batches', 'trace_seed_row'], true)) demo_seed_ensure_tables();
+
+    if ($action === 'list_batches') {
+        echo json_encode(['success' => true, 'batches' => demo_seed_list_batches()]);
+        exit;
+    }
 
     if ($action === 'validate_csv') {
         if (empty($_FILES['csv_file']) || !is_uploaded_file((string)($_FILES['csv_file']['tmp_name'] ?? ''))) {
@@ -143,26 +153,42 @@ try {
     }
 
     if ($action === 'delete_preview') {
-        $preview = demo_seed_delete_preview();
-        echo json_encode(['success' => true, 'preview' => $preview]);
+        $batchId = (string)($_POST['batch_id'] ?? '');
+        $verifiedOnly = (string)($_POST['verified_only'] ?? '') === '1';
+        $preview = demo_seed_delete_preview($batchId, $verifiedOnly);
+        $token = bin2hex(random_bytes(24));
+        $_SESSION['demo_seed_deletion_previews'] = array_filter($_SESSION['demo_seed_deletion_previews'] ?? [], static fn($item) => ($item['expires_at'] ?? 0) > time());
+        $_SESSION['demo_seed_deletion_previews'][$token] = [
+            'batch_id' => $batchId, 'fingerprint' => $preview['fingerprint'],
+            'verified_only' => $verifiedOnly, 'admin_id' => $adminId, 'expires_at' => time() + 900,
+        ];
+        if (count($_SESSION['demo_seed_deletion_previews']) > 10) array_shift($_SESSION['demo_seed_deletion_previews']);
+        echo json_encode(['success' => true, 'preview' => $preview, 'preview_token' => $token]);
         exit;
     }
 
     if ($action === 'delete_batch') {
-        $confirm = trim((string)($_POST['confirm_text'] ?? ''));
-        if ($confirm !== 'DELETE MEETING DATA') {
-            throw new RuntimeException('Confirmation text did not match.');
+        $batchId = (string)($_POST['batch_id'] ?? '');
+        $confirm = (string)($_POST['confirm_text'] ?? '');
+        DemoSeedDeletionTool::authorize(get_user_type(), true, $confirm, (string)($_POST['backup_confirmed'] ?? '') === '1');
+        $token = (string)($_POST['preview_token'] ?? '');
+        $verifiedOnly = (string)($_POST['verified_only'] ?? '') === '1';
+        $prior = $_SESSION['demo_seed_deletion_results'][$token] ?? null;
+        if ($prior && $prior['batch_id'] === $batchId && $prior['admin_id'] === $adminId && $prior['expires_at'] > time()) {
+            echo json_encode(['success' => !$prior['result']['partial'], 'completed' => true, 'message' => 'This deletion request already completed. No additional records deleted.', 'result' => ['batch_id' => $batchId, 'no_records' => true, 'deleted_counts' => [], 'protected_counts' => $prior['result']['protected_counts'], 'remaining_registry_rows' => $prior['result']['remaining_registry_rows'], 'partial' => $prior['result']['partial']]]);
+            exit;
         }
-        $batchId = trim((string)($_POST['batch_id'] ?? ''));
-        if ($batchId === '') {
-            $active = demo_seed_active_batch();
-            $batchId = (string)($active['batch_id'] ?? '');
-        }
-        if ($batchId === '') {
-            throw new RuntimeException('No active demo batch is available to delete.');
-        }
-        $result = demo_seed_delete_batch($batchId, $adminId);
-        echo json_encode(['success' => true, 'message' => 'Demo batch deleted successfully.', 'result' => $result]);
+        $stored = $_SESSION['demo_seed_deletion_previews'][$token] ?? null;
+        if (!$stored || $stored['expires_at'] <= time() || $stored['admin_id'] !== $adminId || $stored['batch_id'] !== $batchId || $stored['verified_only'] !== $verifiedOnly) throw new RuntimeException('Dry run expired or does not match this batch and deletion mode. Run Dry Run again.');
+        $result = demo_seed_delete_batch($batchId, $adminId, $stored['fingerprint'], $verifiedOnly);
+        unset($_SESSION['demo_seed_deletion_previews'][$token]);
+        $_SESSION['demo_seed_deletion_results'][$token] = ['batch_id' => $batchId, 'admin_id' => $adminId, 'result' => $result, 'expires_at' => time() + 900];
+        if (count($_SESSION['demo_seed_deletion_results']) > 10) array_shift($_SESSION['demo_seed_deletion_results']);
+        echo json_encode([
+            'success' => !$result['partial'], 'completed' => true,
+            'message' => $result['partial'] ? 'Verified records deleted. Protected or unverified records remain; the batch is not fully deleted.' : (!empty($result['no_records']) ? 'No demo records found.' : 'Demo batch deleted and verified.'),
+            'result' => $result,
+        ]);
         exit;
     }
 

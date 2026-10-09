@@ -1262,8 +1262,20 @@ require_once __DIR__ . '/../includes/header.php';
         gap: 12px;
         align-items: flex-start;
     }
+    .review-info-note > div {
+        flex: 1 1 auto;
+        min-width: 0;
+        max-width: 100%;
+    }
     .review-info-note-title { font-size: 0.82rem; font-weight: 700; color: #0c4a6e !important; margin-bottom: 3px; }
-    .review-info-note-text { font-size: 0.75rem; color: #075985 !important; line-height: 1.5; }
+    .review-info-note-text {
+        min-width: 0;
+        max-width: 100%;
+        font-size: 0.75rem;
+        color: #075985 !important;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+    }
     .review-contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     .review-contact-full { grid-column: span 2; }
     .review-input-label {

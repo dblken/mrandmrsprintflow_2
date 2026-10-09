@@ -101,4 +101,10 @@ expect_true(
     'POS payload skips upload when option disables it'
 );
 
+$slugWithout = ['layout' => 'without_layout'];
+expect_true(
+    !printflow_service_field_is_active($uploadField, $slugWithout, 'upload_design', $allConfigs),
+    'upload inactive when layout value is without_layout slug'
+);
+
 echo "All service_field_conditional tests passed.\n";

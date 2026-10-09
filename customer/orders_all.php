@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/order_archive.php';
 
 require_role('Customer');
 
@@ -47,7 +48,7 @@ $orders = db_query(
             WHERE oi.order_id = o.order_id
         ) AS total_quantity
      FROM orders o
-     WHERE o.customer_id = ?
+     WHERE o.customer_id = ? AND " . printflow_order_archive_scope_sql('o') . "
      ORDER BY o.order_date DESC",
     'i',
     [$customer_id]

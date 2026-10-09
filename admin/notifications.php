@@ -147,6 +147,7 @@ if (!empty($search)) {
     $params[] = "%$search%";
     $types .= 's';
 }
+$where .= ' AND ' . printflow_order_archive_notification_exclusion_sql('n');
 
 // Sort order
 $order_clause = match($sort_by) {
@@ -155,7 +156,7 @@ $order_clause = match($sort_by) {
 };
 
 $all_notifications = db_query(
-    "SELECT * FROM notifications WHERE $where ORDER BY $order_clause",
+    "SELECT * FROM notifications n WHERE $where ORDER BY $order_clause",
     $types,
     $params
 ) ?: [];

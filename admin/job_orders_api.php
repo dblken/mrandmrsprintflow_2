@@ -69,6 +69,7 @@ const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'demo_seed_visibility_fix_2026100
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/order_archive.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
@@ -79,6 +80,7 @@ require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/job_order_summary.php';
 require_once __DIR__ . '/../includes/change_item_workflow.php';
 require_once __DIR__ . '/../includes/service_field_priority_helper.php';
+require_once __DIR__ . '/../includes/pos_set_price_helpers.php';
 
 function jo_api_attach_change_item_rows(array &$rows): void
 {
@@ -1314,6 +1316,7 @@ try {
                               FROM orders o
                               LEFT JOIN customers c ON c.customer_id = o.customer_id
                               WHERE LOWER(TRIM(COALESCE(o.order_type, ''))) = 'custom'
+                                AND " . printflow_order_archive_scope_sql('o') . "
                                 AND LOWER(TRIM(COALESCE(o.order_source, ''))) NOT IN ('pos_merged', 'pos_draft')
                                 AND o.status IN (
                                     'Pending', 'Pending Review', 'Pending Approval', 'For Revision',
@@ -1350,6 +1353,7 @@ try {
                                    FROM customizations cust
                                    LEFT JOIN orders o ON o.order_id = cust.order_id
                                    WHERE cust.order_id IS NOT NULL
+                                     AND (o.order_id IS NULL OR " . printflow_order_archive_scope_sql('o') . ")
                                      AND cust.status IN (
                                          'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
                                          'Approved', 'To Pay', 'Payment Confirmed', 'Pending Verification',
@@ -1533,7 +1537,7 @@ try {
                     FROM job_orders jo 
                     LEFT JOIN orders o ON o.order_id = jo.order_id
                     LEFT JOIN customers c ON c.customer_id = COALESCE(NULLIF(o.customer_id, 0), NULLIF(jo.customer_id, 0))
-                    WHERE 1=1";
+                    WHERE 1=1 AND " . printflow_order_archive_exclusion_sql('jo.order_id');
             $params = []; $types = '';
             if ($status) {
                 $sql .= " AND jo.status = ?";
@@ -1811,8 +1815,13 @@ try {
             if ($joStaffBranch !== null && !printflow_order_in_branch($orderId, $joStaffBranch)) {
                 throw new Exception('Unauthorized');
             }
-            $row = db_query('SELECT id FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1', 'i', [$orderId]);
-            $jobId = $row[0]['id'] ?? null;
+            $hintJob = (int)($_GET['job_order_id'] ?? $_POST['job_order_id'] ?? 0);
+            $hintItem = (int)($_GET['order_item_id'] ?? $_POST['order_item_id'] ?? 0);
+            $jobId = printflow_resolve_linked_job_order_id(
+                $orderId,
+                $hintJob > 0 ? $hintJob : null,
+                $hintItem > 0 ? $hintItem : null
+            );
             // Checkout sometimes leaves orders without job_orders if job creation failed — backfill from order_items (same rules as checkout)
             if ($jobId === null) {
                 $created = JobOrderService::ensureJobsForStoreOrder($orderId);
@@ -1880,6 +1889,7 @@ try {
                     LEFT JOIN products p ON oi.product_id = p.product_id
                     LEFT JOIN customers c ON o.customer_id = c.customer_id
                     WHERE (o.order_type IS NULL OR o.order_type = 'product' OR o.order_type = 'custom')
+                    AND " . printflow_order_archive_scope_sql('o') . "
                     AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
                     AND o.status IN (
                         'Pending', 'Pending Review', 'Pending Approval', 'For Revision',
@@ -2548,6 +2558,12 @@ try {
             $summary = printflow_customization_summary($details, $cust['service_type'] ?? 'Service');
             $items[0]['product_name'] = $summary['job_title'];
             $items[0]['quantity'] = $summary['quantity'];
+            if ($estimated_total <= 0) {
+                $estimated_total = printflow_pos_customization_estimated_total(
+                    is_array($details) ? $details : [],
+                    (int)($summary['quantity'] ?? 1)
+                );
+            }
 
             if (!empty($cust['order_id'])) {
                 $storeLinePayload = JobOrderService::getStoreOrderItemsPayload((int)$cust['order_id'], false, true);
@@ -3062,9 +3078,37 @@ try {
                 'height_ft'            => $height_ft,
                 'quantity'             => $total_qty,
                 'status'               => $mapped_status,
-                'estimated_total'      => (float)($o['total_amount'] ?? 0),
-                'estimated_price'      => (float)($o['total_amount'] ?? 0),
-                'final_price'          => (float)($o['total_amount'] ?? 0),
+                'estimated_total'      => (function () use ($o, $items_out, $total_qty) {
+                    $estimate = (float)($o['estimated_price'] ?? 0);
+                    if ($estimate > 0) {
+                        return $estimate;
+                    }
+                    foreach ($items_out as $line) {
+                        $custom = is_array($line['customization'] ?? null) ? $line['customization'] : [];
+                        $lineEstimate = printflow_pos_customization_estimated_total($custom, (int)($line['quantity'] ?? $total_qty));
+                        if ($lineEstimate > 0) {
+                            return $lineEstimate;
+                        }
+                    }
+
+                    return (float)($o['total_amount'] ?? 0);
+                })(),
+                'estimated_price'      => (function () use ($o, $items_out, $total_qty) {
+                    $estimate = (float)($o['estimated_price'] ?? 0);
+                    if ($estimate > 0) {
+                        return $estimate;
+                    }
+                    foreach ($items_out as $line) {
+                        $custom = is_array($line['customization'] ?? null) ? $line['customization'] : [];
+                        $lineEstimate = printflow_pos_customization_estimated_total($custom, (int)($line['quantity'] ?? $total_qty));
+                        if ($lineEstimate > 0) {
+                            return $lineEstimate;
+                        }
+                    }
+
+                    return (float)($o['total_amount'] ?? 0);
+                })(),
+                'final_price'          => (float)($o['total_amount'] ?? 0) > 0 ? (float)($o['total_amount'] ?? 0) : 0,
                 'amount_paid'          => (($o['payment_status'] ?? '') === 'Paid') ? (float)($o['total_amount'] ?? 0) : (float)($o['amount_paid'] ?? 0),
                 'job_order_id'         => $linked_job_id > 0 ? $linked_job_id : null,
                 'notes'                => $o['notes'] ?? '',

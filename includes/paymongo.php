@@ -71,17 +71,183 @@ if (!function_exists('printflow_paymongo_live_enabled')) {
     }
 }
 
-if (!function_exists('printflow_paymongo_mode')) {
-    /** Current link-creation mode. Existing ledger rows always retain their own mode. */
-    function printflow_paymongo_mode(): string {
-        $mode = strtolower(printflow_paymongo_env('PAYMONGO_MODE'));
+if (!function_exists('printflow_paymongo_live_checkout_allowed')) {
+    /**
+     * Live checkout is allowed only when operators explicitly enable it and
+     * configure matching live API credentials.
+     */
+    function printflow_paymongo_live_checkout_allowed(): bool {
+        if (printflow_paymongo_test_only_enforced()) {
+            return false;
+        }
+        if (!printflow_paymongo_live_enabled()) {
+            return false;
+        }
+        return printflow_paymongo_secret_key_for_mode('live') !== ''
+            && printflow_paymongo_public_key_for_mode('live') !== '';
+    }
+}
+
+if (!function_exists('printflow_paymongo_test_only_enforced')) {
+    /** True when operators have pinned the application to PayMongo Test Mode. */
+    function printflow_paymongo_test_only_enforced(): bool {
+        return strtolower(printflow_paymongo_env('PAYMONGO_MODE')) === 'test';
+    }
+}
+
+if (!function_exists('printflow_paymongo_resolve_api_mode')) {
+    /**
+     * Resolve the PayMongo API mode for a request. While PAYMONGO_MODE=test,
+     * mutating API calls always use test credentials; read calls may still use
+     * live credentials to reconcile existing live ledger rows.
+     */
+    function printflow_paymongo_resolve_api_mode(string $mode, string $httpMethod = 'GET'): string {
+        $requested = in_array($mode, ['test', 'live'], true) ? $mode : printflow_paymongo_mode();
+        $mutating = in_array(strtoupper($httpMethod), ['POST', 'PATCH', 'PUT', 'DELETE'], true);
+        if (printflow_paymongo_test_only_enforced()) {
+            if ($mutating) {
+                return printflow_paymongo_secret_key_for_mode('test') !== '' ? 'test' : '';
+            }
+            if ($requested === 'live' && printflow_paymongo_secret_key_for_mode('live') !== '') {
+                return 'live';
+            }
+            return printflow_paymongo_secret_key_for_mode('test') !== '' ? 'test' : '';
+        }
+        if ($requested === 'live' && !printflow_paymongo_live_checkout_allowed()) {
+            return printflow_paymongo_secret_key_for_mode('test') !== '' ? 'test' : '';
+        }
+        return $requested;
+    }
+}
+
+if (!function_exists('printflow_paymongo_webhook_secret_for_mode')) {
+    function printflow_paymongo_webhook_secret_for_mode(string $mode): string {
+        $mode = strtolower(trim($mode));
         if (!in_array($mode, ['test', 'live'], true)) {
             return '';
         }
-        if ($mode === 'live' && !printflow_paymongo_live_enabled()) {
+        $specific = printflow_paymongo_env(
+            $mode === 'live' ? 'PAYMONGO_LIVE_WEBHOOK_SECRET' : 'PAYMONGO_TEST_WEBHOOK_SECRET'
+        );
+        if ($specific !== '') {
+            return $specific;
+        }
+
+        $legacy = printflow_paymongo_env('PAYMONGO_WEBHOOK_SECRET');
+        if ($legacy === '') {
             return '';
         }
-        return printflow_paymongo_secret_key_for_mode($mode) !== '' ? $mode : '';
+        $configuredMode = strtolower(printflow_paymongo_env('PAYMONGO_MODE'));
+        if ($mode === 'live') {
+            return $configuredMode === 'live' ? $legacy : '';
+        }
+        if (in_array($configuredMode, ['', 'test'], true)) {
+            return $legacy;
+        }
+        if ($configuredMode === 'live' && !printflow_paymongo_live_checkout_allowed()) {
+            return $legacy;
+        }
+        return '';
+    }
+}
+
+if (!function_exists('printflow_paymongo_enforce_response_livemode')) {
+    /**
+     * Reject PayMongo resources that do not match the requested environment.
+     */
+    function printflow_paymongo_enforce_response_livemode(array $result, string $mode): array {
+        if (empty($result['ok']) || !in_array($mode, ['test', 'live'], true)) {
+            return $result;
+        }
+        if (!array_key_exists('livemode', $result) || !is_bool($result['livemode'])) {
+            return printflow_paymongo_failure(
+                'PayMongo did not provide verifiable payment environment details.',
+                502,
+                'livemode_unverified',
+                $mode
+            );
+        }
+        $expectedLive = $mode === 'live';
+        $actualLive = $result['livemode'];
+        if ($actualLive !== $expectedLive) {
+            return printflow_paymongo_failure(
+                'PayMongo returned a payment from the wrong environment.',
+                502,
+                'livemode_mismatch',
+                $mode
+            );
+        }
+        return $result;
+    }
+}
+
+if (!function_exists('printflow_paymongo_safe_test_simulation_url')) {
+    function printflow_paymongo_safe_test_simulation_url($value): string {
+        if (!is_string($value)) {
+            return '';
+        }
+        $url = trim($value);
+        $parts = $url !== '' ? parse_url($url) : false;
+        $host = is_array($parts) ? strtolower((string)($parts['host'] ?? '')) : '';
+        if (!filter_var($url, FILTER_VALIDATE_URL)
+            || !is_array($parts)
+            || strtolower((string)($parts['scheme'] ?? '')) !== 'https'
+            || ($host !== 'paymongo.com' && !str_ends_with($host, '.paymongo.com'))
+            || isset($parts['user']) || isset($parts['pass'])
+            || (isset($parts['port']) && (int)$parts['port'] !== 443)
+            || strlen($url) > 2048) {
+            return '';
+        }
+        return $url;
+    }
+}
+
+if (!function_exists('printflow_paymongo_find_test_simulation_url')) {
+    function printflow_paymongo_find_test_simulation_url(array $value): string {
+        foreach ($value as $key => $item) {
+            if (strtolower((string)$key) === 'test_url') {
+                $safeUrl = printflow_paymongo_safe_test_simulation_url($item);
+                if ($safeUrl !== '') {
+                    return $safeUrl;
+                }
+            }
+            if (is_array($item)) {
+                $safeUrl = printflow_paymongo_find_test_simulation_url($item);
+                if ($safeUrl !== '') {
+                    return $safeUrl;
+                }
+            }
+        }
+        return '';
+    }
+}
+
+if (!function_exists('printflow_paymongo_mode')) {
+    /**
+     * Active PayMongo environment for new checkouts and customer-visible ledger
+     * rows. Existing ledger rows always retain their stored mode column.
+     */
+    function printflow_paymongo_mode(): string {
+        $explicit = strtolower(printflow_paymongo_env('PAYMONGO_MODE'));
+        $testReady = printflow_paymongo_secret_key_for_mode('test') !== '';
+        $liveAllowed = printflow_paymongo_live_checkout_allowed();
+
+        if (printflow_paymongo_test_only_enforced()) {
+            return $testReady ? 'test' : '';
+        }
+        if ($explicit === 'test') {
+            return $testReady ? 'test' : '';
+        }
+        if ($explicit === 'live') {
+            if ($liveAllowed) {
+                return 'live';
+            }
+            return $testReady ? 'test' : '';
+        }
+        if ($testReady) {
+            return 'test';
+        }
+        return $liveAllowed ? 'live' : '';
     }
 }
 
@@ -227,7 +393,9 @@ if (!function_exists('printflow_paymongo_normalize_payment_intent')) {
             'mode' => $mode,
             'test_mode' => $mode === 'test',
             'http_status' => $httpCode,
-            'livemode' => (bool)($attributes['livemode'] ?? ($mode === 'live')),
+            'livemode' => isset($attributes['livemode']) && is_bool($attributes['livemode'])
+                ? $attributes['livemode']
+                : null,
             'id' => preg_match('/^pi_[A-Za-z0-9_-]+$/', $candidateId) ? $candidateId : '',
             'amount' => isset($attributes['amount']) ? (int)$attributes['amount'] : 0,
             'currency' => strtoupper(substr((string)($attributes['currency'] ?? ''), 0, 3)),
@@ -236,6 +404,7 @@ if (!function_exists('printflow_paymongo_normalize_payment_intent')) {
             'payment_ids' => array_values(array_unique($paymentIds)),
             'payment_id' => (string)(end($paymentIds) ?: ''),
             'qr_image_url' => $imageUrl,
+            'test_url' => printflow_paymongo_find_test_simulation_url($data),
             'metadata' => isset($attributes['metadata']) && is_array($attributes['metadata'])
                 ? $attributes['metadata']
                 : [],
@@ -255,7 +424,9 @@ if (!function_exists('printflow_paymongo_normalize_payment_method')) {
             'mode' => $mode,
             'test_mode' => $mode === 'test',
             'http_status' => $httpCode,
-            'livemode' => (bool)($attributes['livemode'] ?? ($mode === 'live')),
+            'livemode' => isset($attributes['livemode']) && is_bool($attributes['livemode'])
+                ? $attributes['livemode']
+                : null,
             'id' => preg_match('/^pm_[A-Za-z0-9_-]+$/', $candidateId) ? $candidateId : '',
             'type' => preg_match('/^[a-z0-9_-]{2,30}$/', $type) ? $type : '',
         ];
@@ -294,7 +465,9 @@ if (!function_exists('printflow_paymongo_normalize_payment')) {
             'mode' => $mode,
             'test_mode' => $mode === 'test',
             'http_status' => $httpCode,
-            'livemode' => (bool)($attributes['livemode'] ?? ($mode === 'live')),
+            'livemode' => isset($attributes['livemode']) && is_bool($attributes['livemode'])
+                ? $attributes['livemode']
+                : null,
             'paid' => $status === 'paid',
             'payment_id' => preg_match('/^pay_[A-Za-z0-9_-]+$/', $candidateId) ? $candidateId : '',
             'payment_intent_id' => preg_match(
@@ -364,7 +537,9 @@ if (!function_exists('printflow_paymongo_normalize_payment_link')) {
             'mode' => $mode,
             'test_mode' => $mode === 'test',
             'http_status' => $httpCode,
-            'livemode' => (bool)($attributes['livemode'] ?? ($mode === 'live')),
+            'livemode' => isset($attributes['livemode']) && is_bool($attributes['livemode'])
+                ? $attributes['livemode']
+                : null,
             'id' => preg_match('/^link_[A-Za-z0-9_-]+$/', $candidateId) ? $candidateId : '',
             'url' => $url,
             'amount' => isset($attributes['amount']) ? (int)$attributes['amount'] : 0,
@@ -384,13 +559,22 @@ if (!function_exists('printflow_paymongo_request')) {
         string $idempotencyKey = '',
         string $keyType = 'secret'
     ): array {
-        $mode = in_array($mode, ['test', 'live'], true) ? $mode : printflow_paymongo_mode();
-        if ($mode === '' || ($mode === 'live' && !printflow_paymongo_live_enabled())) {
+        $mode = printflow_paymongo_resolve_api_mode($mode, $method);
+        if ($mode === '' || printflow_paymongo_secret_key_for_mode($mode) === '') {
             return printflow_paymongo_failure(
                 'PayMongo is not configured for the requested environment.',
                 400,
                 'payment_mode_unavailable',
                 $mode
+            );
+        }
+        $mutatingRequest = in_array(strtoupper($method), ['POST', 'PATCH', 'PUT', 'DELETE'], true);
+        if ($mode === 'live' && $mutatingRequest && !printflow_paymongo_live_checkout_allowed()) {
+            return printflow_paymongo_failure(
+                'Live PayMongo payments are temporarily disabled.',
+                400,
+                'live_mode_disabled',
+                'test'
             );
         }
         if (!function_exists('curl_init')) {
@@ -506,17 +690,29 @@ if (!function_exists('printflow_paymongo_request')) {
             ? $decoded['data']
             : [];
         if (preg_match('#^/v1/payment_intents(?:/pi_[A-Za-z0-9_-]+(?:/(?:attach|cancel))?)?$#', $path)) {
-            return printflow_paymongo_normalize_payment_intent($data, $mode, $httpCode);
+            return printflow_paymongo_enforce_response_livemode(
+                printflow_paymongo_normalize_payment_intent($data, $mode, $httpCode),
+                $mode
+            );
         }
         if (preg_match('#^/v1/payment_methods(?:/pm_[A-Za-z0-9_-]+)?$#', $path)) {
-            return printflow_paymongo_normalize_payment_method($data, $mode, $httpCode);
+            return printflow_paymongo_enforce_response_livemode(
+                printflow_paymongo_normalize_payment_method($data, $mode, $httpCode),
+                $mode
+            );
         }
         if (preg_match('#^/v1/payments/pay_[A-Za-z0-9_-]+$#', $path)) {
-            return printflow_paymongo_normalize_payment($data, $mode, $httpCode);
+            return printflow_paymongo_enforce_response_livemode(
+                printflow_paymongo_normalize_payment($data, $mode, $httpCode),
+                $mode
+            );
         }
         if ($path === '/v1/payment_links'
             || preg_match('#^/v1/payment_links/link_[A-Za-z0-9_-]+$#', $path)) {
-            return printflow_paymongo_normalize_payment_link($data, $mode, $httpCode);
+            return printflow_paymongo_enforce_response_livemode(
+                printflow_paymongo_normalize_payment_link($data, $mode, $httpCode),
+                $mode
+            );
         }
         if (preg_match('#^/v1/payment_links/link_[A-Za-z0-9_-]+/payments(?:\?.*)?$#', $path)) {
             $paidPayment = [];
@@ -568,12 +764,14 @@ if (!function_exists('printflow_paymongo_request')) {
                 $paymentMethod = '';
             }
 
-            return [
+            return printflow_paymongo_enforce_response_livemode([
                 'ok' => true,
                 'mode' => $mode,
                 'test_mode' => $mode === 'test',
                 'http_status' => $httpCode,
-                'livemode' => (bool)($attributes['livemode'] ?? ($mode === 'live')),
+                'livemode' => isset($attributes['livemode']) && is_bool($attributes['livemode'])
+                    ? $attributes['livemode']
+                    : null,
                 'paid' => !empty($paidPayment),
                 'payment_id' => preg_match('/^pay_[A-Za-z0-9_-]+$/', $paymentId) ? $paymentId : '',
                 'amount' => isset($attributes['amount']) ? (int)$attributes['amount'] : 0,
@@ -590,7 +788,7 @@ if (!function_exists('printflow_paymongo_request')) {
                     : (isset($attributes['paid_at']) && is_string($attributes['paid_at'])
                         ? substr(str_replace('T', ' ', preg_replace('/(?:\.\d+)?Z$/', '', $attributes['paid_at'])), 0, 19)
                         : null),
-            ];
+            ], $mode);
         }
         $candidateUrl = isset($data['url']) && is_string($data['url'])
             ? trim($data['url'])
@@ -615,12 +813,14 @@ if (!function_exists('printflow_paymongo_request')) {
             ? $candidateStatus
             : '';
 
-        return [
+        return printflow_paymongo_enforce_response_livemode([
             'ok' => true,
             'mode' => $mode,
             'test_mode' => $mode === 'test',
             'http_status' => $httpCode,
-            'livemode' => (bool)($data['livemode'] ?? true),
+            'livemode' => isset($data['livemode']) && is_bool($data['livemode'])
+                ? $data['livemode']
+                : null,
             'id' => $id,
             'url' => $url,
             'amount' => isset($data['amount']) ? (int)$data['amount'] : 0,
@@ -629,7 +829,7 @@ if (!function_exists('printflow_paymongo_request')) {
                 : '',
             'status' => $status,
             'reference_number' => substr(trim((string)($data['reference_number'] ?? '')), 0, 100),
-        ];
+        ], $mode);
     }
 }
 
@@ -731,9 +931,7 @@ if (!function_exists('printflow_paymongo_enabled_methods')) {
         if ($mode === '' || ($mode === 'live' && !printflow_paymongo_live_enabled())
             || printflow_paymongo_secret_key_for_mode($mode) === ''
             || printflow_paymongo_public_key_for_mode($mode) === ''
-            || printflow_paymongo_env(
-                $mode === 'live' ? 'PAYMONGO_LIVE_WEBHOOK_SECRET' : 'PAYMONGO_TEST_WEBHOOK_SECRET'
-            ) === '') {
+            || printflow_paymongo_webhook_secret_for_mode($mode) === '') {
             return [];
         }
 

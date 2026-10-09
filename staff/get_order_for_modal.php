@@ -12,6 +12,7 @@ require_once __DIR__ . '/../includes/payment_verification.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/change_item_workflow.php';
+require_once __DIR__ . '/../includes/pos_customer_helpers.php';
 
 header('Content-Type: application/json');
 
@@ -49,12 +50,32 @@ if (empty($order_row)) {
 }
 
 $o = $order_row[0];
+$o['customer_full_name'] = printflow_pos_order_customer_display_name($o);
 $resolvedOrderSource = strtolower(trim((string)($o['order_source'] ?? 'customer')));
-$isPosSource = in_array($resolvedOrderSource, ['pos', 'walk-in'], true);
+$isPosSource = in_array($resolvedOrderSource, ['pos', 'walk-in', 'pos_merged'], true);
 if (get_user_type() === 'Staff') {
     $staffAccessRole = printflow_get_staff_access_role();
-    if (($staffAccessRole === 'pos' && !$isPosSource) || ($staffAccessRole === 'online' && $isPosSource)) {
-        echo json_encode(['success' => false, 'error' => 'You do not have access to this order.']);
+    $allowsCrossChannelRead = false;
+    if (printflow_change_item_ensure_schema()) {
+        $changeSummary = printflow_change_item_summary_for_order($order_id);
+        $allowsCrossChannelRead = !empty($changeSummary['active'])
+            || !empty($changeSummary['has_history']);
+    }
+    if (
+        !$allowsCrossChannelRead
+        && (($staffAccessRole === 'pos' && !$isPosSource) || ($staffAccessRole === 'online' && $isPosSource))
+    ) {
+        if (getenv('PRINTFLOW_NOTIFICATION_DEBUG') === '1') {
+            error_log('[get_order_for_modal] access denied order_id=' . $order_id
+                . ' staff_role=' . $staffAccessRole
+                . ' order_source=' . $resolvedOrderSource);
+        }
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'error' => 'You do not have access to this order.',
+            'message' => 'You do not have access to this order.',
+        ]);
         exit;
     }
 }
@@ -103,14 +124,21 @@ if ($service_name === '') {
 $linked_job_id = 0;
 $linked_job_order_item_id = 0;
 $linked_job_status = '';
-$linkedJobRows = db_query(
-    "SELECT id, order_item_id, status FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1",
-    'i',
-    [$order_id]
-) ?: [];
-$linked_job_id = (int)($linkedJobRows[0]['id'] ?? 0);
-$linked_job_order_item_id = (int)($linkedJobRows[0]['order_item_id'] ?? 0);
-$linked_job_status = (string)($linkedJobRows[0]['status'] ?? '');
+$hintJobOrderId = (int)($_GET['job_order_id'] ?? 0);
+$hintOrderItemId = (int)($_GET['order_item_id'] ?? 0);
+$resolvedJobId = printflow_resolve_linked_job_order_id($order_id, $hintJobOrderId > 0 ? $hintJobOrderId : null, $hintOrderItemId > 0 ? $hintOrderItemId : null);
+$linked_job_id = (int)($resolvedJobId ?? 0);
+$linked_job_order_item_id = 0;
+$linked_job_status = '';
+if ($linked_job_id > 0) {
+    $linkedJobRows = db_query(
+        'SELECT id, order_item_id, status FROM job_orders WHERE id = ? AND order_id = ? LIMIT 1',
+        'ii',
+        [$linked_job_id, $order_id]
+    ) ?: [];
+    $linked_job_order_item_id = (int)($linkedJobRows[0]['order_item_id'] ?? 0);
+    $linked_job_status = (string)($linkedJobRows[0]['status'] ?? '');
+}
 if ($linked_job_id <= 0 && $ensureJob && strtolower(trim((string)($o['order_type'] ?? ''))) === 'custom') {
     $linked_job_id = (int)(JobOrderService::ensureJobsForStoreOrder($order_id) ?? 0);
     if ($linked_job_id > 0) {

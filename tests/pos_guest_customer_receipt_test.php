@@ -21,14 +21,11 @@ $assert(
     'receipt only falls back to Walk-in Guest for the shared placeholder account'
 );
 $assert(strpos($receipt, "'customer' => \$receiptCustomer") !== false, 'receipt payload uses resolved customer fields');
+$assert(strpos($receipt, 'pos_guest_display_name') !== false, 'receipt honors order-level walk-in name');
 
 $assert(strpos($checkout, 'function pos_resolve_checkout_customer_id(') !== false, 'checkout resolves guest vs account customers');
-$assert(strpos($checkout, 'function pos_create_name_only_pos_customer(') !== false, 'checkout can persist name-only walk-in customers');
-$assert(strpos($checkout, 'printflow_run_guarded_account_insert') !== false, 'name-only guest insert uses account creation guard');
-$assert(
-    strpos($checkout, "SET first_name = 'Walk-in'") === false,
-    'checkout no longer resets the shared walk-in placeholder name on every sale'
-);
+$assert(strpos($checkout, 'function pos_create_name_only_pos_customer(') === false, 'checkout does not create per-sale pos.guest customers');
+$assert(strpos($checkout, 'printflow_pos_resolve_checkout_customer_context') !== false, 'checkout delegates to shared walk-in resolver');
 
 $assert(strpos($pos, 'function posCheckoutCustomerPayload') !== false, 'POS UI sends guest display name at checkout');
 $assert(strpos($pos, 'id="pos-guest-name"') !== false, 'POS UI collects walk-in customer name');

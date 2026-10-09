@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
+require_once __DIR__ . '/../../includes/pos_customer_helpers.php';
 
 // Require staff or admin role
 if (!has_role(['Admin', 'Staff'])) {
@@ -25,27 +26,50 @@ if (!is_array($data) || !verify_csrf_token((string)($data['csrf_token'] ?? '')))
     exit;
 }
 
-if (empty($data['first_name']) || empty($data['last_name']) || empty($data['email'])) {
-    echo json_encode(['success' => false, 'message' => 'First name, last name, and email are required.']);
+if (empty($data['email'])) {
+    echo json_encode(['success' => false, 'message' => 'Email address is required.']);
     exit;
 }
 
-$first_name = trim((string)$data['first_name']);
-$last_name = trim((string)$data['last_name']);
-$email = trim((string)$data['email']);
+$first_name = trim((string)($data['first_name'] ?? ''));
+$last_name = trim((string)($data['last_name'] ?? ''));
+$email = printflow_pos_normalize_customer_email((string)$data['email']);
 $contact = !empty($data['contact_number']) ? trim((string)$data['contact_number']) : null;
 
 // Validate email format
-if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+if (!filter_var($email, FILTER_VALIDATE_EMAIL) || printflow_pos_is_placeholder_customer_email($email)) {
     echo json_encode(['success' => false, 'message' => 'Invalid email address format.']);
     exit;
 }
 
+if ($first_name === '' && $last_name === '') {
+    $derived = printflow_pos_derive_name_parts_from_email($email);
+    $first_name = $derived['first'];
+    $last_name = $derived['last'];
+} elseif ($last_name === '') {
+    $last_name = '-';
+} elseif ($first_name === '') {
+    $first_name = $last_name;
+    $last_name = '-';
+}
+
 try {
     // Check if email exists in customers table
-    $existing_customer = db_query("SELECT customer_id FROM customers WHERE email = ?", 's', [$email]);
+    $existing_customer = db_query(
+        "SELECT customer_id, first_name, last_name FROM customers WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+        's',
+        [$email]
+    );
     if (!empty($existing_customer)) {
-        echo json_encode(['success' => false, 'message' => 'This email address is already registered as a customer.']);
+        $existingId = (int)($existing_customer[0]['customer_id'] ?? 0);
+        echo json_encode([
+            'success' => true,
+            'customer_id' => $existingId,
+            'linked_existing' => true,
+            'first_name' => (string)($existing_customer[0]['first_name'] ?? ''),
+            'last_name' => (string)($existing_customer[0]['last_name'] ?? ''),
+            'message' => 'This email is already registered. The existing customer account will be used for this order.',
+        ]);
         exit;
     }
     

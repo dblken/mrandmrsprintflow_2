@@ -48,7 +48,7 @@ try {
     $order_status = db_query(
         "SELECT o.status, COUNT(*) as cnt 
          FROM orders o 
-         WHERE o.order_date BETWEEN ? AND ? {$bSqlFrag} 
+         WHERE " . printflow_order_archive_scope_sql('o') . " AND o.order_date BETWEEN ? AND ? {$bSqlFrag}
          GROUP BY o.status 
          ORDER BY cnt DESC",
         'ss' . ($bTypes ?: ''),

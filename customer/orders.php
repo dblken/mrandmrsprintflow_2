@@ -15,6 +15,7 @@ require_role('Customer');
 ensure_ratings_table_exists();
 
 $customer_id = get_user_id();
+$archiveScope = printflow_order_archive_scope_sql('o');
 $review_prompt_payload = null;
 $review_prompt_id = 0;
 if (isset($_GET['review_prompt'])) {
@@ -35,16 +36,16 @@ if (isset($_GET['mark_read'])) {
 }
 
 // Get order statistics for the summary cards
-$total_orders_result = db_query("SELECT COUNT(*) as count FROM orders WHERE customer_id = ?", 'i', [$customer_id]);
+$total_orders_result = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.customer_id = ? AND {$archiveScope}", 'i', [$customer_id]);
 $total_orders = $total_orders_result[0]['count'] ?? 0;
 
-$pending_orders_result = db_query("SELECT COUNT(*) as count FROM orders WHERE customer_id = ? AND status IN ('Pending', 'Pending Approval', 'For Revision')", 'i', [$customer_id]);
+$pending_orders_result = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.customer_id = ? AND {$archiveScope} AND o.status IN ('Pending', 'Pending Approval', 'For Revision')", 'i', [$customer_id]);
 $pending_orders = $pending_orders_result[0]['count'] ?? 0;
 
-$processing_orders_result = db_query("SELECT COUNT(*) as count FROM orders WHERE customer_id = ? AND status IN ('Processing', 'In Production', 'Printing', 'Paid - In Process', 'Paid – In Process', 'Paid â€“ In Process')", 'i', [$customer_id]);
+$processing_orders_result = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.customer_id = ? AND {$archiveScope} AND o.status IN ('Processing', 'In Production', 'Printing', 'Paid - In Process', 'Paid – In Process', 'Paid â€“ In Process')", 'i', [$customer_id]);
 $processing_orders = $processing_orders_result[0]['count'] ?? 0;
 
-$ready_orders_result = db_query("SELECT COUNT(*) as count FROM orders WHERE customer_id = ? AND status IN ('Ready for Pickup', 'Approved Design')", 'i', [$customer_id]);
+$ready_orders_result = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.customer_id = ? AND {$archiveScope} AND o.status IN ('Ready for Pickup', 'Approved Design')", 'i', [$customer_id]);
 $ready_orders = $ready_orders_result[0]['count'] ?? 0;
 
 // TikTok style tabs (redirect removed tabs to completed / merged tab)
@@ -119,8 +120,8 @@ if ($has_product_image && $has_photo_path) {
 // Per-tab order counts for status indicators.
 $status_counts_raw = db_query("
     SELECT status, COUNT(*) AS total
-    FROM orders
-    WHERE customer_id = ?
+    FROM orders o
+    WHERE o.customer_id = ? AND {$archiveScope}
     GROUP BY status
 ", 'i', [$customer_id]);
 
@@ -152,7 +153,7 @@ foreach ($tab_status_map as $tab_key => $statuses) {
 // says "To Pay". Keep those orders out of the payable count/list immediately.
 $paid_to_pay_sql = "SELECT COUNT(*) AS total
     FROM orders o
-    WHERE o.customer_id = ? AND o.status = 'To Pay'
+    WHERE o.customer_id = ? AND {$archiveScope} AND o.status = 'To Pay'
       AND (UPPER(TRIM(COALESCE(o.payment_status, ''))) = 'PAID'";
 if ($provider_payments_ready) {
     $paid_to_pay_sql .= " OR EXISTS (
@@ -213,8 +214,8 @@ $sql = "SELECT o.*,
          LIMIT 1) as latest_payment_verified_at,
         (SELECT jo.job_title FROM job_orders jo WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1) as first_job_title,
         (SELECT jo.service_type FROM job_orders jo WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1) as first_job_service_type
-        FROM orders o WHERE o.customer_id = ?";
-$count_sql = "SELECT COUNT(*) as total FROM orders o WHERE o.customer_id = ?";
+    FROM orders o WHERE o.customer_id = ? AND {$archiveScope}";
+$count_sql = "SELECT COUNT(*) as total FROM orders o WHERE o.customer_id = ? AND {$archiveScope}";
 $params = [$customer_id];
 $count_params = [$customer_id]; // Need this for the count query
 $types = 'i';

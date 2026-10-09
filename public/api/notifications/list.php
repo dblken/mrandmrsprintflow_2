@@ -25,8 +25,8 @@ try {
     if ($user_type === 'Customer') {
         $rows = db_query(
             "SELECT notification_id AS id, notification_id, message, type, data_id, review_id, is_read, created_at
-             FROM notifications
-             WHERE customer_id = ?
+             FROM notifications n
+             WHERE customer_id = ? AND " . printflow_order_archive_notification_exclusion_sql('n') . "
              ORDER BY created_at DESC
              LIMIT " . (int)$limit,
             'i',
@@ -35,8 +35,8 @@ try {
     } else {
         $rows = db_query(
             "SELECT notification_id AS id, notification_id, message, type, data_id, review_id, is_read, created_at
-             FROM notifications
-             WHERE user_id = ?
+             FROM notifications n
+             WHERE user_id = ? AND " . printflow_order_archive_notification_exclusion_sql('n') . "
              ORDER BY created_at DESC
              LIMIT " . (int)$limit,
             'i',

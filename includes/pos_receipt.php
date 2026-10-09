@@ -2,9 +2,11 @@
 
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/runtime_config.php';
+require_once __DIR__ . '/pos_customer_helpers.php';
 
 /** @return array{name:string,email:string,phone:string} */
 function printflow_pos_receipt_customer_fields(array $order): array {
+    $guestLabel = printflow_pos_sanitize_guest_display_name($order['pos_guest_display_name'] ?? '');
     $email = strtolower(trim((string)($order['email'] ?? '')));
     $first = trim((string)($order['first_name'] ?? ''));
     $last = trim((string)($order['last_name'] ?? ''));
@@ -16,6 +18,10 @@ function printflow_pos_receipt_customer_fields(array $order): array {
     $isSharedPlaceholder = $email === 'walkin@pos.local';
     $hideContact = $isSharedPlaceholder
         || (str_starts_with($email, 'pos.guest.') && str_ends_with($email, '@pos.local'));
+
+    if ($guestLabel !== '' && ($isSharedPlaceholder || printflow_pos_is_placeholder_customer_email($email))) {
+        return ['name' => $guestLabel, 'email' => '', 'phone' => ''];
+    }
 
     if ($isSharedPlaceholder && ($fullName === '' || strcasecmp($fullName, 'Walk-in Guest') === 0)) {
         return ['name' => 'Walk-in Guest', 'email' => '', 'phone' => ''];

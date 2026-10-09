@@ -16,6 +16,7 @@
  */
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/order_archive.php';
 
 class CustomizationRepository
 {
@@ -123,6 +124,7 @@ class CustomizationRepository
             $where[] = "LOWER(TRIM(COALESCE(o.order_source, ''))) <> 'pos_draft'";
         }
         $where[] = "LOWER(TRIM(COALESCE(o.status, ''))) <> 'draft'";
+        $where[] = printflow_order_archive_scope_sql('o');
 
         // A "customization" order is any order that the customer actually
         // customised. We DON'T rely solely on order_type='custom' because some

@@ -269,7 +269,10 @@ function pf_customer_verification_status_counts(string $branchSql = '', string $
 {
     pf_ensure_customer_id_verification_columns();
 
-    $base = "SELECT COUNT(*) AS c FROM customers WHERE 1=1" . $branchSql;
+    require_once __DIR__ . '/pos_customer_helpers.php';
+    $base = "SELECT COUNT(*) AS c FROM customers WHERE 1=1"
+        . printflow_pos_sql_exclude_placeholder_customers('customers')
+        . $branchSql;
     $pending = (int)(db_query(
         $base . ' AND ' . pf_customer_verification_pending_sql() . ' AND ' . pf_customer_verification_has_image_sql(),
         $branchTypes,

@@ -46,22 +46,11 @@ if ($deepLinkOrderId > 0 && !in_array($deepLinkJobType, ['JOB', 'CUSTOMIZATION',
         }
     }
 
-    // For custom/service orders: try to find a linked job_orders row for a cleaner display
-    $linkedJob = db_query(
-        "SELECT id FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1",
-        'i',
-        [$deepLinkOrderId]
-    );
-    $linkedJobId = (int)($linkedJob[0]['id'] ?? 0);
-    if ($linkedJobId > 0) {
-        // Redirect to the specific job order view
-        redirect((defined('BASE_PATH') ? BASE_PATH : '') . '/staff/customizations.php?order_id=' . $linkedJobId . '&job_type=JOB');
-    }
-    // Custom order exists but no job_orders row yet (e.g. ordered via order_review.php).
-    // Stay on customizations.php — the page will show the order from the orders table.
-    // Do NOT redirect to orders.php; that page only shows product orders.
-    // Fall through to render customizations.php normally with the order_id context.
-    redirect((defined('BASE_PATH') ? BASE_PATH : '') . '/staff/customizations.php?order_id=' . $deepLinkOrderId . '&job_type=ORDER');
+    // Normalize deep links to the store order_id + ORDER view (avoids opening the wrong job/service).
+    $qs = $_GET;
+    $qs['order_id'] = $deepLinkOrderId;
+    $qs['job_type'] = 'ORDER';
+    redirect((defined('BASE_PATH') ? BASE_PATH : '') . '/staff/customizations.php?' . http_build_query($qs));
 }
 
 $page_title = 'Custom Orders - PrintFlow';
@@ -3222,8 +3211,9 @@ $online_closed_count = 0;
                                     <div style="position:relative;">
                                         <span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); font-weight:800; color:#0f766e; font-size:20px;">₱</span>
                                         <input type="text" 
+                                               x-ref="jobPriceInput"
                                                placeholder="0.00"
-                                               x-init="$watch('showDetailsModal', v => { if(v) $nextTick(() => { const raw = String(jobPriceInput !== null && jobPriceInput !== undefined ? jobPriceInput : '').trim(); $el.value = raw !== '' ? Number(raw).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : ''; }); })"
+                                               x-effect="if (showDetailsModal) syncJobPriceInputField()"
                                                x-on:input="
                                                    let val = $event.target.value.replace(/[^0-9.]/g, '');
                                                    let parts = val.split('.');
@@ -3619,10 +3609,13 @@ $online_closed_count = 0;
                                 <button type="button" @click="jobAction('APPROVED')" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Approve to Set Price</button>
                                 <button type="button" @click="openRevisionModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Request Additional Details</button>
                             </div>
-                            <div x-show="modalWorkflowStatus(currentJo) === 'APPROVED' && (!isPosSimplifiedView || !isPosPricingReturnFlow(currentJo))" style="display:flex; gap:8px;">
+                            <div x-show="isPosPricingMode() && modalWorkflowStatus(currentJo) === 'APPROVED'" style="display:flex; gap:8px; flex-wrap:wrap;">
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Confirm Set Price</button>
+                            </div>
+                            <div x-show="!isPosPricingMode() && modalWorkflowStatus(currentJo) === 'APPROVED' && (!isPosSimplifiedView || !isPosPricingReturnFlow(currentJo))" style="display:flex; gap:8px;">
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Set Price</button>
                             </div>
-                            <div x-show="isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'APPROVED' && isPosPricingReturnFlow(currentJo)" style="display:flex; gap:8px;">
+                            <div x-show="!isPosPricingMode() && isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'APPROVED' && isPosPricingReturnFlow(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Continue to POS Payment</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'PAYMENT_CONFIRMED' && canStartProduction(currentJo)" style="display:flex; gap:8px;">
@@ -3650,7 +3643,8 @@ $online_closed_count = 0;
                         <div x-show="footerActionError" x-cloak style="font-size:12px;font-weight:600;color:#dc2626;line-height:1.45;max-width:560px;" x-text="footerActionError"></div>
                     </div>
                     <!-- Right: Close -->
-                    <button @click="closeDetailsModal()" class="btn-secondary">Close</button>
+                    <button x-show="!isPosPricingMode()" @click="closeDetailsModal()" class="btn-secondary">Close</button>
+                    <button x-show="isPosPricingMode()" @click="closeDetailsModal()" class="btn-secondary">Cancel</button>
                 </div>
             </div>
         </div>
@@ -4146,6 +4140,9 @@ window.pfServiceFieldCatalog = (() => {
             detailContextMode: 'production_view',
             deepLinkExpectedStatus: '',
             deepLinkSourceOrderId: '',
+            deepLinkJobOrderId: 0,
+            deepLinkOrderItemId: 0,
+            deepLinkChangeItemId: 0,
             availableRolls: {},
             allInventoryItems: [],
             materialRules: [],
@@ -4167,7 +4164,7 @@ window.pfServiceFieldCatalog = (() => {
             availableLamRollsList: [],
             impactPreview: null,
             search: '',
-            jobPriceInput: 0,
+            jobPriceInput: '',
             loadingModalAssignments: false,
             // ── Below-estimate Final Price override confirmation ─────────
             showPriceOverrideModal: false,
@@ -4505,10 +4502,41 @@ window.pfServiceFieldCatalog = (() => {
             clearDeepLinkParams() {
                 try {
                     const url = new URL(window.location.href);
-                    ['order_id', 'status', 'job_type', 'source_order_id', 'return_to_pos', 'mode'].forEach(key => url.searchParams.delete(key));
+                    [
+                        'order_id', 'status', 'job_type', 'source_order_id', 'return_to_pos', 'mode',
+                        'open_changed_item', 'change_item_id', 'job_order_id', 'order_item_id'
+                    ].forEach(key => url.searchParams.delete(key));
                     window.history.replaceState({}, document.title, url.toString());
                 } catch (e) {
                     console.warn('Unable to clear customization deep-link params', e);
+                }
+            },
+            async focusOpenChangeItemDeepLink(expectedChangeItemId = 0) {
+                if (this.detailError) {
+                    this.showStaffAlert('Order Not Found', this.detailError);
+                    return;
+                }
+                const active = this.changeItemActiveRequest(this.currentJo);
+                const activeId = parseInt(active && active.id ? active.id : 0, 10);
+                const expectedId = parseInt(expectedChangeItemId || 0, 10);
+                if (expectedId > 0 && activeId > 0 && expectedId !== activeId) {
+                    this.showStaffAlert(
+                        'Change Item Not Found',
+                        'The change item request from this notification could not be matched to this order. Please locate the order manually in Changed Items.'
+                    );
+                    return;
+                }
+                if (!active && expectedId > 0) {
+                    this.showStaffAlert(
+                        'Change Item Not Found',
+                        'No active change item request was found for this order. It may have been completed or removed.'
+                    );
+                    return;
+                }
+                await this.$nextTick();
+                const panel = document.querySelector('.pf-change-item-review');
+                if (panel && typeof panel.scrollIntoView === 'function') {
+                    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             },
             isPosPricingMode() {
@@ -4549,23 +4577,84 @@ window.pfServiceFieldCatalog = (() => {
                 this.paymongoPayment = this.currentJo.provider_payment || null;
                 this.schedulePayMongoPolling();
             },
+            posCustomizationEstimatedTotal(jo) {
+                if (!jo || typeof jo !== 'object') return 0;
+                const items = Array.isArray(jo.items) ? jo.items : [];
+                for (const item of items) {
+                    const custom = item && item.customization && typeof item.customization === 'object' ? item.customization : {};
+                    const lineTotal = parseFloat(custom.calculated_estimated_price);
+                    if (Number.isFinite(lineTotal) && lineTotal > 0) return lineTotal;
+                    const unit = parseFloat(custom.calculated_unit_price);
+                    const qty = parseInt(item.quantity || jo.quantity || 1, 10) || 1;
+                    if (Number.isFinite(unit) && unit > 0) return unit * qty;
+                }
+                const details = jo.customization_details && typeof jo.customization_details === 'object' ? jo.customization_details : {};
+                const detailsTotal = parseFloat(details.calculated_estimated_price);
+                if (Number.isFinite(detailsTotal) && detailsTotal > 0) return detailsTotal;
+                const detailsUnit = parseFloat(details.calculated_unit_price);
+                const qty = parseInt(jo.quantity || 1, 10) || 1;
+                if (Number.isFinite(detailsUnit) && detailsUnit > 0) return detailsUnit * qty;
+                return 0;
+            },
+            applyPosEstimatedPriceFields(jo) {
+                if (!jo || typeof jo !== 'object') return jo;
+                const fromPayload = Number(jo.estimated_price || jo.estimated_total || 0);
+                const resolved = fromPayload > 0 ? fromPayload : this.posCustomizationEstimatedTotal(jo);
+                if (resolved > 0) {
+                    jo.estimated_price = resolved;
+                    jo.estimated_total = resolved;
+                }
+                return jo;
+            },
+            resolveJobPriceInputDefault(jo) {
+                if (!jo || typeof jo !== 'object') return '';
+                const finalPrice = Number(jo.final_price);
+                if (Number.isFinite(finalPrice) && finalPrice > 0) {
+                    return finalPrice.toFixed(2);
+                }
+                const estimate = Number(jo.estimated_price || jo.estimated_total || 0);
+                if (Number.isFinite(estimate) && estimate > 0) {
+                    return estimate.toFixed(2);
+                }
+                const derived = this.posCustomizationEstimatedTotal(jo);
+                if (derived > 0) {
+                    return derived.toFixed(2);
+                }
+                return '';
+            },
+            syncJobPriceInputField() {
+                this.$nextTick(() => {
+                    const input = this.$refs.jobPriceInput;
+                    if (!input) return;
+                    let raw = String(this.jobPriceInput ?? '').trim().replace(/,/g, '');
+                    if (raw === '' || !Number.isFinite(parseFloat(raw)) || parseFloat(raw) <= 0) {
+                        const fallback = this.resolveJobPriceInputDefault(this.currentJo);
+                        if (fallback !== '') {
+                            this.jobPriceInput = fallback;
+                            raw = fallback;
+                        }
+                    }
+                    if (raw === '') {
+                        input.value = '';
+                        return;
+                    }
+                    const numeric = parseFloat(raw);
+                    input.value = Number.isFinite(numeric)
+                        ? numeric.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                        : raw;
+                });
+            },
             finishDetailLoadWith(data, orderType, cacheKey) {
                 this.currentJo = this.applyPosSetPriceDeepLinkOverride(
                     this.normalizeStaffOrderDetail({ ...data, order_type: orderType })
                 );
+                this.currentJo = this.applyPosEstimatedPriceFields(this.currentJo);
                 this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
                 this.paymongoPayment = this.currentJo.provider_payment || null;
                 this.schedulePayMongoPolling();
-                if (this.currentJo.final_price !== null && this.currentJo.final_price !== undefined && String(this.currentJo.final_price).trim() !== '' && Number(this.currentJo.final_price) > 0) {
-                    // Preserve an already-entered/saved valid Final Price as-is.
-                    this.jobPriceInput = this.currentJo.final_price;
-                } else {
-                    // No valid Final Price yet: default to the Estimated Price so staff
-                    // aren't forced to retype the recommended price from scratch.
-                    const defaultEstimate = Number(this.currentJo.estimated_price || this.currentJo.estimated_total || 0);
-                    this.jobPriceInput = defaultEstimate > 0 ? defaultEstimate : '';
-                }
+                this.jobPriceInput = this.resolveJobPriceInputDefault(this.currentJo);
+                this.syncJobPriceInputField();
                 this.productionErrors = { material: '', ink_set: '', ink_consumption: '' };
                 this.restoreSavedInkUsage();
                 this.modalCache[cacheKey] = this.currentJo;
@@ -4575,11 +4664,53 @@ window.pfServiceFieldCatalog = (() => {
                 }
             },
             async fetchOrderModalSummary(orderId, options = {}) {
-                const params = new URLSearchParams({ id: String(orderId) });
+                const parsedOrderId = parseInt(orderId, 10);
+                if (!Number.isFinite(parsedOrderId) || parsedOrderId <= 0) {
+                    return {
+                        success: false,
+                        error: 'A valid order ID is required to load order details.',
+                    };
+                }
+                const params = new URLSearchParams({ id: String(parsedOrderId) });
                 if (options.includeAssignments) params.set('include_assignments', '1');
                 if (options.ensureJob) params.set('ensure_job', '1');
-                const res = await fetch(`${this.staffApiUrl('get_order_for_modal.php')}?${params.toString()}`);
-                return this.parseJsonResponse(res);
+                if (options.jobOrderId) params.set('job_order_id', String(options.jobOrderId));
+                if (options.orderItemId) params.set('order_item_id', String(options.orderItemId));
+                const endpoint = `${this.staffApiUrl('get_order_for_modal.php')}?${params.toString()}`;
+                if (!endpoint || !/^https?:\/\//i.test(endpoint)) {
+                    return { success: false, error: 'Order details endpoint is not configured.' };
+                }
+                const res = await fetch(endpoint);
+                return this.parseJsonResponse(res, 'Order details', endpoint);
+            },
+            deepLinkJobHintsFromUrl() {
+                try {
+                    const params = new URLSearchParams(window.location.search);
+                    const jobOrderId = parseInt(params.get('job_order_id') || '0', 10);
+                    const orderItemId = parseInt(params.get('order_item_id') || '0', 10);
+                    return {
+                        jobOrderId: Number.isFinite(jobOrderId) && jobOrderId > 0 ? jobOrderId : 0,
+                        orderItemId: Number.isFinite(orderItemId) && orderItemId > 0 ? orderItemId : 0,
+                    };
+                } catch (e) {
+                    return { jobOrderId: 0, orderItemId: 0 };
+                }
+            },
+            resolveOrderDetailHints(jo = null) {
+                const row = jo || this.currentJo || {};
+                const hints = {
+                    jobOrderId: parseInt(this.deepLinkJobOrderId || row.job_order_id || 0, 10) || 0,
+                    orderItemId: parseInt(this.deepLinkOrderItemId || row.order_item_id || 0, 10) || 0,
+                };
+                const active = this.changeItemActiveRequest(row);
+                if (active) {
+                    hints.jobOrderId = hints.jobOrderId || parseInt(active.job_order_id || 0, 10) || 0;
+                    hints.orderItemId = hints.orderItemId || parseInt(active.order_item_id || 0, 10) || 0;
+                }
+                const fromUrl = this.deepLinkJobHintsFromUrl();
+                hints.jobOrderId = hints.jobOrderId || fromUrl.jobOrderId || 0;
+                hints.orderItemId = hints.orderItemId || fromUrl.orderItemId || 0;
+                return hints;
             },
             async loadModalAssignments(orderId, cacheKey, requestToken) {
                 if (!orderId) return;
@@ -4615,12 +4746,23 @@ window.pfServiceFieldCatalog = (() => {
             },
             closeDetailsModal() {
                 this.stopPayMongoPolling();
+                const returnToPOS = (() => {
+                    try {
+                        return new URLSearchParams(window.location.search).get('return_to_pos') === '1';
+                    } catch (e) {
+                        return false;
+                    }
+                })();
+                const wasPosPricing = this.isPosPricingMode() && returnToPOS;
                 this.showDetailsModal = false;
                 this.footerActionError = '';
                 this.detailError = '';
                 this.loadingDetailKey = '';
                 this.loadingModalAssignments = false;
                 this.clearDeepLinkParams();
+                if (wasPosPricing) {
+                    window.location.href = this.staffApiUrl('pos.php?from_customizations=1');
+                }
             },
             async retryLastDetailRequest() {
                 if (!this.detailRetryPayload) return;
@@ -5593,6 +5735,8 @@ window.pfServiceFieldCatalog = (() => {
                     'is_urgent_request',
                     'is_regular_priority',
                     'has_priority_field',
+                    'calculated_unit_price',
+                    'calculated_estimated_price',
                 ].includes(token);
             },
             staffCustomizationIsInternalLabel(label) {
@@ -5668,6 +5812,7 @@ window.pfServiceFieldCatalog = (() => {
                 const hiddenExact = new Set([
                     'branch', 'branch_id', 'branch_name', 'branchname', 'pickup_branch', 'pickupbranch',
                     'service_id', 'customization_id', 'order_id', 'order_item_id', 'product_id', 'config_id',
+                    'calculated_unit_price', 'calculated_estimated_price',
                     'source', 'source_page', 'form_type', 'cart_key',
                     'design_upload_path', 'design_file', 'design_mime', 'design_upload_mime',
                     'design_image', 'design_image_path', 'reference_upload', 'reference_upload_name',
@@ -7268,11 +7413,19 @@ window.pfServiceFieldCatalog = (() => {
                 const orderId = params.get('order_id');
                 const sourceOrderId = params.get('source_order_id');
                 const initialStatus = params.get('status');
+                const openChangedItem = params.get('open_changed_item') === '1';
+                const expectedChangeItemId = parseInt(params.get('change_item_id') || '0', 10);
                 const returnToPOS = params.get('return_to_pos') === '1';
                 const mode = (params.get('mode') || '').trim().toLowerCase();
                 this.detailContextMode = mode === 'pos_pricing' ? 'pos_pricing' : 'production_view';
                 this.deepLinkExpectedStatus = initialStatus ? initialStatus.toUpperCase().replace(/\s+/g, '_') : '';
                 this.deepLinkSourceOrderId = sourceOrderId || '';
+                this.deepLinkJobOrderId = parseInt(params.get('job_order_id') || '0', 10) || 0;
+                this.deepLinkOrderItemId = parseInt(params.get('order_item_id') || '0', 10) || 0;
+                this.deepLinkChangeItemId = parseInt(params.get('change_item_id') || '0', 10) || 0;
+                const deepLinkHints = this.resolveOrderDetailHints(
+                    orderId ? { order_id: parseInt(orderId, 10) || 0 } : {}
+                );
 
                 if (initialStatus) {
                     // Map common statuses to tabs
@@ -7333,8 +7486,13 @@ window.pfServiceFieldCatalog = (() => {
                 if (this.isPosPricingMode() && sourceOrderId) {
                     const parsedSourceOrderId = parseInt(sourceOrderId, 10);
                     if (!Number.isNaN(parsedSourceOrderId) && parsedSourceOrderId > 0) {
+                        const resolveEndpoint = this.adminApiUrl(
+                            `job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(parsedSourceOrderId)}`
+                        );
                         const resolved = await this.parseJsonResponse(
-                            await fetch(this.adminApiUrl(`job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(parsedSourceOrderId)}`))
+                            await fetch(resolveEndpoint),
+                            'Resolve job for order',
+                            resolveEndpoint
                         );
 
                         if (resolved.success && resolved.job_id) {
@@ -7345,14 +7503,29 @@ window.pfServiceFieldCatalog = (() => {
                         this.clearDeepLinkParams();
                     }
                 } else if (orderId) {
-                    const jobType = params.get('job_type') || 'JOB';
-                    await this.viewDetails(parseInt(orderId, 10), jobType);
+                    const jobType = (params.get('job_type') || 'ORDER').toUpperCase();
+                    const parsedOrderId = parseInt(orderId, 10);
+                    if (jobType === 'ORDER') {
+                        await this.viewDetails(parsedOrderId, 'ORDER', deepLinkHints);
+                    } else {
+                        await this.viewDetails(parsedOrderId, jobType);
+                    }
+                    if (openChangedItem) {
+                        await this.focusOpenChangeItemDeepLink(expectedChangeItemId);
+                    } else if (this.detailError) {
+                        this.showStaffAlert('Order Not Found', this.detailError);
+                    }
                     this.clearDeepLinkParams();
                 } else if (sourceOrderId) {
                     const parsedSourceOrderId = parseInt(sourceOrderId, 10);
                     if (!Number.isNaN(parsedSourceOrderId) && parsedSourceOrderId > 0) {
+                        const resolveEndpoint = this.adminApiUrl(
+                            `job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(parsedSourceOrderId)}`
+                        );
                         const resolved = await this.parseJsonResponse(
-                            await fetch(this.adminApiUrl(`job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(parsedSourceOrderId)}`))
+                            await fetch(resolveEndpoint),
+                            'Resolve job for order',
+                            resolveEndpoint
                         );
 
                         if (resolved.success && resolved.job_id) {
@@ -7643,7 +7816,22 @@ window.pfServiceFieldCatalog = (() => {
             },
 
             /** Resolves job_orders.id from store order_id when job_order_id was missing (API limit / older rows). */
+            resolveChangeItemJobId() {
+                const active = this.changeItemActiveRequest(this.currentJo);
+                const fromChange = parseInt(active?.job_order_id || 0, 10);
+                if (Number.isFinite(fromChange) && fromChange > 0) {
+                    if (this.currentJo) {
+                        this.currentJo.job_order_id = fromChange;
+                    }
+                    return fromChange;
+                }
+                return null;
+            },
             async resolveEffectiveJobId() {
+                const changeItemJobId = this.resolveChangeItemJobId();
+                if (changeItemJobId) {
+                    return changeItemJobId;
+                }
                 let jid = this.effectiveJobId();
                 if (jid != null && !Number.isNaN(jid) && jid > 0) return jid;
                 const j = this.currentJo;
@@ -8127,8 +8315,11 @@ window.pfServiceFieldCatalog = (() => {
                 this.navigateFromKpi('URGENT');
             },
 
-            async viewDetails(id, orderType = 'JOB') {
+            async viewDetails(id, orderType = 'JOB', deepLinkHints = null) {
                 let order = this.findOrder(id, orderType);
+                const jobHints = deepLinkHints && typeof deepLinkHints === 'object'
+                    ? deepLinkHints
+                    : { jobOrderId: 0, orderItemId: 0 };
                 if (orderType === 'SERVICE' || (order && order.order_type) === 'SERVICE') {
                     await this.openSvcModal(id);
                     return;
@@ -8213,7 +8404,9 @@ window.pfServiceFieldCatalog = (() => {
                     try {
                         const detailRes = await this.fetchOrderModalSummary(regularOrderId, {
                             includeAssignments: true,
-                            ensureJob: this.isPosPricingMode()
+                            ensureJob: this.isPosPricingMode(),
+                            jobOrderId: jobHints.jobOrderId || 0,
+                            orderItemId: jobHints.orderItemId || 0,
                         });
                         if (detailRes.success && detailRes.data && requestToken === this.detailRequestToken) {
                             this.finishDetailLoadWith(detailRes.data, 'ORDER', cacheKey);
@@ -8388,6 +8581,15 @@ window.pfServiceFieldCatalog = (() => {
             },
 
             async parseJsonResponse(r, label = 'Request', endpoint = '') {
+                const resolvedEndpoint = String(endpoint || r?.url || '').trim();
+                if (!r || typeof r.text !== 'function') {
+                    console.error(`[Customizations] ${label} failed`, {
+                        endpoint: resolvedEndpoint,
+                        status: 0,
+                        body: 'Missing fetch response'
+                    });
+                    return { success: false, error: `${label} failed: no response was received.` };
+                }
                 const contentType = r.headers.get('content-type') || '';
                 const text = await r.text();
                 let payload = null;
@@ -8400,7 +8602,7 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 if (!r.ok) {
                     console.error(`[Customizations] ${label} failed`, {
-                        endpoint,
+                        endpoint: resolvedEndpoint,
                         status: r.status,
                         body: text.slice(0, 500)
                     });
@@ -8414,7 +8616,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (payload) {
                     if (!contentType.includes('application/json')) {
                         console.warn(`[Customizations] ${label} returned JSON with an incorrect Content-Type`, {
-                            endpoint,
+                            endpoint: resolvedEndpoint,
                             contentType
                         });
                     }
@@ -8422,7 +8624,7 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 if (!contentType.includes('application/json')) {
                     console.error(`[Customizations] ${label} returned non-JSON`, {
-                        endpoint,
+                        endpoint: resolvedEndpoint,
                         contentType,
                         body: text.slice(0, 500)
                     });
@@ -8432,7 +8634,7 @@ window.pfServiceFieldCatalog = (() => {
                     return JSON.parse(text);
                 } catch (e) {
                     console.error(`[Customizations] ${label} returned invalid JSON`, {
-                        endpoint,
+                        endpoint: resolvedEndpoint,
                         error: e,
                         body: text.slice(0, 500)
                     });
@@ -9110,6 +9312,20 @@ window.pfServiceFieldCatalog = (() => {
                             try {
                                 const state = JSON.parse(savedState);
                                 const itemIndex = state.item_index;
+                                const materialPatch = {};
+                                const primaryMaterial = materialsToSave[0];
+                                if (primaryMaterial) {
+                                    const materialName = String(
+                                        primaryMaterial.item_name
+                                        || primaryMaterial.name
+                                        || primaryMaterial.notes
+                                        || ''
+                                    ).trim();
+                                    if (materialName !== '') {
+                                        materialPatch['Material Selection'] = materialName;
+                                        materialPatch.material_name = materialName;
+                                    }
+                                }
                                 await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
                                     method: 'POST',
                                     headers: {'Content-Type': 'application/json'},
@@ -9117,9 +9333,12 @@ window.pfServiceFieldCatalog = (() => {
                                         action: 'update_price',
                                         index: itemIndex,
                                         price: userEnteredPrice,
+                                        customization: materialPatch,
                                         csrf_token: document.body.getAttribute('data-csrf') || ''
                                     })
                                 });
+                                state.updated_price = userEnteredPrice;
+                                sessionStorage.setItem('pos_cart_state', JSON.stringify(state));
                                 await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
                                     method: 'POST',
                                     headers: {'Content-Type': 'application/json'},
@@ -9297,6 +9516,10 @@ window.pfServiceFieldCatalog = (() => {
             onSvcEscape() {
                 if (this.showRevisionModal) {
                     this.closeRevisionModal();
+                    return;
+                }
+                if (this.showDetailsModal) {
+                    this.closeDetailsModal();
                 }
             },
 
@@ -10115,9 +10338,73 @@ window.pfServiceFieldCatalog = (() => {
                     month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
                 });
             },
+            async completeChangeItemRework(machineId = null) {
+                const orderId = this.resolveChangeItemOrderId(this.currentJo);
+                if (!orderId) {
+                    this.showStaffAlert('Error', 'No linked order found for this Change Item.');
+                    return false;
+                }
+                const active = this.changeItemActiveRequest(this.currentJo);
+                const changeItemId = parseInt(active?.id || active?.change_item_id || 0, 10);
+                const fd = new FormData();
+                fd.append('order_id', String(orderId));
+                fd.append('status', 'Completed');
+                fd.append('expected_status', this.currentJo?.status || '');
+                fd.append('complete_change_item', '1');
+                if (changeItemId > 0) {
+                    fd.append('change_item_id', String(changeItemId));
+                }
+                fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+
+                const endpoint = this.staffApiUrl('update_order_status_process.php');
+                const res = await this.parseJsonResponse(
+                    await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Accept': 'application/json' },
+                        body: fd
+                    }),
+                    'Complete Change Item',
+                    endpoint
+                );
+
+                if (res.success) {
+                    this.modalCache = {};
+                    this.modalCacheLoadedAt = {};
+                    const refreshOrderId = this.resolveChangeItemOrderId(this.currentJo);
+                    const detailHints = this.resolveOrderDetailHints(this.currentJo);
+                    if (this.currentJo) {
+                        this.currentJo.status = 'COMPLETED';
+                        if (this.currentJo.change_item && this.currentJo.change_item.active) {
+                            this.currentJo.change_item.active = null;
+                        }
+                        this.currentJo.change_item_active = false;
+                        this.currentJo.has_change_item = !!(this.currentJo.change_item && this.currentJo.change_item.has_history);
+                    }
+                    await this.loadOrders({ force: true });
+                    if (this.showDetailsModal && refreshOrderId) {
+                        await this.viewDetails(
+                            refreshOrderId,
+                            'ORDER',
+                            detailHints
+                        );
+                    }
+                    this.showStaffAlert(
+                        res.already_completed ? 'Completed' : 'Success',
+                        res.message || 'Change Item marked as completed.'
+                    );
+                    return true;
+                }
+                this.showStaffAlert('Error', res.error || 'Failed to complete the Change Item request.');
+                return false;
+            },
             async completeOrder(machineId = null) {
                 if (!this.beginModalAction()) return;
                 try {
+                    if (this.changeItemReworkInProgress(this.currentJo)) {
+                        await this.completeChangeItemRework(machineId);
+                        return;
+                    }
+
                     const isPosPendingFlow = this.isPosSimplifiedView && this.getPosWalkInBucket(this.currentJo) === 'PENDING';
                     if (this.currentJo.order_type === 'ORDER' || (isPosPendingFlow && (this.currentJo.order_id || this.currentJo.id))) {
                         const orderId = this.currentJo.order_id || this.currentJo.id;
