@@ -455,6 +455,8 @@ $paymongo_public = !empty($paymongo_payment)
 $paymongo_mode = in_array((string)($paymongo_payment['mode'] ?? ''), ['test', 'live'], true)
     ? (string)$paymongo_payment['mode']
     : printflow_paymongo_mode();
+$paymongo_show_test_badge = $paymongo_mode === 'test'
+    || printflow_provider_payment_livemode_from_row($paymongo_payment) === false;
 $paymongo_available = $paymongo_online_enabled
     && in_array($paymongo_mode, ['test', 'live'], true)
     && printflow_paymongo_secret_key_for_mode($paymongo_mode) !== '';
@@ -1085,7 +1087,7 @@ if (!function_exists('pf_payment_qr_url')) {
                         <div id="paymongo-test-payment" class="paymongo-card">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;">
                                 <div><div class="paymongo-eyebrow">Payment Method</div><h2 class="paymongo-title">Pay securely with PayMongo</h2></div>
-                                <?php if ($paymongo_mode === 'test'): ?><span style="padding:3px 8px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:800;text-transform:uppercase;">Test Mode</span><?php endif; ?>
+                                <?php if ($paymongo_show_test_badge): ?><span style="padding:3px 8px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:800;text-transform:uppercase;">Test Mode</span><?php endif; ?>
                             </div>
                             <div class="paymongo-method-summary">
                                 <strong>QR PH</strong>

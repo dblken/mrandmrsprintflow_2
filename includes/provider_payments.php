@@ -27,6 +27,31 @@ function printflow_paymongo_online_payment_enabled(): bool {
     return printflow_online_payment_mode() === 'paymongo';
 }
 
+function printflow_provider_payment_livemode_from_row(array $payment): ?bool {
+    if (!array_key_exists('provider_livemode', $payment) || $payment['provider_livemode'] === null) {
+        $mode = strtolower((string)($payment['mode'] ?? ''));
+        if ($mode === 'test') {
+            return false;
+        }
+        if ($mode === 'live') {
+            return true;
+        }
+        return null;
+    }
+    return (int)$payment['provider_livemode'] === 1;
+}
+
+function printflow_provider_payment_set_provider_livemode(int $ledgerId, bool $livemode): void {
+    if ($ledgerId <= 0 || !db_table_has_column('provider_payments', 'provider_livemode')) {
+        return;
+    }
+    db_execute(
+        'UPDATE provider_payments SET provider_livemode = ? WHERE id = ?',
+        'ii',
+        [$livemode ? 1 : 0, $ledgerId]
+    );
+}
+
 function printflow_provider_payments_ready(): bool {
     static $ready = null;
     if ($ready !== null) {
@@ -71,6 +96,7 @@ function printflow_provider_payment_public(array $payment): array {
         : ($method !== '' ? strtoupper($method) : 'PayMongo');
 
     $mode = (string)($payment['mode'] ?? '');
+    $providerLivemode = printflow_provider_payment_livemode_from_row($payment);
     $amountDue = (int)($payment['amount_centavos'] ?? 0);
     $paidAmount = array_key_exists('paid_amount_centavos', $payment)
         && $payment['paid_amount_centavos'] !== null
@@ -94,7 +120,8 @@ function printflow_provider_payment_public(array $payment): array {
         'order_id' => (int)($payment['order_id'] ?? 0),
         'channel' => (string)($payment['channel'] ?? ''),
         'mode' => $mode,
-        'test_mode' => $mode === 'test',
+        'livemode' => $providerLivemode,
+        'test_mode' => $providerLivemode !== null ? !$providerLivemode : ($mode === 'test'),
         'payment_flow' => $paymentFlow,
         'status' => $status,
         'payment_status' => $paymentStatus,
@@ -931,6 +958,10 @@ function printflow_provider_payment_create_link(
             'error_code' => 'link_persistence_failed',
         ];
     }
+    printflow_provider_payment_set_provider_livemode(
+        $ledgerId,
+        (bool)($apiResult['livemode'] ?? ($mode !== 'live'))
+    );
     create_notification(
         (int)$subject['customer_id'],
         'Customer',
@@ -1349,6 +1380,10 @@ function printflow_provider_payment_create_intent(
                     'error_code' => 'intent_persistence_failed',
                 ];
             }
+            printflow_provider_payment_set_provider_livemode(
+                $ledgerId,
+                (bool)($intent['livemode'] ?? ($mode !== 'live'))
+            );
         }
 
         $rows = db_query('SELECT * FROM provider_payments WHERE id = ? LIMIT 1', 'i', [$ledgerId]) ?: [];
@@ -1512,6 +1547,10 @@ function printflow_provider_payment_create_qrph(
             'error_code' => 'qrph_persistence_failed',
         ];
     }
+    printflow_provider_payment_set_provider_livemode(
+        $ledgerId,
+        (bool)($attached['livemode'] ?? ($mode !== 'live'))
+    );
     $rows = db_query('SELECT * FROM provider_payments WHERE id = ? LIMIT 1', 'i', [$ledgerId]) ?: [];
     return [
         'ok' => true,
@@ -1576,6 +1615,10 @@ function printflow_provider_payment_reconcile_intent(array $payment): array {
             printflow_provider_payment_set_reconciliation_error($ledgerId, $errors);
             return ['ok' => false, 'paid' => false, 'errors' => array_values(array_unique($errors))];
         }
+        printflow_provider_payment_set_provider_livemode(
+            $ledgerId,
+            (bool)($verified['livemode'] ?? ($mode !== 'live'))
+        );
         $result = printflow_provider_payment_mark_paid(
             $ledgerId,
             $providerPaymentId,
@@ -1803,6 +1846,11 @@ function printflow_provider_payment_mark_paid(
         }
         if (db_table_has_column('provider_payments', 'reconciliation_error_code')) {
             $setParts[] = 'reconciliation_error_code = NULL';
+        }
+        if (db_table_has_column('provider_payments', 'provider_livemode')) {
+            $setParts[] = 'provider_livemode = ?';
+            $types .= 'i';
+            $params[] = (string)($payment['mode'] ?? '') === 'live' ? 1 : 0;
         }
         $types .= 'i';
         $params[] = $ledgerId;
@@ -2076,24 +2124,6 @@ function printflow_provider_payment_complete_pos(int $ledgerId, int $staffId): a
         error_log('PayMongo POS completion failed for ledger #' . $ledgerId);
         return ['ok' => false, 'message' => 'The paid POS transaction could not be completed.'];
     }
-}
-
-function printflow_paymongo_webhook_secret_for_mode(string $mode): string {
-    $mode = strtolower(trim($mode));
-    if (!in_array($mode, ['test', 'live'], true)) {
-        return '';
-    }
-    $specific = printflow_paymongo_env(
-        $mode === 'live' ? 'PAYMONGO_LIVE_WEBHOOK_SECRET' : 'PAYMONGO_TEST_WEBHOOK_SECRET'
-    );
-    if ($specific !== '') {
-        return $specific;
-    }
-
-    // Backward compatibility is scoped to the configured mode so the same
-    // legacy secret can never authenticate both test and live callbacks.
-    $configuredMode = strtolower(printflow_paymongo_env('PAYMONGO_MODE'));
-    return $configuredMode === $mode ? printflow_paymongo_env('PAYMONGO_WEBHOOK_SECRET') : '';
 }
 
 function printflow_paymongo_verify_webhook_signature(

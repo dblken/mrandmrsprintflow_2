@@ -36,7 +36,19 @@ PAYMONGO_MODE=live
 PAYMONGO_LIVE_ENABLED=true
 ```
 
+While `PAYMONGO_MODE=test`, PrintFlow creates and verifies **new** payments only
+through test API keys and the test webhook secret. Live credentials, the live
+webhook endpoint file, and existing live ledger rows remain in place for later
+reactivation; read-only live API calls are still allowed so historical live
+payments can be reconciled without rewriting records.
+
 Do not reuse a test credential or test webhook secret in Live Mode.
+
+When `PAYMONGO_MODE` is unset but only test API keys are configured, PrintFlow
+defaults new checkouts to **test**. Setting `PAYMONGO_MODE=live` without live
+API keys also falls back to test instead of creating live payments. Live
+checkout still requires `PAYMONGO_LIVE_ENABLED=true` plus matching `pk_live_` /
+`sk_live_` credentials.
 
 ## Database migrations
 
@@ -46,6 +58,7 @@ For a new installation, run these from the deployed project root in order:
 php database/migrate_paymongo_provider_payments_20260729.php
 php database/migrate_paymongo_post_payment_workflow_20260730.php
 php database/migrate_paymongo_reconciliation_20260806.php
+php database/migrate_paymongo_provider_livemode_20261009.php
 ```
 
 Existing installations that have already applied both earlier PayMongo
