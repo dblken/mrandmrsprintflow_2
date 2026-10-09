@@ -194,6 +194,7 @@ if (empty($product)) { header('Location: products.php'); exit; }
 $product = $product[0];
 $product_field_configs = get_product_field_config($product_id);
 $error = '';
+$product_profile_incomplete = printflow_customer_profile_incomplete();
 $branches = order_create_optional_query("SELECT id, branch_name FROM branches WHERE status = 'Active'") ?: [];
 $branch_stock_map = [];
 foreach ($branches as $branch_row) {
@@ -625,15 +626,21 @@ require_once __DIR__ . '/../includes/header.php';
                     <div class="shopee-form-row pt-8">
                         <div style="width: 130px;"></div>
                         <div class="flex gap-4 flex-1">
+                            <?php if ($product_profile_incomplete): ?>
+                                <div role="alert" style="width:100%; padding:0.75rem 0.9rem; border:1px solid #fed7aa; border-radius:0.75rem; background:#fff7ed; color:#9a3412;">
+                                    <strong>Complete your profile first before placing an order.</strong>
+                                    <a href="profile.php" style="margin-left:0.5rem; color:#0f766e; font-weight:700;">Complete Profile</a>
+                                </div>
+                            <?php endif; ?>
                             <a href="products.php" class="shopee-btn-outline" style="flex: 1; min-width: 0;">Back</a>
                             <?php if ((int)$initial_stock_qty > 0): ?>
-                                <button type="submit" name="action" value="add_to_cart" id="poc-add-cart-btn" class="shopee-btn-outline" style="flex: 1.2; min-width: 140px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; padding: 0.5rem 1.25rem;" title="Add to Cart">
+                                <button type="submit" name="action" value="add_to_cart" id="poc-add-cart-btn" class="shopee-btn-outline" style="flex: 1.2; min-width: 140px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; padding: 0.5rem 1.25rem;" title="Add to Cart"<?php echo $product_profile_incomplete ? ' disabled aria-disabled="true"' : ''; ?>>
                                     <svg style="width: 1.125rem; height: 1.125rem; flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
                                     </svg>
                                     <span>Add to Cart</span>
                                 </button>
-                                <button type="submit" name="action" value="buy_now" id="poc-buy-now-btn" class="shopee-btn-primary" style="flex: 1; min-width: 0; white-space: nowrap; display: flex; align-items: center; justify-content: center; padding: 0.5rem 1.25rem;">
+                                <button type="submit" name="action" value="buy_now" id="poc-buy-now-btn" class="shopee-btn-primary"<?php echo $product_profile_incomplete ? ' disabled aria-disabled="true"' : ''; ?> style="flex: 1; min-width: 0; white-space: nowrap; display: flex; align-items: center; justify-content: center; padding: 0.5rem 1.25rem;">
                                     <span>Order Now</span>
                                 </button>
                             <?php else: ?>

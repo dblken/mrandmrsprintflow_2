@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
+require_once __DIR__ . '/../includes/customer_profile_completion.php';
 require_once __DIR__ . '/../includes/service_field_renderer.php';
 
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -302,6 +303,8 @@ $service_customer = db_query(
 $service_id_state = printflow_custom_order_id_status($service_customer);
 $service_id_status = (string)($service_id_state['status'] ?? 'None');
 $service_id_verified = $service_id_status === 'Verified';
+$service_profile_incomplete = printflow_customer_profile_incomplete();
+$service_can_order = !$service_profile_incomplete && $service_id_verified;
 $service_id_status_label = $service_id_status === 'Pending'
     ? 'Pending Verification'
     : ($service_id_status === 'Rejected' ? 'Rejected' : ($service_id_status === 'Verified' ? 'Verified' : 'Not Submitted'));
@@ -337,11 +340,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     if (isset($_POST['inquire_now'])) {
         $submission_action = 'inquire_now';
     }
+    if (printflow_is_order_submission_action($submission_action)) {
+        printflow_block_order_submission_if_profile_incomplete();
+    }
     if (!$service_id_verified && printflow_is_order_submission_action($submission_action)) {
         $error = $service_id_notice_message . ' Current status: ' . $service_id_status_label . '.';
-    }
-    if (empty($error) && printflow_is_order_submission_action($submission_action)) {
-        printflow_block_order_submission_if_profile_incomplete();
     }
 
     // Get field configurations to validate dynamically
@@ -1140,7 +1143,15 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                     
                     <?php echo render_service_fields($service_id, $branches, $existing_data); ?>
                     
-                    <?php if (!$service_id_verified): ?>
+                    <?php if ($service_profile_incomplete): ?>
+                        <div class="pf-custom-id-gate pf-custom-id-gate--required" role="alert">
+                            <div>
+                                <strong>Complete your profile first before placing an order</strong>
+                                <span>You must complete your Customer Account information before continuing with this customizable order.</span>
+                            </div>
+                            <a href="profile.php">Complete Profile</a>
+                        </div>
+                    <?php elseif (!$service_id_verified): ?>
                         <div class="pf-custom-id-gate pf-custom-id-gate--<?php echo strtolower($service_id_status === 'Pending' ? 'pending' : ($service_id_status === 'Rejected' ? 'rejected' : 'required')); ?>" role="alert">
                             <div>
                                 <strong><?php echo htmlspecialchars($service_id_notice_title, ENT_QUOTES, 'UTF-8'); ?></strong>
@@ -1156,13 +1167,13 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                         <div style="width: 130px;"></div>
                         <div class="service-action-buttons">
                             <a href="<?php echo BASE_URL; ?>/customer/services.php" class="shopee-btn-outline" style="min-width: 100px;">Back</a>
-                            <button type="submit" name="action" value="add_to_cart" class="shopee-btn-outline<?php echo $service_id_verified ? '' : ' service-action-disabled'; ?>"<?php echo $service_id_verified ? '' : ' disabled aria-disabled="true"'; ?> style="min-width: 140px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; padding: 0.5rem 1.25rem;" title="Add to Cart">
+                            <button type="submit" name="action" value="add_to_cart" class="shopee-btn-outline<?php echo $service_can_order ? '' : ' service-action-disabled'; ?>"<?php echo $service_can_order ? '' : ' disabled aria-disabled="true"'; ?> style="min-width: 140px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; padding: 0.5rem 1.25rem;" title="Add to Cart">
                                 <svg style="width: 1.125rem; height: 1.125rem; flex-shrink: 0; margin-right: 0.5rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
                                 </svg>
                                 <span>Add to Cart</span>
                             </button>
-                            <button type="submit" name="action" value="inquire_now" class="shopee-btn-primary<?php echo $service_id_verified ? '' : ' service-action-disabled'; ?>"<?php echo $service_id_verified ? '' : ' disabled aria-disabled="true"'; ?> style="min-width: 190px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; padding: 0.5rem 1.25rem;">
+                            <button type="submit" name="action" value="inquire_now" class="shopee-btn-primary<?php echo $service_can_order ? '' : ' service-action-disabled'; ?>"<?php echo $service_can_order ? '' : ' disabled aria-disabled="true"'; ?> style="min-width: 190px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; padding: 0.5rem 1.25rem;">
                                 <svg style="width: 1.125rem; height: 1.125rem; flex-shrink: 0; margin-right: 0.5rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
                                 </svg>

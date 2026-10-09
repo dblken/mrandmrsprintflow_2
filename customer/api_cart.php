@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/product_catalog_groups.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
+require_once __DIR__ . '/../includes/customer_profile_completion.php';
 
 $session_user_type = trim((string)(get_user_type() ?? ''));
 if (!is_logged_in() || strcasecmp($session_user_type, 'Customer') !== 0) {
@@ -51,6 +52,12 @@ if (!verify_csrf_token($input['csrf_token'] ?? '')) {
 }
 
 $action = $input['action'] ?? '';
+
+if (in_array($action, ['add', 'buy_now'], true) && printflow_customer_profile_incomplete()) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Complete your profile first before placing an order.']);
+    exit;
+}
 
 if (!isset($_SESSION['cart'])) $_SESSION['cart'] = [];
 $customer_id = get_customer_id();

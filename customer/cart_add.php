@@ -1,8 +1,11 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/customer_profile_completion.php';
 
 require_role('Customer');
+
+printflow_block_order_submission_if_profile_incomplete();
 
 $product_id = (int)($_GET['product_id'] ?? 0);
 if ($product_id <= 0) {
