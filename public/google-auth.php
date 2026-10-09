@@ -33,6 +33,59 @@ $oauth_fail = static function (string $category, string $message) use ($base_url
     exit;
 };
 
+$google_http_request = static function (string $url, string $method = 'GET', string $body = '', array $headers = []): array {
+    if (function_exists('curl_init')) {
+        $curl = curl_init($url);
+        curl_setopt_array($curl, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_CUSTOMREQUEST => $method,
+            CURLOPT_HTTPHEADER => $headers,
+        ]);
+        if ($method === 'POST') {
+            curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
+        }
+        $response = curl_exec($curl);
+        $error = curl_error($curl);
+        $status = (int)curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        curl_close($curl);
+        return [
+            'body' => $response === false ? '' : (string)$response,
+            'status' => $status,
+            'transport_ok' => $response !== false,
+            'error' => $error,
+        ];
+    }
+
+    $context = stream_context_create([
+        'http' => [
+            'method' => $method,
+            'header' => implode("\r\n", $headers) . "\r\n",
+            'content' => $body,
+            'ignore_errors' => true,
+            'timeout' => 20,
+        ]
+    ]);
+    $response = @file_get_contents($url, false, $context);
+    $status = 0;
+    foreach (($http_response_header ?? []) as $response_header) {
+        if (preg_match('/^HTTP\/\S+\s+(\d{3})/', $response_header, $match)) {
+            $status = (int)$match[1];
+            break;
+        }
+    }
+    return [
+        'body' => $response === false ? '' : (string)$response,
+        'status' => $status,
+        'transport_ok' => $response !== false,
+        'error' => '',
+    ];
+};
+
 if (empty($client_id) || empty($client_secret)) {
     $oauth_fail('configuration', 'Google sign-in is not configured.');
 }
@@ -121,39 +174,34 @@ $token_body = [
     'redirect_uri' => $redirect_uri_full,
     'grant_type' => 'authorization_code'
 ];
-$ctx = stream_context_create([
-    'http' => [
-        'method' => 'POST',
-        'header' => "Content-Type: application/x-www-form-urlencoded\r\n",
-        'content' => http_build_query($token_body),
-        'ignore_errors' => true,
-        'timeout' => 15,
-    ]
-]);
-$token_response = @file_get_contents($token_url, false, $ctx);
-if ($token_response === false) {
+$token_response = $google_http_request(
+    $token_url,
+    'POST',
+    http_build_query($token_body),
+    ['Content-Type: application/x-www-form-urlencoded']
+);
+if (!$token_response['transport_ok']) {
+    $oauth_log('token_exchange_transport_failure', ['error' => $token_response['error']]);
     $oauth_fail('token_exchange_connection', 'Google sign-in could not connect. Please try again.');
 }
-$token_data = json_decode($token_response, true);
+$token_data = json_decode($token_response['body'], true);
 if (!is_array($token_data) || empty($token_data['access_token'])) {
     $oauth_fail('token_exchange', 'Google sign-in could not be completed. Please try again.');
 }
 $oauth_log('token_exchange_succeeded');
 
 // Get user info using an Authorization header so the access token is not placed in the URL.
-$userinfo_context = stream_context_create([
-    'http' => [
-        'method' => 'GET',
-        'header' => "Authorization: Bearer " . $token_data['access_token'] . "\r\n",
-        'ignore_errors' => true,
-        'timeout' => 15,
-    ]
-]);
-$user_response = @file_get_contents('https://www.googleapis.com/oauth2/v2/userinfo', false, $userinfo_context);
-if ($user_response === false) {
-    $oauth_fail('profile_retrieval_connection', 'Google profile information could not be retrieved.');
+$user_response = $google_http_request(
+    'https://www.googleapis.com/oauth2/v2/userinfo',
+    'GET',
+    '',
+    ['Authorization: Bearer ' . $token_data['access_token']]
+);
+if (!$user_response['transport_ok'] || $user_response['status'] >= 400) {
+    $oauth_log('profile_retrieval_failure', ['status' => $user_response['status']]);
+    $oauth_fail('profile_retrieval', 'Google profile information could not be retrieved.');
 }
-$user = json_decode($user_response, true);
+$user = json_decode($user_response['body'], true);
 if (!is_array($user)) {
     $oauth_fail('profile_retrieval', 'Google profile information was invalid.');
 }
