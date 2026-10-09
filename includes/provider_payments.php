@@ -28,14 +28,9 @@ function printflow_paymongo_online_payment_enabled(): bool {
 }
 
 function printflow_provider_payment_livemode_from_row(array $payment): ?bool {
-    if (!array_key_exists('provider_livemode', $payment) || $payment['provider_livemode'] === null) {
-        $mode = strtolower((string)($payment['mode'] ?? ''));
-        if ($mode === 'test') {
-            return false;
-        }
-        if ($mode === 'live') {
-            return true;
-        }
+    if (!array_key_exists('provider_livemode', $payment)
+        || $payment['provider_livemode'] === null
+        || empty($payment['provider_livemode_verified_at'])) {
         return null;
     }
     return (int)$payment['provider_livemode'] === 1;
@@ -45,11 +40,45 @@ function printflow_provider_payment_set_provider_livemode(int $ledgerId, bool $l
     if ($ledgerId <= 0 || !db_table_has_column('provider_payments', 'provider_livemode')) {
         return;
     }
+    $setParts = ['provider_livemode = ?'];
+    $types = 'i';
+    $params = [$livemode ? 1 : 0];
+    if (db_table_has_column('provider_payments', 'provider_livemode_verified_at')) {
+        $setParts[] = 'provider_livemode_verified_at = NOW()';
+    }
+    $types .= 'i';
+    $params[] = $ledgerId;
     db_execute(
-        'UPDATE provider_payments SET provider_livemode = ? WHERE id = ?',
-        'ii',
-        [$livemode ? 1 : 0, $ledgerId]
+        'UPDATE provider_payments SET ' . implode(', ', $setParts) . ' WHERE id = ?',
+        $types,
+        $params
     );
+}
+
+function printflow_provider_payment_set_test_url(int $ledgerId, string $mode, string $testUrl): void {
+    if ($ledgerId <= 0 || $mode !== 'test'
+        || !db_table_has_column('provider_payments', 'provider_test_url')) {
+        return;
+    }
+    $safeUrl = printflow_paymongo_safe_test_simulation_url($testUrl);
+    if ($safeUrl === '') {
+        return;
+    }
+    db_execute(
+        'UPDATE provider_payments SET provider_test_url = ? WHERE id = ? AND mode = \'test\'',
+        'si',
+        [$safeUrl, $ledgerId]
+    );
+}
+
+function printflow_provider_payment_customer_test_simulation_url(array $payment): string {
+    if (strtolower((string)($payment['mode'] ?? '')) !== 'test'
+        || printflow_provider_payment_livemode_from_row($payment) !== false
+        || (string)($payment['status'] ?? '') !== 'awaiting_payment'
+        || (string)($payment['payment_flow'] ?? '') !== 'payment_intent') {
+        return '';
+    }
+    return printflow_paymongo_safe_test_simulation_url($payment['provider_test_url'] ?? '');
 }
 
 function printflow_provider_payments_ready(): bool {
@@ -86,7 +115,7 @@ function printflow_money_to_centavos($amount): int {
     return ((int)$whole * 100) + (int)substr($fraction, 0, 2);
 }
 
-function printflow_provider_payment_public(array $payment): array {
+function printflow_provider_payment_public(array $payment, bool $includeTestSimulator = false): array {
     $status = (string)($payment['status'] ?? '');
     $paymentStatus = (string)($payment['payment_status'] ?? $status);
     $providerStatus = (string)($payment['provider_status'] ?? $status);
@@ -109,8 +138,14 @@ function printflow_provider_payment_public(array $payment): array {
     $qrExpiresEpoch = $qrExpiresAt !== '' ? strtotime($qrExpiresAt) : false;
     $qrIsActive = $paymentFlow === 'payment_intent'
         && $status === 'awaiting_payment'
+        && $mode === 'live'
         && !empty($payment['qr_image_url'])
+        && $providerLivemode !== null
+        && ($providerLivemode === ($mode === 'live'))
         && ($qrExpiresEpoch === false || $qrExpiresEpoch > time());
+    $testSimulationUrl = $includeTestSimulator
+        ? printflow_provider_payment_customer_test_simulation_url($payment)
+        : '';
 
     return [
         // Keep payment_id as the legacy internal ledger id and expose an
@@ -136,7 +171,10 @@ function printflow_provider_payment_public(array $payment): array {
         'payment_link_id' => (string)($payment['link_id'] ?? ''),
         'payment_intent_id' => (string)($payment['payment_intent_id'] ?? ''),
         'payment_method_id' => (string)($payment['payment_method_id'] ?? ''),
+        // PayMongo warns that Test QRPh codes should not be scanned; use the
+        // provider's Test simulator instead of exposing the QR image.
         'qr_image_url' => $qrIsActive ? (string)$payment['qr_image_url'] : '',
+        'test_simulation_url' => $testSimulationUrl,
         'qr_expires_at' => $qrExpiresAt !== '' ? $qrExpiresAt : null,
         'qr_expires_at_epoch' => $qrExpiresEpoch !== false ? $qrExpiresEpoch : null,
         'retryable' => in_array($status, ['failed', 'expired', 'cancelled'], true),
@@ -270,7 +308,7 @@ function printflow_provider_payment_revalidation_errors(array $payment, array $v
         $errors[] = 'mode';
     }
     $expectedLive = $mode === 'live';
-    if ((bool)($verified['livemode'] ?? !$expectedLive) !== $expectedLive
+    if (($verified['livemode'] ?? null) !== $expectedLive
         || (string)($verified['mode'] ?? $mode) !== $mode) {
         $errors[] = 'livemode';
     }
@@ -698,7 +736,9 @@ function printflow_provider_payment_create_link(
         "SELECT id FROM provider_payments
          WHERE subject_type = ? AND subject_id = ? AND channel = ?
            AND provider = 'paymongo' AND mode <> ?
-           AND status IN ('generating', 'awaiting_payment', 'paid')
+           AND " . (($mode === 'test' && $channel === 'online')
+                ? "status IN ('generating', 'paid')"
+                : "status IN ('generating', 'awaiting_payment', 'paid')") . "
          ORDER BY id DESC LIMIT 1 FOR UPDATE",
         'siss',
         [$subjectType, $subjectId, $channel, $mode]
@@ -893,7 +933,7 @@ function printflow_provider_payment_create_link(
         $idempotencyKey
     );
 
-    if (empty($apiResult['ok']) || (bool)($apiResult['livemode'] ?? true) !== ($mode === 'live')
+    if (empty($apiResult['ok']) || ($apiResult['livemode'] ?? null) !== ($mode === 'live')
         || empty($apiResult['id']) || empty($apiResult['url'])
         || (int)($apiResult['amount'] ?? 0) !== $amountCentavos) {
         $providerHttpStatus = (int)($apiResult['http_status'] ?? 0);
@@ -960,7 +1000,7 @@ function printflow_provider_payment_create_link(
     }
     printflow_provider_payment_set_provider_livemode(
         $ledgerId,
-        (bool)($apiResult['livemode'] ?? ($mode !== 'live'))
+        $apiResult['livemode']
     );
     create_notification(
         (int)$subject['customer_id'],
@@ -984,6 +1024,7 @@ function printflow_provider_payment_intent_schema_ready(): bool {
     foreach ([
         'payment_flow', 'payment_intent_id', 'payment_method_id', 'qr_image_url',
         'qr_expires_at', 'client_key', 'idempotency_key', 'payment_status', 'provider_status',
+        'provider_livemode', 'provider_livemode_verified_at', 'provider_test_url',
     ] as $column) {
         if (!db_table_has_column('provider_payments', $column)) {
             return false;
@@ -1128,7 +1169,9 @@ function printflow_provider_payment_create_intent(
             "SELECT id FROM provider_payments
              WHERE subject_type = ? AND subject_id = ? AND channel = ?
                AND provider = 'paymongo' AND mode <> ?
-               AND status IN ('generating', 'awaiting_payment', 'paid')
+               AND " . (($mode === 'test' && $channel === 'online')
+                    ? "status IN ('generating', 'paid')"
+                    : "status IN ('generating', 'awaiting_payment', 'paid')") . "
              ORDER BY id DESC LIMIT 1 FOR UPDATE",
             'siss',
             [$subjectType, $subjectId, $channel, $mode]
@@ -1349,7 +1392,7 @@ function printflow_provider_payment_create_intent(
                 $idempotencyKey
             );
             $validIntent = !empty($intent['ok'])
-                && (bool)($intent['livemode'] ?? true) === ($mode === 'live')
+                && ($intent['livemode'] ?? null) === ($mode === 'live')
                 && !empty($intent['id'])
                 && !empty($intent['client_key'])
                 && (int)($intent['amount'] ?? 0) === $amountCentavos
@@ -1382,7 +1425,7 @@ function printflow_provider_payment_create_intent(
             }
             printflow_provider_payment_set_provider_livemode(
                 $ledgerId,
-                (bool)($intent['livemode'] ?? ($mode !== 'live'))
+                $intent['livemode']
             );
         }
 
@@ -1428,6 +1471,7 @@ function printflow_provider_payment_create_qrph(
     if ($ledgerId <= 0) {
         return ['ok' => false, 'http_status' => 500, 'message' => 'The payment ledger could not be loaded.'];
     }
+    $mode = (string)($ledger['mode'] ?? '');
     if (!empty($intentResult['in_progress'])
         && (string)($ledger['status'] ?? '') === 'generating') {
         return [
@@ -1451,16 +1495,53 @@ function printflow_provider_payment_create_qrph(
     if ((string)($ledger['status'] ?? '') === 'awaiting_payment'
         && !empty($ledger['qr_image_url'])
         && (empty($ledger['qr_expires_at']) || strtotime((string)$ledger['qr_expires_at']) > time())) {
+        $verified = printflow_provider_payment_reconcile_intent($ledger);
+        if (empty($verified['ok'])) {
+            return [
+                'ok' => false,
+                'http_status' => 503,
+                'message' => 'The existing QR could not be verified with PayMongo. Refresh and try again.',
+                'error_code' => 'qr_environment_unverified',
+            ];
+        }
+        $rows = db_query('SELECT * FROM provider_payments WHERE id = ? LIMIT 1', 'i', [$ledgerId]) ?: [];
+        $ledger = $rows[0] ?? [];
+        $publicPayment = printflow_provider_payment_public($ledger, true);
+        if ((string)($ledger['status'] ?? '') === 'paid') {
+            return [
+                'ok' => true,
+                'reused' => true,
+                'payment' => printflow_provider_payment_public($ledger, true),
+                'qr_image_url' => '',
+                'qr_expires_at' => $ledger['qr_expires_at'] ?? null,
+            ];
+        }
+        if ($mode === 'test' && !empty($publicPayment['test_simulation_url'])) {
+            return [
+                'ok' => true,
+                'reused' => true,
+                'payment' => $publicPayment,
+                'qr_image_url' => '',
+                'qr_expires_at' => $ledger['qr_expires_at'],
+            ];
+        }
+        if (empty($publicPayment['qr_image_url'])) {
+            return [
+                'ok' => false,
+                'http_status' => 503,
+                'message' => 'The QR could not be verified for this payment environment.',
+                'error_code' => 'qr_environment_unverified',
+            ];
+        }
         return [
             'ok' => true,
             'reused' => true,
-            'payment' => printflow_provider_payment_public($ledger),
-            'qr_image_url' => (string)$ledger['qr_image_url'],
+            'payment' => $publicPayment,
+            'qr_image_url' => (string)$publicPayment['qr_image_url'],
             'qr_expires_at' => $ledger['qr_expires_at'],
         ];
     }
 
-    $mode = (string)$ledger['mode'];
     $paymentMethod = printflow_paymongo_create_payment_method(
         'qrph',
         [],
@@ -1469,7 +1550,7 @@ function printflow_provider_payment_create_qrph(
         ''
     );
     $validMethod = !empty($paymentMethod['ok'])
-        && (bool)($paymentMethod['livemode'] ?? true) === ($mode === 'live')
+        && ($paymentMethod['livemode'] ?? null) === ($mode === 'live')
         && (string)($paymentMethod['type'] ?? '') === 'qrph'
         && !empty($paymentMethod['id']);
     if (!$validMethod) {
@@ -1505,7 +1586,7 @@ function printflow_provider_payment_create_qrph(
         ''
     );
     $validAttachment = !empty($attached['ok'])
-        && (bool)($attached['livemode'] ?? true) === ($mode === 'live')
+        && ($attached['livemode'] ?? null) === ($mode === 'live')
         && (string)($attached['id'] ?? '') === (string)$ledger['payment_intent_id']
         && (int)($attached['amount'] ?? 0) === (int)$ledger['amount_centavos']
         && strtoupper((string)($attached['currency'] ?? '')) === 'PHP'
@@ -1549,14 +1630,20 @@ function printflow_provider_payment_create_qrph(
     }
     printflow_provider_payment_set_provider_livemode(
         $ledgerId,
-        (bool)($attached['livemode'] ?? ($mode !== 'live'))
+        $attached['livemode']
+    );
+    printflow_provider_payment_set_test_url(
+        $ledgerId,
+        $mode,
+        (string)($attached['test_url'] ?? '')
     );
     $rows = db_query('SELECT * FROM provider_payments WHERE id = ? LIMIT 1', 'i', [$ledgerId]) ?: [];
+    $publicPayment = printflow_provider_payment_public($rows[0] ?? [], true);
     return [
         'ok' => true,
         'reused' => false,
-        'payment' => printflow_provider_payment_public($rows[0] ?? []),
-        'qr_image_url' => (string)$attached['qr_image_url'],
+        'payment' => $publicPayment,
+        'qr_image_url' => (string)($publicPayment['qr_image_url'] ?? ''),
         'qr_expires_at' => $expiresAt,
     ];
 }
@@ -1573,7 +1660,7 @@ function printflow_provider_payment_reconcile_intent(array $payment): array {
     if (empty($intent['ok']) || (string)($intent['id'] ?? '') !== $intentId) {
         $errors[] = 'payment_intent';
     }
-    if ((bool)($intent['livemode'] ?? ($mode !== 'live')) !== ($mode === 'live')
+    if (($intent['livemode'] ?? null) !== ($mode === 'live')
         || (string)($intent['mode'] ?? $mode) !== $mode) {
         $errors[] = 'livemode';
     }
@@ -1592,6 +1679,13 @@ function printflow_provider_payment_reconcile_intent(array $payment): array {
         printflow_provider_payment_set_reconciliation_error($ledgerId, $errors);
         return ['ok' => false, 'paid' => false, 'errors' => array_values(array_unique($errors))];
     }
+
+    printflow_provider_payment_set_provider_livemode($ledgerId, $intent['livemode']);
+    printflow_provider_payment_set_test_url(
+        $ledgerId,
+        $mode,
+        (string)($intent['test_url'] ?? '')
+    );
 
     $status = strtolower((string)($intent['status'] ?? ''));
     db_execute(
@@ -1617,7 +1711,7 @@ function printflow_provider_payment_reconcile_intent(array $payment): array {
         }
         printflow_provider_payment_set_provider_livemode(
             $ledgerId,
-            (bool)($verified['livemode'] ?? ($mode !== 'live'))
+            $verified['livemode']
         );
         $result = printflow_provider_payment_mark_paid(
             $ledgerId,
@@ -1762,10 +1856,14 @@ function printflow_provider_payment_mark_paid(
             throw new RuntimeException('The provider payment identifier is invalid.');
         }
 
-        $subject = printflow_provider_payment_load_subject(
-            (string)$payment['subject_type'],
-            (int)$payment['subject_id']
-        );
+        $subjectType = (string)$payment['subject_type'];
+        $subjectId = (int)$payment['subject_id'];
+        if ($subjectType === 'order') {
+            db_query('SELECT order_id FROM orders WHERE order_id = ? FOR UPDATE', 'i', [$subjectId]);
+        } elseif ($subjectType === 'job_order') {
+            db_query('SELECT id FROM job_orders WHERE id = ? FOR UPDATE', 'i', [$subjectId]);
+        }
+        $subject = printflow_provider_payment_load_subject($subjectType, $subjectId);
         if (empty($subject)) {
             throw new RuntimeException('The linked order no longer exists.');
         }
@@ -1780,6 +1878,10 @@ function printflow_provider_payment_mark_paid(
         }
         if (printflow_money_to_centavos($subject['total_amount'] ?? '') !== (int)$payment['amount_centavos']) {
             throw new RuntimeException('The linked order amount does not match the verified payment.');
+        }
+        if ((string)($payment['status'] ?? '') !== 'paid'
+            && strcasecmp((string)($subject['payment_status'] ?? ''), 'Paid') === 0) {
+            throw new RuntimeException('The order was already paid by another payment attempt.');
         }
 
         $paidAmountCentavos = $paidAmountCentavos ?? (int)($payment['paid_amount_centavos'] ?? 0);
@@ -1851,6 +1953,9 @@ function printflow_provider_payment_mark_paid(
             $setParts[] = 'provider_livemode = ?';
             $types .= 'i';
             $params[] = (string)($payment['mode'] ?? '') === 'live' ? 1 : 0;
+        }
+        if (db_table_has_column('provider_payments', 'provider_livemode_verified_at')) {
+            $setParts[] = 'provider_livemode_verified_at = NOW()';
         }
         $types .= 'i';
         $params[] = $ledgerId;

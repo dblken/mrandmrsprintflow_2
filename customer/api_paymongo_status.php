@@ -263,6 +263,6 @@ printflow_customer_paymongo_respond(200, [
     'success' => true,
     'confirming' => $confirming,
     'reconciliation_pending' => !empty($payment['reconciliation_error_code']),
-    'payment' => printflow_provider_payment_public($payment),
+    'payment' => printflow_provider_payment_public($payment, true),
     'available_flows' => $availableFlows,
 ]);

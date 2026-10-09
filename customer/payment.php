@@ -450,7 +450,7 @@ $financial_snapshot = printflow_order_financial_snapshot(
 );
 $is_ready_made_product = !$is_job_order && printflow_is_ready_made_product_order($order);
 $paymongo_public = !empty($paymongo_payment)
-    ? printflow_provider_payment_public($paymongo_payment)
+    ? printflow_provider_payment_public($paymongo_payment, true)
     : [];
 $paymongo_mode = in_array((string)($paymongo_payment['mode'] ?? ''), ['test', 'live'], true)
     ? (string)$paymongo_payment['mode']
@@ -1091,11 +1091,16 @@ if (!function_exists('pf_payment_qr_url')) {
                             </div>
                             <div class="paymongo-method-summary">
                                 <strong>QR PH</strong>
-                                <span>Scan the QR using a supported banking or e-wallet app.</span>
+                                <span><?php echo $paymongo_mode === 'test' ? 'Test payment simulation' : 'Scan the QR using a supported banking or e-wallet app.'; ?></span>
                             </div>
                             <div id="paymongo-qr-panel" class="paymongo-qr-card" style="display:none;">
                                 <div class="paymongo-eyebrow">QR Ph Payment</div><div class="paymongo-amount" style="font-size:1.35rem;margin:.2rem 0 .35rem;"><?php echo format_currency($total_amount); ?></div>
-                                <div style="font-size:.76rem;color:#52666d;line-height:1.45;margin-bottom:.45rem;">Scan this QR using a supported banking or e-wallet application.</div>
+                                <div id="paymongo-live-scan-instructions" style="font-size:.76rem;color:#52666d;line-height:1.45;margin-bottom:.45rem;">Scan this QR using a supported banking or e-wallet application.</div>
+                                <div id="paymongo-test-simulation-note" role="status" style="display:none;padding:12px;margin:8px 0;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:.8rem;line-height:1.5;text-align:left;">
+                                    Test Mode QR codes must not be scanned or paid. Use the official PayMongo simulator to test payment outcomes.
+                                    <a id="paymongo-test-simulation-link" href="#" target="_blank" rel="noopener noreferrer" class="paymongo-action paymongo-action-primary" style="display:none;width:100%;margin-top:9px;box-sizing:border-box;">Open PayMongo Test Simulator</a>
+                                    <span id="paymongo-test-simulation-unavailable" style="display:none;margin-top:8px;">The simulator link is not available for this payment. Generate a new Test QR or contact staff.</span>
+                                </div>
                                 <img id="paymongo-qr-image" alt="PayMongo QR Ph payment code">
                                 <a id="paymongo-qr-download" class="paymongo-qr-download" href="#" download style="display:none;">Download QR image</a>
                                 <div style="margin-top:.45rem;font-size:.78rem;font-weight:800;color:#9a6700;">Waiting for payment</div>
@@ -1386,6 +1391,21 @@ if (!function_exists('pf_payment_qr_url')) {
             if (!payment) {
                 paymongoState.textContent = 'Preparing your QR Ph payment...';
                 if (paymongoQrPanel) paymongoQrPanel.style.display = 'none';
+                const testSimulationNote = document.getElementById('paymongo-test-simulation-note');
+                const testSimulationLink = document.getElementById('paymongo-test-simulation-link');
+                const testSimulationUnavailable = document.getElementById('paymongo-test-simulation-unavailable');
+                const scanInstructions = document.getElementById('paymongo-live-scan-instructions');
+                if (testSimulationNote) testSimulationNote.style.display = 'none';
+                if (testSimulationUnavailable) testSimulationUnavailable.style.display = 'none';
+                if (testSimulationLink) {
+                    testSimulationLink.removeAttribute('href');
+                    testSimulationLink.style.display = 'none';
+                }
+                if (scanInstructions) scanInstructions.style.display = '';
+                if (paymongoQrImage) {
+                    paymongoQrImage.removeAttribute('src');
+                    paymongoQrImage.style.display = 'none';
+                }
                 if (paymongoQrDownload) {
                     paymongoQrDownload.style.display = 'none';
                     paymongoQrDownload.removeAttribute('href');
@@ -1399,9 +1419,35 @@ if (!function_exists('pf_payment_qr_url')) {
                 return true;
             }
             const isQr = payment.payment_flow === 'payment_intent' && payment.payment_method === 'qrph';
-            const hasQr = isQr && Boolean(payment.qr_image_url);
-            if (paymongoQrPanel) paymongoQrPanel.style.display = hasQr ? 'block' : 'none';
-            if (paymongoQrImage && hasQr) paymongoQrImage.src = payment.qr_image_url;
+            const isVerifiedTest = isQr && payment.mode === 'test' && payment.livemode === false;
+            const simulationUrl = isVerifiedTest ? String(payment.test_simulation_url || '') : '';
+            const hasQr = isQr && payment.mode === 'live' && payment.livemode === true && Boolean(payment.qr_image_url);
+            if (paymongoQrPanel) paymongoQrPanel.style.display = (hasQr || isVerifiedTest) ? 'block' : 'none';
+            const scanInstructions = document.getElementById('paymongo-live-scan-instructions');
+            if (scanInstructions) scanInstructions.style.display = isVerifiedTest ? 'none' : '';
+            const testSimulationNote = document.getElementById('paymongo-test-simulation-note');
+            const testSimulationLink = document.getElementById('paymongo-test-simulation-link');
+            const testSimulationUnavailable = document.getElementById('paymongo-test-simulation-unavailable');
+            if (testSimulationNote) testSimulationNote.style.display = isVerifiedTest ? 'block' : 'none';
+            if (testSimulationLink) {
+                if (simulationUrl) {
+                    testSimulationLink.href = simulationUrl;
+                    testSimulationLink.style.display = 'inline-flex';
+                } else {
+                    testSimulationLink.removeAttribute('href');
+                    testSimulationLink.style.display = 'none';
+                }
+            }
+            if (testSimulationUnavailable) testSimulationUnavailable.style.display = isVerifiedTest && !simulationUrl ? 'block' : 'none';
+            if (paymongoQrImage) {
+                if (hasQr) {
+                    paymongoQrImage.src = payment.qr_image_url;
+                    paymongoQrImage.style.display = 'block';
+                } else {
+                    paymongoQrImage.removeAttribute('src');
+                    paymongoQrImage.style.display = 'none';
+                }
+            }
             if (paymongoQrDownload) {
                 if (hasQr) {
                     paymongoQrDownload.href = paymongoQrDownloadUrl + '&download=' + encodeURIComponent(payment.payment_id || payment.ledger_payment_id || Date.now());
@@ -1423,6 +1469,10 @@ if (!function_exists('pf_payment_qr_url')) {
                 paymongoState.textContent = 'QR code expired. Generate a new QR code to continue.';
             } else if (status === 'generating') {
                 paymongoState.textContent = 'Preparing your PayMongo payment...';
+            } else if (isVerifiedTest) {
+                paymongoState.textContent = simulationUrl
+                    ? 'Test Mode: use the official simulator. Do not scan or pay the QR.'
+                    : 'Test Mode QR verified, but the PayMongo simulator link is unavailable.';
             } else if (hasQr) {
                 paymongoState.textContent = 'Waiting for QR PH payment confirmation.';
             } else {
@@ -1430,7 +1480,7 @@ if (!function_exists('pf_payment_qr_url')) {
                     ? 'Waiting for QR PH payment confirmation.'
                     : 'Scan a secure QR using a supported banking or e-wallet app.';
             }
-            if (hasQr) startQrCountdown(payment);
+            if (hasQr || isVerifiedTest) startQrCountdown(payment);
             return ['paid', 'failed', 'expired', 'cancelled'].includes(status);
         };
         const schedulePayMongoPoll = () => {

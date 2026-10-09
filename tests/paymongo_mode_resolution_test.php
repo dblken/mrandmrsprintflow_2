@@ -151,5 +151,28 @@ $check(
     empty($reject['ok']) && ($reject['error_code'] ?? '') === 'livemode_mismatch',
     'server-side safety rejects live PayMongo resources while in test mode'
 );
+$missingMode = printflow_paymongo_enforce_response_livemode([
+    'ok' => true,
+    'mode' => 'test',
+], 'test');
+$check(
+    empty($missingMode['ok']) && ($missingMode['error_code'] ?? '') === 'livemode_unverified',
+    'server-side safety rejects responses without a boolean provider livemode value'
+);
+$nonBooleanMode = printflow_paymongo_enforce_response_livemode([
+    'ok' => true,
+    'mode' => 'test',
+    'livemode' => 0,
+], 'test');
+$check(
+    empty($nonBooleanMode['ok']) && ($nonBooleanMode['error_code'] ?? '') === 'livemode_unverified',
+    'server-side safety rejects non-boolean provider livemode values'
+);
+$check(
+    str_contains($provider, "\$mode === 'live'")
+        && str_contains($provider, "\$providerLivemode !== null")
+        && str_contains($provider, 'printflow_provider_payment_customer_test_simulation_url'),
+    'public QR exposure requires verified Live mode while Test payments use a separate simulator URL'
+);
 
 echo "All {$passed} PayMongo mode resolution tests passed.\n";

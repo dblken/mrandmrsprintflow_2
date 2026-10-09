@@ -80,8 +80,9 @@ paymongo_webhook_assert(
     strpos($paymongo, "isset(\$payment['data']) && is_array(\$payment['data'])") !== false
         && strpos($paymongo, "isset(\$paymentData['attributes']) && is_array(\$paymentData['attributes'])") !== false
         && strpos($paymongo, "\$paymentData['id'] ?? \$paidPayment['id'] ?? ''") !== false
-        && strpos($paymongo, "\$attributes['livemode'] ?? (\$mode === 'live')") !== false,
-    'payment-link reconciliation accepts PayMongo data.attributes payment objects in test mode'
+        && strpos($paymongo, "isset(\$attributes['livemode']) && is_bool(\$attributes['livemode'])") !== false
+        && strpos($paymongo, ': null,') !== false,
+    'payment-link reconciliation accepts nested payment objects but rejects missing or non-boolean livemode'
 );
 
 foreach ([

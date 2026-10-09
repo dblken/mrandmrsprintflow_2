@@ -27,7 +27,7 @@ pos_paymongo_checkout_assert(
 pos_paymongo_checkout_assert(
     strpos($checkoutSource, 'price_finalized_at = COALESCE(price_finalized_at, NOW())') !== false
         && strpos($checkoutSource, 'price_finalized_by = COALESCE(price_finalized_by, ?)') !== false
-        && strpos($checkoutSource, "'ssd' . \$pendingPriceFinalTypes . 'i'") !== false,
+        && strpos($checkoutSource, "'ssds' . \$pendingPriceFinalTypes . 'i'") !== false,
     'Merged pending POS orders keep or set final-price audit metadata.'
 );
 pos_paymongo_checkout_assert(

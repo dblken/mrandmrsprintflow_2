@@ -1,9 +1,9 @@
 # PayMongo Test and Live Deployment
 
-PayMongo link creation and reconciliation support both environments, but live
-payments are fail-closed. Keep `PAYMONGO_LIVE_ENABLED=false` until the Test Mode
-workflow has passed end-to-end and the dedicated Live Mode webhook has been
-registered and verified.
+PayMongo payment creation and reconciliation support both environments.
+`PAYMONGO_MODE=test` pins every new mutating request to Test Mode, even when
+preserved Live credentials and `PAYMONGO_LIVE_ENABLED=true` are present. Live
+webhook verification remains separately gated by the Live setting.
 
 ## Environment configuration
 
@@ -17,11 +17,13 @@ PAYMONGO_API_URL=https://api.paymongo.com
 PAYMONGO_TEST_PUBLIC_KEY=pk_test_your_public_key
 PAYMONGO_TEST_SECRET_KEY=sk_test_your_secret_key
 PAYMONGO_TEST_WEBHOOK_SECRET=whsk_your_test_webhook_secret
+PAYMONGO_TEST_DIRECT_METHODS=qrph
 
-PAYMONGO_LIVE_ENABLED=false
+PAYMONGO_LIVE_ENABLED=true
 PAYMONGO_LIVE_PUBLIC_KEY=pk_live_your_public_key
 PAYMONGO_LIVE_SECRET_KEY=sk_live_your_secret_key
 PAYMONGO_LIVE_WEBHOOK_SECRET=whsk_your_live_webhook_secret
+PAYMONGO_LIVE_DIRECT_METHODS=qrph
 ```
 
 The webhook signing secrets are different from the API secret keys. Legacy
@@ -36,11 +38,21 @@ PAYMONGO_MODE=live
 PAYMONGO_LIVE_ENABLED=true
 ```
 
-While `PAYMONGO_MODE=test`, PrintFlow creates and verifies **new** payments only
-through test API keys and the test webhook secret. Live credentials, the live
-webhook endpoint file, and existing live ledger rows remain in place for later
-reactivation; read-only live API calls are still allowed so historical live
-payments can be reconciled without rewriting records.
+While `PAYMONGO_MODE=test`, PrintFlow creates new payments only through test API
+keys and verifies Test webhooks with the Test webhook secret. Live credentials,
+the Live webhook endpoint, and existing Live ledger rows remain available.
+Read-only Live API calls may reconcile historical Live rows without rewriting
+their mode. New Test attempts use a distinct ledger row; an unpaid Live row is
+preserved. A paid Live row continues to block creation because the order is
+already paid.
+
+For QRPh, PrintFlow requires PayMongo's actual boolean `livemode: false` on the
+Payment Intent, Payment Method, and attached payment response. Missing,
+non-boolean, or `true` values fail closed. A Test QR image is never presented to
+customers or POS staff; PrintFlow exposes PayMongo's `test_url` simulator only
+after the Test Payment Intent has been verified. Use that simulator to produce
+test outcomes; do not scan or pay a Test QR code. Live QR display also requires
+an actual verified `livemode: true` response.
 
 Do not reuse a test credential or test webhook secret in Live Mode.
 
@@ -60,6 +72,12 @@ php database/migrate_paymongo_post_payment_workflow_20260730.php
 php database/migrate_paymongo_reconciliation_20260806.php
 php database/migrate_paymongo_provider_livemode_20261009.php
 ```
+
+The livemode migration stores the provider's `livemode` flag and the time it
+was confirmed by a successful provider response. It does not infer verification
+from the local ledger mode. Historical rows remain unverified until a later
+successful API reconciliation. QR display and download remain unavailable until
+a Payment Intent's environment is confirmed with PayMongo.
 
 Existing installations that have already applied both earlier PayMongo
 migrations only need the 20260806 migration. If the post-payment workflow
@@ -89,19 +107,21 @@ are scoped to the mode in which they are created.
 
 1. Switch the PayMongo dashboard to **Test Mode**.
 2. Register `https://mrandmrsprintflow.com/webhooks/paymongo.php`.
-3. Subscribe only to `link.payment.paid`.
+3. Subscribe to `payment.paid`, `payment.failed`, and `qrph.expired` for QRPh
+   Payment Intents. Add `link.payment.paid` only if Test Payment Links are used.
 4. Save its signing secret as `PAYMONGO_TEST_WEBHOOK_SECRET`.
 
 ### Live Mode
 
-1. Keep `PAYMONGO_LIVE_ENABLED=false` during setup.
+1. Keep `PAYMONGO_MODE=test`; new payment creation remains pinned to Test even
+   when `PAYMONGO_LIVE_ENABLED=true` is set for the preserved Live setup.
 2. Switch the PayMongo dashboard to **Live Mode**.
 3. Register `https://mrandmrsprintflow.com/webhooks/paymongo_live.php`.
-4. Subscribe only to `link.payment.paid`.
+4. Subscribe to `payment.paid`, `payment.failed`, and `qrph.expired` for QRPh
+   Payment Intents. Add `link.payment.paid` only if Live Payment Links are used.
 5. Save its signing secret as `PAYMONGO_LIVE_WEBHOOK_SECRET`.
-6. After credentials and deployment have been reviewed, set
-   `PAYMONGO_LIVE_ENABLED=true` immediately before the controlled go-live test.
-   Disable it again immediately if any verification step fails.
+6. Keep the Test endpoint registered independently. To enable Live checkout
+   later, set `PAYMONGO_MODE=live` after reviewing credentials and deployment.
 
 The Test endpoint verifies the `te` signature and rejects live payloads. The
 Live endpoint verifies the `li` signature and rejects test payloads. Both hash
@@ -123,7 +143,8 @@ the inbox or application logs. The additive migration does not destructively
 rewrite older inbox evidence; keep database access restricted and handle any
 legacy-payload retention/redaction under a separately approved policy.
 
-Every paid event is verified again with
+Payment Intent events are verified against the corresponding Payment Intent
+and Payment resources. Payment Link events are verified with
 `GET /v1/payment_links/:id/payments`. Browser return parameters are never used
 as proof of payment.
 

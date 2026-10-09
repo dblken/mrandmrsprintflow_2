@@ -74,7 +74,7 @@ if ($method === 'POST') {
             echo json_encode(['success' => false, 'message' => 'Invalid POS completion request.']);
             exit;
         }
-        $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
+        $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel, $mode);
         if (empty($payment)) {
             http_response_code(404);
             echo json_encode(['success' => false, 'message' => 'Payment record not found.']);
@@ -83,7 +83,7 @@ if ($method === 'POST') {
         if ((string)$payment['status'] === 'awaiting_payment'
             && printflow_provider_payment_claim_reconciliation((int)$payment['id'], 3)) {
             printflow_provider_payment_reconcile($payment);
-            $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
+            $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel, $mode);
         }
         if ((string)($payment['status'] ?? '') !== 'paid') {
             http_response_code(409);
@@ -173,7 +173,7 @@ if ($method === 'POST') {
     exit;
 }
 
-$payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
+$payment = printflow_provider_payment_find($subjectType, $subjectId, $channel, $mode);
 if (empty($payment)) {
     echo json_encode([
         'success' => true,
@@ -187,10 +187,10 @@ if (empty($payment)) {
 if ((string)$payment['status'] === 'awaiting_payment'
     && printflow_provider_payment_claim_reconciliation((int)$payment['id'], 5)) {
     printflow_provider_payment_reconcile($payment);
-    $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
+    $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel, $mode);
 } elseif ((string)$payment['status'] === 'paid' && !empty($payment['provider_payment_id'])) {
     printflow_provider_payment_reconcile($payment);
-    $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
+    $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel, $mode);
 }
 
 $paid = (string)($payment['status'] ?? '') === 'paid';
@@ -205,7 +205,7 @@ if (!empty($receipt)) {
 $printJob = null;
 echo json_encode([
     'success' => true,
-    'payment' => printflow_provider_payment_public($payment),
+    'payment' => printflow_provider_payment_public($payment, $channel === 'pos'),
     'can_complete' => $paid && $channel === 'pos' && !$posCompleted && $orderId > 0,
     'receipt_available' => $paid && $channel === 'pos' && $posCompleted && $orderId > 0,
     'receipt' => !empty($receipt) ? $receipt : null,

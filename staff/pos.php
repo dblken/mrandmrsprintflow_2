@@ -3314,6 +3314,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             </div>
             <div id="paymongo-pos-order" style="font-size:13px;font-weight:800;color:#0f172a;margin-bottom:10px;"></div>
             <img id="paymongo-pos-qr" alt="PayMongo QR Ph payment code" style="display:none;width:220px;height:220px;object-fit:contain;margin:0 auto 10px;border:1px solid #e2e8f0;">
+            <div id="paymongo-pos-test-note" style="display:none;padding:10px;margin-bottom:10px;background:#fffbeb;border:1px solid #fcd34d;color:#92400e;font-size:12px;line-height:1.5;">Test Mode payment. Do not scan or pay this QR. Use PayMongo's test simulator to confirm the test payment.</div>
+            <a id="paymongo-pos-test-simulation-link" href="#" target="_blank" rel="noopener noreferrer" style="display:none;margin-bottom:10px;color:#0369a1;font-weight:800;">Open Test Payment Simulator</a>
             <div id="paymongo-pos-countdown" style="font-size:12px;font-weight:800;color:#0f766e;margin-bottom:8px;min-height:18px;"></div>
             <div id="paymongo-pos-status" style="font-size:13px;color:#475569;margin-bottom:14px;">Waiting for payment confirmation.</div>
             <div id="paymongo-pos-reference" style="font-size:12px;color:#0f766e;font-weight:700;margin-bottom:14px;min-height:16px;"></div>
@@ -7358,9 +7360,23 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function renderPayMongoPosPayment(payment) {
             pendingPayMongoPayment = payment || null;
             const isQr = payment?.payment_flow === 'payment_intent' && payment?.payment_method === 'qrph';
+            const isVerifiedTest = isQr && payment?.mode === 'test' && payment?.livemode === false;
+            const hasLiveQr = isQr && payment?.mode === 'live' && payment?.livemode === true && Boolean(payment?.qr_image_url);
             const qrImage = document.getElementById('paymongo-pos-qr');
-            qrImage.style.display = isQr && payment?.qr_image_url ? 'block' : 'none';
-            if (isQr && payment?.qr_image_url) qrImage.src = payment.qr_image_url;
+            qrImage.style.display = hasLiveQr ? 'block' : 'none';
+            if (hasLiveQr) qrImage.src = payment.qr_image_url;
+            else qrImage.removeAttribute('src');
+            const testNote = document.getElementById('paymongo-pos-test-note');
+            const testLink = document.getElementById('paymongo-pos-test-simulation-link');
+            const simulationUrl = isVerifiedTest ? String(payment?.test_simulation_url || '') : '';
+            testNote.style.display = isVerifiedTest ? 'block' : 'none';
+            if (simulationUrl) {
+                testLink.href = simulationUrl;
+                testLink.style.display = 'inline-block';
+            } else {
+                testLink.removeAttribute('href');
+                testLink.style.display = 'none';
+            }
             document.getElementById('paymongo-pos-title').textContent = 'Dynamic QR Ph';
             document.getElementById('paymongo-pos-order').textContent =
                 `Order #${pendingPayMongoOrderId} - ${formatMoney(Number(payment?.amount || 0) / 100)}`;
@@ -7374,6 +7390,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (status === 'failed') statusLabel.textContent = 'Payment was not completed. Generate a new QR to try again.';
             else if (status === 'expired') statusLabel.textContent = 'QR code expired. Generate a new QR to continue.';
             else if (status === 'paid') statusLabel.textContent = 'Payment confirmed. Complete the transaction to continue.';
+            else if (isVerifiedTest) statusLabel.textContent = simulationUrl ? 'Test Mode: use the simulator; do not scan or pay a QR code.' : 'Test Mode: simulator link unavailable until PayMongo confirms this Test payment.';
             else statusLabel.textContent = 'Waiting for payment confirmation.';
 
             if (paymongoCountdownTimer) window.clearInterval(paymongoCountdownTimer);

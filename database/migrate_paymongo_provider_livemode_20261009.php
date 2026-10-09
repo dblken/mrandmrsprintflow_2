@@ -25,21 +25,32 @@ $columnQuery = $pdo->prepare(
      WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ? LIMIT 1'
 );
 $columnQuery->execute(['provider_payments', 'provider_livemode']);
-if ($columnQuery->fetchColumn()) {
-    fwrite(STDOUT, "Migration already applied\n");
-    exit(0);
+$hasLivemode = (bool)$columnQuery->fetchColumn();
+if (!$hasLivemode) {
+    $pdo->exec(
+        "ALTER TABLE `provider_payments`
+         ADD COLUMN `provider_livemode` TINYINT(1) NULL DEFAULT NULL
+             COMMENT 'PayMongo livemode flag from provider API (0=test, 1=live)' AFTER `mode`"
+    );
 }
 
-$pdo->exec(
-    "ALTER TABLE `provider_payments`
-     ADD COLUMN `provider_livemode` TINYINT(1) NULL DEFAULT NULL
-         COMMENT 'PayMongo livemode flag from provider API (0=test, 1=live)' AFTER `mode`"
-);
+$columnQuery->execute(['provider_payments', 'provider_livemode_verified_at']);
+if (!$columnQuery->fetchColumn()) {
+    $pdo->exec(
+        "ALTER TABLE `provider_payments`
+         ADD COLUMN `provider_livemode_verified_at` DATETIME NULL DEFAULT NULL
+             COMMENT 'Timestamp of a successful PayMongo API mode verification'
+             AFTER `provider_livemode`"
+    );
+}
 
-$pdo->exec(
-    "UPDATE `provider_payments`
-     SET `provider_livemode` = CASE WHEN `mode` = 'live' THEN 1 WHEN `mode` = 'test' THEN 0 ELSE NULL END
-     WHERE `provider_livemode` IS NULL AND `mode` IN ('test', 'live')"
-);
+$columnQuery->execute(['provider_payments', 'provider_test_url']);
+if (!$columnQuery->fetchColumn()) {
+    $pdo->exec(
+        "ALTER TABLE `provider_payments`
+         ADD COLUMN `provider_test_url` VARCHAR(2048) NULL DEFAULT NULL
+             COMMENT 'PayMongo Test Mode QRPh simulator URL' AFTER `provider_livemode_verified_at`"
+    );
+}
 
-fwrite(STDOUT, "Migration completed successfully\n");
+fwrite(STDOUT, "PayMongo provider livemode verification and Test simulator columns are ready; historical rows remain unverified until checked against PayMongo.\n");
