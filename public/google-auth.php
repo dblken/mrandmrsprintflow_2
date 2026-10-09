@@ -13,7 +13,10 @@ $client_secret = defined('GOOGLE_CLIENT_SECRET') ? GOOGLE_CLIENT_SECRET : '';
 
 $request_host = strtolower((string)($_SERVER['HTTP_HOST'] ?? ''));
 $request_host = preg_replace('/:\d+$/', '', $request_host);
-$is_production_host = $request_host === 'mrandmrsprintflow.com';
+$is_production_host = in_array($request_host, ['mrandmrsprintflow.com', 'www.mrandmrsprintflow.com'], true);
+$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+$app_origin = $is_production_host ? 'https://mrandmrsprintflow.com' : $scheme . '://' . $host;
 
 // Keep provider diagnostics useful without exposing credentials, tokens, or session data.
 $oauth_log = static function (string $event, array $context = []): void {
@@ -99,11 +102,9 @@ if (is_logged_in()) {
 }
 
 // Use the exact production callback registered with Google. Keep local development dynamic.
-$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-$host = $_SERVER['HTTP_HOST'] ?? 'localhost';
 $redirect_uri_full = $is_production_host
-    ? 'https://mrandmrsprintflow.com/public/google-auth.php'
-    : $scheme . '://' . $host . $redirect_uri;
+    ? $app_origin . '/public/google-auth.php'
+    : $app_origin . $redirect_uri;
 
 $oauth_log('callback_handler_reached', ['host' => $request_host, 'callback' => $redirect_uri_full]);
 
@@ -224,7 +225,7 @@ try {
     $oauth_fail('database_or_account', 'Google sign-in could not complete. Please try again.');
 }
 if ($result['success']) {
-    $redirect_url = $scheme . '://' . $host . $result['redirect'];
+    $redirect_url = $app_origin . $result['redirect'];
     $oauth_log('customer_session_established', ['destination' => $result['redirect']]);
     header('Location: ' . $redirect_url);
     exit;
