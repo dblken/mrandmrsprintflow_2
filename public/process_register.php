@@ -1657,3 +1657,77 @@ function csrf_field() {
     $token = generate_csrf_token();
     return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($token) . '">';
 }
+// Dispatch the registration modal's POST request through the existing secure flow.
+if (basename((string)($_SERVER['SCRIPT_NAME'] ?? '')) === 'process_register.php') {
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        header('Location: ' . AUTH_REDIRECT_BASE . '/?auth_modal=register');
+        exit;
+    }
+
+    $redirect_register_error = static function (string $message): void {
+        header('Location: ' . AUTH_REDIRECT_BASE . '/?auth_modal=register&error=' . urlencode($message));
+        exit;
+    };
+
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        $redirect_register_error('Invalid request. Please refresh the page and try again.');
+    }
+
+    if (($_POST['reg_type'] ?? '') !== 'direct') {
+        $redirect_register_error('Unsupported registration request.');
+    }
+
+    $identifier_type = trim((string)($_POST['identifier_type'] ?? ''));
+    $identifier = trim((string)($_POST['identifier'] ?? ''));
+    $password = (string)($_POST['password'] ?? '');
+    $confirm_password = (string)($_POST['confirm_password'] ?? '');
+
+    if (!in_array($identifier_type, ['email', 'phone'], true) || $identifier === '' || $password === '') {
+        $redirect_register_error('Please fill in all required fields.');
+    }
+    if (!in_array((string)($_POST['terms_agreement'] ?? ''), ['1', 'on', 'true', 'yes'], true)) {
+        $redirect_register_error('Please agree to the Terms of Service and Privacy Policy before creating your account.');
+    }
+    if (strlen($password) < 8) {
+        $redirect_register_error('Password must be at least 8 characters.');
+    }
+    if ($password !== $confirm_password) {
+        $redirect_register_error('Passwords do not match.');
+    }
+    if ($identifier_type === 'email' && !filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
+        $redirect_register_error('Please enter a valid email address.');
+    }
+    if ($identifier_type === 'phone' && !preg_match('/^09\d{9}$/', $identifier)) {
+        $redirect_register_error('Please enter a valid 11-digit phone number starting with 09.');
+    }
+
+    $profile_data = [
+        'first_name' => $_POST['first_name'] ?? '',
+        'middle_name' => $_POST['middle_name'] ?? '',
+        'last_name' => $_POST['last_name'] ?? '',
+        'contact_number' => $_POST['contact_number'] ?? '',
+        'dob' => $_POST['dob'] ?? '',
+        'gender' => $_POST['gender'] ?? '',
+        'region' => $_POST['region'] ?? '',
+        'province' => $_POST['province'] ?? '',
+        'city' => $_POST['city'] ?? '',
+        'barangay' => $_POST['barangay'] ?? '',
+        'street_address' => $_POST['street_address'] ?? '',
+    ];
+
+    $result = register_customer_direct(
+        $identifier_type,
+        $identifier,
+        $password,
+        date('Y-m-d H:i:s'),
+        PRINTFLOW_TERMS_VERSION,
+        $profile_data
+    );
+
+    if (!is_array($result) || empty($result['success'])) {
+        $redirect_register_error((string)($result['message'] ?? 'Registration failed. Please try again.'));
+    }
+
+    header('Location: ' . AUTH_REDIRECT_BASE . '/public/verify_email.php');
+    exit;
+}
