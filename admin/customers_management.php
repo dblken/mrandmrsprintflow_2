@@ -208,6 +208,7 @@ if (isset($_GET['ajax'])) {
                     $email_status_label = $email_status_display['label'];
                     $status_style = $status_display['style'];
                     $status_label = $status_display['label'];
+                    $status_label_html = $status_label === '-' ? '&mdash;' : htmlspecialchars($status_label);
                 ?>
                     <tr class="customer-row" data-customer-id="<?php echo (int)$customer['customer_id']; ?>" data-customer="<?php echo $customer_payload_attr; ?>" onclick="openModal(<?php echo $customer['customer_id']; ?>, this)">
                         <td style="color:#1f2937;"><?php echo $customer['customer_id']; ?></td>
