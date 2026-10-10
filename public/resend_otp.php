@@ -41,10 +41,12 @@ if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
     json_out(false, 'Invalid security token. Please refresh the page.');
 }
 
-$email = sanitize($_POST['email'] ?? '');
-if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-    json_out(false, 'Invalid email address.');
+$pending_email = trim((string)($_SESSION['otp_pending_email'] ?? ''));
+$requested_email = trim((string)($_POST['email'] ?? ''));
+if ($pending_email === '' || $requested_email === '' || strcasecmp($requested_email, $pending_email) !== 0) {
+    json_out(false, 'This verification request is no longer valid. Please register again.');
 }
+$email = $pending_email;
 
 $smtp_cfg = require __DIR__ . '/../includes/smtp_config.php';
 
@@ -96,7 +98,7 @@ if (!empty($customer['otp_last_sent'])) {
 }
 
 // Generate new OTP
-$otp_code   = (string) rand(100000, 999999);
+$otp_code   = (string) random_int(100000, 999999);
 $otp_expiry = date('Y-m-d H:i:s', time() + (($smtp_cfg['otp_expiry_minutes'] ?? 5) * 60));
 $now        = date('Y-m-d H:i:s');
 
@@ -113,6 +115,11 @@ db_execute(
 require_once __DIR__ . '/../includes/otp_mailer.php';
 $mail_result = send_otp_email($email, $otp_code);
 if (is_array($mail_result) && !empty($mail_result['success'])) {
+    $attempt_key = hash('sha256', $type . '|' . strtolower($email));
+    $_SESSION['otp_verify_attempt_key'] = $attempt_key;
+    $_SESSION['otp_verify_failed_attempts'] = 0;
+    $_SESSION['otp_verify_blocked_until'] = 0;
+
     echo json_encode([
         'success' => true,
         'message' => 'A new verification code has been sent to your email.',

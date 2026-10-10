@@ -1150,7 +1150,7 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
 
     $reuse_customer_id = 0;
     $existing = db_query(
-        "SELECT customer_id, email_verified, auth_provider, created_at
+        "SELECT customer_id, email_verified, auth_provider, created_at, status
          FROM customers
          WHERE LOWER(TRIM(email)) = ?
          LIMIT 1",
@@ -1167,23 +1167,49 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
             return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
         }
 
-        $has_orders = db_query(
-            "SELECT customer_id FROM orders WHERE customer_id = ?
-             UNION ALL
-             SELECT customer_id FROM job_orders WHERE customer_id = ?
-             LIMIT 1",
-            'ii',
-            [$pending_id, $pending_id]
-        );
-        if (!empty($has_orders)) {
-            return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
+        $service_order_guard = '';
+        if (!empty(db_query("SHOW TABLES LIKE 'service_orders'"))) {
+            $service_order_guard = "
+                AND NOT EXISTS (
+                    SELECT 1 FROM service_orders so WHERE so.customer_id = c.customer_id
+                )";
         }
 
-        $created_at = strtotime((string)($pending['created_at'] ?? ''));
-        if ($created_at > 0 && $created_at < (time() - 86400)) {
-            db_execute("DELETE FROM customers WHERE customer_id = ?", 'i', [$pending_id]);
-        } else {
+        $reusable_pending = db_query(
+            "SELECT c.customer_id
+             FROM customers c
+             WHERE c.customer_id = ?
+               AND COALESCE(c.email_verified, 0) = 0
+               AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password')
+               AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
+               AND (c.created_at IS NULL OR c.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR))
+               AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)
+               AND NOT EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id)" . $service_order_guard . "
+             LIMIT 1",
+            'i',
+            [$pending_id]
+        );
+
+        if (!empty($reusable_pending)) {
             $reuse_customer_id = $pending_id;
+        } else {
+            $deleted_pending = db_execute_affected_rows(
+                "DELETE c FROM customers c
+                 WHERE c.customer_id = ?
+                   AND COALESCE(c.email_verified, 0) = 0
+                   AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password')
+                   AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
+                   AND c.created_at IS NOT NULL
+                   AND c.created_at < DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                   AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)
+                   AND NOT EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id)" . $service_order_guard,
+                'i',
+                [$pending_id]
+            );
+
+            if ($deleted_pending !== 1) {
+                return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
+            }
         }
     }
 
@@ -1244,9 +1270,14 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
     } else {
         $sql = "INSERT INTO customers
                 (first_name, middle_name, last_name, dob, gender, email, contact_number,
-                 password_hash, is_profile_complete, email_verified, created_by_system,
+                 password_hash, is_profile_complete, email_verified, created_by_system, status,
                  terms_accepted_at, terms_version, region, province, city, barangay, street_address)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?)";
+        $sql = str_replace(
+            '0, 1, ?, ?, ?, ?, ?, ?, ?',
+            '0, 1, ' . chr(39) . 'Deactivated' . chr(39) . ', ?, ?, ?, ?, ?, ?, ?',
+            $sql
+        );
         $result = printflow_run_guarded_account_insert(function() use (
             $sql,
             $first_name,
