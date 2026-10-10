@@ -64,14 +64,28 @@ checkout still requires `PAYMONGO_LIVE_ENABLED=true` plus matching `pk_live_` /
 
 ## Database migrations
 
-For a new installation, run these from the deployed project root in order:
+Back up the production database structure and data before running migrations.
+For a new installation, or to safely fill in missing migrations on an existing
+installation, run these from the deployed project root in order:
 
 ```bash
 php database/migrate_paymongo_provider_payments_20260729.php
 php database/migrate_paymongo_post_payment_workflow_20260730.php
 php database/migrate_paymongo_reconciliation_20260806.php
+php database/migrate_paymongo_payment_intents_20260821.php
 php database/migrate_paymongo_provider_livemode_20261009.php
 ```
+
+The 20260821 Payment Intent migration is required for Dynamic QRPh. The
+20261009 provider livemode migration does not add Payment Intent fields or
+indexes, so it cannot replace the 20260821 migration. These migrations do not
+drop/recreate payment tables or delete provider payment/webhook rows. Their
+column/index additions are guarded for reruns. The 20260730 migration backfills
+status metadata only when those columns are first added, so a rerun preserves
+provider reconciliation values. Keep `PAYMONGO_MODE=test` throughout this
+rollout. Verify the expected indexes after the commands; the base migration's
+early-exit check only verifies the two ledger tables and `orders.payment_status`
+type, and will not repair a partially created base index set.
 
 The livemode migration stores the provider's `livemode` flag and the time it
 was confirmed by a successful provider response. It does not infer verification
@@ -79,11 +93,8 @@ from the local ledger mode. Historical rows remain unverified until a later
 successful API reconciliation. QR display and download remain unavailable until
 a Payment Intent's environment is confirmed with PayMongo.
 
-Existing installations that have already applied both earlier PayMongo
-migrations only need the 20260806 migration. If the post-payment workflow
-migration has not been recorded as applied, run it before 20260806 as shown
-above. All three scripts are idempotent. The 20260806 migration is additive and
-it:
+For an existing installation, run the full ordered list above; scripts skip
+already-present objects. The 20260806 migration is additive and it:
 
 - separates test and live ledger rows;
 - stores provider payment/reference/method/amount/timestamp metadata;
