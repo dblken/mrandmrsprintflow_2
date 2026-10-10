@@ -1559,8 +1559,12 @@ if (!function_exists('pf_payment_qr_url')) {
                     throw new Error(data.message || 'We couldn\'t generate a QR right now. Please try again.');
                 }
                 const payment = normalizePayMongoPayment(data);
+                const isVerifiedTestQr = payment.payment_flow === 'payment_intent'
+                    && payment.payment_method === 'qrph'
+                    && payment.mode === 'test'
+                    && payment.livemode === false;
                 if (!payment.payment_flow
-                    || (payment.status === 'awaiting_payment' && !payment.qr_image_url)) {
+                    || (payment.status === 'awaiting_payment' && !payment.qr_image_url && !isVerifiedTestQr)) {
                     throw new Error('We couldn\'t generate a QR right now. Please try again.');
                 }
                 stopPayMongoTimers();

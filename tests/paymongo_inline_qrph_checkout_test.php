@@ -74,6 +74,18 @@ inline_checkout_check(str_contains($customer, "'retry_qrph'") && str_contains($p
 inline_checkout_check(str_contains($provider, '$qrIsUsable') && str_contains($provider, "'reused' => true"), '8. existing valid QR is reused by the backend');
 inline_checkout_check($qrFixture['qr_image_url'] !== '' && $qrFixture['id'] === 'pi_order11297fixture', '9. QRPh provider response contains an inline image');
 inline_checkout_check(str_contains($customer, 'paymongoQrImage.src = payment.qr_image_url') && str_contains($customer, 'paymongo-qr-panel'), '10. QR displays inline on the customer page');
+inline_checkout_check(
+    str_contains($customer, 'const isVerifiedTestQr = payment.payment_flow === \'payment_intent\'')
+        && str_contains($customer, 'payment.livemode === false')
+        && str_contains($customer, '!payment.qr_image_url && !isVerifiedTestQr')
+        && str_contains($customer, 'payment.test_simulation_url || \'\''),
+    '10a. verified Test QRPh uses the simulator presentation instead of failing because its real QR image is intentionally hidden'
+);
+inline_checkout_check(
+    str_contains($provider, "if (\$mode === 'test')")
+        && str_contains($provider, "'test_simulation_url' => \$testSimulationUrl"),
+    '10b. a reused Test QR stays available as a verified Test payment even when PayMongo omits its optional simulator URL'
+);
 inline_checkout_check(str_contains($customer, 'startQrCountdown') && str_contains($customer, 'QR expires in ${minutes}:${seconds}'), '11. QR countdown remains active');
 inline_checkout_check(str_contains($customer, 'schedulePayMongoPoll') && str_contains($customer, "setTimeout(pollPayMongo, 5000)"), '12. pending polling remains active');
 inline_checkout_check(str_contains($customer, "status === 'paid'") && str_contains($customer, 'renderPayMongoConfirmed(payment)'), '13. payment.paid still renders the paid state');

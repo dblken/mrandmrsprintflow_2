@@ -1613,7 +1613,7 @@ function printflow_provider_payment_create_qrph(
                 'qr_expires_at' => $ledger['qr_expires_at'] ?? null,
             ];
         }
-        if ($mode === 'test' && !empty($publicPayment['test_simulation_url'])) {
+        if ($mode === 'test') {
             return [
                 'ok' => true,
                 'reused' => true,
