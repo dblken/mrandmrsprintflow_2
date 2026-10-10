@@ -1320,17 +1320,22 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
 
     if ($result) {
         $otp = (string)random_int(100000, 999999);
+        $otp_hash = password_hash($otp, PASSWORD_DEFAULT);
         $now = date('Y-m-d H:i:s');
         $expiry = date('Y-m-d H:i:s', time() + 600);
-        db_execute(
-            "UPDATE customers SET otp_code = ?, otp_expiry = ?, otp_last_sent = ? WHERE customer_id = ?",
-            'sssi',
-            [$otp, $expiry, $now, $result]
-        );
 
         require_once __DIR__ . '/otp_mailer.php';
         $mail_res = send_otp_email($email, $otp);
         if (isset($mail_res['success']) && $mail_res['success'] === true) {
+            $otp_saved = db_execute(
+                "UPDATE customers SET otp_code = ?, otp_expiry = ?, otp_last_sent = ? WHERE customer_id = ?",
+                'sssi',
+                [$otp_hash, $expiry, $now, $result]
+            );
+            if ($otp_saved === false) {
+                return ['success' => false, 'message' => 'Verification email was sent, but the verification code could not be saved. Please request a new code later.'];
+            }
+
             $_SESSION['otp_pending_email'] = $email;
             $_SESSION['otp_user_type'] = 'Customer';
             $_SESSION['otp_resend_attempts'] = 0;
@@ -1339,13 +1344,7 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
                 : 'Registration successful! Verification code sent.'];
         }
 
-        if ($reuse_customer_id > 0) {
-            db_execute(
-                "UPDATE customers SET otp_code = NULL, otp_expiry = NULL, otp_last_sent = NULL WHERE customer_id = ?",
-                'i',
-                [$reuse_customer_id]
-            );
-        } else {
+        if ($reuse_customer_id <= 0) {
             db_execute("DELETE FROM customers WHERE customer_id = ?", 'i', [$result]);
         }
 

@@ -99,22 +99,25 @@ if (!empty($customer['otp_last_sent'])) {
 
 // Generate new OTP
 $otp_code   = (string) random_int(100000, 999999);
+$otp_hash   = password_hash($otp_code, PASSWORD_DEFAULT);
 $otp_expiry = date('Y-m-d H:i:s', time() + (($smtp_cfg['otp_expiry_minutes'] ?? 5) * 60));
 $now        = date('Y-m-d H:i:s');
 
-// Increment attempts for the NEXT resend window
-$_SESSION['otp_resend_attempts'] = (int) $_SESSION['otp_resend_attempts'] + 1;
-$next_cooldown = otp_resend_cooldown_seconds((int) $_SESSION['otp_resend_attempts']);
-
-db_execute(
-    "UPDATE $table SET otp_code = ?, otp_expiry = ?, otp_last_sent = ? WHERE email = ?",
-    'ssss', [$otp_code, $otp_expiry, $now, $email]
-);
-
-// Send email (use same mailer path as registration)
+// Send email before replacing the currently valid code.
 require_once __DIR__ . '/../includes/otp_mailer.php';
 $mail_result = send_otp_email($email, $otp_code);
 if (is_array($mail_result) && !empty($mail_result['success'])) {
+    $stored = db_execute(
+        "UPDATE $table SET otp_code = ?, otp_expiry = ?, otp_last_sent = ? WHERE email = ?",
+        'ssss', [$otp_hash, $otp_expiry, $now, $email]
+    );
+    if ($stored === false) {
+        json_out(false, 'Verification email was sent, but the new code could not be saved. Please use the previous code or request another code later.');
+    }
+
+    $_SESSION['otp_resend_attempts'] = (int) $_SESSION['otp_resend_attempts'] + 1;
+    $next_cooldown = otp_resend_cooldown_seconds((int) $_SESSION['otp_resend_attempts']);
+
     $attempt_key = hash('sha256', $type . '|' . strtolower($email));
     $_SESSION['otp_verify_attempt_key'] = $attempt_key;
     $_SESSION['otp_verify_failed_attempts'] = 0;

@@ -62,8 +62,15 @@ if ($expiry_ts <= $now_ts) {
     redirect('verify_email.php?error=' . urlencode('Verification code expired. Please request a new code.'));
 }
 
+// New OTPs are stored as password hashes. Keep a tightly scoped fallback for
+// codes issued before hashing was enabled so existing pending registrations can finish.
+$otp_matches = password_verify((string)$otp, $stored_otp);
+if (!$otp_matches && preg_match('/^\d{6}$/', $stored_otp)) {
+    $otp_matches = hash_equals($stored_otp, (string)$otp);
+}
+
 // Wrong code
-if ($stored_otp !== (string)$otp) {
+if (!$otp_matches) {
     $failed_attempts = (int)($_SESSION['otp_verify_failed_attempts'] ?? 0) + 1;
     $_SESSION['otp_verify_failed_attempts'] = $failed_attempts;
     if ($failed_attempts >= 5) {
@@ -74,7 +81,7 @@ if ($stored_otp !== (string)$otp) {
 }
 
 // If valid
-if ($stored_otp === (string)$otp) {
+if ($otp_matches) {
     $update_sql = "UPDATE $table SET email_verified = 1, otp_code = NULL, otp_expiry = NULL WHERE email = ?";
     db_execute($update_sql, 's', [$email]);
     unset($_SESSION['otp_verify_attempt_key'], $_SESSION['otp_verify_failed_attempts'], $_SESSION['otp_verify_blocked_until']);
