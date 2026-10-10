@@ -615,7 +615,7 @@ index e502fe26..4b800865 100644
          }
  
 diff --git a/includes/provider_payments.php b/includes/provider_payments.php
-index f25653ef..39320bd7 100644
+index f25653ef..5177e1c8 100644
 --- a/includes/provider_payments.php
 +++ b/includes/provider_payments.php
 @@ -27,6 +27,60 @@ function printflow_paymongo_online_payment_enabled(): bool {
@@ -772,15 +772,153 @@ index f25653ef..39320bd7 100644
      create_notification(
          (int)$subject['customer_id'],
          'Customer',
-@@ -953,6 +1024,7 @@ function printflow_provider_payment_intent_schema_ready(): bool {
-     foreach ([
-         'payment_flow', 'payment_intent_id', 'payment_method_id', 'qr_image_url',
+@@ -949,16 +1020,112 @@ function printflow_provider_payment_create_link(
+     ];
+ }
+ 
+-function printflow_provider_payment_intent_schema_ready(): bool {
+-    foreach ([
+-        'payment_flow', 'payment_intent_id', 'payment_method_id', 'qr_image_url',
++function printflow_provider_payment_intent_schema_status(string $mode): array {
++    global $conn;
++
++    $mode = strtolower(trim($mode));
++    if (!in_array($mode, ['test', 'live'], true)) {
++        return ['ready' => false, 'error_code' => 'payment_intent_schema_mode_invalid'];
++    }
++    if (!isset($conn) || !is_object($conn) || !method_exists($conn, 'query')) {
++        error_log('[paymongo-schema] inspection_failed reason=database_connection_unavailable');
++        return ['ready' => false, 'error_code' => 'payment_intent_schema_inspection_failed'];
++    }
++
++    $requiredTables = ['provider_payments', 'provider_webhook_events'];
++    $requiredColumns = [
++        'mode', 'payment_flow', 'payment_intent_id', 'payment_method_id', 'qr_image_url',
          'qr_expires_at', 'client_key', 'idempotency_key', 'payment_status', 'provider_status',
-+        'provider_livemode', 'provider_livemode_verified_at', 'provider_test_url',
-     ] as $column) {
-         if (!db_table_has_column('provider_payments', $column)) {
-             return false;
-@@ -1097,7 +1169,9 @@ function printflow_provider_payment_create_intent(
+-    ] as $column) {
+-        if (!db_table_has_column('provider_payments', $column)) {
+-            return false;
++        // A verified provider mode is required before a QR can be displayed or reconciled.
++        'provider_livemode', 'provider_livemode_verified_at',
++    ];
++    if ($mode === 'test') {
++        // Only Test checkout needs the simulator URL persisted for customers.
++        $requiredColumns[] = 'provider_test_url';
++    }
++
++    $missing = [];
++    foreach ($requiredTables as $table) {
++        try {
++            $escaped = $conn->real_escape_string($table);
++            $result = $conn->query("SHOW TABLES LIKE '{$escaped}'");
++        } catch (Throwable $exception) {
++            $errno = isset($conn->errno) ? (int)$conn->errno : (int)$exception->getCode();
++            $sqlstate = isset($conn->sqlstate) ? (string)$conn->sqlstate : '';
++            error_log('[paymongo-schema] inspection_failed object=' . $table
++                . ' errno=' . $errno . ' sqlstate=' . $sqlstate);
++            return ['ready' => false, 'error_code' => 'payment_intent_schema_inspection_failed'];
+         }
++        if ($result === false) {
++            error_log('[paymongo-schema] inspection_failed object=' . $table
++                . ' errno=' . (int)($conn->errno ?? 0)
++                . ' sqlstate=' . (string)($conn->sqlstate ?? ''));
++            return ['ready' => false, 'error_code' => 'payment_intent_schema_inspection_failed'];
++        }
++        $tableRow = $result->fetch_row();
++        $exists = is_array($tableRow) && (string)($tableRow[0] ?? '') === $table;
++        if (method_exists($result, 'free')) {
++            $result->free();
++        }
++        if (!$exists) {
++            $missing[] = $table;
++        }
++    }
++
++    if ($missing !== []) {
++        error_log('[paymongo-schema] migration_required missing=' . implode(',', $missing));
++        return [
++            'ready' => false,
++            'error_code' => 'payment_intent_schema_missing',
++            'missing' => $missing,
++        ];
+     }
+-    return true;
++
++    foreach ($requiredColumns as $column) {
++        try {
++            $escaped = $conn->real_escape_string($column);
++            $result = $conn->query("SHOW COLUMNS FROM `provider_payments` LIKE '{$escaped}'");
++        } catch (Throwable $exception) {
++            $errno = isset($conn->errno) ? (int)$conn->errno : (int)$exception->getCode();
++            $sqlstate = isset($conn->sqlstate) ? (string)$conn->sqlstate : '';
++            error_log('[paymongo-schema] inspection_failed object=provider_payments.' . $column
++                . ' errno=' . $errno . ' sqlstate=' . $sqlstate);
++            return ['ready' => false, 'error_code' => 'payment_intent_schema_inspection_failed'];
++        }
++        if ($result === false) {
++            error_log('[paymongo-schema] inspection_failed object=provider_payments.' . $column
++                . ' errno=' . (int)($conn->errno ?? 0)
++                . ' sqlstate=' . (string)($conn->sqlstate ?? ''));
++            return ['ready' => false, 'error_code' => 'payment_intent_schema_inspection_failed'];
++        }
++        $columnInfo = $result->fetch_assoc();
++        $exists = is_array($columnInfo) && (string)($columnInfo['Field'] ?? '') === $column;
++        if ($exists && $column === 'mode'
++            && !str_contains(strtolower((string)($columnInfo['Type'] ?? '')), "'{$mode}'")) {
++            $missing[] = 'provider_payments.mode does not support ' . $mode;
++        }
++        if (method_exists($result, 'free')) {
++            $result->free();
++        }
++        if (!$exists) {
++            $missing[] = 'provider_payments.' . $column;
++        }
++    }
++
++    if ($missing !== []) {
++        error_log('[paymongo-schema] migration_required missing=' . implode(',', $missing));
++        return [
++            'ready' => false,
++            'error_code' => 'payment_intent_schema_missing',
++            'missing' => $missing,
++        ];
++    }
++
++    return ['ready' => true, 'error_code' => ''];
++}
++
++function printflow_provider_payment_intent_schema_ready(string $mode = 'live'): bool {
++    return !empty(printflow_provider_payment_intent_schema_status($mode)['ready']);
+ }
+ 
+ function printflow_provider_payment_creation_error(
+@@ -1018,17 +1185,19 @@ function printflow_provider_payment_create_intent(
+ ): array {
+     global $conn;
+     $paymentMethod = strtolower(trim($paymentMethod));
+-    if (!printflow_provider_payments_ready() || !printflow_provider_payment_intent_schema_ready()) {
++    $mode = printflow_paymongo_mode();
++    if ($mode === '') {
++        return ['ok' => false, 'http_status' => 503, 'message' => 'PayMongo is not configured for this environment.'];
++    }
++    $schemaStatus = printflow_provider_payment_intent_schema_status($mode);
++    if (empty($schemaStatus['ready'])) {
+         return [
+             'ok' => false,
+             'http_status' => 503,
+-            'message' => 'The Payment Intent migration has not been applied.',
++            'message' => 'QRPh checkout is temporarily unavailable. Please try again later.',
++            'error_code' => (string)($schemaStatus['error_code'] ?? 'payment_intent_schema_unavailable'),
+         ];
+     }
+-    $mode = printflow_paymongo_mode();
+-    if ($mode === '' || !printflow_provider_payment_mode_supported($mode)) {
+-        return ['ok' => false, 'http_status' => 503, 'message' => 'PayMongo is not configured for this environment.'];
+-    }
+     if (!in_array($channel, ['online', 'pos'], true)
+         || !in_array($subjectType, ['order', 'job_order'], true)) {
+         return ['ok' => false, 'http_status' => 400, 'message' => 'Unsupported payment subject or channel.'];
+@@ -1097,7 +1266,9 @@ function printflow_provider_payment_create_intent(
              "SELECT id FROM provider_payments
               WHERE subject_type = ? AND subject_id = ? AND channel = ?
                 AND provider = 'paymongo' AND mode <> ?
@@ -791,7 +929,7 @@ index f25653ef..39320bd7 100644
               ORDER BY id DESC LIMIT 1 FOR UPDATE",
              'siss',
              [$subjectType, $subjectId, $channel, $mode]
-@@ -1318,7 +1392,7 @@ function printflow_provider_payment_create_intent(
+@@ -1318,7 +1489,7 @@ function printflow_provider_payment_create_intent(
                  $idempotencyKey
              );
              $validIntent = !empty($intent['ok'])
@@ -800,7 +938,7 @@ index f25653ef..39320bd7 100644
                  && !empty($intent['id'])
                  && !empty($intent['client_key'])
                  && (int)($intent['amount'] ?? 0) === $amountCentavos
-@@ -1349,6 +1423,10 @@ function printflow_provider_payment_create_intent(
+@@ -1349,6 +1520,10 @@ function printflow_provider_payment_create_intent(
                      'error_code' => 'intent_persistence_failed',
                  ];
              }
@@ -811,7 +949,7 @@ index f25653ef..39320bd7 100644
          }
  
          $rows = db_query('SELECT * FROM provider_payments WHERE id = ? LIMIT 1', 'i', [$ledgerId]) ?: [];
-@@ -1393,6 +1471,7 @@ function printflow_provider_payment_create_qrph(
+@@ -1393,6 +1568,7 @@ function printflow_provider_payment_create_qrph(
      if ($ledgerId <= 0) {
          return ['ok' => false, 'http_status' => 500, 'message' => 'The payment ledger could not be loaded.'];
      }
@@ -819,7 +957,7 @@ index f25653ef..39320bd7 100644
      if (!empty($intentResult['in_progress'])
          && (string)($ledger['status'] ?? '') === 'generating') {
          return [
-@@ -1416,16 +1495,53 @@ function printflow_provider_payment_create_qrph(
+@@ -1416,16 +1592,53 @@ function printflow_provider_payment_create_qrph(
      if ((string)($ledger['status'] ?? '') === 'awaiting_payment'
          && !empty($ledger['qr_image_url'])
          && (empty($ledger['qr_expires_at']) || strtotime((string)$ledger['qr_expires_at']) > time())) {
@@ -876,7 +1014,7 @@ index f25653ef..39320bd7 100644
      $paymentMethod = printflow_paymongo_create_payment_method(
          'qrph',
          [],
-@@ -1434,7 +1550,7 @@ function printflow_provider_payment_create_qrph(
+@@ -1434,7 +1647,7 @@ function printflow_provider_payment_create_qrph(
          ''
      );
      $validMethod = !empty($paymentMethod['ok'])
@@ -885,7 +1023,7 @@ index f25653ef..39320bd7 100644
          && (string)($paymentMethod['type'] ?? '') === 'qrph'
          && !empty($paymentMethod['id']);
      if (!$validMethod) {
-@@ -1470,7 +1586,7 @@ function printflow_provider_payment_create_qrph(
+@@ -1470,7 +1683,7 @@ function printflow_provider_payment_create_qrph(
          ''
      );
      $validAttachment = !empty($attached['ok'])
@@ -894,7 +1032,7 @@ index f25653ef..39320bd7 100644
          && (string)($attached['id'] ?? '') === (string)$ledger['payment_intent_id']
          && (int)($attached['amount'] ?? 0) === (int)$ledger['amount_centavos']
          && strtoupper((string)($attached['currency'] ?? '')) === 'PHP'
-@@ -1512,12 +1628,22 @@ function printflow_provider_payment_create_qrph(
+@@ -1512,12 +1725,22 @@ function printflow_provider_payment_create_qrph(
              'error_code' => 'qrph_persistence_failed',
          ];
      }
@@ -919,7 +1057,7 @@ index f25653ef..39320bd7 100644
          'qr_expires_at' => $expiresAt,
      ];
  }
-@@ -1534,7 +1660,7 @@ function printflow_provider_payment_reconcile_intent(array $payment): array {
+@@ -1534,7 +1757,7 @@ function printflow_provider_payment_reconcile_intent(array $payment): array {
      if (empty($intent['ok']) || (string)($intent['id'] ?? '') !== $intentId) {
          $errors[] = 'payment_intent';
      }
@@ -928,7 +1066,7 @@ index f25653ef..39320bd7 100644
          || (string)($intent['mode'] ?? $mode) !== $mode) {
          $errors[] = 'livemode';
      }
-@@ -1554,6 +1680,13 @@ function printflow_provider_payment_reconcile_intent(array $payment): array {
+@@ -1554,6 +1777,13 @@ function printflow_provider_payment_reconcile_intent(array $payment): array {
          return ['ok' => false, 'paid' => false, 'errors' => array_values(array_unique($errors))];
      }
  
@@ -942,7 +1080,7 @@ index f25653ef..39320bd7 100644
      $status = strtolower((string)($intent['status'] ?? ''));
      db_execute(
          'UPDATE provider_payments SET provider_status = ?, updated_at = NOW() WHERE id = ?',
-@@ -1576,6 +1709,10 @@ function printflow_provider_payment_reconcile_intent(array $payment): array {
+@@ -1576,6 +1806,10 @@ function printflow_provider_payment_reconcile_intent(array $payment): array {
              printflow_provider_payment_set_reconciliation_error($ledgerId, $errors);
              return ['ok' => false, 'paid' => false, 'errors' => array_values(array_unique($errors))];
          }
@@ -953,7 +1091,7 @@ index f25653ef..39320bd7 100644
          $result = printflow_provider_payment_mark_paid(
              $ledgerId,
              $providerPaymentId,
-@@ -1719,10 +1856,14 @@ function printflow_provider_payment_mark_paid(
+@@ -1719,10 +1953,14 @@ function printflow_provider_payment_mark_paid(
              throw new RuntimeException('The provider payment identifier is invalid.');
          }
  
@@ -972,7 +1110,7 @@ index f25653ef..39320bd7 100644
          if (empty($subject)) {
              throw new RuntimeException('The linked order no longer exists.');
          }
-@@ -1738,6 +1879,10 @@ function printflow_provider_payment_mark_paid(
+@@ -1738,6 +1976,10 @@ function printflow_provider_payment_mark_paid(
          if (printflow_money_to_centavos($subject['total_amount'] ?? '') !== (int)$payment['amount_centavos']) {
              throw new RuntimeException('The linked order amount does not match the verified payment.');
          }
@@ -983,7 +1121,7 @@ index f25653ef..39320bd7 100644
  
          $paidAmountCentavos = $paidAmountCentavos ?? (int)($payment['paid_amount_centavos'] ?? 0);
          if ($paidAmountCentavos <= 0) {
-@@ -1804,6 +1949,14 @@ function printflow_provider_payment_mark_paid(
+@@ -1804,6 +2046,14 @@ function printflow_provider_payment_mark_paid(
          if (db_table_has_column('provider_payments', 'reconciliation_error_code')) {
              $setParts[] = 'reconciliation_error_code = NULL';
          }
@@ -998,7 +1136,7 @@ index f25653ef..39320bd7 100644
          $types .= 'i';
          $params[] = $ledgerId;
          if (!db_execute(
-@@ -2078,24 +2231,6 @@ function printflow_provider_payment_complete_pos(int $ledgerId, int $staffId): a
+@@ -2078,24 +2328,6 @@ function printflow_provider_payment_complete_pos(int $ledgerId, int $staffId): a
      }
  }
  

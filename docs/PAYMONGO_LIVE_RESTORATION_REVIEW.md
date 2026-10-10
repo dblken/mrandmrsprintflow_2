@@ -1,14 +1,16 @@
 # PayMongo Live restoration review
 
-Status: local code is reviewed and validated; production deployment and runtime
-verification are still pending Hostinger access.
+Status: local Live restoration patch and the latest schema-readiness repair
+are validated. Production comparison, backup, deployment, schema inspection,
+webhook verification, and a fresh Live QRPh attempt remain pending production
+access.
 
 ## Exact source diff
 
-`PAYMONGO_LIVE_RESTORATION_REVIEW.patch` is the runtime/migration patch from
-pre-Test commit `94ff9b03` to the current validated source `c1efa16b`. It was
-reverse-checked against the current source tree. The patch includes only these
-eight files:
+`PAYMONGO_LIVE_RESTORATION_REVIEW.patch` applies the reviewed PayMongo runtime
+changes from pre-Test commit `94ff9b03`, plus the latest local
+schema-readiness repair. It was reverse-checked against the current source
+tree. The patch includes only these eight runtime/migration files:
 
 - `includes/paymongo.php`
 - `includes/provider_payments.php`
@@ -24,10 +26,33 @@ configuration fail closed; it never falls back to Test for a Live request.
 Existing Live QR display requires a provider response verified as
 `livemode: true`; a customer browser return is not payment confirmation.
 
+### Latest schema-readiness repair
+
+The pre-Test source at `94ff9b03` required the original Payment Intent columns.
+Commit `4f7a5087` (2026-10-10 00:04 Asia/Manila) expanded the readiness gate
+to require `provider_livemode`, `provider_livemode_verified_at`, and
+`provider_test_url`. The first two remain required for the current secure Live
+QR flow. `provider_test_url` is now required only for Test checkout, since it
+stores the Test simulator URL and is not needed for Live checkout.
+
+The readiness check now queries the tables and columns directly, checks that
+the `mode` enum supports the selected mode, and distinguishes a missing schema
+object from a schema-inspection failure in server diagnostics. It bypasses
+the prior cached `db_table_has_column()` results for this checkout guard. The
+customer response stays generic; diagnostic logs identify only the missing
+schema names or query error code/state. The targeted contract test is
+`tests/paymongo_schema_readiness_test.php`; it does not inspect production.
+
+This change does not remove the requirement for `provider_livemode` and
+`provider_livemode_verified_at`. If either is missing in production, the
+additive livemode migration remains necessary. The customer-facing message
+alone does not prove which table, column, or index is absent.
+
 Files changed for review or tests but intentionally excluded from the runtime
 patch are `.env.example`, `docs/PAYMONGO_TEST_MODE.md`, and the PayMongo test
-files. Keep `.env.example` as a Test template; do not copy it over the existing
-production configuration. Do not upload the `.patch` file as application code.
+files, including `tests/paymongo_schema_readiness_test.php`. Keep `.env.example`
+as a Test template; do not copy it over the existing production configuration.
+Do not upload the `.patch` file as application code.
 
 ## Additional runtime files to verify on the server
 
@@ -54,9 +79,10 @@ PHP migration.
 
 ## Production checklist
 
-1. Restore Hostinger connector/browser access before any production operation.
-   The last website-list call timed out; the browser helper failed before a
-   consent page opened. Do not treat either event as successful authentication.
+1. Production access is currently unavailable in this session: no Hostinger
+   connector tools are exposed, and the prior browser-control attempt failed
+   with `trusted Node process exited unexpectedly; kernel reset, rerun your
+   request`. Do not treat the open hPanel screenshot as file/database access.
 2. Back up the exact changed production files and external PHP configuration.
    Export the production database structure and data before schema changes.
 3. Compare the deployed source with the patch base. If it differs from
@@ -72,7 +98,26 @@ PHP migration.
    Retain the existing credential values. Verify only safe presence/prefix
    markers: Live public key `pk_live_`, API key `sk_live_`, and a configured
    Live webhook secret. Leave all Test settings intact.
-6. Inspect the database and run only missing migrations in this order:
+6. Inspect the selected production database and compare actual objects against
+   the migration sources. Do not infer a missing migration from the generic
+   customer error and do not run every migration blindly. The current Live
+   readiness contract requires both ledger tables and these `provider_payments`
+   columns: `mode` (supporting `live`), `payment_flow`, `payment_intent_id`,
+   `payment_method_id`, `qr_image_url`, `qr_expires_at`, `client_key`,
+   `idempotency_key`, `payment_status`, `provider_status`, `provider_livemode`,
+   and `provider_livemode_verified_at`. `provider_test_url` is needed only when
+   the selected mode is Test. Also inspect migration-defined indexes; readiness
+   does not validate indexes. Check `provider_webhook_events.payment_intent_id`
+   and `.payment_method_id` as well. Expected intent indexes are
+   `uq_provider_payment_intent(payment_intent_id)`,
+   `uq_provider_payment_method(payment_method_id)`, and
+   `idx_provider_payment_flow_status(provider,mode,payment_flow,status)`.
+   Compare base/reconciliation indexes against their migrations too, including
+   `uq_provider_payment_idempotency`, `idx_provider_payment_reconciliation`,
+   `idx_provider_webhook_retry`, `idx_provider_webhook_link`,
+   `idx_provider_webhook_transaction`, and the status-history keys. Do not
+   create duplicate indexes under new names without checking their existing
+   column definitions.
 
    Before choosing the scripts, use phpMyAdmin or the configured MySQL client
    against the selected production database and inspect the ledger tables,
@@ -106,6 +151,9 @@ PHP migration.
    Compare the output with each migration source. Export structure and data
    first. Do not infer historical Live/Test mode from `provider_livemode` when
    it is `NULL`; the migration intentionally leaves old rows unverified.
+
+   The following is dependency order only. Run a script only when its own
+   required objects are absent, and only after a verified backup:
 
    ```bash
    php database/migrate_paymongo_provider_payments_20260729.php

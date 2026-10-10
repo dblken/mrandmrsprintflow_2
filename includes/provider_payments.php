@@ -1020,17 +1020,112 @@ function printflow_provider_payment_create_link(
     ];
 }
 
-function printflow_provider_payment_intent_schema_ready(): bool {
-    foreach ([
-        'payment_flow', 'payment_intent_id', 'payment_method_id', 'qr_image_url',
+function printflow_provider_payment_intent_schema_status(string $mode): array {
+    global $conn;
+
+    $mode = strtolower(trim($mode));
+    if (!in_array($mode, ['test', 'live'], true)) {
+        return ['ready' => false, 'error_code' => 'payment_intent_schema_mode_invalid'];
+    }
+    if (!isset($conn) || !is_object($conn) || !method_exists($conn, 'query')) {
+        error_log('[paymongo-schema] inspection_failed reason=database_connection_unavailable');
+        return ['ready' => false, 'error_code' => 'payment_intent_schema_inspection_failed'];
+    }
+
+    $requiredTables = ['provider_payments', 'provider_webhook_events'];
+    $requiredColumns = [
+        'mode', 'payment_flow', 'payment_intent_id', 'payment_method_id', 'qr_image_url',
         'qr_expires_at', 'client_key', 'idempotency_key', 'payment_status', 'provider_status',
-        'provider_livemode', 'provider_livemode_verified_at', 'provider_test_url',
-    ] as $column) {
-        if (!db_table_has_column('provider_payments', $column)) {
-            return false;
+        // A verified provider mode is required before a QR can be displayed or reconciled.
+        'provider_livemode', 'provider_livemode_verified_at',
+    ];
+    if ($mode === 'test') {
+        // Only Test checkout needs the simulator URL persisted for customers.
+        $requiredColumns[] = 'provider_test_url';
+    }
+
+    $missing = [];
+    foreach ($requiredTables as $table) {
+        try {
+            $escaped = $conn->real_escape_string($table);
+            $result = $conn->query("SHOW TABLES LIKE '{$escaped}'");
+        } catch (Throwable $exception) {
+            $errno = isset($conn->errno) ? (int)$conn->errno : (int)$exception->getCode();
+            $sqlstate = isset($conn->sqlstate) ? (string)$conn->sqlstate : '';
+            error_log('[paymongo-schema] inspection_failed object=' . $table
+                . ' errno=' . $errno . ' sqlstate=' . $sqlstate);
+            return ['ready' => false, 'error_code' => 'payment_intent_schema_inspection_failed'];
+        }
+        if ($result === false) {
+            error_log('[paymongo-schema] inspection_failed object=' . $table
+                . ' errno=' . (int)($conn->errno ?? 0)
+                . ' sqlstate=' . (string)($conn->sqlstate ?? ''));
+            return ['ready' => false, 'error_code' => 'payment_intent_schema_inspection_failed'];
+        }
+        $tableRow = $result->fetch_row();
+        $exists = is_array($tableRow) && (string)($tableRow[0] ?? '') === $table;
+        if (method_exists($result, 'free')) {
+            $result->free();
+        }
+        if (!$exists) {
+            $missing[] = $table;
         }
     }
-    return true;
+
+    if ($missing !== []) {
+        error_log('[paymongo-schema] migration_required missing=' . implode(',', $missing));
+        return [
+            'ready' => false,
+            'error_code' => 'payment_intent_schema_missing',
+            'missing' => $missing,
+        ];
+    }
+
+    foreach ($requiredColumns as $column) {
+        try {
+            $escaped = $conn->real_escape_string($column);
+            $result = $conn->query("SHOW COLUMNS FROM `provider_payments` LIKE '{$escaped}'");
+        } catch (Throwable $exception) {
+            $errno = isset($conn->errno) ? (int)$conn->errno : (int)$exception->getCode();
+            $sqlstate = isset($conn->sqlstate) ? (string)$conn->sqlstate : '';
+            error_log('[paymongo-schema] inspection_failed object=provider_payments.' . $column
+                . ' errno=' . $errno . ' sqlstate=' . $sqlstate);
+            return ['ready' => false, 'error_code' => 'payment_intent_schema_inspection_failed'];
+        }
+        if ($result === false) {
+            error_log('[paymongo-schema] inspection_failed object=provider_payments.' . $column
+                . ' errno=' . (int)($conn->errno ?? 0)
+                . ' sqlstate=' . (string)($conn->sqlstate ?? ''));
+            return ['ready' => false, 'error_code' => 'payment_intent_schema_inspection_failed'];
+        }
+        $columnInfo = $result->fetch_assoc();
+        $exists = is_array($columnInfo) && (string)($columnInfo['Field'] ?? '') === $column;
+        if ($exists && $column === 'mode'
+            && !str_contains(strtolower((string)($columnInfo['Type'] ?? '')), "'{$mode}'")) {
+            $missing[] = 'provider_payments.mode does not support ' . $mode;
+        }
+        if (method_exists($result, 'free')) {
+            $result->free();
+        }
+        if (!$exists) {
+            $missing[] = 'provider_payments.' . $column;
+        }
+    }
+
+    if ($missing !== []) {
+        error_log('[paymongo-schema] migration_required missing=' . implode(',', $missing));
+        return [
+            'ready' => false,
+            'error_code' => 'payment_intent_schema_missing',
+            'missing' => $missing,
+        ];
+    }
+
+    return ['ready' => true, 'error_code' => ''];
+}
+
+function printflow_provider_payment_intent_schema_ready(string $mode = 'live'): bool {
+    return !empty(printflow_provider_payment_intent_schema_status($mode)['ready']);
 }
 
 function printflow_provider_payment_creation_error(
@@ -1090,16 +1185,18 @@ function printflow_provider_payment_create_intent(
 ): array {
     global $conn;
     $paymentMethod = strtolower(trim($paymentMethod));
-    if (!printflow_provider_payments_ready() || !printflow_provider_payment_intent_schema_ready()) {
+    $mode = printflow_paymongo_mode();
+    if ($mode === '') {
+        return ['ok' => false, 'http_status' => 503, 'message' => 'PayMongo is not configured for this environment.'];
+    }
+    $schemaStatus = printflow_provider_payment_intent_schema_status($mode);
+    if (empty($schemaStatus['ready'])) {
         return [
             'ok' => false,
             'http_status' => 503,
-            'message' => 'The Payment Intent migration has not been applied.',
+            'message' => 'QRPh checkout is temporarily unavailable. Please try again later.',
+            'error_code' => (string)($schemaStatus['error_code'] ?? 'payment_intent_schema_unavailable'),
         ];
-    }
-    $mode = printflow_paymongo_mode();
-    if ($mode === '' || !printflow_provider_payment_mode_supported($mode)) {
-        return ['ok' => false, 'http_status' => 503, 'message' => 'PayMongo is not configured for this environment.'];
     }
     if (!in_array($channel, ['online', 'pos'], true)
         || !in_array($subjectType, ['order', 'job_order'], true)) {
