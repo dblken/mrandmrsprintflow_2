@@ -56,11 +56,78 @@ an actual verified `livemode: true` response.
 
 Do not reuse a test credential or test webhook secret in Live Mode.
 
-When `PAYMONGO_MODE` is unset but only test API keys are configured, PrintFlow
-defaults new checkouts to **test**. Setting `PAYMONGO_MODE=live` without live
-API keys also falls back to test instead of creating live payments. Live
-checkout still requires `PAYMONGO_LIVE_ENABLED=true` plus matching `pk_live_` /
-`sk_live_` credentials.
+When `PAYMONGO_MODE` is unset and Live configuration is present, checkout fails
+closed until the operator explicitly selects a mode. A Test-only setup with no
+Live configuration can still default to Test. Explicit `PAYMONGO_MODE=live`
+never falls back to Test: Live checkout requires
+`PAYMONGO_LIVE_ENABLED=true` and matching `pk_live_` / `sk_live_` credentials.
+
+## Restore Live checkout
+
+The repository `.env.example` intentionally remains a Test-mode template. Do
+not copy it over the production `.env` or replace the server's existing Live
+configuration. In the production project `.env` (loaded by
+`includes/env.php`) or the server environment, preserve the existing credential
+values and set these mode/feature values:
+
+```dotenv
+ONLINE_PAYMENT_MODE=paymongo
+PAYMONGO_MODE=live
+PAYMONGO_LIVE_ENABLED=true
+PAYMONGO_LIVE_DIRECT_METHODS=qrph
+```
+
+Confirm without displaying values that the existing Live public key starts
+with `pk_live_`, the Live API secret starts with `sk_live_`, and the existing
+Live webhook signing secret is configured. The QRPh method is unavailable if
+the mode-specific Live webhook secret or Live method allowlist is missing. Keep
+the existing Test values intact; they are not selected for new requests while
+Live mode is explicitly active. If any Live requirement is missing, the
+checkout must remain unavailable rather than silently using Test credentials.
+
+Deploy the reviewed PayMongo runtime changes in `includes/paymongo.php`,
+`includes/provider_payments.php`, `customer/payment.php`,
+`customer/api_paymongo_status.php`, `staff/api/paymongo_payment.php`, and the
+PayMongo-specific hunks in `staff/pos.php`. Preserve unrelated edits in the
+shared POS file. Include
+`database/migrate_paymongo_post_payment_workflow_20260730.php` with its rerun
+guard and `database/migrate_paymongo_provider_livemode_20261009.php`. The
+existing `webhooks/paymongo_live.php` endpoint must be present and route to the
+shared handler in Live mode; keep the already registered Live webhook and its
+secret unchanged. The Test endpoint and webhook configuration remain separate.
+
+## Existing database migration order
+
+After a structure-and-data backup, inspect the schema and run only migrations
+whose objects are missing, in this dependency order:
+
+```bash
+php database/migrate_paymongo_provider_payments_20260729.php
+php database/migrate_paymongo_post_payment_workflow_20260730.php
+php database/migrate_paymongo_reconciliation_20260806.php
+php database/migrate_paymongo_payment_intents_20260821.php
+php database/migrate_paymongo_provider_livemode_20261009.php
+```
+
+The Payment Intent migration adds QRPh fields/indexes; the final migration adds
+verified provider-mode and Test simulator fields. They are separate. Use the
+PHP livemode migration as the complete migration: the companion
+`paymongo_provider_livemode_20261009.sql` adds only `provider_livemode`. The
+base migration can early-exit when its tables and `orders.payment_status`
+already look ready, so independently verify its base indexes on partially
+migrated databases. Do not drop/recreate payment tables or backfill historical
+Live/Test mode from guesses. Existing provider payment and webhook rows must
+remain unchanged.
+
+After deployment, clear PHP OPcache and application cache. Verify the resolved
+mode and public-key prefix using redacted server-side diagnostics, then start a
+new unpaid customer QRPh attempt. Before anyone scans or pays it, inspect the
+actual PayMongo Payment Intent response and confirm the boolean
+`livemode: true`, matching Live ledger mode, and provider verification
+timestamp. Confirm the customer page shows that Live QR, and that the retained
+Live webhook signature is accepted and reconciles a valid event. A successful
+browser return alone must not mark the order paid. Do not make a real payment
+as part of this verification.
 
 ## Database migrations
 
