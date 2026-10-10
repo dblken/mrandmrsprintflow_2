@@ -16,11 +16,22 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/../includes/db.php';
 
+$serviceOrderGuard = '';
+if (!empty(db_query("SHOW TABLES LIKE 'service_orders'"))) {
+    $serviceOrderGuard = "
+       AND NOT EXISTS (
+           SELECT 1
+           FROM service_orders so
+           WHERE so.customer_id = c.customer_id
+       )";
+}
+
 $deletedCustomers = db_execute_affected_rows(
     "DELETE c
      FROM customers c
      WHERE COALESCE(c.email_verified, 0) = 0
        AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password')
+       AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
        AND c.created_at IS NOT NULL
        AND c.created_at < DATE_SUB(NOW(), INTERVAL 24 HOUR)
        AND NOT EXISTS (
@@ -32,7 +43,7 @@ $deletedCustomers = db_execute_affected_rows(
            SELECT 1
            FROM job_orders jo
            WHERE jo.customer_id = c.customer_id
-       )"
+       )" . $serviceOrderGuard
 );
 
 $clearedCustomerOtps = db_execute_affected_rows(
