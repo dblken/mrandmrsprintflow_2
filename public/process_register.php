@@ -1658,7 +1658,12 @@ function csrf_field() {
     return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($token) . '">';
 }
 // Dispatch the registration modal's POST request through the existing secure flow.
-if (basename((string)($_SERVER['SCRIPT_NAME'] ?? '')) === 'process_register.php') {
+$request_path = (string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
+$is_registration_request = basename((string)($_SERVER['SCRIPT_NAME'] ?? '')) === 'process_register.php'
+    || basename((string)($_SERVER['PHP_SELF'] ?? '')) === 'process_register.php'
+    || rtrim($request_path, '/') === '/register';
+
+if ($is_registration_request) {
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
         header('Location: ' . AUTH_REDIRECT_BASE . '/?auth_modal=register');
         exit;
