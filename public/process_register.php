@@ -1,209 +1,1659 @@
 <?php
 /**
- * Customer registration endpoint for the public/customer side.
+ * Authentication System
+ * PrintFlow - Printing Shop PWA
  *
- * Public registration must never create staff/admin/manager users. Staff
- * accounts are created from the admin workflow only.
+ * Role redirects: change REDIRECT_BASE if the app is not at /printflow (e.g. on production).
  */
 
-require_once __DIR__ . '/../includes/auth.php';
-require_once __DIR__ . '/../includes/functions.php';
-
-function pf_terms_agreement_accepted($value): bool {
-    return in_array((string)$value, ['1', 'on', 'true', 'yes'], true);
-}
-function pf_register_redirect_error(string $message): void {
-    redirect(AUTH_REDIRECT_BASE . '/?auth_modal=register&error=' . urlencode($message));
+// Load config for environment detection
+if (file_exists(__DIR__ . '/../config.php')) {
+    require_once __DIR__ . '/../config.php';
 }
 
-function pf_remove_legacy_public_staff_registration(string $email): void {
-    $legacy = db_query(
-        "SELECT user_id
-         FROM users
-         WHERE LOWER(TRIM(email)) = LOWER(?)
-           AND role = 'Staff'
-           AND status = 'Pending'
-           AND COALESCE(email_verified, 0) = 0
-           AND last_name = 'Account'
+// Base path for redirects (no trailing slash). Change this if app lives at a different path.
+if (!defined('AUTH_REDIRECT_BASE')) {
+    define('AUTH_REDIRECT_BASE', defined('BASE_URL') ? BASE_URL : '/printflow');
+}
+
+require_once __DIR__ . '/session_manager.php';
+require_once __DIR__ . '/rate_limiter.php';
+
+// Start session with security hardening (fingerprint, timeout, secure cookies)
+SessionManager::start();
+
+require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/staff_access.php';
+require_once __DIR__ . '/ensure_account_creation_guard.php';
+printflow_ensure_account_creation_guard();
+
+// Try to include functions.php
+$functions_path = __DIR__ . '/functions.php';
+if (file_exists($functions_path)) {
+    require_once $functions_path;
+}
+
+// Fallback: Define log_activity if it still doesn't exist to prevent fatal error
+if (!function_exists('log_activity')) {
+    function log_activity($user_id, $action, $details = '') {
+        // Silently fail if function is missing, but don't crash the app
+        error_log("Warning: log_activity function missing. Action: $action");
+        return false;
+    }
+}
+
+/**
+ * Case-fold email (UTF-8) without hard dependency on ext-mbstring.
+ */
+if (!function_exists('printflow_email_lower')) {
+    function printflow_email_lower($email) {
+        if (!is_string($email) || $email === '') {
+            return '';
+        }
+        $t = trim($email);
+        if (function_exists('mb_strtolower')) {
+            return mb_strtolower($t, 'UTF-8');
+        }
+        return strtolower($t);
+    }
+}
+
+if (!defined('PRINTFLOW_REMEMBER_TOKEN_COOKIE')) {
+    define('PRINTFLOW_REMEMBER_TOKEN_COOKIE', 'PRINTFLOWREMEMBERTOKEN');
+}
+
+if (!defined('PRINTFLOW_REMEMBER_TOKEN_BYTES')) {
+    define('PRINTFLOW_REMEMBER_TOKEN_BYTES', 32);
+}
+
+if (!defined('PRINTFLOW_REMEMBER_SELECTOR_BYTES')) {
+    define('PRINTFLOW_REMEMBER_SELECTOR_BYTES', 12);
+}
+
+if (!function_exists('printflow_ensure_remember_tokens_table')) {
+    function printflow_ensure_remember_tokens_table(): void {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        db_execute(
+            "CREATE TABLE IF NOT EXISTS remember_tokens (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                selector VARCHAR(64) NOT NULL UNIQUE,
+                token_hash VARCHAR(128) NOT NULL,
+                user_id INT NOT NULL,
+                user_type VARCHAR(32) NOT NULL,
+                expires_at DATETIME NOT NULL,
+                user_agent VARCHAR(255) DEFAULT NULL,
+                ip_address VARCHAR(45) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                KEY idx_user (user_id, user_type),
+                KEY idx_expires (expires_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        );
+    }
+}
+
+if (!function_exists('printflow_remember_cookie_value')) {
+    function printflow_remember_cookie_value(string $selector, string $validator): string {
+        return $selector . ':' . $validator;
+    }
+}
+
+if (!function_exists('printflow_parse_remember_cookie')) {
+    function printflow_parse_remember_cookie(string $raw): ?array {
+        $parts = explode(':', $raw, 2);
+        if (count($parts) !== 2) {
+            return null;
+        }
+        $selector = trim($parts[0]);
+        $validator = trim($parts[1]);
+        if ($selector === '' || $validator === '') {
+            return null;
+        }
+        if (!ctype_xdigit($selector) || !ctype_xdigit($validator)) {
+            return null;
+        }
+        return ['selector' => strtolower($selector), 'validator' => strtolower($validator)];
+    }
+}
+
+if (!function_exists('printflow_set_remember_token_cookie')) {
+    function printflow_set_remember_token_cookie(string $value, int $expiresAt): void {
+        $host = strtolower((string)($_SERVER['HTTP_HOST'] ?? ''));
+        $host = preg_replace('/:\d+$/', '', $host);
+        $domain = '';
+        if ($host !== '' && $host !== 'localhost' && !filter_var($host, FILTER_VALIDATE_IP) && substr_count($host, '.') >= 1) {
+            $domain = $host;
+        }
+
+        setcookie(PRINTFLOW_REMEMBER_TOKEN_COOKIE, $value, [
+            'expires' => $expiresAt,
+            'path' => '/',
+            'domain' => $domain,
+            'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+    }
+}
+
+if (!function_exists('printflow_clear_remember_token_cookie')) {
+    function printflow_clear_remember_token_cookie(): void {
+        $host = strtolower((string)($_SERVER['HTTP_HOST'] ?? ''));
+        $host = preg_replace('/:\d+$/', '', $host);
+        $domains = [''];
+        if ($host !== '' && $host !== 'localhost' && !filter_var($host, FILTER_VALIDATE_IP)) {
+            $domains[] = $host;
+            $domains[] = '.' . ltrim($host, '.');
+            $parts = explode('.', $host);
+            if (count($parts) >= 2) {
+                $apex = $parts[count($parts) - 2] . '.' . $parts[count($parts) - 1];
+                $domains[] = $apex;
+                $domains[] = '.' . $apex;
+            }
+        }
+        $domains = array_values(array_unique($domains));
+
+        foreach ($domains as $domain) {
+            setcookie(PRINTFLOW_REMEMBER_TOKEN_COOKIE, '', [
+                'expires' => time() - 3600,
+                'path' => '/',
+                'domain' => $domain,
+                'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
+        }
+    }
+}
+
+if (!function_exists('printflow_store_remember_token')) {
+    function printflow_store_remember_token(int $user_id, string $user_type, int $days): void {
+        printflow_ensure_remember_tokens_table();
+        $selector = bin2hex(random_bytes(PRINTFLOW_REMEMBER_SELECTOR_BYTES));
+        $validator = bin2hex(random_bytes(PRINTFLOW_REMEMBER_TOKEN_BYTES));
+        $tokenHash = hash('sha256', $validator);
+        $expiresAtTs = time() + max(1, $days) * 86400;
+        $expiresAt = date('Y-m-d H:i:s', $expiresAtTs);
+        db_execute(
+            "INSERT INTO remember_tokens (selector, token_hash, user_id, user_type, expires_at, user_agent, ip_address)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            'ssissss',
+            [
+                $selector,
+                $tokenHash,
+                $user_id,
+                $user_type,
+                $expiresAt,
+                substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255),
+                substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45),
+            ]
+        );
+        printflow_set_remember_token_cookie(
+            printflow_remember_cookie_value($selector, $validator),
+            $expiresAtTs
+        );
+    }
+}
+
+if (!function_exists('printflow_clear_remember_token')) {
+    function printflow_clear_remember_token(): void {
+        printflow_ensure_remember_tokens_table();
+        $raw = (string)($_COOKIE[PRINTFLOW_REMEMBER_TOKEN_COOKIE] ?? '');
+        $parsed = printflow_parse_remember_cookie($raw);
+        if ($parsed !== null) {
+            db_execute(
+                "DELETE FROM remember_tokens WHERE selector = ?",
+                's',
+                [$parsed['selector']]
+            );
+        }
+        printflow_clear_remember_token_cookie();
+    }
+}
+
+if (!function_exists('printflow_hydrate_user_session')) {
+    function printflow_hydrate_user_session(int $user_id, string $user_type, array $row): array {
+        if ($user_type === 'Customer') {
+            $_SESSION['user_id'] = $user_id;
+            $_SESSION['user_type'] = 'Customer';
+            $_SESSION['user_name'] = trim((string)($row['first_name'] ?? '') . ' ' . (string)($row['last_name'] ?? ''));
+            $_SESSION['user_email'] = (string)($row['email'] ?? '');
+            if (function_exists('load_customer_cart_into_session')) {
+                load_customer_cart_into_session($user_id);
+            }
+            return [
+                'redirect' => AUTH_REDIRECT_BASE . '/customer/services.php',
+            ];
+        }
+
+        $_SESSION['user_id'] = $user_id;
+        $_SESSION['user_type'] = $user_type;
+        $_SESSION['user_name'] = trim((string)($row['first_name'] ?? '') . ' ' . (string)($row['last_name'] ?? ''));
+        $_SESSION['user_email'] = (string)($row['email'] ?? '');
+        $_SESSION['user_status'] = (string)($row['status'] ?? '');
+        $_SESSION['branch_id'] = $row['branch_id'] ?? null;
+        $_SESSION['staff_position'] = (string)($row['position'] ?? '');
+        if ($user_type === 'Staff') {
+            $_SESSION['staff_access_role'] = printflow_resolve_staff_access_role_from_user($row);
+        } else {
+            unset($_SESSION['staff_access_role']);
+        }
+
+        if ($user_type === 'Manager' || $user_type === 'Staff') {
+            $_SESSION['selected_branch_id'] = $row['branch_id'] ?? null;
+        } else {
+            $_SESSION['selected_branch_id'] = printflow_get_default_admin_branch_id();
+        }
+
+        $redirect = AUTH_REDIRECT_BASE . '/admin/dashboard.php';
+        if ($user_type === 'Manager') {
+            $redirect = AUTH_REDIRECT_BASE . '/manager/dashboard.php';
+        } elseif ($user_type === 'Staff') {
+            $status = (string)($row['status'] ?? '');
+            $redirect = $status === 'Pending'
+                ? AUTH_REDIRECT_BASE . '/staff/profile.php'
+                : printflow_staff_home_url();
+        }
+
+        return ['redirect' => $redirect];
+    }
+}
+
+if (!function_exists('printflow_attempt_auto_login_via_remember_token')) {
+    function printflow_attempt_auto_login_via_remember_token(): void {
+        if (is_logged_in()) {
+            return;
+        }
+
+        $raw = (string)($_COOKIE[PRINTFLOW_REMEMBER_TOKEN_COOKIE] ?? '');
+        if ($raw === '') {
+            return;
+        }
+
+        $parsed = printflow_parse_remember_cookie($raw);
+        if ($parsed === null) {
+            printflow_clear_remember_token_cookie();
+            return;
+        }
+
+        printflow_ensure_remember_tokens_table();
+        db_execute("DELETE FROM remember_tokens WHERE expires_at <= NOW()");
+
+        $rows = db_query(
+            "SELECT * FROM remember_tokens WHERE selector = ? LIMIT 1",
+            's',
+            [$parsed['selector']]
+        );
+        if (empty($rows)) {
+            printflow_clear_remember_token_cookie();
+            return;
+        }
+
+        $tokenRow = $rows[0];
+        $tokenHash = hash('sha256', $parsed['validator']);
+        if (!hash_equals((string)($tokenRow['token_hash'] ?? ''), $tokenHash)) {
+            db_execute("DELETE FROM remember_tokens WHERE selector = ?", 's', [$parsed['selector']]);
+            printflow_clear_remember_token_cookie();
+            return;
+        }
+
+        $userId = (int)($tokenRow['user_id'] ?? 0);
+        $userType = (string)($tokenRow['user_type'] ?? '');
+        if ($userId <= 0 || $userType === '') {
+            db_execute("DELETE FROM remember_tokens WHERE selector = ?", 's', [$parsed['selector']]);
+            printflow_clear_remember_token_cookie();
+            return;
+        }
+
+        if ($userType === 'Customer') {
+            $userRows = db_query("SELECT * FROM customers WHERE customer_id = ? LIMIT 1", 'i', [$userId]);
+            if (empty($userRows)) {
+                db_execute("DELETE FROM remember_tokens WHERE selector = ?", 's', [$parsed['selector']]);
+                printflow_clear_remember_token_cookie();
+                return;
+            }
+            $customer = $userRows[0];
+            $status = isset($customer['status']) ? (string)$customer['status'] : 'Activated';
+            if (in_array($status, ['Disabled', 'Suspended'], true)) {
+                db_execute("DELETE FROM remember_tokens WHERE selector = ?", 's', [$parsed['selector']]);
+                printflow_clear_remember_token_cookie();
+                return;
+            }
+            SessionManager::regenerate();
+            printflow_hydrate_user_session($userId, 'Customer', $customer);
+            SessionManager::applyRememberMe(REMEMBER_ME_CUSTOMER_DAYS);
+            SessionManager::commit();
+            return;
+        }
+
+        $userRows = db_query("SELECT * FROM users WHERE user_id = ? LIMIT 1", 'i', [$userId]);
+        if (empty($userRows)) {
+            db_execute("DELETE FROM remember_tokens WHERE selector = ?", 's', [$parsed['selector']]);
+            printflow_clear_remember_token_cookie();
+            return;
+        }
+
+        $user = $userRows[0];
+        $status = (string)($user['status'] ?? '');
+        $role = (string)($user['role'] ?? '');
+        if (!in_array($status, ['Activated', 'Pending'], true) || !in_array($role, ['Admin', 'Manager', 'Staff'], true)) {
+            db_execute("DELETE FROM remember_tokens WHERE selector = ?", 's', [$parsed['selector']]);
+            printflow_clear_remember_token_cookie();
+            return;
+        }
+
+        $branchIssue = printflow_get_branch_access_issue($role, $user['branch_id'] ?? null);
+        if ($branchIssue !== null) {
+            db_execute("DELETE FROM remember_tokens WHERE selector = ?", 's', [$parsed['selector']]);
+            printflow_clear_remember_token_cookie();
+            return;
+        }
+
+        SessionManager::regenerate();
+        printflow_hydrate_user_session($userId, $role, $user);
+        SessionManager::applyRememberMe(REMEMBER_ME_STAFF_DAYS);
+        SessionManager::commit();
+    }
+}
+
+/**
+ * Whether the customer signed up with email/password (local), including legacy "password" value.
+ */
+function printflow_is_customer_local_auth_provider($auth_provider): bool {
+    $ap = strtolower(trim((string)$auth_provider));
+    return $ap === '' || $ap === 'local' || $ap === 'password';
+}
+
+/**
+ * Redirect URL after customer login/registration (profile completion when required).
+ */
+function printflow_customer_post_auth_redirect(int $customer_id): string {
+    if (!function_exists('printflow_first_incomplete_customer_account_section')) {
+        require_once __DIR__ . '/customer_profile_completion.php';
+    }
+    $rows = db_query('SELECT * FROM customers WHERE customer_id = ? LIMIT 1', 'i', [$customer_id]);
+    $customer = $rows[0] ?? null;
+    $section = $customer ? printflow_first_incomplete_customer_account_section($customer) : printflow_first_incomplete_customer_account_section();
+    if ($section !== null) {
+        return AUTH_REDIRECT_BASE . '/customer/profile.php?complete_profile=1#' . $section;
+    }
+    return AUTH_REDIRECT_BASE . '/customer/services.php';
+}
+
+/**
+ * Establish an authenticated customer session.
+ */
+function printflow_establish_customer_session(array $customer, bool $remember_me = false): void {
+    $_SESSION['user_id'] = (int)$customer['customer_id'];
+    $_SESSION['user_type'] = 'Customer';
+    $_SESSION['user_name'] = trim(($customer['first_name'] ?? '') . ' ' . ($customer['last_name'] ?? ''));
+    $_SESSION['user_email'] = $customer['email'] ?? '';
+    SessionManager::regenerate();
+    if ($remember_me) {
+        SessionManager::applyRememberMe(REMEMBER_ME_CUSTOMER_DAYS);
+        printflow_store_remember_token((int)$customer['customer_id'], 'Customer', REMEMBER_ME_CUSTOMER_DAYS);
+    } else {
+        printflow_clear_remember_token();
+        SessionManager::clearRememberMe();
+    }
+    if (function_exists('load_customer_cart_into_session')) {
+        load_customer_cart_into_session((int)$customer['customer_id']);
+    }
+    SessionManager::commit();
+}
+
+/**
+ * Reject login when customer account status is disabled or suspended.
+ */
+function printflow_customer_account_status_error(array $customer): ?string {
+    if (!isset($customer['status'])) {
+        return null;
+    }
+    if ($customer['status'] === 'Disabled') {
+        return 'Your account has been disabled. Please contact support.';
+    }
+    if ($customer['status'] === 'Suspended') {
+        return 'Your account has been suspended. Please contact support.';
+    }
+    return null;
+}
+
+/**
+ * Add customers.auth_provider (local | google) when missing.
+ */
+function printflow_ensure_customers_auth_provider_column() {
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    try {
+        $has = false;
+        if (function_exists('db_table_has_column')) {
+            $has = db_table_has_column('customers', 'auth_provider');
+        } else {
+            $r = db_query("SHOW COLUMNS FROM `customers` LIKE 'auth_provider'");
+            $has = !empty($r);
+        }
+        if (!$has) {
+            @db_execute("ALTER TABLE `customers` ADD COLUMN `auth_provider` varchar(20) NULL DEFAULT NULL");
+        }
+    } catch (Exception $e) {
+        error_log('printflow_ensure_customers_auth_provider_column: ' . $e->getMessage());
+    }
+}
+
+if (!defined('PRINTFLOW_TERMS_VERSION')) {
+    define('PRINTFLOW_TERMS_VERSION', '2026-08-30');
+}
+
+/**
+ * Confirm the customer Terms/Privacy acceptance columns exist.
+ * Schema changes must be applied through a reviewed migration, not during registration.
+ */
+function printflow_customer_terms_acceptance_columns_ready(): bool {
+    static $ready = null;
+    if ($ready !== null) {
+        return $ready;
+    }
+    try {
+        $ready = db_table_has_column('customers', 'terms_accepted_at')
+            && db_table_has_column('customers', 'terms_version');
+    } catch (Exception $e) {
+        error_log('printflow_customer_terms_acceptance_columns_ready: ' . $e->getMessage());
+        $ready = false;
+    }
+    return $ready;
+}
+
+function printflow_google_placeholder_password_hash(): string {
+    return '!google-oauth-only!';
+}
+
+function printflow_customer_has_usable_password_hash($passwordHash): bool {
+    $hash = trim((string)$passwordHash);
+    if ($hash === '' || $hash === printflow_google_placeholder_password_hash()) {
+        return false;
+    }
+    return true;
+}
+
+// Helper functions for checking duplicate emails/phones
+if (!function_exists('email_in_use_across_accounts')) {
+    function email_in_use_across_accounts($email, $exclude_customer_id = null, $exclude_user_id = null) {
+        $e = printflow_email_lower($email);
+        if ($e === '') {
+            return false;
+        }
+        if ($exclude_user_id !== null) {
+            $users = db_query("SELECT user_id FROM users WHERE LOWER(TRIM(email)) = ? AND user_id <> ? LIMIT 1", 'si', [$e, (int)$exclude_user_id]);
+        } else {
+            $users = db_query("SELECT user_id FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1", 's', [$e]);
+        }
+        if ($exclude_customer_id !== null) {
+            $customers = db_query("SELECT customer_id FROM customers WHERE LOWER(TRIM(email)) = ? AND customer_id <> ? LIMIT 1", 'si', [$e, (int)$exclude_customer_id]);
+        } else {
+            $customers = db_query("SELECT customer_id FROM customers WHERE LOWER(TRIM(email)) = ? LIMIT 1", 's', [$e]);
+        }
+        return !empty($users) || !empty($customers);
+    }
+}
+
+if (!function_exists('contact_phone_in_use_across_accounts')) {
+    function contact_phone_in_use_across_accounts($phone, $exclude_customer_id = null, $exclude_user_id = null) {
+        if (empty($phone)) return false;
+        if ($exclude_user_id !== null) {
+            $users = db_query("SELECT user_id FROM users WHERE contact_number = ? AND user_id <> ?", 'si', [$phone, (int)$exclude_user_id]);
+        } else {
+            $users = db_query("SELECT user_id FROM users WHERE contact_number = ?", 's', [$phone]);
+        }
+        if ($exclude_customer_id !== null) {
+            $customers = db_query("SELECT customer_id FROM customers WHERE contact_number = ? AND customer_id <> ?", 'si', [$phone, (int)$exclude_customer_id]);
+        } else {
+            $customers = db_query("SELECT customer_id FROM customers WHERE contact_number = ?", 's', [$phone]);
+        }
+        return !empty($users) || !empty($customers);
+    }
+}
+/**
+ * Check if user is logged in
+ * @return bool
+ */
+function is_logged_in() {
+    return isset($_SESSION['user_id']) && isset($_SESSION['user_type']);
+}
+
+/**
+ * Check if user is Admin
+ * @return bool
+ */
+function is_admin() {
+    return is_logged_in() && $_SESSION['user_type'] === 'Admin';
+}
+
+/**
+ * Check if user is Staff
+ * @return bool
+ */
+function is_staff() {
+    return is_logged_in() && $_SESSION['user_type'] === 'Staff';
+}
+
+/**
+ * Check if user is Manager
+ * @return bool
+ */
+function is_manager() {
+    return is_logged_in() && $_SESSION['user_type'] === 'Manager';
+}
+
+/**
+ * Check if user is Admin or Manager
+ * @return bool
+ */
+function is_admin_or_manager() {
+    return is_logged_in() && in_array($_SESSION['user_type'], ['Admin', 'Manager']);
+}
+
+/**
+ * Check if user is Customer
+ * @return bool
+ */
+function is_customer() {
+    return is_logged_in() && $_SESSION['user_type'] === 'Customer';
+}
+
+/**
+ * Check if the current user has one of the specified roles
+ * @param string|array $roles The role(s) to check
+ * @return bool
+ */
+function has_role($roles) {
+    if (!is_logged_in()) {
+        return false;
+    }
+    
+    if (!is_array($roles)) {
+        $roles = [$roles];
+    }
+    
+    $user_type = get_user_type();
+    return in_array($user_type, $roles);
+}
+
+/**
+ * Get current user ID
+ * @return int|null
+ */
+function get_user_id() {
+    return $_SESSION['user_id'] ?? null;
+}
+
+/**
+ * Get current user type
+ * @return string|null
+ */
+function get_user_type() {
+    return $_SESSION['user_type'] ?? null;
+}
+
+/**
+ * Get current logged in user data
+ * @return array|null
+ */
+function get_logged_in_user() {
+    if (!is_logged_in()) {
+        return null;
+    }
+    
+    $user_id = get_user_id();
+    $user_type = get_user_type();
+    
+    if ($user_type === 'Customer') {
+        $result = db_query("SELECT * FROM customers WHERE customer_id = ?", 'i', [$user_id]);
+    } else {
+        $result = db_query("SELECT * FROM users WHERE user_id = ?", 'i', [$user_id]);
+    }
+    
+    return $result[0] ?? null;
+}
+
+function printflow_get_forced_logout_reason(): ?string {
+    return isset($GLOBALS['printflow_forced_logout_reason'])
+        ? (string)$GLOBALS['printflow_forced_logout_reason']
+        : null;
+}
+
+function printflow_format_countdown_mmss(int $seconds): string {
+    $seconds = max(0, $seconds);
+    $minutes = intdiv($seconds, 60);
+    $remainingSeconds = $seconds % 60;
+    return $minutes . ':' . str_pad((string)$remainingSeconds, 2, '0', STR_PAD_LEFT);
+}
+
+function printflow_get_forced_logout_message(): ?string {
+    return isset($GLOBALS['printflow_forced_logout_message'])
+        ? (string)$GLOBALS['printflow_forced_logout_message']
+        : null;
+}
+
+function printflow_get_branch_access_issue(string $role, $branchId): ?array {
+    if (!in_array($role, ['Manager', 'Staff'], true)) {
+        return null;
+    }
+
+    $branchId = (int)$branchId;
+    if ($branchId <= 0) {
+        return [
+            'reason' => 'branch_inactive',
+            'message' => 'Your assigned branch is unavailable. Please contact an administrator.'
+        ];
+    }
+
+    $rows = db_query(
+        "SELECT branch_name, status FROM branches WHERE id = ? LIMIT 1",
+        'i',
+        [$branchId]
+    );
+
+    $branch = $rows[0] ?? null;
+    $status = trim((string)($branch['status'] ?? ''));
+    
+    // Check if branch is active - accept any case variation of 'Active'
+    // Also treat empty/NULL status as active (default behavior)
+    if ($status === '' || $status === 'Active' || $status === 'ACTIVE' || $status === 'active' || 
+        strcasecmp($status, 'Active') === 0) {
+        return null;
+    }
+
+    // Only treat as inactive if explicitly set to 'Inactive' or 'Archived'
+    if ($status === 'Inactive' || $status === 'INACTIVE' || $status === 'inactive' ||
+        strcasecmp($status, 'Inactive') === 0 || strcasecmp($status, 'Archived') === 0) {
+        $branchName = trim((string)($branch['branch_name'] ?? ''));
+        $message = $branchName !== ''
+            ? ('Your assigned branch (' . $branchName . ') is inactive. Please contact an administrator.')
+            : 'Your assigned branch is inactive. Please contact an administrator.';
+
+        return [
+            'reason' => 'branch_inactive',
+            'message' => $message
+        ];
+    }
+
+    // For any other status value, treat as active to avoid false positives
+    return null;
+}
+
+function printflow_enforce_restricted_branch_session(): void {
+    if (!is_logged_in()) {
+        return;
+    }
+
+    $role = (string)($_SESSION['user_type'] ?? '');
+    if (!in_array($role, ['Manager', 'Staff'], true)) {
+        return;
+    }
+
+    $issue = printflow_get_branch_access_issue($role, $_SESSION['branch_id'] ?? null);
+    if ($issue === null) {
+        return;
+    }
+
+    $GLOBALS['printflow_forced_logout_reason'] = $issue['reason'];
+    $GLOBALS['printflow_forced_logout_message'] = $issue['message'];
+    printflow_clear_remember_token();
+    SessionManager::clearRememberMe();
+    SessionManager::destroy();
+}
+
+printflow_attempt_auto_login_via_remember_token();
+printflow_enforce_restricted_branch_session();
+
+/**
+ * Resolve the default admin branch.
+ * Prefers an active Cabuyao branch because it is the main branch,
+ * then falls back to the first active branch, then branch id 1.
+ *
+ * @return int
+ */
+function printflow_get_default_admin_branch_id(): int {
+    static $cached_branch_id = null;
+    if ($cached_branch_id !== null) {
+        return $cached_branch_id;
+    }
+
+    try {
+        $match = db_query(
+            "SELECT id
+             FROM branches
+             WHERE status != 'Archived'
+               AND (
+                   LOWER(branch_name) LIKE '%cabuyao%'
+                   OR LOWER(city) LIKE '%cabuyao%'
+                   OR LOWER(address) LIKE '%cabuyao%'
+               )
+             ORDER BY
+                 CASE
+                     WHEN LOWER(branch_name) = 'cabuyao branch' THEN 0
+                     WHEN LOWER(branch_name) = 'cabuyao' THEN 1
+                     WHEN LOWER(branch_name) LIKE 'cabuyao%' THEN 2
+                     ELSE 3
+                 END,
+                 id ASC
+             LIMIT 1"
+        );
+        $matched_branch_id = (int)($match[0]['id'] ?? 0);
+        if ($matched_branch_id > 0) {
+            $cached_branch_id = $matched_branch_id;
+            return $cached_branch_id;
+        }
+
+        $fallback = db_query(
+            "SELECT id
+             FROM branches
+             WHERE status != 'Archived'
+             ORDER BY id ASC
+             LIMIT 1"
+        );
+        $fallback_branch_id = (int)($fallback[0]['id'] ?? 0);
+        $cached_branch_id = $fallback_branch_id > 0 ? $fallback_branch_id : 1;
+        return $cached_branch_id;
+    } catch (Exception $e) {
+        $cached_branch_id = 1;
+        return $cached_branch_id;
+    }
+}
+
+/**
+ * Login user (Admin/Staff)
+ * @param string $email
+ * @param string $password
+ * @param bool $remember_me Whether to extend session cookie lifetime
+ * @return array ['success' => bool, 'message' => string, 'redirect' => string]
+ */
+function login_user($email, $password, $remember_me = false) {
+    // First check if email exists at all (regardless of status)
+    $result = db_query("SELECT * FROM users WHERE email = ?", 's', [$email]);
+
+    if (empty($result)) {
+        return ['success' => false, 'message' => 'Invalid email or password'];
+    }
+
+    $user = $result[0];
+
+    // Account status check — give specific error before password check
+    if ($user['status'] === 'Disabled') {
+        return ['success' => false, 'message' => 'Your account has been disabled. Please contact support.'];
+    }
+    if ($user['status'] === 'Suspended') {
+        return ['success' => false, 'message' => 'Your account has been suspended. Please contact support.'];
+    }
+    // Only allow Activated or Pending status
+    if (!in_array($user['status'], ['Activated', 'Pending'])) {
+        return ['success' => false, 'message' => 'Your account is not active. Please contact support.'];
+    }
+
+    if (!password_verify($password, $user['password_hash'])) {
+        return ['success' => false, 'message' => 'Invalid email or password'];
+    }
+
+    $branchIssue = printflow_get_branch_access_issue((string)($user['role'] ?? ''), $user['branch_id'] ?? null);
+    if ($branchIssue !== null) {
+        return ['success' => false, 'message' => $branchIssue['message']];
+    }
+    
+    // Set session variables
+    $_SESSION['user_id']   = $user['user_id'];
+    $_SESSION['user_type'] = $user['role']; // 'Admin', 'Manager', or 'Staff'
+    $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
+    $_SESSION['user_email']  = $user['email'];
+    $_SESSION['user_status'] = $user['status'];
+    $_SESSION['branch_id']   = $user['branch_id'] ?? null;
+    $_SESSION['staff_position'] = (string)($user['position'] ?? '');
+    if (($user['role'] ?? '') === 'Staff') {
+        $_SESSION['staff_access_role'] = printflow_resolve_staff_access_role_from_user($user);
+    } else {
+        unset($_SESSION['staff_access_role']);
+    }
+
+    // Force Manager (and Staff) to their assigned branch immediately so the
+    // branch selector never shows "All Branches" for restricted accounts.
+    if ($user['role'] === 'Manager' || $user['role'] === 'Staff') {
+        $_SESSION['selected_branch_id'] = $user['branch_id'] ?? null;
+    } else {
+        // Admin: default to the main Cabuyao branch on login.
+        $_SESSION['selected_branch_id'] = printflow_get_default_admin_branch_id();
+    }
+
+    // Determine redirect based on role and status
+    if ($user['role'] === 'Admin') {
+        $redirect = AUTH_REDIRECT_BASE . '/admin/dashboard.php';
+    } elseif ($user['role'] === 'Manager') {
+        $redirect = AUTH_REDIRECT_BASE . '/manager/dashboard.php';
+    } elseif ($user['status'] === 'Pending') {
+        // Pending staff can only see profile to complete their information
+        $redirect = AUTH_REDIRECT_BASE . '/staff/profile.php';
+    } else {
+        $redirect = printflow_staff_home_url();
+    }
+
+    SessionManager::regenerate();
+    if ($remember_me) {
+        SessionManager::applyRememberMe(REMEMBER_ME_STAFF_DAYS);
+        printflow_store_remember_token((int)$user['user_id'], (string)$user['role'], REMEMBER_ME_STAFF_DAYS);
+    } else {
+        printflow_clear_remember_token();
+        SessionManager::clearRememberMe();
+    }
+    SessionManager::commit();
+    return [
+        'success' => true,
+        'message' => 'Login successful',
+        'redirect' => $redirect
+    ];
+}
+
+/**
+ * Login customer
+ * @param string $email
+ * @param string $password
+ * @param bool $remember_me Whether to extend session cookie lifetime
+ * @return array ['success' => bool, 'message' => string, 'redirect' => string]
+ */
+function login_customer($email, $password, $remember_me = false) {
+    $emailLower = printflow_email_lower($email);
+    $result = $emailLower === ''
+        ? []
+        : db_query("SELECT * FROM customers WHERE LOWER(TRIM(email)) = ?", 's', [$emailLower]);
+
+    // Also try phone-based accounts (contact_number match or phone@phone.local email)
+    if (empty($result)) {
+        $phone_clean = preg_replace('/[\s\-\(\)]/', '', $email);
+        if (preg_match('/^(\+63|0)9\d{9}$/', $phone_clean)) {
+            // Try by contact_number
+            $result = db_query("SELECT * FROM customers WHERE contact_number = ?", 's', [$phone_clean]);
+            if (empty($result)) {
+                // Try by generated email placeholder
+                $result = db_query("SELECT * FROM customers WHERE email = ?", 's', [$phone_clean . '@phone.local']);
+            }
+        }
+    }
+
+    if (empty($result)) {
+        return ['success' => false, 'message' => 'Invalid email or password'];
+    }
+
+    $customer = $result[0];
+
+    // Account status check (if the customers table has a status column)
+    if (isset($customer['status'])) {
+        if ($customer['status'] === 'Disabled') {
+            return ['success' => false, 'message' => 'Your account has been disabled. Please contact support.'];
+        }
+        if ($customer['status'] === 'Suspended') {
+            return ['success' => false, 'message' => 'Your account has been suspended. Please contact support.'];
+        }
+    }
+
+    if (!printflow_customer_has_usable_password_hash($customer['password_hash'] ?? null)) {
+        return ['success' => false, 'message' => 'Invalid email or password'];
+    }
+
+    if (!password_verify($password, $customer['password_hash'])) {
+        return ['success' => false, 'message' => 'Invalid email or password'];
+    }
+    
+    printflow_establish_customer_session($customer, $remember_me);
+    return [
+        'success' => true,
+        'message' => 'Login successful',
+        'redirect' => printflow_customer_post_auth_redirect((int)$customer['customer_id']),
+    ];
+}
+
+/**
+ * Login or register customer using Google profile (no password). Finds by email or creates new.
+ * @param string $email
+ * @param string $first_name
+ * @param string $last_name
+ * @return array ['success' => bool, 'message' => string, 'redirect' => string]
+ */
+function login_customer_by_google($email, $first_name, $last_name) {
+    printflow_ensure_customers_auth_provider_column();
+    $first_name = trim($first_name) ?: 'User';
+    $last_name = trim($last_name) ?: '';
+    $raw = trim((string)$email);
+    if ($raw === '' || !filter_var($raw, FILTER_VALIDATE_EMAIL)) {
+        return ['success' => false, 'message' => 'Invalid email from Google'];
+    }
+    $email = printflow_email_lower($raw);
+    if ($email === '') {
+        return ['success' => false, 'message' => 'Invalid email from Google'];
+    }
+    $staff = db_query("SELECT user_id FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1", 's', [$email]);
+    if (!empty($staff)) {
+        return [
+            'success' => false,
+            'message' => 'This email is already used for a staff or admin account. You cannot use Google sign-in for this address. Please sign in with your work email and password.',
+        ];
+    }
+
+    $existing = db_query("SELECT * FROM customers WHERE LOWER(TRIM(email)) = ? LIMIT 1", 's', [$email]);
+    if (!empty($existing)) {
+        $customer = $existing[0];
+        $status_error = printflow_customer_account_status_error($customer);
+        if ($status_error !== null) {
+            return ['success' => false, 'message' => $status_error];
+        }
+        $cid = (int)$customer['customer_id'];
+        $hash = trim((string)($customer['password_hash'] ?? ''));
+        if ($hash === printflow_google_placeholder_password_hash()) {
+            db_execute('UPDATE customers SET password_hash = NULL WHERE customer_id = ?', 'i', [$cid]);
+        }
+        if (printflow_is_customer_local_auth_provider($customer['auth_provider'] ?? '')) {
+            db_execute("UPDATE customers SET auth_provider = 'local' WHERE customer_id = ?", 'i', [$cid]);
+        }
+        printflow_establish_customer_session($customer);
+        return [
+            'success' => true,
+            'message' => 'Login successful',
+            'redirect' => printflow_customer_post_auth_redirect($cid),
+        ];
+    }
+
+    if (email_in_use_across_accounts($email)) {
+        return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
+    }
+
+    $sql = "INSERT INTO customers (first_name, middle_name, last_name, dob, gender, email, contact_number, password_hash, auth_provider, created_by_system)
+            VALUES (?, '', ?, NULL, NULL, ?, NULL, ?, 'google', 1)";
+    $google_placeholder_hash = printflow_google_placeholder_password_hash();
+    $cid = printflow_run_guarded_account_insert(function() use ($sql, $first_name, $last_name, $email, $google_placeholder_hash) {
+        return db_execute($sql, 'ssss', [$first_name, $last_name, $email, $google_placeholder_hash]);
+    });
+    if (!$cid) {
+        return ['success' => false, 'message' => 'Could not create account. Please try again.'];
+    }
+    $customer = [
+        'customer_id' => $cid,
+        'first_name' => $first_name,
+        'last_name' => $last_name,
+        'email' => $email,
+    ];
+    printflow_establish_customer_session($customer);
+    return [
+        'success' => true,
+        'message' => 'Account created',
+        'redirect' => printflow_customer_post_auth_redirect((int)$cid),
+    ];
+}
+
+/**
+ * Unified login function (detects user type automatically)
+ * @param string $email
+ * @param string $password
+ * @param bool $remember_me
+ * @return array
+ */
+function login($email, $password, $remember_me = false) {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+
+    $activeLockout = RateLimiter::getActiveLockout('login', $ip);
+    if ($activeLockout !== null) {
+        $remainingSeconds = max(1, (int)($activeLockout['remaining_seconds'] ?? 0));
+        return [
+            'success' => false,
+            'message' => 'Too many login attempts. Please try again in ' . printflow_format_countdown_mmss($remainingSeconds) . '.',
+            'lockout_remaining_seconds' => $remainingSeconds,
+            'lockout_level' => (int)($activeLockout['lockout_level'] ?? 0),
+            'code' => 'login_locked'
+        ];
+    }
+
+    // Try customer login first
+    $customer_result = login_customer($email, $password, $remember_me);
+    if ($customer_result['success']) {
+        RateLimiter::clear('login', $ip);
+        return $customer_result;
+    }
+
+    // Try user (Admin/Staff) login
+    $user_result = login_user($email, $password, $remember_me);
+    if ($user_result['success']) {
+        RateLimiter::clear('login', $ip);
+        return $user_result;
+    }
+
+    $failureState = RateLimiter::recordFailure('login', $ip, 5, 900);
+    if (!empty($failureState['locked'])) {
+        $remainingSeconds = max(1, (int)($failureState['remaining_seconds'] ?? 0));
+        return [
+            'success' => false,
+            'message' => 'Too many login attempts. Please try again in ' . printflow_format_countdown_mmss($remainingSeconds) . '.',
+            'lockout_remaining_seconds' => $remainingSeconds,
+            'lockout_level' => (int)($failureState['lockout_level'] ?? 0),
+            'code' => 'login_locked'
+        ];
+    }
+    return ['success' => false, 'message' => 'Invalid email or password'];
+}
+
+
+/**
+ * Register a new customer
+ * @param array $data
+ * @return array ['success' => bool, 'message' => string]
+ */
+function register_customer($data) {
+    printflow_ensure_customers_auth_provider_column();
+    if (!empty($data['email']) && is_string($data['email'])) {
+        $data['email'] = printflow_email_lower($data['email']);
+    }
+    if (email_in_use_across_accounts($data['email'] ?? '')) {
+        return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
+    }
+    $cn = $data['contact_number'] ?? '';
+    if ($cn !== '' && $cn !== null && contact_phone_in_use_across_accounts($cn)) {
+        return ['success' => false, 'message' => 'This phone number is already in use. Please sign in or use a different number.'];
+    }
+
+    // Hash password
+    $password_hash = password_hash($data['password'], PASSWORD_BCRYPT);
+    
+    // Insert customer
+    $sql = "INSERT INTO customers (first_name, middle_name, last_name, dob, gender, email, contact_number, password_hash, auth_provider, created_by_system) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'local', 1)";
+    
+    $result = printflow_run_guarded_account_insert(function() use ($sql, $data, $password_hash) {
+        return db_execute($sql, 'ssssssss', [
+            $data['first_name'],
+            $data['middle_name'] ?? null,
+            $data['last_name'],
+            $data['dob'] ?? null,
+            $data['gender'] ?? null,
+            $data['email'],
+            $data['contact_number'] ?? null,
+            $password_hash
+        ]);
+    });
+    
+    if ($result) {
+        // Auto-login after registration
+        $_SESSION['user_id'] = $result;
+        $_SESSION['user_type'] = 'Customer';
+        $_SESSION['user_name'] = $data['first_name'] . ' ' . $data['last_name'];
+        $_SESSION['user_email'] = $data['email'];
+        SessionManager::regenerate();
+        return ['success' => true, 'message' => 'Registration successful'];
+    }
+
+    return ['success' => false, 'message' => 'Registration failed. Please try again.'];
+}
+
+/**
+ * Register customer directly via email or phone (no validation)
+ * @param string $type 'email' or 'phone'
+ * @param string $identifier The email or phone number
+ * @param string $password The password
+ * @return array ['success' => bool, 'message' => string]
+ */
+function printflow_ensure_customer_registration_profile_columns(): void {
+    $columns = [
+        ['region', 100, 'contact_number'],
+        ['province', 100, 'region'],
+        ['city', 100, 'province'],
+        ['barangay', 100, 'city'],
+        ['street_address', 255, 'barangay'],
+    ];
+
+    foreach ($columns as [$column, $length, $after]) {
+        if (function_exists('db_table_has_column') && db_table_has_column('customers', $column)) {
+            continue;
+        }
+        @db_execute("ALTER TABLE customers ADD COLUMN `{$column}` varchar({$length}) DEFAULT NULL AFTER `{$after}`");
+        if (function_exists('db_table_has_column')) {
+            db_table_has_column('customers', $column, true);
+        }
+    }
+}
+
+function register_customer_direct($type, $identifier, $password, $terms_accepted_at = null, $terms_version = null, array $profile_data = []) {
+    if (!printflow_customer_terms_acceptance_columns_ready()) {
+        return ['success' => false, 'message' => 'Registration is temporarily unavailable. Please contact support.'];
+    }
+    printflow_ensure_customer_registration_profile_columns();
+    printflow_ensure_customers_auth_provider_column();
+
+    if ($type === 'email') {
+        $email = printflow_email_lower(trim((string)$identifier));
+        $contact_number = null;
+    } else {
+        $email = trim((string)$identifier) . '@phone.local';
+        $contact_number = trim((string)$identifier);
+    }
+
+    $first_name = trim((string)($profile_data['first_name'] ?? ''));
+    $middle_name = trim((string)($profile_data['middle_name'] ?? ''));
+    $last_name = trim((string)($profile_data['last_name'] ?? ''));
+    $dob = trim((string)($profile_data['dob'] ?? ''));
+    $gender = trim((string)($profile_data['gender'] ?? ''));
+    $profile_contact = trim((string)($profile_data['contact_number'] ?? ''));
+    if ($contact_number === null && $profile_contact !== '') {
+        $contact_number = $profile_contact;
+    }
+    $region = trim((string)($profile_data['region'] ?? ''));
+    $province = trim((string)($profile_data['province'] ?? ''));
+    $city = trim((string)($profile_data['city'] ?? ''));
+    $barangay = trim((string)($profile_data['barangay'] ?? ''));
+    $street_address = trim((string)($profile_data['street_address'] ?? ''));
+    $profile_complete = (
+        $first_name !== ''
+        && $last_name !== ''
+        && $dob !== ''
+        && $gender !== ''
+        && $contact_number !== null
+        && $contact_number !== ''
+        && $province !== ''
+        && $city !== ''
+        && $barangay !== ''
+        && $street_address !== ''
+    ) ? 1 : 0;
+
+    $reuse_customer_id = 0;
+    $existing = db_query(
+        "SELECT customer_id, email_verified, auth_provider, created_at, status
+         FROM customers
+         WHERE LOWER(TRIM(email)) = ?
          LIMIT 1",
         's',
         [$email]
     );
+    if (!empty($existing)) {
+        $pending = $existing[0];
+        $pending_id = (int)$pending['customer_id'];
+        $is_local_pending = (int)($pending['email_verified'] ?? 0) === 0
+            && printflow_is_customer_local_auth_provider($pending['auth_provider'] ?? '');
 
-    if (!empty($legacy[0]['user_id'])) {
-        db_execute("DELETE FROM users WHERE user_id = ?", 'i', [(int)$legacy[0]['user_id']]);
+        if (!$is_local_pending) {
+            return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
+        }
+
+        $service_order_guard = '';
+        if (!empty(db_query("SHOW TABLES LIKE 'service_orders'"))) {
+            $service_order_guard = "
+                AND NOT EXISTS (
+                    SELECT 1 FROM service_orders so WHERE so.customer_id = c.customer_id
+                )";
+        }
+
+        $reusable_pending = db_query(
+            "SELECT c.customer_id
+             FROM customers c
+             WHERE c.customer_id = ?
+               AND COALESCE(c.email_verified, 0) = 0
+               AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password')
+               AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
+               AND (c.created_at IS NULL OR c.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR))
+               AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)
+               AND NOT EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id)" . $service_order_guard . "
+             LIMIT 1",
+            'i',
+            [$pending_id]
+        );
+
+        if (!empty($reusable_pending)) {
+            $reuse_customer_id = $pending_id;
+        } else {
+            $deleted_pending = db_execute_affected_rows(
+                "DELETE c FROM customers c
+                 WHERE c.customer_id = ?
+                   AND COALESCE(c.email_verified, 0) = 0
+                   AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password')
+                   AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
+                   AND c.created_at IS NOT NULL
+                   AND c.created_at < DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                   AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)
+                   AND NOT EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id)" . $service_order_guard,
+                'i',
+                [$pending_id]
+            );
+
+            if ($deleted_pending !== 1) {
+                return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
+            }
+        }
+    }
+
+    if ($contact_number !== null && $contact_number !== '') {
+        $existing2 = db_query(
+            "SELECT customer_id, email_verified
+             FROM customers
+             WHERE contact_number = ?
+             LIMIT 1",
+            's',
+            [$contact_number]
+        );
+        if (!empty($existing2) && (int)$existing2[0]['customer_id'] !== $reuse_customer_id) {
+            return ['success' => false, 'message' => ((int)($existing2[0]['email_verified'] ?? 0) === 0)
+                ? 'This phone number already has a pending registration. Please use that registration or try again later.'
+                : 'Phone number already registered. Please login.'];
+        }
+    }
+
+    if (email_in_use_across_accounts($email, $reuse_customer_id ?: null, null)) {
+        return ['success' => false, 'message' => 'This email is already in use (customer or staff account). Please sign in or use a different email.'];
+    }
+    if ($contact_number && contact_phone_in_use_across_accounts($contact_number, $reuse_customer_id ?: null, null)) {
+        return ['success' => false, 'message' => 'This phone number is already in use on another account. Please sign in or use a different number.'];
+    }
+
+    $password_hash = password_hash($password, PASSWORD_BCRYPT);
+    if ($reuse_customer_id > 0) {
+        $result = db_execute(
+            "UPDATE customers
+             SET first_name = ?, middle_name = ?, last_name = ?, dob = ?, gender = ?,
+                 contact_number = ?, password_hash = ?, is_profile_complete = ?,
+                 terms_accepted_at = ?, terms_version = ?, region = ?, province = ?,
+                 city = ?, barangay = ?, street_address = ?, auth_provider = 'local',
+                 email_verified = 0
+             WHERE customer_id = ?",
+            'sssssssisssssssi',
+            [
+                $first_name,
+                $middle_name,
+                $last_name,
+                $dob,
+                $gender,
+                $contact_number,
+                $password_hash,
+                $profile_complete,
+                $terms_accepted_at,
+                $terms_version,
+                $region,
+                $province,
+                $city,
+                $barangay,
+                $street_address,
+                $reuse_customer_id,
+            ]
+        );
+        $result = $result !== false ? $reuse_customer_id : false;
+    } else {
+        $sql = "INSERT INTO customers
+                (first_name, middle_name, last_name, dob, gender, email, contact_number,
+                 password_hash, is_profile_complete, email_verified, created_by_system, status,
+                 terms_accepted_at, terms_version, region, province, city, barangay, street_address)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?)";
+        $sql = str_replace(
+            '0, 1, ?, ?, ?, ?, ?, ?, ?',
+            '0, 1, ' . chr(39) . 'Deactivated' . chr(39) . ', ?, ?, ?, ?, ?, ?, ?',
+            $sql
+        );
+        $result = printflow_run_guarded_account_insert(function() use (
+            $sql,
+            $first_name,
+            $middle_name,
+            $last_name,
+            $dob,
+            $gender,
+            $email,
+            $contact_number,
+            $password_hash,
+            $profile_complete,
+            $terms_accepted_at,
+            $terms_version,
+            $region,
+            $province,
+            $city,
+            $barangay,
+            $street_address
+        ) {
+            return db_execute($sql, 'ssssssssisssssss', [
+                $first_name,
+                $middle_name,
+                $last_name,
+                $dob,
+                $gender,
+                $email,
+                $contact_number,
+                $password_hash,
+                $profile_complete,
+                $terms_accepted_at,
+                $terms_version,
+                $region,
+                $province,
+                $city,
+                $barangay,
+                $street_address,
+            ]);
+        });
+    }
+
+    if ($result) {
+        $otp = (string)random_int(100000, 999999);
+        $otp_hash = password_hash($otp, PASSWORD_DEFAULT);
+        $now = date('Y-m-d H:i:s');
+        $expiry = date('Y-m-d H:i:s', time() + 600);
+
+        require_once __DIR__ . '/otp_mailer.php';
+        $mail_res = send_otp_email($email, $otp);
+        if (isset($mail_res['success']) && $mail_res['success'] === true) {
+            $otp_saved = db_execute(
+                "UPDATE customers SET otp_code = ?, otp_expiry = ?, otp_last_sent = ? WHERE customer_id = ?",
+                'sssi',
+                [$otp_hash, $expiry, $now, $result]
+            );
+            if ($otp_saved === false) {
+                return ['success' => false, 'message' => 'Verification email was sent, but the verification code could not be saved. Please request a new code later.'];
+            }
+
+            $_SESSION['otp_pending_email'] = $email;
+            $_SESSION['otp_user_type'] = 'Customer';
+            $_SESSION['otp_resend_attempts'] = 0;
+            return ['success' => true, 'message' => $reuse_customer_id > 0
+                ? 'You already started registering with this email. Please continue email verification. A new verification code was sent.'
+                : 'Registration successful! Verification code sent.'];
+        }
+
+        if ($reuse_customer_id <= 0) {
+            db_execute("DELETE FROM customers WHERE customer_id = ?", 'i', [$result]);
+        }
+
+        $msg = 'Failed to send verification email: ' . ($mail_res['message'] ?? 'Unknown error');
+        return ['success' => false, 'message' => $msg];
+    }
+
+    return ['success' => false, 'message' => 'Registration failed. Please try again.'];
+}
+function customer_profile_completion_status($customer_id = null): array {
+    if ($customer_id === null) $customer_id = get_user_id();
+    if (!$customer_id || get_user_type() !== 'Customer') {
+        return ['complete' => true, 'missing' => []];
+    }
+
+    $existing_cols = [];
+    foreach (db_query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customers'") ?: [] as $r) {
+        $existing_cols[$r['COLUMN_NAME']] = true;
+    }
+
+    $required_cols = ['first_name', 'last_name', 'dob', 'gender', 'email', 'contact_number'];
+    $select_cols = array_values(array_filter(
+        array_unique(array_merge($required_cols, ['is_profile_complete'])),
+        static fn($col) => !empty($existing_cols[$col])
+    ));
+
+    if (empty($select_cols)) {
+        return ['complete' => false, 'missing' => ['Personal information']];
+    }
+
+    $sql_cols = implode(', ', array_map(static fn($col) => "`$col`", $select_cols));
+    $result = db_query("SELECT $sql_cols FROM customers WHERE customer_id = ? LIMIT 1", 'i', [$customer_id]);
+    if (empty($result)) {
+        return ['complete' => true, 'missing' => []];
+    }
+
+    $customer = $result[0];
+    $missing = [];
+    $name_regex = '/^[A-Za-z]+( [A-Za-z]+){0,2}$/';
+    $contact_regex = '/^\+?[0-9]{10,15}$/';
+
+    $first_name = trim((string)($customer['first_name'] ?? ''));
+    if ($first_name === '' || strcasecmp($first_name, 'Customer') === 0 || !preg_match($name_regex, $first_name)) {
+        $missing[] = 'First name';
+    }
+    $last_name = trim((string)($customer['last_name'] ?? ''));
+    if ($last_name === '' || !preg_match($name_regex, $last_name)) {
+        $missing[] = 'Last name';
+    }
+    $contact_number = trim((string)($customer['contact_number'] ?? ''));
+    if ($contact_number === '' || !preg_match($contact_regex, $contact_number)) {
+        $missing[] = 'Contact number';
+    }
+    $dob = trim((string)($customer['dob'] ?? ''));
+    if ($dob === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dob) || strtotime($dob) > strtotime('-13 years')) {
+        $missing[] = 'Birthday';
+    }
+    if (!in_array(trim((string)($customer['gender'] ?? '')), ['Male', 'Female', 'Other'], true)) {
+        $missing[] = 'Gender';
+    }
+    if (empty($customer['email']) || !filter_var((string)$customer['email'], FILTER_VALIDATE_EMAIL)) {
+        $missing[] = 'Email address';
+    }
+
+    return ['complete' => empty($missing), 'missing' => array_values(array_unique($missing))];
+}
+
+function sync_customer_profile_completion($customer_id = null): bool {
+    if ($customer_id === null) $customer_id = get_user_id();
+    if (!$customer_id || get_user_type() !== 'Customer') return true;
+
+    $status = customer_profile_completion_status($customer_id);
+    db_execute(
+        "UPDATE customers SET is_profile_complete = ? WHERE customer_id = ?",
+        'ii',
+        [$status['complete'] ? 1 : 0, $customer_id]
+    );
+    return (bool)$status['complete'];
+}
+
+/**
+ * Check if customer profile is complete (has all required profile details).
+ * @param int|null $customer_id
+ * @return bool
+ */
+function is_profile_complete($customer_id = null) {
+    return sync_customer_profile_completion($customer_id);
+}
+
+/**
+ * Require authentication (redirect to login if not logged in).
+ * Sets no-cache headers and handles session timeout redirect.
+ */
+function require_auth() {
+    if (defined('PF_CUSTOMER_CATALOG_NAV') && PF_CUSTOMER_CATALOG_NAV) {
+        if (function_exists('pf_customer_catalog_navigation_headers')) {
+            pf_customer_catalog_navigation_headers();
+        } else {
+            SessionManager::setNoCacheHeaders();
+        }
+    } else {
+        SessionManager::setNoCacheHeaders();
+    }
+    if (!is_logged_in()) {
+        if (printflow_get_forced_logout_reason() === 'branch_inactive') {
+            $message = printflow_get_forced_logout_message() ?: 'Your assigned branch is inactive. Please contact an administrator.';
+            header('Location: ' . AUTH_REDIRECT_BASE . '/?auth_modal=login&branch_inactive=1&error=' . urlencode($message));
+        } elseif (SessionManager::wasTimedOut()) {
+            header('Location: ' . AUTH_REDIRECT_BASE . '/?auth_modal=login&timeout=1');
+        } else {
+            header('Location: ' . AUTH_REDIRECT_BASE . '/');
+        }
+        exit();
     }
 }
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    redirect(AUTH_REDIRECT_BASE . '/?auth_modal=register');
-}
-
-if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
-    pf_register_redirect_error('Invalid request. Please try again.');
-}
-
-unset(
-    $_SESSION['otp_pending_email'],
-    $_SESSION['otp_user_type'],
-    $_SESSION['otp_error'],
-    $_SESSION['otp_success'],
-    $_SESSION['otp_resend_attempts']
-);
-
-$reg_type = sanitize($_POST['reg_type'] ?? 'direct');
-$identifier_type = sanitize($_POST['identifier_type'] ?? 'email');
-$identifier = sanitize($_POST['identifier'] ?? '');
-$password = $_POST['password'] ?? '';
-$confirm_password = $_POST['confirm_password'] ?? '';
-$first_name = sanitize($_POST['first_name'] ?? '');
-$middle_name = sanitize($_POST['middle_name'] ?? '');
-$last_name = sanitize($_POST['last_name'] ?? '');
-$contact_number = sanitize($_POST['contact_number'] ?? '');
-$dob = sanitize($_POST['dob'] ?? '');
-$gender = sanitize($_POST['gender'] ?? '');
-$province = sanitize($_POST['province'] ?? '');
-$city = sanitize($_POST['city'] ?? '');
-$barangay = sanitize($_POST['barangay'] ?? '');
-$street_address = sanitize($_POST['street_address'] ?? '');
-
-if (!pf_terms_agreement_accepted($_POST['terms_agreement'] ?? '')) {
-    pf_register_redirect_error('Please agree to the Terms of Service and Privacy Policy before creating your account.');
-}
-
-if ($reg_type !== 'direct') {
-    pf_register_redirect_error('Public registration is for customer accounts only.');
-}
-
-if (!in_array($identifier_type, ['email', 'phone'], true)) {
-    pf_register_redirect_error('Invalid registration type.');
-}
-
-if ($identifier === '' || $password === '' || $confirm_password === '') {
-    pf_register_redirect_error('Please fill in all fields.');
-}
-
-$first_name = ucwords(strtolower(trim($first_name)));
-$middle_name = ucwords(strtolower(trim($middle_name)));
-$last_name = ucwords(strtolower(trim($last_name)));
-$contact_clean = preg_replace('/\D/', '', $contact_number);
-if (strlen($contact_clean) === 12 && strncmp($contact_clean, '63', 2) === 0) {
-    $contact_clean = '0' . substr($contact_clean, 2);
-} elseif (strlen($contact_clean) === 10 && ($contact_clean[0] ?? '') === '9') {
-    $contact_clean = '0' . $contact_clean;
-}
-
-$name_regex = '/^[A-Za-z]+(?: [A-Za-z]+)*$/';
-$contact_regex = '/^09\d{9}$/';
-if ($first_name === '') {
-    pf_register_redirect_error('First name is required.');
-} elseif (!preg_match($name_regex, $first_name)) {
-    pf_register_redirect_error('First name must contain letters only.');
-} elseif (strlen($first_name) < 2 || strlen($first_name) > 50) {
-    pf_register_redirect_error('First name must be between 2 and 50 characters.');
-} elseif ($middle_name !== '' && !preg_match($name_regex, $middle_name)) {
-    pf_register_redirect_error('Middle name must contain letters only.');
-} elseif ($middle_name !== '' && (strlen($middle_name) < 1 || strlen($middle_name) > 50)) {
-    pf_register_redirect_error('Middle name must be between 1 and 50 characters.');
-} elseif ($last_name === '') {
-    pf_register_redirect_error('Last name is required.');
-} elseif (!preg_match($name_regex, $last_name)) {
-    pf_register_redirect_error('Last name must contain letters only.');
-} elseif (strlen($last_name) < 2 || strlen($last_name) > 50) {
-    pf_register_redirect_error('Last name must be between 2 and 50 characters.');
-} elseif ($contact_clean === '' || !preg_match($contact_regex, $contact_clean)) {
-    pf_register_redirect_error('Contact number must follow format 09XXXXXXXXX.');
-} elseif ($dob === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dob)) {
-    pf_register_redirect_error('Date of birth must be a valid date.');
-} else {
-    $bday_date = DateTime::createFromFormat('Y-m-d', $dob);
-    $bday_errors = DateTime::getLastErrors();
-    if (!$bday_date || ($bday_errors['warning_count'] ?? 0) > 0 || ($bday_errors['error_count'] ?? 0) > 0) {
-        pf_register_redirect_error('Date of birth must be a valid date.');
+/**
+ * Staff/Manager: if DB status is Archived, redirect to logout (session must not stay active).
+ * Safe to call multiple times per request (one DB read per user id).
+ */
+function printflow_guard_archived_staff_manager(): void {
+    static $checked_uid = null;
+    if (!function_exists('get_user_type') || !function_exists('get_user_id')) {
+        return;
     }
-    $today = new DateTime();
-    $age = $today->diff($bday_date)->y;
-    if ($bday_date > $today) {
-        pf_register_redirect_error('Date of birth cannot be a future date.');
-    } elseif ($age < 13) {
-        pf_register_redirect_error('You must be at least 13 years old.');
-    } elseif ($age > 100) {
-        pf_register_redirect_error('Age must be 100 years old or younger.');
+    $role = get_user_type();
+    if (!in_array($role, ['Manager', 'Staff'], true)) {
+        return;
+    }
+    $uid = (int) get_user_id();
+    if ($uid <= 0) {
+        return;
+    }
+    if ($checked_uid === $uid) {
+        return;
+    }
+    $checked_uid = $uid;
+    try {
+        $row = db_query('SELECT status FROM users WHERE user_id = ? LIMIT 1', 'i', [$uid]);
+        if (!empty($row) && ($row[0]['status'] ?? '') === 'Archived') {
+            $bp = defined('BASE_PATH') ? BASE_PATH : AUTH_REDIRECT_BASE;
+            header('Location: ' . rtrim((string) $bp, '/') . '/public/logout.php');
+            exit;
+        }
+    } catch (Throwable $e) {
+        // non-fatal
     }
 }
-if (!in_array($gender, ['Male', 'Female', 'Other'], true)) {
-    pf_register_redirect_error('Gender is required.');
+
+/**
+ * Require specific role (redirect if user doesn't have the role)
+ * @param string|array $roles Allowed roles (e.g., 'Admin' or ['Admin', 'Staff'])
+ */
+function require_role($roles) {
+    require_auth();
+    
+    if (!is_array($roles)) {
+        $roles = [$roles];
+    }
+    
+    $user_type = get_user_type();
+    
+    if (!in_array($user_type, $roles)) {
+        // Redirect to appropriate dashboard instead of showing error
+        redirect_to_dashboard();
+        exit();
+    }
+
+    printflow_guard_archived_staff_manager();
 }
-foreach (['Province' => $province, 'City / Municipality' => $city, 'Barangay' => $barangay, 'Street address' => $street_address] as $label => $value) {
-    if (trim((string)$value) === '') {
-        pf_register_redirect_error($label . ' is required.');
+
+/**
+ * Redirect user to their appropriate dashboard based on role
+ */
+function redirect_to_dashboard() {
+    if (!is_logged_in()) {
+        header('Location: ' . AUTH_REDIRECT_BASE . '/');
+        exit();
+    }
+    
+    $user_type = get_user_type();
+    
+    switch ($user_type) {
+        case 'Admin':
+            header('Location: ' . AUTH_REDIRECT_BASE . '/admin/dashboard.php');
+            break;
+        case 'Manager':
+            header('Location: ' . AUTH_REDIRECT_BASE . '/manager/dashboard.php');
+            break;
+        case 'Staff':
+            header('Location: ' . printflow_staff_home_url());
+            break;
+        case 'Customer':
+            header('Location: ' . AUTH_REDIRECT_BASE . '/customer/services.php');
+            break;
+        default:
+            header('Location: ' . AUTH_REDIRECT_BASE . '/');
+    }
+    exit();
+}
+
+/**
+ * Require customer access (customers only, block admin/staff)
+ */
+function require_customer() {
+    require_auth();
+    
+    if (!is_customer()) {
+        redirect_to_dashboard();
+        exit();
     }
 }
-if (strlen($street_address) > 255) {
-    pf_register_redirect_error('Street address must not exceed 255 characters.');
-}
-if (contact_phone_in_use_across_accounts($contact_clean)) {
-    pf_register_redirect_error('This contact number is already used by another account.');
-}
 
-if ($identifier_type === 'email') {
-    $identifier = trim($identifier);
-    if (
-        strlen($identifier) > 254 ||
-        strpos($identifier, ' ') !== false ||
-        !filter_var($identifier, FILTER_VALIDATE_EMAIL) ||
-        !preg_match('/^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/', $identifier)
-    ) {
-        pf_register_redirect_error('Please enter a valid email address.');
+/**
+ * Require admin/staff access (block customers)
+ */
+function require_admin_or_staff() {
+    require_auth();
+    
+    $user_type = get_user_type();
+    if (!in_array($user_type, ['Admin', 'Manager', 'Staff'])) {
+        redirect_to_dashboard();
+        exit();
     }
-} else {
-    $phone = preg_replace('/[\s\-\(\)]/', '', $identifier);
-    if (!preg_match('/^(\+63|0)9\d{9}$/', $phone)) {
-        pf_register_redirect_error('Please enter a valid Philippine mobile number.');
+
+    printflow_guard_archived_staff_manager();
+}
+
+/**
+ * Redirect any logged-in user away from guest/public pages.
+ */
+function redirect_logged_in_from_public_page(): void {
+    if (!is_logged_in()) {
+        return;
     }
-    $identifier = $phone;
+    SessionManager::setNoCacheHeaders();
+    $user_type = get_user_type();
+    if ($user_type === 'Admin') {
+        header('Location: ' . AUTH_REDIRECT_BASE . '/admin/dashboard.php', true, 302);
+        exit();
+    }
+    if ($user_type === 'Manager') {
+        header('Location: ' . AUTH_REDIRECT_BASE . '/manager/dashboard.php', true, 302);
+        exit();
+    }
+    if ($user_type === 'Staff') {
+        header('Location: ' . AUTH_REDIRECT_BASE . '/staff/dashboard.php', true, 302);
+        exit();
+    }
+    if ($user_type === 'Customer') {
+        header('Location: ' . AUTH_REDIRECT_BASE . '/customer/services.php', true, 302);
+        exit();
+    }
 }
 
-$pw_errors = [];
-if (strlen($password) < 8) $pw_errors[] = 'at least 8 characters';
-if (strlen($password) > 64) $pw_errors[] = 'at most 64 characters';
-if (!preg_match('/[A-Z]/', $password)) $pw_errors[] = 'an uppercase letter';
-if (!preg_match('/[a-z]/', $password)) $pw_errors[] = 'a lowercase letter';
-if (!preg_match('/[0-9]/', $password)) $pw_errors[] = 'a number';
-if (!preg_match('/[^A-Za-z0-9]/', $password)) $pw_errors[] = 'a special character';
-if (strpos($password, ' ') !== false) $pw_errors[] = 'no spaces';
-if (!empty($pw_errors)) {
-    pf_register_redirect_error('Password must contain: ' . implode(', ', $pw_errors) . '.');
+/**
+ * Backward-compatible name used by older public page guards.
+ */
+function redirect_admin_staff_from_public() {
+    redirect_logged_in_from_public_page();
 }
 
-if ($password !== $confirm_password) {
-    pf_register_redirect_error('Passwords do not match.');
+/**
+ * Redirect any logged-in user away from the public home (/printflow/).
+ */
+function redirect_logged_in_from_landing_page(): void {
+    redirect_logged_in_from_public_page();
 }
 
-if ($identifier_type === 'email') {
-    pf_remove_legacy_public_staff_registration($identifier);
+/**
+ * Generate CSRF token
+ * @return string
+ */
+function generate_csrf_token() {
+    if (!isset($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
 }
 
-$profile_data = [
-    'first_name' => $first_name,
-    'middle_name' => $middle_name,
-    'last_name' => $last_name,
-    'contact_number' => $contact_clean,
-    'dob' => $dob,
-    'gender' => $gender,
-    'region' => '',
-    'province' => $province,
-    'city' => $city,
-    'barangay' => $barangay,
-    'street_address' => $street_address,
-];
-$result = register_customer_direct($identifier_type, $identifier, $password, date('Y-m-d H:i:s'), PRINTFLOW_TERMS_VERSION, $profile_data);
-if (!$result['success']) {
-    pf_register_redirect_error($result['message'] ?? 'Registration failed. Please try again.');
+/**
+ * Verify CSRF token
+ * @param string $token
+ * @return bool
+ */
+function verify_csrf_token($token) {
+    return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
 }
 
-$_SESSION['otp_pending_email'] = ($identifier_type === 'email') ? $identifier : ($identifier . '@phone.local');
-$_SESSION['otp_user_type'] = 'Customer';
-$_SESSION['otp_resend_attempts'] = 0;
-
-redirect(AUTH_REDIRECT_BASE . '/public/verify_email.php');
+/**
+ * Get CSRF token HTML input
+ * @return string
+ */
+function csrf_field() {
+    $token = generate_csrf_token();
+    return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($token) . '">';
+}

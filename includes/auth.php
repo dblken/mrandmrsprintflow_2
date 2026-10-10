@@ -484,26 +484,41 @@ function printflow_customer_has_usable_password_hash($passwordHash): bool {
 
 // Helper functions for checking duplicate emails/phones
 if (!function_exists('email_in_use_across_accounts')) {
-    function email_in_use_across_accounts($email) {
+    function email_in_use_across_accounts($email, $exclude_customer_id = null, $exclude_user_id = null) {
         $e = printflow_email_lower($email);
         if ($e === '') {
             return false;
         }
-        $users = db_query("SELECT user_id FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1", 's', [$e]);
-        $customers = db_query("SELECT customer_id FROM customers WHERE LOWER(TRIM(email)) = ? LIMIT 1", 's', [$e]);
+        if ($exclude_user_id !== null) {
+            $users = db_query("SELECT user_id FROM users WHERE LOWER(TRIM(email)) = ? AND user_id <> ? LIMIT 1", 'si', [$e, (int)$exclude_user_id]);
+        } else {
+            $users = db_query("SELECT user_id FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1", 's', [$e]);
+        }
+        if ($exclude_customer_id !== null) {
+            $customers = db_query("SELECT customer_id FROM customers WHERE LOWER(TRIM(email)) = ? AND customer_id <> ? LIMIT 1", 'si', [$e, (int)$exclude_customer_id]);
+        } else {
+            $customers = db_query("SELECT customer_id FROM customers WHERE LOWER(TRIM(email)) = ? LIMIT 1", 's', [$e]);
+        }
         return !empty($users) || !empty($customers);
     }
 }
 
 if (!function_exists('contact_phone_in_use_across_accounts')) {
-    function contact_phone_in_use_across_accounts($phone) {
+    function contact_phone_in_use_across_accounts($phone, $exclude_customer_id = null, $exclude_user_id = null) {
         if (empty($phone)) return false;
-        $users = db_query("SELECT user_id FROM users WHERE contact_number = ?", 's', [$phone]);
-        $customers = db_query("SELECT customer_id FROM customers WHERE contact_number = ?", 's', [$phone]);
+        if ($exclude_user_id !== null) {
+            $users = db_query("SELECT user_id FROM users WHERE contact_number = ? AND user_id <> ?", 'si', [$phone, (int)$exclude_user_id]);
+        } else {
+            $users = db_query("SELECT user_id FROM users WHERE contact_number = ?", 's', [$phone]);
+        }
+        if ($exclude_customer_id !== null) {
+            $customers = db_query("SELECT customer_id FROM customers WHERE contact_number = ? AND customer_id <> ?", 'si', [$phone, (int)$exclude_customer_id]);
+        } else {
+            $customers = db_query("SELECT customer_id FROM customers WHERE contact_number = ?", 's', [$phone]);
+        }
         return !empty($users) || !empty($customers);
     }
 }
-
 /**
  * Check if user is logged in
  * @return bool
@@ -1340,7 +1355,7 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
             $_SESSION['otp_user_type'] = 'Customer';
             $_SESSION['otp_resend_attempts'] = 0;
             return ['success' => true, 'message' => $reuse_customer_id > 0
-                ? 'A new verification code was sent.'
+                ? 'You already started registering with this email. Please continue email verification. A new verification code was sent.'
                 : 'Registration successful! Verification code sent.'];
         }
 
