@@ -11,7 +11,7 @@ index 93ea098f..3005ffaf 100644
      'available_flows' => $availableFlows,
  ]);
 diff --git a/customer/payment.php b/customer/payment.php
-index 7a604b9e..c6909fe0 100644
+index 7a604b9e..c426eb11 100644
 --- a/customer/payment.php
 +++ b/customer/payment.php
 @@ -450,11 +450,13 @@ $financial_snapshot = printflow_order_financial_snapshot(
@@ -134,6 +134,20 @@ index 7a604b9e..c6909fe0 100644
              return ['paid', 'failed', 'expired', 'cancelled'].includes(status);
          };
          const schedulePayMongoPoll = () => {
+@@ -1507,8 +1559,12 @@ if (!function_exists('pf_payment_qr_url')) {
+                     throw new Error(data.message || 'We couldn\'t generate a QR right now. Please try again.');
+                 }
+                 const payment = normalizePayMongoPayment(data);
++                const isVerifiedTestQr = payment.payment_flow === 'payment_intent'
++                    && payment.payment_method === 'qrph'
++                    && payment.mode === 'test'
++                    && payment.livemode === false;
+                 if (!payment.payment_flow
+-                    || (payment.status === 'awaiting_payment' && !payment.qr_image_url)) {
++                    || (payment.status === 'awaiting_payment' && !payment.qr_image_url && !isVerifiedTestQr)) {
+                     throw new Error('We couldn\'t generate a QR right now. Please try again.');
+                 }
+                 stopPayMongoTimers();
 diff --git a/database/migrate_paymongo_post_payment_workflow_20260730.php b/database/migrate_paymongo_post_payment_workflow_20260730.php
 index 2f7be5a6..987f30c1 100644
 --- a/database/migrate_paymongo_post_payment_workflow_20260730.php
@@ -615,7 +629,7 @@ index e502fe26..4b800865 100644
          }
  
 diff --git a/includes/provider_payments.php b/includes/provider_payments.php
-index f25653ef..5177e1c8 100644
+index f25653ef..40bfe742 100644
 --- a/includes/provider_payments.php
 +++ b/includes/provider_payments.php
 @@ -27,6 +27,60 @@ function printflow_paymongo_online_payment_enabled(): bool {
@@ -982,7 +996,7 @@ index f25653ef..5177e1c8 100644
 +                'qr_expires_at' => $ledger['qr_expires_at'] ?? null,
 +            ];
 +        }
-+        if ($mode === 'test' && !empty($publicPayment['test_simulation_url'])) {
++        if ($mode === 'test') {
 +            return [
 +                'ok' => true,
 +                'reused' => true,

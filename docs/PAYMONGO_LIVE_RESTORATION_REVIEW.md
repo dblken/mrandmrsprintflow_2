@@ -1,9 +1,47 @@
 # PayMongo Live restoration review
 
-Status: local Live restoration patch and the latest schema-readiness repair
-are validated. Production comparison, backup, deployment, schema inspection,
-webhook verification, and a fresh Live QRPh attempt remain pending production
-access.
+Status: the three runtime files directly responsible for mode resolution,
+schema readiness, and customer QR display are deployed and match local source.
+Production schema inspection on 2026-10-10 found only the three columns from
+`migrate_paymongo_provider_livemode_20261009.php` missing. After a verified
+backup, those nullable columns were added and Hostinger's website cache was
+cleared. A fresh unpaid QRPh attempt for order 12146 displays a real QR image;
+the customer status response reports `mode: live` and boolean
+`livemode: true`. Payment completion and a new webhook delivery remain
+unverified because the QR was intentionally not paid.
+
+### Production evidence (2026-10-10)
+
+- `customer/payment.php`, `includes/provider_payments.php`, and
+  `includes/paymongo.php` downloaded from `public_html` matched the reviewed
+  local files byte-for-byte after line-ending normalization by Git.
+- The selected runtime database was `u618446170_printflow`. The payment ledger,
+  webhook inbox, and payment status history tables already existed. Payment
+  Intent, Payment Method, QR, reconciliation, idempotency, and status-history
+  fields and indexes were already present.
+- The exact missing objects were
+  `provider_payments.provider_livemode`,
+  `provider_payments.provider_livemode_verified_at`, and
+  `provider_payments.provider_test_url`.
+- A table export containing structure and data was downloaded and hash-checked
+  before migration. It contained the same 70 ledger rows reported by the live
+  database: 61 Live and 9 Test.
+- Only the three additive nullable columns above were applied. Post-migration
+  counts remained 61 Live and 9 Test, and every historical livemode value
+  remained `NULL` until provider verification.
+- Order 12146 created one new Live Payment Intent row with a Payment Method and
+  QR image. The provider mode was stored as `provider_livemode = 1` with a
+  verification timestamp. Secure status reconciliation returned
+  `livemode: true`, `mode: live`, `payment_flow: payment_intent`, and
+  `status: awaiting_payment`.
+- Production configuration had `PAYMONGO_MODE=live`, Live enabled, QRPh in the
+  Live direct-method allowlist, a Live-prefixed public key, a Live-prefixed
+  secret key, and a Live webhook secret. `ONLINE_PAYMENT_MODE` was not explicit;
+  the deployed resolver safely defaults it to `paymongo`, which the successful
+  customer request confirmed. No credential value was copied into this review.
+- The order remained `Unpaid`, as required for an unscanned QR. A new webhook
+  delivery, Paid transition, and Staff/Admin Paid display require an actual
+  payment and were not exercised.
 
 ## Exact source diff
 
@@ -41,12 +79,46 @@ object from a schema-inspection failure in server diagnostics. It bypasses
 the prior cached `db_table_has_column()` results for this checkout guard. The
 customer response stays generic; diagnostic logs identify only the missing
 schema names or query error code/state. The targeted contract test is
-`tests/paymongo_schema_readiness_test.php`; it does not inspect production.
+`tests/paymongo_schema_readiness_test.php`; it now exercises the actual readiness
+function against schema fixtures as well as the migration/source contracts.
+All 12 checks pass, including Live readiness without `provider_test_url`, missing
+provider verification timestamps, failed schema queries, and unsupported mode
+enums. It does not inspect production. The 16 mode-resolution checks also pass.
 
 This change does not remove the requirement for `provider_livemode` and
 `provider_livemode_verified_at`. If either is missing in production, the
 additive livemode migration remains necessary. The customer-facing message
 alone does not prove which table, column, or index is absent.
+
+The review patch also includes the later Test simulator response fixes in
+`customer/payment.php` and `includes/provider_payments.php`. A verified Test
+response is accepted even though the customer DTO intentionally omits the
+scannable QR image. A reused, provider-verified Test payment can render its
+simulator state even if PayMongo omits the optional simulator URL. These
+branches do not change Live QR display or allow a Test response in Live mode.
+
+### Current production error and access evidence
+
+The exact message in the latest screenshot, `QRPh checkout is temporarily
+unavailable. Please try again later.`, is returned by
+`printflow_provider_payment_create_intent()` when the selected mode's schema
+status is not ready. This happens before Payment Intent creation, Payment
+Method creation, attachment, or QR rendering. The API's `code` distinguishes
+`payment_intent_schema_missing` from `payment_intent_schema_inspection_failed`.
+The server's `[paymongo-schema]` diagnostic names the actual missing objects or
+the inspection error code. Obtain that evidence before selecting a migration.
+The screenshot alone cannot establish a missing column or an account/key issue.
+
+The initial Hostinger MCP request timed out, but the authenticated hPanel,
+File Manager, and phpMyAdmin sessions became controllable after the browser
+runtime was reloaded. Production inspection and the migration evidence above
+therefore supersede the earlier access-blocked state.
+
+Earlier CLI checks that only required `includes/paymongo.php` did not explicitly
+load the project `.env`; that is not a valid application-runtime check. The
+corrected probe explicitly calls `printflow_load_project_env()`. In the local
+workspace, the file is readable but neither an active PayMongo mode nor usable
+PayMongo credentials are configured. This is local evidence only.
 
 Files changed for review or tests but intentionally excluded from the runtime
 patch are `.env.example`, `docs/PAYMONGO_TEST_MODE.md`, and the PayMongo test
@@ -79,10 +151,8 @@ PHP migration.
 
 ## Production checklist
 
-1. Production access is currently unavailable in this session: no Hostinger
-   connector tools are exposed, and the prior browser-control attempt failed
-   with `trusted Node process exited unexpectedly; kernel reset, rerun your
-   request`. Do not treat the open hPanel screenshot as file/database access.
+1. Production access was established through the authenticated browser and the
+   selected site was verified as `mrandmrsprintflow.com`.
 2. Back up the exact changed production files and external PHP configuration.
    Export the production database structure and data before schema changes.
 3. Compare the deployed source with the patch base. If it differs from
@@ -197,15 +267,29 @@ PHP migration.
    true. The command loads the same project `.env` used by application
    bootstraps; it does not prove FPM environment parity by itself. Never print
    keys or secrets.
-8. Start a fresh customer QRPh attempt and inspect the actual PayMongo
+8. Use one designated, eligible unpaid order with no previous provider attempt
+   for controlled Live verification. Retain normal idempotent reuse behavior for
+   existing orders; do not reset or overwrite their Test/Live records. Start a
+   fresh customer QRPh attempt and inspect the actual PayMongo
    Payment Intent response. Verify boolean `livemode: true`, a matching Live
    payment ledger row, `provider_livemode=1` and its verification timestamp,
-   and the normal Live customer QR. Leave the QR unpaid; do not scan or pay it.
+   and the normal Live customer QR. Record the new intent identity, creation
+   time, actual boolean `livemode: true`, amount, and valid unexpired QR image.
+   Do not infer the environment from the dashboard, key prefixes, local ledger,
+   or the `mode` label alone.
 9. Verify the retained Live webhook endpoint and mode-specific signature
    verification without creating a new webhook. Confirm valid server-side
    reconciliation is the only route that can mark the order Paid. Preserve all
    old Live/Test payment records and keep cash/manual payment behavior intact.
+   The latest user request authorizes one small real Live verification payment
+   after configuration is confirmed. Obtain any action-time financial
+   confirmation required by the selected payment/UI tool before submitting it.
+   Verify the real Live event's signature and the server's retrieved provider
+   state, then check the designated payment ledger, customer order, and Staff/
+   Admin displays. Verify duplicate delivery is idempotent and does not create
+   another provider payment or repeat order/inventory transitions. A fresh
+   unpaid Live intent verifies QR creation only, not the Paid/webhook flow.
 
-Production configuration, schema readiness, webhook delivery, and a fresh
-Live response have not been verified in this review. Do not report Live
-restoration complete until step 8 has actual provider evidence.
+Production configuration, schema readiness, a fresh Live response, and QR
+display have been verified. A new webhook delivery and the resulting Paid/order
+display transitions have not been verified because the QR was left unpaid.

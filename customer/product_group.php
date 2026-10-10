@@ -18,7 +18,7 @@ $group = printflow_catalog_group_get($groupId, true);
 if (!$group) {
     redirect(pf_app_base_path() . '/customer/products.php');
 }
-$showBranchBeforeOptions = (bool)preg_match('/\b(sticker|stickers|decal|decals)\b/i', (string)($group['name'] ?? ''));
+$showBranchBeforeOptions = (bool)preg_match('/\b(?:stickers?|decals?|t[\s-]?shirts?)\b/i', (string)($group['name'] ?? ''));
 
 $members = printflow_catalog_group_members($groupId, true);
 if (empty($members)) {
