@@ -234,9 +234,9 @@ if (isset($_GET['ajax'])) {
                                 <span style="display:inline-block;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;background:#f3f4f6;color:#4b5563;">Email</span>
                             <?php endif; ?>
                         </td>
-                        <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
-                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $email_status_style; ?>"><?php echo htmlspecialchars($email_status_label); ?></span></td>
-                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo $status_label_html; ?></span></td>
+                        <td class="customer-date-cell" style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
+                        <td class="customer-status-cell"><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;<?php echo $email_status_style; ?>"><?php echo htmlspecialchars($email_status_label); ?></span></td>
+                        <td class="customer-status-cell"><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;<?php echo $status_style; ?>"><?php echo $status_label_html; ?></span></td>
                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                             <?php if ($can_verify_customer_ids): ?>
                             <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action amber">Verify</button>
@@ -602,6 +602,7 @@ $page_title = 'Customers Management - Admin';
         .orders-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: auto; }
         .orders-table th { padding: 12px 16px; font-size: 13px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         .orders-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; color: #374151; }
+        .orders-table td.customer-date-cell, .orders-table td.customer-status-cell { white-space: nowrap; }
         .orders-table tbody tr { cursor: pointer; transition: background 0.1s; }
         .orders-table tbody tr:hover { background: #f9fafb; }
         .orders-table tbody tr:last-child td { border-bottom: none; }
@@ -1254,9 +1255,9 @@ $page_title = 'Customers Management - Admin';
                                                 <span style="display:inline-block;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;background:#f3f4f6;color:#4b5563;">Email</span>
                                             <?php endif; ?>
                                         </td>
-                                        <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
-                                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $email_status_style; ?>"><?php echo htmlspecialchars($email_status_label); ?></span></td>
-                                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo $status_label_html; ?></span></td>
+                                        <td class="customer-date-cell" style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
+                                        <td class="customer-status-cell"><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;<?php echo $email_status_style; ?>"><?php echo htmlspecialchars($email_status_label); ?></span></td>
+                                        <td class="customer-status-cell"><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;<?php echo $status_style; ?>"><?php echo $status_label_html; ?></span></td>
                                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                                             <?php if ($can_verify_customer_ids): ?>
                                                 <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action amber">Verify</button>
