@@ -530,7 +530,7 @@ if (!empty($google_client_id)) {
             <!-- Step indicator (Removed) -->
 
             <!-- ═══ DIRECT REGISTRATION FORM ═══ -->
-            <form method="POST" action="<?php echo htmlspecialchars($base_url); ?>/process_register.php" id="reg-form-final" novalidate>
+            <form method="POST" action="<?php echo htmlspecialchars($base_url); ?>/register" id="reg-form-final" novalidate>
                 <?php echo csrf_field(); ?>
                 <input type="hidden" name="reg_type" value="direct">
                 <input type="hidden" name="identifier_type" id="reg-h-type" value="email">
