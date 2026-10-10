@@ -114,7 +114,7 @@ if (!function_exists('printflow_paymongo_resolve_api_mode')) {
             return printflow_paymongo_secret_key_for_mode('test') !== '' ? 'test' : '';
         }
         if ($requested === 'live' && !printflow_paymongo_live_checkout_allowed()) {
-            return printflow_paymongo_secret_key_for_mode('test') !== '' ? 'test' : '';
+            return '';
         }
         return $requested;
     }
@@ -242,7 +242,13 @@ if (!function_exists('printflow_paymongo_mode')) {
             if ($liveAllowed) {
                 return 'live';
             }
-            return $testReady ? 'test' : '';
+            return '';
+        }
+        $liveConfigurationPresent = printflow_paymongo_live_enabled()
+            || printflow_paymongo_env('PAYMONGO_LIVE_PUBLIC_KEY') !== ''
+            || printflow_paymongo_env('PAYMONGO_LIVE_SECRET_KEY') !== '';
+        if ($liveConfigurationPresent) {
+            return '';
         }
         if ($testReady) {
             return 'test';

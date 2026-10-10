@@ -88,8 +88,18 @@ $check(
         'PAYMONGO_SECRET_KEY' => $testKey,
         'PAYMONGO_PUBLIC_KEY' => $testPk,
         'PAYMONGO_TEST_WEBHOOK_SECRET' => 'whsk_test_secret',
+    ]) === '',
+    'unset PAYMONGO_MODE with Live enabled fails closed instead of selecting Test'
+);
+$check(
+    $runMode([
+        'PAYMONGO_MODE' => '',
+        'PAYMONGO_LIVE_ENABLED' => 'false',
+        'PAYMONGO_TEST_SECRET_KEY' => $testKey,
+        'PAYMONGO_TEST_PUBLIC_KEY' => $testPk,
+        'PAYMONGO_TEST_WEBHOOK_SECRET' => 'whsk_test_secret',
     ]) === 'test',
-    'unset PAYMONGO_MODE with only test keys resolves to test even when live is enabled'
+    'unset PAYMONGO_MODE still supports a Test-only configuration without Live settings'
 );
 $check(
     $runMode([
@@ -100,8 +110,8 @@ $check(
         'PAYMONGO_SECRET_KEY' => $testKey,
         'PAYMONGO_PUBLIC_KEY' => $testPk,
         'PAYMONGO_TEST_WEBHOOK_SECRET' => 'whsk_test_secret',
-    ]) === 'test',
-    'PAYMONGO_MODE=live without live keys falls back to test'
+    ]) === '',
+    'PAYMONGO_MODE=live without live keys fails closed instead of falling back to test'
 );
 $check(
     $runMode([
@@ -112,8 +122,8 @@ $check(
         'PAYMONGO_TEST_SECRET_KEY' => $testKey,
         'PAYMONGO_TEST_PUBLIC_KEY' => $testPk,
         'PAYMONGO_TEST_WEBHOOK_SECRET' => 'whsk_test_secret',
-    ]) === 'test',
-    'PAYMONGO_LIVE_ENABLED=false forces test checkout when test keys exist'
+    ]) === '',
+    'PAYMONGO_LIVE_ENABLED=false fails closed when Live mode is explicitly selected'
 );
 $check(
     $runMode([
@@ -126,6 +136,19 @@ $check(
         'PAYMONGO_TEST_WEBHOOK_SECRET' => 'whsk_test_secret',
     ]) === 'test',
     'PAYMONGO_MODE=test keeps checkout on test even when live keys and LIVE_ENABLED are set'
+);
+$check(
+    $runMode([
+        'PAYMONGO_MODE' => 'live',
+        'PAYMONGO_LIVE_ENABLED' => 'true',
+        'PAYMONGO_LIVE_SECRET_KEY' => $liveKey,
+        'PAYMONGO_LIVE_PUBLIC_KEY' => 'pk_live_' . str_repeat('d', 24),
+        'PAYMONGO_LIVE_WEBHOOK_SECRET' => 'whsk_live_secret',
+        'PAYMONGO_TEST_SECRET_KEY' => $testKey,
+        'PAYMONGO_TEST_PUBLIC_KEY' => $testPk,
+        'PAYMONGO_TEST_WEBHOOK_SECRET' => 'whsk_test_secret',
+    ]) === 'live',
+    'PAYMONGO_MODE=live selects Live when both environments are configured'
 );
 foreach ([
     'PAYMONGO_MODE' => 'test',
@@ -140,6 +163,39 @@ $blockedLiveCreate = printflow_paymongo_resolve_api_mode('live', 'POST');
 $check(
     $blockedLiveCreate === 'test',
     'mutating PayMongo API calls are forced to test while PAYMONGO_MODE=test'
+);
+foreach ([
+    'PAYMONGO_MODE' => 'live',
+    'PAYMONGO_LIVE_ENABLED' => 'false',
+    'PAYMONGO_LIVE_SECRET_KEY' => '',
+    'PAYMONGO_LIVE_PUBLIC_KEY' => '',
+] as $name => $value) {
+    putenv($name . '=' . $value);
+    $_ENV[$name] = $value;
+    $_SERVER[$name] = $value;
+}
+$blockedTestFallback = printflow_paymongo_resolve_api_mode('live', 'POST');
+$check(
+    $blockedTestFallback === '',
+    'Live API requests fail closed instead of falling back to configured Test credentials'
+);
+foreach ([
+    'PAYMONGO_MODE' => 'live',
+    'PAYMONGO_LIVE_ENABLED' => 'true',
+    'PAYMONGO_LIVE_PUBLIC_KEY' => 'pk_live_' . str_repeat('d', 24),
+    'PAYMONGO_LIVE_SECRET_KEY' => $liveKey,
+    'PAYMONGO_LIVE_WEBHOOK_SECRET' => 'whsk_live_secret',
+    'PAYMONGO_LIVE_DIRECT_METHODS' => 'qrph',
+] as $name => $value) {
+    putenv($name . '=' . $value);
+    $_ENV[$name] = $value;
+    $_SERVER[$name] = $value;
+}
+$check(
+    printflow_paymongo_mode() === 'live'
+        && printflow_paymongo_resolve_api_mode('live', 'POST') === 'live'
+        && printflow_paymongo_enabled_methods('live') === ['qrph'],
+    'Live mode uses the Live API environment and enables QRPh only with its Live webhook secret and allowlist'
 );
 
 $reject = printflow_paymongo_enforce_response_livemode([
