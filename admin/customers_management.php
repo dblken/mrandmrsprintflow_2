@@ -179,7 +179,7 @@ if (isset($_GET['ajax'])) {
                 <th>ID</th>
                 <th>Name</th>
                 <th>Email</th>
-                <th>Contact</th>
+
                 <th>Sign-in</th>
                 <th>Registered</th>
                 <th>Email Status</th>
@@ -190,11 +190,11 @@ if (isset($_GET['ajax'])) {
         <tbody id="customersTableBody">
             <?php if (empty($customers)): ?>
                 <tr id="emptyCustomersRow">
-                    <td colspan="9" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
+                    <td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
                 </tr>
             <?php else: ?>
                 <tr id="emptyCustomersRow" style="display:none;">
-                    <td colspan="9" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
+                    <td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
                 </tr>
                 <?php foreach ($customers as $customer): 
                     $email_status_display = pf_admin_customer_email_status_display($customer);
@@ -220,11 +220,6 @@ if (isset($_GET['ajax'])) {
                         <td class="email-cell" style="text-transform:lowercase;">
                             <div style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars(strtolower((string)($customer['email'] ?? ''))); ?>">
                                 <?php echo htmlspecialchars(strtolower((string)($customer['email'] ?? ''))); ?>
-                            </div>
-                        </td>
-                        <td>
-                            <div style="max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($customer['contact_number'] ?? 'N/A'); ?>">
-                                <?php echo htmlspecialchars($customer['contact_number'] ?? 'N/A'); ?>
                             </div>
                         </td>
                         <td>
@@ -1200,7 +1195,7 @@ $page_title = 'Customers Management - Admin';
                                 <th>ID</th>
                                 <th>Name</th>
                                 <th>Email</th>
-                                <th>Contact</th>
+
                                 <th>Sign-in</th>
                                 <th>Registered</th>
                                 <th>Email Status</th>
@@ -1211,11 +1206,11 @@ $page_title = 'Customers Management - Admin';
                         <tbody id="customersTableBody">
                             <?php if (empty($customers)): ?>
                                 <tr id="emptyCustomersRow">
-                                    <td colspan="9" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
+                                    <td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
                                 </tr>
                             <?php else: ?>
                                 <tr id="emptyCustomersRow" style="display:none;">
-                                    <td colspan="9" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
+                                    <td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
                                 </tr>
                                 <?php foreach ($customers as $customer):
                                     $email_status_display = pf_admin_customer_email_status_display($customer);
@@ -1241,11 +1236,6 @@ $page_title = 'Customers Management - Admin';
                                         <td class="email-cell" style="text-transform:lowercase;">
                                             <div style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars(strtolower((string)($customer['email'] ?? ''))); ?>">
                                                 <?php echo htmlspecialchars(strtolower((string)($customer['email'] ?? ''))); ?>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <div style="max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($customer['contact_number'] ?? 'N/A'); ?>">
-                                                <?php echo htmlspecialchars($customer['contact_number'] ?? 'N/A'); ?>
                                             </div>
                                         </td>
                                         <td>
@@ -1298,7 +1288,7 @@ $page_title = 'Customers Management - Admin';
                         <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                 </div>
-                
+
                 <!-- Customer Info -->
                 <div style="padding:24px;border-bottom:1px solid #f3f4f6;">
                     <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
