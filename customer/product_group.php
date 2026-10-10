@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/customer_catalog_perf.php';
 require_once __DIR__ . '/../includes/product_catalog_groups.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
+require_once __DIR__ . '/../includes/customer_profile_completion.php';
 
 require_role('Customer');
 
@@ -202,6 +203,7 @@ $selectedId = (int) ($_GET['product_id'] ?? ($options[0]['product_id'] ?? 0));
 if (!printflow_catalog_validate_member_in_group($groupId, $selectedId)) {
     $selectedId = (int) ($options[0]['product_id'] ?? 0);
 }
+$customer_profile_incomplete = printflow_customer_profile_incomplete();
 
 $page_title = htmlspecialchars($group['name']) . ' - Products';
 $use_customer_css = true;
@@ -223,6 +225,11 @@ require_once __DIR__ . '/../includes/header.php';
         padding: 1.5rem 1.25rem 3rem;
         box-sizing: border-box;
     }
+    .pf-group-profile-gate { display:flex; align-items:center; justify-content:space-between; gap:1rem; background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; border-radius:12px; padding:1rem 1.25rem; margin:0 0 1.5rem; }
+    .pf-group-profile-gate strong { display:block; color:#7c2d12; margin-bottom:0.2rem; }
+    .pf-group-profile-gate span { font-size:0.88rem; line-height:1.45; }
+    .pf-group-profile-gate a { flex-shrink:0; background:#0f766e; color:#fff; text-decoration:none; border-radius:8px; padding:0.55rem 0.9rem; font-weight:800; font-size:0.85rem; }
+    @media (max-width:640px) { .pf-group-profile-gate { align-items:flex-start; flex-direction:column; } .pf-group-profile-gate a { width:100%; text-align:center; } }
     .pf-group-selection {
         border: 1px solid var(--shopee-border);
         border-radius: 16px;
@@ -798,6 +805,12 @@ require_once __DIR__ . '/../includes/header.php';
     <a class="pf-group-back" href="products.php">&larr; Back to products</a>
     <h1 class="text-2xl font-bold text-gray-800" style="margin:1rem 0 0.25rem;"><?php echo htmlspecialchars($group['name']); ?></h1>
     <p style="color:#64748b;font-size:0.875rem;margin:0 0 1.25rem;">Choose an option, then order or add to cart.</p>
+    <?php if ($customer_profile_incomplete): ?>
+        <div class="pf-group-profile-gate" role="alert">
+            <span><strong>Complete your profile first before placing an order.</strong></span>
+            <a href="profile.php">Complete Profile</a>
+        </div>
+    <?php endif; ?>
 
     <div class="pf-group-selection" role="region" aria-label="Product selection">
         <div class="pf-group-selection-inner">
@@ -894,7 +907,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="pf-group-checkout-stack">
                     <div class="shopee-footer pf-group-options-actions">
                         <span id="pf-group-action-price" class="pf-group-action-price">&mdash;</span>
-                        <button type="button" id="pf-group-add-cart" class="shopee-btn shopee-btn-cart" title="Add to Cart">
+                        <button type="button" id="pf-group-add-cart" class="shopee-btn shopee-btn-cart" title="Add to Cart"<?php echo $customer_profile_incomplete ? ' disabled aria-disabled="true"' : ''; ?>>
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                             <span class="pf-group-cart-text">Add to Cart</span>
                         </button>
@@ -908,7 +921,7 @@ require_once __DIR__ . '/../includes/header.php';
                                 </div>
                                 <div id="pf-group-qty-error" class="field-error" hidden></div>
                             </div>
-                            <a id="pf-group-order-now" href="#" class="shopee-btn shopee-btn-buy">Order Now</a>
+                            <a id="pf-group-order-now" href="#" class="shopee-btn shopee-btn-buy"<?php echo $customer_profile_incomplete ? ' aria-disabled="true"' : ''; ?>>Order Now</a>
                         </div>
                     </div>
                     <div id="pf-group-stock-error" class="field-error pf-group-options-error" role="alert" aria-live="polite" hidden>This product is currently out of stock.</div>
@@ -1097,6 +1110,7 @@ require_once __DIR__ . '/../includes/header.php';
 <script>
 var PF_CSRF_TOKEN = '<?php echo generate_csrf_token(); ?>';
 var PF_GROUP_ID = <?php echo (int)$groupId; ?>;
+var PF_PROFILE_INCOMPLETE = <?php echo $customer_profile_incomplete ? 'true' : 'false'; ?>;
 var PF_GROUP_PRODUCT_STOCK = <?php echo json_encode($pf_group_product_stock, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
 var PF_GROUP_STATS = <?php echo json_encode([
     'avg_rating' => (float) ($groupStats['avg_rating'] ?? 0),
@@ -1252,7 +1266,7 @@ function pfGroupSyncQuantityLimits(productId) {
     }
     var cartBtn = document.getElementById('pf-group-add-cart');
     var orderBtn = document.getElementById('pf-group-order-now');
-    var enabled = max > 0;
+    var enabled = max > 0 && !PF_PROFILE_INCOMPLETE;
     if (cartBtn) {
         cartBtn.disabled = !enabled;
         cartBtn.setAttribute('data-stock', String(max));
@@ -1269,6 +1283,10 @@ function pfGroupGetQuantity() {
 }
 
 function pfGroupValidateBeforeCheckout(productId) {
+    if (PF_PROFILE_INCOMPLETE) {
+        showToast('Complete your profile first before placing an order.', true);
+        return false;
+    }
     var branchSelect = document.getElementById('pf-group-branch');
     var branchErr = document.getElementById('pf-group-branch-error');
     if (!branchSelect || !branchSelect.value) {

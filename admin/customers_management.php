@@ -33,12 +33,33 @@ function pf_admin_customer_sign_in_label(array $customer): string {
     return $a === 'google' ? 'Google' : 'Email / password';
 }
 
+function pf_admin_customer_email_status_display(array $customer): array {
+    if (strtolower(trim((string)($customer['auth_provider'] ?? ''))) === 'google') {
+        return ['label' => 'Verified by Google', 'style' => 'background:#e8f0fe;color:#1967d2;'];
+    }
+
+    if ((int)($customer['email_verified'] ?? 0) === 1) {
+        return ['label' => 'Verified', 'style' => 'background:#dcfce7;color:#166534;'];
+    }
+
+    return ['label' => 'Pending', 'style' => 'background:#fef3c7;color:#92400e;'];
+}
+
 function pf_build_customer_modal_payload(array $customer, string $base_path): array {
     $first_name = (string)($customer['first_name'] ?? '');
     $dob_raw = trim((string)($customer['dob'] ?? ''));
     $created_raw = trim((string)($customer['created_at'] ?? ''));
     $profile_picture_raw = trim((string)($customer['profile_picture'] ?? ''));
     $id_image_raw = trim((string)($customer['id_image'] ?? ''));
+    $address = trim((string)($customer['address'] ?? ''));
+    if ($address === '') {
+        $address = implode(', ', array_filter([
+            trim((string)($customer['street_address'] ?? '')),
+            trim((string)($customer['barangay'] ?? '')),
+            trim((string)($customer['city'] ?? '')),
+            trim((string)($customer['province'] ?? '')),
+        ], static fn($part) => $part !== ''));
+    }
 
     return [
         'customer_id' => (int)($customer['customer_id'] ?? 0),
@@ -47,7 +68,7 @@ function pf_build_customer_modal_payload(array $customer, string $base_path): ar
         'last_name' => (string)($customer['last_name'] ?? ''),
         'email' => (string)($customer['email'] ?? ''),
         'contact_number' => (string)($customer['contact_number'] ?? ''),
-        'address' => (string)($customer['address'] ?? ''),
+        'address' => $address,
         'dob' => ($dob_raw !== '' && $dob_raw !== '0000-00-00') ? date('m/d/Y', strtotime($dob_raw)) : '',
         'gender' => (string)($customer['gender'] ?? ''),
         'created_at' => $created_raw !== '' ? date('M j, Y', strtotime($created_raw)) : '',
@@ -117,8 +138,10 @@ if ($status_filter !== '') {
         $sql .= " AND COALESCE(NULLIF(id_status, ''), 'Pending') = ?";
         $params[] = $status_filter;
         $types .= 's';
+    } elseif ($status_filter === 'Not Submitted') {
+        $sql .= " AND (id_image IS NULL OR TRIM(id_image) = '')";
     } elseif ($status_filter === 'Pending') {
-        $sql .= " AND (id_status IS NULL OR id_status = '' OR id_status IN ('Pending', 'None', 'Unverified'))";
+        $sql .= " AND id_image IS NOT NULL AND TRIM(id_image) <> '' AND (id_status IS NULL OR id_status = '' OR id_status IN ('Pending', 'None', 'Unverified'))";
     }
 }
 
@@ -152,26 +175,30 @@ if (isset($_GET['ajax'])) {
                 <th>Contact</th>
                 <th>Sign-in</th>
                 <th>Registered</th>
-                <th>Status</th>
+                <th>Email Status</th>
+                <th>ID Status</th>
                 <th style="text-align:right;" class="no-print">Actions</th>
             </tr>
         </thead>
         <tbody id="customersTableBody">
             <?php if (empty($customers)): ?>
                 <tr id="emptyCustomersRow">
-                    <td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
+                    <td colspan="9" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
                 </tr>
             <?php else: ?>
                 <tr id="emptyCustomersRow" style="display:none;">
-                    <td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
+                    <td colspan="9" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
                 </tr>
                 <?php foreach ($customers as $customer): 
+                    $email_status_display = pf_admin_customer_email_status_display($customer);
                     $status_display = pf_admin_id_verification_status_display($customer);
                     $customer_payload_attr = pf_customer_payload_attr($customer, $base_path);
                     $sign_in = pf_admin_customer_sign_in_label($customer);
                     $customer_name = trim(preg_replace('/\s+/', ' ', trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''))));
                     $customer_name_html = $customer_name !== '' ? htmlspecialchars($customer_name) : '&mdash;';
                     $customer_name_title = $customer_name !== '' ? htmlspecialchars($customer_name) : '-';
+                    $email_status_style = $email_status_display['style'];
+                    $email_status_label = $email_status_display['label'];
                     $status_style = $status_display['style'];
                     $status_label = $status_display['label'];
                 ?>
@@ -200,9 +227,9 @@ if (isset($_GET['ajax'])) {
                             <?php endif; ?>
                         </td>
                         <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
+                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $email_status_style; ?>"><?php echo htmlspecialchars($email_status_label); ?></span></td>
                         <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo $status_label_html; ?></span></td>
                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
-                            <button type="button" onclick="event.stopPropagation();openModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Profile</button>
                             <?php if ($can_verify_customer_ids): ?>
                             <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action amber">Verify</button>
                             <?php endif; ?>
@@ -238,7 +265,8 @@ if ($viewerBranch) {
 
     // 1. Total Customers (branch-scoped)
     $total_customers = (int)(db_query(
-        "SELECT COUNT(*) as count FROM customers c WHERE 1=1"
+        "SELECT COUNT(*) as count FROM customers c WHERE 1=1
+        AND COALESCE(c.email_verified, 0) = 1"
         . printflow_pos_sql_exclude_placeholder_customers('c')
         . $w,
         $t,
@@ -294,11 +322,15 @@ if ($viewerBranch) {
 } else {
     // 1. Total Customers
     $placeholderExclude = printflow_pos_sql_exclude_placeholder_customers('customers');
-    $total_customers = (int)(db_query("SELECT COUNT(*) as count FROM customers WHERE 1=1" . $placeholderExclude)[0]['count'] ?? 0);
+    $total_customers = (int)(db_query("SELECT COUNT(*) as count FROM customers WHERE 1=1
+        AND COALESCE(email_verified, 0) = 1" . $placeholderExclude)[0]['count'] ?? 0);
 
     // 2. New This Month
     $new_this_month = (int)(db_query(
-        "SELECT COUNT(*) as count FROM customers WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())"
+        "SELECT COUNT(*) as count FROM customers
+        WHERE COALESCE(email_verified, 0) = 1
+          AND MONTH(created_at) = MONTH(CURRENT_DATE())
+          AND YEAR(created_at) = YEAR(CURRENT_DATE())"
         . $placeholderExclude
     )[0]['count'] ?? 0);
 
@@ -1108,11 +1140,12 @@ $page_title = 'Customers Management - Admin';
 
                                 <div class="filter-section">
                                     <div class="filter-section-head">
-                                        <span class="filter-section-label">Verification status</span>
+                                        <span class="filter-section-label">ID status</span>
                                         <button class="filter-reset-link" onclick="resetFilterField(['status_filter'])">Reset</button>
                                     </div>
                                     <select id="fp_status_filter" class="filter-input">
                                         <option value="">All statuses</option>
+                                        <option value="Not Submitted" <?php echo $status_filter === 'Not Submitted' ? 'selected' : ''; ?>>Not Submitted</option>
                                         <option value="Pending" <?php echo $status_filter === 'Pending' ? 'selected' : ''; ?>>Pending</option>
                                         <option value="Verified" <?php echo $status_filter === 'Verified' ? 'selected' : ''; ?>>Verified</option>
                                         <option value="Rejected" <?php echo $status_filter === 'Rejected' ? 'selected' : ''; ?>>Rejected</option>
@@ -1148,26 +1181,30 @@ $page_title = 'Customers Management - Admin';
                                 <th>Contact</th>
                                 <th>Sign-in</th>
                                 <th>Registered</th>
-                                <th>Status</th>
+                                <th>Email Status</th>
+                                <th>ID Status</th>
                                 <th style="text-align:right;" class="no-print">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="customersTableBody">
                             <?php if (empty($customers)): ?>
                                 <tr id="emptyCustomersRow">
-                                    <td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
+                                    <td colspan="9" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
                                 </tr>
                             <?php else: ?>
                                 <tr id="emptyCustomersRow" style="display:none;">
-                                    <td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
+                                    <td colspan="9" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
                                 </tr>
                                 <?php foreach ($customers as $customer):
+                                    $email_status_display = pf_admin_customer_email_status_display($customer);
                                     $status_display = pf_admin_id_verification_status_display($customer);
                                     $customer_payload_attr = pf_customer_payload_attr($customer, $base_path);
                                     $sign_in = pf_admin_customer_sign_in_label($customer);
                                     $customer_name = trim(preg_replace('/\s+/', ' ', trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''))));
                                     $customer_name_html = $customer_name !== '' ? htmlspecialchars($customer_name) : '&mdash;';
                                     $customer_name_title = $customer_name !== '' ? htmlspecialchars($customer_name) : '-';
+                                    $email_status_style = $email_status_display['style'];
+                                    $email_status_label = $email_status_display['label'];
                                     $status_style = $status_display['style'];
                                     $status_label = $status_display['label'];
                                     $status_label_html = $status_label === '-' ? '&mdash;' : htmlspecialchars($status_label);
@@ -1197,9 +1234,9 @@ $page_title = 'Customers Management - Admin';
                                             <?php endif; ?>
                                         </td>
                                         <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
+                                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $email_status_style; ?>"><?php echo htmlspecialchars($email_status_label); ?></span></td>
                                         <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo $status_label_html; ?></span></td>
                                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
-                                            <button type="button" onclick="event.stopPropagation();openModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Profile</button>
                                             <?php if ($can_verify_customer_ids): ?>
                                                 <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action amber">Verify</button>
                                             <?php endif; ?>
