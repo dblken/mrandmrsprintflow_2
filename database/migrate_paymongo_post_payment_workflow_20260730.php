@@ -14,6 +14,7 @@ if (PHP_SAPI !== 'cli') {
 require_once __DIR__ . '/../includes/db.php';
 
 $changes = 0;
+$addedColumns = [];
 $columns = [
     'payment_status' => "ALTER TABLE provider_payments
         ADD COLUMN payment_status VARCHAR(30) NOT NULL DEFAULT 'awaiting_payment' AFTER status",
@@ -34,15 +35,23 @@ foreach ($columns as $column => $sql) {
         exit(1);
     }
     $changes++;
+    $addedColumns[] = $column;
 }
 
-if (!db_execute(
-    "UPDATE provider_payments
-     SET payment_status = status,
-         provider_status = CASE WHEN status = 'paid' THEN 'paid' ELSE status END"
-)) {
-    fwrite(STDERR, "Migration failed. Review the server database log.\n");
-    exit(1);
+if ($addedColumns !== []) {
+    $backfills = [];
+    if (in_array('payment_status', $addedColumns, true)) {
+        $backfills[] = 'payment_status = status';
+    }
+    if (in_array('provider_status', $addedColumns, true)) {
+        $backfills[] = "provider_status = CASE WHEN status = 'paid' THEN 'paid' ELSE status END";
+    }
+    if ($backfills !== [] && !db_execute(
+        'UPDATE provider_payments SET ' . implode(', ', $backfills)
+    )) {
+        fwrite(STDERR, "Migration failed. Review the server database log.\n");
+        exit(1);
+    }
 }
 
 $historyExists = !empty(db_query("SHOW TABLES LIKE 'provider_payment_status_history'"));
