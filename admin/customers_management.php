@@ -100,6 +100,7 @@ $search  = $_GET['search']  ?? '';
 $date_from = $_GET['date_from'] ?? '';
 $date_to   = $_GET['date_to']   ?? '';
 $status_filter = trim((string)($_GET['status_filter'] ?? ''));
+$email_status_filter = trim((string)($_GET['email_status_filter'] ?? ''));
 $sort_by = $_GET['sort']    ?? 'newest';
 $page    = max(1, (int)($_GET['page'] ?? 1));
 $per_page = 10;
@@ -133,16 +134,22 @@ if (!empty($date_to)) {
     $types .= 's';
 }
 
-if ($status_filter !== '') {
-    if ($status_filter === 'Verified' || $status_filter === 'Rejected') {
-        $sql .= " AND COALESCE(NULLIF(id_status, ''), 'Pending') = ?";
-        $params[] = $status_filter;
-        $types .= 's';
-    } elseif ($status_filter === 'Not Submitted') {
-        $sql .= " AND (id_image IS NULL OR TRIM(id_image) = '')";
-    } elseif ($status_filter === 'Pending') {
-        $sql .= " AND id_image IS NOT NULL AND TRIM(id_image) <> '' AND (id_status IS NULL OR id_status = '' OR id_status IN ('Pending', 'None', 'Unverified'))";
-    }
+if ($status_filter === 'Verified') {
+    $sql .= " AND id_image IS NOT NULL AND TRIM(id_image) <> '' AND LOWER(TRIM(COALESCE(id_status, ''))) IN ('verified', 'approved')";
+} elseif ($status_filter === 'Rejected') {
+    $sql .= " AND id_image IS NOT NULL AND TRIM(id_image) <> '' AND LOWER(TRIM(COALESCE(id_status, ''))) = 'rejected'";
+} elseif ($status_filter === 'Not Submitted') {
+    $sql .= " AND (id_image IS NULL OR TRIM(id_image) = '')";
+} elseif ($status_filter === 'Pending') {
+    $sql .= " AND id_image IS NOT NULL AND TRIM(id_image) <> '' AND LOWER(TRIM(COALESCE(id_status, ''))) NOT IN ('verified', 'approved', 'rejected')";
+}
+
+if ($email_status_filter === 'Verified by Google') {
+    $sql .= " AND LOWER(TRIM(COALESCE(auth_provider, ''))) = 'google'";
+} elseif ($email_status_filter === 'Verified') {
+    $sql .= " AND COALESCE(email_verified, 0) = 1 AND LOWER(TRIM(COALESCE(auth_provider, ''))) <> 'google'";
+} elseif ($email_status_filter === 'Pending') {
+    $sql .= " AND COALESCE(email_verified, 0) = 0 AND LOWER(TRIM(COALESCE(auth_provider, ''))) <> 'google'";
 }
 
 // Count total results
@@ -244,7 +251,7 @@ if (isset($_GET['ajax'])) {
     $table_html = ob_get_clean();
 
     ob_start();
-    $pagination_params = array_filter(['search'=>$search, 'date_from'=>$date_from, 'date_to'=>$date_to, 'status_filter'=>$status_filter, 'sort'=>$sort_by], function($v) { return $v !== null && $v !== ''; });
+    $pagination_params = array_filter(['search'=>$search, 'date_from'=>$date_from, 'date_to'=>$date_to, 'status_filter'=>$status_filter, 'email_status_filter'=>$email_status_filter, 'sort'=>$sort_by], function($v) { return $v !== null && $v !== ''; });
     echo render_pagination($page, $total_pages, $pagination_params); 
     $pagination_html = ob_get_clean();
 
@@ -253,7 +260,7 @@ if (isset($_GET['ajax'])) {
         'table'      => $table_html,
         'pagination' => $pagination_html,
         'count'      => number_format($total_filtered),
-        'badge'      => count(array_filter([$search, $date_from, $date_to, $status_filter]))
+        'badge'      => count(array_filter([$search, $date_from, $date_to, $status_filter, $email_status_filter]))
     ]);
     exit;
 }
@@ -687,6 +694,7 @@ $page_title = 'Customers Management - Admin';
                     date_from: () => document.getElementById('fp_date_from')?.value || '',
                     date_to: () => document.getElementById('fp_date_to')?.value || '',
                     status_filter: () => document.getElementById('fp_status_filter')?.value || '',
+                    email_status_filter: () => document.getElementById('fp_email_status_filter')?.value || '',
                 };
                 for (const [key, getter] of Object.entries(fields)) {
                     const val = (overrides[key] !== undefined) ? overrides[key] : getter();
@@ -749,7 +757,7 @@ $page_title = 'Customers Management - Admin';
 
             /* var: safe when Turbo re-executes this inline script */
             var _activeSortKey = '<?php echo $sort_by; ?>';
-            var _hasActiveFilters = <?php echo (!empty($search) || !empty($date_from) || !empty($date_to) || !empty($status_filter)) ? 'true' : 'false'; ?>;
+            var _hasActiveFilters = <?php echo (!empty($search) || !empty($date_from) || !empty($date_to) || !empty($status_filter) || !empty($email_status_filter)) ? 'true' : 'false'; ?>;
             var _customerDetailsApiUrl = <?php echo json_encode(pf_admin_url('api_customer_details.php')); ?>;
 
             function customerModal() {
@@ -1003,7 +1011,7 @@ $page_title = 'Customers Management - Admin';
                     } 
                 }
                 /* #customersTableContainer has no x-data; initTree here double-binds after Alpine.start / turbo-init(.main-content). */
-                        ['fp_date_from', 'fp_date_to', 'fp_status_filter'].forEach(id => {
+                        ['fp_date_from', 'fp_date_to', 'fp_status_filter', 'fp_email_status_filter'].forEach(id => {
                             const el = document.getElementById(id);
                     if (el && !el._pf_bound) {
                         el._pf_bound = true;
@@ -1109,7 +1117,7 @@ $page_title = 'Customers Management - Admin';
                                 Filter
                                 <span id="filterBadgeContainer">
                                     <?php
-                                    $active_filters_count = count(array_filter([$search, $date_from, $date_to, $status_filter], function($v) { return $v !== null && $v !== ''; }));
+                                    $active_filters_count = count(array_filter([$search, $date_from, $date_to, $status_filter, $email_status_filter], function($v) { return $v !== null && $v !== ''; }));
                                     if ($active_filters_count > 0): ?>
                                     <span class="filter-badge"><?php echo $active_filters_count; ?></span>
                                     <?php endif; ?>
@@ -1140,6 +1148,18 @@ $page_title = 'Customers Management - Admin';
 
                                 <div class="filter-section">
                                     <div class="filter-section-head">
+                                        <span class="filter-section-label">Email status</span>
+                                        <button class="filter-reset-link" onclick="resetFilterField(['email_status_filter'])">Reset</button>
+                                    </div>
+                                    <select id="fp_email_status_filter" class="filter-input">
+                                        <option value="">All statuses</option>
+                                        <option value="Verified" <?php echo $email_status_filter === 'Verified' ? 'selected' : ''; ?>>Verified</option>
+                                        <option value="Pending" <?php echo $email_status_filter === 'Pending' ? 'selected' : ''; ?>>Pending</option>
+                                        <option value="Verified by Google" <?php echo $email_status_filter === 'Verified by Google' ? 'selected' : ''; ?>>Verified by Google</option>
+                                    </select>
+                                </div>
+                                <div class="filter-section">
+                                    <div class="filter-section-head">
                                         <span class="filter-section-label">ID status</span>
                                         <button class="filter-reset-link" onclick="resetFilterField(['status_filter'])">Reset</button>
                                     </div>
@@ -1147,7 +1167,7 @@ $page_title = 'Customers Management - Admin';
                                         <option value="">All statuses</option>
                                         <option value="Not Submitted" <?php echo $status_filter === 'Not Submitted' ? 'selected' : ''; ?>>Not Submitted</option>
                                         <option value="Pending" <?php echo $status_filter === 'Pending' ? 'selected' : ''; ?>>Pending</option>
-                                        <option value="Verified" <?php echo $status_filter === 'Verified' ? 'selected' : ''; ?>>Verified</option>
+                                        <option value="Verified" <?php echo $status_filter === 'Verified' ? 'selected' : ''; ?>>Approved</option>
                                         <option value="Rejected" <?php echo $status_filter === 'Rejected' ? 'selected' : ''; ?>>Rejected</option>
                                     </select>
                                 </div>
@@ -1250,7 +1270,7 @@ $page_title = 'Customers Management - Admin';
                 </div>
                 <div id="customersPagination">
                     <?php 
-                    $pagination_params = array_filter(['search'=>$search, 'date_from'=>$date_from, 'date_to'=>$date_to, 'status_filter'=>$status_filter, 'sort'=>$sort_by], function($v) { return $v !== null && $v !== ''; });
+                    $pagination_params = array_filter(['search'=>$search, 'date_from'=>$date_from, 'date_to'=>$date_to, 'status_filter'=>$status_filter, 'email_status_filter'=>$email_status_filter, 'sort'=>$sort_by], function($v) { return $v !== null && $v !== ''; });
                     echo render_pagination($page, $total_pages, $pagination_params); 
                     ?>
                 </div>
