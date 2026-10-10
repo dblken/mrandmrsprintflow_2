@@ -138,8 +138,10 @@ if ($status_filter !== '') {
         $sql .= " AND COALESCE(NULLIF(id_status, ''), 'Pending') = ?";
         $params[] = $status_filter;
         $types .= 's';
+    } elseif ($status_filter === 'Not Submitted') {
+        $sql .= " AND (id_image IS NULL OR TRIM(id_image) = '')";
     } elseif ($status_filter === 'Pending') {
-        $sql .= " AND (id_status IS NULL OR id_status = '' OR id_status IN ('Pending', 'None', 'Unverified'))";
+        $sql .= " AND id_image IS NOT NULL AND TRIM(id_image) <> '' AND (id_status IS NULL OR id_status = '' OR id_status IN ('Pending', 'None', 'Unverified'))";
     }
 }
 
@@ -228,7 +230,6 @@ if (isset($_GET['ajax'])) {
                         <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $email_status_style; ?>"><?php echo htmlspecialchars($email_status_label); ?></span></td>
                         <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo $status_label_html; ?></span></td>
                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
-                            <button type="button" onclick="event.stopPropagation();openModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Profile</button>
                             <?php if ($can_verify_customer_ids): ?>
                             <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action amber">Verify</button>
                             <?php endif; ?>
@@ -1139,11 +1140,12 @@ $page_title = 'Customers Management - Admin';
 
                                 <div class="filter-section">
                                     <div class="filter-section-head">
-                                        <span class="filter-section-label">Verification status</span>
+                                        <span class="filter-section-label">ID status</span>
                                         <button class="filter-reset-link" onclick="resetFilterField(['status_filter'])">Reset</button>
                                     </div>
                                     <select id="fp_status_filter" class="filter-input">
                                         <option value="">All statuses</option>
+                                        <option value="Not Submitted" <?php echo $status_filter === 'Not Submitted' ? 'selected' : ''; ?>>Not Submitted</option>
                                         <option value="Pending" <?php echo $status_filter === 'Pending' ? 'selected' : ''; ?>>Pending</option>
                                         <option value="Verified" <?php echo $status_filter === 'Verified' ? 'selected' : ''; ?>>Verified</option>
                                         <option value="Rejected" <?php echo $status_filter === 'Rejected' ? 'selected' : ''; ?>>Rejected</option>
@@ -1235,7 +1237,6 @@ $page_title = 'Customers Management - Admin';
                                         <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $email_status_style; ?>"><?php echo htmlspecialchars($email_status_label); ?></span></td>
                                         <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo $status_label_html; ?></span></td>
                                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
-                                            <button type="button" onclick="event.stopPropagation();openModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Profile</button>
                                             <?php if ($can_verify_customer_ids): ?>
                                                 <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action amber">Verify</button>
                                             <?php endif; ?>
