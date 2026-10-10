@@ -430,14 +430,18 @@ if ($review_has_service && ($review_id_state['status'] ?? 'None') !== 'Verified'
     printflow_redirect_customer_to_id_verification($customer, $review_return_to);
 }
 $customer_type = $customer['customer_type'] ?? 'new';
-$address_parts = [
-    trim((string)($customer['address'] ?? '')),
-    trim((string)($customer['street'] ?? '')),
+$address_parts = array_values(array_filter([
+    trim((string)($customer['street_address'] ?? '')),
     trim((string)($customer['barangay'] ?? '')),
     trim((string)($customer['city'] ?? '')),
     trim((string)($customer['province'] ?? '')),
-];
-$address_parts = array_values(array_filter($address_parts, fn($p) => $p !== ''));
+], fn($p) => $p !== ''));
+if (empty($address_parts)) {
+    $address_parts = array_values(array_filter([
+        trim((string)($customer['address'] ?? '')),
+        trim((string)($customer['street'] ?? '')),
+    ], fn($p) => $p !== ''));
+}
 $customer_address = !empty($address_parts) ? implode(', ', $address_parts) : '—';
 
 // Fetch active branches for selection

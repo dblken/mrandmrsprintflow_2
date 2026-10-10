@@ -327,10 +327,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_address'])) {
         if ($province === '' || $city === '' || $barangay === '' || $street_address === '') {
             $error = 'Please complete your province, city, barangay, and street address.';
         } else {
+            $legacy_address = implode(', ', array_filter([
+                $street_address,
+                $barangay,
+                $city,
+                $province,
+            ], static fn($part) => $part !== ''));
+
             $result = db_execute(
-                "UPDATE customers SET region=?, province=?, city=?, barangay=?, street_address=? WHERE customer_id=?",
-                'sssssi',
-                [$region, $province, $city, $barangay, $street_address, $customer_id]
+                "UPDATE customers SET region=?, province=?, city=?, barangay=?, street_address=?, address=? WHERE customer_id=?",
+                'ssssssi',
+                [$region, $province, $city, $barangay, $street_address, $legacy_address, $customer_id]
             );
 
             if ($result) {

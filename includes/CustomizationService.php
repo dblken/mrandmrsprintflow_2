@@ -2205,14 +2205,18 @@ class CustomizationService
      */
     private function composeAddress(array $order): string
     {
-        $parts = [
-            trim((string)($order['customer_address'] ?? '')),
+        $splitParts = [
             trim((string)($order['customer_street'] ?? '')),
             trim((string)($order['customer_barangay'] ?? '')),
             trim((string)($order['customer_city'] ?? '')),
             trim((string)($order['customer_province'] ?? '')),
         ];
-        $parts = array_values(array_filter($parts, static fn($p) => $p !== ''));
+        $splitParts = array_values(array_filter($splitParts, static fn($p) => $p !== ''));
+        $parts = !empty($splitParts)
+            ? $splitParts
+            : array_values(array_filter([
+                trim((string)($order['customer_address'] ?? '')),
+            ], static fn($p) => $p !== ''));
         return !empty($parts) ? implode(', ', $parts) : '';
     }
 

@@ -66,6 +66,16 @@ try {
     }
     
     // Format Data
+    $address = trim((string)($c['address'] ?? ''));
+    if ($address === '') {
+        $address = implode(', ', array_filter([
+            trim((string)($c['street_address'] ?? '')),
+            trim((string)($c['barangay'] ?? '')),
+            trim((string)($c['city'] ?? '')),
+            trim((string)($c['province'] ?? '')),
+        ], static fn($part) => $part !== ''));
+    }
+
     $data = [
         'customer_id' => $c['customer_id'],
         'first_name' => $c['first_name'],
@@ -73,7 +83,7 @@ try {
         'last_name' => $c['last_name'],
         'email' => $c['email'],
         'contact_number' => $c['contact_number'] ?? '',
-        'address' => $c['address'] ?? '',
+        'address' => $address,
         'dob' => $c['dob'] ? date('m/d/Y', strtotime($c['dob'])) : '',
         'gender' => $c['gender'] ?? '',
         'created_at' => date('M j, Y', strtotime($c['created_at'])),

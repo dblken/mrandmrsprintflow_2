@@ -39,6 +39,15 @@ function pf_build_customer_modal_payload(array $customer, string $base_path): ar
     $created_raw = trim((string)($customer['created_at'] ?? ''));
     $profile_picture_raw = trim((string)($customer['profile_picture'] ?? ''));
     $id_image_raw = trim((string)($customer['id_image'] ?? ''));
+    $address = trim((string)($customer['address'] ?? ''));
+    if ($address === '') {
+        $address = implode(', ', array_filter([
+            trim((string)($customer['street_address'] ?? '')),
+            trim((string)($customer['barangay'] ?? '')),
+            trim((string)($customer['city'] ?? '')),
+            trim((string)($customer['province'] ?? '')),
+        ], static fn($part) => $part !== ''));
+    }
 
     return [
         'customer_id' => (int)($customer['customer_id'] ?? 0),
@@ -47,7 +56,7 @@ function pf_build_customer_modal_payload(array $customer, string $base_path): ar
         'last_name' => (string)($customer['last_name'] ?? ''),
         'email' => (string)($customer['email'] ?? ''),
         'contact_number' => (string)($customer['contact_number'] ?? ''),
-        'address' => (string)($customer['address'] ?? ''),
+        'address' => $address,
         'dob' => ($dob_raw !== '' && $dob_raw !== '0000-00-00') ? date('m/d/Y', strtotime($dob_raw)) : '',
         'gender' => (string)($customer['gender'] ?? ''),
         'created_at' => $created_raw !== '' ? date('M j, Y', strtotime($created_raw)) : '',
