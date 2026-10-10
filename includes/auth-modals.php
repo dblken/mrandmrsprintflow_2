@@ -1574,6 +1574,7 @@ if (!empty($google_client_id)) {
             var fd = new FormData();
             fd.append('email', regPendingEmail);
             fd.append('otp', code);
+            fd.append('csrf_token', regGetCsrfToken());
             fetch(apiBase + '/verify_otp.php', { method: 'POST', body: fd, credentials: 'same-origin', redirect: 'follow' })
             .then(function(r) {
                 var finalUrl = new URL(r.url, window.location.origin);
@@ -1906,6 +1907,7 @@ if (!empty($google_client_id)) {
             var fd = new FormData();
             fd.append('email', regPendingEmail);
             fd.append('otp', code);
+            fd.append('csrf_token', regGetCsrfToken());
 
             fetch('<?php echo htmlspecialchars($base_url); ?>/public/verify_otp.php', {
                 method: 'POST',
