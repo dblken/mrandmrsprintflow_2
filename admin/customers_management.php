@@ -247,7 +247,8 @@ if ($viewerBranch) {
 
     // 1. Total Customers (branch-scoped)
     $total_customers = (int)(db_query(
-        "SELECT COUNT(*) as count FROM customers c WHERE 1=1"
+        "SELECT COUNT(*) as count FROM customers c WHERE 1=1
+        AND COALESCE(c.email_verified, 0) = 1"
         . printflow_pos_sql_exclude_placeholder_customers('c')
         . $w,
         $t,
@@ -303,11 +304,15 @@ if ($viewerBranch) {
 } else {
     // 1. Total Customers
     $placeholderExclude = printflow_pos_sql_exclude_placeholder_customers('customers');
-    $total_customers = (int)(db_query("SELECT COUNT(*) as count FROM customers WHERE 1=1" . $placeholderExclude)[0]['count'] ?? 0);
+    $total_customers = (int)(db_query("SELECT COUNT(*) as count FROM customers WHERE 1=1
+        AND COALESCE(email_verified, 0) = 1" . $placeholderExclude)[0]['count'] ?? 0);
 
     // 2. New This Month
     $new_this_month = (int)(db_query(
-        "SELECT COUNT(*) as count FROM customers WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())"
+        "SELECT COUNT(*) as count FROM customers
+        WHERE COALESCE(email_verified, 0) = 1
+          AND MONTH(created_at) = MONTH(CURRENT_DATE())
+          AND YEAR(created_at) = YEAR(CURRENT_DATE())"
         . $placeholderExclude
     )[0]['count'] ?? 0);
 

@@ -1111,46 +1111,15 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
         return ['success' => false, 'message' => 'Registration is temporarily unavailable. Please contact support.'];
     }
     printflow_ensure_customer_registration_profile_columns();
+    printflow_ensure_customers_auth_provider_column();
 
-    // Determine email and contact_number
     if ($type === 'email') {
-        $email = $identifier;
+        $email = printflow_email_lower(trim((string)$identifier));
         $contact_number = null;
     } else {
-        $email = $identifier . '@phone.local'; // placeholder for NOT NULL constraint
-        $contact_number = $identifier;
+        $email = trim((string)$identifier) . '@phone.local';
+        $contact_number = trim((string)$identifier);
     }
-
-    // Check if already exists
-    $existing = db_query("SELECT customer_id, email_verified FROM customers WHERE email = ?", 's', [$email]);
-    if (!empty($existing)) {
-        if ($existing[0]['email_verified'] == 0) {
-            // Delete unverified account to allow retry
-            db_execute("DELETE FROM customers WHERE customer_id = ?", 'i', [$existing[0]['customer_id']]);
-        } else {
-            return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
-        }
-    }
-
-    if ($contact_number) {
-        $existing2 = db_query("SELECT customer_id, email_verified FROM customers WHERE contact_number = ?", 's', [$contact_number]);
-        if (!empty($existing2)) {
-            if ($existing2[0]['email_verified'] == 0) {
-                db_execute("DELETE FROM customers WHERE customer_id = ?", 'i', [$existing2[0]['customer_id']]);
-            } else {
-                return ['success' => false, 'message' => 'Phone number already registered. Please login.'];
-            }
-        }
-    }
-
-    if (email_in_use_across_accounts($email)) {
-        return ['success' => false, 'message' => 'This email is already in use (customer or staff account). Please sign in or use a different email.'];
-    }
-    if ($contact_number && contact_phone_in_use_across_accounts($contact_number)) {
-        return ['success' => false, 'message' => 'This phone number is already in use on another account. Please sign in or use a different number.'];
-    }
-
-    $password_hash = password_hash($password, PASSWORD_BCRYPT);
 
     $first_name = trim((string)($profile_data['first_name'] ?? ''));
     $middle_name = trim((string)($profile_data['middle_name'] ?? ''));
@@ -1166,13 +1135,120 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
     $city = trim((string)($profile_data['city'] ?? ''));
     $barangay = trim((string)($profile_data['barangay'] ?? ''));
     $street_address = trim((string)($profile_data['street_address'] ?? ''));
-    $profile_complete = ($first_name !== '' && $last_name !== '' && $dob !== '' && $gender !== '' && $contact_number !== null && $contact_number !== '' && $province !== '' && $city !== '' && $barangay !== '' && $street_address !== '') ? 1 : 0;
+    $profile_complete = (
+        $first_name !== ''
+        && $last_name !== ''
+        && $dob !== ''
+        && $gender !== ''
+        && $contact_number !== null
+        && $contact_number !== ''
+        && $province !== ''
+        && $city !== ''
+        && $barangay !== ''
+        && $street_address !== ''
+    ) ? 1 : 0;
 
-    $sql = "INSERT INTO customers (first_name, middle_name, last_name, dob, gender, email, contact_number, password_hash, is_profile_complete, email_verified, created_by_system, terms_accepted_at, terms_version, region, province, city, barangay, street_address)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?)";
+    $reuse_customer_id = 0;
+    $existing = db_query(
+        "SELECT customer_id, email_verified, auth_provider, created_at
+         FROM customers
+         WHERE LOWER(TRIM(email)) = ?
+         LIMIT 1",
+        's',
+        [$email]
+    );
+    if (!empty($existing)) {
+        $pending = $existing[0];
+        $pending_id = (int)$pending['customer_id'];
+        $is_local_pending = (int)($pending['email_verified'] ?? 0) === 0
+            && printflow_is_customer_local_auth_provider($pending['auth_provider'] ?? '');
 
-    $result = printflow_run_guarded_account_insert(function() use ($sql, $first_name, $middle_name, $last_name, $dob, $gender, $email, $contact_number, $password_hash, $profile_complete, $terms_accepted_at, $terms_version, $region, $province, $city, $barangay, $street_address) {
-        return db_execute($sql, 'ssssssssisssssss', [
+        if (!$is_local_pending) {
+            return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
+        }
+
+        $has_orders = db_query(
+            "SELECT customer_id FROM orders WHERE customer_id = ?
+             UNION ALL
+             SELECT customer_id FROM job_orders WHERE customer_id = ?
+             LIMIT 1",
+            'ii',
+            [$pending_id, $pending_id]
+        );
+        if (!empty($has_orders)) {
+            return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
+        }
+
+        $created_at = strtotime((string)($pending['created_at'] ?? ''));
+        if ($created_at > 0 && $created_at < (time() - 86400)) {
+            db_execute("DELETE FROM customers WHERE customer_id = ?", 'i', [$pending_id]);
+        } else {
+            $reuse_customer_id = $pending_id;
+        }
+    }
+
+    if ($contact_number !== null && $contact_number !== '') {
+        $existing2 = db_query(
+            "SELECT customer_id, email_verified
+             FROM customers
+             WHERE contact_number = ?
+             LIMIT 1",
+            's',
+            [$contact_number]
+        );
+        if (!empty($existing2) && (int)$existing2[0]['customer_id'] !== $reuse_customer_id) {
+            return ['success' => false, 'message' => ((int)($existing2[0]['email_verified'] ?? 0) === 0)
+                ? 'This phone number already has a pending registration. Please use that registration or try again later.'
+                : 'Phone number already registered. Please login.'];
+        }
+    }
+
+    if (email_in_use_across_accounts($email, $reuse_customer_id ?: null, null)) {
+        return ['success' => false, 'message' => 'This email is already in use (customer or staff account). Please sign in or use a different email.'];
+    }
+    if ($contact_number && contact_phone_in_use_across_accounts($contact_number, $reuse_customer_id ?: null, null)) {
+        return ['success' => false, 'message' => 'This phone number is already in use on another account. Please sign in or use a different number.'];
+    }
+
+    $password_hash = password_hash($password, PASSWORD_BCRYPT);
+    if ($reuse_customer_id > 0) {
+        $result = db_execute(
+            "UPDATE customers
+             SET first_name = ?, middle_name = ?, last_name = ?, dob = ?, gender = ?,
+                 contact_number = ?, password_hash = ?, is_profile_complete = ?,
+                 terms_accepted_at = ?, terms_version = ?, region = ?, province = ?,
+                 city = ?, barangay = ?, street_address = ?, auth_provider = 'local',
+                 email_verified = 0
+             WHERE customer_id = ?",
+            'sssssssisssssssi',
+            [
+                $first_name,
+                $middle_name,
+                $last_name,
+                $dob,
+                $gender,
+                $contact_number,
+                $password_hash,
+                $profile_complete,
+                $terms_accepted_at,
+                $terms_version,
+                $region,
+                $province,
+                $city,
+                $barangay,
+                $street_address,
+                $reuse_customer_id,
+            ]
+        );
+        $result = $result !== false ? $reuse_customer_id : false;
+    } else {
+        $sql = "INSERT INTO customers
+                (first_name, middle_name, last_name, dob, gender, email, contact_number,
+                 password_hash, is_profile_complete, email_verified, created_by_system,
+                 terms_accepted_at, terms_version, region, province, city, barangay, street_address)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?)";
+        $result = printflow_run_guarded_account_insert(function() use (
+            $sql,
             $first_name,
             $middle_name,
             $last_name,
@@ -1188,47 +1264,66 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
             $province,
             $city,
             $barangay,
-            $street_address,
-        ]);
-    });
+            $street_address
+        ) {
+            return db_execute($sql, 'ssssssssisssssss', [
+                $first_name,
+                $middle_name,
+                $last_name,
+                $dob,
+                $gender,
+                $email,
+                $contact_number,
+                $password_hash,
+                $profile_complete,
+                $terms_accepted_at,
+                $terms_version,
+                $region,
+                $province,
+                $city,
+                $barangay,
+                $street_address,
+            ]);
+        });
+    }
 
     if ($result) {
-        // Generate OTP
-        $otp = (string)rand(100000, 999999);
+        $otp = (string)random_int(100000, 999999);
         $now = date('Y-m-d H:i:s');
-        $expiry = date("Y-m-d H:i:s", strtotime("+10 minutes"));
+        $expiry = date('Y-m-d H:i:s', time() + 600);
+        db_execute(
+            "UPDATE customers SET otp_code = ?, otp_expiry = ?, otp_last_sent = ? WHERE customer_id = ?",
+            'sssi',
+            [$otp, $expiry, $now, $result]
+        );
 
-        // Save OTP to database
-        db_execute("UPDATE customers SET otp_code = ?, otp_expiry = ?, otp_last_sent = ? WHERE customer_id = ?", 'sssi', [$otp, $expiry, $now, $result]);
-
-        $otp_sent = false;
-        $mail_res = null;
-
-        // The contact number is profile information only. Registration verification
-        // is delivered to the account email address.
         require_once __DIR__ . '/otp_mailer.php';
         $mail_res = send_otp_email($email, $otp);
-        $otp_sent = isset($mail_res['success']) && $mail_res['success'] === true;
-        if ($otp_sent) {
-            // Auto-login after registration (Optional - we can keep it or remove it)
-            // But if we want them to verify first, maybe don't set user_id yet?
-            // Existing flow expects them to be "half-logged in" or just have session markers.
-            
+        if (isset($mail_res['success']) && $mail_res['success'] === true) {
             $_SESSION['otp_pending_email'] = $email;
             $_SESSION['otp_user_type'] = 'Customer';
             $_SESSION['otp_resend_attempts'] = 0;
-
-            return ['success' => true, 'message' => 'Registration successful! Verification code sent.'];
-        } else {
-            // ROLLBACK: Delete the customer record if OTP delivery failed
-            db_execute("DELETE FROM customers WHERE customer_id = ?", 'i', [$result]);
-            $msg = 'Failed to send verification email: ' . ($mail_res['message'] ?? 'Unknown error');            return ['success' => false, 'message' => $msg];
+            return ['success' => true, 'message' => $reuse_customer_id > 0
+                ? 'A new verification code was sent.'
+                : 'Registration successful! Verification code sent.'];
         }
+
+        if ($reuse_customer_id > 0) {
+            db_execute(
+                "UPDATE customers SET otp_code = NULL, otp_expiry = NULL, otp_last_sent = NULL WHERE customer_id = ?",
+                'i',
+                [$reuse_customer_id]
+            );
+        } else {
+            db_execute("DELETE FROM customers WHERE customer_id = ?", 'i', [$result]);
+        }
+
+        $msg = 'Failed to send verification email: ' . ($mail_res['message'] ?? 'Unknown error');
+        return ['success' => false, 'message' => $msg];
     }
 
     return ['success' => false, 'message' => 'Registration failed. Please try again.'];
 }
-
 function customer_profile_completion_status($customer_id = null): array {
     if ($customer_id === null) $customer_id = get_user_id();
     if (!$customer_id || get_user_type() !== 'Customer') {
