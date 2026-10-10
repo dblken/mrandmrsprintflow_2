@@ -329,7 +329,7 @@ function pf_build_customer_verification_payload(array $customer, string $base_pa
         'id_type' => pf_decode_display_text((string)($customer['id_type'] ?? '')),
         'id_status' => pf_customer_id_status_normalize($customer['id_status'] ?? 'Pending'),
         'id_status_label' => pf_admin_id_verification_status_display($customer)['label'],
-        'id_image' => $id_image_raw !== '' ? $base_path . '/uploads/ids/' . ltrim($id_image_raw, '/') : null,
+        'id_image' => $id_image_raw !== '' ? $base_path . '/admin/customer_id_image.php?id=' . (int)($customer['customer_id'] ?? 0) : null,
         'id_reject_reason' => pf_decode_display_text((string)($customer['id_reject_reason'] ?? '')),
         'has_id_image' => $id_image_raw !== '',
     ];

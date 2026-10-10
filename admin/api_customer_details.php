@@ -91,7 +91,7 @@ try {
         'initial' => strtoupper(substr($c['first_name'], 0, 1)),
         'id_status' => $normalized_id_status,
         'id_type'   => pf_decode_display_text((string)($c['id_type'] ?? '')),
-        'id_image'  => !empty($c['id_image']) ? $base_path . '/uploads/ids/' . $c['id_image'] : null,
+        'id_image'  => !empty($c['id_image']) ? $base_path . '/admin/customer_id_image.php?id=' . (int)$c['customer_id'] : null,
         'id_reject_reason' => pf_decode_display_text((string)($c['id_reject_reason'] ?? ''))
     ];
 
