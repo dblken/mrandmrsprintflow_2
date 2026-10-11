@@ -81,6 +81,7 @@ function pf_build_customer_modal_payload(array $customer, string $base_path): ar
         'id_reject_reason' => pf_decode_display_text((string)($customer['id_reject_reason'] ?? '')),
         'id_image' => $id_image_raw !== '' ? $base_path . '/uploads/ids/' . ltrim($id_image_raw, '/') : null,
         'sign_in' => pf_admin_customer_sign_in_label($customer),
+        'email_status' => pf_admin_customer_email_status_display($customer)['label'],
     ];
 }
 
@@ -1323,6 +1324,10 @@ $page_title = 'Customers Management - Admin';
                         <div>
                             <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin-bottom:4px;display:block;">Sign-in</label>
                             <span style="color:#1f2937;font-weight:500;word-wrap:break-word;overflow-wrap:break-word;display:block;" x-text="customer?.sign_in || 'Email / password'"></span>
+                        </div>
+                        <div>
+                            <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin-bottom:4px;display:block;">Email Verification</label>
+                            <span style="color:#1f2937;font-weight:500;word-wrap:break-word;overflow-wrap:break-word;display:block;" x-text="customer?.email_status || 'Pending'"></span>
                         </div>
                         <div>
                             <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin-bottom:4px;display:block;">Contact Number</label>

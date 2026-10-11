@@ -53,11 +53,18 @@ try {
     }
     
     $c = $customer[0];
+    $email_status = strtolower(trim((string)($c['auth_provider'] ?? ''))) === 'google'
+        ? 'Verified by Google'
+        : ((int)($c['email_verified'] ?? 0) === 1 ? 'Verified' : 'Pending');
+    $has_id_image = trim((string)($c['id_image'] ?? '')) !== '';
     $normalized_id_status = match (strtolower(trim((string)($c['id_status'] ?? '')))) {
         'verified' => 'Verified',
         'rejected' => 'Rejected',
         default => 'Pending',
     };
+    $id_status_label = !$has_id_image
+        ? 'Not Submitted'
+        : ($normalized_id_status === 'Verified' ? 'Approved' : $normalized_id_status);
     
     // Format profile picture path
     $profile_picture = null;
@@ -89,7 +96,9 @@ try {
         'created_at' => date('M j, Y', strtotime($c['created_at'])),
         'profile_picture' => $profile_picture,
         'initial' => strtoupper(substr($c['first_name'], 0, 1)),
-        'id_status' => $normalized_id_status,
+        'email_status' => $email_status,
+        'id_status' => $has_id_image ? $normalized_id_status : 'None',
+        'id_status_label' => $id_status_label,
         'id_type'   => pf_decode_display_text((string)($c['id_type'] ?? '')),
         'id_image'  => !empty($c['id_image']) ? $base_path . '/admin/customer_id_image.php?id=' . (int)$c['customer_id'] : null,
         'id_reject_reason' => pf_decode_display_text((string)($c['id_reject_reason'] ?? ''))
