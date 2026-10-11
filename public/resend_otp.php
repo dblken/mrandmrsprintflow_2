@@ -141,11 +141,6 @@ if (is_array($mail_result) && !empty($mail_result['success'])) {
     $_SESSION['otp_resend_attempts'] = (int) $_SESSION['otp_resend_attempts'] + 1;
     $next_cooldown = otp_resend_cooldown_seconds((int) $_SESSION['otp_resend_attempts']);
 
-    $attempt_key = hash('sha256', $type . '|' . strtolower($email));
-    $_SESSION['otp_verify_attempt_key'] = $attempt_key;
-    $_SESSION['otp_verify_failed_attempts'] = 0;
-    $_SESSION['otp_verify_blocked_until'] = 0;
-
     echo json_encode([
         'success' => true,
         'message' => 'A new verification code has been sent to your email.',

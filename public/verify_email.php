@@ -49,6 +49,9 @@ if (empty($error) && !empty($_GET['error'])) {
 if (empty($success) && !empty($_GET['success'])) {
     $success = $_GET['success'];
 }
+$verify_lock_remaining = !empty($_GET['otp_locked'])
+    ? max(0, (int)($_GET['remaining_seconds'] ?? 0))
+    : 0;
 
 $page_title = 'Verify Email — PrintFlow';
 ?>
@@ -176,6 +179,8 @@ let resendWait = <?php echo $resend_wait; ?>;
 const boxes = document.querySelectorAll('#otp-boxes input');
 const hiddenOtp = document.getElementById('otp-hidden');
 const btnVerify = document.getElementById('btn-verify');
+let verifyLockRemaining = <?php echo $verify_lock_remaining; ?>;
+let verifyLockTimer = null;
 
 function getOtpValue() {
     return Array.from(boxes).map(b => b.value).join('');
@@ -184,7 +189,31 @@ function getOtpValue() {
 function updateVerifyState() {
     const val = getOtpValue();
     hiddenOtp.value = val;
-    btnVerify.disabled = val.length !== 6;
+    btnVerify.disabled = verifyLockRemaining > 0 || val.length !== 6;
+}
+
+function renderVerifyLockout() {
+    if (verifyLockRemaining <= 0) {
+        btnVerify.textContent = 'Verify Email';
+        updateVerifyState();
+        return;
+    }
+    const minutes = Math.floor(verifyLockRemaining / 60);
+    const seconds = verifyLockRemaining % 60;
+    btnVerify.disabled = true;
+    btnVerify.textContent = 'Try again in ' + minutes + ':' + String(seconds).padStart(2, '0');
+}
+
+if (verifyLockRemaining > 0) {
+    renderVerifyLockout();
+    verifyLockTimer = setInterval(() => {
+        verifyLockRemaining = Math.max(0, verifyLockRemaining - 1);
+        renderVerifyLockout();
+        if (verifyLockRemaining <= 0) {
+            clearInterval(verifyLockTimer);
+            verifyLockTimer = null;
+        }
+    }, 1000);
 }
 
 boxes.forEach((box, idx) => {

@@ -9,6 +9,15 @@ require_once __DIR__ . '/../includes/functions.php';
 
 const OTP_VERIFY_MAX_ATTEMPTS = 5;
 const OTP_VERIFY_LOCKOUT_SECONDS = 15 * 60;
+const OTP_VERIFY_RATE_ACTION = 'email_otp_verify';
+
+function redirect_otp_lockout(int $remainingSeconds): never {
+    $remainingSeconds = max(1, $remainingSeconds);
+    redirect(
+        'verify_email.php?error=' . urlencode('Too many incorrect attempts. OTP verification is blocked for 15 minutes.')
+        . '&otp_locked=1&remaining_seconds=' . $remainingSeconds
+    );
+}
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     redirect('verify_email.php?error=Invalid request method');
@@ -33,19 +42,9 @@ if ($otp === '') {
 }
 
 $attempt_key = hash('sha256', $type . '|' . strtolower($pending_email));
-if (($_SESSION['otp_verify_attempt_key'] ?? '') !== $attempt_key) {
-    $_SESSION['otp_verify_attempt_key'] = $attempt_key;
-    $_SESSION['otp_verify_failed_attempts'] = 0;
-    $_SESSION['otp_verify_blocked_until'] = 0;
-}
-
-$blocked_until = (int)($_SESSION['otp_verify_blocked_until'] ?? 0);
-if ($blocked_until > time()) {
-    redirect('verify_email.php?error=' . urlencode('Too many incorrect attempts. Please wait 15 minutes or request a new code.'));
-}
-if ($blocked_until > 0) {
-    $_SESSION['otp_verify_failed_attempts'] = 0;
-    $_SESSION['otp_verify_blocked_until'] = 0;
+$active_lock = RateLimiter::getActiveLockout(OTP_VERIFY_RATE_ACTION, $attempt_key);
+if ($active_lock !== null) {
+    redirect_otp_lockout((int)($active_lock['remaining_seconds'] ?? OTP_VERIFY_LOCKOUT_SECONDS));
 }
 
 $table = ($type === 'User') ? 'users' : 'customers';
@@ -95,17 +94,22 @@ if (!$otp_matches && preg_match('/^\d{6}$/', $stored_otp)) {
 
 // Wrong code
 if (!$otp_matches) {
-    $failed_attempts = (int)($_SESSION['otp_verify_failed_attempts'] ?? 0) + 1;
-    $_SESSION['otp_verify_failed_attempts'] = $failed_attempts;
-    if ($failed_attempts >= OTP_VERIFY_MAX_ATTEMPTS) {
-        $_SESSION['otp_verify_blocked_until'] = time() + OTP_VERIFY_LOCKOUT_SECONDS;
-        redirect('verify_email.php?error=' . urlencode('Too many incorrect attempts. Please wait 15 minutes or request a new code.'));
+    $failure = RateLimiter::recordFixedFailure(
+        OTP_VERIFY_RATE_ACTION,
+        $attempt_key,
+        OTP_VERIFY_MAX_ATTEMPTS,
+        OTP_VERIFY_LOCKOUT_SECONDS,
+        OTP_VERIFY_LOCKOUT_SECONDS
+    );
+    if (!empty($failure['locked'])) {
+        redirect_otp_lockout((int)($failure['remaining_seconds'] ?? OTP_VERIFY_LOCKOUT_SECONDS));
     }
     redirect('verify_email.php?error=' . urlencode('Incorrect OTP. Please try again.'));
 }
 
 // If valid
 if ($otp_matches) {
+    RateLimiter::clear(OTP_VERIFY_RATE_ACTION, $attempt_key);
     $verification_updated = false;
     $pending_update = $_SESSION['pending_registration_update'] ?? null;
 

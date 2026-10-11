@@ -157,6 +157,68 @@ class RateLimiter
     }
 
     /**
+     * Record a failure and apply one fixed lockout once the limit is reached.
+     * This is intended for flows such as OTP verification where the required
+     * lock duration must not use the progressive login schedule.
+     */
+    public static function recordFixedFailure(
+        string $action,
+        string $key,
+        int $limit,
+        int $window,
+        int $lockoutSeconds
+    ): array {
+        self::ensureTable();
+        self::ensureStateTable();
+
+        $activeLock = self::getActiveLockout($action, $key);
+        if ($activeLock !== null) {
+            return [
+                'locked' => true,
+                'remaining_seconds' => (int)$activeLock['remaining_seconds'],
+            ];
+        }
+
+        self::hit($action, $key);
+        $rows = db_query(
+            "SELECT COUNT(*) AS cnt
+               FROM rate_limit_log
+              WHERE action = ?
+                AND lookup_key = ?
+                AND attempted_at > DATE_SUB(NOW(), INTERVAL ? SECOND)",
+            'ssi',
+            [$action, $key, $window]
+        );
+        $count = (int)($rows[0]['cnt'] ?? 0);
+        if ($count < $limit) {
+            return ['locked' => false, 'attempts' => $count];
+        }
+
+        $lockoutSeconds = max(1, $lockoutSeconds);
+        db_execute(
+            "INSERT INTO rate_limit_state (action, lookup_key, lockout_level, lockout_until, updated_at)
+             VALUES (?, ?, 1, DATE_ADD(NOW(), INTERVAL ? SECOND), NOW())
+             ON DUPLICATE KEY UPDATE
+                 lockout_level = 1,
+                 lockout_until = DATE_ADD(NOW(), INTERVAL ? SECOND),
+                 updated_at = NOW()",
+            'ssii',
+            [$action, $key, $lockoutSeconds, $lockoutSeconds]
+        );
+
+        db_execute(
+            "DELETE FROM rate_limit_log WHERE action = ? AND lookup_key = ?",
+            'ss',
+            [$action, $key]
+        );
+
+        return [
+            'locked' => true,
+            'remaining_seconds' => $lockoutSeconds,
+        ];
+    }
+
+    /**
      * Record one attempt for the given action + key.
      */
     public static function hit(string $action, string $key): void

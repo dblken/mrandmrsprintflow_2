@@ -999,6 +999,8 @@ if (!empty($google_client_id)) {
     var regOtpResendAttempts = 0;
     var regOtpCooldownEndMs = 0;   // absolute timestamp when cooldown ends
     var regOtpCreatedAtMs   = 0;   // when this OTP was first issued
+    var regOtpVerifyLockEndMs = 0;
+    var regOtpVerifyLockTimer = null;
     var REG_OTP_EXPIRY_MS   = 10 * 60 * 1000;   // 10 min matches server
     var REG_OTP_STORAGE_KEY = 'pf_otp_pending';
 
@@ -1017,7 +1019,8 @@ if (!empty($google_client_id)) {
                 type:          regPendingType,
                 attempts:      regOtpResendAttempts,
                 cooldownEndMs: regOtpCooldownEndMs,
-                createdAtMs:   regOtpCreatedAtMs
+                createdAtMs:   regOtpCreatedAtMs,
+                verifyLockEndMs: regOtpVerifyLockEndMs
             }));
         } catch (e) { /* ignore */ }
     }
@@ -1053,6 +1056,7 @@ if (!empty($google_client_id)) {
         regOtpResendAttempts    = state.attempts || 0;
         regOtpCooldownEndMs     = state.cooldownEndMs || 0;
         regOtpCreatedAtMs       = createdAt;
+        regOtpVerifyLockEndMs   = state.verifyLockEndMs || 0;
 
         var remainingSecs = Math.max(0, Math.ceil((regOtpCooldownEndMs - now) / 1000));
 
@@ -1066,6 +1070,8 @@ if (!empty($google_client_id)) {
             }
             showRegisterStep('otp');
             regStartOtpCooldown(remainingSecs, true /* restored, skip re-save */);
+            var lockRemaining = Math.max(0, Math.ceil((regOtpVerifyLockEndMs - Date.now()) / 1000));
+            if (lockRemaining > 0) regStartOtpVerifyLockout(lockRemaining, true);
         }, 60);
         return true;
     }
@@ -1485,11 +1491,16 @@ if (!empty($google_client_id)) {
         regOtpResendAttempts = 0;
         regOtpCooldownEndMs  = 0;
         regOtpCreatedAtMs    = 0;
+        regOtpVerifyLockEndMs = 0;
         regPhoneVerified     = false;
         regClearOtpState();
         if (regOtpCooldownTimer) {
             clearInterval(regOtpCooldownTimer);
             regOtpCooldownTimer = null;
+        }
+        if (regOtpVerifyLockTimer) {
+            clearInterval(regOtpVerifyLockTimer);
+            regOtpVerifyLockTimer = null;
         }
 
         var finalFormEl = document.getElementById('reg-form-final');
@@ -1853,6 +1864,48 @@ if (!empty($google_client_id)) {
     var otpErrorEl = document.getElementById('reg-otp-error');
     var otpVerifyBtn = document.getElementById('reg-otp-verify-btn');
 
+    function regRenderOtpVerifyLockout(remainingSeconds) {
+        if (!otpVerifyBtn) return;
+        var remaining = Math.max(0, Number(remainingSeconds) || 0);
+        if (remaining > 0) {
+            var minutes = Math.floor(remaining / 60);
+            var seconds = remaining % 60;
+            otpVerifyBtn.disabled = true;
+            otpVerifyBtn.textContent = 'Try again in ' + minutes + ':' + String(seconds).padStart(2, '0');
+            if (otpErrorEl) {
+                otpErrorEl.textContent = 'Too many incorrect attempts. OTP verification is blocked for 15 minutes.';
+            }
+            return;
+        }
+        otpVerifyBtn.disabled = false;
+        otpVerifyBtn.textContent = 'Verify Code';
+    }
+
+    function regStartOtpVerifyLockout(seconds, skipSave) {
+        if (regOtpVerifyLockTimer) {
+            clearInterval(regOtpVerifyLockTimer);
+            regOtpVerifyLockTimer = null;
+        }
+
+        var remaining = Math.max(0, Math.ceil(Number(seconds) || 0));
+        regOtpVerifyLockEndMs = remaining > 0 ? Date.now() + (remaining * 1000) : 0;
+        regRenderOtpVerifyLockout(remaining);
+        if (!skipSave) regSaveOtpState();
+        if (remaining <= 0) return;
+
+        regOtpVerifyLockTimer = setInterval(function() {
+            remaining = Math.max(0, Math.ceil((regOtpVerifyLockEndMs - Date.now()) / 1000));
+            regRenderOtpVerifyLockout(remaining);
+            if (remaining <= 0) {
+                clearInterval(regOtpVerifyLockTimer);
+                regOtpVerifyLockTimer = null;
+                regOtpVerifyLockEndMs = 0;
+                if (otpErrorEl) otpErrorEl.textContent = '';
+                regSaveOtpState();
+            }
+        }, 1000);
+    }
+
     function readOtpCode() {
         return otpInputs.map(function(input) { return input.value || ''; }).join('');
     }
@@ -1907,6 +1960,11 @@ if (!empty($google_client_id)) {
 
     if (otpVerifyBtn) {
         otpVerifyBtn.addEventListener('click', function() {
+            var lockRemaining = Math.ceil((regOtpVerifyLockEndMs - Date.now()) / 1000);
+            if (lockRemaining > 0) {
+                regRenderOtpVerifyLockout(lockRemaining);
+                return;
+            }
             var code = readOtpCode();
             if (!regPendingEmail) {
                 if (otpErrorEl) otpErrorEl.textContent = 'Please submit registration first.';
@@ -1936,11 +1994,17 @@ if (!empty($google_client_id)) {
                 var finalUrl = new URL(response.url, window.location.origin);
                 var successText = finalUrl.searchParams.get('success');
                 var errorText = finalUrl.searchParams.get('error');
+                var otpLocked = finalUrl.searchParams.get('otp_locked') === '1';
+                var lockSeconds = Number(finalUrl.searchParams.get('remaining_seconds') || 0);
 
                 if (finalUrl.searchParams.get('auth_modal') === 'login') {
                     regClearOtpState();
                     openModal('login');
                     showMessage('login', 'success', successText || 'Email verified. Please log in.');
+                    return;
+                }
+                if (otpLocked) {
+                    regStartOtpVerifyLockout(Math.max(1, lockSeconds || (15 * 60)));
                     return;
                 }
                 if (errorText && otpErrorEl) {
@@ -1958,8 +2022,13 @@ if (!empty($google_client_id)) {
                 if (otpErrorEl) otpErrorEl.textContent = 'Network error. Please try again.';
             })
             .finally(function() {
-                otpVerifyBtn.disabled = false;
-                otpVerifyBtn.textContent = originalText || 'Verify Code';
+                var remaining = Math.ceil((regOtpVerifyLockEndMs - Date.now()) / 1000);
+                if (remaining > 0) {
+                    regRenderOtpVerifyLockout(remaining);
+                } else {
+                    otpVerifyBtn.disabled = false;
+                    otpVerifyBtn.textContent = originalText || 'Verify Code';
+                }
             });
         });
     }
