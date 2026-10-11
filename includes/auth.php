@@ -365,7 +365,7 @@ if (!function_exists('printflow_attempt_auto_login_via_remember_token')) {
  */
 function printflow_is_customer_local_auth_provider($auth_provider): bool {
     $ap = strtolower(trim((string)$auth_provider));
-    return $ap === '' || $ap === 'local' || $ap === 'password' || $ap === 'email';
+    return $ap !== 'google';
 }
 
 /**
@@ -1205,8 +1205,8 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
              FROM customers c
              WHERE c.customer_id = ?
                AND COALESCE(c.email_verified, 0) = 0
-               AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password', 'email')
-               AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
+               AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) <> 'google'
+               AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('activated', 'active')
                AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)
                AND NOT EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id)" . $service_order_guard . "
              LIMIT 1",
@@ -1229,8 +1229,8 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
                     "DELETE c FROM customers c
                      WHERE c.customer_id = ?
                        AND COALESCE(c.email_verified, 0) = 0
-                       AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password', 'email')
-                       AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
+                       AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) <> 'google'
+                       AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('activated', 'active')
                        AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)
                        AND NOT EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id)" . $service_order_guard,
                     'i',

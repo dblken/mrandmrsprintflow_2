@@ -109,8 +109,8 @@ if ($otp_matches) {
                  WHERE c.customer_id = ?
                    AND LOWER(TRIM(c.email)) = LOWER(?)
                    AND COALESCE(c.email_verified, 0) = 0
-                   AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password', 'email')
-                   AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
+                   AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) <> 'google'
+                   AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('activated', 'active')
                    AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)
                    AND NOT EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id)" . $service_order_guard . "
                  LIMIT 1",
