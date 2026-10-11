@@ -48,7 +48,8 @@ unset(
     $_SESSION['otp_user_type'],
     $_SESSION['otp_error'],
     $_SESSION['otp_success'],
-    $_SESSION['otp_resend_attempts']
+    $_SESSION['otp_resend_attempts'],
+    $_SESSION['pending_registration_update']
 );
 
 $reg_type = sanitize($_POST['reg_type'] ?? 'direct');

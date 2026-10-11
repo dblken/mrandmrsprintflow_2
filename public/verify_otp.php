@@ -82,8 +82,83 @@ if (!$otp_matches) {
 
 // If valid
 if ($otp_matches) {
-    $update_sql = "UPDATE $table SET email_verified = 1, otp_code = NULL, otp_expiry = NULL WHERE email = ?";
-    db_execute($update_sql, 's', [$email]);
+    $verification_updated = false;
+    $pending_update = $_SESSION['pending_registration_update'] ?? null;
+
+    // A repeated local registration carries its new profile data in the session
+    // until the email is actually verified. Re-check the account protections here
+    // before applying it, because orders or an account-state change may occur
+    // while the OTP is pending.
+    if ($type === 'Customer' && is_array($pending_update)) {
+        $pending_customer_id = (int)($pending_update['customer_id'] ?? 0);
+        $pending_update_email = trim((string)($pending_update['email'] ?? ''));
+        $service_order_guard = '';
+        if (!empty(db_query("SHOW TABLES LIKE 'service_orders'"))) {
+            $service_order_guard = "
+                AND NOT EXISTS (
+                    SELECT 1 FROM service_orders so WHERE so.customer_id = c.customer_id
+                )";
+        }
+
+        $safe_pending = false;
+        if ($pending_customer_id > 0 && $pending_update_email !== ''
+            && strcasecmp($pending_update_email, $email) === 0) {
+            $safe_pending = !empty(db_query(
+                "SELECT c.customer_id
+                 FROM customers c
+                 WHERE c.customer_id = ?
+                   AND LOWER(TRIM(c.email)) = LOWER(?)
+                   AND COALESCE(c.email_verified, 0) = 0
+                   AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password')
+                   AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
+                   AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)
+                   AND NOT EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id)" . $service_order_guard . "
+                 LIMIT 1",
+                'is',
+                [$pending_customer_id, $email]
+            ));
+        }
+
+        if ($safe_pending) {
+            $profile_update_sql = "UPDATE customers
+                SET first_name = ?, middle_name = ?, last_name = ?, dob = ?, gender = ?,
+                    contact_number = ?, password_hash = ?, is_profile_complete = ?,
+                    terms_accepted_at = ?, terms_version = ?, region = ?, province = ?,
+                    city = ?, barangay = ?, street_address = ?, auth_provider = 'local',
+                    email_verified = 1, otp_code = NULL, otp_expiry = NULL
+                WHERE customer_id = ? AND LOWER(TRIM(email)) = LOWER(?)
+                  AND COALESCE(email_verified, 0) = 0";
+            $profile_update = db_execute($profile_update_sql, 'sssssssisssssssis', [
+                (string)($pending_update['first_name'] ?? ''),
+                (string)($pending_update['middle_name'] ?? ''),
+                (string)($pending_update['last_name'] ?? ''),
+                (string)($pending_update['dob'] ?? ''),
+                (string)($pending_update['gender'] ?? ''),
+                (string)($pending_update['contact_number'] ?? ''),
+                (string)($pending_update['password_hash'] ?? ''),
+                (int)($pending_update['is_profile_complete'] ?? 0),
+                $pending_update['terms_accepted_at'] ?? null,
+                $pending_update['terms_version'] ?? null,
+                (string)($pending_update['region'] ?? ''),
+                (string)($pending_update['province'] ?? ''),
+                (string)($pending_update['city'] ?? ''),
+                (string)($pending_update['barangay'] ?? ''),
+                (string)($pending_update['street_address'] ?? ''),
+                $pending_customer_id,
+                $email,
+            ]);
+            if ($profile_update === false) {
+                redirect('verify_email.php?error=' . urlencode('Your registration could not be completed. Please request a new code and try again.'));
+            }
+            $verification_updated = true;
+        }
+    }
+
+    if (!$verification_updated) {
+        $update_sql = "UPDATE $table SET email_verified = 1, otp_code = NULL, otp_expiry = NULL WHERE email = ?";
+        db_execute($update_sql, 's', [$email]);
+    }
+    unset($_SESSION['pending_registration_update']);
     unset($_SESSION['otp_verify_attempt_key'], $_SESSION['otp_verify_failed_attempts'], $_SESSION['otp_verify_blocked_until']);
 
     $_SESSION['otp_success'] = "Email verified successfully. You can now log in.";

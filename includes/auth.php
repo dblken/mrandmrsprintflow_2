@@ -1263,36 +1263,30 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
     }
 
     $password_hash = password_hash($password, PASSWORD_BCRYPT);
+    $pending_registration_update = null;
     if ($reuse_customer_id > 0) {
-        $result = db_execute(
-            "UPDATE customers
-             SET first_name = ?, middle_name = ?, last_name = ?, dob = ?, gender = ?,
-                 contact_number = ?, password_hash = ?, is_profile_complete = ?,
-                 terms_accepted_at = ?, terms_version = ?, region = ?, province = ?,
-                 city = ?, barangay = ?, street_address = ?, auth_provider = 'local',
-                 email_verified = 0
-             WHERE customer_id = ?",
-            'sssssssisssssssi',
-            [
-                $first_name,
-                $middle_name,
-                $last_name,
-                $dob,
-                $gender,
-                $contact_number,
-                $password_hash,
-                $profile_complete,
-                $terms_accepted_at,
-                $terms_version,
-                $region,
-                $province,
-                $city,
-                $barangay,
-                $street_address,
-                $reuse_customer_id,
-            ]
-        );
-        $result = $result !== false ? $reuse_customer_id : false;
+        // Keep the existing pending record untouched until its email is verified.
+        // The newest registration details are applied by verify_otp.php after success.
+        $pending_registration_update = [
+            'customer_id' => $reuse_customer_id,
+            'email' => $email,
+            'first_name' => $first_name,
+            'middle_name' => $middle_name,
+            'last_name' => $last_name,
+            'dob' => $dob,
+            'gender' => $gender,
+            'contact_number' => $contact_number,
+            'password_hash' => $password_hash,
+            'is_profile_complete' => $profile_complete,
+            'terms_accepted_at' => $terms_accepted_at,
+            'terms_version' => $terms_version,
+            'region' => $region,
+            'province' => $province,
+            'city' => $city,
+            'barangay' => $barangay,
+            'street_address' => $street_address,
+        ];
+        $result = $reuse_customer_id;
     } else {
         $sql = "INSERT INTO customers
                 (first_name, middle_name, last_name, dob, gender, email, contact_number,
@@ -1365,6 +1359,11 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
             $_SESSION['otp_pending_email'] = $email;
             $_SESSION['otp_user_type'] = 'Customer';
             $_SESSION['otp_resend_attempts'] = 0;
+            if ($pending_registration_update !== null) {
+                $_SESSION['pending_registration_update'] = $pending_registration_update;
+            } else {
+                unset($_SESSION['pending_registration_update']);
+            }
             return ['success' => true, 'message' => $reuse_customer_id > 0
                 ? 'You already started registering with this email. Please continue email verification. A new verification code was sent.'
                 : 'Registration successful! Verification code sent.'];
