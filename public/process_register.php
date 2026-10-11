@@ -1720,14 +1720,21 @@ if ($is_registration_request) {
         'street_address' => $_POST['street_address'] ?? '',
     ];
 
-    $result = register_customer_direct(
-        $identifier_type,
-        $identifier,
-        $password,
-        date('Y-m-d H:i:s'),
-        PRINTFLOW_TERMS_VERSION,
-        $profile_data
-    );
+    try {
+        $result = register_customer_direct(
+            $identifier_type,
+            $identifier,
+            $password,
+            date('Y-m-d H:i:s'),
+            PRINTFLOW_TERMS_VERSION,
+            $profile_data
+        );
+    } catch (Throwable $exception) {
+        error_log('[registration] uncaught_exception class=' . get_class($exception)
+            . ' code=' . (string)$exception->getCode()
+            . ' message=' . $exception->getMessage());
+        $redirect_register_error('Registration service error. Please try again later.');
+    }
 
     if (!is_array($result) || empty($result['success'])) {
         $redirect_register_error((string)($result['message'] ?? 'Registration failed. Please try again.'));
