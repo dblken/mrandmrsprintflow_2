@@ -1,4 +1,17 @@
 <?php
+// Keep production registration failures observable without exposing PHP internals.
+register_shutdown_function(static function (): void {
+    $error = error_get_last();
+    if ($error === null || !in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE], true)) {
+        return;
+    }
+
+    error_log('[registration] fatal_error type=' . (string)$error['type']
+        . ' file=' . (string)$error['file']
+        . ' line=' . (string)$error['line']
+        . ' message=' . (string)$error['message']);
+});
+
 /**
  * Authentication System
  * PrintFlow - Printing Shop PWA
@@ -25,7 +38,13 @@ SessionManager::start();
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/staff_access.php';
 require_once __DIR__ . '/ensure_account_creation_guard.php';
-printflow_ensure_account_creation_guard();
+try {
+    printflow_ensure_account_creation_guard();
+} catch (Throwable $exception) {
+    error_log('[registration] account_guard_bootstrap_exception class=' . get_class($exception)
+        . ' code=' . (string)$exception->getCode()
+        . ' message=' . $exception->getMessage());
+}
 
 // Try to include functions.php
 $functions_path = __DIR__ . '/functions.php';
