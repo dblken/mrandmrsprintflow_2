@@ -36,9 +36,34 @@ try {
     }
 
     $result['success'] = !in_array(false, $result['checks'], true);
+
+    // Load the same database layer used by registration, but perform read-only checks.
+    require_once __DIR__ . '/../config.php';
+    require_once __DIR__ . '/../includes/db.php';
+    $requiredCustomerColumns = [
+        'customer_id', 'first_name', 'middle_name', 'last_name', 'dob', 'gender',
+        'email', 'contact_number', 'password_hash', 'is_profile_complete',
+        'email_verified', 'created_by_system', 'status', 'terms_accepted_at',
+        'terms_version', 'region', 'province', 'city', 'barangay', 'street_address',
+        'auth_provider', 'otp_code', 'otp_expiry', 'otp_last_sent',
+    ];
+    $customerColumns = db_query('SHOW COLUMNS FROM customers');
+    $customerColumnNames = array_map(
+        static fn(array $column): string => (string)($column['Field'] ?? ''),
+        $customerColumns
+    );
+    $missingCustomerColumns = array_values(array_diff($requiredCustomerColumns, $customerColumnNames));
+    $result['checks']['database_connected'] = isset($conn) && $conn instanceof mysqli;
+    $result['checks']['customers_table'] = !empty($customerColumns);
+    $result['checks']['customer_schema_complete'] = $missingCustomerColumns === [];
+    if ($missingCustomerColumns !== []) {
+        $result['missing_customer_columns'] = $missingCustomerColumns;
+    }
+
+    $result['success'] = !in_array(false, $result['checks'], true);
     $result['message'] = $result['success']
-        ? 'Registration dependencies loaded successfully.'
-        : 'One or more registration dependencies are missing.';
+        ? 'Registration dependencies and database schema loaded successfully.'
+        : 'One or more registration dependencies or database checks failed.';
 } catch (Throwable $exception) {
     $result['error'] = 'Registration dependency check failed.';
     error_log('[registration_diagnostic] ' . get_class($exception) . ': ' . $exception->getMessage());
