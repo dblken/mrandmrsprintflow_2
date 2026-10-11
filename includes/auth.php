@@ -1360,6 +1360,7 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
             }
 
             $_SESSION['otp_pending_email'] = $email;
+            $_SESSION['otp_pending_customer_id'] = (int)$result;
             $_SESSION['otp_user_type'] = 'Customer';
             $_SESSION['otp_resend_attempts'] = 0;
             if ($pending_registration_update !== null) {

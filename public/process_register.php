@@ -45,6 +45,7 @@ if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
 
 unset(
     $_SESSION['otp_pending_email'],
+    $_SESSION['otp_pending_customer_id'],
     $_SESSION['otp_user_type'],
     $_SESSION['otp_error'],
     $_SESSION['otp_success'],

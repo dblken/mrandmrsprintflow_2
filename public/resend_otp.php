@@ -72,13 +72,36 @@ $cooldown = otp_resend_cooldown_seconds((int) $_SESSION['otp_resend_attempts']);
 $type  = $_SESSION['otp_user_type'] ?? 'Customer';
 $table = ($type === 'User') ? 'users' : 'customers';
 $id_col = ($type === 'User') ? 'user_id' : 'customer_id';
+$pending_customer_id = $type === 'Customer'
+    ? (int)($_SESSION['otp_pending_customer_id'] ?? 0)
+    : 0;
 
 // Fetch record
-$rows = db_query("SELECT $id_col, otp_last_sent, email_verified FROM $table WHERE email = ?", 's', [$email]);
+if ($type === 'Customer' && $pending_customer_id > 0) {
+    $rows = db_query(
+        "SELECT $id_col, otp_last_sent, email_verified
+         FROM customers
+         WHERE customer_id = ? AND LOWER(TRIM(email)) = LOWER(?)
+         LIMIT 1",
+        'is',
+        [$pending_customer_id, $email]
+    );
+} else {
+    $rows = db_query(
+        "SELECT $id_col, otp_last_sent, email_verified
+         FROM $table
+         WHERE LOWER(TRIM(email)) = LOWER(?)
+         ORDER BY otp_last_sent DESC, $id_col DESC
+         LIMIT 1",
+        's',
+        [$email]
+    );
+}
 if (empty($rows)) {
     json_out(false, 'Account not found.');
 }
 $customer = $rows[0];
+$record_id = (int)($customer[$id_col] ?? 0);
 
 if ($customer['email_verified']) {
     json_out(false, 'This email is already verified. Please log in.');
@@ -108,8 +131,8 @@ require_once __DIR__ . '/../includes/otp_mailer.php';
 $mail_result = send_otp_email($email, $otp_code);
 if (is_array($mail_result) && !empty($mail_result['success'])) {
     $stored = db_execute(
-        "UPDATE $table SET otp_code = ?, otp_expiry = ?, otp_last_sent = ? WHERE email = ?",
-        'ssss', [$otp_hash, $otp_expiry, $now, $email]
+        "UPDATE $table SET otp_code = ?, otp_expiry = ?, otp_last_sent = ? WHERE $id_col = ?",
+        'sssi', [$otp_hash, $otp_expiry, $now, $record_id]
     );
     if ($stored === false) {
         json_out(false, 'Verification email was sent, but the new code could not be saved. Please use the previous code or request another code later.');

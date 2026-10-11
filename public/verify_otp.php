@@ -43,16 +43,34 @@ if ($blocked_until > time()) {
 
 $table = ($type === 'User') ? 'users' : 'customers';
 $id_col = ($type === 'User') ? 'user_id' : 'customer_id';
+$pending_customer_id = $type === 'Customer'
+    ? (int)($_SESSION['otp_pending_customer_id'] ?? 0)
+    : 0;
 
 // 2. Query database
-$sql = "SELECT $id_col, otp_code, otp_expiry FROM $table WHERE email = ?";
-$result = db_query($sql, 's', [$email]);
+if ($type === 'Customer' && $pending_customer_id > 0) {
+    $sql = "SELECT $id_col, otp_code, otp_expiry
+            FROM customers
+            WHERE customer_id = ? AND LOWER(TRIM(email)) = LOWER(?)
+            LIMIT 1";
+    $result = db_query($sql, 'is', [$pending_customer_id, $email]);
+} else {
+    // Compatibility for verification sessions created before customer IDs were
+    // stored in the session. Prefer the row that most recently received an OTP.
+    $sql = "SELECT $id_col, otp_code, otp_expiry
+            FROM $table
+            WHERE LOWER(TRIM(email)) = LOWER(?)
+            ORDER BY otp_last_sent DESC, $id_col DESC
+            LIMIT 1";
+    $result = db_query($sql, 's', [$email]);
+}
 
 if (empty($result)) {
     redirect('verify_email.php?error=Account not found');
 }
 
 $record = $result[0];
+$record_id = (int)($record[$id_col] ?? 0);
 $stored_otp = isset($record['otp_code']) ? (string)$record['otp_code'] : '';
 $expiry_ts = !empty($record['otp_expiry']) ? strtotime($record['otp_expiry']) : 0;
 $now_ts = time();
@@ -90,7 +108,7 @@ if ($otp_matches) {
     // before applying it, because orders or an account-state change may occur
     // while the OTP is pending.
     if ($type === 'Customer' && is_array($pending_update)) {
-        $pending_customer_id = (int)($pending_update['customer_id'] ?? 0);
+        $pending_update_customer_id = (int)($pending_update['customer_id'] ?? 0);
         $pending_update_email = trim((string)($pending_update['email'] ?? ''));
         $service_order_guard = '';
         if (!empty(db_query("SHOW TABLES LIKE 'service_orders'"))) {
@@ -101,7 +119,8 @@ if ($otp_matches) {
         }
 
         $safe_pending = false;
-        if ($pending_customer_id > 0 && $pending_update_email !== ''
+        if ($pending_update_customer_id > 0 && $pending_update_customer_id === $record_id
+            && $pending_update_email !== ''
             && strcasecmp($pending_update_email, $email) === 0) {
             $safe_pending = !empty(db_query(
                 "SELECT c.customer_id
@@ -115,7 +134,7 @@ if ($otp_matches) {
                    AND NOT EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id)" . $service_order_guard . "
                  LIMIT 1",
                 'is',
-                [$pending_customer_id, $email]
+                [$pending_update_customer_id, $email]
             ));
         }
 
@@ -144,7 +163,7 @@ if ($otp_matches) {
                 (string)($pending_update['city'] ?? ''),
                 (string)($pending_update['barangay'] ?? ''),
                 (string)($pending_update['street_address'] ?? ''),
-                $pending_customer_id,
+                $pending_update_customer_id,
                 $email,
             ]);
             if ($profile_update === false) {
@@ -155,10 +174,10 @@ if ($otp_matches) {
     }
 
     if (!$verification_updated) {
-        $update_sql = "UPDATE $table SET email_verified = 1, otp_code = NULL, otp_expiry = NULL WHERE email = ?";
-        db_execute($update_sql, 's', [$email]);
+        $update_sql = "UPDATE $table SET email_verified = 1, otp_code = NULL, otp_expiry = NULL WHERE $id_col = ?";
+        db_execute($update_sql, 'i', [$record_id]);
     }
-    unset($_SESSION['pending_registration_update']);
+    unset($_SESSION['pending_registration_update'], $_SESSION['otp_pending_customer_id']);
     unset($_SESSION['otp_verify_attempt_key'], $_SESSION['otp_verify_failed_attempts'], $_SESSION['otp_verify_blocked_until']);
 
     $_SESSION['otp_success'] = "Email verified successfully. You can now log in.";
