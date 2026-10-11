@@ -439,6 +439,12 @@ if (!empty($google_client_id)) {
     .reg-two-column-grid .auth-field {
         min-width: 0;
     }
+    .reg-personal-grid .reg-gender-field {
+        grid-column: 1 / -1;
+    }
+    .reg-address-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
 
     @media (max-width: 700px) {
         .auth-modal-register {
@@ -456,6 +462,9 @@ if (!empty($google_client_id)) {
         .reg-two-column-grid {
             grid-template-columns: 1fr;
             gap: 0.95rem;
+        }
+        .reg-personal-grid .reg-gender-field {
+            grid-column: auto;
         }
         .auth-modal-register .auth-btn-submit,
         .auth-modal-register .auth-btn-google {
@@ -551,6 +560,15 @@ if (!empty($google_client_id)) {
                         <input type="text" id="reg-last-name" name="last_name" placeholder="Last name" class="input-field validate-reg-name" maxlength="50" autocomplete="family-name" data-reg-required>
                         <p class="modal-field-error" id="reg-last-name-error"></p>
                     </div>
+                    <!-- Identifier input (email only) -->
+                    <div class="auth-field">
+                        <label id="reg-id-label" for="reg-identifier">Email Address</label>
+                        <input type="email" id="reg-identifier" name="identifier" class="input-field"
+                               placeholder="Email address"
+                               maxlength="150"
+                               autocomplete="email">
+                        <p class="modal-field-error" id="reg-id-error"></p>
+                    </div>
                     <div class="auth-field">
                         <label for="reg-contact-number">Contact Number <span style="color:#dc2626;">*</span></label>
                         <input type="tel" id="reg-contact-number" name="contact_number" class="input-field validate-reg-contact" placeholder="09XXXXXXXXX" maxlength="11" inputmode="numeric" autocomplete="tel" data-reg-required>
@@ -561,7 +579,7 @@ if (!empty($google_client_id)) {
                         <input type="date" id="reg-dob" name="dob" title="Select your birthday (ages 13-100)" class="input-field validate-reg-dob" min="<?php echo date('Y-m-d', strtotime('-100 years')); ?>" max="<?php echo date('Y-m-d', strtotime('-13 years')); ?>" data-reg-required>
                         <p class="modal-field-error" id="reg-dob-error"></p>
                     </div>
-                    <div class="auth-field">
+                    <div class="auth-field reg-gender-field">
                         <label for="reg-gender">Gender <span style="color:#dc2626;">*</span></label>
                         <select id="reg-gender" name="gender" class="input-field" data-reg-required>
                             <option value="">Select</option>
@@ -573,13 +591,13 @@ if (!empty($google_client_id)) {
                     </div>
                 </div>
 
-                <div class="auth-field">
-                    <label for="reg-province">Province <span style="color:#dc2626;">*</span></label>
-                    <select id="reg-province" name="province" class="input-field" data-reg-required>
-                        <option value="">Select province</option>
-                    </select>
-                </div>
                 <div class="reg-two-column-grid reg-address-grid">
+                    <div class="auth-field">
+                        <label for="reg-province">Province <span style="color:#dc2626;">*</span></label>
+                        <select id="reg-province" name="province" class="input-field" data-reg-required>
+                            <option value="">Select province</option>
+                        </select>
+                    </div>
                     <div class="auth-field">
                         <label for="reg-city">City / Municipality <span style="color:#dc2626;">*</span></label>
                         <select id="reg-city" name="city" class="input-field" data-reg-required disabled>
@@ -596,16 +614,6 @@ if (!empty($google_client_id)) {
                 <div class="auth-field">
                     <label for="reg-street-address">Street Name / House Number / Building <span style="color:#dc2626;">*</span></label>
                     <input type="text" id="reg-street-address" name="street_address" placeholder="Street name, house number, or building" class="input-field" maxlength="255" autocomplete="street-address" data-reg-required>
-                </div>
-
-                <!-- Identifier input (email only) -->
-                <div class="auth-field">
-                    <label id="reg-id-label" for="reg-identifier">Email Address</label>
-                    <input type="email" id="reg-identifier" name="identifier" class="input-field"
-                           placeholder="Email address"
-                           maxlength="150"
-                           autocomplete="email">
-                    <p class="modal-field-error" id="reg-id-error"></p>
                 </div>
 
                 <div class="reg-password-grid">
