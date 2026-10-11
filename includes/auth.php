@@ -1216,6 +1216,27 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
 
         if (!empty($reusable_pending)) {
             $reuse_customer_id = $pending_id;
+
+            // Clean up duplicate pending rows left by the older registration
+            // handler, but only when they are unverified local records with no
+            // orders and are not active. Protected rows are never deleted.
+            foreach ($existing as $candidate) {
+                $duplicate_id = (int)($candidate['customer_id'] ?? 0);
+                if ($duplicate_id <= 0 || $duplicate_id === $reuse_customer_id) {
+                    continue;
+                }
+                db_execute_affected_rows(
+                    "DELETE c FROM customers c
+                     WHERE c.customer_id = ?
+                       AND COALESCE(c.email_verified, 0) = 0
+                       AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password', 'email')
+                       AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
+                       AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)
+                       AND NOT EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id)" . $service_order_guard,
+                    'i',
+                    [$duplicate_id]
+                );
+            }
         } else {
             return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
         }
