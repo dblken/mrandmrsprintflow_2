@@ -1207,8 +1207,6 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
                AND COALESCE(c.email_verified, 0) = 0
                AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password', 'email')
                AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
-               AND c.created_at IS NOT NULL
-               AND c.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
                AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)
                AND NOT EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id)" . $service_order_guard . "
              LIMIT 1",
@@ -1219,23 +1217,7 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
         if (!empty($reusable_pending)) {
             $reuse_customer_id = $pending_id;
         } else {
-            $deleted_pending = db_execute_affected_rows(
-                "DELETE c FROM customers c
-                 WHERE c.customer_id = ?
-                   AND COALESCE(c.email_verified, 0) = 0
-                   AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password', 'email')
-                   AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
-                   AND c.created_at IS NOT NULL
-                   AND c.created_at < DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                   AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)
-                   AND NOT EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id)" . $service_order_guard,
-                'i',
-                [$pending_id]
-            );
-
-            if ($deleted_pending !== 1) {
-                return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
-            }
+            return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
         }
     }
 
