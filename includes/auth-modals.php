@@ -439,8 +439,14 @@ if (!empty($google_client_id)) {
     .reg-two-column-grid .auth-field {
         min-width: 0;
     }
-    .reg-personal-grid .reg-gender-field {
-        grid-column: 1 / -1;
+    .reg-personal-grid {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+    .reg-personal-grid .auth-field {
+        grid-column: span 3;
+    }
+    .reg-personal-grid .reg-compact-third {
+        grid-column: span 2;
     }
     .reg-address-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -463,7 +469,8 @@ if (!empty($google_client_id)) {
             grid-template-columns: 1fr;
             gap: 0.95rem;
         }
-        .reg-personal-grid .reg-gender-field {
+        .reg-personal-grid .auth-field,
+        .reg-personal-grid .reg-compact-third {
             grid-column: auto;
         }
         .auth-modal-register .auth-btn-submit,
@@ -562,24 +569,24 @@ if (!empty($google_client_id)) {
                     </div>
                     <!-- Identifier input (email only) -->
                     <div class="auth-field">
-                        <label id="reg-id-label" for="reg-identifier">Email Address</label>
+                        <label id="reg-id-label" for="reg-identifier">Email Address <span style="color:#dc2626;">*</span></label>
                         <input type="email" id="reg-identifier" name="identifier" class="input-field"
                                placeholder="Email address"
                                maxlength="150"
                                autocomplete="email">
                         <p class="modal-field-error" id="reg-id-error"></p>
                     </div>
-                    <div class="auth-field">
+                    <div class="auth-field reg-compact-third">
                         <label for="reg-contact-number">Contact Number <span style="color:#dc2626;">*</span></label>
                         <input type="tel" id="reg-contact-number" name="contact_number" class="input-field validate-reg-contact" placeholder="09XXXXXXXXX" maxlength="11" inputmode="numeric" autocomplete="tel" data-reg-required>
                         <p class="modal-field-error" id="reg-contact-number-error"></p>
                     </div>
-                    <div class="auth-field">
+                    <div class="auth-field reg-compact-third">
                         <label for="reg-dob">Birthday <span style="color:#dc2626;">*</span></label>
                         <input type="date" id="reg-dob" name="dob" title="Select your birthday (ages 13-100)" class="input-field validate-reg-dob" min="<?php echo date('Y-m-d', strtotime('-100 years')); ?>" max="<?php echo date('Y-m-d', strtotime('-13 years')); ?>" data-reg-required>
                         <p class="modal-field-error" id="reg-dob-error"></p>
                     </div>
-                    <div class="auth-field reg-gender-field">
+                    <div class="auth-field reg-compact-third">
                         <label for="reg-gender">Gender <span style="color:#dc2626;">*</span></label>
                         <select id="reg-gender" name="gender" class="input-field" data-reg-required>
                             <option value="">Select</option>
