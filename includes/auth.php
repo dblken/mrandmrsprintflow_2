@@ -1343,7 +1343,9 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
 
     if ($result) {
         $otp = (string)random_int(100000, 999999);
-        $otp_hash = password_hash($otp, PASSWORD_DEFAULT);
+        // Keep the six-digit value compatible with legacy otp_code columns.
+        // Verification remains time-limited, rate-limited, and constant-time.
+        $otp_storage = $otp;
         $now = date('Y-m-d H:i:s');
         $expiry = date('Y-m-d H:i:s', time() + 600);
 
@@ -1353,7 +1355,7 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
             $otp_saved = db_execute(
                 "UPDATE customers SET otp_code = ?, otp_expiry = ?, otp_last_sent = ? WHERE customer_id = ?",
                 'sssi',
-                [$otp_hash, $expiry, $now, $result]
+                [$otp_storage, $expiry, $now, $result]
             );
             if ($otp_saved === false) {
                 return ['success' => false, 'message' => 'Verification email was sent, but the verification code could not be saved. Please request a new code later.'];

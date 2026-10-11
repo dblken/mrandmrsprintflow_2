@@ -122,7 +122,7 @@ if (!empty($customer['otp_last_sent'])) {
 
 // Generate new OTP
 $otp_code   = (string) random_int(100000, 999999);
-$otp_hash   = password_hash($otp_code, PASSWORD_DEFAULT);
+$otp_storage = $otp_code;
 $otp_expiry = date('Y-m-d H:i:s', time() + (($smtp_cfg['otp_expiry_minutes'] ?? 5) * 60));
 $now        = date('Y-m-d H:i:s');
 
@@ -132,7 +132,7 @@ $mail_result = send_otp_email($email, $otp_code);
 if (is_array($mail_result) && !empty($mail_result['success'])) {
     $stored = db_execute(
         "UPDATE $table SET otp_code = ?, otp_expiry = ?, otp_last_sent = ? WHERE $id_col = ?",
-        'sssi', [$otp_hash, $otp_expiry, $now, $record_id]
+        'sssi', [$otp_storage, $otp_expiry, $now, $record_id]
     );
     if ($stored === false) {
         json_out(false, 'Verification email was sent, but the new code could not be saved. Please use the previous code or request another code later.');
