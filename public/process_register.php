@@ -1339,7 +1339,7 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
         $now = date('Y-m-d H:i:s');
         $expiry = date('Y-m-d H:i:s', time() + 600);
 
-        require_once __DIR__ . '/otp_mailer.php';
+        require_once __DIR__ . '/../includes/otp_mailer.php';
         $mail_res = send_otp_email($email, $otp);
         if (isset($mail_res['success']) && $mail_res['success'] === true) {
             $otp_saved = db_execute(
