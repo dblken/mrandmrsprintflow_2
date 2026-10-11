@@ -1168,17 +1168,27 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
         "SELECT customer_id, email_verified, auth_provider, created_at, status
          FROM customers
          WHERE LOWER(TRIM(email)) = ?
-         LIMIT 1",
+         ORDER BY customer_id ASC",
         's',
         [$email]
     );
     if (!empty($existing)) {
+        // A verified or Google-authenticated match always wins over a legacy pending row.
+        foreach ($existing as $candidate) {
+            if ((int)($candidate['email_verified'] ?? 0) === 1
+                || !printflow_is_customer_local_auth_provider($candidate['auth_provider'] ?? '')) {
+                return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
+            }
+        }
+
         $pending = $existing[0];
         $pending_id = (int)$pending['customer_id'];
-        $is_local_pending = (int)($pending['email_verified'] ?? 0) === 0
+        $is_verified = (int)($pending['email_verified'] ?? 0) === 1;
+        $is_local_pending = !$is_verified
             && printflow_is_customer_local_auth_provider($pending['auth_provider'] ?? '');
 
-        if (!$is_local_pending) {
+        // Verified and Google-authenticated accounts must never be reused by password registration.
+        if ($is_verified || !$is_local_pending) {
             return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
         }
 
@@ -1197,7 +1207,8 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
                AND COALESCE(c.email_verified, 0) = 0
                AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password')
                AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
-               AND (c.created_at IS NULL OR c.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR))
+               AND c.created_at IS NOT NULL
+               AND c.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
                AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)
                AND NOT EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id)" . $service_order_guard . "
              LIMIT 1",

@@ -12,6 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 require_once __DIR__ . '/../../includes/db.php';
+require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 
 $input = json_decode(file_get_contents('php://input'), true);
@@ -46,7 +47,44 @@ if ($type === 'email') {
 // Check if already registered (for registration purpose) — customers OR staff/users
 if ($purpose === 'register') {
     if ($type === 'email') {
-        if (email_in_use_across_accounts($identifier)) {
+        $normalized_email = strtolower(trim($identifier));
+        $staff_match = db_query(
+            'SELECT user_id FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1',
+            's',
+            [$normalized_email]
+        );
+        $service_order_guard = !empty(db_query("SHOW TABLES LIKE 'service_orders'"))
+            ? ' AND NOT EXISTS (SELECT 1 FROM service_orders so WHERE so.customer_id = c.customer_id)'
+            : '';
+        $customer_matches = db_query(
+            "SELECT c.email_verified, c.auth_provider, c.created_at, c.status,
+                    (
+                        COALESCE(c.email_verified, 0) = 0
+                        AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password')
+                        AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
+                        AND c.created_at IS NOT NULL
+                        AND c.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                        AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)
+                        AND NOT EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id)" . $service_order_guard . '
+                    ) AS pending_reusable
+             FROM customers c
+             WHERE LOWER(TRIM(c.email)) = ?
+             ORDER BY c.customer_id ASC',
+            's',
+            [$normalized_email]
+        );
+        $blocked_customer = false;
+        foreach ($customer_matches as $customer_match) {
+            $is_verified = (int)($customer_match['email_verified'] ?? 0) === 1;
+            $is_local_pending = !$is_verified
+                && printflow_is_customer_local_auth_provider($customer_match['auth_provider'] ?? '')
+                && (int)($customer_match['pending_reusable'] ?? 0) === 1;
+            if (!$is_local_pending) {
+                $blocked_customer = true;
+                break;
+            }
+        }
+        if (!empty($staff_match) || $blocked_customer) {
             echo json_encode(['success' => false, 'message' => 'This email is already in use. Please sign in instead.']);
             exit;
         }

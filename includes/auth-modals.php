@@ -1070,6 +1070,9 @@ if (!empty($google_client_id)) {
     function regIsEmailInUseError(text) {
         if (!text) return false;
         var s = String(text).toLowerCase();
+        if (s.indexOf('already started registering') !== -1 || s.indexOf('continue email verification') !== -1) {
+            return false;
+        }
         var dupCue = ['already', 'exist', 'registered', 'in use', 'taken', 'duplicate'];
         var hasDup = false;
         for (var i = 0; i < dupCue.length; i++) {

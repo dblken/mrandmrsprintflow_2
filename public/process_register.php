@@ -142,10 +142,6 @@ foreach (['Province' => $province, 'City / Municipality' => $city, 'Barangay' =>
 if (strlen($street_address) > 255) {
     pf_register_redirect_error('Street address must not exceed 255 characters.');
 }
-if (contact_phone_in_use_across_accounts($contact_clean)) {
-    pf_register_redirect_error('This contact number is already used by another account.');
-}
-
 if ($identifier_type === 'email') {
     $identifier = trim($identifier);
     if (
