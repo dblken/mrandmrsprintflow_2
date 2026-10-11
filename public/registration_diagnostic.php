@@ -21,6 +21,19 @@ $result = [
     ],
 ];
 
+$handlerSource = is_file($handlerPath) ? (string)file_get_contents($handlerPath) : '';
+$result['handler_revision'] = $handlerSource !== ''
+    ? substr(hash('sha256', $handlerSource), 0, 12)
+    : null;
+$result['checks']['handler_mailer_path_fixed'] = strpos(
+    $handlerSource,
+    "require_once __DIR__ . '/../includes/otp_mailer.php';"
+) !== false;
+$result['checks']['handler_exception_boundary'] = strpos(
+    $handlerSource,
+    '[registration] uncaught_exception'
+) !== false;
+
 try {
     require_once $mailerPath;
     $result['checks']['otp_mailer_loaded'] = function_exists('send_otp_email');
