@@ -60,7 +60,7 @@ if ($purpose === 'register') {
             "SELECT c.email_verified, c.auth_provider, c.created_at, c.status,
                     (
                         COALESCE(c.email_verified, 0) = 0
-                        AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password')
+                        AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password', 'email')
                         AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
                         AND c.created_at IS NOT NULL
                         AND c.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)

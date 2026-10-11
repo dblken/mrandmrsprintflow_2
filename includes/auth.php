@@ -365,7 +365,7 @@ if (!function_exists('printflow_attempt_auto_login_via_remember_token')) {
  */
 function printflow_is_customer_local_auth_provider($auth_provider): bool {
     $ap = strtolower(trim((string)$auth_provider));
-    return $ap === '' || $ap === 'local' || $ap === 'password';
+    return $ap === '' || $ap === 'local' || $ap === 'password' || $ap === 'email';
 }
 
 /**
@@ -1205,7 +1205,7 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
              FROM customers c
              WHERE c.customer_id = ?
                AND COALESCE(c.email_verified, 0) = 0
-               AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password')
+               AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password', 'email')
                AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
                AND c.created_at IS NOT NULL
                AND c.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
@@ -1223,7 +1223,7 @@ function register_customer_direct($type, $identifier, $password, $terms_accepted
                 "DELETE c FROM customers c
                  WHERE c.customer_id = ?
                    AND COALESCE(c.email_verified, 0) = 0
-                   AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password')
+                   AND LOWER(TRIM(COALESCE(c.auth_provider, ''))) IN ('', 'local', 'password', 'email')
                    AND LOWER(TRIM(COALESCE(c.status, ''))) NOT IN ('', 'activated', 'active')
                    AND c.created_at IS NOT NULL
                    AND c.created_at < DATE_SUB(NOW(), INTERVAL 24 HOUR)
