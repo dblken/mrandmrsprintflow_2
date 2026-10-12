@@ -179,6 +179,7 @@ function pf_jenny_plan(bool $lock = false): array
     $revisionRequests = pf_jenny_ids('order_revision_requests','revision_request_id',$ids['order_revision_requests'],' AND customer_id = 25 AND order_id IN (?,?)','ii',[11161,11241],$lock);
     if (count($revisions)!==2 || count($revisionRequests)!==2) throw new RuntimeException('The audited revision relationships changed. Refresh preview.');
     $conversations = pf_jenny_ids('chatbot_conversations','id',$ids['chatbot_conversations'],' AND customer_id = 25 AND guest_id IS NULL','',[],$lock);
+    $GLOBALS['pf_jenny_cleanup_context'] = ['table' => 'chatbot_conversations', 'phase' => 'ownership_validation'];
     if (count($conversations)!==4) throw new RuntimeException('The audited chatbot ownership changed. Refresh preview.');
     $conversationIds = $ids['chatbot_conversations'];
     $messages = pf_jenny_ids('chatbot_messages','id',$ids['chatbot_messages'],' AND conversation_id IN (' . implode(',',array_fill(0,count($conversationIds),'?')) . ')',str_repeat('i',count($conversationIds)),$conversationIds,$lock);
