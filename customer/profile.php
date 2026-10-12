@@ -1424,13 +1424,6 @@ require_once __DIR__ . '/../includes/header.php';
                     <?php endif; ?>
                     <?php endif; ?>
 
-                    <?php if ((int)get_user_id() === 25): ?>
-                    <div style="margin-top:1.5rem;padding:1rem;border:1px solid #fecaca;border-radius:10px;background:#fff7f7;">
-                        <h4 style="margin:0 0 .4rem;color:#991b1b;font-weight:700;">Temporary testing-data cleanup</h4>
-                        <p style="margin:0 0 .8rem;color:#7f1d1d;font-size:.875rem;">This option is enabled only for this authenticated customer account.</p>
-                        <button type="button" id="pf-open-testing-cleanup" class="pf-btn-primary" style="background:#b91c1c;border-color:#b91c1c;">Delete My Testing Data</button>
-                    </div>
-                    <?php endif; ?>
                 </div>
 
             </div><!-- /main -->
@@ -2249,77 +2242,4 @@ function previewIdImage(input) {
     }
 }
 </script>
-<?php if ((int)get_user_id() === 25): ?>
-<div id="pf-testing-cleanup-modal" role="dialog" aria-modal="true" aria-labelledby="pf-testing-cleanup-title" style="display:none;position:fixed;inset:0;z-index:10050;background:rgba(15,23,42,.68);align-items:center;justify-content:center;padding:1rem;">
-    <div style="width:min(620px,100%);max-height:90vh;overflow:auto;background:#fff;border-radius:14px;padding:1.25rem;box-shadow:0 24px 70px rgba(0,0,0,.3);">
-        <h2 id="pf-testing-cleanup-title" style="margin:0 0 .5rem;font-size:1.25rem;color:#991b1b;">Delete My Testing Data</h2>
-        <p>This permanently deletes only the records classified as safe for your authenticated account. Protected and uncertain records, uploaded files, and your customer account are retained.</p>
-        <p id="pf-testing-cleanup-status" role="status">Loading read-only preview…</p>
-        <ul id="pf-testing-cleanup-counts" style="max-height:220px;overflow:auto;padding-left:1.25rem;"></ul>
-        <div id="pf-testing-cleanup-protected" style="font-size:.85rem;color:#475569;"></div>
-        <p id="pf-testing-cleanup-order" style="font-size:.85rem;color:#475569;"></p>
-        <label for="pf-testing-cleanup-acknowledged" style="display:flex;align-items:flex-start;gap:.6rem;margin:1rem 0;font-weight:600;">
-            <input id="pf-testing-cleanup-acknowledged" type="checkbox" style="margin-top:.25rem;flex:0 0 auto;">
-            <span>I understand that this permanently deletes Jenny Ferr’s customer-owned testing data.</span>
-        </label>
-        <div style="display:flex;gap:.5rem;justify-content:flex-end;">
-            <button type="button" id="pf-testing-cleanup-close" class="pf-btn-primary" style="background:#64748b;border-color:#64748b;">Cancel</button>
-            <button type="button" id="pf-testing-cleanup-submit" class="pf-btn-primary" style="background:#b91c1c;border-color:#b91c1c;" disabled>Delete All My Testing Data</button>
-        </div>
-    </div>
-</div>
-<script>
-(function(){
-    const endpoint = <?php echo json_encode(rtrim((string)$base_path, '/') . '/customer/api_testing_data_cleanup.php'); ?>;
-    const csrf = <?php echo json_encode(generate_csrf_token()); ?>;
-    const modal = document.getElementById('pf-testing-cleanup-modal');
-    const status = document.getElementById('pf-testing-cleanup-status');
-    const list = document.getElementById('pf-testing-cleanup-counts');
-    const acknowledgment = document.getElementById('pf-testing-cleanup-acknowledged');
-    const submit = document.getElementById('pf-testing-cleanup-submit');
-    let previewToken = '';
-    let previewError = '';
-    function updateConfirmationState(){
-        submit.disabled = !acknowledgment.checked || !previewToken;
-    }
-    async function loadPreview(){
-        status.textContent = 'Loading read-only preview…'; list.replaceChildren(); previewToken = ''; previewError = ''; updateConfirmationState();
-        try {
-            const response = await fetch(endpoint,{credentials:'same-origin',headers:{'Accept':'application/json'}});
-            const data = await response.json(); if(!response.ok || !data.success) throw new Error(data.error || 'Preview unavailable.');
-            previewToken = data.preview_token || '';
-            Object.entries(data.counts || {}).forEach(([name,count])=>{const li=document.createElement('li');li.textContent=name.replaceAll('_',' ')+': '+count;list.appendChild(li);});
-            const excluded = data.protected_excluded_by_scope || {};
-            const excludedRecords = excluded.records || {};
-            const excludedSummary = Object.entries(excludedRecords).map(([table,ids])=>table.replaceAll('_',' ')+': '+ids.length+' IDs ['+ids.join(', ')+']').join(' · ');
-            document.getElementById('pf-testing-cleanup-protected').textContent = 'Protected counts: '+Object.entries(data.protected||{}).map(([k,v])=>k.replaceAll('_',' ')+': '+v).join(' · ')+' · '+(excluded.label||'Protected / Excluded by scope')+': '+excludedSummary+' · Uncertain: uploaded files and inquiries remain untouched.';
-            document.getElementById('pf-testing-cleanup-order').textContent='Deletion order: '+(data.delete_order||[]).join(' → ')+'. Physical files are retained.';
-            status.textContent = data.already_deleted !== undefined
-                ? 'Cleanup previously completed and verified. Safe remaining: '+data.safe_remaining+'. Protected orders remaining: '+data.protected_remaining+'. Already deleted: '+data.already_deleted+'. No further deletion is available.'
-                : 'Review these exact audited-record counts. Nothing has been deleted.';
-            updateConfirmationState();
-            return true;
-        } catch(error){ previewError=error.message; status.textContent=error.message+' Deletion is disabled until a verified preview is available.'; updateConfirmationState(); return false; }
-    }
-    const opener = document.getElementById('pf-open-testing-cleanup');
-    opener.addEventListener('click',()=>{acknowledgment.checked=false;previewToken='';updateConfirmationState();modal.style.display='flex';acknowledgment.focus();loadPreview();});
-    document.getElementById('pf-testing-cleanup-close').addEventListener('click',()=>{modal.style.display='none';acknowledgment.checked=false;previewToken='';updateConfirmationState();opener.focus();});
-    acknowledgment.addEventListener('change',updateConfirmationState);
-    submit.addEventListener('click',async()=>{
-        if(!acknowledgment.checked||!previewToken)return;
-        submit.disabled=true; status.textContent='Deleting the verified safe records in one transaction…';
-        try{
-            const response=await fetch(endpoint,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({csrf_token:csrf,preview_token:previewToken,acknowledged:acknowledgment.checked})});
-            const data=await response.json(); if(!response.ok||!data.success)throw new Error(data.error||'Cleanup failed.');
-            list.replaceChildren(); Object.entries(data.deleted||{}).forEach(([name,count])=>{const li=document.createElement('li');li.textContent='Deleted '+name.replaceAll('_',' ')+': '+count;list.appendChild(li);});
-            const deletedSummary=Object.entries(data.deleted||{}).map(([name,count])=>name.replaceAll('_',' ')+': '+count).join(', ');
-            document.getElementById('pf-testing-cleanup-protected').textContent='Protected counts retained: '+JSON.stringify(data.protected)+' · Remaining safe-record counts: '+JSON.stringify(data.remaining);
-            acknowledgment.checked=false;
-            if(await loadPreview()) status.textContent='Deletion completed and verified. Deleted: '+(deletedSummary||'no rows')+'. The preview below is refreshed; protected records remain listed.';
-            else status.textContent='Deletion completed and verified. Deleted: '+(deletedSummary||'no rows')+'. The fresh preview could not load: '+previewError;
-        }catch(error){status.textContent=error.message;updateConfirmationState();}
-    });
-})();
-</script>
-<?php endif; ?>
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>
