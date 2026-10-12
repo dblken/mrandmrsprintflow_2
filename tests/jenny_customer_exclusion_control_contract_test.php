@@ -9,6 +9,7 @@ $check = static function (bool $ok, string $message) use (&$failures): void { if
 $check(str_contains($endpoint, "const PF_JENNY_EXCLUSION_CUSTOMER_ID = 25"), 'target customer ID is fixed server-side');
 $check(str_contains($endpoint, "if (!is_admin()") && str_contains($endpoint, "verify_csrf_token"), 'Admin authorization and CSRF validation are enforced');
 $check(str_contains($endpoint, "SELECT order_id FROM orders WHERE customer_id = ? ORDER BY order_id"), 'order exclusions are dynamically derived from the exact customer owner');
+$check(str_contains($endpoint, 'GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR') && str_contains($endpoint, 'LEFT JOIN order_items oi ON oi.order_id = o.order_id') && str_contains($endpoint, 'LEFT JOIN products p ON p.product_id = oi.product_id') && !str_contains($endpoint, 'o.order_sku'), 'preview derives order codes from the live order-item/product relationship');
 $check(str_contains($endpoint, "begin_transaction()") && str_contains($endpoint, "commit()") && str_contains($endpoint, "rollback()"), 'exclusion updates use a transaction with rollback');
 $check(str_contains($endpoint, "['activate', 'restore']") && str_contains($endpoint, "'inactive'"), 'archive is reversible through explicit inactive status');
 $check(str_contains($endpoint, "data_records_deleted_or_modified' => false"), 'endpoint documents that transaction records are not modified');

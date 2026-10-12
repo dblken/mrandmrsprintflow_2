@@ -81,15 +81,18 @@ if ($method === 'GET') {
     $legacyArchiveJoin = printflow_order_archive_tables_ready()
         ? " LEFT JOIN printflow_order_archive_map am ON am.order_id = o.order_id "
         : '';
-    $legacyArchivePredicate = printflow_order_archive_tables_ready() ? " OR am.status = 'archived'" : '';
+    $legacyArchivePredicate = printflow_order_archive_tables_ready() ? " OR MAX(am.status) = 'archived'" : '';
     $orders = db_query(
-        "SELECT o.order_id, o.order_sku, o.order_date, o.status,
+        "SELECT o.order_id, GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-') AS order_sku, o.order_date, o.status,
                 CASE WHEN ? = 'active' OR ce.status = 'active' {$legacyArchivePredicate} THEN 1 ELSE 0 END AS is_hidden,
                 CASE WHEN ? = 'active' OR ce.status = 'active' {$legacyArchivePredicate} THEN 'Archived' ELSE 'Visible' END AS archive_status
          FROM orders o
          LEFT JOIN customer_exclusion ce ON ce.customer_id = o.customer_id AND ce.entity_type = 'ORDER' AND ce.record_id = o.order_id
          {$legacyArchiveJoin}
+         LEFT JOIN order_items oi ON oi.order_id = o.order_id
+         LEFT JOIN products p ON p.product_id = oi.product_id
          WHERE o.customer_id = ?
+         GROUP BY o.order_id, o.order_date, o.status, ce.status
          ORDER BY o.order_date DESC, o.order_id DESC",
         'ssi',
         [(string)($customerRows[0]['status'] ?? ''), (string)($customerRows[0]['status'] ?? ''), $customerId]
