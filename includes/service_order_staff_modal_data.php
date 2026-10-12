@@ -86,7 +86,7 @@ function service_order_staff_modal_data(int $order_id): ?array {
         "SELECT so.*, c.first_name, c.last_name, c.email, c.contact_number, c.customer_type, c.transaction_count 
          FROM service_orders so 
          LEFT JOIN customers c ON so.customer_id = c.customer_id 
-         WHERE so.id = ?" . $branchSql,
+         WHERE so.id = ? AND " . printflow_customer_exclusion_customer_scope_sql('so.customer_id') . $branchSql,
         'i' . $branchTypes,
         array_merge([$order_id], $branchParams)
     );

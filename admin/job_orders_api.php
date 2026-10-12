@@ -1185,6 +1185,7 @@ try {
                                    LEFT JOIN orders o ON o.order_id = cust.order_id
                                    WHERE cust.order_id IS NOT NULL
                                      AND (o.order_id IS NULL OR " . printflow_order_archive_scope_sql('o') . ")
+                                     AND " . printflow_customer_exclusion_customer_scope_sql('cust.customer_id') . "
                                      AND cust.status IN (
                                          'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
                                          'Approved', 'To Pay', 'Payment Confirmed', 'Pending Verification',
@@ -1215,7 +1216,7 @@ try {
 
             // Standalone production jobs have no store order to represent them.
             $jobCountSql = "SELECT id, NULL AS order_id, status, updated_at, 'JOB' AS order_type
-                            FROM job_orders WHERE order_id IS NULL";
+                            FROM job_orders WHERE order_id IS NULL AND " . printflow_customer_exclusion_customer_scope_sql('job_orders.customer_id');
             $jobCountTypes = '';
             $jobCountParams = [];
             if ($joStaffBranch !== null) {
@@ -1233,7 +1234,8 @@ try {
             if ($listSource !== 'pos') {
                 service_order_ensure_tables();
                 $serviceCountSql = "SELECT id, id AS order_id, status, updated_at, 'SERVICE' AS order_type FROM service_orders
-                                    WHERE status IN (
+                                    WHERE " . printflow_customer_exclusion_customer_scope_sql('service_orders.customer_id') . "
+                                      AND status IN (
                                         'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
                                         'Approved', 'Processing', 'Ready for Pickup', 'Ready For Pickup',
                                         'Completed', 'Rejected', 'Cancelled'
@@ -1368,7 +1370,8 @@ try {
                     FROM job_orders jo 
                     LEFT JOIN orders o ON o.order_id = jo.order_id
                     LEFT JOIN customers c ON c.customer_id = COALESCE(NULLIF(o.customer_id, 0), NULLIF(jo.customer_id, 0))
-                    WHERE 1=1 AND " . printflow_order_archive_exclusion_sql('jo.order_id');
+                    WHERE 1=1 AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
+                      AND " . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
             $params = []; $types = '';
             if ($status) {
                 $sql .= " AND jo.status = ?";
@@ -1849,6 +1852,8 @@ try {
                 LEFT JOIN customers c ON c.customer_id = COALESCE(NULLIF(o.customer_id, 0), NULLIF(cust.customer_id, 0))
                 WHERE cust.status IN ('Pending Review', 'Pending', 'Pending Approval', 'For Revision', 'Approved', 'To Pay', 'Payment Confirmed', 'Pending Verification', 'Downpayment Submitted', 'To Verify', 'Processing', 'In Production', 'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled')
                 AND cust.order_id IS NOT NULL
+                AND (o.order_id IS NULL OR " . printflow_order_archive_scope_sql('o') . ")
+                AND " . printflow_customer_exclusion_customer_scope_sql('cust.customer_id') . "
                 AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
                 AND (
                     LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
@@ -1928,7 +1933,8 @@ try {
                     so.total_price AS estimated_total
                 FROM service_orders so
                 LEFT JOIN customers c ON so.customer_id = c.customer_id
-                WHERE so.status IN (
+                WHERE " . printflow_customer_exclusion_customer_scope_sql('so.customer_id') . "
+                  AND so.status IN (
                     'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
                     'Approved', 'Processing', 'Ready for Pickup', 'Ready For Pickup',
                     'Completed', 'Rejected', 'Cancelled'
@@ -2004,7 +2010,20 @@ try {
             jo_api_require_staff_branch($joStaffBranch, $id);
             $order = JobOrderService::getOrder($id);
             if (!$order) throw new Exception("Order not found.");
+            if (printflow_customer_exclusion_customer_is_active((int)($order['customer_id'] ?? 0))) {
+                throw new Exception("Order not found.");
+            }
             $storeOid = (int)($order['order_id'] ?? 0);
+            if ($storeOid > 0) {
+                $storeStillVisible = db_query(
+                    'SELECT o.order_id FROM orders o WHERE o.order_id = ? AND ' . printflow_order_archive_scope_sql('o') . ' LIMIT 1',
+                    'i',
+                    [$storeOid]
+                ) ?: [];
+                if ($storeStillVisible === []) {
+                    throw new Exception("Order not found.");
+                }
+            }
             if ($storeOid > 0) {
                 $storePayRows = db_query(
                     'SELECT payment_status FROM orders WHERE order_id = ? LIMIT 1',
@@ -2266,6 +2285,8 @@ try {
                 LEFT JOIN orders o ON cust.order_id = o.order_id
                 LEFT JOIN job_orders jo ON jo.order_id = o.order_id AND jo.status NOT IN ('CANCELLED')
                 WHERE cust.customization_id = ?
+                  AND " . printflow_customer_exclusion_customer_scope_sql('cust.customer_id') . "
+                  AND (o.order_id IS NULL OR " . printflow_order_archive_scope_sql('o') . ")
                 ORDER BY jo.id ASC
                 LIMIT 1",
                 'i',
@@ -2768,7 +2789,7 @@ try {
                        TRIM(CONCAT_WS(', ', NULLIF(TRIM(c.street_address), ''), NULLIF(TRIM(c.barangay), ''), NULLIF(TRIM(c.city), ''))) AS customer_address
                 FROM orders o
                 LEFT JOIN customers c ON o.customer_id = c.customer_id
-                WHERE o.order_id = ?
+                WHERE o.order_id = ? AND " . printflow_order_archive_scope_sql('o') . "
             ", 'i', [$order_id]);
             if (empty($order_row)) throw new Exception("Order not found.");
             $o = $order_row[0];

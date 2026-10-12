@@ -48,7 +48,7 @@ function pf_reports_branch_has_activity($branchId): bool {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
         $c1 = (int) (db_query("SELECT COUNT(*) as c FROM orders o WHERE " . printflow_order_archive_scope_sql('o') . "$b", $bt ?: null, $bp ?: null)[0]['c'] ?? 0);
         [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
-        $c2 = (int) (db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE " . printflow_order_archive_exclusion_sql('jo.order_id') . "$bj", $btj ?: null, $bpj ?: null)[0]['c'] ?? 0);
+        $c2 = (int) (db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE " . printflow_order_archive_exclusion_sql('jo.order_id') . " AND " . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . "$bj", $btj ?: null, $bpj ?: null)[0]['c'] ?? 0);
         return ($c1 + $c2) > 0;
     } catch (Throwable $e) {
         return false;
@@ -82,7 +82,7 @@ function pf_reports_job_order_paid_completed_expr(string $alias = 'jo'): string 
 /** Service order counts as completed for revenue exports. */
 function pf_reports_service_order_completed_expr(string $alias = 'so'): string {
     $alias = pf_reports_sql_alias($alias, 'so');
-    return "{$alias}.status = 'Completed'";
+    return '(' . printflow_customer_exclusion_customer_scope_sql($alias . '.customer_id') . " AND {$alias}.status = 'Completed')";
 }
 
 /** Official product/store sales inclusion rule for all reports. */
@@ -136,7 +136,8 @@ function pf_reports_store_order_revenue_expr(string $alias = 'o'): string {
 function pf_reports_job_order_sales_expr(string $alias = 'jo'): string {
     $alias = pf_reports_sql_alias($alias, 'jo');
     $activeArchiveScope = printflow_order_archive_exclusion_sql($alias . '.order_id');
-    return "({$activeArchiveScope} AND (LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
+    $customerScope = printflow_customer_exclusion_customer_scope_sql($alias . '.customer_id');
+    return "({$activeArchiveScope} AND {$customerScope} AND (LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
              OR LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed'))";
 }
 

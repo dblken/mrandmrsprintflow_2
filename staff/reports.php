@@ -43,6 +43,7 @@ $status_where = ($ordersStatusMeta['sql'] !== '1=1') ? ' AND ' . $ordersStatusMe
 $status_p = $ordersStatusMeta['params'];
 $status_t = $ordersStatusMeta['types'];
 $service_status_sql = printflow_staff_service_orders_status_sql($status_filter, 'so', $staffRole);
+$service_archive_sql = ' AND ' . printflow_customer_exclusion_customer_scope_sql('so.customer_id');
 $job_status_sql = printflow_staff_job_orders_status_sql($status_filter, 'jo', $staffRole);
 
 // ---- 1. RANGE-AWARE KPI METRICS (DYNAMIC) ----
@@ -50,7 +51,7 @@ $job_status_sql = printflow_staff_job_orders_status_sql($status_filter, 'jo', $s
 $rev_res = db_query("SELECT SUM(t.total) AS total FROM (
     SELECT COALESCE(SUM(o.total_amount), 0) as total FROM orders o WHERE $date_condition AND o.payment_status = 'Paid' AND o.branch_id = ? AND {$staffOrderScopeSql} $status_where
     UNION ALL
-    SELECT COALESCE(SUM(so.total_price), 0) as total FROM service_orders so WHERE " . str_replace('o.order_date', 'so.created_at', $date_condition) . " AND (so.branch_id = ? OR so.branch_id IS NULL) {$service_status_sql}
+    SELECT COALESCE(SUM(so.total_price), 0) as total FROM service_orders so WHERE " . str_replace('o.order_date', 'so.created_at', $date_condition) . " AND (so.branch_id = ? OR so.branch_id IS NULL) {$service_status_sql}{$service_archive_sql}
 ) t", ($status_t ? "ii" . $status_t : "ii"), array_merge([$staffBranchId, $staffBranchId], $status_p));
 $period_revenue = (float)($rev_res[0]['total'] ?? 0);
 
@@ -58,7 +59,7 @@ $period_revenue = (float)($rev_res[0]['total'] ?? 0);
 $ord_res = db_query("SELECT SUM(t.cnt) AS count FROM (
     SELECT COUNT(*) as cnt FROM orders o WHERE $date_condition AND o.branch_id = ? AND {$staffOrderScopeSql} $status_where
     UNION ALL
-    SELECT COUNT(*) as cnt FROM service_orders so WHERE " . str_replace('o.order_date', 'so.created_at', $date_condition) . " AND (so.branch_id = ? OR so.branch_id IS NULL) {$service_status_sql}
+    SELECT COUNT(*) as cnt FROM service_orders so WHERE " . str_replace('o.order_date', 'so.created_at', $date_condition) . " AND (so.branch_id = ? OR so.branch_id IS NULL) {$service_status_sql}{$service_archive_sql}
 ) t", ($status_t ? "ii" . $status_t : "ii"), array_merge([$staffBranchId, $staffBranchId], $status_p));
 $period_orders = (int)($ord_res[0]['count'] ?? 0);
 
@@ -86,7 +87,7 @@ $pending_period_orders = (int)($pend_res[0]['count'] ?? 0);
 $global_back_res = db_query("SELECT SUM(t.cnt) AS count FROM (
     SELECT COUNT(*) as cnt FROM orders o WHERE o.status NOT IN ('Completed', 'Cancelled') AND o.branch_id = ? AND {$staffOrderScopeSql} $status_where
     UNION ALL
-    SELECT COUNT(*) as cnt FROM service_orders so WHERE so.status NOT IN ('Completed', 'Cancelled', 'Rejected') AND (so.branch_id = ? OR so.branch_id IS NULL) {$service_status_sql}
+    SELECT COUNT(*) as cnt FROM service_orders so WHERE so.status NOT IN ('Completed', 'Cancelled', 'Rejected') AND (so.branch_id = ? OR so.branch_id IS NULL) {$service_status_sql}{$service_archive_sql}
 ) t", ($status_t ? "ii" . $status_t : "ii"), array_merge([$staffBranchId, $staffBranchId], $status_p));
 $global_backlog = (int)($global_back_res[0]['count'] ?? 0);
 

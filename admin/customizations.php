@@ -96,7 +96,7 @@ $per_page       = 15;
 $branchCtx = init_branch_context(false); // analytics-style — allow All
 $branchId  = $branchCtx['selected_branch_id'];
 // Keep dataset aligned with staff/customizations.php
-$jobCustomizationScopeSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . " AND (
+$jobCustomizationScopeSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . " AND (
     jo.order_id IS NULL
     OR EXISTS (
         SELECT 1

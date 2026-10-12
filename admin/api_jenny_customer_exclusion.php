@@ -115,6 +115,7 @@ function pf_customer_archive_search(string $term): array
         : '';
     $rows = pf_customer_archive_query(
         "SELECT c.customer_id, c.first_name, c.last_name, c.email, c.contact_number,
+                EXISTS (SELECT 1 FROM customer_exclusion ce_status WHERE ce_status.status = 'active' AND ce_status.entity_type = 'CUSTOMER' AND ce_status.customer_id = c.customer_id) AS customer_archived,
                 COUNT(o.order_id) AS total_orders,
                 SUM(CASE WHEN o.order_id IS NULL THEN 0 WHEN (
                     EXISTS (SELECT 1 FROM customer_exclusion ce WHERE ce.status = 'active' AND ce.entity_type = 'CUSTOMER' AND ce.customer_id = c.customer_id AND ce.record_id = c.customer_id)
@@ -142,6 +143,15 @@ function pf_customer_archive_search(string $term): array
         $total = (int)($row['total_orders'] ?? 0);
         $archived = (int)($row['archived_orders'] ?? 0);
         if ($archived > $total) $archived = $total;
+        $visible = $total - $archived;
+        $customerArchived = (int)($row['customer_archived'] ?? 0) === 1;
+        if ($customerArchived || ($total > 0 && $visible === 0)) {
+            $archiveStatus = 'Archived';
+        } elseif ($archived > 0 && $visible > 0) {
+            $archiveStatus = 'Mixed';
+        } else {
+            $archiveStatus = 'Visible';
+        }
         return [
             'customer_id' => (int)$row['customer_id'],
             'name' => trim((string)$row['first_name'] . ' ' . (string)$row['last_name']),
@@ -151,7 +161,8 @@ function pf_customer_archive_search(string $term): array
             'phone' => (string)($row['contact_number'] ?? ''),
             'total_orders' => $total,
             'archived_orders' => $archived,
-            'visible_orders' => $total - $archived,
+            'visible_orders' => $visible,
+            'archive_status' => $archiveStatus,
         ];
     }, $rows);
 }

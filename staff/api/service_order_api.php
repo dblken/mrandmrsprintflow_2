@@ -62,7 +62,7 @@ if ($order_id < 1) {
 }
 
 $order_row = db_query(
-    'SELECT * FROM service_orders WHERE id = ?' . $serviceOrderBranchSql,
+    'SELECT * FROM service_orders WHERE id = ? AND ' . printflow_customer_exclusion_customer_scope_sql('service_orders.customer_id') . $serviceOrderBranchSql,
     'i' . $serviceOrderBranchTypes,
     array_merge([$order_id], $serviceOrderBranchParams)
 );

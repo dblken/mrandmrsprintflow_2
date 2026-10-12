@@ -287,7 +287,7 @@ if ($viewerBranch) {
             UNION
             SELECT jo.customer_id FROM job_orders jo
             WHERE jo.created_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01') AND jo.customer_id IS NOT NULL AND jo.branch_id = ?
-              AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
+              AND " . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . "
         ) cur
         WHERE (
             EXISTS (
@@ -301,7 +301,7 @@ if ($viewerBranch) {
                 SELECT 1 FROM job_orders jo
                 WHERE jo.customer_id = cur.customer_id
                   AND jo.branch_id = ?
-                  AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
+                  AND " . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . "
                   AND jo.created_at < DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
             )
         )
@@ -312,7 +312,7 @@ if ($viewerBranch) {
         SELECT COUNT(DISTINCT customer_id) as count FROM (
             SELECT o.customer_id FROM orders o WHERE o.order_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND o.branch_id = ? AND " . printflow_order_archive_scope_sql('o') . "
             UNION
-            SELECT jo.customer_id FROM job_orders jo WHERE jo.created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND jo.customer_id IS NOT NULL AND jo.branch_id = ? AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
+            SELECT jo.customer_id FROM job_orders jo WHERE jo.created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND jo.customer_id IS NOT NULL AND jo.branch_id = ? AND " . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . "
         ) active_customers
     ", 'ii', [$bid, $bid])[0]['count'] ?? 0);
 
@@ -321,7 +321,7 @@ if ($viewerBranch) {
         SELECT COALESCE(SUM(amount), 0) as total FROM (
             SELECT o.total_amount as amount FROM orders o WHERE o.payment_status = 'Paid' AND o.branch_id = ? AND " . printflow_order_archive_scope_sql('o') . "
             UNION ALL
-            SELECT jo.amount_paid as amount FROM job_orders jo WHERE jo.payment_status = 'PAID' AND jo.customer_id IS NOT NULL AND jo.branch_id = ? AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
+            SELECT jo.amount_paid as amount FROM job_orders jo WHERE jo.payment_status = 'PAID' AND jo.customer_id IS NOT NULL AND jo.branch_id = ? AND " . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . "
         ) rev
     ", 'ii', [$bid, $bid])[0]['total'] ?? 0);
 } else {
@@ -344,7 +344,7 @@ if ($viewerBranch) {
         SELECT COUNT(DISTINCT customer_id) as count FROM (
             SELECT o.customer_id FROM orders o WHERE o.order_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND " . printflow_order_archive_scope_sql('o') . "
             UNION
-            SELECT jo.customer_id FROM job_orders jo WHERE jo.created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND jo.customer_id IS NOT NULL AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
+            SELECT jo.customer_id FROM job_orders jo WHERE jo.created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AND jo.customer_id IS NOT NULL AND " . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . "
         ) active_customers
     ")[0]['count'] ?? 0);
 
@@ -353,7 +353,7 @@ if ($viewerBranch) {
         SELECT COALESCE(SUM(amount), 0) as total FROM (
             SELECT o.total_amount as amount FROM orders o WHERE o.payment_status = 'Paid' AND " . printflow_order_archive_scope_sql('o') . "
             UNION ALL
-            SELECT jo.amount_paid as amount FROM job_orders jo WHERE jo.payment_status = 'PAID' AND jo.customer_id IS NOT NULL AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
+            SELECT jo.amount_paid as amount FROM job_orders jo WHERE jo.payment_status = 'PAID' AND jo.customer_id IS NOT NULL AND " . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . "
         ) rev
     ")[0]['total'] ?? 0);
 }

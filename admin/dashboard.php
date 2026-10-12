@@ -113,7 +113,7 @@ try {
     [$bSqlFrag, $bT, $bP] = branch_where_parts('o', $branchId);
     $bSqlFrag .= ' AND ' . printflow_order_archive_scope_sql('o');
     [$jSqlFrag, $jT, $jP] = branch_where_parts('jo', $branchId);
-    $jSqlFrag .= ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id');
+    $jSqlFrag .= ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
     $customerTypes = 'ss' . ($bT ?: '') . 'ss' . ($jT ?: '');
     $customerParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP ?: []);
     $total_customers = db_query(
@@ -145,7 +145,7 @@ try {
     [$bSqlFrag, $bT3, $bP3] = branch_where_parts('o', $branchId);
     $bSqlFrag .= ' AND ' . printflow_order_archive_scope_sql('o');
     [$jSqlFrag, $jT3, $jP3] = branch_where_parts('j', $branchId);
-    $jSqlFrag .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id');
+    $jSqlFrag .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id');
     $orderTypes = 'ss' . ($bT3 ?: '') . 'ss' . ($jT3 ?: '');
     $orderParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP3 ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP3 ?: []);
     $total_orders = db_query(
@@ -447,7 +447,7 @@ try {
     [$bSqlFrag_c, $bT_c, $bP_c] = branch_where_parts('o', $branchId);
     $bSqlFrag_c .= ' AND ' . printflow_order_archive_scope_sql('o');
     [$bSqlFrag_j, $bT_j, $bP_j] = branch_where_parts('j', $branchId);
-    $bSqlFrag_j .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id');
+    $bSqlFrag_j .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id');
     $types = ($bT_c ?: '') . ($bT_j ?: '');
     $params = array_merge($bP_c ?: [], $bP_j ?: []);
     $top_customers = db_query(

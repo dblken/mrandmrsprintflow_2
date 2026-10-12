@@ -21,7 +21,7 @@ try {
     $period = $_GET['period'] ?? 'monthly';
     
     // Build branch filter
-    $branchSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id');
+    $branchSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
     $branchTypes = '';
     $branchParams = [];
     

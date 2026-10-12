@@ -10,7 +10,7 @@ require_role('Customer');
 service_order_ensure_tables();
 $customer_id = get_user_id();
 
-$orders = db_query("SELECT * FROM service_orders WHERE customer_id = ? ORDER BY created_at DESC", 'i', [$customer_id]);
+$orders = db_query("SELECT * FROM service_orders so WHERE so.customer_id = ? AND " . printflow_customer_exclusion_customer_scope_sql('so.customer_id') . " ORDER BY so.created_at DESC", 'i', [$customer_id]);
 
 $page_title = 'My Service Orders - PrintFlow';
 $use_customer_css = true;
