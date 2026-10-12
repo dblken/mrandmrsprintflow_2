@@ -8,8 +8,8 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 
 const PF_JENNY_CLEANUP_CUSTOMER_ID = 25;
-const PF_JENNY_CLEANUP_DELETE_ORDER = ['push_notification_queue','notifications','chatbot_messages','chatbot_conversations','message_reactions','review_helpful','customer_cart','order_revision_requests','order_item_revisions','job_order_materials','job_orders','order_messages','customizations','order_items','orders'];
-const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-1';
+const PF_JENNY_CLEANUP_DELETE_ORDER = ['push_notification_queue','notifications','message_reactions','review_helpful','customer_cart','order_revision_requests','order_item_revisions','job_order_materials','job_orders','order_messages','customizations','order_items','orders'];
+const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-2';
 
 /** Runtime-only diagnostics; never includes connection credentials. */
 function pf_jenny_runtime_diagnostics(): array
@@ -149,8 +149,6 @@ function pf_jenny_plan(bool $lock = false): array
         'job_order_materials' => [458,488],
         'order_item_revisions' => [1,2],
         'order_revision_requests' => [1,2],
-        'chatbot_conversations' => [17,18,19,27],
-        'chatbot_messages' => [[19,30],[37,63],[68,74],[83,84]],
         'message_reactions' => [36,37,38,39],
         'review_helpful' => [18,27,29,33,[39,41],[43,45],[49,52]],
     ];
@@ -178,13 +176,16 @@ function pf_jenny_plan(bool $lock = false): array
     $revisions = pf_jenny_ids('order_item_revisions','revision_id',$ids['order_item_revisions'],' AND order_id IN (?,?)','ii',[11161,11241],$lock);
     $revisionRequests = pf_jenny_ids('order_revision_requests','revision_request_id',$ids['order_revision_requests'],' AND customer_id = 25 AND order_id IN (?,?)','ii',[11161,11241],$lock);
     if (count($revisions)!==2 || count($revisionRequests)!==2) throw new RuntimeException('The audited revision relationships changed. Refresh preview.');
-    $conversations = pf_jenny_ids('chatbot_conversations','id',$ids['chatbot_conversations'],' AND customer_id = 25 AND guest_id IS NULL','',[],$lock);
-    $GLOBALS['pf_jenny_cleanup_context'] = ['table' => 'chatbot_conversations', 'phase' => 'ownership_validation'];
-    if (count($conversations)!==4) throw new RuntimeException('The audited chatbot ownership changed. Refresh preview.');
-    $conversationIds = $ids['chatbot_conversations'];
-    $messages = pf_jenny_ids('chatbot_messages','id',$ids['chatbot_messages'],' AND conversation_id IN (' . implode(',',array_fill(0,count($conversationIds),'?')) . ')',str_repeat('i',count($conversationIds)),$conversationIds,$lock);
-    if (array_map(static fn($r)=>(int)$r['id'],$messages) !== $ids['chatbot_messages']) throw new RuntimeException('The audited chatbot-message relationships changed. Refresh preview.');
-    if (pf_jenny_child_ids('chatbot_messages','id','conversation_id',$conversationIds,$lock) !== $ids['chatbot_messages']) throw new RuntimeException('An unclassified message is linked to a customer conversation.');
+    // Chatbot data is excluded from cleanup. Read its IDs for the protected preview only.
+    $chatbotConversationRows = pf_jenny_query('SELECT id FROM chatbot_conversations WHERE customer_id = 25 ORDER BY id');
+    $chatbotConversationIds = array_map('intval',array_column($chatbotConversationRows,'id'));
+    $chatbotMessageRows = $chatbotConversationIds
+        ? pf_jenny_query('SELECT m.id FROM chatbot_messages m INNER JOIN chatbot_conversations c ON c.id = m.conversation_id WHERE c.customer_id = 25 ORDER BY m.id')
+        : [];
+    $chatbotExcluded = [
+        'chatbot_conversations' => $chatbotConversationIds,
+        'chatbot_messages' => array_map('intval',array_column($chatbotMessageRows,'id')),
+    ];
 
     $ownedNotifications = pf_jenny_query('SELECT notification_id FROM notifications n WHERE customer_id = 25 AND (user_id IS NULL OR user_id = 25) AND NOT EXISTS (SELECT 1 FROM notification_logs nl WHERE nl.notification_id = n.notification_id) ORDER BY notification_id' . ($lock?' FOR UPDATE':''));
     $ids['notifications'] = array_map('intval', array_column($ownedNotifications, 'notification_id'));
@@ -240,9 +241,9 @@ function pf_jenny_plan(bool $lock = false): array
     $allSafeJobMaterials = pf_jenny_query('SELECT id FROM job_order_materials WHERE job_order_id IN (' . implode(',',array_fill(0,count($jobIds),'?')) . ') ORDER BY id' . ($lock?' FOR UPDATE':''),str_repeat('i',count($jobIds)),$jobIds);
     if (array_map(static fn($r)=>(int)$r['id'],$allSafeJobMaterials) !== $ids['job_order_materials']) throw new RuntimeException('An unclassified material row is linked to a safe job order.');
 
-    $parentIds=['orders'=>$orderIds,'order_items'=>$ids['order_items'],'customizations'=>$ids['customizations'],'job_orders'=>$jobIds,'order_messages'=>$ids['order_messages'],'chatbot_conversations'=>$conversationIds];
-    $childPk=['orders'=>'order_id','order_items'=>'order_item_id','customizations'=>'customization_id','job_orders'=>'id','order_messages'=>'message_id','chatbot_conversations'=>'id','order_revision_requests'=>'revision_request_id','order_item_revisions'=>'revision_id','job_order_materials'=>'id','message_reactions'=>'reaction_id','chatbot_messages'=>'id'];
-    $foreignKeys=pf_jenny_query("SELECT TABLE_NAME,COLUMN_NAME,REFERENCED_TABLE_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA=DATABASE() AND REFERENCED_TABLE_SCHEMA=DATABASE() AND REFERENCED_TABLE_NAME IN ('orders','order_items','customizations','job_orders','order_messages','chatbot_conversations')");
+    $parentIds=['orders'=>$orderIds,'order_items'=>$ids['order_items'],'customizations'=>$ids['customizations'],'job_orders'=>$jobIds,'order_messages'=>$ids['order_messages']];
+    $childPk=['orders'=>'order_id','order_items'=>'order_item_id','customizations'=>'customization_id','job_orders'=>'id','order_messages'=>'message_id','order_revision_requests'=>'revision_request_id','order_item_revisions'=>'revision_id','job_order_materials'=>'id','message_reactions'=>'reaction_id'];
+    $foreignKeys=pf_jenny_query("SELECT TABLE_NAME,COLUMN_NAME,REFERENCED_TABLE_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA=DATABASE() AND REFERENCED_TABLE_SCHEMA=DATABASE() AND REFERENCED_TABLE_NAME IN ('orders','order_items','customizations','job_orders','order_messages')");
     foreach($foreignKeys as $fk){
         $child=(string)$fk['TABLE_NAME']; $parent=(string)$fk['REFERENCED_TABLE_NAME']; $column=(string)$fk['COLUMN_NAME']; $pids=$parentIds[$parent]??[];
         if(!$pids)continue;
@@ -288,8 +289,8 @@ function pf_jenny_plan(bool $lock = false): array
         'notifications' => pf_jenny_count('SELECT COUNT(*) AS row_count FROM notifications WHERE customer_id = 25') - count($ids['notifications']),
         'notification_logs' => pf_jenny_count('SELECT COUNT(*) AS row_count FROM notification_logs WHERE notification_id IN (SELECT notification_id FROM notifications WHERE customer_id = 25)'),
         'customer_cart_other_rows' => pf_jenny_count('SELECT COUNT(*) AS row_count FROM customer_cart WHERE customer_id = 25') - count($ids['customer_cart']),
-        'chatbot_conversations_other' => pf_jenny_count('SELECT COUNT(*) AS row_count FROM chatbot_conversations WHERE customer_id = 25') - count($ids['chatbot_conversations']),
-        'chatbot_messages_other' => pf_jenny_count('SELECT COUNT(*) AS row_count FROM chatbot_messages WHERE conversation_id IN (SELECT id FROM chatbot_conversations WHERE customer_id = 25) AND conversation_id NOT IN (17,18,19,27)'),
+        'chatbot_conversations_excluded_by_scope' => count($chatbotExcluded['chatbot_conversations']),
+        'chatbot_messages_excluded_by_scope' => count($chatbotExcluded['chatbot_messages']),
         'message_reactions_other' => pf_jenny_count("SELECT COUNT(*) AS row_count FROM message_reactions WHERE sender = 'Customer' AND sender_id = 25") - count($ids['message_reactions']),
         'review_helpful_other' => pf_jenny_count("SELECT COUNT(*) AS row_count FROM review_helpful WHERE customer_id = 25 AND user_id = 25 AND user_type = 'Customer'") - count($ids['review_helpful']),
         'synthetic_registry_rows' => pf_jenny_count('SELECT COUNT(*) AS row_count FROM maintenance_synthetic_demo_order_rows WHERE order_id IN (SELECT order_id FROM orders WHERE customer_id = 25)'),
@@ -297,7 +298,7 @@ function pf_jenny_plan(bool $lock = false): array
         'review_audit_rows' => pf_jenny_count('SELECT COUNT(*) AS row_count FROM review_cleanup_audit WHERE customer_id = 25'),
     ];
     $ids['other_customer_snapshot']=pf_jenny_other_customer_snapshot($lock);
-    return ['ids'=>$ids,'rows'=>['orders'=>$orders,'order_items'=>$items,'order_messages'=>$rows['order_messages'],'customizations'=>$rows['customizations'],'job_orders'=>$jobs,'job_order_materials'=>$materials,'order_item_revisions'=>$revisions,'order_revision_requests'=>$revisionRequests,'chatbot_conversations'=>$conversations,'chatbot_messages'=>$messages,'notifications'=>$notifications,'push_notification_queue'=>$queueRows,'message_reactions'=>$reactions,'review_helpful'=>$helpful]];
+    return ['ids'=>$ids,'protected_excluded_by_scope'=>$chatbotExcluded,'rows'=>['orders'=>$orders,'order_items'=>$items,'order_messages'=>$rows['order_messages'],'customizations'=>$rows['customizations'],'job_orders'=>$jobs,'job_order_materials'=>$materials,'order_item_revisions'=>$revisions,'order_revision_requests'=>$revisionRequests,'notifications'=>$notifications,'push_notification_queue'=>$queueRows,'message_reactions'=>$reactions,'review_helpful'=>$helpful]];
 }
 
 function pf_jenny_fingerprint(array $plan): string
@@ -335,15 +336,11 @@ if ($method==='GET') {
         $token=bin2hex(random_bytes(32));
         $_SESSION['jenny_cleanup_preview']=['token_hash'=>hash('sha256',$token),'fingerprint'=>pf_jenny_fingerprint($plan),'expires'=>time()+600];
         $counts=[]; foreach($plan['ids'] as $table=>$values) if(is_array($values) && !in_array($table,['protected_counts','other_customer_snapshot'],true)) $counts[$table]=count($values);
-        pf_jenny_json(200,['success'=>true,'diagnostic_version'=>PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION,'runtime'=>pf_jenny_runtime_diagnostics(),'preview_token'=>$token,'counts'=>$counts,'protected'=>$plan['ids']['protected_counts'],'uncertain'=>['physical_file_reference_rows'=>267,'unique_physical_files'=>'Unverified; retain all files.','chatbot_inquiries'=>'Ownerless by schema; retain.'],'delete_order'=>PF_JENNY_CLEANUP_DELETE_ORDER]);
+        pf_jenny_json(200,['success'=>true,'diagnostic_version'=>PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION,'runtime'=>pf_jenny_runtime_diagnostics(),'preview_token'=>$token,'counts'=>$counts,'protected'=>$plan['ids']['protected_counts'],'protected_excluded_by_scope'=>['label'=>'Protected / Excluded by scope','records'=>$plan['protected_excluded_by_scope']],'uncertain'=>['physical_file_reference_rows'=>267,'unique_physical_files'=>'Unverified; retain all files.','chatbot_inquiries'=>'Ownerless by schema; retain.'],'delete_order'=>PF_JENNY_CLEANUP_DELETE_ORDER]);
     } catch(Throwable $e) {
         $context=$GLOBALS['pf_jenny_cleanup_context']??[];
         $errorType=(new ReflectionClass($e))->getShortName();
         $failure=['stage'=>'preview_failed','table'=>(string)($context['table']??'unknown'),'query_phase'=>(string)($context['phase']??'plan'),'error_type'=>$errorType];
-        // Keep the response readable for this known ownership mismatch without exposing arbitrary exception or SQL text.
-        if ($e->getMessage() === 'The audited chatbot ownership changed. Refresh preview.') {
-            $failure['reason'] = 'The exact audited conversation IDs belong to customer_id 25, but all have a non-NULL guest_id; the safe-preview query requires guest_id IS NULL and therefore excludes them.';
-        }
         pf_jenny_log_stage($failure['stage'],$failure['table'],$failure['query_phase'],$errorType);
         pf_jenny_json(503,['success'=>false,'diagnostic_version'=>PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION,'runtime'=>pf_jenny_runtime_diagnostics(),'diagnostic_failure'=>$failure,'error'=>'A complete safe preview could not be verified. No changes were made. Refresh or contact support.']);
     }
@@ -364,12 +361,10 @@ try {
     $protected=$plan['ids']['protected_counts'];
     if(!hash_equals((string)$saved['fingerprint'],pf_jenny_fingerprint($plan))) throw new RuntimeException('The safe data changed since preview.');
     $deleteOrder=PF_JENNY_CLEANUP_DELETE_ORDER;
-    $safeOrders=$plan['ids']['orders']; $safeJobs=$plan['ids']['job_orders']; $safeChats=$plan['ids']['chatbot_conversations']; $safeNotifications=$plan['ids']['notifications'];
+    $safeOrders=$plan['ids']['orders']; $safeJobs=$plan['ids']['job_orders']; $safeNotifications=$plan['ids']['notifications'];
     $scopes=[
         'push_notification_queue'=>['user_id = 25 AND user_type = ? AND notification_id IN ('.implode(',',array_fill(0,count($safeNotifications),'?')).')','s'.str_repeat('i',count($safeNotifications)),array_merge(['Customer'],$safeNotifications)],
         'notifications'=>['customer_id = 25 AND (user_id IS NULL OR user_id = 25)','',[]],
-        'chatbot_messages'=>['conversation_id IN ('.implode(',',array_fill(0,count($safeChats),'?')).')',str_repeat('i',count($safeChats)),$safeChats],
-        'chatbot_conversations'=>['customer_id = 25 AND guest_id IS NULL','',[]],
         'message_reactions'=>['sender = ? AND sender_id = 25','s',['Customer']],
         'review_helpful'=>['customer_id = 25 AND user_id = 25 AND user_type = ?','s',['Customer']],
         'order_revision_requests'=>['customer_id = 25 AND order_id IN ('.implode(',',array_fill(0,count($safeOrders),'?')).')',str_repeat('i',count($safeOrders)),$safeOrders],
@@ -384,7 +379,7 @@ try {
     foreach($deleteOrder as $table){
         $GLOBALS['pf_jenny_cleanup_context'] = ['table' => $table, 'phase' => 'delete'];
         $ids=$plan['ids'][$table]??[]; if(!$ids) continue;
-        $pk=['orders'=>'order_id','order_items'=>'order_item_id','order_messages'=>'message_id','customizations'=>'customization_id','job_orders'=>'id','job_order_materials'=>'id','order_item_revisions'=>'revision_id','order_revision_requests'=>'revision_request_id','chatbot_conversations'=>'id','chatbot_messages'=>'id','notifications'=>'notification_id','push_notification_queue'=>'id','message_reactions'=>'reaction_id','review_helpful'=>'id','customer_cart'=>'product_id'][$table];
+        $pk=['orders'=>'order_id','order_items'=>'order_item_id','order_messages'=>'message_id','customizations'=>'customization_id','job_orders'=>'id','job_order_materials'=>'id','order_item_revisions'=>'revision_id','order_revision_requests'=>'revision_request_id','notifications'=>'notification_id','push_notification_queue'=>'id','message_reactions'=>'reaction_id','review_helpful'=>'id','customer_cart'=>'product_id'][$table];
         if ($table === 'customer_cart') {
             foreach ($ids as $productId) {
                 $affected=db_execute_affected_rows('DELETE FROM customer_cart WHERE customer_id = 25 AND product_id = ? AND variant_id = 0 AND quantity = 1','i',[$productId]);
@@ -401,12 +396,12 @@ try {
     $remaining=[];
     foreach($deleted as $table=>$count){
         if ($table==='customer_cart') $remainingRows=pf_jenny_query('SELECT product_id FROM customer_cart WHERE customer_id = 25 AND variant_id = 0 AND quantity = 1 AND product_id IN (46,47,49,58,64)');
-        else $remainingRows=pf_jenny_ids($table,['orders'=>'order_id','order_items'=>'order_item_id','order_messages'=>'message_id','customizations'=>'customization_id','job_orders'=>'id','job_order_materials'=>'id','order_item_revisions'=>'revision_id','order_revision_requests'=>'revision_request_id','chatbot_conversations'=>'id','chatbot_messages'=>'id','notifications'=>'notification_id','push_notification_queue'=>'id','message_reactions'=>'reaction_id','review_helpful'=>'id'][$table],$plan['ids'][$table]);
+        else $remainingRows=pf_jenny_ids($table,['orders'=>'order_id','order_items'=>'order_item_id','order_messages'=>'message_id','customizations'=>'customization_id','job_orders'=>'id','job_order_materials'=>'id','order_item_revisions'=>'revision_id','order_revision_requests'=>'revision_request_id','notifications'=>'notification_id','push_notification_queue'=>'id','message_reactions'=>'reaction_id','review_helpful'=>'id'][$table],$plan['ids'][$table]);
         $remaining[$table]=count($remainingRows);if($remaining[$table]!==0)throw new RuntimeException('Target records remain in '.$table.'.');
     }
     $otherAfter=pf_jenny_other_customer_snapshot(true);
     if (!hash_equals(hash('sha256',json_encode($plan['ids']['other_customer_snapshot'],JSON_THROW_ON_ERROR)),hash('sha256',json_encode($otherAfter,JSON_THROW_ON_ERROR)))) throw new RuntimeException('Independent customer verification changed; transaction rolled back.');
-    pf_jenny_audit('deleted',['deleted'=>$deleted,'protected'=>$protected,'failed'=>[],'remaining'=>$remaining,'delete_order'=>$deleteOrder]);
+    pf_jenny_audit('deleted',['deleted'=>$deleted,'protected'=>$protected,'protected_excluded_by_scope'=>$plan['protected_excluded_by_scope'],'failed'=>[],'remaining'=>$remaining,'delete_order'=>$deleteOrder]);
     if(!$conn->commit()) throw new RuntimeException('Could not commit cleanup transaction.');
     unset($_SESSION['jenny_cleanup_preview']);
     pf_jenny_json(200,['success'=>true,'deleted'=>$deleted,'protected'=>$protected,'failed'=>[],'remaining'=>$remaining,'customer_account'=>'retained','physical_files'=>'retained']);
@@ -414,7 +409,7 @@ try {
     if($conn instanceof mysqli) $conn->rollback();
     $failed=['transaction_rolled_back'=>1];
     $remaining=[]; if(is_array($plan)) foreach($plan['ids'] as $table=>$values) if(is_array($values) && !in_array($table,['protected_counts','other_customer_snapshot'],true)) $remaining[$table]=count($values);
-    try { pf_jenny_audit('failed',['deleted'=>[],'protected'=>$protected,'failed'=>$failed,'remaining'=>$remaining]); } catch(Throwable $auditError){ pf_jenny_log_stage('failure_audit','customer_testing_data_cleanup_audit','insert',(new ReflectionClass($auditError))->getShortName()); }
+    try { pf_jenny_audit('failed',['deleted'=>[],'protected'=>$protected,'protected_excluded_by_scope'=>$plan['protected_excluded_by_scope']??[],'failed'=>$failed,'remaining'=>$remaining]); } catch(Throwable $auditError){ pf_jenny_log_stage('failure_audit','customer_testing_data_cleanup_audit','insert',(new ReflectionClass($auditError))->getShortName()); }
     $context=$GLOBALS['pf_jenny_cleanup_context']??[];
     pf_jenny_log_stage('delete_failed',(string)($context['table']??'unknown'),(string)($context['phase']??'transaction'),(new ReflectionClass($e))->getShortName());
     pf_jenny_json(500,['success'=>false,'error'=>'Cleanup failed and the database transaction was rolled back. See the audit log.']);

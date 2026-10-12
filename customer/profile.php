@@ -2289,7 +2289,10 @@ function previewIdImage(input) {
             const data = await response.json(); if(!response.ok || !data.success) throw new Error(data.error || 'Preview unavailable.');
             previewToken = data.preview_token;
             Object.entries(data.counts || {}).forEach(([name,count])=>{const li=document.createElement('li');li.textContent=name.replaceAll('_',' ')+': '+count;list.appendChild(li);});
-            document.getElementById('pf-testing-cleanup-protected').textContent = 'Protected counts: '+Object.entries(data.protected||{}).map(([k,v])=>k.replaceAll('_',' ')+': '+v).join(' · ')+' . Uncertain: uploaded files and inquiries remain untouched.';
+            const excluded = data.protected_excluded_by_scope || {};
+            const excludedRecords = excluded.records || {};
+            const excludedSummary = Object.entries(excludedRecords).map(([table,ids])=>table.replaceAll('_',' ')+': '+ids.length+' IDs ['+ids.join(', ')+']').join(' · ');
+            document.getElementById('pf-testing-cleanup-protected').textContent = 'Protected counts: '+Object.entries(data.protected||{}).map(([k,v])=>k.replaceAll('_',' ')+': '+v).join(' · ')+' · '+(excluded.label||'Protected / Excluded by scope')+': '+excludedSummary+' · Uncertain: uploaded files and inquiries remain untouched.';
             document.getElementById('pf-testing-cleanup-order').textContent='Deletion order: '+(data.delete_order||[]).join(' → ')+'. Physical files are retained.';
             status.textContent='Review these exact audited-record counts. Nothing has been deleted.';
             updateConfirmationState();
