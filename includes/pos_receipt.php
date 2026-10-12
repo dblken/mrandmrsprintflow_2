@@ -7,6 +7,8 @@ require_once __DIR__ . '/pos_customer_helpers.php';
 /** @return array{name:string,email:string,phone:string} */
 function printflow_pos_receipt_customer_fields(array $order): array {
     $guestLabel = printflow_pos_sanitize_guest_display_name($order['pos_guest_display_name'] ?? '');
+    $guestEmail = printflow_pos_normalize_customer_email($order['pos_guest_email'] ?? '');
+    if (!filter_var($guestEmail, FILTER_VALIDATE_EMAIL) || printflow_pos_is_placeholder_customer_email($guestEmail)) $guestEmail = '';
     $email = strtolower(trim((string)($order['email'] ?? '')));
     $first = trim((string)($order['first_name'] ?? ''));
     $last = trim((string)($order['last_name'] ?? ''));
@@ -20,11 +22,11 @@ function printflow_pos_receipt_customer_fields(array $order): array {
         || (str_starts_with($email, 'pos.guest.') && str_ends_with($email, '@pos.local'));
 
     if ($guestLabel !== '' && ($isSharedPlaceholder || printflow_pos_is_placeholder_customer_email($email))) {
-        return ['name' => $guestLabel, 'email' => '', 'phone' => ''];
+        return ['name' => $guestLabel, 'email' => $guestEmail, 'phone' => ''];
     }
 
     if ($isSharedPlaceholder && ($fullName === '' || strcasecmp($fullName, 'Walk-in Guest') === 0)) {
-        return ['name' => 'Walk-in Guest', 'email' => '', 'phone' => ''];
+        return ['name' => 'Walk-in Guest', 'email' => $guestEmail, 'phone' => ''];
     }
 
     $name = $fullName !== '' ? $fullName : 'Walk-in Guest';

@@ -22,14 +22,16 @@ $assert(
 );
 $assert(strpos($receipt, "'customer' => \$receiptCustomer") !== false, 'receipt payload uses resolved customer fields');
 $assert(strpos($receipt, 'pos_guest_display_name') !== false, 'receipt honors order-level walk-in name');
+$assert(strpos($receipt, 'pos_guest_email') !== false, 'receipt displays optional order-level walk-in email');
 
 $assert(strpos($checkout, 'function pos_resolve_checkout_customer_id(') !== false, 'checkout resolves guest vs account customers');
 $assert(strpos($checkout, 'function pos_create_name_only_pos_customer(') === false, 'checkout does not create per-sale pos.guest customers');
 $assert(strpos($checkout, 'printflow_pos_resolve_checkout_customer_context') !== false, 'checkout delegates to shared walk-in resolver');
 
-$assert(strpos($pos, 'function posCheckoutCustomerPayload') !== false, 'POS UI sends guest display name at checkout');
+$assert(strpos($pos, 'function posCheckoutCustomerPayload') !== false, 'POS UI sends optional guest name and email at checkout');
 $assert(strpos($pos, 'id="pos-guest-name"') !== false, 'POS UI collects walk-in customer name');
-$assert(strpos($pos, 'Enter Customer Name') !== false, 'checkout button reflects missing walk-in name');
+$assert(strpos($pos, 'id="pos-guest-email"') !== false, 'POS UI collects optional walk-in customer email');
+$assert(strpos($pos, 'Enter Customer Name') === false, 'checkout no longer requires a walk-in name');
 $assert(strpos($pos, 'id="pos-barcode-input"') === false, 'products view no longer uses a duplicate SKU input');
 $assert(
     preg_match('/id="pos-search"[^>]*pos-barcode-entry/s', $pos) === 1,

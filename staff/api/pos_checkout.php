@@ -79,24 +79,42 @@ function pos_resolve_checkout_customer_id(array $data): int {
     return printflow_pos_resolve_checkout_customer_context($data)['customer_id'];
 }
 
-function pos_checkout_guest_display_name_insert_sql(?string $guestDisplayName): array {
+function pos_checkout_guest_contact_insert_sql(?string $guestDisplayName, ?string $guestEmail): array {
     printflow_pos_ensure_orders_guest_display_name_column();
     $guestDisplayName = printflow_pos_sanitize_guest_display_name($guestDisplayName ?? '');
-    if ($guestDisplayName === '' || !pos_table_has_column('orders', 'pos_guest_display_name')) {
-        return ['', '', [], ''];
+    $guestEmail = printflow_pos_normalize_customer_email($guestEmail ?? '');
+    $columns = [];
+    $values = [];
+    $params = [];
+    $types = '';
+    if ($guestDisplayName !== '' && pos_table_has_column('orders', 'pos_guest_display_name')) {
+        $columns[] = 'pos_guest_display_name';
+        $values[] = '?';
+        $params[] = $guestDisplayName;
+        $types .= 's';
     }
-
-    return [', pos_guest_display_name', ', ?', [$guestDisplayName], 's'];
+    if ($guestEmail !== '') {
+        printflow_pos_ensure_orders_guest_email_column();
+        if (!pos_table_has_column('orders', 'pos_guest_email')) {
+            throw new RuntimeException('Walk-in email storage is not ready. Apply the POS guest email migration and retry.', 500);
+        }
+        $columns[] = 'pos_guest_email';
+        $values[] = '?';
+        $params[] = $guestEmail;
+        $types .= 's';
+    }
+    if ($columns === []) return ['', '', [], ''];
+    return [', ' . implode(', ', $columns), ', ' . implode(', ', $values), $params, $types];
 }
 
 function pos_checkout_order_insert_types(string $guestTypes, string $amountPaidTypes, string $priceFinalTypes): string {
-    $core = ($guestTypes !== '' ? 'is' : 'i') . 'iidssssss';
+    $core = ($guestTypes !== '' ? 'i' . $guestTypes : 'i') . 'iidssssss';
 
     return $core . $amountPaidTypes . $priceFinalTypes;
 }
 
 function pos_checkout_draft_order_insert_types(string $guestTypes): string {
-    return ($guestTypes !== '' ? 'is' : 'i') . 'ii';
+    return ($guestTypes !== '' ? 'i' . $guestTypes : 'i') . 'ii';
 }
 
 function pos_checkout_safe_db_failure_message(string $fallback): string {
@@ -1226,6 +1244,7 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         $checkoutCustomer = printflow_pos_resolve_checkout_customer_context($data);
         $customer_id = $checkoutCustomer['customer_id'];
         $posGuestDisplayName = $checkoutCustomer['pos_guest_display_name'];
+        $posGuestEmail = $checkoutCustomer['pos_guest_email'];
     } catch (RuntimeException $customerError) {
         $code = (int)$customerError->getCode();
         if ($code >= 400 && $code < 600) {
@@ -1265,7 +1284,7 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
 
         // Create a hidden draft POS order so customizations still satisfies table
         // constraints, but keep it out of normal staff lists until checkout finalizes.
-        [$guestCol, $guestVal, $guestParams, $guestTypes] = pos_checkout_guest_display_name_insert_sql($posGuestDisplayName);
+        [$guestCol, $guestVal, $guestParams, $guestTypes] = pos_checkout_guest_contact_insert_sql($posGuestDisplayName, $posGuestEmail);
         $order_result = db_execute(
             "INSERT INTO orders (customer_id{$guestCol}, branch_id, reference_id, total_amount, status, payment_status, payment_method, order_date, updated_at, order_type, order_source)
              VALUES (?{$guestVal}, ?, ?, 0, 'Draft', 'Unpaid', 'Cash', NOW(), NOW(), 'custom', 'pos_draft')",
@@ -1505,6 +1524,7 @@ try {
     $checkoutCustomer = printflow_pos_resolve_checkout_customer_context($data);
     $customer_id = $checkoutCustomer['customer_id'];
     $posGuestDisplayName = $checkoutCustomer['pos_guest_display_name'];
+    $posGuestEmail = $checkoutCustomer['pos_guest_email'];
 } catch (RuntimeException $customerError) {
     $code = (int)$customerError->getCode();
     if ($code >= 400 && $code < 600) {
@@ -1679,7 +1699,7 @@ try {
             $priceFinalParams[] = $checkoutStaffId;
         }
 
-        [$guestCol, $guestVal, $guestParams, $guestTypes] = pos_checkout_guest_display_name_insert_sql($posGuestDisplayName);
+        [$guestCol, $guestVal, $guestParams, $guestTypes] = pos_checkout_guest_contact_insert_sql($posGuestDisplayName, $posGuestEmail);
         $order_result = db_execute(
             "INSERT INTO orders (customer_id{$guestCol}, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source{$amountPaidColumns}{$priceFinalColumns})
              VALUES (?{$guestVal}, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",

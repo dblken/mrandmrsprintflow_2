@@ -25,7 +25,7 @@ $assert(strpos($helpers, 'function printflow_pos_find_or_create_customer_by_emai
 $assert(strpos($helpers, 'function printflow_pos_is_placeholder_customer_email(') !== false, 'placeholder emails rejected for registered accounts');
 
 $assert(strpos($checkout, 'function pos_create_name_only_pos_customer(') === false, 'checkout no longer inserts pos.guest customers');
-$assert(strpos($checkout, 'pos_checkout_guest_display_name_insert_sql') !== false, 'checkout persists order-level guest display name');
+$assert(strpos($checkout, 'pos_checkout_guest_contact_insert_sql') !== false, 'checkout persists optional order-level guest name and email');
 $assert(strpos($checkout, 'function pos_checkout_order_insert_types(') !== false, 'checkout uses explicit order insert bind types');
 $assert(
     strpos($checkout, "'i' . \$guestTypes . 'iiidssssss'") === false,

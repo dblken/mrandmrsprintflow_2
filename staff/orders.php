@@ -17,6 +17,7 @@ require_once __DIR__ . '/../includes/staff_pending_check.php';
 require_once __DIR__ . '/../includes/pos_customer_helpers.php';
 
 printflow_pos_ensure_orders_guest_display_name_column();
+printflow_pos_ensure_orders_guest_email_column();
 
 $branch_ctx    = init_branch_context(false);
 $staffBranchId = (int)$branch_ctx['selected_branch_id'];
@@ -614,6 +615,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
                     <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars($order['customer_name']); ?>">
                         <?php echo htmlspecialchars($order['customer_name']); ?>
                     </div>
+                    <?php if (($order['order_source'] ?? '') === 'pos' && !empty($order['pos_guest_email'])): ?>
+                        <div class="table-text-sub truncate-ellipsis"><?php echo htmlspecialchars((string)$order['pos_guest_email'], ENT_QUOTES, 'UTF-8'); ?></div>
+                    <?php endif; ?>
                 </td>
                 <?php if (!$is_pos_staff): ?>
                 <td class="px-4 py-4 status-col-cell source-cell" data-label="Source">
@@ -3190,6 +3194,9 @@ $page_title = 'Product Orders - PrintFlow';
                                         <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars($order['customer_name']); ?>">
                                             <?php echo htmlspecialchars($order['customer_name']); ?>
                                         </div>
+                                        <?php if (($order['order_source'] ?? '') === 'pos' && !empty($order['pos_guest_email'])): ?>
+                                            <div class="table-text-sub truncate-ellipsis"><?php echo htmlspecialchars((string)$order['pos_guest_email'], ENT_QUOTES, 'UTF-8'); ?></div>
+                                        <?php endif; ?>
                                     </td>
                                     <?php if (!$is_pos_staff): ?>
                                     <td class="px-4 py-4 status-col-cell source-cell" data-label="Source">

@@ -3177,9 +3177,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             </select>
                             </div>
                             <div class="pos-guest-name-wrap" id="pos-guest-name-wrap">
-                                <label for="pos-guest-name">Customer name *</label>
+                                <label for="pos-guest-name">Customer name</label>
                                 <input type="text" id="pos-guest-name" class="pos-guest-name-input" maxlength="120"
                                     placeholder="Enter name for receipt (no account required)" autocomplete="name">
+                                <label for="pos-guest-email" style="margin-top:10px;">Customer email</label>
+                                <input type="email" id="pos-guest-email" class="pos-guest-name-input" maxlength="254"
+                                    placeholder="Optional email for receipt" autocomplete="email">
                             </div>
                         </div>
 
@@ -4533,19 +4536,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return el ? String(el.value || '').trim() : '';
         }
 
+        function getPosGuestEmail() {
+            const el = document.getElementById('pos-guest-email');
+            return el ? String(el.value || '').trim() : '';
+        }
+
+        function isValidPosGuestEmail(value) {
+            return !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+        }
+
         function togglePosGuestNameField() {
             const wrap = document.getElementById('pos-guest-name-wrap');
             if (!wrap) return;
             const show = isPosGuestCustomerSelected();
             wrap.style.display = show ? 'block' : 'none';
-            const nameInput = document.getElementById('pos-guest-name');
-            if (nameInput) {
-                if (show) {
-                    nameInput.setAttribute('required', 'required');
-                } else {
-                    nameInput.removeAttribute('required');
-                }
-            }
         }
 
         function posCheckoutCustomerPayload() {
@@ -4553,6 +4557,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const payload = { customer_id: customerId };
             if (customerId === 'guest') {
                 payload.guest_display_name = getPosGuestDisplayName();
+                payload.customer_email = getPosGuestEmail();
             }
             return payload;
         }
@@ -4622,6 +4627,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const guestNameEl = document.getElementById('pos-guest-name');
             if (guestNameEl) {
                 guestNameEl.addEventListener('input', updateCheckoutState);
+            }
+            const guestEmailEl = document.getElementById('pos-guest-email');
+            if (guestEmailEl) {
+                guestEmailEl.addEventListener('input', updateCheckoutState);
             }
 
             // Set default to guest
@@ -4706,6 +4715,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             if (guestNameInput) {
                                 guestNameInput.value = state.guest_display_name;
                             }
+                        }
+                        if (state.customer_email) {
+                            const guestEmailInput = document.getElementById('pos-guest-email');
+                            if (guestEmailInput) guestEmailInput.value = state.customer_email;
                         }
                         if (state.item_index !== undefined && state.updated_price !== undefined) {
                             await syncedCartAction('update_price', {
@@ -7065,9 +7078,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (!customer) {
                 canCheckout = false;
                 message = 'Select Customer';
-            } else if (customer === 'guest' && !getPosGuestDisplayName()) {
+            } else if (customer === 'guest' && !isValidPosGuestEmail(getPosGuestEmail())) {
                 canCheckout = false;
-                message = 'Enter Customer Name';
+                message = 'Enter Valid Email';
             }
 
             const needsSetPrice = cart.some(i => posCartItemShowsSetPriceButton(i));
@@ -7132,9 +7145,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 await showPOSAlert('Select Customer', 'Please select a customer before checkout.', 'warning');
                 return;
             }
-            if (customer === 'guest' && !getPosGuestDisplayName()) {
-                await showPOSAlert('Customer Name Required', 'Enter the walk-in customer\'s name for the receipt.', 'warning');
-                const guestField = document.getElementById('pos-guest-name');
+            if (customer === 'guest' && !isValidPosGuestEmail(getPosGuestEmail())) {
+                await showPOSAlert('Invalid Email', 'Enter a valid walk-in customer email or leave it blank.', 'warning');
+                const guestField = document.getElementById('pos-guest-email');
                 if (guestField) guestField.focus();
                 return;
             }
@@ -7308,6 +7321,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (guestNameInput) {
                 guestNameInput.value = '';
             }
+            const guestEmailInput = document.getElementById('pos-guest-email');
+            if (guestEmailInput) guestEmailInput.value = '';
             updateCheckoutState();
         }
 
@@ -7731,9 +7746,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 await showPOSAlert('Customer Required', 'Please select a customer first.', 'warning');
                 return;
             }
-            if (customer === 'guest' && !getPosGuestDisplayName()) {
-                await showPOSAlert('Customer Name Required', 'Enter the walk-in customer\'s name before continuing.', 'warning');
-                const guestField = document.getElementById('pos-guest-name');
+            if (customer === 'guest' && !isValidPosGuestEmail(getPosGuestEmail())) {
+                await showPOSAlert('Invalid Email', 'Enter a valid walk-in customer email or leave it blank.', 'warning');
+                const guestField = document.getElementById('pos-guest-email');
                 if (guestField) guestField.focus();
                 return;
             }
@@ -7743,6 +7758,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 cart: cart,
                 customer: customer,
                 guest_display_name: customer === 'guest' ? getPosGuestDisplayName() : '',
+                customer_email: customer === 'guest' ? getPosGuestEmail() : '',
                 item_index: index
             }));
 

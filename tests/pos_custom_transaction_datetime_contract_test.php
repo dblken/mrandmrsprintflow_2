@@ -38,7 +38,7 @@ $assert(
 );
 $assert(
     str_contains($checkout, 'order_date, updated_at')
-        && str_contains($checkout, '[$customer_id, $branch_id, $reference_id, $groupTotal, $order_status, $initial_payment_status, $payment_method, $posBundleReference, $selectedTransactionAt, $order_type]'),
+        && preg_match('/array_merge\(\s*\[\$customer_id\],\s*\$guestParams,\s*\[\$branch_id,\s*\$reference_id,[\s\S]*\$selectedTransactionAt,\s*\$order_type\]/', $checkout) === 1,
     'order insert binds the canonical timestamp as order_date'
 );
 $assert(
