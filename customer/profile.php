@@ -2278,11 +2278,12 @@ function previewIdImage(input) {
     const acknowledgment = document.getElementById('pf-testing-cleanup-acknowledged');
     const submit = document.getElementById('pf-testing-cleanup-submit');
     let previewToken = '';
+    let previewError = '';
     function updateConfirmationState(){
         submit.disabled = !acknowledgment.checked || !previewToken;
     }
     async function loadPreview(){
-        status.textContent = 'Loading read-only preview…'; list.replaceChildren(); previewToken = ''; updateConfirmationState();
+        status.textContent = 'Loading read-only preview…'; list.replaceChildren(); previewToken = ''; previewError = ''; updateConfirmationState();
         try {
             const response = await fetch(endpoint,{credentials:'same-origin',headers:{'Accept':'application/json'}});
             const data = await response.json(); if(!response.ok || !data.success) throw new Error(data.error || 'Preview unavailable.');
@@ -2292,7 +2293,8 @@ function previewIdImage(input) {
             document.getElementById('pf-testing-cleanup-order').textContent='Deletion order: '+(data.delete_order||[]).join(' → ')+'. Physical files are retained.';
             status.textContent='Review these exact audited-record counts. Nothing has been deleted.';
             updateConfirmationState();
-        } catch(error){ status.textContent=error.message+' Deletion is disabled until a verified preview is available.'; updateConfirmationState(); }
+            return true;
+        } catch(error){ previewError=error.message; status.textContent=error.message+' Deletion is disabled until a verified preview is available.'; updateConfirmationState(); return false; }
     }
     const opener = document.getElementById('pf-open-testing-cleanup');
     opener.addEventListener('click',()=>{acknowledgment.checked=false;previewToken='';updateConfirmationState();modal.style.display='flex';acknowledgment.focus();loadPreview();});
@@ -2305,9 +2307,11 @@ function previewIdImage(input) {
             const response=await fetch(endpoint,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({csrf_token:csrf,preview_token:previewToken,acknowledged:acknowledgment.checked})});
             const data=await response.json(); if(!response.ok||!data.success)throw new Error(data.error||'Cleanup failed.');
             list.replaceChildren(); Object.entries(data.deleted||{}).forEach(([name,count])=>{const li=document.createElement('li');li.textContent='Deleted '+name.replaceAll('_',' ')+': '+count;list.appendChild(li);});
-            status.textContent='Transaction completed and verified. Customer account and uploaded files were retained.';
+            const deletedSummary=Object.entries(data.deleted||{}).map(([name,count])=>name.replaceAll('_',' ')+': '+count).join(', ');
             document.getElementById('pf-testing-cleanup-protected').textContent='Protected counts retained: '+JSON.stringify(data.protected)+' · Remaining safe-record counts: '+JSON.stringify(data.remaining);
             acknowledgment.checked=false;
+            if(await loadPreview()) status.textContent='Deletion completed and verified. Deleted: '+(deletedSummary||'no rows')+'. The preview below is refreshed; protected records remain listed.';
+            else status.textContent='Deletion completed and verified. Deleted: '+(deletedSummary||'no rows')+'. The fresh preview could not load: '+previewError;
         }catch(error){status.textContent=error.message;updateConfirmationState();}
     });
 })();

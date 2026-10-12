@@ -14,7 +14,7 @@ script = script
 class Element {
     constructor() { this.listeners = {}; this.disabled = true; this.checked = false; this.value = ''; this.textContent = ''; this.style = {}; this.children = []; }
     addEventListener(type, callback) { (this.listeners[type] ||= []).push(callback); }
-    dispatch(type) { for (const callback of this.listeners[type] || []) callback({ target: this }); }
+    dispatch(type) { return Promise.all((this.listeners[type] || []).map(callback => callback({ target: this }))); }
     focus() { this.focused = true; }
     replaceChildren() { this.children = []; }
     appendChild(child) { this.children.push(child); }
@@ -33,7 +33,8 @@ const document = {
 };
 const fetch = async (_url, options = {}) => {
     requests.push(options);
-    return { ok: true, json: async () => ({ success: true, preview_token: 'verified-preview', counts: { orders: 2 }, protected: {}, delete_order: ['orders'] }) };
+    if (options.method === 'POST') return { ok: true, json: async () => ({ success: true, deleted: { orders: 2 }, protected: { payments: 3 }, remaining: { protected_orders: 4 } }) };
+    return { ok: true, json: async () => ({ success: true, preview_token: 'verified-preview', counts: { orders: 2 }, protected: { payments: 3 }, delete_order: ['orders'] }) };
 };
 
 vm.runInNewContext(script, { document, fetch, console, Object, JSON });
@@ -74,6 +75,17 @@ async function run() {
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(requests.length, 2, 'reopening requests a new read-only preview only');
     assert.ok(!requests.some(request => request.method === 'POST'), 'test did not submit deletion');
+
+    acknowledgment.checked = true;
+    acknowledgment.dispatch('change');
+    await submit.dispatch('click');
+    assert.equal(requests.length, 4, 'mocked confirmation performs POST then refreshes with a read-only GET');
+    assert.equal(requests[2].method, 'POST', 'mocked delete request occurs only after checkbox confirmation');
+    assert.deepEqual(JSON.parse(requests[2].body), { csrf_token: 'test-csrf', preview_token: 'verified-preview', acknowledged: true });
+    assert.equal(requests[3].method, undefined, 'post-success refresh is a read-only GET');
+    assert.equal(submit.disabled, true, 'success clears acknowledgment and disables the button again');
+    assert.match(elements['pf-testing-cleanup-status'].textContent, /Deletion completed and verified.*preview below is refreshed/);
+    assert.equal(elements['pf-testing-cleanup-protected'].textContent.includes('payments'), true, 'refreshed preview replaces protected counts');
 
     assert.match(api, /\(\$input\['acknowledged'\]\?\?false\)!==true/);
     assert.match(api, /verify_csrf_token\(/);
