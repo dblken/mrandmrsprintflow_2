@@ -299,35 +299,65 @@ function pf_jenny_plan(bool $lock = false): array
     $ids = [];
     foreach ($spec as $table => $ranges) $ids[$table] = pf_jenny_ranges($ranges);
 
-    $orders = pf_jenny_ids('orders', 'order_id', $ids['orders'], ' AND customer_id = 25', '', [], $lock);
+    $auditedOrderIds = $ids['orders'];
+    $orders = [];
+    foreach (array_chunk($auditedOrderIds, 25) as $orderBatch) {
+        $orders = array_merge($orders, pf_jenny_ids('orders', 'order_id', $orderBatch, ' AND customer_id = 25', '', [], $lock));
+    }
     $actualOrderIds = array_map(static fn($r) => (int)$r['order_id'], $orders);
     $GLOBALS['pf_jenny_cleanup_context'] = ['table' => 'orders', 'phase' => 'ownership_validation'];
-    if ($actualOrderIds !== $ids['orders']) {
-        $GLOBALS['pf_jenny_cleanup_context']['expected_count'] = count($ids['orders']);
+    if ($actualOrderIds !== $auditedOrderIds) {
+        $GLOBALS['pf_jenny_cleanup_context']['expected_count'] = count($auditedOrderIds);
         $GLOBALS['pf_jenny_cleanup_context']['actual_count'] = count($actualOrderIds);
-        $GLOBALS['pf_jenny_cleanup_context']['missing_ids'] = array_values(array_diff($ids['orders'], $actualOrderIds));
-        $GLOBALS['pf_jenny_cleanup_context']['unexpected_ids'] = array_values(array_diff($actualOrderIds, $ids['orders']));
+        $GLOBALS['pf_jenny_cleanup_context']['missing_ids'] = array_values(array_diff($auditedOrderIds, $actualOrderIds));
+        $GLOBALS['pf_jenny_cleanup_context']['unexpected_ids'] = array_values(array_diff($actualOrderIds, $auditedOrderIds));
         throw new RuntimeException('The audited safe order set changed or ownership no longer matches. Refresh preview.');
     }
-    $orderIds = $ids['orders'];
-    $items = pf_jenny_ids('order_items', 'order_item_id', $ids['order_items'], ' AND order_id IN (' . implode(',', array_fill(0,count($orderIds),'?')) . ')', str_repeat('i',count($orderIds)), $orderIds, $lock);
-    if (array_map(static fn($r)=>(int)$r['order_item_id'],$items) !== $ids['order_items']) throw new RuntimeException('The audited order-item set or parent relationship changed. Refresh preview.');
-    if (pf_jenny_child_ids('order_items','order_item_id','order_id',$orderIds,$lock) !== $ids['order_items']) throw new RuntimeException('An unclassified item is linked to a safe order.');
-    foreach ([['order_messages','message_id'],['customizations','customization_id']] as [$table,$pk]) {
-        $rows[$table] = pf_jenny_ids($table,$pk,$ids[$table],' AND order_id IN (' . implode(',',array_fill(0,count($orderIds),'?')) . ')',str_repeat('i',count($orderIds)),$orderIds,$lock);
-        if (array_map(static fn($r)=>(int)$r[$pk],$rows[$table]) !== $ids[$table]) throw new RuntimeException('The audited ' . $table . ' set or order relationship changed. Refresh preview.');
-        if (pf_jenny_child_ids($table,$pk,'order_id',$orderIds,$lock) !== $ids[$table]) throw new RuntimeException('An unclassified child is linked to a safe order.');
+    $protectedOrderIds=[];
+    foreach(array_chunk($auditedOrderIds,25) as $orderBatch){
+        $marks=implode(',',array_fill(0,count($orderBatch),'?'));
+        $protectedRows=pf_jenny_query('SELECT order_id FROM orders WHERE order_id IN ('.$marks.') AND (COALESCE(payment_status,?) <> ? OR COALESCE(downpayment_amount,0) <> 0 OR COALESCE(payment_proof_path,?) <> ? OR COALESCE(payment_proof,?) <> ?) ORDER BY order_id',str_repeat('i',count($orderBatch)).'ssssss',array_merge($orderBatch,['','Unpaid','','','','']));
+        $protectedOrderIds=array_merge($protectedOrderIds,array_map('intval',array_column($protectedRows,'order_id')));
     }
-    $jobs = pf_jenny_ids('job_orders','id',$ids['job_orders'],' AND customer_id = 25 AND order_id IN (' . implode(',',array_fill(0,count($orderIds),'?')) . ')',str_repeat('i',count($orderIds)),$orderIds,$lock);
-    if (array_map(static fn($r)=>(int)$r['id'],$jobs) !== $ids['job_orders']) throw new RuntimeException('The audited job-order set or ownership changed. Refresh preview.');
+    $ids['protected_order_ids']=$protectedOrderIds;
+    $ids['orders']=array_values(array_diff($auditedOrderIds,$protectedOrderIds));
+    $orderIds = $ids['orders'];
+    $itemsAll = pf_jenny_ids('order_items', 'order_item_id', $ids['order_items'], ' AND order_id IN (' . implode(',', array_fill(0,count($auditedOrderIds),'?')) . ')', str_repeat('i',count($auditedOrderIds)), $auditedOrderIds, $lock);
+    if (array_map(static fn($r)=>(int)$r['order_item_id'],$itemsAll) !== $ids['order_items']) throw new RuntimeException('The audited order-item set or parent relationship changed. Refresh preview.');
+    if (pf_jenny_child_ids('order_items','order_item_id','order_id',$auditedOrderIds,$lock) !== $ids['order_items']) throw new RuntimeException('An unclassified item is linked to an audited order.');
+    $safeOrderLookup=array_fill_keys($orderIds,true);
+    $items=array_values(array_filter($itemsAll,static fn($r)=>isset($safeOrderLookup[(int)$r['order_id']])));
+    $ids['order_items']=array_map(static fn($r)=>(int)$r['order_item_id'],$items);
+    foreach ([['order_messages','message_id'],['customizations','customization_id']] as [$table,$pk]) {
+        $allRows = pf_jenny_ids($table,$pk,$ids[$table],' AND order_id IN (' . implode(',',array_fill(0,count($auditedOrderIds),'?')) . ')',str_repeat('i',count($auditedOrderIds)),$auditedOrderIds,$lock);
+        if (array_map(static fn($r)=>(int)$r[$pk],$allRows) !== $ids[$table]) throw new RuntimeException('The audited ' . $table . ' set or order relationship changed. Refresh preview.');
+        if (pf_jenny_child_ids($table,$pk,'order_id',$auditedOrderIds,$lock) !== $ids[$table]) throw new RuntimeException('An unclassified child is linked to an audited order.');
+        $rows[$table]=array_values(array_filter($allRows,static fn($r)=>isset($safeOrderLookup[(int)$r['order_id']])));
+        $ids[$table]=array_map(static fn($r)=>(int)$r[$pk],$rows[$table]);
+    }
+    $jobsAll = pf_jenny_ids('job_orders','id',$ids['job_orders'],' AND customer_id = 25 AND order_id IN (' . implode(',',array_fill(0,count($auditedOrderIds),'?')) . ')',str_repeat('i',count($auditedOrderIds)),$auditedOrderIds,$lock);
+    if (array_map(static fn($r)=>(int)$r['id'],$jobsAll) !== $ids['job_orders']) throw new RuntimeException('The audited job-order set or ownership changed. Refresh preview.');
+    if (pf_jenny_child_ids('job_orders','id','order_id',$auditedOrderIds,$lock) !== $ids['job_orders']) throw new RuntimeException('An unclassified job order is linked to an audited order.');
+    $jobs=array_values(array_filter($jobsAll,static fn($r)=>isset($safeOrderLookup[(int)$r['order_id']])));
+    $ids['job_orders']=array_map(static fn($r)=>(int)$r['id'],$jobs);
     $jobIds = $ids['job_orders'];
     if (pf_jenny_query('SELECT 1 FROM job_orders WHERE id IN (' . implode(',',array_fill(0,count($jobIds),'?')) . ') AND (COALESCE(payment_status,?) <> ? OR COALESCE(amount_paid,0) <> 0 OR COALESCE(payment_proof_path,?) <> ? OR COALESCE(payment_reference,?) <> ? OR COALESCE(payment_submitted_amount,0) <> 0 OR COALESCE(payment_proof_status,?) <> ? OR payment_verified_at IS NOT NULL) LIMIT 1' . ($lock?' FOR UPDATE':''),str_repeat('i',count($jobIds)).'ssssssss',array_merge($jobIds,['','UNPAID','','','','','','NONE']))) throw new RuntimeException('An audited job order contains payment state or proof.');
-    if (pf_jenny_child_ids('job_orders','id','order_id',$orderIds,$lock) !== $ids['job_orders']) throw new RuntimeException('An unclassified job order is linked to a safe order.');
-    $materials = pf_jenny_ids('job_order_materials','id',$ids['job_order_materials'],' AND job_order_id IN (' . implode(',',array_fill(0,count($jobIds),'?')) . ') AND deducted_at IS NULL',str_repeat('i',count($jobIds)),$jobIds,$lock);
-    if (array_map(static fn($r)=>(int)$r['id'],$materials) !== $ids['job_order_materials']) throw new RuntimeException('The audited undeducted material set changed. Refresh preview.');
-    $revisions = pf_jenny_ids('order_item_revisions','revision_id',$ids['order_item_revisions'],' AND order_id IN (?,?)','ii',[11161,11241],$lock);
-    $revisionRequests = pf_jenny_ids('order_revision_requests','revision_request_id',$ids['order_revision_requests'],' AND customer_id = 25 AND order_id IN (?,?)','ii',[11161,11241],$lock);
-    if (count($revisions)!==2 || count($revisionRequests)!==2) throw new RuntimeException('The audited revision relationships changed. Refresh preview.');
+    $allJobIds=array_map(static fn($r)=>(int)$r['id'],$jobsAll);
+    $safeJobLookup=array_fill_keys($jobIds,true);
+    $materialsAll = pf_jenny_ids('job_order_materials','id',$ids['job_order_materials'],' AND job_order_id IN (' . implode(',',array_fill(0,count($allJobIds),'?')) . ') AND deducted_at IS NULL',str_repeat('i',count($allJobIds)),$allJobIds,$lock);
+    if (array_map(static fn($r)=>(int)$r['id'],$materialsAll) !== $ids['job_order_materials']) throw new RuntimeException('The audited undeducted material set changed. Refresh preview.');
+    $materials=array_values(array_filter($materialsAll,static fn($r)=>isset($safeJobLookup[(int)$r['job_order_id']])));
+    $ids['job_order_materials']=array_map(static fn($r)=>(int)$r['id'],$materials);
+    $auditedRevisionIds=$ids['order_item_revisions'];
+    $auditedRevisionRequestIds=$ids['order_revision_requests'];
+    $revisionsAll = pf_jenny_ids('order_item_revisions','revision_id',$auditedRevisionIds,' AND order_id IN (' . implode(',',array_fill(0,count($auditedOrderIds),'?')) . ')',str_repeat('i',count($auditedOrderIds)),$auditedOrderIds,$lock);
+    $revisionRequestsAll = pf_jenny_ids('order_revision_requests','revision_request_id',$auditedRevisionRequestIds,' AND customer_id = 25 AND order_id IN (' . implode(',',array_fill(0,count($auditedOrderIds),'?')) . ')',str_repeat('i',count($auditedOrderIds)),$auditedOrderIds,$lock);
+    $revisions=array_values(array_filter($revisionsAll,static fn($r)=>isset($safeOrderLookup[(int)$r['order_id']])));
+    $revisionRequests=array_values(array_filter($revisionRequestsAll,static fn($r)=>isset($safeOrderLookup[(int)$r['order_id']])));
+    $ids['order_item_revisions']=array_map(static fn($r)=>(int)$r['revision_id'],$revisions);
+    $ids['order_revision_requests']=array_map(static fn($r)=>(int)$r['revision_request_id'],$revisionRequests);
+    if (array_map(static fn($r)=>(int)$r['revision_id'],$revisionsAll) !== $auditedRevisionIds) throw new RuntimeException('The audited revision set changed. Refresh preview.');
+    if (array_map(static fn($r)=>(int)$r['revision_request_id'],$revisionRequestsAll) !== $auditedRevisionRequestIds) throw new RuntimeException('The audited revision-request set changed. Refresh preview.');
     // Chatbot data is excluded from cleanup. Read its IDs for the protected preview only.
     $chatbotConversationRows = pf_jenny_query('SELECT id FROM chatbot_conversations WHERE customer_id = 25 ORDER BY id');
     $chatbotConversationIds = array_map('intval',array_column($chatbotConversationRows,'id'));
@@ -356,8 +386,12 @@ function pf_jenny_plan(bool $lock = false): array
     $ownedCart = pf_jenny_query('SELECT product_id FROM customer_cart WHERE customer_id = 25 AND variant_id = 0 AND quantity = 1 AND product_id IN (46,47,49,58,64) ORDER BY product_id' . ($lock?' FOR UPDATE':''));
     $ids['customer_cart'] = array_map('intval',array_column($ownedCart,'product_id'));
     if ($ids['customer_cart'] !== [46,47,49,58,64]) throw new RuntimeException('The audited cart set changed. Refresh preview.');
-    $reactions = pf_jenny_ids('message_reactions','reaction_id',$ids['message_reactions'],' AND sender = ? AND sender_id = 25','s',['Customer'],$lock);
-    if (count($reactions)!==4) throw new RuntimeException('The audited customer reactions changed. Refresh preview.');
+    $reactionIdsAll = pf_jenny_ranges($spec['message_reactions']);
+    $reactionsAll = pf_jenny_ids('message_reactions','reaction_id',$reactionIdsAll,' AND sender = ? AND sender_id = 25','s',['Customer'],$lock);
+    if (array_map(static fn($r)=>(int)$r['reaction_id'],$reactionsAll) !== $reactionIdsAll) throw new RuntimeException('The audited customer reactions changed. Refresh preview.');
+    $safeMessageLookup=array_fill_keys($ids['order_messages'],true);
+    $reactions=array_values(array_filter($reactionsAll,static fn($r)=>isset($safeMessageLookup[(int)$r['message_id']])));
+    $ids['message_reactions']=array_map(static fn($r)=>(int)$r['reaction_id'],$reactions);
     $helpful = pf_jenny_ids('review_helpful','id',$ids['review_helpful'],' AND customer_id = 25 AND user_id = 25 AND user_type = ?','s',['Customer'],$lock);
     if (count($helpful)!==14) throw new RuntimeException('The audited helpful-vote ownership changed. Refresh preview.');
 
