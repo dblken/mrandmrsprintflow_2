@@ -9,7 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 
 const PF_JENNY_CLEANUP_CUSTOMER_ID = 25;
 const PF_JENNY_CLEANUP_DELETE_ORDER = ['push_notification_queue','notifications','message_reactions','review_helpful','customer_cart','order_revision_requests','order_item_revisions','job_order_materials','job_orders','order_messages','customizations','order_items','orders'];
-const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-3';
+const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-4';
 
 /** Runtime-only diagnostics; never includes connection credentials. */
 function pf_jenny_runtime_diagnostics(): array
@@ -69,6 +69,105 @@ function pf_jenny_ranges(array $spec): array
         }
     }
     return array_values(array_unique($ids));
+}
+
+function pf_jenny_audited_order_id_spec(): array
+{
+    return [[11034,11035],11037,11042,11045,11054,[11087,11102],[11104,11108],11115,[11124,11138],11145,11149,11151,11153,[11156,11161],11175,11189,11239,11241,11284,11302,11309,11327];
+}
+
+/** Execute one diagnostic COUNT query without exposing SQL or row contents. */
+function pf_jenny_diagnostic_count(string $step, string $table, string $sql, string $types = '', array $params = []): array
+{
+    global $conn;
+    $entry = ['query_step'=>$step,'table'=>$table,'row_count'=>null,'database_error_code'=>null,'error_type'=>'none','sanitized_error_message'=>''];
+    $statement = null;
+    try {
+        if (!($conn instanceof mysqli)) throw new RuntimeException('Database connection is unavailable.');
+        $statement = $conn->prepare($sql);
+        if (!$statement) {
+            $entry['database_error_code'] = (int)$conn->errno;
+            $entry['error_type'] = 'mysqli_prepare_error';
+            $entry['sanitized_error_message'] = pf_jenny_sanitized_db_message((int)$conn->errno);
+            return $entry;
+        }
+        if ($types !== '') {
+            $arguments = [$types];
+            foreach ($params as &$value) $arguments[] = &$value;
+            unset($value);
+            call_user_func_array([$statement,'bind_param'],$arguments);
+        }
+        if (!$statement->execute()) {
+            $errno=(int)$statement->errno;
+            $entry['database_error_code']=$errno;
+            $entry['error_type']='mysqli_execute_error';
+            $entry['sanitized_error_message']=pf_jenny_sanitized_db_message($errno);
+            return $entry;
+        }
+        $rowCount=0;
+        if (!$statement->bind_result($rowCount) || !$statement->fetch()) {
+            $errno=(int)$statement->errno;
+            $entry['database_error_code']=$errno;
+            $entry['error_type']='mysqli_fetch_error';
+            $entry['sanitized_error_message']=pf_jenny_sanitized_db_message($errno);
+            return $entry;
+        }
+        $entry['row_count']=(int)$rowCount;
+    } catch (Throwable $e) {
+        $errno=$statement instanceof mysqli_stmt ? (int)$statement->errno : (int)($conn instanceof mysqli ? $conn->errno : 0);
+        $entry['database_error_code']=$errno;
+        $entry['error_type']=(new ReflectionClass($e))->getShortName();
+        $entry['sanitized_error_message']=pf_jenny_sanitized_db_message($errno);
+    } finally {
+        if ($statement instanceof mysqli_stmt) $statement->close();
+    }
+    return $entry;
+}
+
+function pf_jenny_sanitized_db_message(int $errno): string
+{
+    return match ($errno) {
+        1054 => 'Schema column is unavailable.',
+        1064 => 'Database rejected the read-only query syntax.',
+        1146 => 'Required table is unavailable.',
+        1205 => 'Database lock wait timed out.',
+        1213 => 'Database reported a deadlock.',
+        2002,2003,2006,2013 => 'Database connection failed or was interrupted.',
+        default => $errno === 0 ? 'Read-only diagnostic step failed before a database error code was available.' : 'Read-only database query failed.',
+    };
+}
+
+function pf_jenny_orders_diagnostic(): array
+{
+    $orderIds=pf_jenny_ranges(pf_jenny_audited_order_id_spec());
+    $batchSize=25;
+    $batches=array_chunk($orderIds,$batchSize);
+    $steps=[];
+    $batchQuery=static function(string $name,string $table,string $where,string $types,array $tail=[]) use ($batches,&$steps): void {
+        foreach($batches as $index=>$ids){
+            $marks=implode(',',array_fill(0,count($ids),'?'));
+            $steps[]=pf_jenny_diagnostic_count($name.'_batch_'.($index+1),$table,'SELECT COUNT(*) AS row_count FROM `'.$table.'` WHERE order_id IN ('.$marks.')'.$where,str_repeat('i',count($ids)).$types,array_merge($ids,$tail));
+        }
+    };
+    foreach($batches as $index=>$ids){
+        $marks=implode(',',array_fill(0,count($ids),'?'));
+        $steps[]=pf_jenny_diagnostic_count('order_id_selection_batch_'.($index+1),'orders','SELECT COUNT(*) AS row_count FROM orders WHERE order_id IN ('.$marks.')',str_repeat('i',count($ids)),$ids);
+        $steps[]=pf_jenny_diagnostic_count('customer_ownership_validation_batch_'.($index+1),'orders','SELECT COUNT(*) AS row_count FROM orders WHERE order_id IN ('.$marks.') AND customer_id = 25',str_repeat('i',count($ids)),$ids);
+        $steps[]=pf_jenny_diagnostic_count('protected_order_classification_batch_'.($index+1),'orders','SELECT COUNT(*) AS row_count FROM orders WHERE order_id IN ('.$marks.') AND (COALESCE(payment_status,?) <> ? OR COALESCE(downpayment_amount,0) <> 0 OR COALESCE(payment_proof_path,?) <> ? OR COALESCE(payment_proof,?) <> ?)',str_repeat('i',count($ids)).'ssssss',array_merge($ids,['','Unpaid','','','','']));
+        $steps[]=pf_jenny_diagnostic_count('safe_order_classification_batch_'.($index+1),'orders','SELECT COUNT(*) AS row_count FROM orders WHERE order_id IN ('.$marks.') AND customer_id = 25 AND COALESCE(payment_status,?) = ? AND COALESCE(downpayment_amount,0) = 0 AND COALESCE(payment_proof_path,?) = ? AND COALESCE(payment_proof,?) = ?',str_repeat('i',count($ids)).'ssssss',array_merge($ids,['','Unpaid','','','','']));
+        foreach(['order_items'=>'order_id','order_messages'=>'order_id','customizations'=>'order_id','job_orders'=>'order_id'] as $child=>$fk){
+            $extra=$child==='job_orders'?' AND customer_id = 25':'';
+            $steps[]=pf_jenny_diagnostic_count('child_record_lookup_'.$child.'_batch_'.($index+1),$child,'SELECT COUNT(*) AS row_count FROM `'.$child.'` WHERE `'.$fk.'` IN ('.$marks.')'.$extra,str_repeat('i',count($ids)),$ids);
+        }
+    }
+    // Exercise each protected order-reference table separately, only when its relationship column exists.
+    foreach(['payment_submissions','provider_payments','inventory_transactions','printflow_order_archive_map','maintenance_synthetic_demo_order_rows','order_status_history','receipt_print_jobs','provider_payment_status_history','provider_webhook_events'] as $table){
+        $schema=pf_jenny_diagnostic_count('protected_reference_schema_'.$table,$table,'SELECT COUNT(*) AS row_count FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?','ss',[$table,'order_id']);
+        $steps[]=$schema;
+        if($schema['row_count']===1) $batchQuery('protected_reference_lookup_'.$table,$table,'','',[]);
+    }
+    $steps[]=pf_jenny_diagnostic_count('customer_order_count_verification','orders','SELECT COUNT(*) AS row_count FROM orders WHERE customer_id = 25');
+    return $steps;
 }
 
 function pf_jenny_ids(string $table, string $pk, array $ids, string $extra = '', string $types = '', array $params = [], bool $lock = false): array
@@ -162,7 +261,7 @@ function pf_jenny_plan(bool $lock = false): array
 {
     // These are the exact IDs from the completed read-only ownership audit.
     $spec = [
-        'orders' => [[11034,11035],11037,11042,11045,11054,[11087,11102],[11104,11108],11115,[11124,11138],11145,11149,11151,11153,[11156,11161],11175,11189,11239,11241,11284,11302,11309,11327],
+        'orders' => pf_jenny_audited_order_id_spec(),
         'order_items' => [12566,12577,12580,12593,[12638,12639],12647,[12665,12666],[12675,12677],12684,12688,12690,12692,[12695,12700],12714,12728,12780,12782,12829,12847,12854,12874],
         'order_messages' => [[1276,1279],1284,1304,[1335,1355],1357,[1389,1395],[1398,1405],1407,[1410,1421],[1424,1425],1433,[1466,1467],[1535,1536],[1539,1541],1594,1602,[1608,1619],1621,[1644,1645],1652],
         'customizations' => [[2126,2128],[2136,2140],2147,2151,2153,2155,[2158,2163],2177,2191,2228,2230,2253,2256],
@@ -359,6 +458,14 @@ $customerId=(int)get_user_id();
 $method=strtoupper((string)($_SERVER['REQUEST_METHOD']??''));
 if ($method==='GET') {
     $GLOBALS['pf_jenny_cleanup_request_stage'] = 'preview';
+    if (($_GET['diagnostic'] ?? '') === 'orders') {
+        try {
+            pf_jenny_json(200,pf_jenny_orders_diagnostic());
+        } catch (Throwable $e) {
+            global $conn;
+            pf_jenny_json(200,[['query_step'=>'diagnostic_setup','table'=>'orders','row_count'=>null,'database_error_code'=>$conn instanceof mysqli ? (int)$conn->errno : 0,'error_type'=>(new ReflectionClass($e))->getShortName(),'sanitized_error_message'=>pf_jenny_sanitized_db_message($conn instanceof mysqli ? (int)$conn->errno : 0)]]);
+        }
+    }
     try {
         pf_jenny_require_audit_table();
         $plan=pf_jenny_plan();
