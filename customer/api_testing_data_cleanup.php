@@ -99,6 +99,13 @@ function pf_jenny_query(string $sql, string $types = '', array $params = []): ar
     if (!is_array($rows) || count($GLOBALS['printflow_db_errors'] ?? []) > $before) {
         $errors = $GLOBALS['printflow_db_errors'] ?? [];
         $latest = $errors ? end($errors) : [];
+        $GLOBALS['pf_jenny_cleanup_context'] = [
+            'table' => $table,
+            'phase' => 'database_query_failure',
+            'db_error_stage' => preg_replace('/[^a-z0-9_.-]/i', '', (string)($latest['stage'] ?? 'unknown')),
+            'db_errno' => (int)($latest['errno'] ?? 0),
+            'db_sqlstate' => preg_replace('/[^A-Z0-9]/i', '', (string)($latest['sqlstate'] ?? '')),
+        ];
         pf_jenny_log_stage($GLOBALS['pf_jenny_cleanup_request_stage'] ?? 'query', $table, (string)($latest['stage'] ?? 'execute'), 'database_query_failure');
         throw new RuntimeException('A database query failed; cleanup is disabled.');
     }
@@ -156,7 +163,15 @@ function pf_jenny_plan(bool $lock = false): array
     foreach ($spec as $table => $ranges) $ids[$table] = pf_jenny_ranges($ranges);
 
     $orders = pf_jenny_ids('orders', 'order_id', $ids['orders'], ' AND customer_id = 25', '', [], $lock);
-    if (array_map(static fn($r) => (int)$r['order_id'], $orders) !== $ids['orders']) throw new RuntimeException('The audited safe order set changed or ownership no longer matches. Refresh preview.');
+    $actualOrderIds = array_map(static fn($r) => (int)$r['order_id'], $orders);
+    $GLOBALS['pf_jenny_cleanup_context'] = ['table' => 'orders', 'phase' => 'ownership_validation'];
+    if ($actualOrderIds !== $ids['orders']) {
+        $GLOBALS['pf_jenny_cleanup_context']['expected_count'] = count($ids['orders']);
+        $GLOBALS['pf_jenny_cleanup_context']['actual_count'] = count($actualOrderIds);
+        $GLOBALS['pf_jenny_cleanup_context']['missing_ids'] = array_values(array_diff($ids['orders'], $actualOrderIds));
+        $GLOBALS['pf_jenny_cleanup_context']['unexpected_ids'] = array_values(array_diff($actualOrderIds, $ids['orders']));
+        throw new RuntimeException('The audited safe order set changed or ownership no longer matches. Refresh preview.');
+    }
     $orderIds = $ids['orders'];
     $items = pf_jenny_ids('order_items', 'order_item_id', $ids['order_items'], ' AND order_id IN (' . implode(',', array_fill(0,count($orderIds),'?')) . ')', str_repeat('i',count($orderIds)), $orderIds, $lock);
     if (array_map(static fn($r)=>(int)$r['order_item_id'],$items) !== $ids['order_items']) throw new RuntimeException('The audited order-item set or parent relationship changed. Refresh preview.');
@@ -341,6 +356,9 @@ if ($method==='GET') {
         $context=$GLOBALS['pf_jenny_cleanup_context']??[];
         $errorType=(new ReflectionClass($e))->getShortName();
         $failure=['stage'=>'preview_failed','table'=>(string)($context['table']??'unknown'),'query_phase'=>(string)($context['phase']??'plan'),'error_type'=>$errorType];
+        foreach (['db_error_stage','db_errno','db_sqlstate','expected_count','actual_count','missing_ids','unexpected_ids'] as $detailKey) {
+            if (array_key_exists($detailKey,$context)) $failure[$detailKey]=$context[$detailKey];
+        }
         pf_jenny_log_stage($failure['stage'],$failure['table'],$failure['query_phase'],$errorType);
         pf_jenny_json(503,['success'=>false,'diagnostic_version'=>PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION,'runtime'=>pf_jenny_runtime_diagnostics(),'diagnostic_failure'=>$failure,'error'=>'A complete safe preview could not be verified. No changes were made. Refresh or contact support.']);
     }
