@@ -2260,7 +2260,8 @@ function previewIdImage(input) {
         <p id="pf-testing-cleanup-order" style="font-size:.85rem;color:#475569;"></p>
         <label for="pf-testing-cleanup-confirm" style="display:block;margin-top:1rem;font-weight:700;">Type the exact confirmation phrase to continue</label>
         <p style="margin:.25rem 0 .5rem;"><code>PERMANENTLY DELETE ALL JENNY DATA</code></p>
-        <input id="pf-testing-cleanup-confirm" type="text" autocomplete="off" class="pf-input" style="width:100%;margin:.35rem 0 .75rem;" disabled>
+        <input id="pf-testing-cleanup-confirm" type="text" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="pf-testing-cleanup-validation" class="pf-input" style="width:100%;margin:.35rem 0 .25rem;">
+        <p id="pf-testing-cleanup-validation" role="status" aria-live="polite" style="min-height:1.25rem;margin:0 0 .75rem;color:#b91c1c;font-size:.875rem;"></p>
         <div style="display:flex;gap:.5rem;justify-content:flex-end;">
             <button type="button" id="pf-testing-cleanup-close" class="pf-btn-primary" style="background:#64748b;border-color:#64748b;">Cancel</button>
             <button type="button" id="pf-testing-cleanup-submit" class="pf-btn-primary" style="background:#b91c1c;border-color:#b91c1c;" disabled>Delete safe records</button>
@@ -2277,9 +2278,18 @@ function previewIdImage(input) {
     const list = document.getElementById('pf-testing-cleanup-counts');
     const input = document.getElementById('pf-testing-cleanup-confirm');
     const submit = document.getElementById('pf-testing-cleanup-submit');
+    const validation = document.getElementById('pf-testing-cleanup-validation');
     let previewToken = '';
+    function updateConfirmationState(){
+        const exact = input.value === phrase;
+        submit.disabled = !exact || !previewToken;
+        if (!input.value) validation.textContent = '';
+        else if (!exact) validation.textContent = 'The phrase does not match exactly. Check the wording and spaces.';
+        else if (!previewToken) validation.textContent = 'The phrase matches, but a verified preview is unavailable. Deletion remains disabled.';
+        else validation.textContent = '';
+    }
     async function loadPreview(){
-        status.textContent = 'Loading read-only preview…'; list.replaceChildren(); input.disabled = true; submit.disabled = true; previewToken = '';
+        status.textContent = 'Loading read-only preview…'; list.replaceChildren(); previewToken = ''; updateConfirmationState();
         try {
             const response = await fetch(endpoint,{credentials:'same-origin',headers:{'Accept':'application/json'}});
             const data = await response.json(); if(!response.ok || !data.success) throw new Error(data.error || 'Preview unavailable.');
@@ -2288,12 +2298,13 @@ function previewIdImage(input) {
             document.getElementById('pf-testing-cleanup-protected').textContent = 'Protected counts: '+Object.entries(data.protected||{}).map(([k,v])=>k.replaceAll('_',' ')+': '+v).join(' · ')+' . Uncertain: uploaded files and inquiries remain untouched.';
             document.getElementById('pf-testing-cleanup-order').textContent='Deletion order: '+(data.delete_order||[]).join(' → ')+'. Physical files are retained.';
             status.textContent='Review these exact audited-record counts. Nothing has been deleted.';
-            input.disabled=false;
-        } catch(error){ status.textContent=error.message; }
+            updateConfirmationState();
+        } catch(error){ status.textContent=error.message+' Deletion is disabled until a verified preview is available.'; updateConfirmationState(); }
     }
-    document.getElementById('pf-open-testing-cleanup').addEventListener('click',()=>{modal.style.display='flex';loadPreview();});
-    document.getElementById('pf-testing-cleanup-close').addEventListener('click',()=>{modal.style.display='none';});
-    input.addEventListener('input',()=>{submit.disabled=input.value!==phrase||!previewToken;});
+    const opener = document.getElementById('pf-open-testing-cleanup');
+    opener.addEventListener('click',()=>{input.value='';validation.textContent='';previewToken='';updateConfirmationState();modal.style.display='flex';input.focus();loadPreview();});
+    document.getElementById('pf-testing-cleanup-close').addEventListener('click',()=>{modal.style.display='none';input.value='';validation.textContent='';previewToken='';updateConfirmationState();opener.focus();});
+    input.addEventListener('input',updateConfirmationState);
     submit.addEventListener('click',async()=>{
         if(input.value!==phrase||!previewToken)return;
         submit.disabled=true; status.textContent='Deleting the verified safe records in one transaction…';
@@ -2304,7 +2315,7 @@ function previewIdImage(input) {
             status.textContent='Transaction completed and verified. Customer account and uploaded files were retained.';
             document.getElementById('pf-testing-cleanup-protected').textContent='Protected counts retained: '+JSON.stringify(data.protected)+' · Remaining safe-record counts: '+JSON.stringify(data.remaining);
             input.value='';
-        }catch(error){status.textContent=error.message;submit.disabled=input.value!==phrase;}
+        }catch(error){status.textContent=error.message;updateConfirmationState();}
     });
 })();
 </script>
