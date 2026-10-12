@@ -9,6 +9,36 @@ require_once __DIR__ . '/../includes/functions.php';
 
 const PF_JENNY_CLEANUP_CUSTOMER_ID = 25;
 const PF_JENNY_CLEANUP_DELETE_ORDER = ['push_notification_queue','notifications','chatbot_messages','chatbot_conversations','message_reactions','review_helpful','customer_cart','order_revision_requests','order_item_revisions','job_order_materials','job_orders','order_messages','customizations','order_items','orders'];
+const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-1';
+
+/** Runtime-only diagnostics; never includes connection credentials. */
+function pf_jenny_runtime_diagnostics(): array
+{
+    global $conn;
+    $databaseName = null;
+    $connectionHost = null;
+    if ($conn instanceof mysqli) {
+        $connectionHost = (string)$conn->host_info;
+        try {
+            $result = $conn->query('SELECT DATABASE() AS database_name');
+            if ($result instanceof mysqli_result) {
+                $row = $result->fetch_assoc();
+                $databaseName = (string)($row['database_name'] ?? '');
+                $result->free();
+            }
+        } catch (Throwable $ignored) {
+            $databaseName = null;
+        }
+    }
+    $opcacheStatus = function_exists('opcache_get_status') ? @opcache_get_status(false) : false;
+    return [
+        'database_name' => $databaseName,
+        'database_host' => $connectionHost,
+        'opcache_enabled' => (bool)ini_get('opcache.enable'),
+        'endpoint_cached' => function_exists('opcache_is_script_cached') ? @opcache_is_script_cached(__FILE__) : null,
+        'opcache_status_available' => is_array($opcacheStatus),
+    ];
+}
 
 /** Temporary diagnostics deliberately exclude SQL text, values, exception messages, and customer data. */
 function pf_jenny_log_stage(string $stage, string $table = 'unknown', string $phase = 'request', string $errorType = 'none'): void
@@ -304,8 +334,14 @@ if ($method==='GET') {
         $token=bin2hex(random_bytes(32));
         $_SESSION['jenny_cleanup_preview']=['token_hash'=>hash('sha256',$token),'fingerprint'=>pf_jenny_fingerprint($plan),'expires'=>time()+600];
         $counts=[]; foreach($plan['ids'] as $table=>$values) if(is_array($values) && !in_array($table,['protected_counts','other_customer_snapshot'],true)) $counts[$table]=count($values);
-        pf_jenny_json(200,['success'=>true,'preview_token'=>$token,'counts'=>$counts,'protected'=>$plan['ids']['protected_counts'],'uncertain'=>['physical_file_reference_rows'=>267,'unique_physical_files'=>'Unverified; retain all files.','chatbot_inquiries'=>'Ownerless by schema; retain.'],'delete_order'=>PF_JENNY_CLEANUP_DELETE_ORDER]);
-    } catch(Throwable $e) { $context=$GLOBALS['pf_jenny_cleanup_context']??[]; pf_jenny_log_stage('preview_failed',(string)($context['table']??'unknown'),(string)($context['phase']??'plan'),(new ReflectionClass($e))->getShortName()); pf_jenny_json(503,['success'=>false,'error'=>'A complete safe preview could not be verified. No changes were made. Refresh or contact support.']); }
+        pf_jenny_json(200,['success'=>true,'diagnostic_version'=>PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION,'runtime'=>pf_jenny_runtime_diagnostics(),'preview_token'=>$token,'counts'=>$counts,'protected'=>$plan['ids']['protected_counts'],'uncertain'=>['physical_file_reference_rows'=>267,'unique_physical_files'=>'Unverified; retain all files.','chatbot_inquiries'=>'Ownerless by schema; retain.'],'delete_order'=>PF_JENNY_CLEANUP_DELETE_ORDER]);
+    } catch(Throwable $e) {
+        $context=$GLOBALS['pf_jenny_cleanup_context']??[];
+        $errorType=(new ReflectionClass($e))->getShortName();
+        $failure=['stage'=>'preview_failed','table'=>(string)($context['table']??'unknown'),'query_phase'=>(string)($context['phase']??'plan'),'error_type'=>$errorType];
+        pf_jenny_log_stage($failure['stage'],$failure['table'],$failure['query_phase'],$errorType);
+        pf_jenny_json(503,['success'=>false,'diagnostic_version'=>PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION,'runtime'=>pf_jenny_runtime_diagnostics(),'diagnostic_failure'=>$failure,'error'=>'A complete safe preview could not be verified. No changes were made. Refresh or contact support.']);
+    }
 }
 if($method!=='POST') pf_jenny_json(405,['success'=>false,'error'=>'Method not allowed.']);
 $input=json_decode(file_get_contents('php://input'),true)?:[];
