@@ -2258,13 +2258,13 @@ function previewIdImage(input) {
         <ul id="pf-testing-cleanup-counts" style="max-height:220px;overflow:auto;padding-left:1.25rem;"></ul>
         <div id="pf-testing-cleanup-protected" style="font-size:.85rem;color:#475569;"></div>
         <p id="pf-testing-cleanup-order" style="font-size:.85rem;color:#475569;"></p>
-        <label for="pf-testing-cleanup-confirm" style="display:block;margin-top:1rem;font-weight:700;">Type the exact confirmation phrase to continue</label>
-        <p style="margin:.25rem 0 .5rem;"><code>PERMANENTLY DELETE ALL JENNY DATA</code></p>
-        <input id="pf-testing-cleanup-confirm" type="text" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="pf-testing-cleanup-validation" class="pf-input" style="width:100%;margin:.35rem 0 .25rem;">
-        <p id="pf-testing-cleanup-validation" role="status" aria-live="polite" style="min-height:1.25rem;margin:0 0 .75rem;color:#b91c1c;font-size:.875rem;"></p>
+        <label for="pf-testing-cleanup-acknowledged" style="display:flex;align-items:flex-start;gap:.6rem;margin:1rem 0;font-weight:600;">
+            <input id="pf-testing-cleanup-acknowledged" type="checkbox" style="margin-top:.25rem;flex:0 0 auto;">
+            <span>I understand that this permanently deletes Jenny Ferr’s customer-owned testing data.</span>
+        </label>
         <div style="display:flex;gap:.5rem;justify-content:flex-end;">
             <button type="button" id="pf-testing-cleanup-close" class="pf-btn-primary" style="background:#64748b;border-color:#64748b;">Cancel</button>
-            <button type="button" id="pf-testing-cleanup-submit" class="pf-btn-primary" style="background:#b91c1c;border-color:#b91c1c;" disabled>Delete safe records</button>
+            <button type="button" id="pf-testing-cleanup-submit" class="pf-btn-primary" style="background:#b91c1c;border-color:#b91c1c;" disabled>Delete All My Testing Data</button>
         </div>
     </div>
 </div>
@@ -2272,21 +2272,14 @@ function previewIdImage(input) {
 (function(){
     const endpoint = <?php echo json_encode(rtrim((string)$base_path, '/') . '/customer/api_testing_data_cleanup.php'); ?>;
     const csrf = <?php echo json_encode(generate_csrf_token()); ?>;
-    const phrase = 'PERMANENTLY DELETE ALL JENNY DATA';
     const modal = document.getElementById('pf-testing-cleanup-modal');
     const status = document.getElementById('pf-testing-cleanup-status');
     const list = document.getElementById('pf-testing-cleanup-counts');
-    const input = document.getElementById('pf-testing-cleanup-confirm');
+    const acknowledgment = document.getElementById('pf-testing-cleanup-acknowledged');
     const submit = document.getElementById('pf-testing-cleanup-submit');
-    const validation = document.getElementById('pf-testing-cleanup-validation');
     let previewToken = '';
     function updateConfirmationState(){
-        const exact = input.value === phrase;
-        submit.disabled = !exact || !previewToken;
-        if (!input.value) validation.textContent = '';
-        else if (!exact) validation.textContent = 'The phrase does not match exactly. Check the wording and spaces.';
-        else if (!previewToken) validation.textContent = 'The phrase matches, but a verified preview is unavailable. Deletion remains disabled.';
-        else validation.textContent = '';
+        submit.disabled = !acknowledgment.checked || !previewToken;
     }
     async function loadPreview(){
         status.textContent = 'Loading read-only preview…'; list.replaceChildren(); previewToken = ''; updateConfirmationState();
@@ -2302,19 +2295,19 @@ function previewIdImage(input) {
         } catch(error){ status.textContent=error.message+' Deletion is disabled until a verified preview is available.'; updateConfirmationState(); }
     }
     const opener = document.getElementById('pf-open-testing-cleanup');
-    opener.addEventListener('click',()=>{input.value='';validation.textContent='';previewToken='';updateConfirmationState();modal.style.display='flex';input.focus();loadPreview();});
-    document.getElementById('pf-testing-cleanup-close').addEventListener('click',()=>{modal.style.display='none';input.value='';validation.textContent='';previewToken='';updateConfirmationState();opener.focus();});
-    input.addEventListener('input',updateConfirmationState);
+    opener.addEventListener('click',()=>{acknowledgment.checked=false;previewToken='';updateConfirmationState();modal.style.display='flex';acknowledgment.focus();loadPreview();});
+    document.getElementById('pf-testing-cleanup-close').addEventListener('click',()=>{modal.style.display='none';acknowledgment.checked=false;previewToken='';updateConfirmationState();opener.focus();});
+    acknowledgment.addEventListener('change',updateConfirmationState);
     submit.addEventListener('click',async()=>{
-        if(input.value!==phrase||!previewToken)return;
+        if(!acknowledgment.checked||!previewToken)return;
         submit.disabled=true; status.textContent='Deleting the verified safe records in one transaction…';
         try{
-            const response=await fetch(endpoint,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({csrf_token:csrf,preview_token:previewToken,confirmation:input.value})});
+            const response=await fetch(endpoint,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({csrf_token:csrf,preview_token:previewToken,acknowledged:acknowledgment.checked})});
             const data=await response.json(); if(!response.ok||!data.success)throw new Error(data.error||'Cleanup failed.');
             list.replaceChildren(); Object.entries(data.deleted||{}).forEach(([name,count])=>{const li=document.createElement('li');li.textContent='Deleted '+name.replaceAll('_',' ')+': '+count;list.appendChild(li);});
             status.textContent='Transaction completed and verified. Customer account and uploaded files were retained.';
             document.getElementById('pf-testing-cleanup-protected').textContent='Protected counts retained: '+JSON.stringify(data.protected)+' · Remaining safe-record counts: '+JSON.stringify(data.remaining);
-            input.value='';
+            acknowledgment.checked=false;
         }catch(error){status.textContent=error.message;updateConfirmationState();}
     });
 })();

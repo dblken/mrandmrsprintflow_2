@@ -8,7 +8,6 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 
 const PF_JENNY_CLEANUP_CUSTOMER_ID = 25;
-const PF_JENNY_CLEANUP_CONFIRMATION = 'PERMANENTLY DELETE ALL JENNY DATA';
 const PF_JENNY_CLEANUP_DELETE_ORDER = ['push_notification_queue','notifications','chatbot_messages','chatbot_conversations','message_reactions','review_helpful','customer_cart','order_revision_requests','order_item_revisions','job_order_materials','job_orders','order_messages','customizations','order_items','orders'];
 
 function pf_jenny_json(int $status, array $payload): never
@@ -284,13 +283,13 @@ if ($method==='GET') {
         $token=bin2hex(random_bytes(32));
         $_SESSION['jenny_cleanup_preview']=['token_hash'=>hash('sha256',$token),'fingerprint'=>pf_jenny_fingerprint($plan),'expires'=>time()+600];
         $counts=[]; foreach($plan['ids'] as $table=>$values) if(is_array($values) && !in_array($table,['protected_counts','other_customer_snapshot'],true)) $counts[$table]=count($values);
-        pf_jenny_json(200,['success'=>true,'preview_token'=>$token,'counts'=>$counts,'protected'=>$plan['ids']['protected_counts'],'uncertain'=>['physical_file_reference_rows'=>267,'unique_physical_files'=>'Unverified; retain all files.','chatbot_inquiries'=>'Ownerless by schema; retain.'],'delete_order'=>PF_JENNY_CLEANUP_DELETE_ORDER,'confirmation'=>PF_JENNY_CLEANUP_CONFIRMATION]);
+        pf_jenny_json(200,['success'=>true,'preview_token'=>$token,'counts'=>$counts,'protected'=>$plan['ids']['protected_counts'],'uncertain'=>['physical_file_reference_rows'=>267,'unique_physical_files'=>'Unverified; retain all files.','chatbot_inquiries'=>'Ownerless by schema; retain.'],'delete_order'=>PF_JENNY_CLEANUP_DELETE_ORDER]);
     } catch(Throwable $e) { error_log('Jenny testing-data cleanup preview failed: '.$e->getMessage()); pf_jenny_json(503,['success'=>false,'error'=>'A complete safe preview could not be verified. No changes were made. Refresh or contact support.']); }
 }
 if($method!=='POST') pf_jenny_json(405,['success'=>false,'error'=>'Method not allowed.']);
 $input=json_decode(file_get_contents('php://input'),true)?:[];
 if(!verify_csrf_token((string)($input['csrf_token']??''))) pf_jenny_json(403,['success'=>false,'error'=>'Invalid security token. Refresh the page.']);
-if(!hash_equals(PF_JENNY_CLEANUP_CONFIRMATION,(string)($input['confirmation']??''))) pf_jenny_json(400,['success'=>false,'error'=>'The exact confirmation phrase is required.']);
+if(($input['acknowledged']??false)!==true) pf_jenny_json(400,['success'=>false,'error'=>'Confirm the permanent deletion acknowledgment before continuing.']);
 $saved=$_SESSION['jenny_cleanup_preview']??[];
 if(empty($saved['token_hash'])||!hash_equals((string)$saved['token_hash'],hash('sha256',(string)($input['preview_token']??'')))||($saved['expires']??0)<time()) pf_jenny_json(409,['success'=>false,'error'=>'The preview expired. Refresh the preview before confirming.']);
 global $conn;
