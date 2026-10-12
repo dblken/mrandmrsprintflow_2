@@ -194,6 +194,8 @@ if ($method === 'GET') {
         'token_hash' => hash('sha256', $previewToken),
         'scope_hash' => pf_jenny_archive_scope_hash((string)($customerRows[0]['status'] ?? 'inactive'), $orders),
     ];
+    $readStage = 'calculate_archive_counts';
+    $archiveCounts = printflow_customer_archive_batch_counts($orders, $customerIsHidden);
     $readStage = 'return_customer_preview';
     printflow_json_response([
         'success' => true,
@@ -201,7 +203,7 @@ if ($method === 'GET') {
         'customer_id' => $customerId,
         'customer' => $customerName[0] ?? null,
         'orders_currently_owned' => (int)($orderCount[0]['n'] ?? 0),
-        'archive_counts' => pf_customer_archive_batch_counts($orders, $customerIsHidden),
+        'archive_counts' => $archiveCounts,
         'orders' => $orders,
         'exclusion' => $customerRows[0] ?? null,
         'archive_reference_id' => $archiveReference,
@@ -214,7 +216,8 @@ if ($method === 'GET') {
     } catch (Throwable $e) {
         $errors = function_exists('printflow_db_errors') ? printflow_db_errors() : [];
         $lastDbError = is_array($errors) ? end($errors) : null;
-        $dbCode = is_array($lastDbError) ? (int)($lastDbError['errno'] ?? 0) : (int)$e->getCode();
+        $dbCode = (int)$e->getCode();
+        if ($dbCode === 0 && is_array($lastDbError)) $dbCode = (int)($lastDbError['errno'] ?? 0);
         error_log('[customer_exclusion_admin] ' . json_encode([
             'stage' => $readStage,
             'customer_id' => $customerId,
@@ -229,6 +232,7 @@ if ($method === 'GET') {
                 'validate_target_customer', 'read_customer_identity' => 'customers',
                 'read_customer_exclusion' => 'customer_exclusion',
                 'count_owned_orders', 'read_customer_orders', 'classify_customer_orders' => 'orders',
+                'calculate_archive_counts', 'return_customer_preview' => 'application',
                 default => 'customer_exclusion',
             },
             'error_type' => get_class($e),
