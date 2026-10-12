@@ -92,6 +92,28 @@ async function run() {
     assert.match(api, /\$_SESSION\['user_type'\].*get_user_id\(\).*PF_JENNY_CLEANUP_CUSTOMER_ID/);
     assert.match(api, /begin_transaction\(/);
     assert.match(api, /rollback\(/);
+    assert.match(api, /'deletion_available'=>false/);
+    assert.match(api, /'safe_remaining'\s*=>\s*\$completedPreview\['safe_remaining'\]/);
+    assert.doesNotMatch(api, /'missing_ids'\s*=>|'unexpected_ids'\s*=>/);
+
+    const completedElements = Object.fromEntries(ids.map(id => [id, new Element()]));
+    const completedDocument = {
+        getElementById(id) { return completedElements[id] ||= new Element(); },
+        createElement() { return new Element(); },
+    };
+    const completedFetch = async (_url, options = {}) => {
+        assert.notEqual(options.method, 'POST', 'completed-state preview never submits deletion');
+        return { ok: true, json: async () => ({
+            success: true, preview_token: null, deletion_available: false,
+            safe_remaining: 0, protected_remaining: 2, already_deleted: 59,
+            counts: { orders: 0 }, protected: { orders: 2 }, delete_order: ['orders'],
+        }) };
+    };
+    vm.runInNewContext(script, { document: completedDocument, fetch: completedFetch, console, Object, JSON });
+    completedElements['pf-open-testing-cleanup'].dispatch('click');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(completedElements['pf-testing-cleanup-submit'].disabled, true, 'completed cleanup has no deletion token');
+    assert.match(completedElements['pf-testing-cleanup-status'].textContent, /Safe remaining: 0.*Protected orders remaining: 2.*Already deleted: 59.*No further deletion/);
     console.log('PASS: checkbox/button, open/focus, toggle, cancel/reopen, preview-only requests, and server guard contracts');
 }
 

@@ -2287,14 +2287,16 @@ function previewIdImage(input) {
         try {
             const response = await fetch(endpoint,{credentials:'same-origin',headers:{'Accept':'application/json'}});
             const data = await response.json(); if(!response.ok || !data.success) throw new Error(data.error || 'Preview unavailable.');
-            previewToken = data.preview_token;
+            previewToken = data.preview_token || '';
             Object.entries(data.counts || {}).forEach(([name,count])=>{const li=document.createElement('li');li.textContent=name.replaceAll('_',' ')+': '+count;list.appendChild(li);});
             const excluded = data.protected_excluded_by_scope || {};
             const excludedRecords = excluded.records || {};
             const excludedSummary = Object.entries(excludedRecords).map(([table,ids])=>table.replaceAll('_',' ')+': '+ids.length+' IDs ['+ids.join(', ')+']').join(' · ');
             document.getElementById('pf-testing-cleanup-protected').textContent = 'Protected counts: '+Object.entries(data.protected||{}).map(([k,v])=>k.replaceAll('_',' ')+': '+v).join(' · ')+' · '+(excluded.label||'Protected / Excluded by scope')+': '+excludedSummary+' · Uncertain: uploaded files and inquiries remain untouched.';
             document.getElementById('pf-testing-cleanup-order').textContent='Deletion order: '+(data.delete_order||[]).join(' → ')+'. Physical files are retained.';
-            status.textContent='Review these exact audited-record counts. Nothing has been deleted.';
+            status.textContent = data.already_deleted !== undefined
+                ? 'Cleanup previously completed and verified. Safe remaining: '+data.safe_remaining+'. Protected orders remaining: '+data.protected_remaining+'. Already deleted: '+data.already_deleted+'. No further deletion is available.'
+                : 'Review these exact audited-record counts. Nothing has been deleted.';
             updateConfirmationState();
             return true;
         } catch(error){ previewError=error.message; status.textContent=error.message+' Deletion is disabled until a verified preview is available.'; updateConfirmationState(); return false; }
