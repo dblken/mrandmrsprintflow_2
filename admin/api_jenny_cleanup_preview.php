@@ -15,7 +15,7 @@ if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'GET') {
 }
 
 const PF_JENNY_AUDIT_CUSTOMER_ID = 25;
-const PF_JENNY_AUDIT_VERSION = 'jenny-admin-preview-20261012-v3';
+const PF_JENNY_AUDIT_VERSION = 'jenny-admin-preview-20261012-v4';
 
 function pf_jenny_audit_log(string $stage, string $table, int $errno, string $errorType): void
 {
@@ -251,7 +251,6 @@ if (!empty($schema['provider_payments']) && $primaryKey['provider_payments']
 // Resolve newly reachable FK tables lazily and query each edge in small batches.
 // This finds real child paths (including nonstandard FK names) without scanning
 // unrelated rows or guessing relationship column names.
-$fkEdgeSeen = [];
 $fkProcessedParentIds = [];
 for ($pass = 0; $pass < count($foreignKeyEdges) + 2; $pass++) {
     $changed = false;
@@ -303,7 +302,6 @@ for ($pass = 0; $pass < count($foreignKeyEdges) + 2; $pass++) {
             $fkProcessedParentIds[$edgeKey] = array_values(array_unique(array_merge($fkProcessedParentIds[$edgeKey] ?? [], $batch)));
         }
         if (count($scopeIds[$child] ?? []) > $beforeCount) $changed = true;
-        $fkEdgeSeen[$edgeKey] = true;
     }
     if (!$changed) break;
 }
@@ -356,9 +354,12 @@ for ($pass = 0; $pass < 4; $pass++) {
     if (!$changed) break;
 }
 
-// Specialized transaction lookup: restrict order and job references by exact typed IDs.
+// Specialized ledger lookup: ORDER and JOB_ORDER references are order/job IDs.
+// Legacy ORDER_PRODUCT ref_id values are product IDs (see the inventory writer),
+// so they are never counted as Jenny-owned. They are reported separately as
+// ambiguous product-ledger rows and must be preserved.
 if (!empty($schema['inventory_transactions'])) {
-    foreach ([['ORDER', 'orders'], ['ORDER_PRODUCT', 'orders'], ['JOB_ORDER', 'job_orders'], ['CHANGE_ITEM', 'change_item_requests']] as [$refType, $parent]) {
+    foreach ([['ORDER', 'orders'], ['JOB_ORDER', 'job_orders'], ['CHANGE_ITEM', 'change_item_requests']] as [$refType, $parent]) {
         $parentIds = $scopeIds[$parent] ?? [];
         if (!$parentIds || !in_array('ref_type', $schema['inventory_transactions'], true) || !in_array('ref_id', $schema['inventory_transactions'], true) || !$primaryKey['inventory_transactions']) continue;
         $ids = [];
@@ -374,7 +375,7 @@ if (!empty($schema['inventory_transactions'])) {
     }
 }
 if (!empty($schema['inventory_movements']) && $primaryKey['inventory_movements'] && in_array('reference_type', $schema['inventory_movements'], true) && in_array('reference_id', $schema['inventory_movements'], true)) {
-    foreach ([['ORDER', 'orders'], ['ORDER_PRODUCT', 'orders'], ['JOB_ORDER', 'job_orders'], ['CHANGE_ITEM', 'change_item_requests']] as [$refType, $parent]) {
+    foreach ([['ORDER', 'orders'], ['JOB_ORDER', 'job_orders'], ['CHANGE_ITEM', 'change_item_requests']] as [$refType, $parent]) {
         $parentIds = $scopeIds[$parent] ?? [];
         if (!$parentIds) continue;
         $ids = [];
@@ -387,6 +388,48 @@ if (!empty($schema['inventory_movements']) && $primaryKey['inventory_movements']
             $ids = array_merge($ids, array_map('intval', array_column($q['rows'], 'record_id')));
         }
         $scopeIds['inventory_movements'] = array_values(array_unique(array_merge($scopeIds['inventory_movements'] ?? [], $ids)));
+    }
+}
+
+// Preserve legacy product-level ledger entries when the only link is a shared
+// product ID. Their exact IDs are visible for review but never joined to Jenny's
+// transactional scope or classified as exclusively owned.
+$customerProductIds = [];
+if (!empty($schema['order_items']) && in_array('product_id', $schema['order_items'], true)) {
+    foreach (array_chunk($scopeIds['orders'] ?? [], 80) as $batchNo => $batch) {
+        $marks = implode(',', array_fill(0, count($batch), '?'));
+        $q = pf_jenny_audit_query('customer_product_id_batch_' . ($batchNo + 1), 'order_items',
+            'SELECT DISTINCT `product_id` AS record_id FROM `order_items` WHERE `order_id` IN (' . $marks . ') AND `product_id` IS NOT NULL ORDER BY `product_id`',
+            str_repeat('i', count($batch)), $batch);
+        if ($q['failure'] !== null) { $failures[] = $q['failure']; continue; }
+        $customerProductIds = array_values(array_unique(array_merge($customerProductIds, array_map('intval', array_column($q['rows'], 'record_id')))));
+    }
+}
+$ambiguousLedgerRecords = [];
+if ($customerProductIds && !empty($schema['inventory_transactions'])
+    && $primaryKey['inventory_transactions']
+    && in_array('ref_type', $schema['inventory_transactions'], true)
+    && in_array('ref_id', $schema['inventory_transactions'], true)) {
+    foreach (array_chunk($customerProductIds, 80) as $batchNo => $batch) {
+        $marks = implode(',', array_fill(0, count($batch), '?'));
+        $q = pf_jenny_audit_query('ambiguous_order_product_ledger_batch_' . ($batchNo + 1), 'inventory_transactions',
+            'SELECT ' . pf_jenny_audit_ident($primaryKey['inventory_transactions']) . ' AS record_id FROM `inventory_transactions` WHERE UPPER(TRIM(`ref_type`)) = ? AND `ref_id` IN (' . $marks . ') ORDER BY ' . pf_jenny_audit_ident($primaryKey['inventory_transactions']),
+            's' . str_repeat('i', count($batch)), array_merge(['ORDER_PRODUCT'], $batch));
+        if ($q['failure'] !== null) { $failures[] = $q['failure']; continue; }
+        $ambiguousLedgerRecords['inventory_transactions_legacy_order_product'] = array_merge($ambiguousLedgerRecords['inventory_transactions_legacy_order_product'] ?? [], array_map('intval', array_column($q['rows'], 'record_id')));
+    }
+}
+if ($customerProductIds && !empty($schema['inventory_movements'])
+    && $primaryKey['inventory_movements']
+    && in_array('reference_type', $schema['inventory_movements'], true)
+    && in_array('reference_id', $schema['inventory_movements'], true)) {
+    foreach (array_chunk($customerProductIds, 80) as $batchNo => $batch) {
+        $marks = implode(',', array_fill(0, count($batch), '?'));
+        $q = pf_jenny_audit_query('ambiguous_order_product_movement_batch_' . ($batchNo + 1), 'inventory_movements',
+            'SELECT ' . pf_jenny_audit_ident($primaryKey['inventory_movements']) . ' AS record_id FROM `inventory_movements` WHERE UPPER(TRIM(`reference_type`)) = ? AND `reference_id` IN (' . $marks . ') ORDER BY ' . pf_jenny_audit_ident($primaryKey['inventory_movements']),
+            's' . str_repeat('i', count($batch)), array_merge(['ORDER_PRODUCT'], $batch));
+        if ($q['failure'] !== null) { $failures[] = $q['failure']; continue; }
+        $ambiguousLedgerRecords['inventory_movements_legacy_order_product'] = array_merge($ambiguousLedgerRecords['inventory_movements_legacy_order_product'] ?? [], array_map('intval', array_column($q['rows'], 'record_id')));
     }
 }
 
@@ -433,6 +476,10 @@ foreach ($scopeIds as $table => $ids) {
     $records[$table] = ['count' => count($ids), 'classification' => $classification];
     if ($includeIds) $records[$table]['ids'] = $ids;
     else $records[$table]['ids_omitted'] = 'Protected maintenance rows; count only.';
+}
+foreach ($ambiguousLedgerRecords as $table => $ids) {
+    $ids = array_values(array_unique($ids));
+    $records[$table] = ['count' => count($ids), 'classification' => 'protected_ambiguous_shared_product_reference', 'ids' => $ids];
 }
 
 $dbIdentity = pf_jenny_audit_query('database_identity', 'DATABASE()', 'SELECT DATABASE() AS db_name');
