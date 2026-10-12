@@ -93,7 +93,6 @@ if (isset($_SESSION['user_id'])) {
                         Custom Orders
                     </a>
                     <?php if (function_exists('is_admin') && is_admin()): ?>
-                    <a href="<?php echo $base_path; ?>/admin/jenny_customer_archive.php" class="nav-subitem <?php echo $current_page === 'jenny_customer_archive.php' ? 'active' : ''; ?>" data-nav-page="jenny_customer_archive.php">Customer Archive</a>
                     <?php endif; ?>
                 </div>
             </div>

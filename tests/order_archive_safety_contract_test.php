@@ -18,7 +18,9 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
     if (!$condition) $failures[] = $message;
 };
 $root = dirname(__DIR__);
-$admin = (string)file_get_contents($root . '/admin/archived_orders.php');
+$admin = (string)file_get_contents($root . '/admin/archived_orders_manifest.php');
+$archiveUi = (string)file_get_contents($root . '/admin/archived_orders.php');
+$exclusionApi = (string)file_get_contents($root . '/admin/api_jenny_customer_exclusion.php');
 $helper = (string)file_get_contents($root . '/includes/order_archive.php');
 $migration = (string)file_get_contents($root . '/migrations/20261008_create_order_archive_tables.sql');
 $batchMigration = (string)file_get_contents($root . '/migrations/20261008_create_order_archive_batch_events.sql');
@@ -69,6 +71,10 @@ $assert(str_contains($helper, "'printflow_order_archive_batch_events'"), 'archiv
 $assert(str_contains($admin, "UPDATE printflow_order_archive_map SET status='restored'") && str_contains($admin, "'restore'") && str_contains($admin, 'printflow_order_archive_events'), 'restore updates only mappings and writes an audit event');
 $assert(!preg_match('/\bDELETE\s+FROM\s+(orders|order_items|customers|provider_payments|inventory_transactions)|\bUPDATE\s+(orders|customers|provider_payments|inventory_transactions)\s+SET/i', $admin), 'archive actions preserve original transactional and master rows');
 $assert(str_contains($admin, '25, 44, 288, 306') && !str_contains($admin, 'UPDATE customers') && !str_contains($admin, 'DELETE FROM customers'), 'protected customers are displayed and never mutated');
+$assert(str_contains($archiveUi, "require_role('Admin')") && str_contains($archiveUi, 'Archived Orders'), 'simplified archive page is Admin-only and titled');
+$assert(str_contains($archiveUi, 'Search customer by name, email, or customer ID') && str_contains($archiveUi, 'orders_currently_owned'), 'simplified page offers customer search and displays the live order count');
+$assert(str_contains($archiveUi, 'Hide Jenny Ferr’s Orders') && str_contains($archiveUi, 'It does not delete database records') && str_contains($archiveUi, 'Restore Jenny Ferr’s Orders'), 'hide and restore confirmations describe reversible non-deleting behavior');
+$assert(str_contains($archiveUi, 'preview_token:archivePreviewToken') && str_contains($archiveUi, 'disabled') && str_contains($exclusionApi, 'scope changed after preview'), 'archive action is gated by preview token and server scope check');
 
 $assert(str_contains($adminOrders, 'printflow_order_archive_scope_sql') && str_contains($staffOrders, 'printflow_order_archive_scope_sql'), 'Admin and Staff order lists use archive scope');
 $assert(str_contains($adminJobOrders, 'printflow_order_archive_exclusion_sql') && str_contains($staffJobOrders, 'printflow_order_archive_exclusion_sql'), 'Admin and Staff job-order lists and counts exclude archived parent orders');
