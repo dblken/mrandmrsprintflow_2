@@ -16,6 +16,7 @@ $check(str_contains($endpoint, "data_records_deleted_or_modified' => false"), 'e
 $check(!preg_match('/\bDELETE\s+FROM\s+(?!customer_exclusion)/i', $endpoint), 'endpoint does not delete business data');
 $check(str_contains($page, 'api_jenny_cleanup_preview.php') && str_contains($page, "preview.database?.name!=='u618446170_printflow'"), 'Admin controls require a live target database preview');
 $check(str_contains($page, 'api_jenny_customer_exclusion.php') && str_contains($page, "openDialog('restore')"), 'Admin page exposes the reversible restore action');
+$check(str_contains($page, 'Related records preview') && str_contains($page, 'dispositionLabel') && str_contains($page, 'pf-scope-table'), 'archive preview uses readable dispositions and a wrapping table layout');
 $check(str_contains($page, 'preview_token:archivePreviewToken') && str_contains($endpoint, "hash('sha256', \$previewToken)"), 'a fresh single-use preview token is required before changes');
 $check(str_contains($endpoint, 'reason LIKE ?') && str_contains($endpoint, '$existingReference ==='), 'restoration affects only order exclusions tagged by this archive reference');
 
