@@ -123,7 +123,10 @@ if (!printflow_customer_exclusion_schema_ready()) {
 $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 $customerId = PF_JENNY_EXCLUSION_CUSTOMER_ID;
 if ($method === 'GET') {
+    $readStage = 'read_request';
+    try {
     if (isset($_GET['search'])) {
+        $readStage = 'search_target_customer';
         $term = trim((string)$_GET['search']);
         $like = '%' . $term . '%';
         $customers = pf_jenny_archive_query(
@@ -144,6 +147,7 @@ if ($method === 'GET') {
         ]);
     }
     if (($_GET['list'] ?? '') === '1') {
+        $readStage = 'list_customer_archives';
         $rows = db_query(
             "SELECT ce.customer_id, c.first_name, c.last_name, ce.status, ce.reason, ce.created_at AS archived_at,
                     ce.created_by AS archived_by, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))), ''), CONCAT('User #', ce.created_by)) AS archived_by_name,
@@ -161,13 +165,19 @@ if ($method === 'GET') {
         unset($row);
         printflow_json_response(['success' => true, 'version' => PF_JENNY_EXCLUSION_VERSION, 'archives' => $rows]);
     }
+    $readStage = 'validate_target_customer';
     $customer = pf_jenny_archive_query('SELECT customer_id FROM customers WHERE customer_id = ? LIMIT 1', 'i', [$customerId], 'validate_target_customer');
     if (!$customer) printflow_json_response(['success' => false, 'error' => 'Target customer record is unavailable.'], 404);
+    $readStage = 'read_customer_exclusion';
     $customerRows = pf_jenny_archive_query("SELECT status, reason, created_at, updated_at, created_by FROM customer_exclusion WHERE customer_id = ? AND entity_type = 'CUSTOMER' AND record_id = ? LIMIT 1", 'ii', [$customerId, $customerId], 'read_customer_exclusion');
+    $readStage = 'count_owned_orders';
     $orderCount = pf_jenny_archive_query('SELECT COUNT(*) AS n FROM orders WHERE customer_id = ?', 'i', [$customerId], 'count_owned_orders');
+    $readStage = 'read_customer_identity';
     $customerName = pf_jenny_archive_query('SELECT customer_id, first_name, last_name, email FROM customers WHERE customer_id = ? LIMIT 1', 'i', [$customerId], 'read_customer_identity');
     $customerIsHidden = strtolower((string)($customerRows[0]['status'] ?? '')) === 'active';
+    $readStage = 'read_customer_orders';
     $orders = pf_jenny_archive_order_rows($customerId, true);
+    $readStage = 'classify_customer_orders';
     foreach ($orders as &$order) {
         $order['is_hidden'] = printflow_customer_archive_order_is_hidden($order, $customerIsHidden) ? 1 : 0;
         $order['archive_status'] = $order['is_hidden'] ? 'Archived' : 'Visible';
@@ -184,6 +194,7 @@ if ($method === 'GET') {
         'token_hash' => hash('sha256', $previewToken),
         'scope_hash' => pf_jenny_archive_scope_hash((string)($customerRows[0]['status'] ?? 'inactive'), $orders),
     ];
+    $readStage = 'return_customer_preview';
     printflow_json_response([
         'success' => true,
         'version' => PF_JENNY_EXCLUSION_VERSION,
@@ -200,6 +211,30 @@ if ($method === 'GET') {
         'data_mutated' => false,
         'data_records_deleted_or_modified' => false,
     ]);
+    } catch (Throwable $e) {
+        $errors = function_exists('printflow_db_errors') ? printflow_db_errors() : [];
+        $lastDbError = is_array($errors) ? end($errors) : null;
+        $dbCode = is_array($lastDbError) ? (int)($lastDbError['errno'] ?? 0) : (int)$e->getCode();
+        error_log('[customer_exclusion_admin] ' . json_encode([
+            'stage' => $readStage,
+            'customer_id' => $customerId,
+            'error_type' => get_class($e),
+            'error_code' => $dbCode,
+        ]));
+        printflow_json_response([
+            'success' => false,
+            'error' => 'The read-only archive preview failed.',
+            'stage' => $readStage,
+            'table' => match ($readStage) {
+                'validate_target_customer', 'read_customer_identity' => 'customers',
+                'read_customer_exclusion' => 'customer_exclusion',
+                'count_owned_orders', 'read_customer_orders', 'classify_customer_orders' => 'orders',
+                default => 'customer_exclusion',
+            },
+            'error_type' => get_class($e),
+            'database_error_code' => $dbCode,
+        ], 500);
+    }
 }
 if ($method !== 'POST') printflow_json_response(['success' => false, 'error' => 'Method not allowed.'], 405);
 
