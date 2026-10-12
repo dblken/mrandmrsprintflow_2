@@ -339,6 +339,10 @@ if ($method==='GET') {
         $context=$GLOBALS['pf_jenny_cleanup_context']??[];
         $errorType=(new ReflectionClass($e))->getShortName();
         $failure=['stage'=>'preview_failed','table'=>(string)($context['table']??'unknown'),'query_phase'=>(string)($context['phase']??'plan'),'error_type'=>$errorType];
+        // Keep the response readable for this known ownership mismatch without exposing arbitrary exception or SQL text.
+        if ($e->getMessage() === 'The audited chatbot ownership changed. Refresh preview.') {
+            $failure['reason'] = 'The exact audited conversation IDs belong to customer_id 25, but all have a non-NULL guest_id; the safe-preview query requires guest_id IS NULL and therefore excludes them.';
+        }
         pf_jenny_log_stage($failure['stage'],$failure['table'],$failure['query_phase'],$errorType);
         pf_jenny_json(503,['success'=>false,'diagnostic_version'=>PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION,'runtime'=>pf_jenny_runtime_diagnostics(),'diagnostic_failure'=>$failure,'error'=>'A complete safe preview could not be verified. No changes were made. Refresh or contact support.']);
     }
