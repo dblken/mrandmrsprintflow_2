@@ -124,7 +124,7 @@ if (printflow_provider_payments_ready()) {
             LEFT JOIN orders o ON o.order_id = pp.order_id
             LEFT JOIN customers c ON c.customer_id = pp.customer_id
             LEFT JOIN branches b ON b.id = COALESCE(NULLIF(pp.branch_id, 0), o.branch_id)
-            WHERE 1=1";
+            WHERE 1=1 AND " . printflow_customer_exclusion_payment_scope_sql('provider_payments', 'pp', 'pp.id', 'pp.order_id', 'pp.customer_id');
     $types = '';
     $params = [];
 

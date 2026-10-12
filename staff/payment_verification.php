@@ -78,7 +78,8 @@ try {
               LEFT JOIN orders o ON o.order_id = ps.order_id
               LEFT JOIN job_orders jo ON jo.id = ps.job_order_id
               LEFT JOIN customers c ON c.customer_id = ps.customer_id
-              WHERE 1=1";
+              WHERE 1=1 AND " . printflow_customer_exclusion_payment_scope_sql('payment_submissions', 'ps', 'ps.id', 'ps.order_id', 'ps.customer_id')
+              . ' AND ' . printflow_customer_exclusion_job_scope_sql('jo');
     $types  = '';
     $params = [];
     if ($branchFilter !== null) {

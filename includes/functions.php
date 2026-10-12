@@ -10,6 +10,7 @@ date_default_timezone_set('Asia/Manila');
 require_once __DIR__ . '/customization_normalizer.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/order_archive.php';
+require_once __DIR__ . '/customer_exclusion.php';
 require_once __DIR__ . '/email_sms_config.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/ensure_order_source_column.php'; // Ensure order_source column exists

@@ -51,9 +51,9 @@ function fmtQty($val, $isPcs) {
 function printflow_stock_card_branch_ledger(int $item_id, int $branchId): array {
     [$txnBranchSql, $txnBranchTypes, $txnBranchParams] = InventoryManager::branchClause('branch_id', $branchId);
     $txnsAsc = db_query(
-        "SELECT id, direction, ref_type, quantity, transaction_date
-         FROM inventory_transactions
-         WHERE item_id = ?{$txnBranchSql}
+        "SELECT it.id, it.direction, it.ref_type, it.quantity, it.transaction_date
+         FROM inventory_transactions it
+         WHERE it.item_id = ? AND " . printflow_customer_exclusion_inventory_scope_sql('it', 'inventory_transactions') . "{$txnBranchSql}
          ORDER BY transaction_date ASC, id ASC",
         'i' . $txnBranchTypes,
         array_merge([$item_id], $txnBranchParams)
@@ -168,9 +168,9 @@ for ($i = 6; $i >= 0; $i--) {
     $d = date('Y-m-d', strtotime("-$i days"));
     $usageLabels[] = date('M j', strtotime($d));
     $row = db_query(
-        "SELECT COALESCE(SUM(quantity), 0) as outq
-         FROM inventory_transactions
-         WHERE item_id = ? AND direction = 'OUT' AND DATE(transaction_date) = ?{$txnBranchSql}",
+        "SELECT COALESCE(SUM(it.quantity), 0) as outq
+         FROM inventory_transactions it
+         WHERE it.item_id = ? AND it.direction = 'OUT' AND DATE(it.transaction_date) = ? AND " . printflow_customer_exclusion_inventory_scope_sql('it', 'inventory_transactions') . "{$txnBranchSql}",
         'is' . $txnBranchTypes,
         array_merge([$item_id, $d], $txnBranchParams)
     );

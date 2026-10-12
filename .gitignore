@@ -88,6 +88,7 @@ backups*/
 *.sql
 !printflow.sql
 !database/*.sql
+!migrations/20261012_create_customer_exclusion.sql
 
 # ===========================================
 # Environment & Configuration
