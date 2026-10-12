@@ -9,7 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 
 const PF_JENNY_CLEANUP_CUSTOMER_ID = 25;
 const PF_JENNY_CLEANUP_DELETE_ORDER = ['push_notification_queue','notifications','message_reactions','review_helpful','customer_cart','order_revision_requests','order_item_revisions','job_order_materials','job_orders','order_messages','customizations','order_items','orders'];
-const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-7';
+const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-8';
 
 /** Runtime-only diagnostics; never includes connection credentials. */
 function pf_jenny_runtime_diagnostics(): array
@@ -511,11 +511,16 @@ function pf_jenny_audit(string $status, array $details): void
  */
 function pf_jenny_completed_cleanup_preview(): ?array
 {
+    $fail=static function(string $phase,string $table='completed_cleanup_audit'): null {
+        $GLOBALS['pf_jenny_completed_preview_failure']=['table'=>$table,'phase'=>$phase];
+        return null;
+    };
+    unset($GLOBALS['pf_jenny_completed_preview_failure']);
     $auditRows=pf_jenny_query("SELECT details FROM customer_testing_data_cleanup_audit WHERE customer_id = 25 AND actor_customer_id = 25 AND status = 'deleted' ORDER BY audit_id DESC LIMIT 1");
-    if (!$auditRows) return null;
+    if (!$auditRows) return $fail('committed_audit_lookup');
     $audit=json_decode((string)($auditRows[0]['details']??''),true);
-    if (!is_array($audit) || !is_array($audit['deleted']??null) || !is_array($audit['remaining']??null)) return null;
-    if (($audit['failed']??null)!==[] || !is_array($audit['protected']??null)) return null;
+    if (!is_array($audit) || !is_array($audit['deleted']??null) || !is_array($audit['remaining']??null)) return $fail('committed_audit_shape');
+    if (($audit['failed']??null)!==[] || !is_array($audit['protected']??null)) return $fail('committed_audit_status');
 
     $expectedDeleted=[
         'push_notification_queue'=>141,'notifications'=>141,'message_reactions'=>3,'review_helpful'=>14,
@@ -523,7 +528,7 @@ function pf_jenny_completed_cleanup_preview(): ?array
         'job_orders'=>58,'order_messages'=>84,'customizations'=>24,'order_items'=>28,'orders'=>59,
     ];
     foreach($expectedDeleted as $table=>$count){
-        if((int)($audit['deleted'][$table]??-1)!==$count || (int)($audit['remaining'][$table]??-1)!==0) return null;
+        if((int)($audit['deleted'][$table]??-1)!==$count || (int)($audit['remaining'][$table]??-1)!==0) return $fail('committed_audit_counts_'.$table,$table);
     }
 
     $spec=[
@@ -543,11 +548,11 @@ function pf_jenny_completed_cleanup_preview(): ?array
         $ids=pf_jenny_ranges($ranges);
         foreach(array_chunk($ids,25) as $batch){
             $marks=implode(',',array_fill(0,count($batch),'?'));
-            if(pf_jenny_query("SELECT `{$pk}` FROM `{$table}` WHERE `{$pk}` IN ({$marks}) LIMIT 1",str_repeat('i',count($batch)),$batch)) return null;
+            if(pf_jenny_query("SELECT `{$pk}` FROM `{$table}` WHERE `{$pk}` IN ({$marks}) LIMIT 1",str_repeat('i',count($batch)),$batch)) return $fail('deleted_id_recheck',$table);
         }
     }
     $cart=pf_jenny_query('SELECT product_id FROM customer_cart WHERE customer_id = 25 AND product_id IN (46,47,49,58,64) AND variant_id = 0 AND quantity = 1');
-    if($cart) return null;
+    if($cart) return $fail('deleted_id_recheck','customer_cart');
 
     $auditedOrderIds=pf_jenny_ranges(pf_jenny_audited_order_id_spec());
     $currentOrders=[];
@@ -555,23 +560,23 @@ function pf_jenny_completed_cleanup_preview(): ?array
         $marks=implode(',',array_fill(0,count($batch),'?'));
         $currentOrders=array_merge($currentOrders,pf_jenny_query('SELECT order_id,customer_id,payment_status,downpayment_amount,payment_proof_path,payment_proof FROM orders WHERE order_id IN ('.$marks.') ORDER BY order_id',str_repeat('i',count($batch)),$batch));
     }
-    if(count($currentOrders)!==2) return null;
+    if(count($currentOrders)!==2) return $fail('protected_order_recheck','orders');
     foreach($currentOrders as $order){
-        if((int)$order['customer_id']!==25) return null;
+        if((int)$order['customer_id']!==25) return $fail('protected_order_ownership','orders');
         $protected=(string)($order['payment_status']??'')!=='Unpaid'
             || (float)($order['downpayment_amount']??0)!==0.0
             || (string)($order['payment_proof_path']??'')!==''
             || (string)($order['payment_proof']??'')!=='';
-        if(!$protected) return null;
+        if(!$protected) return $fail('protected_order_classification','orders');
     }
-    if(count($auditedOrderIds)-count($currentOrders)!==(int)$expectedDeleted['orders']) return null;
+    if(count($auditedOrderIds)-count($currentOrders)!==(int)$expectedDeleted['orders']) return $fail('already_deleted_order_count','orders');
 
     $protectedOrderIds=array_map(static fn($row)=>(int)$row['order_id'],$currentOrders);
     $protectedCounts=['orders'=>2];
     $excludedReactionIds=pf_jenny_ranges([39]);
     $safeMessageIds=pf_jenny_ranges($spec['order_messages'][1]);
     $excludedReactions=pf_jenny_query('SELECT reaction_id FROM message_reactions WHERE reaction_id IN ('.implode(',',array_fill(0,count($excludedReactionIds),'?')).') AND sender = ? AND sender_id = 25 AND message_id NOT IN ('.implode(',',array_fill(0,count($safeMessageIds),'?')).')',str_repeat('i',count($excludedReactionIds)).'s'.str_repeat('i',count($safeMessageIds)),array_merge($excludedReactionIds,['Customer'],$safeMessageIds));
-    if(array_map(static fn($row)=>(int)$row['reaction_id'],$excludedReactions)!==$excludedReactionIds) return null;
+    if(array_map(static fn($row)=>(int)$row['reaction_id'],$excludedReactions)!==$excludedReactionIds) return $fail('excluded_reaction_recheck','message_reactions');
     $protectedCounts['message_reactions_outside_safe_messages']=count($excludedReactions);
     foreach([
         'order_items'=>['order_id','order_item_id'],
@@ -647,7 +652,7 @@ if ($method==='GET') {
         $counts=[]; foreach($plan['ids'] as $table=>$values) if(is_array($values) && !in_array($table,['protected_counts','other_customer_snapshot'],true)) $counts[$table]=count($values);
         pf_jenny_json(200,['success'=>true,'diagnostic_version'=>PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION,'runtime'=>pf_jenny_runtime_diagnostics(),'preview_token'=>$token,'counts'=>$counts,'protected'=>$plan['ids']['protected_counts'],'protected_excluded_by_scope'=>['label'=>'Protected / Excluded by scope','records'=>$plan['protected_excluded_by_scope']],'uncertain'=>['physical_file_reference_rows'=>267,'unique_physical_files'=>'Unverified; retain all files.','chatbot_inquiries'=>'Ownerless by schema; retain.'],'delete_order'=>PF_JENNY_CLEANUP_DELETE_ORDER]);
     } catch(Throwable $e) {
-        $context=$GLOBALS['pf_jenny_cleanup_context']??[];
+        $context=$GLOBALS['pf_jenny_completed_preview_failure']??($GLOBALS['pf_jenny_cleanup_context']??[]);
         $errorType=(new ReflectionClass($e))->getShortName();
         $failure=['stage'=>'preview_failed','table'=>(string)($context['table']??'unknown'),'query_phase'=>(string)($context['phase']??'plan'),'error_type'=>$errorType];
         foreach (['db_error_stage','db_errno','db_sqlstate','exception_type','exception_code','expected_count','actual_count','mismatch_count'] as $detailKey) {
