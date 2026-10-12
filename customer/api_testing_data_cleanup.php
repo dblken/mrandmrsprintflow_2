@@ -124,6 +124,28 @@ function pf_jenny_diagnostic_count(string $step, string $table, string $sql, str
     return $entry;
 }
 
+/** Mirror the application's buffered SELECT result path while returning only the row count. */
+function pf_jenny_diagnostic_select_rows(string $step, string $table, string $sql, string $types, array $params): array
+{
+    global $conn;
+    $entry=['query_step'=>$step,'table'=>$table,'row_count'=>null,'database_error_code'=>null,'error_type'=>'none','sanitized_error_message'=>''];
+    $statement=null;
+    try {
+        if(!($conn instanceof mysqli))throw new RuntimeException('Database connection is unavailable.');
+        $statement=$conn->prepare($sql);
+        if(!$statement){$errno=(int)$conn->errno;$entry['database_error_code']=$errno;$entry['error_type']='mysqli_prepare_error';$entry['sanitized_error_message']=pf_jenny_sanitized_db_message($errno);return $entry;}
+        $arguments=[$types];foreach($params as &$value)$arguments[]=&$value;unset($value);
+        call_user_func_array([$statement,'bind_param'],$arguments);
+        if(!$statement->execute()){$errno=(int)$statement->errno;$entry['database_error_code']=$errno;$entry['error_type']='mysqli_execute_error';$entry['sanitized_error_message']=pf_jenny_sanitized_db_message($errno);return $entry;}
+        $result=$statement->get_result();
+        if(!($result instanceof mysqli_result)){$errno=(int)$statement->errno;$entry['database_error_code']=$errno;$entry['error_type']='mysqli_get_result_error';$entry['sanitized_error_message']=pf_jenny_sanitized_db_message($errno);return $entry;}
+        $count=0;while($result->fetch_assoc()!==null)$count++;
+        $result->free();$entry['row_count']=$count;
+    }catch(Throwable $e){$errno=$statement instanceof mysqli_stmt?(int)$statement->errno:(int)($conn instanceof mysqli?$conn->errno:0);$entry['database_error_code']=$errno;$entry['error_type']=(new ReflectionClass($e))->getShortName();$entry['sanitized_error_message']=pf_jenny_sanitized_db_message($errno);}
+    finally{if($statement instanceof mysqli_stmt)$statement->close();}
+    return $entry;
+}
+
 function pf_jenny_sanitized_db_message(int $errno): string
 {
     return match ($errno) {
@@ -151,6 +173,8 @@ function pf_jenny_orders_diagnostic(): array
     };
     foreach($batches as $index=>$ids){
         $marks=implode(',',array_fill(0,count($ids),'?'));
+        $steps[]=pf_jenny_diagnostic_select_rows('order_select_star_result_fetch_batch_'.($index+1),'orders','SELECT * FROM orders WHERE order_id IN ('.$marks.') ORDER BY order_id',str_repeat('i',count($ids)),$ids);
+        $steps[]=pf_jenny_diagnostic_select_rows('customer_owned_order_select_star_result_fetch_batch_'.($index+1),'orders','SELECT * FROM orders WHERE order_id IN ('.$marks.') AND customer_id = 25 ORDER BY order_id',str_repeat('i',count($ids)),$ids);
         $steps[]=pf_jenny_diagnostic_count('order_id_selection_batch_'.($index+1),'orders','SELECT COUNT(*) AS row_count FROM orders WHERE order_id IN ('.$marks.')',str_repeat('i',count($ids)),$ids);
         $steps[]=pf_jenny_diagnostic_count('customer_ownership_validation_batch_'.($index+1),'orders','SELECT COUNT(*) AS row_count FROM orders WHERE order_id IN ('.$marks.') AND customer_id = 25',str_repeat('i',count($ids)),$ids);
         $steps[]=pf_jenny_diagnostic_count('protected_order_classification_batch_'.($index+1),'orders','SELECT COUNT(*) AS row_count FROM orders WHERE order_id IN ('.$marks.') AND (COALESCE(payment_status,?) <> ? OR COALESCE(downpayment_amount,0) <> 0 OR COALESCE(payment_proof_path,?) <> ? OR COALESCE(payment_proof,?) <> ?)',str_repeat('i',count($ids)).'ssssss',array_merge($ids,['','Unpaid','','','','']));
