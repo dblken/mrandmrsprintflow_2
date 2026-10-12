@@ -25,7 +25,12 @@ $check($repeatedHide['already_archived_count'] === 2 && $repeatedHide['newly_arc
 $restoredState = [$order(40, 'inactive'), $order(41, 'inactive', 'archived')];
 $restored = printflow_customer_archive_batch_counts($restoredState, false);
 $rehide = printflow_customer_archive_batch_counts($restoredState, false);
-$check($restored['already_archived_count'] === 1 && $restored['newly_archived_count'] === 1, 'restore leaves legacy archive mappings protected and makes other Jenny orders visible');
+$check($restored['already_archived_count'] === 1 && $restored['newly_archived_count'] === 1, 'restore leaves legacy archive mappings protected and makes the other orders visible');
+$jennyReason = 'Admin-authorized reversible customer-specific archive/hide for Jenny Ferr account 25.';
+$check(printflow_customer_archive_managed_reason($jennyReason) && printflow_customer_archive_order_reason_is_managed(25, $jennyReason) && !printflow_customer_archive_order_reason_is_managed(44, $jennyReason), 'Jenny Ferr archive reasons stay managed only for customer 25');
+$check(printflow_customer_archive_reference('Archive reference: JNY-25-20261012-010101-ABC123; kept') === 'JNY-25-20261012-010101-ABC123', 'existing Jenny archive references still parse');
+$check(printflow_customer_archive_order_reason_is_managed(44, 'Archive reference: ARC-44-20261012-010101-ABC123; Admin-authorized reversible customer archive.') && !printflow_customer_archive_order_reason_is_managed(25, 'Archive reference: ARC-44-20261012-010101-ABC123; Admin-authorized reversible customer archive.'), 'archive references do not cross customers');
+$check(!printflow_customer_archive_managed_reason('A separate manual exclusion'), 'unrelated exclusion reasons are not overwritten by this archive');
 $check($rehide['total_orders_found'] === 2 && $rehide['newly_archived_count'] === 1, 'restore and re-hide recompute current per-order state');
 
 if ($failures !== []) {

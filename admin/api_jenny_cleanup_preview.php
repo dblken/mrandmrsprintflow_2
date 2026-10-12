@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-/** Read-only, Admin-only Jenny Ferr cleanup scope audit. This endpoint never mutates data. */
+/** Read-only, Admin-only related-record preview for one selected customer. This endpoint never mutates data. */
 require_once __DIR__ . '/../includes/json_endpoint.php';
 printflow_json_endpoint_bootstrap();
 require_once __DIR__ . '/../includes/auth.php';
@@ -14,15 +14,24 @@ if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'GET') {
     printflow_json_response(['success' => false, 'error' => 'This audit endpoint accepts GET only.'], 405);
 }
 
-const PF_JENNY_AUDIT_CUSTOMER_ID = 25;
-const PF_JENNY_AUDIT_VERSION = 'jenny-admin-preview-20261012-v5';
+const PF_JENNY_AUDIT_VERSION = 'customer-archive-preview-20261012-v6';
+
+$pfArchiveAuditCustomerId = (int)($_GET['customer_id'] ?? 0);
+if ($pfArchiveAuditCustomerId < 1) {
+    printflow_json_response(['success' => false, 'error' => 'Select a customer before loading the archive preview.'], 400);
+}
+$pfArchiveAuditCustomer = db_query('SELECT customer_id FROM customers WHERE customer_id = ? LIMIT 1', 'i', [$pfArchiveAuditCustomerId]);
+if (!$pfArchiveAuditCustomer) {
+    printflow_json_response(['success' => false, 'error' => 'Selected customer was not found.'], 404);
+}
 
 function pf_jenny_audit_log(string $stage, string $table, int $errno, string $errorType): void
 {
-    error_log('[jenny_cleanup_audit] ' . json_encode([
+    global $pfArchiveAuditCustomerId;
+    error_log('[customer_archive_audit] ' . json_encode([
         'stage' => preg_replace('/[^a-z0-9_.-]/i', '', $stage),
         'table' => preg_match('/^[a-z0-9_]+$/i', $table) ? $table : 'unknown',
-        'customer_id' => PF_JENNY_AUDIT_CUSTOMER_ID,
+        'customer_id' => (int)$pfArchiveAuditCustomerId,
         'db_errno' => max(0, $errno),
         'error_type' => preg_replace('/[^a-z0-9_.-]/i', '', $errorType),
     ], JSON_UNESCAPED_SLASHES));
@@ -217,7 +226,7 @@ if ($fkQuery['failure'] !== null) {
 foreach (['orders' => 'order_id', 'service_orders' => 'id'] as $root => $pk) {
     if (!isset($schema[$root]) || !in_array($pk, $schema[$root], true)) continue;
     $q = pf_jenny_audit_query('fk_seed_root_customer_scope', $root,
-        'SELECT ' . pf_jenny_audit_ident($pk) . ' AS record_id FROM ' . pf_jenny_audit_ident($root) . ' WHERE customer_id = ? ORDER BY ' . pf_jenny_audit_ident($pk), 'i', [PF_JENNY_AUDIT_CUSTOMER_ID]);
+        'SELECT ' . pf_jenny_audit_ident($pk) . ' AS record_id FROM ' . pf_jenny_audit_ident($root) . ' WHERE customer_id = ? ORDER BY ' . pf_jenny_audit_ident($pk), 'i', [$pfArchiveAuditCustomerId]);
     if ($q['failure'] !== null) { $failures[] = $q['failure']; continue; }
     $scopeIds[$root] = array_values(array_map('intval', array_column($q['rows'], 'record_id')));
 }
@@ -225,7 +234,7 @@ foreach ($schema as $table => $columns) {
     if ($table === 'customers' || !in_array('customer_id', $columns, true) || !$primaryKey[$table]) continue;
     $pk = $primaryKey[$table];
     $q = pf_jenny_audit_query('fk_seed_direct_customer_scope', $table,
-        'SELECT ' . pf_jenny_audit_ident($pk) . ' AS record_id FROM ' . pf_jenny_audit_ident($table) . ' WHERE customer_id = ? ORDER BY ' . pf_jenny_audit_ident($pk), 'i', [PF_JENNY_AUDIT_CUSTOMER_ID]);
+        'SELECT ' . pf_jenny_audit_ident($pk) . ' AS record_id FROM ' . pf_jenny_audit_ident($table) . ' WHERE customer_id = ? ORDER BY ' . pf_jenny_audit_ident($pk), 'i', [$pfArchiveAuditCustomerId]);
     if ($q['failure'] !== null) { $failures[] = $q['failure']; continue; }
     $scopeIds[$table] = array_values(array_unique(array_merge($scopeIds[$table] ?? [], array_map('intval', array_column($q['rows'], 'record_id')))));
 }
@@ -316,7 +325,7 @@ foreach ($directCustomerTables as $table) {
     if ($table === 'customers' || !$primaryKey[$table]) continue;
     $pk = $primaryKey[$table];
     $q = pf_jenny_audit_query('direct_customer_scope', $table,
-        'SELECT ' . pf_jenny_audit_ident($pk) . ' AS record_id FROM ' . pf_jenny_audit_ident($table) . ' WHERE `customer_id` = ? ORDER BY ' . pf_jenny_audit_ident($pk), 'i', [PF_JENNY_AUDIT_CUSTOMER_ID]);
+        'SELECT ' . pf_jenny_audit_ident($pk) . ' AS record_id FROM ' . pf_jenny_audit_ident($table) . ' WHERE `customer_id` = ? ORDER BY ' . pf_jenny_audit_ident($pk), 'i', [$pfArchiveAuditCustomerId]);
     if ($q['failure'] !== null) { $failures[] = $q['failure']; continue; }
     $ids = array_values(array_map('intval', array_column($q['rows'], 'record_id')));
     $scopeIds[$table] = array_values(array_unique(array_merge($scopeIds[$table] ?? [], $ids)));
@@ -326,7 +335,7 @@ foreach ($directCustomerTables as $table) {
 foreach (['orders' => 'order_id', 'service_orders' => 'id'] as $root => $pk) {
     if (!isset($schema[$root]) || !in_array($pk, $schema[$root], true)) continue;
     $q = pf_jenny_audit_query('root_customer_scope', $root,
-        'SELECT ' . pf_jenny_audit_ident($pk) . ' AS record_id FROM ' . pf_jenny_audit_ident($root) . ' WHERE customer_id = ? ORDER BY ' . pf_jenny_audit_ident($pk), 'i', [PF_JENNY_AUDIT_CUSTOMER_ID]);
+        'SELECT ' . pf_jenny_audit_ident($pk) . ' AS record_id FROM ' . pf_jenny_audit_ident($root) . ' WHERE customer_id = ? ORDER BY ' . pf_jenny_audit_ident($pk), 'i', [$pfArchiveAuditCustomerId]);
     if ($q['failure'] !== null) { $failures[] = $q['failure']; continue; }
     $scopeIds[$root] = array_values(array_map('intval', array_column($q['rows'], 'record_id')));
 }
@@ -486,16 +495,16 @@ $dbIdentity = pf_jenny_audit_query('database_identity', 'DATABASE()', 'SELECT DA
 if ($dbIdentity['failure'] !== null) $failures[] = $dbIdentity['failure'];
 $dbName = (string)($dbIdentity['rows'][0]['db_name'] ?? '');
 $visibilityRows = printflow_customer_exclusion_schema_ready()
-    ? (db_query("SELECT status FROM customer_exclusion WHERE customer_id = ? AND entity_type = 'CUSTOMER' AND record_id = ? LIMIT 1", 'ii', [PF_JENNY_AUDIT_CUSTOMER_ID, PF_JENNY_AUDIT_CUSTOMER_ID]) ?: [])
+    ? (db_query("SELECT status FROM customer_exclusion WHERE customer_id = ? AND entity_type = 'CUSTOMER' AND record_id = ? LIMIT 1", 'ii', [$pfArchiveAuditCustomerId, $pfArchiveAuditCustomerId]) ?: [])
     : [];
 $orderExclusionCount = printflow_customer_exclusion_schema_ready()
-    ? (int)((db_query("SELECT COUNT(*) AS n FROM customer_exclusion WHERE customer_id = ? AND entity_type = 'ORDER' AND status = 'active'", 'i', [PF_JENNY_AUDIT_CUSTOMER_ID]) ?: [])[0]['n'] ?? 0)
+    ? (int)((db_query("SELECT COUNT(*) AS n FROM customer_exclusion WHERE customer_id = ? AND entity_type = 'ORDER' AND status = 'active'", 'i', [$pfArchiveAuditCustomerId]) ?: [])[0]['n'] ?? 0)
     : 0;
 printflow_json_response([
     'success' => count($failures) === 0,
     'diagnostic_version' => PF_JENNY_AUDIT_VERSION,
     'database' => ['name' => $dbName, 'host' => (string)$conn->host_info],
-    'target' => ['customer_id' => PF_JENNY_AUDIT_CUSTOMER_ID],
+    'target' => ['customer_id' => $pfArchiveAuditCustomerId],
     'visibility_exclusion' => [
         'schema_ready' => printflow_customer_exclusion_schema_ready(),
         'customer_status' => (string)($visibilityRows[0]['status'] ?? 'inactive'),
