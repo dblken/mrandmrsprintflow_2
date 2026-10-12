@@ -10,6 +10,18 @@ require_once __DIR__ . '/../includes/functions.php';
 const PF_JENNY_CLEANUP_CUSTOMER_ID = 25;
 const PF_JENNY_CLEANUP_DELETE_ORDER = ['push_notification_queue','notifications','chatbot_messages','chatbot_conversations','message_reactions','review_helpful','customer_cart','order_revision_requests','order_item_revisions','job_order_materials','job_orders','order_messages','customizations','order_items','orders'];
 
+/** Temporary diagnostics deliberately exclude SQL text, values, exception messages, and customer data. */
+function pf_jenny_log_stage(string $stage, string $table = 'unknown', string $phase = 'request', string $errorType = 'none'): void
+{
+    error_log('jenny_cleanup_debug ' . json_encode([
+        'stage' => preg_replace('/[^a-z0-9_.-]/i', '', $stage),
+        'customer_id' => PF_JENNY_CLEANUP_CUSTOMER_ID,
+        'table' => preg_match('/^[A-Za-z0-9_]+$/D', $table) ? $table : 'unknown',
+        'query_phase' => preg_replace('/[^a-z0-9_.-]/i', '', $phase),
+        'error_type' => preg_replace('/[^a-z0-9_.-]/i', '', $errorType),
+    ], JSON_UNESCAPED_SLASHES));
+}
+
 function pf_jenny_json(int $status, array $payload): never
 {
     http_response_code($status);
@@ -50,8 +62,16 @@ function pf_jenny_in_sql(string $column, array $ids): array
 function pf_jenny_query(string $sql, string $types = '', array $params = []): array
 {
     $before = count($GLOBALS['printflow_db_errors'] ?? []);
+    preg_match('/\b(?:FROM|JOIN|UPDATE|INTO)\s+`?([A-Za-z0-9_]+)`?/i', $sql, $tableMatch);
+    $table = $tableMatch[1] ?? 'unknown';
+    $GLOBALS['pf_jenny_cleanup_context'] = ['table' => $table, 'phase' => 'execute'];
     $rows = db_query($sql, $types, $params);
-    if (!is_array($rows) || count($GLOBALS['printflow_db_errors'] ?? []) > $before) throw new RuntimeException('A database query failed; cleanup is disabled.');
+    if (!is_array($rows) || count($GLOBALS['printflow_db_errors'] ?? []) > $before) {
+        $errors = $GLOBALS['printflow_db_errors'] ?? [];
+        $latest = $errors ? end($errors) : [];
+        pf_jenny_log_stage($GLOBALS['pf_jenny_cleanup_request_stage'] ?? 'query', $table, (string)($latest['stage'] ?? 'execute'), 'database_query_failure');
+        throw new RuntimeException('A database query failed; cleanup is disabled.');
+    }
     return $rows;
 }
 
@@ -277,6 +297,7 @@ if (($_SESSION['user_type'] ?? '') !== 'Customer' || (int)get_user_id() !== PF_J
 $customerId=(int)get_user_id();
 $method=strtoupper((string)($_SERVER['REQUEST_METHOD']??''));
 if ($method==='GET') {
+    $GLOBALS['pf_jenny_cleanup_request_stage'] = 'preview';
     try {
         pf_jenny_require_audit_table();
         $plan=pf_jenny_plan();
@@ -284,7 +305,7 @@ if ($method==='GET') {
         $_SESSION['jenny_cleanup_preview']=['token_hash'=>hash('sha256',$token),'fingerprint'=>pf_jenny_fingerprint($plan),'expires'=>time()+600];
         $counts=[]; foreach($plan['ids'] as $table=>$values) if(is_array($values) && !in_array($table,['protected_counts','other_customer_snapshot'],true)) $counts[$table]=count($values);
         pf_jenny_json(200,['success'=>true,'preview_token'=>$token,'counts'=>$counts,'protected'=>$plan['ids']['protected_counts'],'uncertain'=>['physical_file_reference_rows'=>267,'unique_physical_files'=>'Unverified; retain all files.','chatbot_inquiries'=>'Ownerless by schema; retain.'],'delete_order'=>PF_JENNY_CLEANUP_DELETE_ORDER]);
-    } catch(Throwable $e) { error_log('Jenny testing-data cleanup preview failed: '.$e->getMessage()); pf_jenny_json(503,['success'=>false,'error'=>'A complete safe preview could not be verified. No changes were made. Refresh or contact support.']); }
+    } catch(Throwable $e) { $context=$GLOBALS['pf_jenny_cleanup_context']??[]; pf_jenny_log_stage('preview_failed',(string)($context['table']??'unknown'),(string)($context['phase']??'plan'),(new ReflectionClass($e))->getShortName()); pf_jenny_json(503,['success'=>false,'error'=>'A complete safe preview could not be verified. No changes were made. Refresh or contact support.']); }
 }
 if($method!=='POST') pf_jenny_json(405,['success'=>false,'error'=>'Method not allowed.']);
 $input=json_decode(file_get_contents('php://input'),true)?:[];
@@ -295,7 +316,9 @@ if(empty($saved['token_hash'])||!hash_equals((string)$saved['token_hash'],hash('
 global $conn;
 $deleted=[]; $protected=[]; $plan=null;
 try {
+    $GLOBALS['pf_jenny_cleanup_request_stage'] = 'delete_validation';
     if(!$conn->begin_transaction()) throw new RuntimeException('Could not start cleanup transaction.');
+    $GLOBALS['pf_jenny_cleanup_request_stage'] = 'locked_plan';
     $plan=pf_jenny_plan(true);
     $protected=$plan['ids']['protected_counts'];
     if(!hash_equals((string)$saved['fingerprint'],pf_jenny_fingerprint($plan))) throw new RuntimeException('The safe data changed since preview.');
@@ -318,6 +341,7 @@ try {
         'orders'=>['customer_id = 25','',[]],
     ];
     foreach($deleteOrder as $table){
+        $GLOBALS['pf_jenny_cleanup_context'] = ['table' => $table, 'phase' => 'delete'];
         $ids=$plan['ids'][$table]??[]; if(!$ids) continue;
         $pk=['orders'=>'order_id','order_items'=>'order_item_id','order_messages'=>'message_id','customizations'=>'customization_id','job_orders'=>'id','job_order_materials'=>'id','order_item_revisions'=>'revision_id','order_revision_requests'=>'revision_request_id','chatbot_conversations'=>'id','chatbot_messages'=>'id','notifications'=>'notification_id','push_notification_queue'=>'id','message_reactions'=>'reaction_id','review_helpful'=>'id','customer_cart'=>'product_id'][$table];
         if ($table === 'customer_cart') {
@@ -349,7 +373,8 @@ try {
     if($conn instanceof mysqli) $conn->rollback();
     $failed=['transaction_rolled_back'=>1];
     $remaining=[]; if(is_array($plan)) foreach($plan['ids'] as $table=>$values) if(is_array($values) && !in_array($table,['protected_counts','other_customer_snapshot'],true)) $remaining[$table]=count($values);
-    try { pf_jenny_audit('failed',['deleted'=>[],'protected'=>$protected,'failed'=>$failed,'remaining'=>$remaining]); } catch(Throwable $auditError){ error_log('Jenny cleanup failure audit could not be written: '.$auditError->getMessage()); }
-    error_log('Jenny testing-data cleanup transaction failed: '.$e->getMessage());
+    try { pf_jenny_audit('failed',['deleted'=>[],'protected'=>$protected,'failed'=>$failed,'remaining'=>$remaining]); } catch(Throwable $auditError){ pf_jenny_log_stage('failure_audit','customer_testing_data_cleanup_audit','insert',(new ReflectionClass($auditError))->getShortName()); }
+    $context=$GLOBALS['pf_jenny_cleanup_context']??[];
+    pf_jenny_log_stage('delete_failed',(string)($context['table']??'unknown'),(string)($context['phase']??'transaction'),(new ReflectionClass($e))->getShortName());
     pf_jenny_json(500,['success'=>false,'error'=>'Cleanup failed and the database transaction was rolled back. See the audit log.']);
 }
