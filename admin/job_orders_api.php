@@ -65,7 +65,7 @@ $joApiStartedAt = microtime(true);
 $joStaffBranch = null;
 // Keep the page-query contract visible while the staff/admin deployment is
 // being verified.  This is deliberately a response marker, not a cache key.
-const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'demo_seed_visibility_fix_20261001_live';
+const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'staff_customizations_query_live_20261001';
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -1127,180 +1127,11 @@ try {
     switch ($action) {
         case 'page_query_trace':
         case 'page_query_row_trace':
-            if (!in_array(get_user_type() ?? '', ['Admin', 'Staff', 'Manager'], true)) {
-                jo_api_json_response(['success' => false, 'error' => 'Forbidden'], 403);
-            }
-            $seedKey = trim((string)($_GET['seed_row_key'] ?? $_POST['seed_row_key'] ?? ''));
-            $traceOrderId = (int)($_GET['order_id'] ?? $_POST['order_id'] ?? 0);
-            if ($seedKey === '' && $traceOrderId <= 0) {
-                jo_api_json_response(['success' => false, 'error' => 'seed_row_key or order_id is required'], 400);
-            }
-            $seedRows = db_query(
-                'SELECT dsr.seed_row_key, dsr.order_id, dsr.customization_id, dsr.job_order_id,
-                        o.order_source, o.order_type, o.status AS order_status, o.order_date,
-                        o.branch_id, cust.status AS customization_status,
-                        jo.status AS job_status,
-                        c.first_name, c.last_name, c.email, c.contact_number
-                 FROM demo_seed_rows dsr
-                 LEFT JOIN orders o ON o.order_id = dsr.order_id
-                 LEFT JOIN customizations cust ON cust.customization_id = dsr.customization_id
-                 LEFT JOIN job_orders jo ON jo.id = dsr.job_order_id
-                 LEFT JOIN customers c ON c.customer_id = COALESCE(cust.customer_id, o.customer_id)
-                 WHERE ' . ($seedKey !== '' ? 'dsr.seed_row_key = ?' : 'dsr.order_id = ?') . ' LIMIT 1',
-                $seedKey !== '' ? 's' : 'i', [$seedKey !== '' ? $seedKey : $traceOrderId]
-            ) ?: [];
-            $seed = $seedRows[0] ?? null;
-            if (!$seed) {
-                jo_api_json_response(['success' => false, 'error' => 'Seed row not found'], 404);
-            }
-            $oid = (int)($seed['order_id'] ?? 0);
-            $branchOk = $joStaffBranch === null || (int)($seed['branch_id'] ?? 0) === $joStaffBranch;
-            $sourceOk = in_array(strtolower(trim((string)($seed['order_source'] ?? ''))), ['pos', 'walk-in'], true);
-            $typeOk = strtolower(trim((string)($seed['order_type'] ?? ''))) === 'custom';
-            $statusOk = in_array(strtolower(trim((string)($seed['order_status'] ?? ''))), [
-                'pending', 'pending review', 'pending approval', 'for revision', 'approved',
-                'to pay', 'payment confirmed', 'pending verification', 'downpayment submitted',
-                'to verify', 'processing', 'in production', 'printing', 'paid – in process',
-                'paid - in process', 'ready for pickup', 'completed', 'rejected', 'cancelled'
-            ], true);
-            $linksOk = $oid > 0 && (int)($seed['customization_id'] ?? 0) > 0 && (int)($seed['job_order_id'] ?? 0) > 0;
-            $eligible = $branchOk && $sourceOk && $typeOk && $statusOk && $linksOk;
-            $exclusions = [];
-            foreach ([
-                'branch' => $branchOk, 'source_pos' => $sourceOk, 'order_type_custom' => $typeOk,
-                'status' => $statusOk, 'linked_customization_and_job' => $linksOk
-            ] as $name => $ok) {
-                if (!$ok) $exclusions[] = $name;
-            }
-            $listRows = $oid > 0 ? (db_query(
-                "SELECT jo.id, jo.order_id, o.order_date, o.branch_id,
-                        o.status AS page_status, c.first_name, c.last_name,
-                        c.email AS customer_email, c.contact_number AS customer_phone,
-                        COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), '')) AS page_service_name
-                 FROM job_orders jo LEFT JOIN orders o ON o.order_id = jo.order_id
-                 LEFT JOIN customers c ON c.customer_id = o.customer_id
-                 WHERE jo.order_id = ?
-                   AND COALESCE(jo.branch_id, o.branch_id) = ?
-                   AND o.order_type = 'custom'
-                   AND LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
-                   AND LOWER(TRIM(COALESCE(o.status, ''))) NOT IN ('draft', 'cancelled')
-                   AND (
-                       EXISTS (SELECT 1 FROM customizations c_trace WHERE c_trace.order_id = o.order_id)
-                       OR EXISTS (SELECT 1 FROM order_items oi_trace WHERE oi_trace.order_id = o.order_id)
-                   )
-                 LIMIT 1", 'ii', [$oid, $joStaffBranch ?? (int)($seed['branch_id'] ?? 0)]
-            ) ?: []) : [];
-            $listIncludes = !empty($listRows);
-            $pageRow = $listRows[0] ?? [];
-            $requestedStatus = trim((string)($_GET['status'] ?? 'ALL'));
-            $dateFrom = trim((string)($_GET['date_from'] ?? ''));
-            $dateTo = trim((string)($_GET['date_to'] ?? ''));
-            $dateMatches = true;
-            if ($dateFrom !== '') $dateMatches = $dateMatches && substr((string)($pageRow['order_date'] ?? ''), 0, 10) >= $dateFrom;
-            if ($dateTo !== '') $dateMatches = $dateMatches && substr((string)($pageRow['order_date'] ?? ''), 0, 10) <= $dateTo;
-            $statusMatches = $requestedStatus === '' || strtoupper($requestedStatus) === 'ALL'
-                || strtoupper((string)($pageRow['page_status'] ?? '')) === strtoupper($requestedStatus);
-            $displayName = trim((string)($seed['first_name'] ?? '') . ' ' . (string)($seed['last_name'] ?? ''));
-            jo_api_json_response(['success' => true, 'data' => [
-                'seed_row_key' => $seedKey,
-                'order_id' => $oid,
-                'trace_eligible' => $eligible,
-                'actual_list_query_includes' => $listIncludes,
-                'actual_all_tab_count_includes' => $listIncludes,
-                'actual_completed_tab_count_includes' => $listIncludes && strtolower((string)($seed['order_status'] ?? '')) === 'completed',
-                'actual_sept_7_filter_includes' => $listIncludes && str_starts_with((string)($seed['order_date'] ?? ''), '2026-09-07'),
-                'actual_query_row' => $pageRow ?: null,
-                'customer_name_returned_by_query' => trim((string)($pageRow['first_name'] ?? '') . ' ' . (string)($pageRow['last_name'] ?? '')),
-                'customer_email_returned_by_query' => (string)($pageRow['customer_email'] ?? ''),
-                'service_name_returned_by_query' => (string)($pageRow['page_service_name'] ?? ''),
-                'order_date_returned_by_query' => (string)($pageRow['order_date'] ?? ''),
-                'branch_result' => (int)($pageRow['branch_id'] ?? 0),
-                'active_tab' => $requestedStatus,
-                'status_matches' => $statusMatches,
-                'applied_date_from' => $dateFrom,
-                'applied_date_to' => $dateTo,
-                'date_matches' => $dateMatches,
-                'customer_display_name' => $displayName !== '' ? $displayName : 'Walk-In Guest',
-                'customer_email' => (string)($seed['email'] ?? ''),
-                'customer_phone' => (string)($seed['contact_number'] ?? ''),
-                'exclusion_reasons' => array_values(array_merge($exclusions, $listIncludes ? [] : ['actual_staff_list_query'])),
-                'branch_context' => $joStaffBranch,
-            ]]);
-
         case 'page_query_batch_trace':
-            if (!in_array(get_user_type() ?? '', ['Admin', 'Staff', 'Manager'], true)) {
-                jo_api_json_response(['success' => false, 'error' => 'Forbidden'], 403);
-            }
-            $batchId = trim((string)($_GET['batch_id'] ?? $_GET['seed_batch_id'] ?? $_POST['batch_id'] ?? $_POST['seed_batch_id'] ?? ''));
-            if ($batchId === '') {
-                jo_api_json_response(['success' => false, 'error' => 'batch_id is required'], 400);
-            }
-            $batchRows = db_query(
-                "SELECT r.seed_row_key, r.batch_id, r.order_id, r.order_item_id,
-                        r.customization_id, r.job_order_id, r.customer_id,
-                        o.order_date, o.status AS order_status, o.order_source,
-                        o.order_type, o.branch_id,
-                        cust.status AS customization_status,
-                        COALESCE(NULLIF(TRIM(o_customer.first_name), ''), NULLIF(TRIM(cust_customer.first_name), '')) AS first_name,
-                        COALESCE(NULLIF(TRIM(o_customer.last_name), ''), NULLIF(TRIM(cust_customer.last_name), '')) AS last_name,
-                        COALESCE(NULLIF(TRIM(o_customer.email), ''), NULLIF(TRIM(cust_customer.email), '')) AS email,
-                        COALESCE(NULLIF(TRIM(o_customer.contact_number), ''), NULLIF(TRIM(cust_customer.contact_number), '')) AS phone,
-                        COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), NULLIF(TRIM(cust.service_type), '')) AS service_name
-                 FROM demo_seed_rows r
-                 LEFT JOIN orders o ON o.order_id = r.order_id
-                 LEFT JOIN customers o_customer ON o_customer.customer_id = o.customer_id
-                 LEFT JOIN customizations cust ON cust.customization_id = r.customization_id
-                 LEFT JOIN customers cust_customer ON cust_customer.customer_id = cust.customer_id
-                 LEFT JOIN job_orders jo ON jo.id = r.job_order_id
-                 WHERE r.batch_id = ? ORDER BY r.id ASC",
-                's', [$batchId]
-            ) ?: [];
-            $resultRows = [];
-            foreach ($batchRows as $row) {
-                $rowOrderId = (int)($row['order_id'] ?? 0);
-                $branchId = (int)($row['branch_id'] ?? 0);
-                $branchOk = $joStaffBranch === null || $branchId === $joStaffBranch;
-                $eligible = $rowOrderId > 0
-                    && strtolower(trim((string)($row['order_source'] ?? ''))) === 'pos'
-                    && strtolower(trim((string)($row['order_type'] ?? ''))) === 'custom'
-                    && $branchOk
-                    && (int)($row['customization_id'] ?? 0) > 0
-                    && (int)($row['job_order_id'] ?? 0) > 0
-                    && strtolower(trim((string)($row['order_status'] ?? ''))) !== 'draft';
-                $reasons = [];
-                if (!$branchOk) $reasons[] = 'branch_mismatch';
-                if (strtolower(trim((string)($row['order_source'] ?? ''))) !== 'pos') $reasons[] = 'order_source_not_pos';
-                if (strtolower(trim((string)($row['order_type'] ?? ''))) !== 'custom') $reasons[] = 'order_type_not_custom';
-                if ((int)($row['customization_id'] ?? 0) <= 0) $reasons[] = 'missing_customization';
-                if ((int)($row['job_order_id'] ?? 0) <= 0) $reasons[] = 'missing_job_order';
-                if (strtolower(trim((string)($row['order_status'] ?? ''))) === 'draft') $reasons[] = 'draft_order';
-                $resultRows[] = [
-                    'seed_row_key' => (string)($row['seed_row_key'] ?? ''),
-                    'batch_id' => (string)($row['batch_id'] ?? ''),
-                    'order_id' => $rowOrderId,
-                    'order_item_id' => (int)($row['order_item_id'] ?? 0),
-                    'customization_id' => (int)($row['customization_id'] ?? 0),
-                    'job_order_id' => (int)($row['job_order_id'] ?? 0),
-                    'customer_id' => (int)($row['customer_id'] ?? 0),
-                    'customer_name' => trim((string)($row['first_name'] ?? '') . ' ' . (string)($row['last_name'] ?? '')),
-                    'customer_email' => (string)($row['email'] ?? ''),
-                    'customer_phone' => (string)($row['phone'] ?? ''),
-                    'service_name' => (string)($row['service_name'] ?? ''),
-                    'order_date' => (string)($row['order_date'] ?? ''),
-                    'order_status' => (string)($row['order_status'] ?? ''),
-                    'customization_status' => (string)($row['customization_status'] ?? ''),
-                    'branch_id' => $branchId,
-                    'staff_list_query_eligible' => $eligible,
-                    'exclusion_reasons' => $reasons,
-                ];
-            }
-            jo_api_json_response(['success' => true, 'data' => [
-                'batch_id' => $batchId,
-                'registry_row_count' => count($resultRows),
-                'linked_order_ids' => array_values(array_unique(array_column($resultRows, 'order_id'))),
-                'eligible_row_count' => count(array_filter($resultRows, static fn(array $row): bool => !empty($row['staff_list_query_eligible']))),
-                'rows' => $resultRows,
-            ]]);
+            jo_api_json_response([
+                'success' => false,
+                'error' => 'This temporary demo trace endpoint has been retired.',
+            ], 403);
 
         case 'customization_counts':
             if (!in_array(get_user_type() ?? '', ['Admin', 'Staff', 'Manager'], true)) {

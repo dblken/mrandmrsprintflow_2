@@ -103,8 +103,8 @@ $online_closed_count = 0;
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="turbo-visit-control" content="reload">
     <title><?php echo $page_title; ?></title>
-    <!-- customizations_query_version: demo_seed_visibility_fix_20261001_live -->
-    <meta name="customizations-query-version" content="demo_seed_visibility_fix_20261001_live">
+    <!-- customizations_query_version: staff_customizations_query_live_20261001 -->
+    <meta name="customizations-query-version" content="staff_customizations_query_live_20261001">
     <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/output.css'); ?>">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
@@ -7550,8 +7550,8 @@ window.pfServiceFieldCatalog = (() => {
                     per_page: String(this.ordersSummaryPageSize),
                     _: String(Date.now())
                 });
-                const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&include_pagination=1&debug=1&query_version=demo_seed_visibility_fix_20261001_live&${query.toString()}`;
-                const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&debug=1&query_version=demo_seed_visibility_fix_20261001_live&${query.toString()}`;
+                const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&include_pagination=1&debug=1&query_version=staff_customizations_query_live_20261001&${query.toString()}`;
+                const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&debug=1&query_version=staff_customizations_query_live_20261001&${query.toString()}`;
                 const requestOptions = {
                     cache: 'no-store',
                     signal,
@@ -7587,7 +7587,7 @@ window.pfServiceFieldCatalog = (() => {
                 const sourceFilter = <?php echo json_encode(
                     $staffCustomizationRole === 'pos' ? 'pos' : ($staffCustomizationRole === 'online' ? 'online' : 'all')
                 ); ?>;
-                const endpoint = `../admin/job_orders_api.php?action=customization_counts&source=${encodeURIComponent(sourceFilter)}&debug=1&query_version=demo_seed_visibility_fix_20261001_live`;
+                const endpoint = `../admin/job_orders_api.php?action=customization_counts&source=${encodeURIComponent(sourceFilter)}&debug=1&query_version=staff_customizations_query_live_20261001`;
                 const controller = new AbortController();
                 countsAbortController = controller;
                 const timeoutId = window.setTimeout(() => controller.abort(), 10000);

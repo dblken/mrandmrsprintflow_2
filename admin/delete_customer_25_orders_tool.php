@@ -17,4 +17,4 @@ if (!is_admin()) {
 printflow_json_response([
     'success' => false,
     'error' => 'This legacy bulk deletion tool has been retired. No records were changed.',
-], 410);
+], 403);
