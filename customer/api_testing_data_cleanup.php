@@ -9,7 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 
 const PF_JENNY_CLEANUP_CUSTOMER_ID = 25;
 const PF_JENNY_CLEANUP_DELETE_ORDER = ['push_notification_queue','notifications','message_reactions','review_helpful','customer_cart','order_revision_requests','order_item_revisions','job_order_materials','job_orders','order_messages','customizations','order_items','orders'];
-const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-6';
+const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-7';
 
 /** Runtime-only diagnostics; never includes connection credentials. */
 function pf_jenny_runtime_diagnostics(): array
@@ -534,7 +534,9 @@ function pf_jenny_completed_cleanup_preview(): ?array
         'job_order_materials'=>['id',[458,488]],
         'order_item_revisions'=>['revision_id',[1,2]],
         'order_revision_requests'=>['revision_request_id',[1,2]],
-        'message_reactions'=>['reaction_id',[36,37,38,39]],
+        // The audit deleted three safe reactions. Candidate 39 belongs to a
+        // customer message outside the safe audited message set and is retained.
+        'message_reactions'=>['reaction_id',[36,37,38]],
         'review_helpful'=>['id',[18,27,29,33,[39,41],[43,45],[49,52]]],
     ];
     foreach($spec as $table=>[$pk,$ranges]){
@@ -566,6 +568,11 @@ function pf_jenny_completed_cleanup_preview(): ?array
 
     $protectedOrderIds=array_map(static fn($row)=>(int)$row['order_id'],$currentOrders);
     $protectedCounts=['orders'=>2];
+    $excludedReactionIds=pf_jenny_ranges([39]);
+    $safeMessageIds=pf_jenny_ranges($spec['order_messages'][1]);
+    $excludedReactions=pf_jenny_query('SELECT reaction_id FROM message_reactions WHERE reaction_id IN ('.implode(',',array_fill(0,count($excludedReactionIds),'?')).') AND sender = ? AND sender_id = 25 AND message_id NOT IN ('.implode(',',array_fill(0,count($safeMessageIds),'?')).')',str_repeat('i',count($excludedReactionIds)).'s'.str_repeat('i',count($safeMessageIds)),array_merge($excludedReactionIds,['Customer'],$safeMessageIds));
+    if(array_map(static fn($row)=>(int)$row['reaction_id'],$excludedReactions)!==$excludedReactionIds) return null;
+    $protectedCounts['message_reactions_outside_safe_messages']=count($excludedReactions);
     foreach([
         'order_items'=>['order_id','order_item_id'],
         'order_messages'=>['order_id','message_id'],
