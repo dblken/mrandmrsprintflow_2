@@ -32,7 +32,7 @@ $deepLinkOrderId = (int)($_GET['order_id'] ?? 0);
 $deepLinkJobType = strtoupper(trim((string)($_GET['job_type'] ?? '')));
 if ($deepLinkOrderId > 0 && !in_array($deepLinkJobType, ['JOB', 'CUSTOMIZATION', 'ORDER'], true)) {
     $deepLinkOrder = db_query(
-        "SELECT order_type FROM orders WHERE order_id = ? LIMIT 1",
+        "SELECT order_type FROM orders WHERE order_id = ? AND " . printflow_order_archive_scope_sql('orders') . " LIMIT 1",
         'i',
         [$deepLinkOrderId]
     );
@@ -69,7 +69,7 @@ $ordBranchTypes = '';
 $ordBranchParams = [];
 if ($branchFilter !== null) {
     $b = (int) $branchFilter;
-    $joBranchSql = ' AND COALESCE(jo.branch_id, (SELECT o2.branch_id FROM orders o2 WHERE o2.order_id = jo.order_id LIMIT 1)) = ?';
+    $joBranchSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . ' AND COALESCE(jo.branch_id, (SELECT o2.branch_id FROM orders o2 WHERE o2.order_id = jo.order_id LIMIT 1)) = ?';
     $joBranchTypes = 'i';
     $joBranchParams = [$b];
     $ordBranchSql = ' AND branch_id = ?';

@@ -39,7 +39,7 @@ $order_row = db_query(
             COALESCE(c.contact_number, c.email, '') AS customer_contact
      FROM orders o
      LEFT JOIN customers c ON o.customer_id = c.customer_id
-     WHERE o.order_id = ?",
+     WHERE o.order_id = ? AND " . printflow_order_archive_scope_sql('o'),
     'i',
     [$order_id]
 );

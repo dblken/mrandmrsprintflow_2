@@ -52,7 +52,7 @@ if ($submissionId > 0) {
             : ($hasProof ? "NULLIF(TRIM(o.payment_proof), '')" : ($hasProofPath ? "NULLIF(TRIM(o.payment_proof_path), '')" : 'NULL'));
         $rows = db_query(
             "SELECT o.order_id, o.branch_id, {$proofExpression} AS receipt_file
-             FROM orders o WHERE o.order_id = ? LIMIT 1",
+             FROM orders o WHERE o.order_id = ? AND " . printflow_order_archive_scope_sql('o') . " LIMIT 1",
             'i',
             [$orderId]
         ) ?: [];
@@ -63,7 +63,7 @@ if ($submissionId > 0) {
                         COALESCE(NULLIF(jo.branch_id, 0), NULLIF(o.branch_id, 0), 0) AS branch_id,
                         jo.payment_proof_path AS receipt_file
                  FROM job_orders jo LEFT JOIN orders o ON o.order_id = jo.order_id
-                 WHERE jo.order_id = ? AND NULLIF(TRIM(jo.payment_proof_path), '') IS NOT NULL
+                 WHERE jo.order_id = ? AND " . printflow_order_archive_exclusion_sql('jo.order_id') . " AND " . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . " AND NULLIF(TRIM(jo.payment_proof_path), '') IS NOT NULL
                  ORDER BY jo.payment_proof_uploaded_at DESC, jo.id DESC LIMIT 1",
                 'i',
                 [$orderId]
@@ -85,7 +85,7 @@ if ($submissionId > 0) {
                     COALESCE(NULLIF(jo.branch_id, 0), NULLIF(o.branch_id, 0), 0) AS branch_id,
                     jo.payment_proof_path AS receipt_file
              FROM job_orders jo LEFT JOIN orders o ON o.order_id = jo.order_id
-             WHERE jo.id = ? LIMIT 1",
+             WHERE jo.id = ? AND " . printflow_order_archive_exclusion_sql('jo.order_id') . " AND " . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . " LIMIT 1",
             'i',
             [$jobOrderId]
         ) ?: [];

@@ -1544,6 +1544,20 @@ function require_role($roles) {
         exit();
     }
 
+    // A customer-level archive hides that account's customer-facing routes without
+    // deleting the account or changing any owned transaction rows. Admin restoration
+    // remains available through the dedicated Admin-only archive control.
+    if ($user_type === 'Customer'
+        && function_exists('get_customer_id')
+        && function_exists('printflow_customer_exclusion_customer_is_active')
+        && printflow_customer_exclusion_customer_is_active((int)(get_customer_id() ?? 0))) {
+        http_response_code(403);
+        header('Content-Type: text/plain; charset=utf-8');
+        header('Cache-Control: no-store');
+        echo 'This customer account is archived from customer-facing views. Contact an Admin to restore access.';
+        exit();
+    }
+
     printflow_guard_archived_staff_manager();
 }
 

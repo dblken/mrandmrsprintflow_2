@@ -10,6 +10,10 @@ require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 
 require_role('Customer');
+if (printflow_customer_exclusion_customer_is_active((int)(get_customer_id() ?? 0))) {
+    http_response_code(403);
+    exit('This customer account is currently archived from ordering views. Contact an Admin to restore visibility.');
+}
 require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
 require_once __DIR__ . '/../includes/require_id_verified.php';
 

@@ -48,7 +48,7 @@ $per_page = 10;
     : ['', '', []];
 
 $sql = "SELECT customer_id, first_name, last_name, email, contact_number, id_type, id_image, id_status, id_reject_reason, id_uploaded_at, id_reviewed_at, created_at
-        FROM customers WHERE 1=1" . printflow_pos_sql_exclude_placeholder_customers('customers') . $custBranchSql;
+        FROM customers WHERE 1=1" . printflow_pos_sql_exclude_placeholder_customers('customers') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('customers.customer_id') . $custBranchSql;
 $params = $custBranchParams;
 $types = $custBranchTypes;
 

@@ -65,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 
         // Fetch current status and customer ID (only if order is in this branch)
         $order_info = db_query(
-            "SELECT customer_id, status FROM orders WHERE order_id = ? AND branch_id = ? AND {$staffOrderScopeSql}",
+            "SELECT customer_id, status FROM orders WHERE order_id = ? AND branch_id = ? AND {$staffOrderScopeSql} AND " . printflow_order_archive_scope_sql('orders'),
             'ii',
             [$order_id, $staffBranchId]
         );
@@ -77,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
             // Only proceed if the status is actually changing
             if ($current_status !== $new_status) {
                 // Use the centralized update_order_status logic
-                $success = db_execute("UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?", 'si', [$new_status, $order_id]);
+                $success = db_execute("UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ? AND " . printflow_customer_exclusion_customer_scope_sql('orders.customer_id'), 'si', [$new_status, $order_id]);
 
                 if ($success) {
                     // Log activity

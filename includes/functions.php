@@ -1226,6 +1226,10 @@ function get_customer_id() {
  */
 function load_customer_cart_into_session($customer_id) {
     if (!$customer_id) return;
+    if (function_exists('printflow_customer_exclusion_customer_is_active') && printflow_customer_exclusion_customer_is_active((int)$customer_id)) {
+        $_SESSION['cart'] = [];
+        return;
+    }
     $rows = db_query("SELECT product_id, variant_id, quantity FROM customer_cart WHERE customer_id = ?", 'i', [$customer_id]);
     if (empty($rows)) return;
     $_SESSION['cart'] = [];
@@ -1268,6 +1272,8 @@ function load_customer_cart_into_session($customer_id) {
  */
 function sync_cart_to_db($customer_id) {
     if (!$customer_id) return;
+    // Excluded customer carts remain stored unchanged and are not loaded or rewritten.
+    if (function_exists('printflow_customer_exclusion_customer_is_active') && printflow_customer_exclusion_customer_is_active((int)$customer_id)) return;
     db_execute("DELETE FROM customer_cart WHERE customer_id = ?", 'i', [$customer_id]);
     if (empty($_SESSION['cart'])) return;
     foreach ($_SESSION['cart'] as $key => $item) {

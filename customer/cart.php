@@ -9,6 +9,12 @@ require_once __DIR__ . '/../includes/functions.php';
 
 require_role('Customer');
 
+$activeCustomerId = (int)(get_customer_id() ?? 0);
+if ($activeCustomerId > 0 && printflow_customer_exclusion_customer_is_active($activeCustomerId)) {
+    // Preserve persistent customer_cart rows; hide only the active session cart.
+    $_SESSION['cart'] = [];
+}
+
 // Handle updates/removals
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['update_cart'])) {

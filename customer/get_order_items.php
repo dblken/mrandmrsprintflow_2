@@ -636,7 +636,7 @@ $orderSql = "
     FROM orders o
     LEFT JOIN branches b ON o.branch_id = b.id 
     LEFT JOIN customers c ON c.customer_id = o.customer_id
-    WHERE o.order_id = ? AND o.customer_id = ?
+    WHERE o.order_id = ? AND o.customer_id = ? AND " . printflow_order_archive_scope_sql('o') . "
 ";
 $order_result = db_query($orderSql, 'ii', [$order_id, $customer_id]);
 

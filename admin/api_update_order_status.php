@@ -44,7 +44,7 @@ if (!$order_id || !in_array($new_status, $allowed)) {
 // Get current order
 $order = db_query(
     "SELECT order_id, status, customer_id, branch_id, order_type, order_source, reference_id, payment_status
-     FROM orders WHERE order_id = ?",
+     FROM orders WHERE order_id = ? AND " . printflow_order_archive_scope_sql('orders'),
     'i',
     [$order_id]
 );

@@ -110,7 +110,7 @@ $per_page = 10;
 [$custBranchSql, $custBranchTypes, $custBranchParams] = ($viewerBranch)
     ? branch_customers_belong_where_sql((int)$viewerBranch, 'customers')
     : ['', '', []];
-$sql = "SELECT * FROM customers WHERE 1=1" . printflow_pos_sql_exclude_placeholder_customers('customers') . $custBranchSql;
+$sql = "SELECT * FROM customers WHERE 1=1" . printflow_pos_sql_exclude_placeholder_customers('customers') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('customers.customer_id') . $custBranchSql;
 $params = $custBranchParams;
 $types = $custBranchTypes;
 
@@ -272,6 +272,7 @@ if ($viewerBranch) {
         "SELECT COUNT(*) as count FROM customers c WHERE 1=1
         AND COALESCE(c.email_verified, 0) = 1"
         . printflow_pos_sql_exclude_placeholder_customers('c')
+        . ' AND ' . printflow_customer_exclusion_customer_scope_sql('c.customer_id')
         . $w,
         $t,
         $p
@@ -325,7 +326,7 @@ if ($viewerBranch) {
     ", 'ii', [$bid, $bid])[0]['total'] ?? 0);
 } else {
     // 1. Total Customers
-    $placeholderExclude = printflow_pos_sql_exclude_placeholder_customers('customers');
+    $placeholderExclude = printflow_pos_sql_exclude_placeholder_customers('customers') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('customers.customer_id');
     $total_customers = (int)(db_query("SELECT COUNT(*) as count FROM customers WHERE 1=1
         AND COALESCE(email_verified, 0) = 1" . $placeholderExclude)[0]['count'] ?? 0);
 

@@ -29,7 +29,7 @@ function _chatbot_notification_excerpt(string $message, int $length = 80): strin
 // Run expiration logic on each request (24h inactive → expired/archived)
 $tables_exist = db_query("SHOW TABLES LIKE 'chatbot_conversations'");
 if (!empty($tables_exist)) {
-    db_execute("UPDATE chatbot_conversations SET status = 'expired', is_archived = 1 WHERE status != 'expired' AND last_activity_at < DATE_SUB(NOW(), INTERVAL 24 HOUR)");
+    db_execute("UPDATE chatbot_conversations c SET status = 'expired', is_archived = 1 WHERE c.status != 'expired' AND c.last_activity_at < DATE_SUB(NOW(), INTERVAL 24 HOUR) AND " . printflow_customer_exclusion_customer_scope_sql('c.customer_id'));
 }
 
 // GET ?id=X — Fetch messages for a conversation (lazy load)
@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['id'])) {
                              COALESCE(CONCAT(cm.first_name, ' ', cm.last_name), c.customer_name) as display_name
                       FROM chatbot_conversations c
                       LEFT JOIN customers cm ON c.customer_id = cm.customer_id
-                      WHERE c.id = ?", 'i', [$conversation_id]);
+                      WHERE c.id = ? AND " . printflow_customer_exclusion_customer_scope_sql('c.customer_id'), 'i', [$conversation_id]);
     if (empty($conv)) {
         echo json_encode(['success' => false, 'error' => 'Conversation not found']);
         exit;
@@ -83,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     
-    $conv = db_query("SELECT id, customer_id FROM chatbot_conversations WHERE id = ?", 'i', [$conversation_id]);
+    $conv = db_query("SELECT id, customer_id FROM chatbot_conversations c WHERE id = ? AND " . printflow_customer_exclusion_customer_scope_sql('c.customer_id'), 'i', [$conversation_id]);
     if (empty($conv)) {
         echo json_encode(['success' => false, 'error' => 'Conversation not found']);
         exit;
@@ -141,6 +141,7 @@ $per_page = min(50, max(10, (int)($_GET['per_page'] ?? 15)));
 $offset = ($page - 1) * $per_page;
 
 $where = ["1=1"];
+$where[] = printflow_customer_exclusion_customer_scope_sql('c.customer_id');
 $params = [];
 $types = '';
 

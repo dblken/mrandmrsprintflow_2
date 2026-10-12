@@ -19,6 +19,10 @@ if (!$customer_id) {
     echo json_encode(['success' => false, 'error' => 'Invalid customer ID']);
     exit;
 }
+if (printflow_customer_exclusion_customer_is_active($customer_id)) {
+    echo json_encode(['success' => false, 'error' => 'Customer not found']);
+    exit;
+}
 
 $viewerBranch = printflow_branch_filter_for_user();
 if (get_user_type() !== 'Admin' && $viewerBranch) {

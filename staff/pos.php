@@ -45,7 +45,7 @@ try {
 // Fetch Customers
 $customers = [];
 try {
-    $customers = db_query("SELECT customer_id, first_name, last_name, email, contact_number FROM customers ORDER BY first_name ASC, last_name ASC");
+    $customers = db_query("SELECT customer_id, first_name, last_name, email, contact_number FROM customers WHERE " . printflow_customer_exclusion_customer_scope_sql('customers.customer_id') . " ORDER BY first_name ASC, last_name ASC");
     $customers = array_values(array_filter($customers ?: [], static function (array $row): bool {
         $email = strtolower(trim((string)($row['email'] ?? '')));
         if ($email === 'walkin@pos.local') {

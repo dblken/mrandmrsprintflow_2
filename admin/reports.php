@@ -789,7 +789,7 @@ if (!$gaBranchEmpty) {
 
 // ── 16. Customer count ────────────────────────────────────────────────────────
 $cust_total = 0;
-try { $cust_total = (int)(db_query("SELECT COUNT(*) as cnt FROM customers")[0]['cnt'] ?? 0); } catch(Exception $e){}
+try { $cust_total = (int)(db_query("SELECT COUNT(*) as cnt FROM customers c WHERE " . printflow_customer_exclusion_customer_scope_sql('c.customer_id'))[0]['cnt'] ?? 0); } catch(Exception $e){}
 
 // ── Variables required by footer.php ──────────────────────────────────────────
 $base_url = '/printflow';

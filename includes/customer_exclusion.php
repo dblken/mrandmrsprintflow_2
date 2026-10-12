@@ -88,9 +88,18 @@ if (!function_exists('printflow_customer_exclusion_order_scope_sql')) {
 if (!function_exists('printflow_customer_exclusion_customer_scope_sql')) {
     function printflow_customer_exclusion_customer_scope_sql(string $customerIdExpression): string
     {
-        if (!printflow_customer_exclusion_valid_expression($customerIdExpression)) throw new InvalidArgumentException('Invalid customer exclusion customer expression.');
+        if (!printflow_customer_exclusion_valid_expression($customerIdExpression) || strpos($customerIdExpression, '.') === false) throw new InvalidArgumentException('A qualified customer exclusion expression is required.');
         if (!printflow_customer_exclusion_schema_ready()) return '1=1';
         return "NOT EXISTS (SELECT 1 FROM customer_exclusion ce_customer_only WHERE ce_customer_only.status='active' AND ce_customer_only.entity_type='CUSTOMER' AND ce_customer_only.customer_id={$customerIdExpression})";
+    }
+}
+
+if (!function_exists('printflow_customer_exclusion_customer_is_active')) {
+    function printflow_customer_exclusion_customer_is_active(int $customerId): bool
+    {
+        if ($customerId <= 0 || !printflow_customer_exclusion_schema_ready()) return false;
+        $rows = db_query("SELECT 1 AS active FROM customer_exclusion WHERE status='active' AND entity_type='CUSTOMER' AND customer_id=? LIMIT 1", 'i', [$customerId]) ?: [];
+        return !empty($rows);
     }
 }
 

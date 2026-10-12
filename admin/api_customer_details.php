@@ -23,6 +23,10 @@ if (!isset($_GET['id'])) {
 }
 
 $id = intval($_GET['id']);
+if (printflow_customer_exclusion_customer_is_active($id)) {
+    echo json_encode(['success' => false, 'error' => 'Customer not found']);
+    exit;
+}
 
 try {
     $viewerBranch = printflow_branch_filter_for_user();

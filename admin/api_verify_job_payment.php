@@ -40,7 +40,7 @@ if (!$action || !$job_id) {
 }
 
 // Fetch the job
-$job = db_query("SELECT * FROM job_orders WHERE id = ?", 'i', [$job_id]);
+$job = db_query("SELECT * FROM job_orders WHERE id = ? AND " . printflow_customer_exclusion_job_scope_sql('job_orders'), 'i', [$job_id]);
 if (empty($job)) {
     echo json_encode(['success' => false, 'error' => 'Job order not found.']);
     exit;
@@ -54,7 +54,7 @@ $submission = $submission_id > 0 ? payment_verification_get_submission($submissi
 $resolvedBranchId = (int)($job['branch_id'] ?? 0);
 $linkedOrderId = (int)($job['order_id'] ?? 0);
 if ($resolvedBranchId <= 0 && $linkedOrderId > 0) {
-    $branchRow = db_query("SELECT branch_id FROM orders WHERE order_id = ? LIMIT 1", 'i', [$linkedOrderId]);
+    $branchRow = db_query("SELECT branch_id FROM orders WHERE order_id = ? AND " . printflow_order_archive_scope_sql('orders') . " LIMIT 1", 'i', [$linkedOrderId]);
     $resolvedBranchId = (int)($branchRow[0]['branch_id'] ?? 0);
 }
 $viewerBranch = printflow_branch_filter_for_user();

@@ -164,7 +164,7 @@ payment_verification_log('submission_request_received', [
 // 1. Validate order in correct table
 $failure_step = 'order_lookup';
 if (!$is_job) {
-    $order_result = db_query("SELECT * FROM orders WHERE order_id = ? AND customer_id = ?", 'ii', [$order_id, $customer_id]);
+    $order_result = db_query("SELECT * FROM orders WHERE order_id = ? AND customer_id = ? AND " . printflow_order_archive_scope_sql('orders'), 'ii', [$order_id, $customer_id]);
     if (empty($order_result)) {
         http_response_code(404);
         echo json_encode(['success' => false, 'message' => 'Order not found', 'step' => 'order_lookup']);
@@ -173,7 +173,7 @@ if (!$is_job) {
     $order = $order_result[0];
     $total_to_pay = (float)$order['total_amount'];
 } else {
-    $order_result = db_query("SELECT * FROM job_orders WHERE id = ? AND customer_id = ?", 'ii', [$order_id, $customer_id]);
+    $order_result = db_query("SELECT * FROM job_orders WHERE id = ? AND customer_id = ? AND " . printflow_customer_exclusion_customer_scope_sql('job_orders.customer_id'), 'ii', [$order_id, $customer_id]);
     if (empty($order_result)) {
         http_response_code(404);
         echo json_encode(['success' => false, 'message' => 'Job Order not found', 'step' => 'order_lookup']);
@@ -330,8 +330,8 @@ $transaction_started = true;
 // the transactional status update below.
 $failure_step = 'submission_state_lock';
 $locked_rows = !$is_job
-    ? db_query('SELECT * FROM orders WHERE order_id = ? AND customer_id = ? LIMIT 1 FOR UPDATE', 'ii', [$order_id, $customer_id])
-    : db_query('SELECT * FROM job_orders WHERE id = ? AND customer_id = ? LIMIT 1 FOR UPDATE', 'ii', [$order_id, $customer_id]);
+    ? db_query('SELECT * FROM orders WHERE order_id = ? AND customer_id = ? AND ' . printflow_order_archive_scope_sql('orders') . ' LIMIT 1 FOR UPDATE', 'ii', [$order_id, $customer_id])
+    : db_query('SELECT * FROM job_orders WHERE id = ? AND customer_id = ? AND ' . printflow_customer_exclusion_customer_scope_sql('job_orders.customer_id') . ' LIMIT 1 FOR UPDATE', 'ii', [$order_id, $customer_id]);
 if (empty($locked_rows)) {
     throw new RuntimeException('The payment order is unavailable or no longer belongs to this customer.');
 }

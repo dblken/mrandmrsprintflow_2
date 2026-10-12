@@ -196,7 +196,7 @@ if (!function_exists('printflow_resolve_order_service_catalog_image_url')) {
 // 1. First check regular orders
 $order_result = db_query("
     SELECT * FROM orders 
-    WHERE order_id = ? AND customer_id = ?
+    WHERE order_id = ? AND customer_id = ? AND " . printflow_order_archive_scope_sql('orders') . "
 ", 'ii', [$order_id, $customer_id]);
 
 if (!empty($order_result)) {
@@ -205,7 +205,7 @@ if (!empty($order_result)) {
     $latest_payment_review = db_query("
         SELECT payment_status, payment_proof_status, payment_rejection_reason
         FROM job_orders
-        WHERE order_id = ? AND customer_id = ?
+        WHERE order_id = ? AND customer_id = ? AND " . printflow_order_archive_exclusion_sql('job_orders.order_id') . " AND " . printflow_customer_exclusion_customer_scope_sql('job_orders.customer_id') . "
         ORDER BY id DESC
         LIMIT 1
     ", 'ii', [$order_id, $customer_id]);
@@ -346,7 +346,7 @@ if (!empty($order_result)) {
     // 2. Fallback to job orders
     $job_result = db_query("
         SELECT * FROM job_orders 
-        WHERE id = ? AND customer_id = ?
+        WHERE id = ? AND customer_id = ? AND " . printflow_order_archive_exclusion_sql('job_orders.order_id') . " AND " . printflow_customer_exclusion_customer_scope_sql('job_orders.customer_id') . "
     ", 'ii', [$order_id, $customer_id]);
     
     if (empty($job_result)) {
@@ -420,7 +420,7 @@ if (($paymongo_payment['status'] ?? '') === 'paid') {
 // Paid / Awaiting Production, without waiting for a webhook or another refresh.
 if (!$is_job_order) {
     $freshOrder = db_query(
-        'SELECT * FROM orders WHERE order_id = ? AND customer_id = ? LIMIT 1',
+        'SELECT * FROM orders WHERE order_id = ? AND customer_id = ? AND ' . printflow_order_archive_scope_sql('orders') . ' LIMIT 1',
         'ii',
         [$order_id, $customer_id]
     ) ?: [];
@@ -432,7 +432,7 @@ if (!$is_job_order) {
     }
 } else {
     $freshOrder = db_query(
-        'SELECT * FROM job_orders WHERE id = ? AND customer_id = ? LIMIT 1',
+        'SELECT * FROM job_orders WHERE id = ? AND customer_id = ? AND ' . printflow_order_archive_exclusion_sql('job_orders.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('job_orders.customer_id') . ' LIMIT 1',
         'ii',
         [$order_id, $customer_id]
     ) ?: [];

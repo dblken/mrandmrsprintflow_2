@@ -62,7 +62,7 @@ function printflow_pos_build_receipt(int $orderId, float $amountTendered = 0.0, 
          LEFT JOIN customers c ON c.customer_id = o.customer_id
          LEFT JOIN branches b ON b.id = o.branch_id
          LEFT JOIN discounts d ON d.discount_id = o.discount_id
-         WHERE o.order_id = ? AND o.payment_status = 'Paid'
+         WHERE o.order_id = ? AND o.payment_status = 'Paid' AND " . printflow_order_archive_scope_sql('o') . "
          LIMIT 1",
         'i',
         [$orderId]
@@ -85,8 +85,9 @@ function printflow_pos_build_receipt(int $orderId, float $amountTendered = 0.0, 
     $rows = db_query(
         "SELECT oi.quantity, oi.unit_price, oi.customization_data, p.name AS product_name
          FROM order_items oi
+         JOIN orders o ON o.order_id = oi.order_id
          LEFT JOIN products p ON p.product_id = oi.product_id
-         WHERE oi.order_id IN ($placeholders) ORDER BY oi.order_item_id",
+         WHERE oi.order_id IN ($placeholders) AND " . printflow_order_archive_scope_sql('o') . " ORDER BY oi.order_item_id",
         str_repeat('i', count($linkedOrderIds)),
         $linkedOrderIds
     ) ?: [];

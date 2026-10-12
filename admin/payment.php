@@ -200,7 +200,8 @@ $sql = "SELECT o.order_id, o.reference_id, o.order_type, o.total_amount, o.order
         LEFT JOIN branches b ON b.id = o.branch_id
         WHERE LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'pos_merged')
           AND LOWER(TRIM(COALESCE(o.payment_method, ''))) = 'cash'
-          AND LOWER(TRIM(o.payment_status)) = 'paid'";
+          AND LOWER(TRIM(o.payment_status)) = 'paid'
+          AND " . printflow_order_archive_scope_sql('o');
 $types = '';
 $params = [];
 

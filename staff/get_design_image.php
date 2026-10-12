@@ -21,7 +21,7 @@ $res = db_query("
            oi.customization_data, o.customer_id, o.branch_id
     FROM order_items oi
     LEFT JOIN orders o ON o.order_id = oi.order_id
-    WHERE oi.order_item_id = ?
+    WHERE oi.order_item_id = ? AND " . printflow_order_archive_scope_sql('o') . "
 ", 'i', [$id]);
 if (!$res) {
     header('Content-Type: image/png');

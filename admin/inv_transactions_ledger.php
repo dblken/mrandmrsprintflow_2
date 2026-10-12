@@ -212,7 +212,7 @@ $sql = "SELECT t.*,
             FROM customizations
             GROUP BY order_id
         ) cust_map ON cust_map.order_id = jo.order_id
-        WHERE 1=1";
+        WHERE 1=1 AND " . printflow_customer_exclusion_inventory_scope_sql('t', 'inventory_transactions');
 $params = [];
 $types = '';
 if ($branchId > 0) {

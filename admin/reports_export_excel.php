@@ -375,7 +375,7 @@ function buildCustomersReport($sheet, $from, $to, $branchName, $branchId) {
         [$totalCust, $activeCust] = branch_customers_summary_for_branch((int)$branchId);
         $customers = branch_customers_report_list((int)$branchId);
     } else {
-        $cust_summary = db_query("SELECT COUNT(*) as total, SUM(CASE WHEN status='Activated' THEN 1 ELSE 0 END) as active FROM customers");
+        $cust_summary = db_query("SELECT COUNT(*) as total, SUM(CASE WHEN status='Activated' THEN 1 ELSE 0 END) as active FROM customers c WHERE " . printflow_customer_exclusion_customer_scope_sql('c.customer_id'));
         $cs = $cust_summary[0] ?? [];
         $totalCust = (int)($cs['total'] ?? 0);
         $activeCust = (int)($cs['active'] ?? 0);
@@ -385,6 +385,7 @@ function buildCustomersReport($sheet, $from, $to, $branchName, $branchId) {
                     COUNT(o.order_id) as order_count, COALESCE(SUM(o.total_amount), 0) as total_spent
              FROM customers c
              LEFT JOIN orders o ON c.customer_id = o.customer_id AND {$storePaidSql}
+             WHERE " . printflow_customer_exclusion_customer_scope_sql('c.customer_id') . "
              GROUP BY c.customer_id
              HAVING order_count > 0
              ORDER BY total_spent DESC"

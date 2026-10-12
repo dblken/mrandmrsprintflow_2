@@ -67,7 +67,7 @@ $order_result = db_query("
            c.customer_id as cust_id
     FROM orders o 
     LEFT JOIN customers c ON o.customer_id = c.customer_id 
-    WHERE o.order_id = ? AND o.branch_id = ? AND {$staffOrderScopeSql}
+    WHERE o.order_id = ? AND o.branch_id = ? AND {$staffOrderScopeSql} AND " . printflow_order_archive_scope_sql('o') . "
 ", 'ii', [$order_id, $staffBranchId]);
 
 if (empty($order_result)) {
@@ -93,7 +93,7 @@ $items = db_query("
 $customer_orders = db_query("
     SELECT order_id, order_date, total_amount, status 
     FROM orders 
-    WHERE customer_id = ? AND order_id != ? AND branch_id = ?
+    WHERE customer_id = ? AND order_id != ? AND branch_id = ? AND " . printflow_customer_exclusion_order_scope_sql('orders.order_id', 'orders.customer_id') . "
     ORDER BY order_date DESC LIMIT 5
 ", 'iii', [$order['cust_id'], $order_id, $staffBranchId]);
 

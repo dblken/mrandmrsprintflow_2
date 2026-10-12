@@ -61,6 +61,12 @@ if (in_array($action, ['add', 'buy_now'], true) && printflow_customer_profile_in
 
 if (!isset($_SESSION['cart'])) $_SESSION['cart'] = [];
 $customer_id = get_customer_id();
+if (printflow_customer_exclusion_customer_is_active((int)$customer_id)) {
+    $_SESSION['cart'] = [];
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'This customer account is currently archived from ordering views.']);
+    exit;
+}
 if ($customer_id && empty($_SESSION['cart'])) {
     load_customer_cart_into_session($customer_id);
 }

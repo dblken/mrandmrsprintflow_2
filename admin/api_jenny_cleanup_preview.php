@@ -15,7 +15,7 @@ if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'GET') {
 }
 
 const PF_JENNY_AUDIT_CUSTOMER_ID = 25;
-const PF_JENNY_AUDIT_VERSION = 'jenny-admin-preview-20261012-v4';
+const PF_JENNY_AUDIT_VERSION = 'jenny-admin-preview-20261012-v5';
 
 function pf_jenny_audit_log(string $stage, string $table, int $errno, string $errorType): void
 {
@@ -485,11 +485,24 @@ foreach ($ambiguousLedgerRecords as $table => $ids) {
 $dbIdentity = pf_jenny_audit_query('database_identity', 'DATABASE()', 'SELECT DATABASE() AS db_name');
 if ($dbIdentity['failure'] !== null) $failures[] = $dbIdentity['failure'];
 $dbName = (string)($dbIdentity['rows'][0]['db_name'] ?? '');
+$visibilityRows = printflow_customer_exclusion_schema_ready()
+    ? (db_query("SELECT status FROM customer_exclusion WHERE customer_id = ? AND entity_type = 'CUSTOMER' AND record_id = ? LIMIT 1", 'ii', [PF_JENNY_AUDIT_CUSTOMER_ID, PF_JENNY_AUDIT_CUSTOMER_ID]) ?: [])
+    : [];
+$orderExclusionCount = printflow_customer_exclusion_schema_ready()
+    ? (int)((db_query("SELECT COUNT(*) AS n FROM customer_exclusion WHERE customer_id = ? AND entity_type = 'ORDER' AND status = 'active'", 'i', [PF_JENNY_AUDIT_CUSTOMER_ID]) ?: [])[0]['n'] ?? 0)
+    : 0;
 printflow_json_response([
     'success' => count($failures) === 0,
     'diagnostic_version' => PF_JENNY_AUDIT_VERSION,
     'database' => ['name' => $dbName, 'host' => (string)$conn->host_info],
     'target' => ['customer_id' => PF_JENNY_AUDIT_CUSTOMER_ID],
+    'visibility_exclusion' => [
+        'schema_ready' => printflow_customer_exclusion_schema_ready(),
+        'customer_status' => (string)($visibilityRows[0]['status'] ?? 'inactive'),
+        'currently_hidden' => (string)($visibilityRows[0]['status'] ?? '') === 'active',
+        'active_order_exclusion_count' => $orderExclusionCount,
+        'business_records_modified' => false,
+    ],
     'scope_queries_complete' => count($failures) === 0,
     'scope_ownership_complete' => false,
     'preview_safe_for_deletion' => false,
@@ -503,7 +516,7 @@ printflow_json_response([
         'inventory_reversal' => 'Requires application-level stock/roll reversal review; no inventory rows are marked deletable by this audit.',
         'external_payment_webhooks' => 'Provider-side/external audit semantics must be verified before any deletion.',
         'shared_file_references' => 'Physical file reference scan across all file-bearing tables is not implemented; preserve every file.',
-        'permanent_visibility_exclusion' => 'No global exclusion mechanism is enabled by this read-only endpoint.',
+        'permanent_visibility_exclusion' => 'Customer and exact-order exclusions are available; individual application surfaces are filtered where their query paths use the centralized predicates. The preview is not proof that every page has been manually exercised.',
     ],
     'deletion_enabled' => false,
     'note' => 'Read-only audit only. Financial, inventory, archive, synthetic, and physical-file changes remain protected until separately reviewed.',

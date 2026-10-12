@@ -307,7 +307,8 @@ function branch_customers_belong_where_sql(int $branchId, string $customerAlias 
     if ($a === '') {
         $a = 'c';
     }
-    $sql = " AND (EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = {$a}.customer_id AND o.branch_id = ?) OR EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = {$a}.customer_id AND jo.branch_id = ?)) ";
+    $sql = " AND " . printflow_customer_exclusion_customer_scope_sql($a . '.customer_id')
+        . " AND (EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = {$a}.customer_id AND o.branch_id = ? AND " . printflow_order_archive_scope_sql('o') . ") OR EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = {$a}.customer_id AND jo.branch_id = ? AND " . printflow_customer_exclusion_job_scope_sql('jo') . ")) ";
     return [$sql, 'ii', [$bid, $bid]];
 }
 
@@ -315,7 +316,7 @@ function branch_customers_belong_where_sql(int $branchId, string $customerAlias 
 function branch_customers_summary_for_branch(int $branchId): array {
     [$w, $t, $p] = branch_customers_belong_where_sql($branchId, 'c');
     $row = db_query(
-        "SELECT COUNT(*) as total, COALESCE(SUM(CASE WHEN c.status = 'Activated' THEN 1 ELSE 0 END), 0) as active FROM customers c WHERE 1=1" . $w,
+        "SELECT COUNT(*) as total, COALESCE(SUM(CASE WHEN c.status = 'Activated' THEN 1 ELSE 0 END), 0) as active FROM customers c WHERE 1=1 AND " . printflow_customer_exclusion_customer_scope_sql('c.customer_id') . $w,
         $t, $p
     )[0] ?? ['total' => 0, 'active' => 0];
     return [(int)$row['total'], (int)$row['active']];
@@ -343,7 +344,8 @@ function branch_customers_report_list(int $branchId): array {
             COALESCE((SELECT SUM(o.total_amount) FROM orders o WHERE o.customer_id = c.customer_id AND o.branch_id = ? AND {$storePaid}), 0)
             + COALESCE((SELECT SUM(COALESCE(NULLIF(jo.amount_paid,0), jo.estimated_total, 0)) FROM job_orders jo WHERE jo.customer_id = c.customer_id AND jo.branch_id = ? AND {$jobPaid}), 0) AS total_spent
         FROM customers c
-        WHERE (EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id AND o.branch_id = ? AND {$storePaid})
+        WHERE " . printflow_customer_exclusion_customer_scope_sql('c.customer_id') . "
+          AND (EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id AND o.branch_id = ? AND {$storePaid})
             OR EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id AND jo.branch_id = ? AND {$jobPaid}))
         ORDER BY total_spent DESC";
     $types = str_repeat('i', 6);

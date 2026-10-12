@@ -32,6 +32,9 @@ $check(str_contains($movementSql, 'im.reference_type') && str_contains($movement
 $invalidAliasRejected = false;
 try { printflow_customer_exclusion_order_scope_sql('o.order_id) OR 1=1 --'); } catch (InvalidArgumentException $e) { $invalidAliasRejected = true; }
 $check($invalidAliasRejected, 'order SQL expression is allowlist validated');
+$unqualifiedCustomerRejected = false;
+try { printflow_customer_exclusion_customer_scope_sql('customer_id'); } catch (InvalidArgumentException $e) { $unqualifiedCustomerRejected = true; }
+$check($unqualifiedCustomerRejected, 'customer visibility expressions must be qualified to avoid inner-scope ambiguity');
 
 $migration = (string)file_get_contents(__DIR__ . '/../migrations/20261012_create_customer_exclusion.sql');
 foreach (['customer_id','order_id','record_table','record_id','status','reason','created_at','updated_at'] as $column) {
