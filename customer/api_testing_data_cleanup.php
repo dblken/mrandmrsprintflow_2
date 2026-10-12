@@ -9,7 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 
 const PF_JENNY_CLEANUP_CUSTOMER_ID = 25;
 const PF_JENNY_CLEANUP_DELETE_ORDER = ['push_notification_queue','notifications','message_reactions','review_helpful','customer_cart','order_revision_requests','order_item_revisions','job_order_materials','job_orders','order_messages','customizations','order_items','orders'];
-const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-4';
+const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-5';
 
 /** Runtime-only diagnostics; never includes connection credentials. */
 function pf_jenny_runtime_diagnostics(): array
@@ -183,6 +183,7 @@ function pf_jenny_orders_diagnostic(): array
             $extra=$child==='job_orders'?' AND customer_id = 25':'';
             $steps[]=pf_jenny_diagnostic_count('child_record_lookup_'.$child.'_batch_'.($index+1),$child,'SELECT COUNT(*) AS row_count FROM `'.$child.'` WHERE `'.$fk.'` IN ('.$marks.')'.$extra,str_repeat('i',count($ids)),$ids);
         }
+        $steps[]=pf_jenny_diagnostic_count('protected_inventory_ledger_job_reference_batch_'.($index+1),'inventory_transactions','SELECT COUNT(*) AS row_count FROM inventory_transactions WHERE ref_type = ? AND ref_id IN (SELECT id FROM job_orders WHERE customer_id = 25 AND order_id IN ('.$marks.'))','s'.str_repeat('i',count($ids)),array_merge(['JOB_ORDER'],$ids));
     }
     // Exercise each protected order-reference table separately, only when its relationship column exists.
     foreach(['payment_submissions','provider_payments','inventory_transactions','printflow_order_archive_map','maintenance_synthetic_demo_order_rows','order_status_history','receipt_print_jobs','provider_payment_status_history','provider_webhook_events'] as $table){
@@ -466,7 +467,7 @@ function pf_jenny_plan(bool $lock = false): array
         'provider_payments' => pf_jenny_count('SELECT COUNT(*) AS row_count FROM provider_payments WHERE customer_id = 25 OR order_id IN (SELECT order_id FROM orders WHERE customer_id = 25) OR job_order_id IN (SELECT id FROM job_orders WHERE customer_id = 25)'),
         'provider_payment_status_history' => pf_jenny_count('SELECT COUNT(*) AS row_count FROM provider_payment_status_history h JOIN provider_payments p ON p.id = h.provider_payment_id WHERE p.customer_id = 25 OR p.order_id IN (SELECT order_id FROM orders WHERE customer_id = 25) OR p.job_order_id IN (SELECT id FROM job_orders WHERE customer_id = 25)'),
         'provider_webhook_events' => pf_jenny_count('SELECT COUNT(*) AS row_count FROM provider_webhook_events h JOIN provider_payments p ON p.id = h.provider_payment_id WHERE p.customer_id = 25 OR p.order_id IN (SELECT order_id FROM orders WHERE customer_id = 25) OR p.job_order_id IN (SELECT id FROM job_orders WHERE customer_id = 25)'),
-        'inventory_transactions' => pf_jenny_count('SELECT COUNT(*) AS row_count FROM inventory_transactions WHERE order_id IN (SELECT order_id FROM orders WHERE customer_id = 25) OR job_order_id IN (SELECT id FROM job_orders WHERE customer_id = 25)'),
+        'inventory_transactions' => pf_jenny_count("SELECT COUNT(*) AS row_count FROM inventory_transactions WHERE ref_type = 'JOB_ORDER' AND ref_id IN (SELECT id FROM job_orders WHERE customer_id = 25)"),
         'job_order_ink_usage' => pf_jenny_count('SELECT COUNT(*) AS row_count FROM job_order_ink_usage WHERE job_order_id IN (SELECT id FROM job_orders WHERE customer_id = 25)'),
         'archived_orders' => pf_jenny_count('SELECT COUNT(*) AS row_count FROM printflow_order_archive_map WHERE order_id IN (SELECT order_id FROM orders WHERE customer_id = 25)'),
         'order_status_history' => pf_jenny_count('SELECT COUNT(*) AS row_count FROM order_status_history WHERE order_id IN (SELECT order_id FROM orders WHERE customer_id = 25)'),
