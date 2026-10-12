@@ -634,7 +634,7 @@ $page_title = 'Settings - Admin';
                                         <tr class="<?php echo $jobIndex >= $receipt_table_preview_limit ? 'printer-table-row--hidden' : ''; ?>">
                                             <td>#<?php echo (int)$job['id']; ?> <?php echo htmlspecialchars((string)$job['receipt_number']); ?><br><span style="color:#6b7280;"><?php echo htmlspecialchars((string)$job['created_at']); ?></span></td>
                                             <td><?php echo htmlspecialchars((string)$job['printer_name']); ?></td>
-                                            <td><strong><?php echo htmlspecialchars(ucfirst((string)$job['status'])); ?></strong><?php if (!empty($job['error_message'])): ?><br><span style="color:#b91c1c;"><?php echo htmlspecialchars((string)$job['error_message']); ?></span><?php endif; ?></td>
+                                            <td><strong><?php echo htmlspecialchars(ucfirst((string)$job['status'])); ?></strong></td>
                                             <td><?php echo (int)$job['attempts']; ?>/<?php echo (int)$job['max_attempts']; ?></td>
                                             <td><?php if (in_array((string)$job['status'], ['failed', 'claimed'], true)): ?><form method="POST"><?php echo csrf_field(); ?><input type="hidden" name="job_id" value="<?php echo (int)$job['id']; ?>"><button class="btn-printer-secondary" name="retry_receipt_job" type="submit">Retry</button></form><?php endif; ?></td>
                                         </tr>
