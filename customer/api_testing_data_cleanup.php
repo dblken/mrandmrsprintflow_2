@@ -9,7 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 
 const PF_JENNY_CLEANUP_CUSTOMER_ID = 25;
 const PF_JENNY_CLEANUP_DELETE_ORDER = ['push_notification_queue','notifications','message_reactions','review_helpful','customer_cart','order_revision_requests','order_item_revisions','job_order_materials','job_orders','order_messages','customizations','order_items','orders'];
-const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-2';
+const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-3';
 
 /** Runtime-only diagnostics; never includes connection credentials. */
 function pf_jenny_runtime_diagnostics(): array
@@ -95,7 +95,21 @@ function pf_jenny_query(string $sql, string $types = '', array $params = []): ar
     preg_match('/\b(?:FROM|JOIN|UPDATE|INTO)\s+`?([A-Za-z0-9_]+)`?/i', $sql, $tableMatch);
     $table = $tableMatch[1] ?? 'unknown';
     $GLOBALS['pf_jenny_cleanup_context'] = ['table' => $table, 'phase' => 'execute'];
-    $rows = db_query($sql, $types, $params);
+    try {
+        $rows = db_query($sql, $types, $params);
+    } catch (Throwable $e) {
+        $GLOBALS['pf_jenny_cleanup_context'] = [
+            'table' => $table,
+            'phase' => 'db_query_exception',
+            'exception_type' => (new ReflectionClass($e))->getShortName(),
+            'exception_code' => (int)$e->getCode(),
+            'db_sqlstate' => $e instanceof mysqli_sql_exception
+                ? preg_replace('/[^A-Z0-9]/i', '', (string)$e->getSqlState())
+                : '',
+        ];
+        pf_jenny_log_stage($GLOBALS['pf_jenny_cleanup_request_stage'] ?? 'query', $table, 'db_query_exception', (new ReflectionClass($e))->getShortName());
+        throw new RuntimeException('A database query raised an exception; cleanup is disabled.', 0, $e);
+    }
     if (!is_array($rows) || count($GLOBALS['printflow_db_errors'] ?? []) > $before) {
         $errors = $GLOBALS['printflow_db_errors'] ?? [];
         $latest = $errors ? end($errors) : [];
@@ -356,7 +370,7 @@ if ($method==='GET') {
         $context=$GLOBALS['pf_jenny_cleanup_context']??[];
         $errorType=(new ReflectionClass($e))->getShortName();
         $failure=['stage'=>'preview_failed','table'=>(string)($context['table']??'unknown'),'query_phase'=>(string)($context['phase']??'plan'),'error_type'=>$errorType];
-        foreach (['db_error_stage','db_errno','db_sqlstate','expected_count','actual_count','missing_ids','unexpected_ids'] as $detailKey) {
+        foreach (['db_error_stage','db_errno','db_sqlstate','exception_type','exception_code','expected_count','actual_count','missing_ids','unexpected_ids'] as $detailKey) {
             if (array_key_exists($detailKey,$context)) $failure[$detailKey]=$context[$detailKey];
         }
         pf_jenny_log_stage($failure['stage'],$failure['table'],$failure['query_phase'],$errorType);
