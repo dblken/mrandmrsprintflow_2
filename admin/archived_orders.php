@@ -8,7 +8,7 @@ if (!is_admin()) { http_response_code(403); exit('Admin authorization is require
 $basePath = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 $csrfToken = generate_csrf_token();
 $archiveReady = printflow_customer_exclusion_schema_ready();
-$archiveUiVersion = 'archived-orders-20261012-v4';
+$archiveUiVersion = 'archived-orders-20261012-v5';
 ?>
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="turbo-cache-control" content="no-cache"><meta name="csrf-token" content="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>"><meta name="printflow-archive-ui-version" content="<?= htmlspecialchars($archiveUiVersion, ENT_QUOTES, 'UTF-8') ?>"><title>Archived Orders - PrintFlow</title>
@@ -40,7 +40,7 @@ body{font-family:var(--pf-ui-font-sans,Arial,sans-serif);color:#172b4d;backgroun
  if(!search||!select||!message||!scope||!orders||!archives||!hide||!restore||!dialog)return;
  let selectedId=0,currentStatus='inactive',archiveManaged=true,csrf=document.querySelector('meta[name="csrf-token"]')?.content||'',ready=false,pendingAction='',archivePreviewToken='';let timer;
  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- const dispositionLabel=value=>{const c=String(value||'');if(c.startsWith('Protected_'))return c.includes('ambiguous')?'Protected — shared reference':'Protected — retained';if(c.startsWith('Uncertain_'))return 'Review required — record retained';return c?c.replaceAll('_',' '):'Record retained';};
+ const dispositionLabel=value=>{const c=String(value||'').toLowerCase();if(c.startsWith('protected_'))return c.includes('ambiguous')?'Protected — shared reference':'Protected — retained';if(c.startsWith('uncertain_'))return 'Review required — record retained';return c?c.replaceAll('_',' '):'Record retained';};
  const setMessage=(text,kind='')=>{message.className='pf-box'+(kind?' '+kind:'');message.textContent=text;};
  async function jsonFetch(url,options={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...options});let body;try{body=await r.json()}catch{throw new Error(`Server returned unreadable JSON (HTTP ${r.status}).`)}if(!r.ok||body.success!==true)throw new Error(body.error||`Request failed (HTTP ${r.status}).`);return body;}
  async function findCustomer(){clearTimeout(timer);timer=setTimeout(async()=>{select.disabled=true;select.innerHTML='<option value="">Searching…</option>';try{const data=await jsonFetch(`${api}?search=${encodeURIComponent(search.value.trim())}`);select.innerHTML='<option value="">Select Jenny Ferr</option>';for(const c of data.customers||[]){const opt=document.createElement('option');opt.value=String(c.customer_id);opt.textContent=`${c.name} (#${c.customer_id}) — ${c.email}`;select.appendChild(opt);}select.disabled=false;setMessage((data.customers||[]).length?'Select Jenny Ferr to load the live order preview.':'No matching Jenny Ferr account. This temporary archive is restricted to customer ID 25.');}catch(e){select.innerHTML='<option value="">Search unavailable</option>';setMessage(e.message,'error');}},220);}
