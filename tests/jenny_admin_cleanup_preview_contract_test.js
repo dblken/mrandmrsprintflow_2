@@ -3,11 +3,14 @@ const assert = require('node:assert/strict');
 
 const profile = fs.readFileSync('customer/profile.php', 'utf8');
 const legacy = fs.readFileSync('customer/api_testing_data_cleanup.php', 'utf8');
+const retiredAdminTool = fs.readFileSync('admin/delete_customer_25_orders_tool.php', 'utf8');
 const preview = fs.readFileSync('admin/api_jenny_cleanup_preview.php', 'utf8');
 
 assert.doesNotMatch(profile, /pf-open-testing-cleanup|pf-testing-cleanup-modal|Delete My Testing Data/);
 assert.match(legacy, /http_response_code\(410\)/);
 assert.doesNotMatch(legacy, /DELETE\s+FROM|begin_transaction|PF_JENNY_CLEANUP_DELETE_ORDER/);
+assert.match(retiredAdminTool, /http_response_code|410/);
+assert.doesNotMatch(retiredAdminTool, /PF_DELETE_CUSTOMER_IDS|INSERT\s+INTO|DELETE\s+FROM|begin_transaction/i);
 assert.match(preview, /is_admin\(\)/);
 assert.match(preview, /REQUEST_METHOD.*GET/);
 assert.match(preview, /customer_id` = \?/);
