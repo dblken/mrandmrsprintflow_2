@@ -314,7 +314,7 @@ try {
     }
     $liveScopeHash = pf_jenny_archive_scope_hash((string)($existingCustomerExclusion[0]['status'] ?? 'inactive'), $scopeRows);
     if (!hash_equals((string)($preview['scope_hash'] ?? ''), $liveScopeHash)) throw new PFJennyArchiveConflict('The customer order scope changed after preview. Refresh and review it again.');
-    $beforeCounts = pf_customer_archive_batch_counts($scopeRows, $customerWasActive);
+    $beforeCounts = printflow_customer_archive_batch_counts($scopeRows, $customerWasActive);
     $archiveReference = pf_jenny_archive_reference($existingReason);
     if ($action === 'activate' && !$archiveReference) $archiveReference = 'JNY-25-' . gmdate('Ymd-His') . '-' . strtoupper(bin2hex(random_bytes(3)));
     $reason = $action === 'activate'
