@@ -15,7 +15,7 @@ if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'GET') {
 }
 
 const PF_JENNY_AUDIT_CUSTOMER_ID = 25;
-const PF_JENNY_AUDIT_VERSION = 'jenny-admin-preview-20261012-v1';
+const PF_JENNY_AUDIT_VERSION = 'jenny-admin-preview-20261012-v2';
 
 function pf_jenny_audit_log(string $stage, string $table, int $errno, string $errorType): void
 {
@@ -90,13 +90,12 @@ $relationships = [
     'message_reactions' => ['message_id', 'order_messages'],
     'notification_logs' => ['notification_id', 'notifications'], 'push_notification_queue' => ['notification_id', 'notifications'],
     'chatbot_messages' => ['conversation_id', 'chatbot_conversations'],
-    'review_prompt_dismissals' => ['review_id', 'reviews'],
     'provider_payment_status_history' => ['provider_payment_id', 'provider_payments'],
     'provider_webhook_events' => ['provider_payment_id', 'provider_payments'],
     'receipt_print_job_events' => ['job_id', 'receipt_print_jobs'],
 ];
 $candidates = array_values(array_unique(array_merge(
-    ['orders', 'service_orders', 'customer_cart', 'chatbot_conversations', 'chatbot_inquiries', 'payment_submissions', 'provider_payments', 'notifications', 'notification_logs', 'inventory_transactions', 'inventory_movements', 'customer_review_prompt_dismissals', 'reviews', 'review_images', 'review_replies', 'review_helpful', 'receipt_print_jobs', 'receipt_print_job_events', 'review_cleanup_audit'],
+    ['orders', 'service_orders', 'customer_cart', 'chatbot_conversations', 'chatbot_inquiries', 'payment_submissions', 'provider_payments', 'notifications', 'notification_logs', 'inventory_transactions', 'inventory_movements', 'customer_review_prompt_dismissals', 'reviews', 'review_images', 'review_replies', 'review_helpful', 'receipt_print_jobs', 'receipt_print_job_events', 'review_cleanup_audit', 'customer_testing_data_cleanup_audit'],
     array_keys($relationships)
 )));
 
@@ -267,25 +266,61 @@ if (!empty($schema['inventory_movements']) && $primaryKey['inventory_movements']
     }
 }
 
+// Notifications link to orders polymorphically through type/data_id, not a foreign key.
+if (!empty($schema['notifications']) && $primaryKey['notifications']
+    && in_array('type', $schema['notifications'], true) && in_array('data_id', $schema['notifications'], true)) {
+    $notificationIds = [];
+    foreach (array_chunk($scopeIds['orders'] ?? [], 80) as $batchNo => $batch) {
+        $marks = implode(',', array_fill(0, count($batch), '?'));
+        $pk = $primaryKey['notifications'];
+        $q = pf_jenny_audit_query('polymorphic_order_notification_batch_' . ($batchNo + 1), 'notifications',
+            'SELECT ' . pf_jenny_audit_ident($pk) . ' AS record_id FROM `notifications` WHERE `type` = ? AND CAST(`data_id` AS UNSIGNED) IN (' . $marks . ') ORDER BY ' . pf_jenny_audit_ident($pk),
+            's' . str_repeat('i', count($batch)), array_merge(['Order'], $batch));
+        if ($q['failure'] !== null) { $failures[] = $q['failure']; continue; }
+        $notificationIds = array_merge($notificationIds, array_map('intval', array_column($q['rows'], 'record_id')));
+    }
+    $scopeIds['notifications'] = array_values(array_unique(array_merge($scopeIds['notifications'] ?? [], $notificationIds)));
+    if (!empty($schema['push_notification_queue']) && $primaryKey['push_notification_queue']
+        && in_array('notification_id', $schema['push_notification_queue'], true)) {
+        $queueIds = [];
+        foreach (array_chunk($scopeIds['notifications'], 80) as $batchNo => $batch) {
+            $marks = implode(',', array_fill(0, count($batch), '?'));
+            $pk = $primaryKey['push_notification_queue'];
+            $q = pf_jenny_audit_query('push_queue_notification_batch_' . ($batchNo + 1), 'push_notification_queue',
+                'SELECT ' . pf_jenny_audit_ident($pk) . ' AS record_id FROM `push_notification_queue` WHERE `notification_id` IN (' . $marks . ') ORDER BY ' . pf_jenny_audit_ident($pk),
+                str_repeat('i', count($batch)), $batch);
+            if ($q['failure'] !== null) { $failures[] = $q['failure']; continue; }
+            $queueIds = array_merge($queueIds, array_map('intval', array_column($q['rows'], 'record_id')));
+        }
+        $scopeIds['push_notification_queue'] = array_values(array_unique(array_merge($scopeIds['push_notification_queue'] ?? [], $queueIds)));
+    }
+}
+
 foreach ($scopeIds as $table => $ids) {
-    $classification = in_array($table, ['inventory_transactions', 'inventory_movements', 'provider_payments', 'provider_payment_status_history', 'provider_webhook_events', 'payment_submissions', 'printflow_order_archive_map', 'maintenance_synthetic_demo_order_rows'], true)
-        ? 'protected_review_required'
-        : 'exclusive_candidate_requires_transaction_review';
-    $records[$table] = ['count' => count($ids), 'ids' => $ids, 'classification' => $classification];
+    $isMaintenanceRecord = (bool)preg_match('/(?:^|_)(?:backup|audit)(?:_|$)/i', $table)
+        || in_array($table, ['maintenance_customer_25_order_delete_backup', 'customer_testing_data_cleanup_audit', 'review_cleanup_audit'], true);
+    $isProtectedLedger = in_array($table, ['inventory_transactions', 'inventory_movements', 'provider_payments', 'provider_payment_status_history', 'provider_webhook_events', 'payment_submissions', 'printflow_order_archive_map'], true);
+    $classification = ($isMaintenanceRecord || $isProtectedLedger)
+        ? 'protected_preserve'
+        : 'uncertain_exclusive_candidate_requires_review';
+    // Maintenance backups and audit trails can be large; report their exact count but do not
+    // emit thousands of unrelated maintenance row identifiers in an Admin response.
+    $includeIds = !$isMaintenanceRecord || count($ids) <= 100;
+    $records[$table] = ['count' => count($ids), 'classification' => $classification];
+    if ($includeIds) $records[$table]['ids'] = $ids;
+    else $records[$table]['ids_omitted'] = 'Protected maintenance rows; count only.';
 }
 
 $dbIdentity = pf_jenny_audit_query('database_identity', 'DATABASE()', 'SELECT DATABASE() AS db_name');
 if ($dbIdentity['failure'] !== null) $failures[] = $dbIdentity['failure'];
 $dbName = (string)($dbIdentity['rows'][0]['db_name'] ?? '');
-$token = bin2hex(random_bytes(32));
-$_SESSION['jenny_cleanup_admin_preview'] = ['token_hash' => hash('sha256', $token), 'customer_id' => PF_JENNY_AUDIT_CUSTOMER_ID, 'expires' => time() + 600, 'version' => PF_JENNY_AUDIT_VERSION];
-
 printflow_json_response([
     'success' => count($failures) === 0,
     'diagnostic_version' => PF_JENNY_AUDIT_VERSION,
     'database' => ['name' => $dbName, 'host' => (string)$conn->host_info],
     'target' => ['customer_id' => PF_JENNY_AUDIT_CUSTOMER_ID],
     'scope_queries_complete' => count($failures) === 0,
+    'scope_ownership_complete' => false,
     'preview_safe_for_deletion' => false,
     'records' => $records,
     'schema_checked_tables' => array_keys($schema),
@@ -297,8 +332,6 @@ printflow_json_response([
         'shared_file_references' => 'Physical file reference scan across all file-bearing tables is not implemented; preserve every file.',
         'permanent_visibility_exclusion' => 'No global exclusion mechanism is enabled by this read-only endpoint.',
     ],
-    'preview_token' => $token,
-    'csrf_token' => generate_csrf_token(),
     'deletion_enabled' => false,
     'note' => 'Read-only audit only. Financial, inventory, archive, synthetic, and physical-file changes remain protected until separately reviewed.',
 ], count($failures) === 0 ? 200 : 503);

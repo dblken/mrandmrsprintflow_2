@@ -14,9 +14,12 @@ assert.match(preview, /customer_id` = \?/);
 assert.match(preview, /array_chunk\(\$parentIds, 80\)/);
 assert.match(preview, /usleep\(100000\)/);
 assert.match(preview, /db_error_code/);
-assert.match(preview, /preview_token/);
+assert.match(preview, /scope_ownership_complete/);
 assert.match(preview, /deletion_enabled' => false/);
 assert.match(preview, /preview_safe_for_deletion' => false/);
+assert.match(preview, /polymorphic_order_notification_batch_/);
+assert.match(preview, /push_queue_notification_batch_/);
+assert.doesNotMatch(preview, /csrf_token|preview_token/);
 assert.doesNotMatch(preview, /\b(?:DELETE|UPDATE|INSERT)\s+INTO?\b/i);
 assert.doesNotMatch(preview, /\b(?:DELETE|UPDATE|INSERT)\s+(?:FROM|INTO)\b/i);
 
