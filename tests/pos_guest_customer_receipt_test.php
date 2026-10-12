@@ -28,9 +28,9 @@ $assert(strpos($checkout, 'function pos_resolve_checkout_customer_id(') !== fals
 $assert(strpos($checkout, 'function pos_create_name_only_pos_customer(') === false, 'checkout does not create per-sale pos.guest customers');
 $assert(strpos($checkout, 'printflow_pos_resolve_checkout_customer_context') !== false, 'checkout delegates to shared walk-in resolver');
 
-$assert(strpos($pos, 'function posCheckoutCustomerPayload') !== false, 'POS UI sends optional guest name and email at checkout');
+$assert(strpos($pos, 'function posCheckoutCustomerPayload') !== false, 'POS UI sends optional guest name at checkout');
 $assert(strpos($pos, 'id="pos-guest-name"') !== false, 'POS UI collects walk-in customer name');
-$assert(strpos($pos, 'id="pos-guest-email"') !== false, 'POS UI collects optional walk-in customer email');
+$assert(strpos($pos, 'id="pos-guest-email"') === false, 'POS UI does not collect walk-in customer email');
 $assert(strpos($pos, 'Enter Customer Name') === false, 'checkout no longer requires a walk-in name');
 $assert(strpos($pos, 'id="pos-barcode-input"') === false, 'products view no longer uses a duplicate SKU input');
 $assert(
