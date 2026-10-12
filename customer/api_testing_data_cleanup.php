@@ -9,7 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 
 const PF_JENNY_CLEANUP_CUSTOMER_ID = 25;
 const PF_JENNY_CLEANUP_DELETE_ORDER = ['push_notification_queue','notifications','message_reactions','review_helpful','customer_cart','order_revision_requests','order_item_revisions','job_order_materials','job_orders','order_messages','customizations','order_items','orders'];
-const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-8';
+const PF_JENNY_CLEANUP_DIAGNOSTIC_VERSION = 'jenny-cleanup-runtime-20261012-9';
 
 /** Runtime-only diagnostics; never includes connection credentials. */
 function pf_jenny_runtime_diagnostics(): array
@@ -532,7 +532,7 @@ function pf_jenny_completed_cleanup_preview(): ?array
     }
 
     $spec=[
-        'order_items'=>['order_item_id',[12566,12577,12580,12593,[12638,12639],12647,[12665,12666],[12675,12677],12684,12688,12690,12692,[12695,12700],12714,12728,12780,12782,12829,12847,12854,12874]],
+        'order_items'=>['order_item_id',[12566,12577,12580,12593,[12638,12639],12647,[12665,12666],[12675,12677],12684,12688,12690,12692,[12695,12700],12714,12728,12780,12782,12847,12854]],
         'order_messages'=>['message_id',[[1276,1279],1284,1304,[1335,1355],1357,[1389,1395],[1398,1405],1407,[1410,1421],[1424,1425],1433,[1466,1467],[1535,1536],[1539,1541],1594,1602,[1608,1619],1621,[1644,1645],1652]],
         'customizations'=>['customization_id',[[2126,2128],[2136,2140],2147,2151,2153,2155,[2158,2163],2177,2191,2228,2230,2253,2256]],
         'job_orders'=>['id',[3649,3651,3661,3664,3675,[3699,3719],3726,[3733,3739],[3741,3748],[3752,3761],3768,3782,3822,3824,3847,3851]],
