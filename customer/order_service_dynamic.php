@@ -2023,6 +2023,16 @@ document.addEventListener('keydown', function(e) {
 });
 </script>
 
+<div id="pf-missing-estimate-modal" role="dialog" aria-modal="true" aria-labelledby="pf-missing-estimate-title" hidden style="position:fixed;inset:0;z-index:4000;display:none;align-items:center;justify-content:center;padding:1.25rem;background:rgba(15,23,42,0.55);">
+    <div style="width:min(440px,100%);background:#fff;border-radius:16px;padding:1.75rem 1.5rem;box-shadow:0 20px 50px rgba(15,23,42,0.2);text-align:center;">
+        <h3 id="pf-missing-estimate-title" style="margin:0 0 0.75rem;font-size:1.125rem;color:#0f172a;">Estimated Price</h3>
+        <p id="pf-missing-estimate-message" style="margin:0 0 1.25rem;font-size:0.95rem;line-height:1.5;color:#334155;">This specification does not have an estimated price yet. The final price will be set by Staff before payment or order completion. Do you want to continue?</p>
+        <div style="display:flex;gap:0.75rem;justify-content:center;">
+            <button type="button" id="pf-missing-estimate-cancel" style="min-width:120px;padding:0.65rem 1rem;border:1px solid #e2e8f0;background:#f8fafc;color:#475569;border-radius:10px;font-weight:700;cursor:pointer;">Cancel</button>
+            <button type="button" id="pf-missing-estimate-continue" style="min-width:120px;padding:0.65rem 1rem;border:none;background:#0a2530;color:#fff;border-radius:10px;font-weight:700;cursor:pointer;">Continue</button>
+        </div>
+    </div>
+</div>
 <script src="<?php echo htmlspecialchars($base_path . '/public/assets/js/service_estimated_price.js'); ?>"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -2159,6 +2169,42 @@ document.addEventListener('DOMContentLoaded', function() {
             if (getRowValueState(row).rowHasValue) removeRowErrors(row);
         };
 
+        let missingEstimateConfirmed = false;
+        const missingEstimateMessage = 'This specification does not have an estimated price yet. The final price will be set by Staff before payment or order completion. Do you want to continue?';
+
+        const currentEstimatedUnitPrice = () => {
+            if (typeof window.calculateEstimatedPrice === 'function') {
+                const result = window.calculateEstimatedPrice();
+                const unit = Number(result && result.unitPrice);
+                if (Number.isFinite(unit)) return unit;
+            }
+            const input = document.getElementById('calculated-unit-price');
+            const unit = input ? parseFloat(input.value) : 0;
+            return Number.isFinite(unit) ? unit : 0;
+        };
+
+        const confirmMissingEstimatedPrice = () => new Promise((resolve) => {
+            const overlay = document.getElementById('pf-missing-estimate-modal');
+            const cancelBtn = document.getElementById('pf-missing-estimate-cancel');
+            const continueBtn = document.getElementById('pf-missing-estimate-continue');
+            if (!overlay || !cancelBtn || !continueBtn) {
+                resolve(window.confirm(missingEstimateMessage));
+                return;
+            }
+            const finish = (proceed) => {
+                overlay.hidden = true;
+                overlay.style.display = 'none';
+                cancelBtn.onclick = null;
+                continueBtn.onclick = null;
+                resolve(proceed);
+            };
+            cancelBtn.onclick = () => finish(false);
+            continueBtn.onclick = () => finish(true);
+            overlay.hidden = false;
+            overlay.style.display = 'flex';
+            continueBtn.focus();
+        });
+
         const isValidDesignLink = (value) => {
             const text = String(value || '').trim();
             if (!text) return true;
@@ -2249,6 +2295,22 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Hide top error message if exists
                 const topError = document.getElementById('error-message');
                 if (topError) topError.style.display = 'none';
+                return;
+            }
+
+            if (!missingEstimateConfirmed && currentEstimatedUnitPrice() <= 0) {
+                e.preventDefault();
+                const submitter = e.submitter || null;
+                confirmMissingEstimatedPrice().then((proceed) => {
+                    if (!proceed) return;
+                    missingEstimateConfirmed = true;
+                    if (typeof form.requestSubmit === 'function') {
+                        form.requestSubmit(submitter);
+                    } else {
+                        form.submit();
+                    }
+                    missingEstimateConfirmed = false;
+                });
             }
         });
 

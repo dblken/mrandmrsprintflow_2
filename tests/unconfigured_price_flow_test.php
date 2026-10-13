@@ -12,9 +12,8 @@ $check = static function (bool $ok, string $label) use (&$passed): void {
     echo 'PASS: ', $label, PHP_EOL;
 };
 
-$note = printflow_unconfigured_price_note();
-$check(str_contains($note, 'no configured price yet'), 'warning note explains the missing price');
-$check(!str_contains($note, 'Price Pending') && !str_contains($note, 'Needs Staff Pricing'), 'warning note is not a status label');
+$modalMessage = 'This specification does not have an estimated price yet. The final price will be set by Staff before payment or order completion. Do you want to continue?';
+$check(!str_contains($modalMessage, 'Price Pending') && !str_contains($modalMessage, 'Needs Staff Pricing'), 'warning note is not a status label');
 $check(printflow_price_is_configured(360.0), 'a configured price stays valid');
 $check(!printflow_price_is_configured(0.0), 'a missing price is not treated as configured');
 
@@ -47,6 +46,7 @@ $jobs = (string)file_get_contents($root . '/includes/JobOrderService.php');
 $status = (string)file_get_contents($root . '/staff/update_order_status_process.php');
 $cart = (string)file_get_contents($root . '/customer/cart.php');
 $estimator = (string)file_get_contents($root . '/public/assets/js/service_estimated_price.js');
+$customerOrder = (string)file_get_contents($root . '/customer/order_service_dynamic.php');
 $payment = (string)file_get_contents($root . '/customer/api_submit_payment.php');
 $priceApi = (string)file_get_contents($root . '/admin/job_orders_api.php');
 
@@ -59,8 +59,11 @@ $check(str_contains($cartApi, "=== 'unconfigured'") && str_contains($cartApi, "p
 $check(str_contains($jobs, 'order_total_not_configured'), 'inventory deduction waits until the order has a valid price');
 $check(str_contains($jobs, 'Set a valid price before completing this order.'), 'job completion waits for a valid price');
 $check(str_contains($status, 'Set a valid price before completing this order.'), 'order completion waits for a valid price');
-$check(str_contains($cart, $note), 'the customer cart shows the same warning');
-$check(str_contains($estimator, $note), 'the specification form shows the warning without blocking the request');
+$check(str_contains($pos, $modalMessage) && str_contains($pos, 'confirmMissingEstimatedPrice'), 'POS asks before adding a specification with no estimated price');
+$check(str_contains($pos, "if (priced.unitPrice <= 0)") && str_contains($pos, "if (!proceed) return"), 'Cancel leaves the item off the order');
+$check(str_contains($customerOrder, $modalMessage) && str_contains($customerOrder, 'pf-missing-estimate-continue') && str_contains($customerOrder, 'pf-missing-estimate-cancel'), 'the customer ordering page uses the same Continue and Cancel warning');
+$check(!str_contains($estimator, 'no configured price yet') && !str_contains($cart, 'no configured price yet') && !str_contains($pos, 'pos-unconfigured-price-note'), 'the ordering page no longer shows an inline missing-price message');
+$check(str_contains($customerOrder, 'currentEstimatedUnitPrice() <= 0') && str_contains($customerOrder, 'form.requestSubmit'), 'Continue adds the item, and a priced specification skips the warning');
 $check(str_contains($payment, 'total_to_pay <= 0'), 'payment stays blocked while the order total is not a valid price');
 $check(str_contains($priceApi, 'Price must be a valid amount of at least PHP 1.00'), 'Staff cannot save a zero or negative final price');
 

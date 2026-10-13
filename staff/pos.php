@@ -4835,15 +4835,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 estimatedTotalEl: footer.querySelector('#pos-estimated-total'),
                 qtyDisplayEl: footer.querySelector('#pos-qty-display')
             });
-            if (posEstimatedPriceController && typeof posEstimatedPriceController.recalculate === 'function') {
-                const recalculate = posEstimatedPriceController.recalculate.bind(posEstimatedPriceController);
-                posEstimatedPriceController.recalculate = function () {
-                    const result = recalculate();
-                    syncUnconfiguredPriceNote(result && result.unitPrice);
-                    return result;
-                };
-                posEstimatedPriceController.recalculate();
-            }
         }
 
         function resolveServiceModalPricing() {
@@ -4860,25 +4851,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
             if (!Number.isFinite(unitPrice)) unitPrice = 0;
             if (!Number.isFinite(quantity) || quantity < 1) quantity = 1;
-            syncUnconfiguredPriceNote(unitPrice);
             return { unitPrice, quantity };
         }
 
-        const POS_UNCONFIGURED_PRICE_NOTE = 'This specification has no configured price yet. The final price will be set by Staff before payment or completion.';
+        const POS_MISSING_ESTIMATE_MESSAGE = 'This specification does not have an estimated price yet. The final price will be set by Staff before payment or order completion. Do you want to continue?';
 
-        function syncUnconfiguredPriceNote(unitPrice) {
-            const footer = document.getElementById('pos-estimated-price-display');
-            if (!footer) return;
-            let note = document.getElementById('pos-unconfigured-price-note');
-            if (!note) {
-                note = document.createElement('div');
-                note.id = 'pos-unconfigured-price-note';
-                note.setAttribute('role', 'note');
-                note.style.cssText = 'margin-top:8px;font-size:12px;line-height:1.45;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;';
-                note.textContent = POS_UNCONFIGURED_PRICE_NOTE;
-                footer.appendChild(note);
-            }
-            note.hidden = Number(unitPrice) > 0;
+        async function confirmMissingEstimatedPrice() {
+            return showPOSConfirm('Estimated Price', POS_MISSING_ESTIMATE_MESSAGE, 'Continue', 'warning');
         }
 
         function applyServicePricingToCustomization(customization, unitPrice, quantity) {
@@ -5166,6 +5145,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             // Add service to cart with calculated unit price from the modal estimator
             const pricing = resolveServiceModalPricing();
             const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization['quantity'] || pricing.quantity);
+            if (priced.unitPrice <= 0) {
+                const proceed = await confirmMissingEstimatedPrice();
+                if (!proceed) return;
+            }
 
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
@@ -5635,6 +5618,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const radioValue = normalizeLayoutCustomizationValue(row, radio.value);
                 setCustomizationValue(customization, row, radio, radioValue);
             });
+
+            if (priced.unitPrice <= 0) {
+                setServiceAddButtonBusy(false);
+                const addBtn = document.getElementById('sm-add-to-order-btn');
+                if (addBtn) addBtn.disabled = true;
+                const proceed = await confirmMissingEstimatedPrice();
+                if (!proceed) {
+                    isAddingToOrder = false;
+                    if (addBtn) addBtn.disabled = false;
+                    return;
+                }
+                isAddingToOrder = true;
+                setServiceAddButtonBusy(true);
+            }
 
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
@@ -6215,9 +6212,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return true;
         }
         async function addToCart(p, overridePrice = null, overrideName = null, options = {}) {
-            if (p.price == 0 && overridePrice === null) {
-                openPriceModal(p);
-                return;
+            if ((parseFloat(p.price) || 0) <= 0 && overridePrice === null) {
+                const proceed = await confirmMissingEstimatedPrice();
+                if (!proceed) return { success: false, cancelled: true };
+                overridePrice = 0;
             }
 
             const variantPlan = posResolveVariantBeforeAdd(p);
@@ -6592,6 +6590,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (price <= 0) {
                 customization.price_unconfigured = '1';
                 price = 0;
+                const proceed = await confirmMissingEstimatedPrice();
+                if (!proceed) return;
             } else {
                 delete customization.price_unconfigured;
             }
@@ -6767,7 +6767,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     div.innerHTML = `
                 <div class="pos-cart-item-top">
                     <div class="pos-item-details">
-                        <div class="pos-item-name">${escapeHtml(item.name)}${variantLabel ? `<div style="font-size:11px; color:#64748b; margin-top:2px;">${escapeHtml(variantLabel)}</div>` : ''}${materialLabel ? `<div style="font-size:11px;color:#64748b;margin-top:2px;">Material: ${escapeHtml(materialLabel)}</div>` : ''}${(parseFloat(item.price) || 0) <= 0 ? `<div role="note" style="margin-top:6px;font-size:11px;line-height:1.4;color:#92400e;">${escapeHtml(POS_UNCONFIGURED_PRICE_NOTE)}</div>` : ''}</div>
+                        <div class="pos-item-name">${escapeHtml(item.name)}${variantLabel ? `<div style="font-size:11px; color:#64748b; margin-top:2px;">${escapeHtml(variantLabel)}</div>` : ''}${materialLabel ? `<div style="font-size:11px;color:#64748b;margin-top:2px;">Material: ${escapeHtml(materialLabel)}</div>` : ''}</div>
                     </div>
                     <div class="pos-cart-item-top-actions" style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
                         ${estimateBesideRemoveHtml}
@@ -7853,7 +7853,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 confirmBtn.style.background = variant === 'danger'
                     ? '#ef4444'
                     : 'var(--staff-pos-button-bg)';
-                applyPOSModalIcon(variant === 'danger' ? 'danger' : 'confirm');
+                applyPOSModalIcon(variant === 'danger' ? 'danger' : (variant === 'warning' ? 'warning' : 'confirm'));
 
                 overlay.style.display = 'flex';
                 setTimeout(() => {
