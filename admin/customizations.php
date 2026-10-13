@@ -1190,6 +1190,45 @@ function custom_payment_badge($status) {
                     return this.itemHasUploadedDesignFile(item) || !!this.getItemDesignExternalLink(item);
                 },
 
+                adminItemEvidenceOfMultipleDesignFiles(item) {
+                    if (!item) return false;
+                    const fromItem = Array.isArray(item.design_files) ? item.design_files.length : (Array.isArray(item.files) ? item.files.length : 0);
+                    if (fromItem > 1) return true;
+                    const custom = item.customization && typeof item.customization === 'object' ? item.customization : {};
+                    return Array.isArray(custom.design_upload_files) && custom.design_upload_files.length > 1;
+                },
+                adminDesignFilesFromCustomization(item) {
+                    const custom = item && item.customization && typeof item.customization === 'object' ? item.customization : {};
+                    const list = Array.isArray(custom.design_upload_files) ? custom.design_upload_files : [];
+                    if (list.length === 0) return [];
+                    const oid = Number(item?.order_item_id || 0);
+                    const base = this.basePath || '';
+                    const out = [];
+                    list.forEach((entry, idx) => {
+                        if (!entry || typeof entry !== 'object') return;
+                        const fileId = Number(entry.file_id || 0);
+                        let preview = '';
+                        if (fileId > 0 && oid > 0) {
+                            preview = base + '/public/serve_design.php?type=order_item_file&id=' + fileId + '&item_id=' + oid;
+                        } else {
+                            const path = String(entry.path || entry.storage_path || '').trim();
+                            if (path) preview = path.startsWith('http') || path.startsWith('/') ? path : (base + '/uploads/orders/' + path);
+                        }
+                        if (!preview) return;
+                        out.push({
+                            file_id: fileId > 0 ? fileId : ('cust-' + oid + '-' + idx),
+                            display_name: String(entry.name || entry.display_name || 'design'),
+                            preview_url: preview,
+                            download_url: preview,
+                            upload_sort: Number(entry.upload_sort != null ? entry.upload_sort : idx),
+                            is_previewable_image: true,
+                            exists: true,
+                            idempotency_key: String(entry.idempotency_key || ''),
+                        });
+                    });
+                    const PF = window.PrintflowOrderItemDesignFiles;
+                    return PF ? PF.dedupe(out) : out;
+                },
                 adminItemDesignFiles(item) {
                     if (!item || typeof item !== 'object') return [];
                     const raw = Array.isArray(item.design_files)
@@ -1197,7 +1236,11 @@ function custom_payment_badge($status) {
                         : (Array.isArray(item.files) ? item.files : []);
                     const PF = window.PrintflowOrderItemDesignFiles;
                     let out = PF ? PF.dedupe(raw) : raw;
-                    if (out.length === 0 && this.itemHasUploadedDesignFile(item)) {
+                    if (out.length === 0) {
+                        out = this.adminDesignFilesFromCustomization(item);
+                        out = PF ? PF.dedupe(out) : out;
+                    }
+                    if (out.length === 0 && this.itemHasUploadedDesignFile(item) && !this.adminItemEvidenceOfMultipleDesignFiles(item)) {
                         const previewUrl = this.getItemDesignFileUrl(item);
                         if (previewUrl) {
                             out = [{

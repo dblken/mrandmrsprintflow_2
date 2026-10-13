@@ -6,6 +6,25 @@
 
     var PREVIEW_LIMIT = 3;
 
+    function designFileIdentity(entry) {
+        if (!entry || typeof entry !== 'object') {
+            return '';
+        }
+        var fileId = entry.file_id;
+        if (fileId != null && String(fileId).trim() !== '' && String(fileId) !== '0') {
+            return 'id:' + String(fileId);
+        }
+        var idem = String(entry.idempotency_key || '').trim();
+        if (idem) {
+            return 'idem:' + idem;
+        }
+        var url = String(entry.preview_url || entry.download_url || entry.storage_path || '').trim();
+        if (url) {
+            return 'url:' + url;
+        }
+        return '';
+    }
+
     function dedupeDesignFiles(raw) {
         if (!Array.isArray(raw)) {
             return [];
@@ -16,12 +35,12 @@
             if (!entry || typeof entry !== 'object') {
                 return;
             }
-            var fileId = Number(entry.file_id || 0);
-            if (fileId > 0) {
-                if (seen.has(fileId)) {
+            var identity = designFileIdentity(entry);
+            if (identity) {
+                if (seen.has(identity)) {
                     return;
                 }
-                seen.add(fileId);
+                seen.add(identity);
             }
             out.push(entry);
         });
@@ -190,6 +209,7 @@
 
     global.PrintflowOrderItemDesignFiles = {
         PREVIEW_LIMIT: PREVIEW_LIMIT,
+        designFileIdentity: designFileIdentity,
         dedupe: dedupeDesignFiles,
         formatFileSize: formatFileSize,
         fileTypeLabel: fileTypeLabel,

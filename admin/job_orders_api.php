@@ -989,9 +989,12 @@ function jo_api_hydrate_items_raw(int $orderId, array &$items): void {
             }
         }
 
-        // 4. Fix design_open_url / design_url when missing
+        // 4. Fix design_open_url / design_url when missing (never use legacy order_item serve URL
+        // when this line already has multiple registered design files — that URL is not per-file).
+        $existingDesignFiles = is_array($item['design_files'] ?? null) ? $item['design_files'] : [];
+        $hasMultiDesignFiles = count($existingDesignFiles) > 1;
         $hasDesignUrl = !empty($item['design_open_url']) || !empty($item['design_url']);
-        if (!$hasDesignUrl) {
+        if (!$hasDesignUrl && !$hasMultiDesignFiles) {
             $designFile = (string)($raw['design_file'] ?? '');
             if ($designFile !== '') {
                 $item['design_open_url'] = $bp . '/public/serve_design.php?type=order_item&id=' . (int)$raw['order_item_id'];
@@ -1020,6 +1023,27 @@ function jo_api_hydrate_items_raw(int $orderId, array &$items): void {
         }
     }
     unset($item);
+
+    if (!function_exists('printflow_order_item_design_files_attach_to_item_views')) {
+        require_once __DIR__ . '/../includes/order_item_design_files.php';
+    }
+    printflow_order_item_design_files_attach_to_item_views($items);
+}
+
+/**
+ * Authoritative store-order line items with design_files[] for staff modal refresh after pricing.
+ *
+ * @return list<array<string,mixed>>
+ */
+function jo_api_order_items_with_design_files(int $orderId): array
+{
+    if ($orderId <= 0) {
+        return [];
+    }
+    $payload = JobOrderService::getStoreOrderItemsPayload($orderId, false, true);
+    $items = array_values($payload['items'] ?? []);
+    jo_api_hydrate_items_raw($orderId, $items);
+    return $items;
 }
 
 function jo_api_material_context_for_assignment(int $orderId, ?string $orderType): array {
@@ -2267,7 +2291,11 @@ try {
                 throw new JoApiPersistenceException('Unable to commit the customization update.');
             }
 
-            jo_api_json_response(['success' => true]);
+            $responsePayload = ['success' => true];
+            if ($linked_order_id > 0) {
+                $responsePayload['items'] = jo_api_order_items_with_design_files($linked_order_id);
+            }
+            jo_api_json_response($responsePayload);
             break;
 
         case 'get_customization':
@@ -2546,6 +2574,10 @@ try {
                     if (!is_array($itemRow)) {
                         continue;
                     }
+                    $posLineFiles = is_array($itemRow['design_files'] ?? null) ? $itemRow['design_files'] : [];
+                    if (count($posLineFiles) > 1) {
+                        continue;
+                    }
                     if (!empty($posDesignMedia)) {
                         $itemRow['design_name'] = $posDesignMedia['name'] ?: ($itemRow['design_name'] ?? null);
                         $itemRow['design_open_url'] = $posDesignMedia['url'];
@@ -2569,7 +2601,8 @@ try {
                         continue;
                     }
                     $lineOrderItemId = (int)($itemRow['order_item_id'] ?? 0);
-                    if ($lineOrderItemId > 0) {
+                    $lineDesignFiles = is_array($itemRow['design_files'] ?? null) ? $itemRow['design_files'] : [];
+                    if ($lineOrderItemId > 0 && count($lineDesignFiles) <= 1 && empty($itemRow['design_open_url'])) {
                         $itemRow['design_open_url'] = (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId;
                     }
                     $itemRow['debug_order_item_id'] = $lineOrderItemId > 0 ? $lineOrderItemId : null;
@@ -3173,7 +3206,9 @@ try {
             if ($priceTransactionStarted && !$conn->commit()) {
                 throw new JoApiPersistenceException('Unable to commit the price update.');
             }
-            jo_api_json_response(['success' => true, 'price' => $price]);
+            $priceResponse = ['success' => true, 'price' => $price];
+            $priceResponse['items'] = jo_api_order_items_with_design_files($order_id);
+            jo_api_json_response($priceResponse);
             break;
 
         case 'create_order':
@@ -3282,7 +3317,11 @@ try {
             if ($jobPriceTransactionStarted && !$conn->commit()) {
                 throw new JoApiPersistenceException('Unable to commit the price update.');
             }
-            jo_api_json_response(['success' => true, 'price' => $price]);
+            $setPriceResponse = ['success' => true, 'price' => $price];
+            if ($linkedOrderId > 0) {
+                $setPriceResponse['items'] = jo_api_order_items_with_design_files($linkedOrderId);
+            }
+            jo_api_json_response($setPriceResponse);
             break;
 
         case 'add_material':

@@ -4206,6 +4206,7 @@ window.pfServiceFieldCatalog = (() => {
             priceOverrideDiff: 0,
             priceOverrideResolve: null,
             lastPriceOverrideConfirmed: false,
+            _priceSaveInFlight: false,
             
             // ── Profile Image Fallback ───────────────────────────────────
             getProfileImage(image) {
@@ -4755,13 +4756,15 @@ window.pfServiceFieldCatalog = (() => {
                         return;
                     }
                     const previousJo = this.currentJo || {};
-                    const merged = this.normalizeStaffOrderDetail({
-                        ...previousJo,
-                        ...res.data,
-                        order_type: previousJo.order_type || 'ORDER',
-                        id: previousJo.id || res.data.id || orderId,
-                        order_id: previousJo.order_id || res.data.order_id || orderId
-                    });
+                    const merged = this.applyStaffOrderDetailMerge(
+                        {
+                            ...previousJo,
+                            order_type: previousJo.order_type || 'ORDER',
+                            id: previousJo.id || res.data.id || orderId,
+                            order_id: previousJo.order_id || res.data.order_id || orderId,
+                        },
+                        res.data
+                    );
                     merged.customer_type = this.normalizeCustomerType(merged.customer_type, merged.transaction_count);
                     merged.customer_profile_picture = merged.customer_profile_picture || merged.profile_picture || merged.customer_picture || '';
                     this.currentJo = merged;
@@ -6346,6 +6349,8 @@ window.pfServiceFieldCatalog = (() => {
             },
             staffItemHasActualUploadedDesignFile(item) {
                 if (!item) return false;
+                const listed = Array.isArray(item.design_files) ? item.design_files : (Array.isArray(item.files) ? item.files : []);
+                if (listed.length > 0) return true;
                 if ((item.design_image_bytes || 0) > 0) return true;
                 if (item.design_exists === true) {
                     const openUrl = String(item.design_open_url || item.design_serve_url || '').trim();
@@ -6575,6 +6580,133 @@ window.pfServiceFieldCatalog = (() => {
                 });
 
                 return normalized;
+            },
+            staffOrderItemId(item) {
+                return Number(item && item.order_item_id != null ? item.order_item_id : 0) || 0;
+            },
+            mergeDesignFilesLists(incoming, previous) {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                const inc = PF ? PF.dedupe(Array.isArray(incoming) ? incoming : []) : (Array.isArray(incoming) ? incoming : []);
+                const prev = PF ? PF.dedupe(Array.isArray(previous) ? previous : []) : (Array.isArray(previous) ? previous : []);
+                if (inc.length === 0) {
+                    return prev;
+                }
+                if (prev.length === 0) {
+                    return inc;
+                }
+                const incDbIds = inc.filter((row) => Number(row && row.file_id) > 0).length;
+                const prevDbIds = prev.filter((row) => Number(row && row.file_id) > 0).length;
+                if (incDbIds >= prevDbIds && inc.length >= prev.length) {
+                    return inc;
+                }
+                if (prevDbIds > incDbIds || prev.length > inc.length) {
+                    return prev;
+                }
+                const byId = new Map();
+                prev.forEach((row) => {
+                    const PFLocal = window.PrintflowOrderItemDesignFiles;
+                    const key = PFLocal ? PFLocal.designFileIdentity(row) : String(row && row.file_id);
+                    if (key) {
+                        byId.set(key, row);
+                    }
+                });
+                inc.forEach((row) => {
+                    const PFLocal = window.PrintflowOrderItemDesignFiles;
+                    const key = PFLocal ? PFLocal.designFileIdentity(row) : String(row && row.file_id);
+                    if (key) {
+                        byId.set(key, row);
+                    }
+                });
+                const merged = Array.from(byId.values());
+                return PF ? PF.dedupe(merged) : merged;
+            },
+            mergeStaffOrderItemsByOrderItemId(previousItems, incomingItems) {
+                const prev = Array.isArray(previousItems) ? previousItems : [];
+                const next = Array.isArray(incomingItems) ? incomingItems : [];
+                if (next.length === 0) {
+                    return prev;
+                }
+                const prevById = new Map();
+                prev.forEach((item) => {
+                    const id = this.staffOrderItemId(item);
+                    if (id > 0) {
+                        prevById.set(id, item);
+                    }
+                });
+                return next.map((incoming) => {
+                    const id = this.staffOrderItemId(incoming);
+                    const prior = id > 0 ? prevById.get(id) : null;
+                    if (!prior) {
+                        return { ...incoming };
+                    }
+                    const designFiles = this.mergeDesignFilesLists(incoming.design_files, prior.design_files);
+                    const priorCustom = prior.customization && typeof prior.customization === 'object' && !Array.isArray(prior.customization)
+                        ? prior.customization
+                        : {};
+                    const incomingCustom = incoming.customization && typeof incoming.customization === 'object' && !Array.isArray(incoming.customization)
+                        ? incoming.customization
+                        : {};
+                    return {
+                        ...prior,
+                        ...incoming,
+                        design_files: designFiles,
+                        files: designFiles,
+                        customization: { ...priorCustom, ...incomingCustom },
+                    };
+                });
+            },
+            applyStaffOrderDetailMerge(previousJo, incomingData) {
+                const prev = previousJo && typeof previousJo === 'object' ? previousJo : {};
+                const inc = incomingData && typeof incomingData === 'object' ? incomingData : {};
+                const merged = { ...prev, ...inc };
+                if (Array.isArray(inc.items)) {
+                    merged.items = this.mergeStaffOrderItemsByOrderItemId(prev.items, inc.items);
+                } else if (Array.isArray(prev.items)) {
+                    merged.items = prev.items;
+                }
+                return this.normalizeStaffOrderDetail(merged);
+            },
+            async applyStaffOrderItemsRefresh(items) {
+                if (!Array.isArray(items) || items.length === 0 || !this.currentJo) {
+                    return;
+                }
+                const previousJo = this.currentJo;
+                const merged = this.applyStaffOrderDetailMerge(previousJo, { items });
+                merged.order_type = previousJo.order_type || merged.order_type;
+                merged.final_price = previousJo.final_price ?? merged.final_price;
+                merged.total_amount = previousJo.total_amount ?? merged.total_amount;
+                merged.status = previousJo.status || merged.status;
+                this.currentJo = merged;
+            },
+            async reloadStaffOrderItemsAfterMutation() {
+                if (!this.showDetailsModal || !this.currentJo || !this.currentJo.order_id) {
+                    return;
+                }
+                const orderId = Number(this.currentJo.order_id);
+                if (!orderId) {
+                    return;
+                }
+                const requestToken = this.detailRequestToken;
+                const hintItemId = Number(
+                    this.currentJo.linked_order_item_id
+                    || this.currentJo.order_item_id
+                    || 0
+                );
+                const res = await this.fetchOrderModalSummary(orderId, {
+                    includeAssignments: false,
+                    ensureJob: false,
+                    orderItemId: hintItemId,
+                });
+                if (!res.success || !res.data || requestToken !== this.detailRequestToken) {
+                    return;
+                }
+                const previousJo = this.currentJo;
+                const merged = this.applyStaffOrderDetailMerge(previousJo, res.data);
+                merged.order_type = previousJo.order_type || merged.order_type;
+                merged.final_price = previousJo.final_price ?? merged.final_price;
+                merged.total_amount = previousJo.total_amount ?? merged.total_amount;
+                merged.status = previousJo.status || merged.status;
+                this.currentJo = merged;
             },
             staffResolveItemCustomizationSource(custom, item = null) {
                 const rawDecoded = item ? this.parseSpecsObject(item.customization_data) : {};
@@ -6976,6 +7108,58 @@ window.pfServiceFieldCatalog = (() => {
             staffItemHasStoredDesign(item) {
                 return this.staffItemHasActualUploadedDesignFile(item);
             },
+            staffItemEvidenceOfMultipleDesignFiles(item) {
+                if (!item) return false;
+                const fromItem = Array.isArray(item.design_files) ? item.design_files.length : (Array.isArray(item.files) ? item.files.length : 0);
+                if (fromItem > 1) return true;
+                const custom = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
+                    ? item.customization
+                    : {};
+                return Array.isArray(custom.design_upload_files) && custom.design_upload_files.length > 1;
+            },
+            staffDesignFilesFromCustomization(item) {
+                const custom = item && item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
+                    ? item.customization
+                    : {};
+                const list = Array.isArray(custom.design_upload_files) ? custom.design_upload_files : [];
+                if (list.length === 0) {
+                    return [];
+                }
+                const oid = this.staffOrderItemId(item);
+                const base = document.body.getAttribute('data-base-url') || '';
+                const out = [];
+                list.forEach((entry, idx) => {
+                    if (!entry || typeof entry !== 'object') {
+                        return;
+                    }
+                    const fileId = Number(entry.file_id || 0);
+                    let preview = '';
+                    if (fileId > 0 && oid > 0) {
+                        preview = base + '/public/serve_design.php?type=order_item_file&id=' + fileId + '&item_id=' + oid;
+                    } else {
+                        const path = String(entry.path || entry.storage_path || '').trim();
+                        if (path) {
+                            preview = this.staffResolveOrderUploadUrl(path);
+                        }
+                    }
+                    if (!preview) {
+                        return;
+                    }
+                    out.push({
+                        file_id: fileId > 0 ? fileId : ('cust-' + oid + '-' + idx),
+                        display_name: String(entry.name || entry.display_name || entry.label || 'design'),
+                        preview_url: preview,
+                        download_url: preview,
+                        mime_type: String(entry.mime || entry.mime_type || ''),
+                        upload_sort: Number(entry.upload_sort != null ? entry.upload_sort : idx),
+                        is_previewable_image: true,
+                        exists: true,
+                        idempotency_key: String(entry.idempotency_key || ''),
+                    });
+                });
+                const PF = window.PrintflowOrderItemDesignFiles;
+                return PF ? PF.dedupe(out) : out;
+            },
             staffItemDesignFiles(item) {
                 if (!item || typeof item !== 'object') return [];
                 const raw = Array.isArray(item.design_files)
@@ -6983,7 +7167,11 @@ window.pfServiceFieldCatalog = (() => {
                     : (Array.isArray(item.files) ? item.files : []);
                 const PF = window.PrintflowOrderItemDesignFiles;
                 let out = PF ? PF.dedupe(raw) : raw;
-                if (out.length === 0 && this.staffItemHasUploadedDesignFile(item)) {
+                if (out.length === 0) {
+                    out = this.staffDesignFilesFromCustomization(item);
+                    out = PF ? PF.dedupe(out) : out;
+                }
+                if (out.length === 0 && this.staffItemHasUploadedDesignFile(item) && !this.staffItemEvidenceOfMultipleDesignFiles(item)) {
                     const previewUrl = this.staffEffectiveDesignOpenUrl(item) || this.staffOrderItemDesignServeUrl(item);
                     if (previewUrl) {
                         out = [{
@@ -9385,6 +9573,11 @@ window.pfServiceFieldCatalog = (() => {
                         if (this.lastPriceOverrideConfirmed) fd.append('price_override_confirmed', '1');
                         const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
                         if (res.success) {
+                            if (Array.isArray(res.items) && res.items.length) {
+                                await this.applyStaffOrderItemsRefresh(res.items);
+                            } else {
+                                await this.reloadStaffOrderItemsAfterMutation();
+                            }
                             const hasPaymentProof = this.currentJo.payment_proof_path || this.currentJo.payment_proof;
                             const paymentAmount = parseFloat(this.currentJo.payment_submitted_amount || 0);
                             const targetTab = (hasPaymentProof && paymentAmount > 0) ? 'TO_VERIFY' : 'TO_PAY';
@@ -9599,6 +9792,9 @@ window.pfServiceFieldCatalog = (() => {
                 }
             },
             async updatePrice() {
+                if (this._priceSaveInFlight) {
+                    return false;
+                }
                 const jid = this.effectiveJobId();
                 const oid = this.currentJo.order_id || this.currentJo.id;
                 const price = parseFloat(this.jobPriceInput);
@@ -9610,43 +9806,59 @@ window.pfServiceFieldCatalog = (() => {
                 if (!await this.confirmFinalPriceIfBelowEstimate(price)) return false;
                 const priceOverrideFlag = this.lastPriceOverrideConfirmed;
 
-                if (this.currentJo.order_type === 'ORDER') {
-                   const fd = new FormData();
-                   fd.append('action', 'update_order_price');
-                   fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
-                   fd.append('order_id', oid);
-                   fd.append('price', price);
-                   if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
-                   const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
-                   if (!res.success) {
-                       this.showStaffAlert('Error', 'Failed to update price: ' + res.error);
-                       return false;
-                   }
-                   this.currentJo.total_amount = price;
-                   this.currentJo.final_price = price;
-                   return true;
-                } else if (this.currentJo.order_type === 'CUSTOMIZATION') {
-                   const fd = new FormData();
-                   fd.append('action', 'update_customization');
-                   fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
-                   fd.append('id', oid);
-                   fd.append('status', 'APPROVED');
-                   fd.append('price', price);
-                   if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
-                   const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
-                   if (!res.success) {
-                       this.showStaffAlert('Error', 'Failed to update customization price: ' + res.error);
-                       return false;
-                   }
-                   this.currentJo.final_price = price;
-                   return true;
-                } else {
-                    const success = await this.setJobPrice(jid);
-                    if (success !== false) {
-                        this.currentJo.final_price = price;
-                        return true;
+                this._priceSaveInFlight = true;
+                try {
+                    if (this.currentJo.order_type === 'ORDER') {
+                       const fd = new FormData();
+                       fd.append('action', 'update_order_price');
+                       fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                       fd.append('order_id', oid);
+                       fd.append('price', price);
+                       if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
+                       const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
+                       if (!res.success) {
+                           this.showStaffAlert('Error', 'Failed to update price: ' + res.error);
+                           return false;
+                       }
+                       this.currentJo.total_amount = price;
+                       this.currentJo.final_price = price;
+                       if (Array.isArray(res.items) && res.items.length) {
+                           await this.applyStaffOrderItemsRefresh(res.items);
+                       } else {
+                           await this.reloadStaffOrderItemsAfterMutation();
+                       }
+                       return true;
+                    } else if (this.currentJo.order_type === 'CUSTOMIZATION') {
+                       const fd = new FormData();
+                       fd.append('action', 'update_customization');
+                       fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                       fd.append('id', oid);
+                       fd.append('status', 'APPROVED');
+                       fd.append('price', price);
+                       if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
+                       const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
+                       if (!res.success) {
+                           this.showStaffAlert('Error', 'Failed to update customization price: ' + res.error);
+                           return false;
+                       }
+                       this.currentJo.final_price = price;
+                       if (Array.isArray(res.items) && res.items.length) {
+                           await this.applyStaffOrderItemsRefresh(res.items);
+                       } else {
+                           await this.reloadStaffOrderItemsAfterMutation();
+                       }
+                       return true;
+                    } else {
+                        const success = await this.setJobPrice(jid);
+                        if (success !== false) {
+                            this.currentJo.final_price = price;
+                            await this.reloadStaffOrderItemsAfterMutation();
+                            return true;
+                        }
+                        return false;
                     }
-                    return false;
+                } finally {
+                    this._priceSaveInFlight = false;
                 }
             },
 
@@ -10402,13 +10614,15 @@ window.pfServiceFieldCatalog = (() => {
                     : await (await fetch(`../admin/job_orders_api.php?action=get_order&id=${jid}`)).json();
                 if(res.success) {
                     const previousJo = this.currentJo || {};
-                    const merged = {
-                        ...previousJo,
-                        ...res.data,
-                        order_type: previousJo.order_type || 'JOB',
-                        order_id: previousJo.order_id || res.data.order_id,
-                        job_order_id: jid
-                    };
+                    const merged = this.applyStaffOrderDetailMerge(
+                        {
+                            ...previousJo,
+                            order_type: previousJo.order_type || 'JOB',
+                            order_id: previousJo.order_id || res.data.order_id,
+                            job_order_id: jid,
+                        },
+                        res.data
+                    );
                     if ((previousJo.order_type || '').toUpperCase() === 'CUSTOMIZATION') {
                         merged.status = previousJo.status || merged.status;
                         merged.payment_proof_status = previousJo.payment_proof_status || merged.payment_proof_status;
