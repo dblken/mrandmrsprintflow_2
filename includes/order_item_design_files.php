@@ -88,6 +88,7 @@ if (!function_exists('printflow_order_item_design_files_to_api')) {
                 $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
                 $isPreviewable = in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'svg'], true);
             }
+            $uploadedAt = trim((string)($row['created_at'] ?? ($row['uploaded_at'] ?? '')));
             $out[] = [
                 'file_id' => $fileId,
                 'order_item_id' => $orderItemId,
@@ -98,6 +99,7 @@ if (!function_exists('printflow_order_item_design_files_to_api')) {
                 'file_size' => (int)($row['file_size'] ?? 0),
                 'upload_sort' => (int)($row['upload_sort'] ?? 0),
                 'storage_path' => (string)($row['storage_path'] ?? ''),
+                'uploaded_at' => $uploadedAt,
                 'preview_url' => $urls['preview_url'],
                 'download_url' => $urls['download_url'],
                 'is_previewable_image' => $isPreviewable,

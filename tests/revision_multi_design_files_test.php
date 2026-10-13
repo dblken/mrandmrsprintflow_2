@@ -23,8 +23,9 @@ $expect(strpos($designCore, 'printflow_revision_design_files_list_for_request') 
 $expect(strpos($designCore, 'revision_request_id') !== false, 'design file rows link to revision_request_id');
 $expect(strpos($editOrder, 'name="design_file[]"') !== false, 'customer revision form uses multi file input');
 $expect(strpos($editOrder, 'multiple') !== false, 'customer revision input allows multiple selection');
-$expect(strpos($staffUi, 'revisionUnifiedDesignFiles') !== false, 'staff modal renders unified deduplicated design file gallery');
-$expect(strpos($staffUi, 'scope=unified') !== false, 'staff ZIP download uses unified deduplicated file list');
+$expect(strpos($staffUi, 'pf-rev-design-compare') !== false, 'staff modal renders two-column add-details design comparison');
+$expect(strpos($staffUi, "revisionDesignFilesZipUrl('unified')") !== false, 'staff ZIP download supports unified deduplicated file list');
+$expect(strpos($staffUi, 'revisionOriginalDesignZipUrl') !== false, 'staff UI supports original-only ZIP download');
 $expect(is_file($root . '/public/download_revision_design_files_zip.php'), 'revision ZIP download endpoint exists');
 
 if ($failures !== []) {

@@ -384,63 +384,279 @@ function printflow_revision_file_sections_for_request(array $revisionRow): array
 }
 
 /**
- * Merge all design file sources for one request into one deduplicated list (key: file_id).
- *
- * @return array{files:list<array<string,mixed>>,counts:array<string,int>}
+ * @param array<string,mixed> $file
  */
-function printflow_revision_unified_design_files_for_request(array $revisionRow): array
+function printflow_revision_design_file_display_title(array $file): string
 {
-    $sections = printflow_revision_file_sections_for_request($revisionRow);
-    $byId = [];
-    $idsBySource = [
-        'original' => [],
-        'selected' => [],
-        'response_current' => [],
-        'response_history' => [],
-    ];
+    $name = trim((string)($file['display_name'] ?? ''));
+    if ($name === '') {
+        return 'Design file';
+    }
+    if (str_contains($name, ',')) {
+        $parts = preg_split('/\s*,\s*/', $name) ?: [];
+        foreach ($parts as $part) {
+            $part = trim((string)$part);
+            if ($part !== '') {
+                return $part;
+            }
+        }
+    }
+    return $name;
+}
 
-    foreach ($sections as $section) {
-        if (!is_array($section)) {
+/**
+ * @param array<string,mixed> $file
+ */
+function printflow_revision_design_file_storage_key(array $file): string
+{
+    $path = strtolower(str_replace('\\', '/', trim((string)($file['storage_path'] ?? ''))));
+    if ($path !== '') {
+        return 'path:' . $path;
+    }
+    return 'id:' . (int)($file['file_id'] ?? 0);
+}
+
+/**
+ * @param array<string,mixed> $file
+ */
+function printflow_revision_design_file_content_fingerprint(array $file): string
+{
+    $cached = trim((string)($file['content_fingerprint'] ?? ''));
+    if ($cached !== '') {
+        return $cached;
+    }
+    $path = trim((string)($file['storage_path'] ?? ''));
+    if ($path === '' || !function_exists('printflow_resolve_order_upload_disk_path')) {
+        return '';
+    }
+    $disk = printflow_resolve_order_upload_disk_path($path);
+    if ($disk === null || !is_file($disk) || !is_readable($disk)) {
+        return '';
+    }
+    $hash = hash_file('sha256', $disk);
+    return is_string($hash) ? $hash : '';
+}
+
+/**
+ * @param array<string,mixed> $file
+ */
+function printflow_revision_design_file_identity_key(array $file): string
+{
+    $fingerprint = printflow_revision_design_file_content_fingerprint($file);
+    if ($fingerprint !== '') {
+        return 'hash:' . $fingerprint;
+    }
+    return printflow_revision_design_file_storage_key($file);
+}
+
+/**
+ * Deduplicate by file_id, then by physical identity (hash or normalized storage path).
+ *
+ * @param list<array<string,mixed>> $files
+ * @return list<array<string,mixed>>
+ */
+function printflow_revision_dedupe_design_files_physical(array $files): array
+{
+    $byId = [];
+    foreach ($files as $file) {
+        if (!is_array($file)) {
             continue;
         }
-        $sectionKey = (string)($section['key'] ?? '');
-        $normalizedType = match (true) {
-            $sectionKey === 'original' => 'original',
-            $sectionKey === 'selected' => 'selected',
-            $sectionKey === 'response_current' => 'response_current',
-            str_starts_with($sectionKey, 'response_history_') => 'response_history',
-            default => '',
-        };
-        if ($normalizedType === '') {
+        $fileId = (int)($file['file_id'] ?? 0);
+        if ($fileId <= 0) {
             continue;
         }
-        $label = (string)($section['label'] ?? '');
-        $files = is_array($section['files'] ?? null) ? $section['files'] : [];
-        foreach ($files as $file) {
-            if (!is_array($file)) {
+        $byId[$fileId] = $file;
+    }
+    $deduped = [];
+    $seenPhysical = [];
+    foreach (array_values($byId) as $file) {
+        $identity = printflow_revision_design_file_identity_key($file);
+        if (isset($seenPhysical[$identity])) {
+            continue;
+        }
+        $seenPhysical[$identity] = true;
+        $file['display_name'] = printflow_revision_design_file_display_title($file);
+        $fingerprint = printflow_revision_design_file_content_fingerprint($file);
+        if ($fingerprint !== '') {
+            $file['content_fingerprint'] = $fingerprint;
+        }
+        $deduped[] = $file;
+    }
+    usort($deduped, static function (array $a, array $b): int {
+        $sortDelta = ((int)($a['upload_sort'] ?? 0)) <=> ((int)($b['upload_sort'] ?? 0));
+        if ($sortDelta !== 0) {
+            return $sortDelta;
+        }
+        return ((int)($a['file_id'] ?? 0)) <=> ((int)($b['file_id'] ?? 0));
+    });
+    return $deduped;
+}
+
+/**
+ * @param list<array<string,mixed>> $files
+ * @param array<string,mixed> $meta
+ * @return list<array<string,mixed>>
+ */
+function printflow_revision_tag_design_files(array $files, array $meta): array
+{
+    $out = [];
+    foreach ($files as $file) {
+        if (!is_array($file)) {
+            continue;
+        }
+        $tagged = array_merge($file, $meta);
+        $tagged['display_name'] = printflow_revision_design_file_display_title($tagged);
+        $label = trim((string)($meta['source_label'] ?? ''));
+        $tagged['source_labels'] = $label !== '' ? [$label] : [];
+        $out[] = $tagged;
+    }
+    return $out;
+}
+
+/**
+ * Original vs current response comparison groups for staff review (no cross-column duplicates).
+ *
+ * @return array{
+ *   original_files:list<array<string,mixed>>,
+ *   current_response_files:list<array<string,mixed>>,
+ *   previous_response_files:list<array{revision_request_id:int,request_sequence:int,label:string,files:list<array<string,mixed>>}>,
+ *   unified_design_files:list<array<string,mixed>>,
+ *   counts:array<string,int>
+ * }
+ */
+function printflow_revision_comparison_design_files_for_request(array $revisionRow): array
+{
+    $revisionRequestId = (int)($revisionRow['revision_request_id'] ?? 0);
+    $orderId = (int)($revisionRow['order_id'] ?? 0);
+    $orderItemId = (int)($revisionRow['order_item_id'] ?? 0);
+    if ($orderItemId <= 0) {
+        $items = is_array($revisionRow['previous_values_array']['items'] ?? null)
+            ? $revisionRow['previous_values_array']['items']
+            : [];
+        if (count($items) === 1) {
+            $orderItemId = (int)($items[0]['order_item_id'] ?? 0);
+        }
+    }
+    $requestSequence = max(1, (int)($revisionRow['request_sequence'] ?? 1));
+    $responseLabel = 'Customer\'s new upload';
+
+    $originalRaw = ($orderItemId > 0 && function_exists('printflow_order_item_design_files_list_for_item'))
+        ? printflow_order_item_design_files_list_for_item($orderItemId, false)
+        : [];
+    $originalFiles = printflow_revision_dedupe_design_files_physical(
+        printflow_revision_tag_design_files($originalRaw, [
+            'source_type' => 'original',
+            'source_label' => 'Original design',
+            'request_sequence' => 0,
+            'revision_request_id' => 0,
+        ])
+    );
+
+    $currentResponseRaw = ($revisionRequestId > 0)
+        ? printflow_revision_design_files_list_for_request($revisionRequestId, $orderItemId)
+        : [];
+    $currentResponseTagged = printflow_revision_tag_design_files(
+        printflow_revision_dedupe_design_files_physical($currentResponseRaw),
+        [
+            'source_type' => 'response_current',
+            'source_label' => $responseLabel,
+            'request_sequence' => $requestSequence,
+            'revision_request_id' => $revisionRequestId,
+        ]
+    );
+
+    $originalIdentity = [];
+    foreach ($originalFiles as $index => $file) {
+        $originalIdentity[printflow_revision_design_file_identity_key($file)] = $index;
+    }
+
+    $currentResponseFiles = [];
+    foreach ($currentResponseTagged as $responseFile) {
+        $identity = printflow_revision_design_file_identity_key($responseFile);
+        if (isset($originalIdentity[$identity])) {
+            $origIndex = $originalIdentity[$identity];
+            $originalFiles[$origIndex]['same_as_original'] = true;
+            if (!in_array('Same as original', $originalFiles[$origIndex]['source_labels'] ?? [], true)) {
+                $originalFiles[$origIndex]['source_labels'] = array_values(array_unique(array_merge(
+                    is_array($originalFiles[$origIndex]['source_labels'] ?? null) ? $originalFiles[$origIndex]['source_labels'] : [],
+                    ['Same as original']
+                )));
+            }
+            continue;
+        }
+        $responseFileId = (int)($responseFile['file_id'] ?? 0);
+        if ($responseFileId > 0) {
+            $skip = false;
+            foreach ($originalFiles as $orig) {
+                if ((int)($orig['file_id'] ?? 0) === $responseFileId) {
+                    $skip = true;
+                    break;
+                }
+            }
+            if ($skip) {
                 continue;
             }
+        }
+        $currentResponseFiles[] = $responseFile;
+    }
+
+    $previousResponseFiles = [];
+    if ($orderId > 0 && $revisionRequestId > 0) {
+        $historyRows = db_query(
+            'SELECT revision_request_id, request_sequence, resubmitted_at
+             FROM order_revision_requests
+             WHERE order_id = ? AND revision_request_id <> ? AND resubmitted_at IS NOT NULL
+             ORDER BY request_sequence ASC, revision_request_id ASC',
+            'ii',
+            [$orderId, $revisionRequestId]
+        ) ?: [];
+        foreach ($historyRows as $historyRow) {
+            $histId = (int)($historyRow['revision_request_id'] ?? 0);
+            $histSeq = max(1, (int)($historyRow['request_sequence'] ?? 1));
+            if ($histId <= 0) {
+                continue;
+            }
+            $histFiles = printflow_revision_design_files_list_for_request($histId, $orderItemId);
+            $histFiles = printflow_revision_dedupe_design_files_physical($histFiles);
+            if ($histFiles === []) {
+                continue;
+            }
+            $previousResponseFiles[] = [
+                'revision_request_id' => $histId,
+                'request_sequence' => $histSeq,
+                'label' => 'Previous response — Request Add Details #' . $histSeq,
+                'files' => printflow_revision_tag_design_files($histFiles, [
+                    'source_type' => 'response_history',
+                    'source_label' => 'Previous response #' . $histSeq,
+                    'request_sequence' => $histSeq,
+                    'revision_request_id' => $histId,
+                ]),
+            ];
+        }
+    }
+
+    $unifiedById = [];
+    foreach (array_merge($originalFiles, $currentResponseFiles) as $file) {
+        $fileId = (int)($file['file_id'] ?? 0);
+        if ($fileId <= 0) {
+            continue;
+        }
+        $unifiedById[$fileId] = $file;
+    }
+    foreach ($previousResponseFiles as $group) {
+        foreach ($group['files'] as $file) {
             $fileId = (int)($file['file_id'] ?? 0);
             if ($fileId <= 0) {
                 continue;
             }
-            if (!isset($byId[$fileId])) {
-                $byId[$fileId] = $file;
-                $byId[$fileId]['source_types'] = [];
-                $byId[$fileId]['source_labels'] = [];
-            }
-            if (!in_array($normalizedType, $byId[$fileId]['source_types'], true)) {
-                $byId[$fileId]['source_types'][] = $normalizedType;
-                if ($label !== '' && !in_array($label, $byId[$fileId]['source_labels'], true)) {
-                    $byId[$fileId]['source_labels'][] = $label;
-                }
-                $idsBySource[$normalizedType][$fileId] = $fileId;
+            if (!isset($unifiedById[$fileId])) {
+                $unifiedById[$fileId] = $file;
             }
         }
     }
-
-    $files = array_values($byId);
-    usort($files, static function (array $a, array $b): int {
+    $unifiedDesignFiles = array_values($unifiedById);
+    usort($unifiedDesignFiles, static function (array $a, array $b): int {
         $sortDelta = ((int)($a['upload_sort'] ?? 0)) <=> ((int)($b['upload_sort'] ?? 0));
         if ($sortDelta !== 0) {
             return $sortDelta;
@@ -448,15 +664,36 @@ function printflow_revision_unified_design_files_for_request(array $revisionRow)
         return ((int)($a['file_id'] ?? 0)) <=> ((int)($b['file_id'] ?? 0));
     });
 
+    $historyFileCount = 0;
+    foreach ($previousResponseFiles as $group) {
+        $historyFileCount += count($group['files']);
+    }
+
     return [
-        'files' => $files,
+        'original_files' => $originalFiles,
+        'current_response_files' => $currentResponseFiles,
+        'previous_response_files' => $previousResponseFiles,
+        'unified_design_files' => $unifiedDesignFiles,
         'counts' => [
-            'unique_total' => count($files),
-            'original' => count($idsBySource['original']),
-            'selected' => count($idsBySource['selected']),
-            'response_current' => count($idsBySource['response_current']),
-            'response_history' => count($idsBySource['response_history']),
+            'unique_total' => count($unifiedDesignFiles),
+            'original' => count($originalFiles),
+            'response_current' => count($currentResponseFiles),
+            'response_history' => $historyFileCount,
         ],
+    ];
+}
+
+/**
+ * Merge all design file sources for one request into one deduplicated list (key: file_id).
+ *
+ * @return array{files:list<array<string,mixed>>,counts:array<string,int>}
+ */
+function printflow_revision_unified_design_files_for_request(array $revisionRow): array
+{
+    $comparison = printflow_revision_comparison_design_files_for_request($revisionRow);
+    return [
+        'files' => $comparison['unified_design_files'],
+        'counts' => $comparison['counts'],
     ];
 }
 
@@ -1079,7 +1316,7 @@ function printflow_revision_review_payload(int $orderId, bool $markReviewing = f
         $designItemId,
         $revision['selected_design_file_ids_array'] ?? []
     );
-    $unifiedDesign = printflow_revision_unified_design_files_for_request($revision);
+    $comparisonDesign = printflow_revision_comparison_design_files_for_request($revision);
 
     return [
         'id' => (int)$revision['revision_request_id'],
@@ -1099,8 +1336,11 @@ function printflow_revision_review_payload(int $orderId, bool $markReviewing = f
         'replacement_design_files' => $replacementFiles,
         'selected_source_files' => $selectedSourceFiles,
         'file_sections' => [],
-        'unified_design_files' => $unifiedDesign['files'],
-        'design_file_counts' => $unifiedDesign['counts'],
+        'original_files' => $comparisonDesign['original_files'],
+        'current_response_files' => $comparisonDesign['current_response_files'],
+        'previous_response_files' => $comparisonDesign['previous_response_files'],
+        'unified_design_files' => $comparisonDesign['unified_design_files'],
+        'design_file_counts' => $comparisonDesign['counts'],
         'price_review_required' => !empty($revised['_revision']['price_review_required']),
     ];
 }

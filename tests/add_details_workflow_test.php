@@ -23,7 +23,8 @@ $expect(strpos($customizations, 'revisionSelectedDesignFileIds') !== false, 'sta
 $expect(strpos($customizations, 'focus_add_details') !== false, 'customizations deep link supports focus_add_details');
 $expect(strpos($revision, 'printflow_revision_unified_design_files_for_request') !== false, 'unified design file dedupe helper exists');
 $expect(strpos($revision, "'unified_design_files'") !== false, 'revision review payload exposes unified_design_files');
-$expect(strpos($customizations, 'revisionUnifiedDesignFiles') !== false, 'staff modal renders deduplicated unified design gallery');
+$expect(strpos($customizations, 'revisionOriginalDesignFiles') !== false, 'staff modal renders original design comparison column');
+$expect(strpos($customizations, 'revisionCurrentResponseDesignFiles') !== false, 'staff modal renders customer new upload comparison column');
 $expect(strpos($customizations, 'revisionReviewActiveForItem') !== false, 'staff modal hides item design section during add-details review');
 
 if ($failures !== []) {

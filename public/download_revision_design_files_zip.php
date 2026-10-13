@@ -45,24 +45,31 @@ if ($is_staff && $orderId > 0) {
 
 $scope = strtolower(trim((string)($_GET['scope'] ?? 'response')));
 $apiFiles = [];
-if ($scope === 'unified') {
-    $revisionRows = db_query(
-        'SELECT * FROM order_revision_requests WHERE revision_request_id = ? LIMIT 1',
-        'i',
-        [$revisionRequestId]
-    ) ?: [];
-    if (!empty($revisionRows[0])) {
-        $revisionRow = printflow_revision_hydrate_request_row($revisionRows[0]);
-        $revisionRow['previous_values_array'] = printflow_revision_decode_json($revisionRow['previous_values'] ?? '{}');
-        $unified = printflow_revision_unified_design_files_for_request($revisionRow);
-        $apiFiles = is_array($unified['files'] ?? null) ? $unified['files'] : [];
+$revisionRows = db_query(
+    'SELECT * FROM order_revision_requests WHERE revision_request_id = ? LIMIT 1',
+    'i',
+    [$revisionRequestId]
+) ?: [];
+$revisionRow = !empty($revisionRows[0]) ? $revisionRows[0] : null;
+if ($revisionRow !== null) {
+    $revisionRow = printflow_revision_hydrate_request_row($revisionRow);
+    $revisionRow['previous_values_array'] = printflow_revision_decode_json($revisionRow['previous_values'] ?? '{}');
+    $comparison = printflow_revision_comparison_design_files_for_request($revisionRow);
+    if ($scope === 'unified') {
+        $apiFiles = is_array($comparison['unified_design_files'] ?? null) ? $comparison['unified_design_files'] : [];
+    } elseif ($scope === 'original') {
+        $apiFiles = is_array($comparison['original_files'] ?? null) ? $comparison['original_files'] : [];
+    } elseif ($scope === 'response' || $scope === 'current') {
+        $apiFiles = is_array($comparison['current_response_files'] ?? null) ? $comparison['current_response_files'] : [];
+    } else {
+        $apiFiles = printflow_revision_design_files_list_for_request($revisionRequestId, $orderItemId);
     }
 } else {
     $apiFiles = printflow_revision_design_files_list_for_request($revisionRequestId, $orderItemId);
 }
 if ($apiFiles === []) {
     http_response_code(404);
-    echo 'No replacement design files found.';
+    echo 'No design files found for this download.';
     exit;
 }
 
@@ -89,6 +96,7 @@ if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
 
 $usedNames = [];
 $seenFileIds = [];
+$seenPhysical = [];
 $added = 0;
 foreach ($apiFiles as $file) {
     if (!is_array($file)) {
@@ -100,6 +108,15 @@ foreach ($apiFiles as $file) {
             continue;
         }
         $seenFileIds[$fileId] = true;
+    }
+    if (function_exists('printflow_revision_design_file_identity_key')) {
+        $physicalKey = printflow_revision_design_file_identity_key($file);
+        if ($physicalKey !== '' && isset($seenPhysical[$physicalKey])) {
+            continue;
+        }
+        if ($physicalKey !== '') {
+            $seenPhysical[$physicalKey] = true;
+        }
     }
     $displayName = trim((string)($file['display_name'] ?? 'design'));
     $displayName = preg_replace('/[\x00-\x1F\x7F"\\\\]+/u', '_', basename($displayName)) ?: 'design';
