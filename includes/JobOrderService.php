@@ -3725,7 +3725,7 @@ class JobOrderService {
                 if (!empty($materialContext['heightFt'])) {
                     $order['height_ft'] = (string)$materialContext['heightFt'];
                 }
-                if (is_array($materialContext['primaryItem'] ?? null)) {
+                if (is_array($materialContext['primaryItem'] ?? null) && (int)($order['saved_job_order_item_id'] ?? 0) > 0) {
                     $order['items'] = [$materialContext['primaryItem']];
                     $order['quantity'] = max(1, (int)($materialContext['primaryItem']['quantity'] ?? ($order['quantity'] ?? 1)));
                 }
@@ -4011,6 +4011,19 @@ class JobOrderService {
             ])
             : [];
         $order['display_specifications'] = printflow_filter_admin_customization_display_specifications($displaySpecsRaw);
+
+        $storeLines = is_array($order['items'] ?? null) ? $order['items'] : [];
+        if ($storeOrderId > 0 && count($storeLines) > 1) {
+            $summary = printflow_store_order_service_summary($storeOrderId);
+            if ($summary !== '') {
+                $order['display_service_type'] = $summary;
+                $order['service_type'] = $summary;
+                $order['job_title'] = $summary;
+            }
+            $order['display_specifications'] = [];
+            $order['display_dimensions'] = '';
+        }
+        printflow_enrich_store_order_items_for_display($order['items']);
 
         return $order;
     }

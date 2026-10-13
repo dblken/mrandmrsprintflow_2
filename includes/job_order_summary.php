@@ -286,8 +286,11 @@ function printflow_job_order_display_service_type(array $jobRow): string
         $items = is_array($payload['items'] ?? null) ? $payload['items'] : [];
         $storeLine = printflow_job_order_find_store_line($items, $orderItemId);
         if ($storeLine === null && count($items) > 1) {
-            // There is no resolvable job-to-line relationship. Never select the
-            // first cart line or an unrelated legacy workflow title.
+            $summary = printflow_store_order_service_summary($orderId, $payload);
+            if ($summary !== '') {
+                return $summary;
+            }
+
             return 'Unknown Service';
         }
     }
@@ -504,4 +507,168 @@ function printflow_job_order_line_needed_date_payload(array $customization): arr
         'needed_date' => $raw,
         'needed_date_display' => printflow_format_needed_date_display($raw),
     ];
+}
+
+/**
+ * @param array<string,mixed> $item Store order line from JobOrderService payload
+ */
+function printflow_order_item_service_label(array $item): string
+{
+    $name = trim((string)($item['product_name'] ?? ''));
+    if ($name !== '' && !in_array(strtolower($name), ['custom order', 'customer order', 'service order', 'order item'], true)) {
+        return $name;
+    }
+    $custom = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+    if ($custom !== [] && function_exists('get_service_name_from_customization')) {
+        $fromCustom = trim((string)get_service_name_from_customization($custom, $name));
+        if ($fromCustom !== '' && strcasecmp($fromCustom, 'Custom Order') !== 0) {
+            return $fromCustom;
+        }
+    }
+
+    return $name;
+}
+
+/**
+ * @param array{items?:list<array<string,mixed>>}|null $payload
+ */
+function printflow_store_order_service_summary(int $orderId, ?array $payload = null): string
+{
+    if ($orderId <= 0) {
+        return '';
+    }
+    if ($payload === null) {
+        require_once __DIR__ . '/JobOrderService.php';
+        $payload = JobOrderService::getStoreOrderItemsPayload($orderId, false, true);
+    }
+    $parts = [];
+    foreach (is_array($payload['items'] ?? null) ? $payload['items'] : [] as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $label = printflow_order_item_service_label($item);
+        if ($label === '') {
+            continue;
+        }
+        $qty = max(1, (int)($item['quantity'] ?? 1));
+        $parts[] = $qty > 1 ? $label . ' - ' . $qty . 'pcs' : $label;
+    }
+
+    return implode(', ', array_values(array_unique($parts)));
+}
+
+/**
+ * Attach per-line display metadata for admin/staff modals (specs, dimensions, dates).
+ *
+ * @param list<array<string,mixed>>|null $items
+ */
+function printflow_enrich_store_order_items_for_display(?array &$items): void
+{
+    if (!is_array($items) || $items === []) {
+        return;
+    }
+    require_once __DIR__ . '/customization_normalizer.php';
+    require_once __DIR__ . '/service_field_priority_helper.php';
+
+    foreach ($items as &$line) {
+        if (!is_array($line)) {
+            continue;
+        }
+        $raw = printflow_merge_order_item_customization_sources($line);
+        $displaySpecsRaw = $raw !== []
+            ? printflow_customization_display_specs($raw, [
+                'include_service' => false,
+                'include_design' => false,
+                'include_notes' => true,
+                'include_quantity' => false,
+            ])
+            : [];
+        $line['display_specifications'] = printflow_filter_admin_customization_display_specifications($displaySpecsRaw);
+        $neededPayload = printflow_job_order_line_needed_date_payload($raw);
+        $line['needed_date'] = $neededPayload['needed_date'];
+        $line['needed_date_display'] = $neededPayload['needed_date_display'];
+        $line['display_dimensions'] = printflow_job_order_display_dimensions_label($line, []);
+        $priorityPayload = printflow_resolve_customer_priority_from_customization($raw);
+        $line['display_priority'] = printflow_format_customer_priority_display(
+            (string)($priorityPayload['selected_value'] ?? '')
+        );
+    }
+    unset($line);
+}
+
+/**
+ * Admin customizations list: one row per store order (multiple job_orders merged).
+ *
+ * @param list<array<string,mixed>> $rows
+ * @return list<array<string,mixed>>
+ */
+function printflow_group_admin_customization_job_rows(array $rows): array
+{
+    if ($rows === []) {
+        return [];
+    }
+
+    $groups = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $orderId = (int)($row['order_id'] ?? 0);
+        $jobId = (int)($row['id'] ?? 0);
+        $key = $orderId > 0 ? 'o:' . $orderId : 'j:' . $jobId;
+        $lineLabel = trim((string)($row['display_service_type'] ?? $row['service_type'] ?? $row['job_title'] ?? ''));
+        if (!isset($groups[$key])) {
+            $row['group_job_ids'] = [$jobId];
+            $row['group_service_labels'] = $lineLabel !== '' ? [$lineLabel] : [];
+            $groups[$key] = $row;
+            continue;
+        }
+        $existing = $groups[$key];
+        $mergedIds = array_values(array_unique(array_merge(
+            is_array($existing['group_job_ids'] ?? null) ? $existing['group_job_ids'] : [(int)($existing['id'] ?? 0)],
+            [$jobId]
+        )));
+        $mergedLabels = is_array($existing['group_service_labels'] ?? null) ? $existing['group_service_labels'] : [];
+        if ($lineLabel !== '') {
+            $mergedLabels[] = $lineLabel;
+        }
+        if ($jobId > 0 && ($existing['id'] ?? PHP_INT_MAX) > $jobId) {
+            $row['group_job_ids'] = $mergedIds;
+            $row['group_service_labels'] = $mergedLabels;
+            $groups[$key] = $row;
+        } else {
+            $groups[$key]['group_job_ids'] = $mergedIds;
+            $groups[$key]['group_service_labels'] = $mergedLabels;
+        }
+    }
+
+    $out = [];
+    foreach ($groups as $group) {
+        $orderId = (int)($group['order_id'] ?? 0);
+        if ($orderId > 0) {
+            $summary = '';
+            try {
+                $summary = printflow_store_order_service_summary($orderId);
+            } catch (Throwable $e) {
+                $summary = '';
+            }
+            if ($summary === '') {
+                $fallbackLabels = array_values(array_unique(array_filter(array_map(
+                    static fn($label): string => trim((string)$label),
+                    is_array($group['group_service_labels'] ?? null) ? $group['group_service_labels'] : []
+                ))));
+                $summary = implode(', ', $fallbackLabels);
+            }
+            if ($summary !== '') {
+                $group['display_service_type'] = $summary;
+                $group['job_title'] = $summary;
+            } elseif (trim((string)($group['display_service_type'] ?? '')) === '') {
+                $group['display_service_type'] = printflow_job_order_display_service_type($group);
+            }
+        }
+        unset($group['group_service_labels']);
+        $out[] = $group;
+    }
+
+    return $out;
 }

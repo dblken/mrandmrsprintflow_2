@@ -171,7 +171,8 @@ $service_id = (int)($materialContext['serviceId'] ?? 0);
 $first_custom = is_array($materialContext['firstCustom'] ?? null) ? $materialContext['firstCustom'] : $first_custom;
 $width_ft = (string)($materialContext['widthFt'] ?? $width_ft);
 $height_ft = (string)($materialContext['heightFt'] ?? $height_ft);
-if ($displayOrderItemId > 0) {
+$forceSingleLineView = $hintOrderItemId > 0 || $linked_job_order_item_id > 0;
+if ($forceSingleLineView && $displayOrderItemId > 0) {
     $primaryItem = is_array($materialContext['primaryItem'] ?? null) ? $materialContext['primaryItem'] : null;
     if ($primaryItem !== null) {
         // A customization row represents its linked line. Keep its specifications,
@@ -192,11 +193,12 @@ if ($displayOrderItemId > 0) {
         $total_qty = 0;
     }
 } elseif (count($items_out) > 1) {
-    // Without an item link, do not promote the first array element into an order-wide service.
-    $service_name = 'Unknown Service';
-    $first_custom = [];
-    $width_ft = '';
-    $height_ft = '';
+    $service_name = printflow_store_order_service_summary($order_id, ['items' => $items_out]);
+    if ($service_name === '') {
+        $service_name = 'Unknown Service';
+    }
+    $first_custom = is_array($items_out[0]['customization'] ?? null) ? $items_out[0]['customization'] : [];
+    $total_qty = array_sum(array_map(static fn(array $i): int => max(1, (int)($i['quantity'] ?? 1)), $items_out));
 } else {
     $canonicalDimensions = printflow_resolve_customization_dimensions($first_custom);
     $width_ft = (string)($canonicalDimensions['width'] ?? '');
@@ -440,5 +442,7 @@ $data['change_item_request_source'] = (string)($changeItemSummary['active']['req
 $data['change_item_request_source_label'] = (string)($changeItemSummary['active']['request_source_label'] ?? '');
 $data['change_item_verification_status'] = (string)($changeItemSummary['active']['verification_status'] ?? '');
 $data['change_item_change_status'] = (string)($changeItemSummary['active']['change_status'] ?? '');
+
+printflow_enrich_store_order_items_for_display($data['items']);
 
 echo json_encode(['success' => true, 'data' => $data]);

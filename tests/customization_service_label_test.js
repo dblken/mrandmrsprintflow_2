@@ -71,7 +71,7 @@ assert(api.includes('LEFT JOIN order_items oi ON oi.order_item_id = cust.order_i
 assert(api.includes('if ($ownOrderItemIdForService > 0) {'), 'exact line matching must run for single and multiple items');
 assert(!api.includes('count($items) > 1) {\n                    foreach ($items as $candidateItem)'), 'line matching must not depend on item count');
 assert(page.includes('orderItemId: order && order.order_item_id ? order.order_item_id : 0'), 'modal request must carry the selected customization line ID');
-assert(/this\.currentJo = \{\};\s*this\.detailRetryPayload = \{ id, orderType \};/.test(page), 'opening another order must clear the previous detail state');
+assert(/this\.currentJo = \{\};[\s\S]*this\.detailRetryPayload = \{ id, orderType \};/.test(page), 'opening another order must clear the previous detail state');
 assert(!serviceMethod.includes('customization_details') && !serviceMethod.includes('T-SHIRT PRINTING'), 'service label must not be inferred from specifications');
 
 const dimensionMethod = extractMethod('staffExtractDimensionParts', 'specs, dimensionField');
@@ -83,12 +83,13 @@ const dimensionHelpers = {
 };
 assert.deepStrictEqual(staffExtractDimensionParts.call(dimensionHelpers, { width: '2', height: '3' }, null), { width: '2', height: '3', combined: '2 x 3' });
 assert.strictEqual(staffExtractDimensionParts.call(dimensionHelpers, { Size: 'L' }, null), null, 'shirt size must remain Size and not become Dimensions');
-assert(orderModalApi.includes("$items_out = [$primaryItem];") && orderModalApi.includes("$service_name = 'Unknown Service';"), 'order modal API must use the exact linked item or neutral unknown service');
+assert(orderModalApi.includes('$forceSingleLineView') && orderModalApi.includes('printflow_store_order_service_summary'), 'order modal API must show all cart lines or a single linked line');
+assert(orderModalApi.includes("$service_name = 'Unknown Service';"), 'order modal API must still guard broken single-line references');
 assert(orderModalApi.includes("$canonicalDimensions = printflow_resolve_customization_dimensions($first_custom);"), 'modal dimensions must come from its selected line customization');
 assert(page.includes("this.staffCustomizationFieldMeta(key).group === 'material'"), 'staff modal only keeps material fields present in that line payload');
-assert(adminPage.includes("const dimensions = this.displayDimensions(job);"), 'Admin uses one API-canonical Dimensions entry');
-assert(adminPage.includes("dimensions === 'Not provided'"), 'Admin retains Size fields that are not dimensions');
-assert(adminPage.includes("if (!dimensionLabels.has(String(label)) || dimensions === 'Not provided')"), 'Admin does not repeat dimensional specs');
+assert(adminPage.includes('item?.display_specifications'), 'Admin modal specs must come from each order line');
+assert(adminPage.includes('printflow_group_admin_customization_job_rows'), 'Admin list must group rows by store order_id');
+assert(adminPage.includes("item?.display_dimensions"), 'Admin modal dimensions must be scoped to each order line');
 assert(!adminPage.includes("const hideMaterial = new Set(['Material', 'Material Type', 'Temp Plate Material']);"), 'Admin preserves explicit submitted material fields');
 const displayBuilder = extractMethod('staffBuildItemDisplaySpecs', 'custom, item = null, options = {}');
 assert(!/currentJo\.status|COMPLETED|PENDING/.test(displayBuilder), 'pending and completed rows use the same specification path');

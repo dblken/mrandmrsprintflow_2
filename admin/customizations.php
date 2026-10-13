@@ -176,7 +176,11 @@ if (!empty($date_to)) {
 }
 
 // Count
-$count_sql = preg_replace('/SELECT jo\.\*.*?FROM/s', 'SELECT COUNT(*) as total FROM', $sql);
+$count_sql = preg_replace(
+    '/SELECT jo\.\*.*?FROM/s',
+    "SELECT COUNT(DISTINCT CASE WHEN jo.order_id IS NOT NULL AND jo.order_id > 0 THEN CONCAT('o', jo.order_id) ELSE CONCAT('j', jo.id) END) as total FROM",
+    $sql
+);
 $total_filtered = db_query($count_sql, $types ?: null, $params ?: null)[0]['total'] ?? 0;
 $total_pages = max(1, ceil($total_filtered / $per_page));
 $page = min($page, $total_pages);
@@ -200,6 +204,7 @@ foreach ($jobs as &$jobRow) {
         : '';
 }
 unset($jobRow);
+$jobs = printflow_group_admin_customization_job_rows($jobs);
 
 // AJAX check
 if (isset($_GET['ajax'])) {
@@ -856,7 +861,7 @@ function custom_payment_badge($status) {
                     });
                 },
                 displayServiceType(job) {
-                    const label = String(job?.display_service_type || job?.service_type || '').trim();
+                    const label = String(job?.display_service_type || job?.job_title || job?.service_type || '').trim();
                     return label || 'Not provided';
                 },
                 displayDimensions(job) {
@@ -997,10 +1002,10 @@ function custom_payment_badge($status) {
                         seen.add(fp);
                         entries.push({ label: key, value: text });
                     };
-                    const specs = job?.display_specifications && typeof job.display_specifications === 'object'
-                        ? job.display_specifications
+                    const specs = item?.display_specifications && typeof item.display_specifications === 'object'
+                        ? item.display_specifications
                         : {};
-                    const dimensions = this.displayDimensions(job);
+                    const dimensions = String(item?.display_dimensions || '').trim();
                     const qty = Math.max(1, Number(item?.quantity ?? job?.quantity ?? 1));
                     push('Quantity', String(qty));
                     Object.entries(specs).forEach(([label, value]) => {
@@ -1013,11 +1018,12 @@ function custom_payment_badge($status) {
                     if (dimensions && dimensions !== 'Not specified' && dimensions !== 'Not provided') {
                         push('Dimensions', dimensions);
                     }
-                    const needed = this.displayNeededDate(job);
+                    const needed = String(item?.needed_date_display || item?.needed_date || '').trim()
+                        || this.displayNeededDate(job);
                     if (needed && needed !== 'Not provided') {
                         push('Needed Date', needed);
                     }
-                    const priority = this.resolvePriorityValue(job);
+                    const priority = String(item?.display_priority || '').trim() || this.resolvePriorityValue(job);
                     if (priority) {
                         push('Order Priority', priority);
                     }
@@ -1037,7 +1043,7 @@ function custom_payment_badge($status) {
                     this.currentImage = '';
                     this.modalOrderCode = String(orderCode || '').trim();
 
-                    fetch('<?php echo $base_path; ?>/admin/job_orders_api.php?action=get_order&id=' + id)
+                    fetch('<?php echo $base_path; ?>/admin/job_orders_api.php?action=get_order&id=' + encodeURIComponent(id))
                         .then(async (r) => {
                             const text = await r.text();
                             if (requestToken !== this.modalRequestToken) return;
@@ -1682,14 +1688,9 @@ function custom_payment_badge($status) {
                                         </div>
                                     </template>
                                 </div>
-                                <template x-if="itemHasDesignDetails(item) || item.reference_url || jobArtworkUrl(job)">
+                                <template x-if="itemHasDesignDetails(item) || item.reference_url">
                                     <div style="margin-top:10px;padding:12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">
                                         <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">Design / Image</div>
-                                        <template x-if="jobArtworkUrl(job) && idx === 0">
-                                            <div style="margin-bottom:10px;">
-                                                <img :src="jobArtworkUrl(job)" @click="viewImage(jobArtworkUrl(job))" @error="handleModalImageError($el)" style="width:min(100%,160px);max-height:160px;object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;background:#f8fafc;" alt="Artwork">
-                                            </div>
-                                        </template>
                                         <template x-if="itemHasUploadedDesignFile(item)">
                                             <div style="margin-bottom:10px;">
                                                 <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:6px;">Uploaded File</div>
