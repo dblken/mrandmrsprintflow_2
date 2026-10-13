@@ -24,18 +24,11 @@ if ($orderId <= 0) {
 $branchFilter = function_exists('printflow_branch_filter_for_user')
     ? printflow_branch_filter_for_user()
     : null;
-// Prefer one consistent snapshot. Some hosted MySQL builds reject the
-// read-only flag; ordinary SELECTs are still safe and must not hide the trace.
+// Ordinary SELECTs. A read-only snapshot on this host aborts the connection
+// and makes the following lookup look like a missing order.
 global $conn;
 $readOnlySnapshot = false;
-if ($conn instanceof mysqli) {
-    try {
-        $readOnlySnapshot = (bool)$conn->begin_transaction(MYSQLI_TRANS_START_READ_ONLY | MYSQLI_TRANS_START_WITH_CONSISTENT_SNAPSHOT);
-    } catch (Throwable $snapshotError) {
-        $readOnlySnapshot = false;
-    }
-}
-$orderSql = 'SELECT order_id, branch_id, order_source, order_type, order_date, created_at, updated_at, status, payment_status, total_amount
+$orderSql = 'SELECT order_id, branch_id, order_source, order_date, created_at, status, payment_status, total_amount
              FROM orders WHERE order_id = ?';
 $orderTypes = 'i';
 $orderParams = [$orderId];
@@ -45,6 +38,18 @@ if ($branchFilter !== null && (int)$branchFilter > 0) {
     $orderParams[] = (int)$branchFilter;
 }
 $orders = db_query($orderSql, $orderTypes, $orderParams) ?: [];
+$orderLookupErrors = function_exists('printflow_db_errors') ? printflow_db_errors() : [];
+if ($orderLookupErrors !== []) {
+    error_log('[PrintFlow POS trace] order=' . $orderId . ' lookup_errors=' . json_encode(array_map(static function ($error) {
+        return [
+            'stage' => (string)($error['stage'] ?? ''),
+            'errno' => (int)($error['errno'] ?? 0),
+        ];
+    }, $orderLookupErrors)));
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Trace query failed before the order lookup.']);
+    exit;
+}
 if ($orders === []) {
     if ($readOnlySnapshot && function_exists('printflow_db_in_transaction') && printflow_db_in_transaction($conn)) {
         $conn->rollback();
