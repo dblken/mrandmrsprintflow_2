@@ -1344,6 +1344,43 @@ function updateDimensionUnit(unit, row) {
     if (heightInput) heightInput.placeholder = unit;
 }
 
+function pfSelectUsesCustomSizePanel(scope) {
+    if (!scope || !scope.querySelector) return null;
+    const select = scope.querySelector('select.pf-select-custom-size, select.pf-select-with-others');
+    if (!select) return null;
+    const otherValue = select.getAttribute('data-other-option') || 'Others';
+    if (String(select.value || '') !== otherValue) return null;
+    const row = select.closest('.shopee-form-row');
+    const wrap = document.getElementById('select-others-' + select.name)
+        || scope.querySelector('#select-others-' + select.name)
+        || (row ? row.querySelector('.select-others-wrap') : null);
+    if (!wrap || !wrap.querySelector('.pf-custom-size-panel')) return null;
+    return select;
+}
+
+function pfDimensionPairIsValid(widthRaw, heightRaw) {
+    const w = String(widthRaw ?? '').trim();
+    const h = String(heightRaw ?? '').trim();
+    if (!w || !h) return false;
+    const wn = parseFloat(w);
+    const hn = parseFloat(h);
+    return Number.isFinite(wn) && Number.isFinite(hn) && wn > 0 && hn > 0;
+}
+
+function pfPrepareServiceFormDimensions(root) {
+    const scope = (root && typeof root.querySelectorAll === 'function') ? root : document;
+    scope.querySelectorAll('select.pf-select-with-others, select.pf-select-custom-size').forEach(function(sel) {
+        if (typeof pfSyncSelectCustomSizeHidden === 'function') {
+            pfSyncSelectCustomSizeHidden(sel);
+        }
+    });
+    scope.querySelectorAll('.shopee-form-row').forEach(function(row) {
+        if (typeof syncDimensionToHidden === 'function') {
+            syncDimensionToHidden(row);
+        }
+    });
+}
+
 function syncDimensionToHidden(row) {
     const scope = row || document;
     const wh = scope.querySelector('input[data-dimension-role="width"]') || scope.querySelector('input[name="width"]');
@@ -1351,7 +1388,12 @@ function syncDimensionToHidden(row) {
     if (!wh || !hh) return;
     const legacyWidth = scope.querySelector('input[name="width"]');
     const legacyHeight = scope.querySelector('input[name="height"]');
-    
+    const customSelect = pfSelectUsesCustomSizePanel(scope);
+    if (customSelect && typeof pfSyncSelectCustomSizeHidden === 'function') {
+        pfSyncSelectCustomSizeHidden(customSelect);
+        return;
+    }
+
     if (pfRowUsesCustomSize(scope)) {
         const panel = scope.querySelector('.dim-others-inputs.pf-custom-size-panel, .pf-custom-size-panel.dim-others-inputs, .pf-custom-size-panel');
         const cw = panel ? panel.querySelector('.custom-dim-width') : scope.querySelector('.custom-dim-width');
@@ -1974,14 +2016,17 @@ function initPfDesignUploadGroups(root) {
     });
 }
 
-function initServiceFieldRenderer() {
+function initServiceFieldRenderer(root) {
+    const scope = (root && typeof root.querySelectorAll === 'function') ? root : document;
+    const q = (selector) => scope.querySelectorAll(selector);
+
     // Ensure all nested fields are hidden initially
-    document.querySelectorAll('.nested-fields-container').forEach(container => {
+    q('.nested-fields-container').forEach(container => {
         container.style.display = 'none';
     });
     
     // Initialize radio buttons visual state
-    document.querySelectorAll('.shopee-opt-btn input[type="radio"]').forEach(radio => {
+    q('.shopee-opt-btn input[type="radio"]').forEach(radio => {
         if (radio.checked) {
             updateOptVisual(radio);
             if (radio.classList.contains('pricing-field')) {
@@ -2008,7 +2053,7 @@ function initServiceFieldRenderer() {
     });
     
     // Initialize select listeners
-    document.querySelectorAll('select').forEach(select => {
+    q('select').forEach(select => {
         if (select.classList && select.classList.contains('pf-select-with-others')) {
             pfSyncSelectOthersWrap(select);
         }
@@ -2022,7 +2067,7 @@ function initServiceFieldRenderer() {
         });
     });
     
-    document.querySelectorAll('.custom-dim-width, .custom-dim-height').forEach(input => {
+    q('.custom-dim-width, .custom-dim-height').forEach(input => {
         if (input.dataset.pfServiceFieldBound === '1') return;
         input.dataset.pfServiceFieldBound = '1';
         input.addEventListener('input', function() {
@@ -2045,10 +2090,10 @@ function initServiceFieldRenderer() {
         });
     });
 
-    document.querySelectorAll('.pf-custom-size-panel').forEach(function(panel) {
+    q('.pf-custom-size-panel').forEach(function(panel) {
         pfRefreshCustomSizePanelUnit(panel);
     });
-    document.querySelectorAll('.pf-custom-size-unit-select').forEach(function(sel) {
+    q('.pf-custom-size-unit-select').forEach(function(sel) {
         if (sel.dataset.pfServiceFieldBound === '1') return;
         sel.dataset.pfServiceFieldBound = '1';
         sel.addEventListener('change', function() {
@@ -2067,15 +2112,20 @@ function initServiceFieldRenderer() {
     });
     
     // Run once on load to show initial state
-    updateConditionalFields();
-    document.querySelectorAll('.shopee-form-row[data-pf-initial-disabled="1"]').forEach(function(row) {
+    if (typeof updateConditionalFields === 'function') updateConditionalFields();
+    q('.shopee-form-row[data-pf-initial-disabled="1"]').forEach(function(row) {
         const uiState = pfRowConditionalUIState(row);
         showFieldRow(row);
         pfApplyConditionalDisabledUI(row, true, uiState.customerNote);
         pfSyncConditionalRowRequiredState(row, false);
     });
-    initPfDesignUploadGroups();
-    initPfFieldHelpTooltips(document);
+    if (typeof initPfDesignUploadGroups === 'function') {
+        initPfDesignUploadGroups(scope === document ? undefined : scope);
+    }
+    if (scope === document && typeof initPfFieldHelpTooltips === 'function') {
+        initPfFieldHelpTooltips(document);
+    }
+    pfPrepareServiceFormDimensions(scope);
 }
 
 if (document.readyState === 'loading') {

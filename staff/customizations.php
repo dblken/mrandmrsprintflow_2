@@ -5554,64 +5554,8 @@ window.pfServiceFieldCatalog = (() => {
                 return false;
             },
             getDynamicProductName(item) {
-                const fallbackCustom = this.currentJo && this.currentJo.customization_details && typeof this.currentJo.customization_details === 'object'
-                    ? this.currentJo.customization_details
-                    : {};
-                const itemCustom = (item && item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization))
-                    ? item.customization
-                    : {};
-                // Also try raw customization_data for service_type in case processing pipeline stripped it
-                const rawCustom = this.parseSpecsObject(item && item.customization_data);
-                const custom = Object.keys(itemCustom).length > 0 ? itemCustom : (Object.keys(rawCustom).length > 0 ? rawCustom : fallbackCustom);
-                const fromCustomLine = String((custom && custom.service_type) || (custom && custom.product_type) || (rawCustom && rawCustom.service_type) || '').trim();
-                if (fromCustomLine && !this.isGenericServiceLabel(fromCustomLine)) {
-                    return fromCustomLine;
-                }
                 const productName = String((item && item.product_name) || '').trim();
-                if (productName && !this.isGenericServiceLabel(productName)) {
-                    return productName;
-                }
-                const explicitService = String((custom && custom.service_type) || (custom && custom.product_type) || (item && item.product_name) || (rawCustom && rawCustom.service_type) || '').trim();
-                if (explicitService) {
-                    return explicitService;
-                }
-                
-                // Helper to safely find a key value case-insensitively
-                const findKey = (searchKeys) => {
-                    for (const [k, v] of Object.entries(custom)) {
-                        const lowerK = k.toLowerCase().replace(/_/g, ' ');
-                        const lowerS = searchKeys.map(s => s.toLowerCase().replace(/_/g, ' '));
-                        if (lowerS.includes(lowerK) && v) return v;
-                    }
-                    return null;
-                };
-
-                const sintraVal = findKey(['sintra_type', 'sintra type', 'type']);
-                if (sintraVal || findKey(['is_standee', 'thickness', 'sintraboard_thickness'])) {
-                    return 'Sintra Board - ' + (sintraVal || 'Standee');
-                }
-
-                const tarpVal = findKey(['tarp_size', 'tarp size']);
-                if (tarpVal) {
-                    return 'Tarpaulin Printing - ' + tarpVal;
-                }
-
-                const width = findKey(['width']);
-                const height = findKey(['height']);
-                if (width && height && findKey(['finish', 'with_eyelets'])) {
-                    return 'Tarpaulin Printing (' + width + 'x' + height + ' ft)';
-                }
-
-                if (findKey(['vinyl_type', 'print_placement', 'tshirt_color', 'shirt_color', 'tshirt_size', 'shirt_source'])) {
-                    return 'T-Shirt Printing';
-                }
-
-                const stickerVal = findKey(['sticker_type', 'sticker type', 'shape', 'cut_type']);
-                if (stickerVal) {
-                    return 'Decals/Stickers (Print/Cut) - ' + stickerVal;
-                }
-
-                return item.product_name || 'Standard Product';
+                return productName && !this.isGenericServiceLabel(productName) ? productName : '';
             },
             getCorrectServiceType(jo) {
                 if (!jo) return '';
@@ -5620,41 +5564,16 @@ window.pfServiceFieldCatalog = (() => {
                     return head;
                 }
                 if (jo.items && jo.items.length > 0) {
-                    for (const item of jo.items) {
-                        const pn = String((item && item.product_name) || '').trim();
-                        if (pn && !this.isGenericServiceLabel(pn)) {
-                            return pn;
-                        }
-                    }
-                    const fallbackCustom = jo.customization_details && typeof jo.customization_details === 'object'
-                        ? jo.customization_details
-                        : {};
-                    for (const item of jo.items) {
-                        const itemCustom = (item && item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization))
-                            ? item.customization
-                            : {};
-                        const custom = Object.keys(itemCustom).length > 0 ? itemCustom : fallbackCustom;
-                        const explicit = String((custom && custom.service_type) || (custom && custom.product_type) || (item && item.product_name) || '').trim();
-                        if (explicit) return explicit;
-                        const findKey = (searchKeys) => {
-                            for (const [k, v] of Object.entries(custom)) {
-                                const lowerK = k.toLowerCase().replace(/_/g, ' ');
-                                const lowerS = searchKeys.map(s => s.toLowerCase().replace(/_/g, ' '));
-                                if (lowerS.includes(lowerK) && v) return true;
-                            }
-                            return false;
-                        };
-
-                        // User Priority Logic
-                        if (findKey(['sintra_type', 'sintra type', 'is_standee', 'type', 'thickness', 'sintraboard_thickness'])) return 'SINTRA BOARD';
-                        if (findKey(['tarp_size', 'tarp size', 'with_eyelets', 'finish'])) return 'TARPAULIN PRINTING';
-                        if (findKey(['width']) && findKey(['height']) && findKey(['finish', 'with_eyelets'])) return 'TARPAULIN PRINTING';
-                        if (findKey(['vinyl_type', 'print_placement', 'tshirt_color', 'shirt_color', 'shirt_source'])) return 'T-SHIRT PRINTING';
-                        if (findKey(['sticker_type', 'sticker type', 'shape', 'cut_type', 'lamination'])) return 'DECALS/STICKERS (PRINT/CUT)';
+                    const linkedItemId = Number(jo.linked_order_item_id || jo.order_item_id || 0);
+                    const lineItem = linkedItemId > 0
+                        ? jo.items.find((item) => Number(item && item.order_item_id || 0) === linkedItemId)
+                        : (jo.items.length === 1 ? jo.items[0] : null);
+                    const productName = String((lineItem && lineItem.product_name) || '').trim();
+                    if (productName && !this.isGenericServiceLabel(productName)) {
+                        return productName;
                     }
                 }
-                const raw = String(jo.service_type || jo.job_title || '').trim();
-                return raw || 'Custom Service';
+                return '';
             },
 
             customFieldLabels: {
@@ -8383,7 +8302,9 @@ window.pfServiceFieldCatalog = (() => {
                         let detailRes = null;
 
                         if (fallbackOrderId) {
-                            detailRes = await this.fetchOrderModalSummary(fallbackOrderId);
+                            detailRes = await this.fetchOrderModalSummary(fallbackOrderId, {
+                                orderItemId: order && order.order_item_id ? order.order_item_id : 0
+                            });
                         }
 
                         if ((!detailRes || !detailRes.success || !detailRes.data) && requestToken === this.detailRequestToken) {

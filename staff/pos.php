@@ -4931,7 +4931,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     });
                 });
                 bindServiceValidationClearers(body);
-                if (typeof initPfDesignUploadGroups === 'function') initPfDesignUploadGroups(body);
+                if (typeof initServiceFieldRenderer === 'function') initServiceFieldRenderer(body);
+                else if (typeof initPfDesignUploadGroups === 'function') initPfDesignUploadGroups(body);
                 initPosEstimatedPrice(body, parseFloat(data.base_price) || 0);
             } catch (e) {
                 body.innerHTML = '<p style="color:#ef4444;text-align:center;padding:1rem;">Network error. Please try again.</p>';
@@ -4944,7 +4945,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             destroyPosEstimatedPrice();
             const body = document.getElementById('sm-fields-body');
             if (body) body.innerHTML = '';
-            document.getElementById('service-modal-overlay').style.display = 'none';
+            const overlay = document.getElementById('service-modal-overlay');
+            if (overlay) {
+                delete overlay.dataset.serviceId;
+                delete overlay.dataset.serviceName;
+                overlay.style.display = 'none';
+            }
         }
 
         async function posReadFilePayload(file) {
@@ -5365,6 +5371,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const body = document.getElementById('sm-fields-body');
             const errors = {};
             if (!body) return { valid: false, errors };
+            if (typeof pfPrepareServiceFormDimensions === 'function') {
+                pfPrepareServiceFormDimensions(body);
+            }
 
             const addError = (row, input, keyOverride, messageOverride) => {
                 const key = keyOverride || serviceFieldKey(row, input ? input.name : '');
@@ -5402,8 +5411,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 });
 
                 const dimensionInputs = requiredInputs.filter(input => input.type === 'hidden' && input.dataset.dimensionRole);
-                if (dimensionInputs.length && dimensionInputs.some(input => !String(input.value || '').trim())) {
-                    addError(row, dimensionInputs[0]);
+                if (dimensionInputs.length) {
+                    const widthHidden = dimensionInputs.find(input => input.dataset.dimensionRole === 'width') || dimensionInputs[0];
+                    const heightHidden = dimensionInputs.find(input => input.dataset.dimensionRole === 'height') || dimensionInputs[1] || dimensionInputs[0];
+                    const customPanel = row.querySelector('.pf-custom-size-panel');
+                    const usesCustomPanel = customPanel
+                        && typeof pfIsCustomSizePanelVisible === 'function'
+                        && pfIsCustomSizePanelVisible(customPanel);
+                    if (usesCustomPanel && typeof pfValidateCustomSizePanel === 'function') {
+                        const dimCheck = pfValidateCustomSizePanel(customPanel, false);
+                        if (!dimCheck.ok) {
+                            addError(row, customPanel.querySelector('.custom-dim-width') || widthHidden, row.dataset.fieldKey || widthHidden.name, dimCheck.message || 'Please enter dimensions.');
+                        }
+                    } else if (!pfDimensionPairIsValid(widthHidden ? widthHidden.value : '', heightHidden ? heightHidden.value : '')) {
+                        addError(row, widthHidden || heightHidden, row.dataset.fieldKey || (widthHidden && widthHidden.name) || 'dimensions', 'Please enter dimensions.');
+                    }
                 }
 
                 requiredInputs.forEach(input => {
@@ -5413,9 +5435,26 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         : String(input.value || '').trim();
                     if (input.tagName === 'SELECT') {
                         const otherValue = input.getAttribute('data-other-option') || 'Others';
-                        const rowOtherInput = row.querySelector('input[name="' + input.name + '_other"]');
-                        if (value === otherValue && rowOtherInput && !String(rowOtherInput.value || '').trim()) {
-                            addError(row, rowOtherInput, input.name + '_other');
+                        if (value === otherValue) {
+                            const othersWrap = document.getElementById('select-others-' + input.name)
+                                || row.querySelector('#select-others-' + input.name);
+                            const customPanel = othersWrap ? othersWrap.querySelector('.pf-custom-size-panel') : null;
+                            if (customPanel) {
+                                if (typeof pfSyncSelectCustomSizeHidden === 'function') {
+                                    pfSyncSelectCustomSizeHidden(input);
+                                }
+                                const dimCheck = typeof pfValidateCustomSizePanel === 'function'
+                                    ? pfValidateCustomSizePanel(customPanel, false)
+                                    : { ok: true };
+                                if (!dimCheck.ok) {
+                                    addError(row, customPanel.querySelector('.custom-dim-width') || input, input.name + '_dimensions', dimCheck.message || 'Please enter dimensions.');
+                                }
+                            } else {
+                                const rowOtherInput = row.querySelector('input[name="' + input.name + '_other"]');
+                                if (rowOtherInput && !String(rowOtherInput.value || '').trim()) {
+                                    addError(row, rowOtherInput, input.name + '_other');
+                                }
+                            }
                         }
                     }
                     if (input.name === 'quantity' || input.classList.contains('pf-service-quantity-input')) {
@@ -5487,6 +5526,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 focusFirstInvalidField(validationResult.errors);
                 return;
             }
+            if (typeof pfPrepareServiceFormDimensions === 'function') {
+                pfPrepareServiceFormDimensions(body);
+            }
 
             isAddingToOrder = true;
             setServiceAddButtonBusy(true);
@@ -5527,10 +5569,36 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     let selectValue = normalizeLayoutCustomizationValue(row, sel.value);
                     const otherValue = sel.getAttribute('data-other-option') || 'Others';
                     if (selectValue === otherValue) {
-                        const selectOther = row.querySelector('input[name="' + sel.name + '_other"]');
-                        if (selectOther && selectOther.value.trim()) {
-                            selectValue = selectOther.value.trim();
-                            customization[serviceFieldLabel(row) + ' (Other)'] = selectValue;
+                        const othersWrap = document.getElementById('select-others-' + sel.name)
+                            || row.querySelector('#select-others-' + sel.name);
+                        const customPanel = othersWrap ? othersWrap.querySelector('.pf-custom-size-panel') : null;
+                        if (customPanel && typeof pfSyncSelectCustomSizeHidden === 'function') {
+                            pfSyncSelectCustomSizeHidden(sel);
+                            const widthHidden = othersWrap.querySelector('[data-dimension-role="width"]');
+                            const heightHidden = othersWrap.querySelector('[data-dimension-role="height"]');
+                            const widthVal = String(widthHidden ? widthHidden.value : '').trim();
+                            const heightVal = String(heightHidden ? heightHidden.value : '').trim();
+                            if (pfDimensionPairIsValid(widthVal, heightVal)) {
+                                const fieldKey = serviceFieldKey(row, sel.name);
+                                const combined = widthVal + 'x' + heightVal;
+                                selectValue = combined;
+                                customization.width = widthVal;
+                                customization.height = heightVal;
+                                if (fieldKey) {
+                                    customization[fieldKey + '_width'] = widthVal;
+                                    customization[fieldKey + '_height'] = heightVal;
+                                }
+                                const selectOther = othersWrap.querySelector('.pf-custom-size-other-hidden, input[name="' + sel.name + '_other"]');
+                                if (selectOther && selectOther.value.trim()) {
+                                    customization[serviceFieldLabel(row) + ' (Other)'] = selectOther.value.trim();
+                                }
+                            }
+                        } else {
+                            const selectOther = row.querySelector('input[name="' + sel.name + '_other"]');
+                            if (selectOther && selectOther.value.trim()) {
+                                selectValue = selectOther.value.trim();
+                                customization[serviceFieldLabel(row) + ' (Other)'] = selectValue;
+                            }
                         }
                     }
                     setCustomizationValue(customization, row, sel, selectValue);

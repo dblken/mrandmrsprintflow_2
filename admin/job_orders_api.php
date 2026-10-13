@@ -1804,9 +1804,21 @@ try {
             // Online service orders also create rows in customizations, but the complete
             // customer specs live on the regular order payload. Returning those rows here
             // lets a sparse CUSTOMIZATION row win the client-side merge and hides specs.
+            $listHasOrderItemServiceId = function_exists('db_table_has_column')
+                && db_table_has_column('order_items', 'service_id');
+            $listServiceIdExpr = $listHasOrderItemServiceId
+                ? "COALESCE(oi_label.service_id, CASE WHEN JSON_VALID(oi_label.customization_data) THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(oi_label.customization_data, '$.service_id')) AS UNSIGNED) END)"
+                : "CASE WHEN JSON_VALID(oi_label.customization_data) THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(oi_label.customization_data, '$.service_id')) AS UNSIGNED) END";
+            $listSavedServiceNameSelect = "(SELECT COALESCE(NULLIF(TRIM(svc_label.name), ''), NULLIF(TRIM(CASE WHEN JSON_VALID(oi_label.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi_label.customization_data, '$.service_type')) END), ''), prod_label.name)
+                    FROM order_items oi_label
+                    LEFT JOIN products prod_label ON prod_label.product_id = oi_label.product_id
+                    LEFT JOIN services svc_label ON svc_label.service_id = " . $listServiceIdExpr . "
+                    WHERE oi_label.order_item_id = cust.order_item_id LIMIT 1) AS saved_service_name,";
             $custom_sql = "SELECT 
                     cust.customization_id AS id,
                     cust.order_id,
+                    cust.order_item_id,
+                    " . $listSavedServiceNameSelect . "
                     (SELECT MIN(jo.id) FROM job_orders jo WHERE jo.order_id = cust.order_id) AS job_order_id,
                     cust.customization_details,
                     cust.customer_id,
@@ -1876,6 +1888,11 @@ try {
             $customOrderCodes = jo_api_order_codes(array_column($custom_orders, 'order_id'));
             foreach ($custom_orders as &$co) {
                 $summary = printflow_customization_summary($co['customization_details'] ?? [], $co['service_type'] ?? 'Custom Service');
+                $savedServiceName = trim((string)($co['saved_service_name'] ?? ''));
+                if ($savedServiceName !== '') {
+                    $summary['service_type'] = $savedServiceName;
+                    $summary['job_title'] = $savedServiceName;
+                }
                 $co['service_type'] = $summary['service_type'];
                 $co['job_title'] = $summary['job_title'];
                 $co['width_ft'] = $summary['width_ft'];
@@ -2264,6 +2281,14 @@ try {
             $revisionCountSelect = (function_exists('db_table_has_column') && db_table_has_column('orders', 'revision_count'))
                 ? 'o.revision_count AS store_revision_count'
                 : '0 AS store_revision_count';
+            $hasOrderItemServiceId = function_exists('db_table_has_column')
+                && db_table_has_column('order_items', 'service_id');
+            $savedServiceIdExpr = $hasOrderItemServiceId
+                ? "COALESCE(oi.service_id, CASE WHEN JSON_VALID(oi.customization_data) THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_id')) AS UNSIGNED) END)"
+                : "CASE WHEN JSON_VALID(oi.customization_data) THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_id')) AS UNSIGNED) END";
+            $savedServiceIdSelect = $savedServiceIdExpr . ' AS saved_service_id,';
+            $savedServiceJoin = 'LEFT JOIN services saved_service ON saved_service.service_id = ' . $savedServiceIdExpr;
+            $savedServiceNameSelect = "COALESCE(NULLIF(TRIM(saved_service.name), ''), NULLIF(TRIM(CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_type')) END), ''), p.name) AS saved_product_name,";
 
             $cust_row = db_query(
                 "SELECT cust.*,
@@ -2276,6 +2301,9 @@ try {
                        COALESCE(NULLIF(o.payment_proof_path,''), NULLIF(o.payment_proof,''), NULLIF(jo.payment_proof_path,'')) AS payment_proof_path,
                        COALESCE(jo.payment_submitted_amount, o.downpayment_amount, 0) AS downpayment_amount,
                        o.order_source,
+                       oi.product_id AS saved_product_id,
+                       " . $savedServiceIdSelect . "
+                       " . $savedServiceNameSelect . "
                        o.status AS store_order_status,
                        o.design_status AS store_design_status,
                        o.revision_reason AS store_revision_reason,
@@ -2283,6 +2311,9 @@ try {
                 FROM customizations cust
                 LEFT JOIN customers c ON cust.customer_id = c.customer_id
                 LEFT JOIN orders o ON cust.order_id = o.order_id
+                LEFT JOIN order_items oi ON oi.order_item_id = cust.order_item_id
+                LEFT JOIN products p ON p.product_id = oi.product_id
+                " . $savedServiceJoin . "
                 LEFT JOIN job_orders jo ON jo.order_id = o.order_id AND jo.status NOT IN ('CANCELLED')
                 WHERE cust.customization_id = ?
                   AND " . printflow_customer_exclusion_customer_scope_sql('cust.customer_id') . "
@@ -2438,7 +2469,7 @@ try {
                 // item's own data when the order has more than one line item.
                 $ownOrderItemIdForService = (int)($cust['order_item_id'] ?? 0);
                 $ownServiceItem = null;
-                if ($ownOrderItemIdForService > 0 && count($items) > 1) {
+                if ($ownOrderItemIdForService > 0) {
                     foreach ($items as $candidateItem) {
                         if ((int)($candidateItem['order_item_id'] ?? 0) === $ownOrderItemIdForService) {
                             $ownServiceItem = $candidateItem;
@@ -2446,9 +2477,13 @@ try {
                         }
                     }
                 }
-                $resolvedServiceType = $ownServiceItem !== null
-                    ? trim((string)($ownServiceItem['product_name'] ?? ''))
-                    : (string)($storeLinePayload['service_type'] ?? '');
+                $resolvedServiceType = trim((string)($cust['saved_product_name'] ?? ''));
+                if ($resolvedServiceType === '' && $ownServiceItem !== null) {
+                    $resolvedServiceType = trim((string)($ownServiceItem['product_name'] ?? ''));
+                }
+                if ($resolvedServiceType === '') {
+                    $resolvedServiceType = trim((string)($cust['service_type'] ?? ''));
+                }
                 if ($resolvedServiceType !== '') {
                     $summary['service_type'] = $resolvedServiceType;
                     $summary['job_title'] = $resolvedServiceType;
