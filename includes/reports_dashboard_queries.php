@@ -8,6 +8,7 @@ if (defined('REPORTS_DASHBOARD_QUERIES_LOADED')) {
 }
 define('REPORTS_DASHBOARD_QUERIES_LOADED', true);
 
+require_once __DIR__ . '/sales_report_dedupe.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/order_archive.php';
 require_once __DIR__ . '/branch_context.php';
@@ -107,17 +108,18 @@ function pf_reports_store_custom_order_scope_sql(string $alias = 'o'): string {
 
 /**
  * Skip job-order revenue when the linked custom store order is already a recognized sale.
- * Prevents double-counting paid POS customizations that still have a pending job row.
+ * Prevents double-counting POS/online checkouts that create both orders + job_orders rows.
+ * Store orders are canonical; job_orders are excluded when the linked order is already a sale.
  */
 function pf_reports_job_exclude_linked_custom_store_sale_sql(string $alias = 'jo'): string {
     $alias = pf_reports_sql_alias($alias, 'jo');
     $storeSales = pf_reports_store_order_sales_expr('o_ex');
-    $customScope = pf_reports_store_custom_order_scope_sql('o_ex');
     return " AND NOT EXISTS (
         SELECT 1 FROM orders o_ex
         WHERE o_ex.order_id = {$alias}.order_id
+          AND {$alias}.order_id IS NOT NULL
+          AND {$alias}.order_id > 0
           AND {$storeSales}
-          AND {$customScope}
     )";
 }
 
@@ -337,7 +339,7 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
         [$dj, $dtj, $dpj] = pf_reports_date_expr_where($jobDate, $from, $toEnd);
         $txnRows = array_merge($txnRows, db_query("SELECT 'Service' AS type, 'job' AS ref_type, jo.id AS id, jo.order_id AS store_order_id, {$jobDate} AS sales_date, {$jobRevenue} AS amount, {$jobPaymentMethod} AS payment_method, jo.payment_status, jo.status, COALESCE(b.branch_name, CONCAT('Branch #', jo.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name, COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS item_name FROM job_orders jo LEFT JOIN customers c ON c.customer_id = jo.customer_id LEFT JOIN branches b ON b.id = jo.branch_id WHERE {$jobSales}{$jobExcludeLinkedCustomStore}{$dj}{$bj}", $dtj . $btj, array_merge($dpj, $bpj)) ?: []);
     } catch (Throwable $e) {}
-    usort($txnRows, static fn($a, $b) => strcmp((string)($b['sales_date'] ?? ''), (string)($a['sales_date'] ?? '')));
+    $txnRows = pf_reports_deduplicate_official_sales_transactions($txnRows);
     foreach (array_slice($txnRows, 0, $limit) as $row) {
         $transactions[] = [
             'type' => (string)($row['type'] ?? ''),
