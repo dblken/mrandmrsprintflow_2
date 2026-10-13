@@ -908,14 +908,6 @@ function custom_payment_badge($status) {
                     }
                     return entries;
                 },
-                adminOrderMetaEntries(job) {
-                    return [
-                        { label: 'Branch', value: job?.branch_name || (job?.branch_display_id ? ('Branch #' + job.branch_display_id) : 'Unassigned') },
-                        { label: 'Date Submitted', value: this.formatBusinessSubmittedAt(job) },
-                        { label: 'Estimated Total', value: job?.estimated_total ? ('₱' + parseFloat(job.estimated_total).toFixed(2)) : 'Pending' },
-                        { label: 'Amount Paid', value: '₱' + parseFloat(job?.amount_paid ?? 0).toFixed(2) },
-                    ];
-                },
                 adminSpecCellFullWidth(label, value) {
                     const text = String(value || '');
                     return label === 'Notes' || text.length > 120;
@@ -1616,21 +1608,6 @@ function custom_payment_badge($status) {
                                 </template>
                             </div>
                         </template>
-                    </div>
-                    <div class="pf-customization-order-details" style="margin-bottom:0;">
-                        <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;display:block;margin-bottom:10px;">Order &amp; Payment</label>
-                        <div class="pf-customization-spec-grid">
-                            <template x-for="entry in adminOrderMetaEntries(job)" :key="entry.label">
-                                <div class="pf-customization-spec-cell">
-                                    <span class="pf-customization-spec-label" x-text="entry.label"></span>
-                                    <div class="pf-customization-spec-value" x-text="entry.value"></div>
-                                </div>
-                            </template>
-                            <div class="pf-customization-spec-cell">
-                                <span class="pf-customization-spec-label">Payment Status</span>
-                                <div class="pf-customization-spec-value" x-html="paymentBadge(getEffectivePaymentStatus(job))"></div>
-                            </div>
-                        </div>
                     </div>
                     <div x-show="job?.notes" class="customization-notes-block" style="margin-top:12px;">
                         <p class="customization-section-label" style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 8px;">Notes</p>
