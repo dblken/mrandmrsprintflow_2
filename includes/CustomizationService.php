@@ -2392,37 +2392,9 @@ class CustomizationService
      */
     private function attachDesignFilesToItemViews(array &$itemViews): void
     {
-        if (!function_exists('printflow_order_item_design_files_list_for_items')) {
-            return;
+        if (function_exists('printflow_order_item_design_files_attach_to_item_views')) {
+            printflow_order_item_design_files_attach_to_item_views($itemViews);
         }
-        $ids = [];
-        foreach ($itemViews as $view) {
-            $orderItemId = (int)($view['order_item_id'] ?? 0);
-            if ($orderItemId > 0) {
-                $ids[] = $orderItemId;
-            }
-        }
-        if ($ids === []) {
-            return;
-        }
-        $grouped = printflow_order_item_design_files_list_for_items($ids);
-        foreach ($itemViews as &$view) {
-            $orderItemId = (int)($view['order_item_id'] ?? 0);
-            $files = $grouped[$orderItemId] ?? [];
-            $view['design_files'] = $files;
-            $view['files'] = $files;
-            if ($files !== []) {
-                $primary = $files[0];
-                if (empty($view['design_open_url']) && !empty($primary['preview_url'])) {
-                    $view['design_open_url'] = (string)$primary['preview_url'];
-                    $view['design_url'] = (string)$primary['preview_url'];
-                }
-                if (empty($view['design_name']) && !empty($primary['display_name'])) {
-                    $view['design_name'] = (string)$primary['display_name'];
-                }
-            }
-        }
-        unset($view);
     }
 
     /**

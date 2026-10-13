@@ -2902,6 +2902,7 @@ function get_preview_image_for_order_ui($order, $display_name) {
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="<?php echo htmlspecialchars(rtrim((defined('BASE_URL') ? BASE_URL : '/printflow'), '/') . '/public/assets/js/pf-order-item-design-files.js?v=' . (int) @filemtime(__DIR__ . '/../public/assets/js/pf-order-item-design-files.js')); ?>"></script>
 
 <script>
 document.body.classList.add('orders-page');
@@ -3866,24 +3867,52 @@ function openItemsModal(orderId, event, options = {}) {
             }
 
             const imDesignFileThumbs = (() => {
-                const list = Array.isArray(item.design_files) ? item.design_files : (Array.isArray(item.files) ? item.files : []);
-                const seen = new Set();
-                const html = [];
-                list.forEach((file) => {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                const raw = Array.isArray(item.design_files) ? item.design_files : (Array.isArray(item.files) ? item.files : []);
+                let list = PF ? PF.dedupe(raw) : raw;
+                if (!list.length && (item.has_design_file || item.has_design) && item.design_url) {
+                    list = [{
+                        file_id: 'legacy-' + String(item.order_item_id || '0'),
+                        display_name: 'Design',
+                        preview_url: item.design_url,
+                        download_url: item.design_url,
+                        is_previewable_image: true,
+                        exists: true,
+                    }];
+                }
+                if (!list.length) return '';
+                const preview = PF ? PF.previewList(list) : list.slice(0, 3);
+                const moreLabel = PF ? PF.showMoreLabel(list) : '';
+                const orderItemId = Number(item.order_item_id || 0);
+                const parts = ['<div class="im-design-files-block" style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;">'];
+                if (list.length > 1 && orderItemId > 0 && PF) {
+                    parts.push(`<a href="${escIM(PF.zipDownloadUrl(orderItemId, CUSTOMER_BASE_URL))}" style="font-size:11px;font-weight:700;color:#53c5e0;">Download all (ZIP)</a>`);
+                }
+                preview.forEach((file) => {
                     if (!file || typeof file !== 'object') return;
-                    const fileId = Number(file.file_id || 0);
-                    if (fileId > 0) {
-                        if (seen.has(fileId)) return;
-                        seen.add(fileId);
+                    if (PF && PF.fileUnavailable(file)) {
+                        parts.push(`<div style="font-size:12px;color:#94a3b8;font-weight:600;">${escIM(file.display_name || 'File')} — File unavailable</div>`);
+                        return;
                     }
                     const url = String(file.preview_url || file.download_url || '').trim();
-                    if (!url) return;
-                    html.push(`<a class="im-asset-trigger" href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${url}" class="im-thumb hover:scale-105 transition-transform" alt="${escIM(file.display_name || 'Design')}"></span></a>`);
+                    const name = escIM(file.display_name || 'Design');
+                    const meta = PF ? escIM(PF.fileTypeLabel(file) + (file.file_size ? ' · ' + PF.formatFileSize(file.file_size) : '')) : '';
+                    if (file.is_previewable_image && url) {
+                        parts.push(`<a class="im-asset-trigger" href="${escIM(url)}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${escIM(url)}" class="im-thumb hover:scale-105 transition-transform" alt="${name}"></span></a>`);
+                    }
+                    parts.push(`<div style="font-size:11px;color:#9fc4d4;"><strong style="color:#eaf6fb;">${name}</strong>${meta ? ' · ' + meta : ''}${url ? ` · <a href="${escIM(url)}" download target="_blank" rel="noopener noreferrer" style="color:#53c5e0;font-weight:700;">Download</a>` : ''}</div>`);
                 });
-                if (!html.length && (item.has_design_file || item.has_design) && item.design_url) {
-                    html.push(`<a class="im-asset-trigger" href="${item.design_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.design_url}" class="im-thumb hover:scale-105 transition-transform" alt="Design"></span></a>`);
+                if (moreLabel) {
+                    const payload = JSON.stringify({
+                        title: (item.product_name || 'Designs') + ' — all uploaded files',
+                        files: list,
+                        orderItemId,
+                        baseUrl: CUSTOMER_BASE_URL,
+                    });
+                    parts.push(`<button type="button" class="pf-design-gallery-trigger" data-pf-design-gallery="${escIM(payload)}" style="padding:6px 10px;border:1px solid rgba(83,197,224,0.35);border-radius:8px;background:rgba(83,197,224,0.08);color:#53c5e0;font-size:11px;font-weight:700;cursor:pointer;">${escIM(moreLabel)}</button>`);
                 }
-                return html.join('');
+                parts.push('</div>');
+                return parts.join('');
             })();
             const design = imDesignFileThumbs;
             const designLink = imRenderDesignLinkBlock(item);
@@ -4100,6 +4129,12 @@ function openItemsModal(orderId, event, options = {}) {
                 reviewAction.querySelector('span').textContent = isViewReview
                     ? 'View Your Review'
                     : 'Rate This Order';
+            }
+        }
+        if (window.PrintflowOrderItemDesignFiles && typeof window.PrintflowOrderItemDesignFiles.bindDesignGalleryButtons === 'function') {
+            const imBody = document.getElementById('imBody');
+            if (imBody) {
+                window.PrintflowOrderItemDesignFiles.bindDesignGalleryButtons(imBody);
             }
         }
     })

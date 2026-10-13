@@ -672,6 +672,92 @@ if (!function_exists('printflow_customization_apply_synced_design_files')) {
     }
 }
 
+if (!function_exists('printflow_order_item_design_files_zip_url')) {
+    function printflow_order_item_design_files_zip_url(int $orderItemId): string
+    {
+        if ($orderItemId <= 0) {
+            return '';
+        }
+        $base = printflow_order_item_design_files_base_url();
+        return $base . '/public/download_order_item_design_files_zip.php?order_item_id=' . $orderItemId;
+    }
+}
+
+if (!function_exists('printflow_order_item_design_files_attach_to_item_views')) {
+    /**
+     * Batch-load authoritative design_files[] onto order item view payloads.
+     *
+     * @param list<array<string,mixed>> $itemViews
+     */
+    function printflow_order_item_design_files_attach_to_item_views(array &$itemViews): void
+    {
+        if (!function_exists('printflow_order_item_design_files_list_for_items')) {
+            return;
+        }
+        $ids = [];
+        foreach ($itemViews as $view) {
+            $orderItemId = (int)($view['order_item_id'] ?? 0);
+            if ($orderItemId > 0) {
+                $ids[] = $orderItemId;
+            }
+        }
+        if ($ids === []) {
+            return;
+        }
+        $grouped = printflow_order_item_design_files_list_for_items($ids);
+        foreach ($itemViews as &$view) {
+            $orderItemId = (int)($view['order_item_id'] ?? 0);
+            $files = $grouped[$orderItemId] ?? [];
+            $view['design_files'] = $files;
+            $view['files'] = $files;
+            if ($files !== []) {
+                $primary = $files[0];
+                if (empty($view['design_open_url']) && !empty($primary['preview_url'])) {
+                    $view['design_open_url'] = (string)$primary['preview_url'];
+                    $view['design_url'] = (string)$primary['preview_url'];
+                }
+                if (empty($view['design_name']) && !empty($primary['display_name'])) {
+                    $view['design_name'] = (string)$primary['display_name'];
+                }
+                if (!isset($view['has_design_file']) || !$view['has_design_file']) {
+                    $view['has_design_file'] = true;
+                    $view['has_design'] = true;
+                }
+            }
+        }
+        unset($view);
+    }
+}
+
+if (!function_exists('printflow_order_item_design_file_assert_order_item_access')) {
+    function printflow_order_item_design_file_assert_order_item_access(int $orderItemId, int $userId, bool $isStaff): bool
+    {
+        if ($orderItemId <= 0) {
+            return false;
+        }
+        $rows = db_query(
+            'SELECT oi.order_item_id, oi.order_id, o.customer_id
+             FROM order_items oi
+             INNER JOIN orders o ON o.order_id = oi.order_id
+             WHERE oi.order_item_id = ?
+             LIMIT 1',
+            'i',
+            [$orderItemId]
+        ) ?: [];
+        if ($rows === []) {
+            return false;
+        }
+        $row = $rows[0];
+        if (!$isStaff) {
+            return (int)($row['customer_id'] ?? 0) === $userId;
+        }
+        if (function_exists('printflow_assert_order_branch_access')) {
+            printflow_assert_order_branch_access((int)($row['order_id'] ?? 0));
+        }
+        return true;
+    }
+}
+
 if (!function_exists('printflow_order_item_design_file_assert_access')) {
     function printflow_order_item_design_file_assert_access(int $fileId, int $userId, bool $isStaff): bool
     {

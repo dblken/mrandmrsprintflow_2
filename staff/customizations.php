@@ -2804,6 +2804,44 @@ $online_closed_count = 0;
     </div>
 </div>
 
+<!-- All design files gallery (multi-upload) -->
+<div x-show="designFilesGallery" x-cloak class="pf-image-lightbox-backdrop" @click="staffCloseDesignFilesGallery()"></div>
+<div x-show="designFilesGallery" x-cloak class="pf-image-lightbox-panel" @click.stop style="align-items:flex-start;padding-top:4vh;">
+    <div style="position:relative;background:#fff;border-radius:16px;padding:20px 20px 16px;box-shadow:0 25px 50px rgba(0,0,0,0.3);border:1px solid #e5e7eb;max-height:90vh;overflow:auto;width:min(92vw,720px);">
+        <button type="button" @click="staffCloseDesignFilesGallery()" style="position:absolute;top:10px;right:10px;background:#f3f4f6;border:none;color:#374151;font-size:24px;width:36px;height:36px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:2;">&times;</button>
+        <div style="font-size:15px;font-weight:700;color:#1f2937;margin:0 40px 12px 0;" x-text="designFilesGallery ? designFilesGallery.title : ''"></div>
+        <template x-if="designFilesGallery && designFilesGallery.files && designFilesGallery.files.length > 1">
+            <div style="margin-bottom:14px;">
+                <a class="pf-modal-design-action-btn" :href="staffDesignFileZipUrl({ order_item_id: designFilesGallery.orderItemId })" style="display:inline-flex;text-decoration:none;">Download all (ZIP)</a>
+            </div>
+        </template>
+        <template x-for="designFile in (designFilesGallery ? designFilesGallery.files : [])" :key="'gallery-design-' + designFile.file_id">
+            <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid #f1f5f9;">
+                <div style="font-size:13px;font-weight:600;color:#1f2937;word-break:break-word;margin-bottom:4px;" x-text="designFile.display_name || 'Uploaded design'"></div>
+                <div style="font-size:11px;color:#6b7280;margin-bottom:8px;">
+                    <span x-text="staffDesignFileTypeLabel(designFile)"></span>
+                    <span x-show="designFile.file_size"> · </span>
+                    <span x-text="staffFormatDesignFileSize(designFile.file_size)"></span>
+                </div>
+                <template x-if="staffDesignFileUnavailable(designFile)">
+                    <div style="padding:12px;border:1px dashed #cbd5e1;border-radius:8px;color:#64748b;font-size:13px;font-weight:600;">File unavailable</div>
+                </template>
+                <template x-if="!staffDesignFileUnavailable(designFile) && (designFile.is_previewable_image || designFile.preview_url)">
+                    <img :src="designFile.preview_url || designFile.download_url"
+                         @click="previewFile = designFile.preview_url || designFile.download_url"
+                         loading="lazy"
+                         decoding="async"
+                         style="width:min(100%,280px);max-height:240px;object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;background:#f8fafc;margin-bottom:8px;">
+                </template>
+                <div class="pf-modal-design-actions" x-show="!staffDesignFileUnavailable(designFile)">
+                    <button type="button" class="pf-modal-design-action-btn" @click="previewFile = designFile.preview_url || designFile.download_url">View</button>
+                    <a class="pf-modal-design-action-btn" :href="designFile.download_url || designFile.preview_url" target="_blank" rel="noopener noreferrer" download>Download</a>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+
 <!-- Customization Details Modal — matching customers_management.php style -->
 <div x-show="showDetailsModal" x-cloak>
     <div class="modal-overlay" @click.self="closeDetailsModal()">
@@ -2917,10 +2955,23 @@ $online_closed_count = 0;
                                             <template x-if="staffItemHasUploadedDesignFile(item)">
                                                 <div style="margin-bottom:12px;">
                                                     <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:6px;" x-text="staffItemDesignFiles(item).length > 1 ? '📁 Uploaded Files' : '📁 Uploaded File'"></div>
-                                                    <template x-for="designFile in staffItemDesignFiles(item)" :key="'design-file-' + (designFile.file_id || designFile.display_name)">
+                                                    <template x-if="staffItemDesignFiles(item).length > 1">
+                                                        <div style="margin-bottom:10px;">
+                                                            <a class="pf-modal-design-action-btn" :href="staffDesignFileZipUrl(item)" style="display:inline-flex;text-decoration:none;">Download all (ZIP)</a>
+                                                        </div>
+                                                    </template>
+                                                    <template x-for="designFile in staffDesignFilesPreview(item)" :key="'design-file-' + designFile.file_id">
                                                         <div style="margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #f1f5f9;">
-                                                            <div style="font-size:13px; font-weight:600; color:#1f2937; word-break:break-word; overflow-wrap:anywhere; margin-bottom:8px;" x-text="designFile.display_name || staffDesignDisplayFilename(item)"></div>
-                                                            <template x-if="(designFile.preview_url || designFile.download_url) && (designFile.is_previewable_image || staffDesignShowsAsImage(item))">
+                                                            <div style="font-size:13px; font-weight:600; color:#1f2937; word-break:break-word; overflow-wrap:anywhere; margin-bottom:4px;" x-text="designFile.display_name || staffDesignDisplayFilename(item)"></div>
+                                                            <div style="font-size:11px;color:#6b7280;margin-bottom:8px;">
+                                                                <span x-text="staffDesignFileTypeLabel(designFile)"></span>
+                                                                <span x-show="designFile.file_size"> · </span>
+                                                                <span x-text="staffFormatDesignFileSize(designFile.file_size)"></span>
+                                                            </div>
+                                                            <template x-if="staffDesignFileUnavailable(designFile)">
+                                                                <div style="padding:10px;border:1px dashed #cbd5e1;border-radius:8px;color:#64748b;font-size:12px;font-weight:600;margin-bottom:8px;">File unavailable</div>
+                                                            </template>
+                                                            <template x-if="!staffDesignFileUnavailable(designFile) && (designFile.preview_url || designFile.download_url) && (designFile.is_previewable_image || staffDesignShowsAsImage(item))">
                                                                 <div style="display:flex; flex-direction:column; align-items:flex-start; gap:8px; max-width:100%; margin-bottom:8px;">
                                                                     <img :src="designFile.preview_url || designFile.download_url"
                                                                          @click="previewFile = designFile.preview_url || designFile.download_url"
@@ -2932,7 +2983,7 @@ $online_closed_count = 0;
                                                                          onerror="this.style.display='none';">
                                                                 </div>
                                                             </template>
-                                                            <div class="pf-modal-design-actions">
+                                                            <div class="pf-modal-design-actions" x-show="!staffDesignFileUnavailable(designFile)">
                                                                 <button type="button"
                                                                         class="pf-modal-design-action-btn"
                                                                         @click="previewFile = designFile.preview_url || designFile.download_url || staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)">
@@ -2942,12 +2993,17 @@ $online_closed_count = 0;
                                                                    :href="designFile.download_url || designFile.preview_url || staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)"
                                                                    target="_blank"
                                                                    rel="noopener noreferrer"
-                                                           download>
-                                                            Download
-                                                        </a>
+                                                                   download>
+                                                                    Download
+                                                                </a>
                                                             </div>
                                                         </div>
                                                     </template>
+                                                    <button type="button"
+                                                            x-show="staffDesignFilesShowMoreLabel(item)"
+                                                            @click="staffOpenDesignFilesGallery(item)"
+                                                            style="margin-top:4px;padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#4f46e5;cursor:pointer;"
+                                                            x-text="staffDesignFilesShowMoreLabel(item)"></button>
                                                 </div>
                                             </template>
                                             <template x-if="staffGetDesignExternalLink(item)">
@@ -3960,6 +4016,7 @@ $online_closed_count = 0;
     </div><!-- /.main-content -->
 </div><!-- /.dashboard-container -->
 
+<script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/pf-order-item-design-files.js?v=' . (int) @filemtime(__DIR__ . '/../public/assets/js/pf-order-item-design-files.js')); ?>"></script>
 <script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/staff_service_order_modal.js'); ?>"></script>
 <script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/production_material_picker.js?v=' . (int) @filemtime(__DIR__ . '/../public/assets/js/production_material_picker.js')); ?>"></script>
 <?php
@@ -4139,6 +4196,7 @@ window.pfServiceFieldCatalog = (() => {
             rejectPaymentReasonText: '',
             rejectPaymentModalError: '',
             previewFile: null,
+            designFilesGallery: null,
             currentJo: {},
             paymongoPayment: null,
             paymongoPollTimer: null,
@@ -6951,36 +7009,61 @@ window.pfServiceFieldCatalog = (() => {
                 const raw = Array.isArray(item.design_files)
                     ? item.design_files
                     : (Array.isArray(item.files) ? item.files : []);
-                const seen = new Set();
-                const out = [];
-                raw.forEach((entry) => {
-                    if (!entry || typeof entry !== 'object') return;
-                    const fileId = Number(entry.file_id || 0);
-                    if (fileId > 0) {
-                        if (seen.has(fileId)) return;
-                        seen.add(fileId);
-                    }
-                    out.push(entry);
-                });
-                out.sort((a, b) => {
-                    const sortDelta = Number(a.upload_sort || 0) - Number(b.upload_sort || 0);
-                    if (sortDelta !== 0) return sortDelta;
-                    return Number(a.file_id || 0) - Number(b.file_id || 0);
-                });
+                const PF = window.PrintflowOrderItemDesignFiles;
+                let out = PF ? PF.dedupe(raw) : raw;
                 if (out.length === 0 && this.staffItemHasUploadedDesignFile(item)) {
                     const previewUrl = this.staffEffectiveDesignOpenUrl(item) || this.staffOrderItemDesignServeUrl(item);
                     if (previewUrl) {
-                        out.push({
+                        out = [{
                             file_id: 'legacy-' + String(item.order_item_id || '0'),
                             display_name: this.staffDesignDisplayFilename(item),
                             preview_url: previewUrl,
                             download_url: previewUrl,
                             is_previewable_image: this.staffDesignShowsAsImage(item),
                             upload_sort: 0,
-                        });
+                            exists: true,
+                        }];
                     }
                 }
                 return out;
+            },
+            staffDesignFilesPreview(item) {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                const all = this.staffItemDesignFiles(item);
+                return PF ? PF.previewList(all) : all.slice(0, 3);
+            },
+            staffDesignFilesShowMoreLabel(item) {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                return PF ? PF.showMoreLabel(this.staffItemDesignFiles(item)) : '';
+            },
+            staffOpenDesignFilesGallery(item) {
+                this.designFilesGallery = {
+                    title: (this.getDynamicProductName(item) || 'Designs') + ' — all uploaded files',
+                    files: this.staffItemDesignFiles(item),
+                    orderItemId: Number(item?.order_item_id || 0),
+                };
+            },
+            staffCloseDesignFilesGallery() {
+                this.designFilesGallery = null;
+            },
+            staffDesignFileZipUrl(item) {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                const id = Number(item?.order_item_id || 0);
+                if (!PF || id <= 0) return '#';
+                const base = document.body.getAttribute('data-base-url') || '';
+                return PF.zipDownloadUrl(id, base);
+            },
+            staffFormatDesignFileSize(bytes) {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                return PF ? PF.formatFileSize(bytes) : String(bytes || '');
+            },
+            staffDesignFileTypeLabel(file) {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                return PF ? PF.fileTypeLabel(file) : 'File';
+            },
+            staffDesignFileUnavailable(file) {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                return PF ? PF.fileUnavailable(file) : false;
             },
             /** Fallback when API omitted design_open_url but line item has stored artwork + filename */
             staffOrderItemDesignServeUrl(item) {

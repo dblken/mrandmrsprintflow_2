@@ -3114,6 +3114,9 @@ class JobOrderService {
 
         $items_out = self::backfillStaffItemCustomization($items_out, is_array($first_custom) ? $first_custom : []);
         $items_out = self::finalHydrateStaffItemsFromOrderItems($items_out, $storeOrderId);
+        if (function_exists('printflow_order_item_design_files_attach_to_item_views')) {
+            printflow_order_item_design_files_attach_to_item_views($items_out);
+        }
         $first_custom = [];
         foreach ($items_out as $hydratedItem) {
             if (is_array($hydratedItem['customization'] ?? null)) {
