@@ -49,6 +49,10 @@ $assert(
     printflow_job_order_service_label_from_sources($shirtLine, $stickerMirrorOnly, '') === 'T-Shirt Printing',
     'each order item keeps its own service when lines differ'
 );
+$assert(
+    printflow_job_order_display_dimensions_label($shirtLine, []) === '',
+    'shirt Size L must not be duplicated as a Dimensions row'
+);
 
 $adminPage = (string)file_get_contents($root . '/admin/customizations.php');
 $jobService = (string)file_get_contents($root . '/includes/JobOrderService.php');
@@ -110,7 +114,7 @@ $adminFiltered = printflow_filter_admin_customization_display_specifications([
     'Material' => 'Sticker Black',
     'Layout' => 'with_layout',
 ]);
-$assert(!isset($adminFiltered['Material']), 'admin summary must not show Material tile');
+$assert(($adminFiltered['Material'] ?? '') === 'Sticker Black', 'explicit customer material remains a valid specification');
 $assert(isset($adminFiltered['Layout']), 'admin summary keeps other valid specs');
 
 $needed = printflow_job_order_line_needed_date_payload([

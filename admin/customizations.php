@@ -866,16 +866,15 @@ function custom_payment_badge($status) {
                         ? job.display_specifications
                         : {};
                     for (const key of ['Dimensions', 'Size / Dimensions', 'Size']) {
-                        if (specs[key]) return String(specs[key]);
+                        const value = String(specs[key] || '').trim();
+                        if (value && /\d+(?:\.\d+)?\s*[x×*]\s*\d+(?:\.\d+)?/i.test(value)) return value;
                     }
                     return 'Not provided';
                 },
                 displaySpecificationEntries(job) {
                     const specs = job?.display_specifications;
                     if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return [];
-                    const hideMaterial = new Set(['Material', 'Material Type', 'Temp Plate Material']);
                     return Object.entries(specs).filter(([label, value]) => {
-                        if (hideMaterial.has(String(label))) return false;
                         return String(value ?? '').trim() !== '';
                     });
                 },
@@ -949,14 +948,13 @@ function custom_payment_badge($status) {
                     return '';
                 },
                 adminItemSpecEntries(job, item) {
-                    const hideMaterial = new Set(['Material', 'Material Type', 'Temp Plate Material']);
+                    const dimensionLabels = new Set(['Dimensions', 'Size / Dimensions', 'Size', 'Width', 'Height', 'Width (ft)', 'Height (ft)']);
                     const seen = new Set();
                     const entries = [];
                     const push = (label, value) => {
                         const key = String(label || '').trim();
                         const text = String(value ?? '').trim();
                         if (!key || !text) return;
-                        if (hideMaterial.has(key)) return;
                         const fp = key.toLowerCase() + '|' + text.toLowerCase();
                         if (seen.has(fp)) return;
                         seen.add(fp);
@@ -965,11 +963,13 @@ function custom_payment_badge($status) {
                     const specs = job?.display_specifications && typeof job.display_specifications === 'object'
                         ? job.display_specifications
                         : {};
+                    const dimensions = this.displayDimensions(job);
                     const qty = Math.max(1, Number(item?.quantity ?? job?.quantity ?? 1));
                     push('Quantity', String(qty));
-                    Object.entries(specs).forEach(([label, value]) => push(label, value));
-                    const dimensions = this.displayDimensions(job);
-                    if (dimensions && dimensions !== 'Not specified') {
+                    Object.entries(specs).forEach(([label, value]) => {
+                        if (!dimensionLabels.has(String(label)) || dimensions === 'Not provided') push(label, value);
+                    });
+                    if (dimensions && dimensions !== 'Not specified' && dimensions !== 'Not provided') {
                         push('Dimensions', dimensions);
                     }
                     const needed = this.displayNeededDate(job);

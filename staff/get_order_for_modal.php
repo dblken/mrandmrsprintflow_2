@@ -153,7 +153,7 @@ if ($linked_job_id <= 0 && $ensureJob && strtolower(trim((string)($o['order_type
 // service/dimensions/category to the order_item this job is actually linked to.
 $materialContext = printflow_anchor_material_context_to_order_item(
     $items_out,
-    $linked_job_order_item_id,
+    $linked_job_order_item_id > 0 ? $linked_job_order_item_id : $hintOrderItemId,
     $service_name,
     $first_custom,
     $width_ft,
@@ -165,17 +165,37 @@ $service_id = (int)($materialContext['serviceId'] ?? 0);
 $first_custom = is_array($materialContext['firstCustom'] ?? null) ? $materialContext['firstCustom'] : $first_custom;
 $width_ft = (string)($materialContext['widthFt'] ?? $width_ft);
 $height_ft = (string)($materialContext['heightFt'] ?? $height_ft);
-$resolvedDimensions = printflow_resolve_customization_dimensions($first_custom);
-if (($resolvedDimensions['width'] ?? '') !== '' && ($resolvedDimensions['height'] ?? '') !== '') {
-    $width_ft = (string)$resolvedDimensions['width'];
-    $height_ft = (string)$resolvedDimensions['height'];
-} elseif ($width_ft === '1' && $height_ft === '1') {
-    if (($resolvedDimensions['width'] ?? '') !== '') {
-        $width_ft = (string)$resolvedDimensions['width'];
+$displayOrderItemId = $linked_job_order_item_id > 0 ? $linked_job_order_item_id : $hintOrderItemId;
+if ($displayOrderItemId > 0) {
+    $primaryItem = is_array($materialContext['primaryItem'] ?? null) ? $materialContext['primaryItem'] : null;
+    if ($primaryItem !== null) {
+        // A customization row represents its linked line. Keep its specifications,
+        // dimensions, and service together instead of rendering neighboring lines.
+        $items_out = [$primaryItem];
+        $first_custom = is_array($primaryItem['customization'] ?? null) ? $primaryItem['customization'] : [];
+        $total_qty = max(1, (int)($primaryItem['quantity'] ?? 1));
+        $canonicalDimensions = printflow_resolve_customization_dimensions($first_custom);
+        $width_ft = (string)($canonicalDimensions['width'] ?? '');
+        $height_ft = (string)($canonicalDimensions['height'] ?? '');
+    } else {
+        // A stale/bad line reference must not borrow another line's display data.
+        $items_out = [];
+        $first_custom = [];
+        $service_name = 'Unknown Service';
+        $width_ft = '';
+        $height_ft = '';
+        $total_qty = 0;
     }
-    if (($resolvedDimensions['height'] ?? '') !== '') {
-        $height_ft = (string)$resolvedDimensions['height'];
-    }
+} elseif (count($items_out) > 1) {
+    // Without an item link, do not promote the first array element into an order-wide service.
+    $service_name = 'Unknown Service';
+    $first_custom = [];
+    $width_ft = '';
+    $height_ft = '';
+} else {
+    $canonicalDimensions = printflow_resolve_customization_dimensions($first_custom);
+    $width_ft = (string)($canonicalDimensions['width'] ?? '');
+    $height_ft = (string)($canonicalDimensions['height'] ?? '');
 }
 $job_item_title = (string)($materialContext['jobItemTitle'] ?? '');
 
@@ -342,7 +362,7 @@ $data = [
     'service_type' => $service_name,
     'service_id' => $service_id > 0 ? $service_id : null,
     'service_category' => $service_category,
-    'linked_order_item_id' => $linked_job_order_item_id > 0 ? $linked_job_order_item_id : null,
+    'linked_order_item_id' => $displayOrderItemId > 0 ? $displayOrderItemId : null,
     'customization_details' => $first_custom,
     'job_title' => $job_item_title !== '' ? $job_item_title : implode(', ', array_map(static function ($i) {
         return (string)($i['product_name'] ?? 'Order Item') . ' - ' . max(1, (int)($i['quantity'] ?? 0)) . 'pcs';

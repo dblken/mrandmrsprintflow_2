@@ -145,20 +145,27 @@ function printflow_job_order_display_dimensions_label(?array $storeLine, array $
     }
 
     require_once __DIR__ . '/customization_normalizer.php';
+    foreach (['Dimensions', 'Size / Dimensions', 'dimensions', 'size', 'Size'] as $key) {
+        if (empty($custom[$key])) {
+            continue;
+        }
+        $text = trim((string)$custom[$key]);
+        if ($text === '') {
+            continue;
+        }
+        // Keep customer wording such as a sticker cut style with its size, while
+        // collapsing the accidental repeated size that older payloads can contain.
+        $dimensionPair = '\d+(?:\.\d+)?\s*(?:ft|feet|in|inch|inches|cm|mm|m)?\s*[xX*]\s*\d+(?:\.\d+)?\s*(?:ft|feet|in|inch|inches|cm|mm|m)?';
+        $text = preg_replace('/(' . $dimensionPair . '),\s*\1\s*$/iu', '$1', $text) ?? $text;
+        if (preg_match('/' . $dimensionPair . '/iu', $text)) {
+            return $text;
+        }
+    }
     $resolved = printflow_resolve_customization_dimensions($custom);
     $width = trim((string)($resolved['width'] ?? ''));
     $height = trim((string)($resolved['height'] ?? ''));
     if ($width !== '' && $height !== '') {
         return $width . ' ft × ' . $height . ' ft';
-    }
-
-    foreach (['Dimensions', 'Size / Dimensions', 'dimensions', 'size', 'Size'] as $key) {
-        if (!empty($custom[$key])) {
-            $text = trim((string)$custom[$key]);
-            if ($text !== '') {
-                return $text;
-            }
-        }
     }
 
     $jw = trim((string)($jobRow['width_ft'] ?? ''));
@@ -375,10 +382,6 @@ function printflow_filter_admin_customization_display_specifications(array $spec
     if ($orderPriority !== '') {
         $filtered['Order Priority'] = printflow_format_customer_priority_display($orderPriority) ?: $orderPriority;
     }
-    foreach (['Material', 'Material Type', 'Temp Plate Material'] as $label) {
-        unset($filtered[$label]);
-    }
-
     return $filtered;
 }
 

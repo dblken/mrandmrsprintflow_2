@@ -7,13 +7,15 @@ const vm = require('vm');
 const root = require('path').join(__dirname, '..');
 const page = fs.readFileSync(require('path').join(root, 'staff/customizations.php'), 'utf8');
 const api = fs.readFileSync(require('path').join(root, 'admin/job_orders_api.php'), 'utf8');
+const orderModalApi = fs.readFileSync(require('path').join(root, 'staff/get_order_for_modal.php'), 'utf8');
+const adminPage = fs.readFileSync(require('path').join(root, 'admin/customizations.php'), 'utf8');
 const inlineScripts = [...page.matchAll(/<script>([\s\S]*?)<\/script>/g)];
 assert(inlineScripts.length >= 2, 'Staff Customizations main script must exist');
 const mainScript = inlineScripts[1][1].replace(/<\?php[\s\S]*?\?>/g, 'null');
 new vm.Script(mainScript);
 
-function extractMethod(name) {
-    const marker = `${name}(jo) {`;
+function extractMethod(name, args = 'jo') {
+    const marker = `${name}(${args}) {`;
     const start = mainScript.indexOf(marker);
     assert(start >= 0, `${name} method must exist`);
     const open = mainScript.indexOf('{', start);
@@ -71,5 +73,26 @@ assert(!api.includes('count($items) > 1) {\n                    foreach ($items 
 assert(page.includes('orderItemId: order && order.order_item_id ? order.order_item_id : 0'), 'modal request must carry the selected customization line ID');
 assert(/this\.currentJo = \{\};\s*this\.detailRetryPayload = \{ id, orderType \};/.test(page), 'opening another order must clear the previous detail state');
 assert(!serviceMethod.includes('customization_details') && !serviceMethod.includes('T-SHIRT PRINTING'), 'service label must not be inferred from specifications');
+
+const dimensionMethod = extractMethod('staffExtractDimensionParts', 'specs, dimensionField');
+const staffExtractDimensionParts = new Function(`return ({${dimensionMethod}}).staffExtractDimensionParts`)();
+const dimensionHelpers = {
+    staffCustomizationValueText(value) { return String(value ?? '').trim(); },
+    staffMeaningfulSpecValue(value) { return String(value ?? '').trim() !== ''; },
+    staffCustomizationKeyToken(value) { return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''); }
+};
+assert.deepStrictEqual(staffExtractDimensionParts.call(dimensionHelpers, { width: '2', height: '3' }, null), { width: '2', height: '3', combined: '2 x 3' });
+assert.strictEqual(staffExtractDimensionParts.call(dimensionHelpers, { Size: 'L' }, null), null, 'shirt size must remain Size and not become Dimensions');
+assert(orderModalApi.includes("$items_out = [$primaryItem];") && orderModalApi.includes("$service_name = 'Unknown Service';"), 'order modal API must use the exact linked item or neutral unknown service');
+assert(orderModalApi.includes("$canonicalDimensions = printflow_resolve_customization_dimensions($first_custom);"), 'modal dimensions must come from its selected line customization');
+assert(page.includes("this.staffCustomizationFieldMeta(key).group === 'material'"), 'staff modal only keeps material fields present in that line payload');
+assert(adminPage.includes("const dimensions = this.displayDimensions(job);"), 'Admin uses one API-canonical Dimensions entry');
+assert(adminPage.includes("dimensions === 'Not provided'"), 'Admin retains Size fields that are not dimensions');
+assert(adminPage.includes("if (!dimensionLabels.has(String(label)) || dimensions === 'Not provided')"), 'Admin does not repeat dimensional specs');
+assert(!adminPage.includes("const hideMaterial = new Set(['Material', 'Material Type', 'Temp Plate Material']);"), 'Admin preserves explicit submitted material fields');
+const displayBuilder = extractMethod('staffBuildItemDisplaySpecs', 'custom, item = null, options = {}');
+assert(!/currentJo\.status|COMPLETED|PENDING/.test(displayBuilder), 'pending and completed rows use the same specification path');
+assert(page.includes('const submittedSpecs = {') && page.includes('const submittedTokens = new Set(Object.keys(submittedSpecs)'), 'staff specifications only retain material from the selected item payload');
+assert(orderModalApi.includes("'linked_order_item_id' => $displayOrderItemId > 0 ? $displayOrderItemId : null"), 'API returns the item identity used to bind its service and specs');
 
 console.log('Customization service label tests passed for Tarpaulin, T-shirt, Sticker Service, Mugs, and line-specific resolution.');

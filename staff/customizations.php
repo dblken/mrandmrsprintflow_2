@@ -5777,8 +5777,8 @@ window.pfServiceFieldCatalog = (() => {
                     height: ['height', 'Height', 31],
                     height_ft: ['height', 'Height', 31],
                     heightft: ['height', 'Height', 31],
-                    size: ['dimensions', 'Dimensions', 32],
-                    sizes: ['dimensions', 'Dimensions', 32],
+                    size: ['size', 'Size', 32],
+                    sizes: ['size', 'Size', 32],
                     dimension: ['dimensions', 'Dimensions', 32],
                     dimensions: ['dimensions', 'Dimensions', 32],
                     dimensions_ft: ['dimensions', 'Dimensions', 32],
@@ -6039,9 +6039,6 @@ window.pfServiceFieldCatalog = (() => {
                     const match = combined.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
                     if (match) {
                         return { width: match[1], height: match[2], combined: combined };
-                    }
-                    if (this.staffMeaningfulSpecValue(combined)) {
-                        return { width: '', height: '', combined };
                     }
                 }
                 const width = read(widthKey) || read('width') || read('width_ft') || read('Width')
@@ -6499,6 +6496,25 @@ window.pfServiceFieldCatalog = (() => {
                 }
 
                 const isDetail = options.isDetail === true || !!this.showDetailsModal;
+                if (isDetail && item) {
+                    // A root/order-wide fallback must not introduce a staff assigned
+                    // material into customer specifications. Keep a material only when
+                    // the same order item persisted that field in its own submitted data.
+                    const submittedSpecs = {
+                        ...this.parseSpecsObject(item.customization_data),
+                        ...this.parseSpecsObject(item.specifications),
+                        ...(item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
+                            ? item.customization
+                            : {})
+                    };
+                    const submittedTokens = new Set(Object.keys(submittedSpecs).map((key) => this.staffCustomizationKeyToken(key)));
+                    Object.keys(sourceCustom).forEach((key) => {
+                        if (this.staffCustomizationFieldMeta(key).group === 'material'
+                            && !submittedTokens.has(this.staffCustomizationKeyToken(key))) {
+                            delete sourceCustom[key];
+                        }
+                    });
+                }
                 const enrichedCustom = this.staffEnrichDimensionSpecs({ ...sourceCustom }, item);
                 const normalized = this.staffCustomizationDisplaySpecs(enrichedCustom, {
                     includeService: options.includeService !== undefined ? options.includeService : !isDetail,
