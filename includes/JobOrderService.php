@@ -3931,12 +3931,13 @@ class JobOrderService {
         }
 
         require_once __DIR__ . '/job_order_summary.php';
-        $businessRaw = printflow_job_order_business_date_value($order);
-        $order['order_business_date'] = $businessRaw;
-        if (trim((string)($order['order_date'] ?? '')) === '') {
-            $order['order_date'] = trim((string)($order['store_order_date'] ?? '')) !== ''
-                ? trim((string)$order['store_order_date'])
-                : $businessRaw;
+        $displayBusinessDate = trim((string)($order['store_order_date'] ?? ''));
+        if ($displayBusinessDate === '') {
+            $displayBusinessDate = trim((string)($order['order_date'] ?? ''));
+        }
+        $order['order_business_date'] = $displayBusinessDate;
+        if ($displayBusinessDate !== '') {
+            $order['order_date'] = $displayBusinessDate;
         }
         $resolvedService = printflow_job_order_display_service_type($order);
         if ($resolvedService !== '') {

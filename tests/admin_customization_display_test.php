@@ -19,7 +19,9 @@ $assert(str_contains($adminPage, 'jo_ord.order_date AS store_order_date'), 'admi
 $assert(str_contains($adminPage, 'COALESCE(jo_ord.order_date, jo.created_at)'), 'admin list must prefer business order_date over job created_at');
 $assert(str_contains($adminPage, 'printflow_job_order_display_service_type'), 'admin list must resolve per-line service names');
 $assert(str_contains($adminPage, 'formatBusinessSubmittedAt'), 'admin modal must format business submitted date');
-$assert(str_contains($adminPage, 'System Created At'), 'admin modal must show audit created timestamp separately');
+$assert(!str_contains($adminPage, 'System Created At'), 'admin UI must not expose database insertion timestamp');
+$assert(!str_contains($adminPage, 'formatSystemCreatedAt'), 'admin UI must not format system created_at for display');
+$assert(str_contains($adminPage, "job?.order_business_date || job?.order_date || job?.store_order_date"), 'date submitted must use business order_date only');
 $assert(str_contains($adminPage, 'Asia/Manila'), 'admin modal must format dates in Manila timezone');
 
 $assert(str_contains($jobSummary, 'function printflow_job_order_business_date_value'), 'shared helper for business date exists');

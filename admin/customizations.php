@@ -194,9 +194,10 @@ $jobs = db_query($sql, $types ?: null, $params ?: null) ?: [];
 foreach ($jobs as &$jobRow) {
     $jobRow['order_code'] = admin_customization_order_code($jobRow);
     $jobRow['display_service_type'] = printflow_job_order_display_service_type($jobRow);
-    $jobRow['display_submitted_at'] = printflow_format_business_datetime_display(
-        printflow_job_order_business_date_value($jobRow)
-    );
+    $submittedRaw = trim((string)($jobRow['store_order_date'] ?? $jobRow['order_date'] ?? ''));
+    $jobRow['display_submitted_at'] = $submittedRaw !== ''
+        ? printflow_format_business_datetime_display($submittedRaw)
+        : '';
 }
 unset($jobRow);
 
@@ -747,22 +748,8 @@ function custom_payment_badge($status) {
 
                 modalOrderCode: '',
                 formatBusinessSubmittedAt(job) {
-                    const value = String(job?.order_business_date || job?.order_date || job?.created_at || '').trim();
+                    const value = String(job?.order_business_date || job?.order_date || job?.store_order_date || '').trim();
                     if (!value) return '—';
-                    const parsed = new Date(value.replace(' ', 'T'));
-                    if (Number.isNaN(parsed.getTime())) return value;
-                    return parsed.toLocaleString('en-US', {
-                        timeZone: 'Asia/Manila',
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit'
-                    });
-                },
-                formatSystemCreatedAt(job) {
-                    const value = String(job?.system_created_at || '').trim();
-                    if (!value) return '';
                     const parsed = new Date(value.replace(' ', 'T'));
                     if (Number.isNaN(parsed.getTime())) return value;
                     return parsed.toLocaleString('en-US', {
@@ -1459,12 +1446,6 @@ function custom_payment_badge($status) {
                         <div class="detail-block">
                             <label>Due Date</label>
                             <span x-text="job?.due_date ? new Date(job.due_date).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : 'Not set'"></span>
-                        </div>
-                    </div>
-                    <div class="detail-row" x-show="job?.system_created_at">
-                        <div class="detail-block">
-                            <label>System Created At</label>
-                            <span x-text="formatSystemCreatedAt(job)"></span>
                         </div>
                     </div>
                     <!-- Notes -->
