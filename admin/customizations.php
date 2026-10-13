@@ -775,6 +775,72 @@ function custom_payment_badge($status) {
                 currentImage: '',
 
                 modalOrderCode: '',
+                basePath: '<?php echo rtrim((string)$base_path, '/'); ?>',
+                jobDetailKey() {
+                    const j = this.job;
+                    if (!j || typeof j !== 'object') return 'empty';
+                    return String(j.id ?? j.order_id ?? this.modalOrderCode ?? 'job');
+                },
+                closeCustomizationModal() {
+                    this.showModal = false;
+                    this.loading = false;
+                    this.errorMsg = '';
+                    this.job = null;
+                    this.showImageViewer = false;
+                    this.currentImage = '';
+                },
+                resolveMediaUrl(raw) {
+                    const s = String(raw ?? '').trim();
+                    if (!s || s === 'null' || s === 'undefined') return '';
+                    if (/^(data|blob):/i.test(s)) return s;
+                    if (/^https?:\/\//i.test(s)) return s;
+                    const base = String(this.basePath || '').replace(/\/+$/, '');
+                    if (s.startsWith('/')) {
+                        if (base && s.toLowerCase().startsWith(base.toLowerCase() + '/')) return s;
+                        return base ? base + s : s;
+                    }
+                    return base ? base + '/' + s.replace(/^\/+/, '') : s;
+                },
+                isGenericServicePlaceholder(url) {
+                    const text = String(url || '').trim();
+                    if (!text) return true;
+                    return /default\.png$/i.test(text) || /\/assets\/images\/services\/default/i.test(text);
+                },
+                jobPaymentProofUrl(job) {
+                    if (!job || typeof job !== 'object') return '';
+                    const submissionId = parseInt(job.payment_submission_id || 0, 10) || 0;
+                    const base = String(this.basePath || '').replace(/\/+$/, '');
+                    if (submissionId > 0) {
+                        return base + '/staff/api/payment_proof_image.php?id=' + encodeURIComponent(String(submissionId));
+                    }
+                    const raw = String(
+                        job.payment_proof_original_url || job.payment_proof_path || job.payment_proof || ''
+                    ).trim();
+                    if (!raw || /(?:^|\/)uploads\/secure_payments\//i.test(raw)) return '';
+                    return this.resolveMediaUrl(raw);
+                },
+                jobArtworkUrl(job) {
+                    if (!job || typeof job !== 'object') return '';
+                    return this.resolveMediaUrl(job.artwork_path);
+                },
+                handlePaymentProofImageError(el) {
+                    if (!el || el.dataset.proofFallbackApplied === '1') return;
+                    el.dataset.proofFallbackApplied = '1';
+                    el.style.display = 'none';
+                    const wrap = el.closest('[data-payment-proof-preview]');
+                    if (wrap) wrap.style.display = 'none';
+                },
+                handleModalImageError(el) {
+                    if (!el || el.dataset.loadFailed === '1') return;
+                    el.dataset.loadFailed = '1';
+                    el.style.display = 'none';
+                },
+                viewImage(url) {
+                    const resolved = this.resolveMediaUrl(url);
+                    if (!resolved) return;
+                    this.currentImage = resolved;
+                    this.showImageViewer = true;
+                },
                 formatBusinessSubmittedAt(job) {
                     const value = String(job?.order_business_date || job?.order_date || job?.store_order_date || '').trim();
                     if (!value) return '—';
@@ -871,8 +937,16 @@ function custom_payment_badge($status) {
                     return (name || 'Custom Order') + ' × ' + qty;
                 },
                 adminProductServiceImageUrl(item) {
-                    const url = String(item?.service_image || item?.catalog_service_image || item?.product_image || '').trim();
-                    return url || '';
+                    if (!item) return '';
+                    const catalog = String(item.catalog_service_image || item.service_image || '').trim();
+                    if (catalog && !this.isGenericServicePlaceholder(catalog)) {
+                        return this.resolveMediaUrl(catalog);
+                    }
+                    const product = String(item.product_image || '').trim();
+                    if (product && !this.isGenericServicePlaceholder(product)) {
+                        return this.resolveMediaUrl(product);
+                    }
+                    return '';
                 },
                 adminItemSpecEntries(job, item) {
                     const hideMaterial = new Set(['Material', 'Material Type', 'Temp Plate Material']);
@@ -917,6 +991,8 @@ function custom_payment_badge($status) {
                     this.loading = true;
                     this.errorMsg = '';
                     this.job = null;
+                    this.showImageViewer = false;
+                    this.currentImage = '';
                     this.modalOrderCode = String(orderCode || '').trim();
 
                     fetch('<?php echo $base_path; ?>/admin/job_orders_api.php?action=get_order&id=' + id)
@@ -1019,11 +1095,6 @@ function custom_payment_badge($status) {
                     return `<span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600;${s}">${label}</span>`;
                 },
 
-                viewImage(url) {
-                    this.currentImage = url;
-                    this.showImageViewer = true;
-                },
-
                 getItemDesignExternalLink(item) {
                     if (item?.design_external_link && /^https?:\/\//i.test(String(item.design_external_link).trim())) {
                         return String(item.design_external_link).trim();
@@ -1046,7 +1117,7 @@ function custom_payment_badge($status) {
 
                 getItemDesignFileUrl(item) {
                     if (!this.itemHasUploadedDesignFile(item)) return '';
-                    return String(item?.design_open_url || item?.design_url || '').trim();
+                    return this.resolveMediaUrl(item?.design_open_url || item?.design_url || '');
                 },
 
                 getItemDesignFilename(item) {
@@ -1505,7 +1576,7 @@ function custom_payment_badge($status) {
 
 <!-- View Details Modal (inside main x-data so Alpine binds showModal; avoids full-screen overlay blocking clicks) -->
 <div x-show="showModal" x-cloak>
-    <div class="modal-overlay" @click.self="showModal = false">
+    <div class="modal-overlay" @click.self="closeCustomizationModal()">
         <div class="modal-panel admin-customization-modal" @click.stop>
             <!-- Loading -->
             <div x-show="loading" style="padding:48px;text-align:center;">
@@ -1515,10 +1586,11 @@ function custom_payment_badge($status) {
             <!-- Error -->
             <div x-show="errorMsg && !loading" style="padding:32px;text-align:center;">
                 <p style="color:#ef4444;font-size:14px;margin-bottom:12px;" x-text="errorMsg"></p>
-                <button @click="showModal = false" class="btn-secondary">Close</button>
+                <button @click="closeCustomizationModal()" class="btn-secondary">Close</button>
             </div>
             <!-- Content -->
-            <div x-show="job && !loading" class="modal-content">
+            <template x-if="job && !loading">
+            <div class="modal-content" :key="jobDetailKey()">
                 <!-- Header -->
                 <div class="customization-modal-header">
                     <div style="min-width:0;flex:1;">
@@ -1526,7 +1598,7 @@ function custom_payment_badge($status) {
                         <p class="customization-modal-subtitle" x-text="displayServiceType(job)"></p>
                         <div x-html="statusBadge(job?.status)" style="display:inline-block;margin-top:6px;"></div>
                     </div>
-                    <button @click="showModal = false" style="background:transparent;border:none;cursor:pointer;color:#6b7280;flex-shrink:0;">
+                    <button @click="closeCustomizationModal()" style="background:transparent;border:none;cursor:pointer;color:#6b7280;flex-shrink:0;">
                         <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                 </div>
@@ -1535,10 +1607,10 @@ function custom_payment_badge($status) {
                     <div class="customization-customer-block">
                         <p>Customer</p>
                         <div class="customization-customer-row">
-                            <template x-if="job?.customer_picture">
-                                <img class="avatar" :src="job.customer_picture" alt="Customer" style="object-fit:cover;">
+                            <template x-if="resolveMediaUrl(job?.customer_picture)">
+                                <img class="avatar" :src="resolveMediaUrl(job?.customer_picture)" alt="Customer" style="object-fit:cover;" @error="handleModalImageError($el)">
                             </template>
-                            <template x-if="!job?.customer_picture">
+                            <template x-if="!resolveMediaUrl(job?.customer_picture)">
                                 <div class="avatar" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:16px;" x-text="job?.customer_name?.charAt(0)?.toUpperCase() || 'W'"></div>
                             </template>
                             <div style="flex:1;min-width:0;">
@@ -1555,7 +1627,7 @@ function custom_payment_badge($status) {
                                 <template x-if="adminProductServiceImageUrl(item)">
                                     <div style="margin-bottom:10px;">
                                         <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:6px;">Product/Service Image</div>
-                                        <img :src="adminProductServiceImageUrl(item)" @click="viewImage(adminProductServiceImageUrl(item))" loading="lazy" decoding="async" width="120" height="120" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;background:#f8fafc;" alt="Product">
+                                        <img :src="adminProductServiceImageUrl(item)" @click="viewImage(adminProductServiceImageUrl(item))" @error="handleModalImageError($el)" loading="lazy" decoding="async" width="120" height="120" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;background:#f8fafc;" alt="Product">
                                     </div>
                                 </template>
                                 <div class="pf-customization-spec-grid">
@@ -1566,12 +1638,12 @@ function custom_payment_badge($status) {
                                         </div>
                                     </template>
                                 </div>
-                                <template x-if="itemHasDesignDetails(item) || item.reference_url || job?.artwork_path">
+                                <template x-if="itemHasDesignDetails(item) || item.reference_url || jobArtworkUrl(job)">
                                     <div style="margin-top:10px;padding:12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">
                                         <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">Design / Image</div>
-                                        <template x-if="job?.artwork_path && idx === 0">
+                                        <template x-if="jobArtworkUrl(job) && idx === 0">
                                             <div style="margin-bottom:10px;">
-                                                <img :src="job.artwork_path" @click="viewImage(job.artwork_path)" style="width:min(100%,160px);max-height:160px;object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;background:#f8fafc;" alt="Artwork">
+                                                <img :src="jobArtworkUrl(job)" @click="viewImage(jobArtworkUrl(job))" @error="handleModalImageError($el)" style="width:min(100%,160px);max-height:160px;object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;background:#f8fafc;" alt="Artwork">
                                             </div>
                                         </template>
                                         <template x-if="itemHasUploadedDesignFile(item)">
@@ -1579,7 +1651,7 @@ function custom_payment_badge($status) {
                                                 <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:6px;">Uploaded File</div>
                                                 <div style="font-size:13px;font-weight:600;color:#1f2937;word-break:break-word;overflow-wrap:anywhere;margin-bottom:8px;" x-text="getItemDesignFilename(item)"></div>
                                                 <template x-if="getItemDesignFileUrl(item)">
-                                                    <img :src="getItemDesignFileUrl(item)" @click="viewImage(getItemDesignFileUrl(item))" style="width:min(100%,160px);max-height:160px;object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;box-shadow:0 4px 6px -1px rgba(0,0,0,0.08);background:#f8fafc;margin-bottom:8px;display:block;" alt="Design">
+                                                    <img :src="getItemDesignFileUrl(item)" @click="viewImage(getItemDesignFileUrl(item))" @error="handleModalImageError($el)" style="width:min(100%,160px);max-height:160px;object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;box-shadow:0 4px 6px -1px rgba(0,0,0,0.08);background:#f8fafc;margin-bottom:8px;display:block;" alt="Design">
                                                 </template>
                                                 <div class="pf-modal-design-actions">
                                                     <button type="button" class="pf-modal-design-action-btn" @click="viewImage(getItemDesignFileUrl(item))">View</button>
@@ -1599,8 +1671,8 @@ function custom_payment_badge($status) {
                                         <template x-if="item.reference_url">
                                             <div>
                                                 <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Reference</div>
-                                                <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;" @click="viewImage(item.reference_url)">
-                                                    <img :src="item.reference_url" style="width:100%;height:100%;object-fit:cover;" alt="Reference">
+                                                <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;" @click="viewImage(resolveMediaUrl(item.reference_url))">
+                                                    <img :src="resolveMediaUrl(item.reference_url)" @error="handleModalImageError($el)" style="width:100%;height:100%;object-fit:cover;" alt="Reference">
                                                 </div>
                                             </div>
                                         </template>
@@ -1613,18 +1685,22 @@ function custom_payment_badge($status) {
                         <p class="customization-section-label" style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 8px;">Notes</p>
                         <div class="notes-box" x-text="job?.notes"></div>
                     </div>
-                    <div x-show="job?.payment_proof_path" style="margin-top:12px;">
-                        <p style="font-size:11px;font-weight:600;color:#10b981;text-transform:uppercase;margin:0 0 8px;">Payment Proof</p>
-                        <div class="design-thumb" style="position:relative;overflow:hidden;border:2px solid #10b981;cursor:pointer;width:120px;height:120px;border-radius:8px;" @click="viewImage(job.payment_proof_path)">
-                            <img :src="job.payment_proof_path" style="width:100%;height:100%;object-fit:cover;" alt="Payment Proof">
-                        </div>
+                    <div class="customization-payment-proof-block" style="margin-top:12px;">
+                        <p style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin:0 0 8px;">Payment Proof</p>
+                        <template x-if="jobPaymentProofUrl(job)">
+                            <div data-payment-proof-preview style="width:120px;height:120px;border-radius:8px;border:1px solid #e2e8f0;overflow:hidden;cursor:pointer;background:#f8fafc;" @click="viewImage(jobPaymentProofUrl(job))">
+                                <img :src="jobPaymentProofUrl(job)" style="width:100%;height:100%;object-fit:cover;" alt="Payment Proof" @error="handlePaymentProofImageError($el)">
+                            </div>
+                        </template>
+                        <p x-show="!jobPaymentProofUrl(job)" style="font-size:12px;color:#6b7280;font-style:italic;margin:0;">No payment proof uploaded</p>
                     </div>
                 </div>
                 <!-- Footer -->
                 <div class="customization-modal-footer">
-                    <button @click="showModal = false" class="btn-secondary">Close</button>
+                    <button @click="closeCustomizationModal()" class="btn-secondary">Close</button>
                 </div>
             </div>
+            </template>
         </div>
     </div>
 </div>

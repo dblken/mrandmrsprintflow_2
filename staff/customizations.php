@@ -3069,6 +3069,7 @@ $online_closed_count = 0;
                                                   @error="handlePaymentProofImageError($el)">
                                         </div>
                                     </template>
+                                <p x-show="!staffPaymentProofSrc(currentJo)" style="font-size:12px;color:#6b7280;font-style:italic;margin:0;">No payment proof uploaded</p>
                                 
                                 <div style="padding:14px 16px; border-radius:10px; background:#fff; border:1px solid #e5e7eb;">
                                     <div style="font-size:11px; color:#6b7280; font-weight:700; text-transform:uppercase; letter-spacing:.04em;">Amount Submitted</div>
@@ -4759,6 +4760,9 @@ window.pfServiceFieldCatalog = (() => {
                 this.detailError = '';
                 this.loadingDetailKey = '';
                 this.loadingModalAssignments = false;
+                this.loadingDetails = false;
+                this.previewFile = '';
+                this.currentJo = {};
                 this.clearDeepLinkParams();
                 if (wasPosPricing) {
                     window.location.href = this.staffApiUrl('pos.php?from_customizations=1');
@@ -6810,9 +6814,9 @@ window.pfServiceFieldCatalog = (() => {
             handlePaymentProofImageError(image) {
                 if (!image || image.dataset.proofFallbackApplied === '1') return;
                 image.dataset.proofFallbackApplied = '1';
-                image.src = (document.body.getAttribute('data-base-url') || '') + '/public/assets/images/payment-proof-placeholder.svg';
-                image.style.opacity = '1';
-                image.style.cursor = 'default';
+                image.style.display = 'none';
+                const wrap = image.closest('.payment-proof-preview');
+                if (wrap) wrap.style.display = 'none';
             },
             staffFilenameLooksLikeImage(name) {
                 if (!name) return false;
@@ -8353,6 +8357,8 @@ window.pfServiceFieldCatalog = (() => {
                 this.loadingDetails = true;
                 this.loadingDetailKey = detailKey;
                 this.detailError = '';
+                this.previewFile = '';
+                this.currentJo = {};
                 this.detailRetryPayload = { id, orderType };
                 this.loadingModalAssignments = false;
                 this.footerActionError = '';
