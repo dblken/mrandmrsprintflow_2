@@ -944,6 +944,9 @@ require_once __DIR__ . '/../includes/header.php';
                                             </div>
                                             <div class="cart-item-meta">
                                                 <div class="cart-item-name"><?php echo htmlspecialchars($item_display_name); ?></div>
+                                                <?php if ($is_unpriced_row): ?>
+                                                    <div role="note" style="margin-top:6px;font-size:0.75rem;line-height:1.4;color:#92400e;max-width:280px;">This specification has no configured price yet. The final price will be set by Staff before payment or completion.</div>
+                                                <?php endif; ?>
                                                 <?php if (!empty($item['variant_name'])): ?>
                                                     <div style="font-size:0.75rem; color:#475569;"><?php echo htmlspecialchars((string)$item['variant_name']); ?></div>
                                                 <?php endif; ?>

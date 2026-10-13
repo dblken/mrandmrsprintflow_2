@@ -702,7 +702,10 @@ function printflow_calculate_service_unit_price(int $serviceId, array $customiza
             return [
                 'ok' => false,
                 'unit_price' => 0.0,
-                'message' => 'Price could not be calculated for this service.',
+                'reason' => 'unconfigured',
+                'message' => function_exists('printflow_unconfigured_price_note')
+                    ? printflow_unconfigured_price_note()
+                    : 'This specification has no configured price yet. The final price will be set by Staff before payment or completion.',
             ];
         }
 
@@ -772,7 +775,10 @@ function printflow_calculate_service_unit_price(int $serviceId, array $customiza
         return [
             'ok' => false,
             'unit_price' => 0.0,
-            'message' => 'Price could not be calculated. Check your specifications and try again.',
+            'reason' => 'unconfigured',
+            'message' => function_exists('printflow_unconfigured_price_note')
+                ? printflow_unconfigured_price_note()
+                : 'This specification has no configured price yet. The final price will be set by Staff before payment or completion.',
         ];
     }
 

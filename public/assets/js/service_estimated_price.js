@@ -104,6 +104,23 @@
             if (estimatedPriceInputEl) {
                 estimatedPriceInputEl.value = estimatedTotal.toFixed(2);
             }
+            if (estimatedTotalEl) {
+                const noteText = 'This specification has no configured price yet. The final price will be set by Staff before payment or completion.';
+                let note = estimatedTotalEl.parentElement ? estimatedTotalEl.parentElement.querySelector('[data-pf-unconfigured-price-note]') : null;
+                if (unitPrice <= 0) {
+                    if (!note && estimatedTotalEl.parentElement) {
+                        note = document.createElement('div');
+                        note.setAttribute('data-pf-unconfigured-price-note', '1');
+                        note.setAttribute('role', 'note');
+                        note.style.cssText = 'margin-top:8px;font-size:12px;line-height:1.45;color:#92400e;';
+                        note.textContent = noteText;
+                        estimatedTotalEl.parentElement.appendChild(note);
+                    }
+                    if (note) note.hidden = false;
+                } else if (note) {
+                    note.hidden = true;
+                }
+            }
 
             return {
                 unitPrice: unitPrice,

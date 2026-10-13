@@ -1230,11 +1230,14 @@ class JobOrderService {
                 $storePayment = '';
                 if (!empty($order['order_id'])) {
                     $storeRows = db_query(
-                        'SELECT payment_status FROM orders WHERE order_id = ? LIMIT 1',
+                        'SELECT payment_status, total_amount FROM orders WHERE order_id = ? LIMIT 1',
                         'i',
                         [(int)$order['order_id']]
                     ) ?: [];
                     $storePayment = strtoupper(trim((string)($storeRows[0]['payment_status'] ?? '')));
+                    if ($storeRows !== [] && (float)($storeRows[0]['total_amount'] ?? 0) <= 0) {
+                        throw new Exception('Set a valid price before completing this order.');
+                    }
                 }
                 $paidStates = ['PAID', 'FULLY PAID'];
                 $canComplete = in_array($payment, $paidStates, true)
@@ -1397,6 +1400,24 @@ class JobOrderService {
             }
             return $value;
         };
+        if ($storeOrderId > 0) {
+            $orderPriceRows = db_query(
+                'SELECT total_amount FROM orders WHERE order_id = ? LIMIT 1',
+                'i',
+                [$storeOrderId]
+            ) ?: [];
+            if ($orderPriceRows !== [] && array_key_exists('total_amount', $orderPriceRows[0]) && (float)$orderPriceRows[0]['total_amount'] <= 0) {
+                $debugLog('skipped_unconfigured_price', [
+                    'job_order_id' => (int)$orderId,
+                    'order_id' => $storeOrderId,
+                    'reason' => 'order_total_not_configured',
+                ]);
+                if ($startedTransaction && printflow_db_in_transaction($conn)) {
+                    $conn->commit();
+                }
+                return;
+            }
+        }
         $ledgerTransactionDate = null;
         if (!empty($options['transaction_date'])) {
             $ledgerTransactionDate = $normalizeBusinessDate((string)$options['transaction_date']);

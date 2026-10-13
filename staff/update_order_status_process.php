@@ -68,7 +68,7 @@ try {
     }
 
     $rows = db_query(
-        'SELECT status, payment_status, branch_id, customer_id, order_type, order_source, reference_id FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE',
+        'SELECT status, payment_status, total_amount, branch_id, customer_id, order_type, order_source, reference_id FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE',
         'i',
         [$orderId]
     ) ?: [];
@@ -170,6 +170,13 @@ try {
     }
 
     if ($newStatus === 'Completed') {
+        if ((float)($order['total_amount'] ?? 0) <= 0) {
+            if ($transactionStarted) $conn->rollback();
+            printflow_json_response([
+                'success' => false,
+                'error' => 'Set a valid price before completing this order.',
+            ], 409);
+        }
         $paymentStatus = strtolower(trim((string)($order['payment_status'] ?? '')));
         if (!in_array($paymentStatus, ['paid', 'fully paid'], true)) {
             if ($transactionStarted) $conn->rollback();

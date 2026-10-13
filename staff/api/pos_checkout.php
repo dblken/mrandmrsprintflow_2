@@ -1410,6 +1410,13 @@ $reference_number = sanitize($data['reference_number'] ?? '');
 $amount_tendered = (float)($data['amount_tendered'] ?? 0);
 $items = $data['items'];
 
+$unconfiguredPriceError = printflow_checkout_unconfigured_price_message(is_array($items) ? $items : []);
+if ($unconfiguredPriceError !== null) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => $unconfiguredPriceError]);
+    exit;
+}
+
 $servicePriceError = pos_checkout_validate_service_item_prices($items);
 if ($servicePriceError !== null) {
     http_response_code(400);

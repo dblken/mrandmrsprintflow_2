@@ -4851,7 +4851,25 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
             if (!Number.isFinite(unitPrice)) unitPrice = 0;
             if (!Number.isFinite(quantity) || quantity < 1) quantity = 1;
+            syncUnconfiguredPriceNote(unitPrice);
             return { unitPrice, quantity };
+        }
+
+        const POS_UNCONFIGURED_PRICE_NOTE = 'This specification has no configured price yet. The final price will be set by Staff before payment or completion.';
+
+        function syncUnconfiguredPriceNote(unitPrice) {
+            const footer = document.getElementById('pos-estimated-price-display');
+            if (!footer) return;
+            let note = document.getElementById('pos-unconfigured-price-note');
+            if (!note) {
+                note = document.createElement('div');
+                note.id = 'pos-unconfigured-price-note';
+                note.setAttribute('role', 'note');
+                note.style.cssText = 'margin-top:8px;font-size:12px;line-height:1.45;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;';
+                note.textContent = POS_UNCONFIGURED_PRICE_NOTE;
+                footer.appendChild(note);
+            }
+            note.hidden = Number(unitPrice) > 0;
         }
 
         function applyServicePricingToCustomization(customization, unitPrice, quantity) {
@@ -4860,6 +4878,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             customization.calculated_unit_price = safeUnit.toFixed(2);
             customization.calculated_estimated_price = (safeUnit * safeQty).toFixed(2);
             customization.quantity = String(safeQty);
+            if (safeUnit > 0) {
+                delete customization.price_unconfigured;
+            } else {
+                customization.price_unconfigured = '1';
+            }
             return { unitPrice: safeUnit, quantity: safeQty };
         }
 
@@ -5134,14 +5157,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             // Add service to cart with calculated unit price from the modal estimator
             const pricing = resolveServiceModalPricing();
             const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization['quantity'] || pricing.quantity);
-            if (priced.unitPrice <= 0) {
-                await showPOSAlert(
-                    'Price Required',
-                    'Could not calculate a valid price from your selections. Review the specifications or contact a manager.',
-                    'warning'
-                );
-                return;
-            }
 
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
@@ -5604,16 +5619,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             const pricing = resolveServiceModalPricing();
             const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization.quantity || pricing.quantity);
-            if (priced.unitPrice <= 0) {
-                await showPOSAlert(
-                    'Price Required',
-                    'Could not calculate a valid price from your selections. Review the specifications or contact a manager.',
-                    'warning'
-                );
-                isAddingToOrder = false;
-                setServiceAddButtonBusy(false);
-                return;
-            }
 
             body.querySelectorAll('input[type="radio"]:checked').forEach(radio => {
                 const row = radio.closest('.shopee-form-row');
@@ -6565,20 +6570,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             let price = parseFloat(pendingCustomProduct.price) || 0;
             if (price === 0) {
                 const pInput = document.getElementById('cm-price-input');
-                if (pInput) {
-                    price = parseFloat(pInput.value.replace(/,/g, ''));
-                    if (isNaN(price) || price <= 0) {
-                        await showPOSAlert('Invalid Price', 'Please enter a valid negotiated price.', 'warning');
+                const typedPrice = pInput ? String(pInput.value || '').trim() : '';
+                if (typedPrice !== '') {
+                    price = parseFloat(typedPrice.replace(/,/g, ''));
+                    if (isNaN(price) || price < 0) {
+                        await showPOSAlert('Invalid Price', 'Please enter a valid price.', 'warning');
                         pInput.focus();
                         return;
                     }
-                } else {
-                    // Fallback if input somehow didn't render
-                    const p = pendingCustomProduct;
-                    closeCustomModal();
-                    openPriceModal(p, false, customization);
-                    return;
                 }
+            }
+            if (price <= 0) {
+                customization.price_unconfigured = '1';
+                price = 0;
+            } else {
+                delete customization.price_unconfigured;
             }
 
             const result = await syncedCartAction('add', {
@@ -6752,7 +6758,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     div.innerHTML = `
                 <div class="pos-cart-item-top">
                     <div class="pos-item-details">
-                        <div class="pos-item-name">${escapeHtml(item.name)}${variantLabel ? `<div style="font-size:11px; color:#64748b; margin-top:2px;">${escapeHtml(variantLabel)}</div>` : ''}${materialLabel ? `<div style="font-size:11px;color:#64748b;margin-top:2px;">Material: ${escapeHtml(materialLabel)}</div>` : ''}</div>
+                        <div class="pos-item-name">${escapeHtml(item.name)}${variantLabel ? `<div style="font-size:11px; color:#64748b; margin-top:2px;">${escapeHtml(variantLabel)}</div>` : ''}${materialLabel ? `<div style="font-size:11px;color:#64748b;margin-top:2px;">Material: ${escapeHtml(materialLabel)}</div>` : ''}${(parseFloat(item.price) || 0) <= 0 ? `<div role="note" style="margin-top:6px;font-size:11px;line-height:1.4;color:#92400e;">${escapeHtml(POS_UNCONFIGURED_PRICE_NOTE)}</div>` : ''}</div>
                     </div>
                     <div class="pos-cart-item-top-actions" style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
                         ${estimateBesideRemoveHtml}
