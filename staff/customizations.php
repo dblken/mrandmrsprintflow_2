@@ -5772,7 +5772,7 @@ window.pfServiceFieldCatalog = (() => {
                     if (text === '') {
                         return;
                     }
-                    const meta = this.staffCustomizationMetaForLabel(label);
+                    const meta = this.staffCustomizationFieldMeta(label);
                     const bucket = this.staffCanonicalSpecBucket(label, meta.group);
                     if (bucket === 'material') {
                         return;
