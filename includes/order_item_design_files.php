@@ -821,7 +821,10 @@ if (!function_exists('printflow_order_item_design_files_list_for_items')) {
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $types = str_repeat('i', count($ids));
         $rows = db_query(
-            "SELECT * FROM order_item_design_files WHERE order_item_id IN ({$placeholders}) ORDER BY order_item_id ASC, upload_sort ASC, file_id ASC",
+            "SELECT * FROM order_item_design_files
+             WHERE order_item_id IN ({$placeholders})
+               AND (revision_request_id IS NULL OR revision_request_id = 0)
+             ORDER BY order_item_id ASC, upload_sort ASC, file_id ASC",
             $types,
             array_values($ids)
         ) ?: [];

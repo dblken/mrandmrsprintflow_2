@@ -1193,6 +1193,14 @@ $online_closed_count = 0;
 
         .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999; }
         .modal-panel { background:#fff; border-radius:12px; box-shadow:0 25px 50px rgba(0,0,0,0.25); width:100%; max-width:560px; max-height:88vh; overflow-y:auto; margin:16px; position:relative; }
+        .pf-add-details-highlight {
+            box-shadow: 0 0 0 3px rgba(14, 116, 144, 0.35);
+            animation: pfAddDetailsPulse 1.2s ease-in-out 2;
+        }
+        @keyframes pfAddDetailsPulse {
+            0%, 100% { box-shadow: 0 0 0 3px rgba(14, 116, 144, 0.25); }
+            50% { box-shadow: 0 0 0 6px rgba(14, 116, 144, 0.45); }
+        }
         body.pf-revision-modal-open {
             overflow: hidden;
         }
@@ -2888,7 +2896,7 @@ $online_closed_count = 0;
                         <div class="pf-customization-order-details" style="margin-bottom:20px; padding:16px; border-radius:12px; border:1px solid #e5e7eb; background:#f9fafb;">
                             <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;display:block;margin-bottom:12px;">Order Details (Customer Specifications)</label>
                             <template x-for="(item, idx) in currentJo.items" :key="item.order_item_id || idx">
-                                <div class="pf-customization-item-block" style="margin-bottom:16px; padding:12px; background:#fff; border:1px solid #e5e7eb; border-radius:8px;">
+                                <div class="pf-customization-item-block" :data-order-item-id="item.order_item_id || 0" style="margin-bottom:16px; padding:12px; background:#fff; border:1px solid #e5e7eb; border-radius:8px;">
                                     <div class="modal-wrap-text modal-item-title" style="font-size:13px; font-weight:700; color:#1f2937; margin-bottom:10px;" x-text="getDynamicProductName(item) + ' × ' + item.quantity"></div>
                                     <template x-if="staffProductServiceImageUrl(item)">
                                         <div style="margin-bottom:12px;">
@@ -3556,7 +3564,7 @@ $online_closed_count = 0;
 
                     <!-- Revision audit comparison -->
                     <template x-if="currentJo.revision_review && ['Resubmitted for Review', 'Staff Reviewing'].includes(currentJo.revision_review.status)">
-                        <div style="margin-bottom:20px;padding:14px;background:#f0f9ff;border:1px solid #7dd3fc;border-radius:10px;">
+                        <div data-pf-add-details-review :class="addDetailsHighlight ? 'pf-add-details-highlight' : ''" style="margin-bottom:20px;padding:14px;background:#f0f9ff;border:1px solid #7dd3fc;border-radius:10px;">
                             <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:10px;">
                                 <div>
                                     <div style="font-size:13px;font-weight:800;color:#075985;">Request Add Details Comparison</div>
@@ -3626,6 +3634,28 @@ $online_closed_count = 0;
                                         <button type="button" class="pf-design-files__toggle" @click="revisionExpandReplacementDesignFiles()" x-show="!revisionReplacementDesignExpanded() && revisionReplacementDesignFiles().length > 3" x-text="staffDesignFilesShowMoreLabel({ design_files: revisionReplacementDesignFiles() })"></button>
                                         <button type="button" class="pf-design-files__toggle" @click="revisionCollapseReplacementDesignFiles()" x-show="revisionReplacementDesignExpanded() && revisionReplacementDesignFiles().length > 3">Show less</button>
                                     </div>
+                                </div>
+                            </template>
+                            <template x-if="revisionReviewFileSections().length">
+                                <div style="margin-top:14px;display:grid;gap:12px;">
+                                    <template x-for="section in revisionReviewFileSections()" :key="section.key + '-' + section.revision_request_id">
+                                        <div style="padding:10px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;">
+                                            <div style="font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#475569;margin-bottom:8px;" x-text="section.label"></div>
+                                            <div class="pf-design-files__grid" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;">
+                                                <template x-for="designFile in (section.files || [])" :key="'sec-' + section.key + '-' + designFile.file_id">
+                                                    <article class="pf-design-file-card">
+                                                        <div class="pf-design-file-card__name" x-text="designFile.display_name || 'Design file'" :title="designFile.display_name || ''"></div>
+                                                        <div class="pf-design-file-card__preview" x-show="designFile.preview_url && designFile.is_previewable_image">
+                                                            <img class="pf-design-file-card__img" :src="designFile.preview_url" alt="" loading="lazy" style="object-fit:contain;">
+                                                        </div>
+                                                        <div class="pf-design-file-card__actions" x-show="designFile.download_url">
+                                                            <a class="pf-modal-design-action-btn" :href="designFile.download_url" target="_blank" rel="noopener noreferrer">Download</a>
+                                                        </div>
+                                                    </article>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </template>
                                 </div>
                             </template>
                         </div>
@@ -3863,6 +3893,30 @@ $online_closed_count = 0;
                             </template>
                         </div>
                         <div x-show="revisionReasonSelect && revisionFieldOptions.length && !revisionEditableFields.length" x-cloak style="margin-top:10px; font-size:12px; font-weight:600; color:#dc2626;">Select at least one detail the customer needs to update.</div>
+                    </div>
+
+                    <div x-show="revisionReasonSelect && revisionRequiresDesignSelection() && revisionDesignPickerFiles().length" x-cloak style="margin-bottom:16px; padding:14px; border:1px solid #dbeafe; border-radius:10px; background:#fff;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                            <div style="font-size:13px; font-weight:700; color:#0f172a;">Select design images for this request</div>
+                            <div style="font-size:11px; font-weight:700; color:#0369a1;" x-text="revisionDesignSelectionLabel()"></div>
+                        </div>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+                            <button type="button" class="pf-entry-btn pf-entry-out" style="height:32px;padding:0 10px;font-size:11px;" @click="revisionSelectAllDesignFiles()">Select all</button>
+                            <button type="button" class="pf-entry-btn pf-entry-out" style="height:32px;padding:0 10px;font-size:11px;" @click="revisionClearDesignSelection()">Clear selection</button>
+                        </div>
+                        <div class="pf-design-files__grid" style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px;">
+                            <template x-for="designFile in revisionDesignPickerFiles()" :key="'rev-pick-' + designFile.file_id">
+                                <label class="pf-design-file-card" style="cursor:pointer; margin:0; display:block;">
+                                    <input type="checkbox" style="margin:0 0 6px;" :checked="revisionDesignFileSelected(designFile)" @change="revisionToggleDesignFile(designFile)">
+                                    <div class="pf-design-file-card__name" x-text="designFile.display_name || 'Design file'" :title="designFile.display_name || ''"></div>
+                                    <div class="pf-design-file-card__meta" x-text="(designFile.mime_type || 'File') + ' · ' + (window.PrintflowOrderItemDesignFiles ? window.PrintflowOrderItemDesignFiles.formatFileSize(designFile.file_size) : '')"></div>
+                                    <div class="pf-design-file-card__preview" x-show="designFile.preview_url && designFile.is_previewable_image">
+                                        <img class="pf-design-file-card__img" :src="designFile.preview_url" alt="" loading="lazy" style="object-fit:contain;">
+                                    </div>
+                                </label>
+                            </template>
+                        </div>
+                        <div x-show="revisionRequiresDesignSelection() && !(revisionSelectedDesignFileIds || []).length" style="margin-top:8px;font-size:12px;font-weight:600;color:#dc2626;">Select at least one image unless this is a text-only request.</div>
                     </div>
 
                     <div x-show="revisionReasonSelect" x-cloak style="margin-bottom:0;">
@@ -4192,6 +4246,9 @@ window.pfServiceFieldCatalog = (() => {
             revisionFieldOptions: [],
             revisionSubmitting: false,
             revisionModalError: '',
+            revisionSelectedDesignFileIds: [],
+            deepLinkRevisionRequestId: 0,
+            addDetailsHighlight: false,
             showChangeItemModal: false,
             showChangeItemRejectModal: false,
             changeItemReasonCode: '',
@@ -4580,7 +4637,8 @@ window.pfServiceFieldCatalog = (() => {
                     const url = new URL(window.location.href);
                     [
                         'order_id', 'status', 'job_type', 'source_order_id', 'return_to_pos', 'mode',
-                        'open_changed_item', 'change_item_id', 'job_order_id', 'order_item_id'
+                        'open_changed_item', 'change_item_id', 'job_order_id', 'order_item_id',
+                        'revision_request_id', 'customization_id', 'focus_add_details'
                     ].forEach(key => url.searchParams.delete(key));
                     window.history.replaceState({}, document.title, url.toString());
                 } catch (e) {
@@ -6942,9 +7000,16 @@ window.pfServiceFieldCatalog = (() => {
             formatRevisionAuditValue(value) {
                 if (value === null || value === undefined || value === '') return '—';
                 if (typeof value === 'object') {
-                    try { return JSON.stringify(value); } catch (e) { return String(value); }
+                    return '—';
                 }
-                return String(value);
+                const text = String(value);
+                if (text.length > 140 && (text.includes(',') || text.includes('/uploads/'))) {
+                    return 'Design file list (see galleries below)';
+                }
+                if (text.length > 140) {
+                    return text.slice(0, 137) + '…';
+                }
+                return text;
             },
             revisionPreviousDesignUrl() {
                 return String(this.currentJo?.revision_review?.previous_design?.url || '');
@@ -7861,6 +7926,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.deepLinkJobOrderId = parseInt(params.get('job_order_id') || '0', 10) || 0;
                 this.deepLinkOrderItemId = parseInt(params.get('order_item_id') || '0', 10) || 0;
                 this.deepLinkChangeItemId = parseInt(params.get('change_item_id') || '0', 10) || 0;
+                this.deepLinkRevisionRequestId = parseInt(params.get('revision_request_id') || '0', 10) || 0;
                 const deepLinkHints = this.resolveOrderDetailHints(
                     orderId ? { order_id: parseInt(orderId, 10) || 0 } : {}
                 );
@@ -7950,6 +8016,8 @@ window.pfServiceFieldCatalog = (() => {
                     }
                     if (openChangedItem) {
                         await this.focusOpenChangeItemDeepLink(expectedChangeItemId);
+                    } else if (params.get('focus_add_details') === '1') {
+                        await this.focusAddDetailsDeepLink(this.deepLinkRevisionRequestId, this.deepLinkOrderItemId);
                     } else if (this.detailError) {
                         this.showStaffAlert('Order Not Found', this.detailError);
                     }
@@ -9006,6 +9074,12 @@ window.pfServiceFieldCatalog = (() => {
                     fd.append('revision_reason_label', revisionMeta.reasonLabel || revisionMeta.reasonCode || 'Others');
                     fd.append('revision_instruction', revisionMeta.instruction || '');
                     (revisionMeta.permittedFields || []).forEach((field) => fd.append('revision_permitted_fields[]', field));
+                    if (revisionMeta.orderItemId) {
+                        fd.append('revision_order_item_id', String(revisionMeta.orderItemId));
+                    }
+                    (revisionMeta.selectedDesignFileIds || []).forEach((fileId) => {
+                        fd.append('revision_selected_design_file_ids[]', String(fileId));
+                    });
                 }
                 
                 const endpoint = this.adminApiUrl('job_orders_api.php');
@@ -9981,10 +10055,79 @@ window.pfServiceFieldCatalog = (() => {
                 this.revisionReasonText = '';
                 this.revisionInstruction = '';
                 this.revisionEditableFields = [];
+                this.revisionSelectedDesignFileIds = [];
                 this.revisionFieldOptions = this.buildRevisionFieldOptions();
                 this.revisionModalError = '';
                 this.revisionSubmitting = false;
                 this.showRevisionModal = true;
+            },
+            revisionPrimaryDesignItem() {
+                const items = Array.isArray(this.currentJo && this.currentJo.items) ? this.currentJo.items : [];
+                for (const item of items) {
+                    if (this.staffItemDesignFiles(item).length > 0) {
+                        return item;
+                    }
+                }
+                return items.length ? items[0] : null;
+            },
+            revisionRequiresDesignSelection() {
+                return (this.revisionEditableFields || []).some((value) => {
+                    if (String(value) === 'uploaded_design') return true;
+                    const option = (this.revisionFieldOptions || []).find((entry) => entry.value === value);
+                    return this.staffRevisionOptionIsDesignUpload(option);
+                });
+            },
+            revisionDesignPickerFiles() {
+                const item = this.revisionPrimaryDesignItem();
+                return item ? this.staffItemDesignFiles(item) : [];
+            },
+            revisionDesignFileSelected(file) {
+                const id = Number(file && file.file_id);
+                if (!id) return false;
+                return (this.revisionSelectedDesignFileIds || []).some((entry) => Number(entry) === id);
+            },
+            revisionToggleDesignFile(file) {
+                const id = Number(file && file.file_id);
+                if (!id) return;
+                const current = Array.isArray(this.revisionSelectedDesignFileIds) ? [...this.revisionSelectedDesignFileIds] : [];
+                const idx = current.findIndex((entry) => Number(entry) === id);
+                if (idx >= 0) {
+                    current.splice(idx, 1);
+                } else {
+                    current.push(id);
+                }
+                this.revisionSelectedDesignFileIds = current;
+            },
+            revisionSelectAllDesignFiles() {
+                this.revisionSelectedDesignFileIds = this.revisionDesignPickerFiles()
+                    .map((file) => Number(file.file_id))
+                    .filter((id) => id > 0);
+            },
+            revisionClearDesignSelection() {
+                this.revisionSelectedDesignFileIds = [];
+            },
+            revisionDesignSelectionLabel() {
+                const count = (this.revisionSelectedDesignFileIds || []).length;
+                return count + ' image' + (count === 1 ? '' : 's') + ' selected';
+            },
+            revisionReviewFileSections() {
+                const sections = this.currentJo?.revision_review?.file_sections;
+                return Array.isArray(sections) ? sections : [];
+            },
+            async focusAddDetailsDeepLink(revisionRequestId, orderItemId) {
+                this.addDetailsHighlight = true;
+                await this.$nextTick();
+                const target = document.querySelector('[data-pf-add-details-review]');
+                if (target && typeof target.scrollIntoView === 'function') {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                if (orderItemId > 0) {
+                    const itemBlock = document.querySelector('[data-order-item-id="' + orderItemId + '"]');
+                    if (itemBlock && typeof itemBlock.scrollIntoView === 'function') {
+                        itemBlock.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                }
+                window.setTimeout(() => { this.addDetailsHighlight = false; }, 6000);
             },
 
             onSvcEscape() {
@@ -10131,12 +10274,12 @@ window.pfServiceFieldCatalog = (() => {
 
             staffRevisionDesignCurrentValue(item) {
                 if (!item) return 'No value submitted';
+                const files = this.staffItemDesignFiles(item);
+                if (files.length > 0) {
+                    return files.length + ' design file' + (files.length === 1 ? '' : 's') + ' on file';
+                }
                 if (this.staffEffectiveDesignOpenUrl(item) || this.staffItemHasStoredDesign(item)) {
-                    const filename = this.staffDesignDisplayFilename(item);
-                    if (filename && filename !== 'Open uploaded design') {
-                        return filename;
-                    }
-                    return 'File uploaded';
+                    return '1 design file on file';
                 }
                 const resolved = this.staffRevisionResolveDesignUploadField(item);
                 if (resolved && resolved.key) {
@@ -10349,6 +10492,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (!this.revisionReasonSelect) return false;
                 if (this.revisionReasonSelect === 'others' && !String(this.revisionReasonText || '').trim()) return false;
                 if (!Array.isArray(this.revisionEditableFields) || !this.revisionEditableFields.length) return false;
+                if (this.revisionRequiresDesignSelection() && !(this.revisionSelectedDesignFileIds || []).length) return false;
                 if (!String(this.revisionInstruction || '').trim()) return false;
                 return true;
             },
@@ -10400,6 +10544,10 @@ window.pfServiceFieldCatalog = (() => {
                     this.revisionModalError = 'Select at least one detail the customer needs to update.';
                     return;
                 }
+                if (this.revisionRequiresDesignSelection() && !(this.revisionSelectedDesignFileIds || []).length) {
+                    this.revisionModalError = 'Select at least one design image that needs replacement or additional details.';
+                    return;
+                }
                 if (!this.revisionInstruction.trim()) {
                     this.revisionModalError = 'Instructions for the customer are required.';
                     return;
@@ -10416,11 +10564,14 @@ window.pfServiceFieldCatalog = (() => {
                 if (!this.beginModalAction()) return;
                 this.revisionSubmitting = true;
                 try {
+                    const designItem = this.revisionPrimaryDesignItem();
                     const ok = await this.updateStatus(oid, 'For Revision', null, legacyReason, {
                         reasonCode: this.revisionReasonSelect,
                         reasonLabel: legacyReason,
                         instruction: this.revisionInstruction.trim(),
-                        permittedFields: [...this.revisionEditableFields]
+                        permittedFields: [...this.revisionEditableFields],
+                        orderItemId: designItem ? Number(designItem.order_item_id || 0) : 0,
+                        selectedDesignFileIds: [...(this.revisionSelectedDesignFileIds || [])],
                     });
                     if (ok) {
                         this.showRevisionModal = false;

@@ -198,6 +198,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resubmit_order'])) {
             $customerName = trim((string)($customerRows[0]['first_name'] ?? '') . ' ' . (string)($customerRows[0]['last_name'] ?? ''));
             if ($customerName === '') $customerName = 'Customer';
             $staffId = (int)($result['requesting_staff_id'] ?? 0);
+            $revisionRequestId = (int)($result['revision_request_id'] ?? 0);
             $staffNotified = false;
             if ($staffId > 0) {
                 $staffRows = db_query('SELECT role FROM users WHERE user_id = ? LIMIT 1', 'i', [$staffId]) ?: [];
@@ -209,13 +210,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resubmit_order'])) {
                     'Design',
                     false,
                     false,
-                    $order_id
+                    $order_id,
+                    $revisionRequestId
                 );
             }
             if (!$staffNotified) {
                 notify_shop_users(
                     "{$customerName} submitted Request Add Details for Order #{$order_id}. Review is required.",
-                    'Design', false, false, $order_id, ['Staff', 'Admin', 'Manager']
+                    'Design', false, false, $order_id, ['Staff', 'Admin', 'Manager'], $revisionRequestId
                 );
             }
             $_SESSION['success'] = "Order #{$order_id} Request Add Details was submitted for staff review.";
@@ -287,11 +289,24 @@ $pfAssetBase = rtrim((function_exists('pf_app_base_path') ? pf_app_base_path() :
                 <h2>Design Files</h2>
                 <span class="revision-readonly"><?php echo $designEditable ? 'Correction required' : 'Read-only'; ?></span>
             </div>
-            <?php foreach ($items as $revisionItem):
+            <?php
+            $revisionOrderItemId = (int)($revision['order_item_id'] ?? 0);
+            if ($revisionOrderItemId <= 0) {
+                $revisionOrderItemId = $primaryItemId;
+            }
+            $selectedSourceFiles = printflow_revision_resolve_selected_design_files(
+                $order_id,
+                $revisionOrderItemId,
+                $revision['selected_design_file_ids_array'] ?? []
+            );
+            if ($selectedSourceFiles !== []) {
+                echo pf_order_ui_render_design_files_html($selectedSourceFiles, $revisionOrderItemId, 'Images staff selected for this request');
+            }
+            foreach ($items as $revisionItem):
                 $revisionItemId = (int)($revisionItem['order_item_id'] ?? 0);
                 $currentDesignFiles = pf_order_ui_item_design_files_list($revisionItem, false, customer_revision_item_custom($revisionItem));
                 if ($currentDesignFiles !== []) {
-                    echo pf_order_ui_render_design_files_html($currentDesignFiles, $revisionItemId, 'Current designs on order');
+                    echo pf_order_ui_render_design_files_html($currentDesignFiles, $revisionItemId, 'Original designs on order');
                 }
             endforeach; ?>
             <?php if ($designEditable): ?>

@@ -913,6 +913,7 @@ function printflow_notification_is_revision_submission(array $notification): boo
     $message = strtolower(trim((string)($notification['message'] ?? '')));
     $revisionMarkers = [
         'submitted revised details',
+        'submitted request add details',
         'submitted the requested updates',
         'resubmitted revised details',
         'resubmitted a revised design',
@@ -920,6 +921,7 @@ function printflow_notification_is_revision_submission(array $notification): boo
         'design re-upload',
         'revision submitted',
         'resubmitted for review',
+        'request add details',
     ];
     foreach ($revisionMarkers as $marker) {
         if (str_contains($message, $marker)) {
@@ -1038,7 +1040,11 @@ function staff_notification_target_url(array $n): string {
     // review work, not customer product ratings, and must win this routing
     // decision before the broad legacy "review" keyword check below.
     if (printflow_notification_is_revision_submission($n)) {
-        return $base . '/staff/customizations.php?order_id=' . $data_id . '&job_type=ORDER&status=PENDING';
+        if (!function_exists('printflow_staff_add_details_notification_url')) {
+            require_once __DIR__ . '/revision_workflow.php';
+        }
+        $revisionRequestId = (int)($n['review_id'] ?? 0);
+        return printflow_staff_add_details_notification_url($data_id, $revisionRequestId);
     }
 
     if ($data_id > 0 && printflow_notification_is_change_item_submission($n)) {

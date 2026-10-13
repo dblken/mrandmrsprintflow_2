@@ -2179,13 +2179,22 @@ try {
             }
 
             if ($new_status === 'For Revision' && $linked_order_id) {
+                $revisionSelectedDesignIds = $_POST['revision_selected_design_file_ids'] ?? [];
+                if (!is_array($revisionSelectedDesignIds)) {
+                    $revisionSelectedDesignIds = [$revisionSelectedDesignIds];
+                }
                 $revision_request = printflow_revision_create_request(
                     $linked_order_id,
                     (int) get_user_id(),
                     $revision_reason_code !== '' ? $revision_reason_code : $rejection_reason,
                     $revision_instruction !== '' ? $revision_instruction : $rejection_reason,
                     $revision_permitted_fields,
-                    $revision_reason_label !== '' ? $revision_reason_label : $rejection_reason
+                    $revision_reason_label !== '' ? $revision_reason_label : $rejection_reason,
+                    [
+                        'order_item_id' => (int)($_POST['revision_order_item_id'] ?? 0),
+                        'customization_id' => $cust_id,
+                        'selected_design_file_ids' => array_map('intval', $revisionSelectedDesignIds),
+                    ]
                 );
                 $rejection_reason = (string) $revision_request['legacy_reason'];
             } elseif ($linked_order_id) {

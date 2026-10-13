@@ -1410,23 +1410,42 @@ customer_order_items_json([
     'cancelled_at'     => !empty($order['cancelled_at']) ? format_datetime($order['cancelled_at']) : '',
     'design_status'    => $order['design_status'] ?? 'Pending',
     'revision_reason'  => $order['revision_reason'] ?? '',
-    'revision_request' => $active_revision ? [
-        'id' => (int) $active_revision['revision_request_id'],
-        'order_id' => $order_id,
-        'order_item_ids' => array_values(array_filter(array_map(
-            static fn(array $item): int => (int)($item['order_item_id'] ?? 0),
-            is_array($active_revision['previous_values_array']['items'] ?? null) ? $active_revision['previous_values_array']['items'] : []
-        ))),
-        'customer_id' => (int) $active_revision['customer_id'],
-        'reason' => (string) $active_revision['revision_reason'],
-        'instruction' => (string) $active_revision['staff_instruction'],
-        'status' => (string) $active_revision['request_status'],
-        'permitted_fields' => $active_revision['permitted_fields_array'],
-        'permitted_field_labels' => printflow_revision_permission_labels($active_revision['permitted_fields_array'], $active_revision['previous_values_array']),
-        'action_label' => printflow_revision_action_label($active_revision['permitted_fields_array']),
-        'requested_at' => (string) $active_revision['requested_at'],
-        'revise_url' => (function_exists('pf_app_base_path') ? pf_app_base_path() : '') . '/customer/edit_order.php?order_id=' . $order_id,
-    ] : null,
+    'revision_request' => $active_revision ? (static function () use ($active_revision, $order_id): array {
+        $orderItemId = (int)($active_revision['order_item_id'] ?? 0);
+        if ($orderItemId <= 0) {
+            $prevItems = is_array($active_revision['previous_values_array']['items'] ?? null)
+                ? $active_revision['previous_values_array']['items']
+                : [];
+            if (count($prevItems) === 1) {
+                $orderItemId = (int)($prevItems[0]['order_item_id'] ?? 0);
+            }
+        }
+        $selectedSourceFiles = printflow_revision_resolve_selected_design_files(
+            $order_id,
+            $orderItemId,
+            $active_revision['selected_design_file_ids_array'] ?? []
+        );
+        return [
+            'id' => (int) $active_revision['revision_request_id'],
+            'order_id' => $order_id,
+            'order_item_id' => $orderItemId,
+            'order_item_ids' => array_values(array_filter(array_map(
+                static fn(array $item): int => (int)($item['order_item_id'] ?? 0),
+                is_array($active_revision['previous_values_array']['items'] ?? null) ? $active_revision['previous_values_array']['items'] : []
+            ))),
+            'customer_id' => (int) $active_revision['customer_id'],
+            'reason' => (string) $active_revision['revision_reason'],
+            'instruction' => (string) $active_revision['staff_instruction'],
+            'status' => (string) $active_revision['request_status'],
+            'request_sequence' => (int)($active_revision['request_sequence'] ?? 1),
+            'permitted_fields' => $active_revision['permitted_fields_array'],
+            'permitted_field_labels' => printflow_revision_permission_labels($active_revision['permitted_fields_array'], $active_revision['previous_values_array']),
+            'action_label' => printflow_revision_action_label($active_revision['permitted_fields_array']),
+            'requested_at' => (string) $active_revision['requested_at'],
+            'selected_source_files' => $selectedSourceFiles,
+            'revise_url' => (function_exists('pf_app_base_path') ? pf_app_base_path() : '') . '/customer/edit_order.php?order_id=' . $order_id,
+        ];
+    })() : null,
     'revision_request_error' => $revision_request_error,
     'change_item' => printflow_change_item_summary_for_order($order_id),
     'change_item_reasons' => printflow_change_item_reason_labels(),
