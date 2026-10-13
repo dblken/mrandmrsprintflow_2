@@ -42,4 +42,13 @@ SQL;
     if (!@$conn->query($sql)) {
         error_log('printflow_ensure_order_item_design_files_schema: ' . $conn->error);
     }
+
+    if (function_exists('db_table_has_column') && !db_table_has_column('order_item_design_files', 'revision_request_id')) {
+        @db_execute(
+            'ALTER TABLE order_item_design_files ADD COLUMN revision_request_id BIGINT UNSIGNED NULL DEFAULT NULL AFTER customization_id'
+        );
+        @db_execute(
+            'ALTER TABLE order_item_design_files ADD KEY idx_order_item_design_files_revision (revision_request_id, order_item_id, upload_sort)'
+        );
+    }
 }

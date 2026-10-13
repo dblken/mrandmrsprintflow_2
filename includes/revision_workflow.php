@@ -10,6 +10,7 @@ require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/order_ui_helper.php';
 require_once __DIR__ . '/service_field_config_helper.php';
 require_once __DIR__ . '/product_field_config_helper.php';
+require_once __DIR__ . '/order_item_design_files.php';
 
 function printflow_revision_ensure_schema(): bool
 {
@@ -159,6 +160,19 @@ function printflow_revision_has_detail_permission(array $permissions): bool
         }
     }
     return false;
+}
+
+function printflow_revision_design_files_zip_url(int $revisionRequestId, int $orderItemId = 0): string
+{
+    if ($revisionRequestId <= 0) {
+        return '';
+    }
+    $base = function_exists('pf_app_base_path') ? rtrim((string)pf_app_base_path(), '/') : '';
+    $qs = 'revision_request_id=' . $revisionRequestId;
+    if ($orderItemId > 0) {
+        $qs .= '&order_item_id=' . $orderItemId;
+    }
+    return $base . '/public/download_revision_design_files_zip.php?' . $qs;
 }
 
 function printflow_revision_action_label(array $permissions): string
@@ -384,8 +398,12 @@ function printflow_revision_is_protected_spec(string $key): bool
         'price', 'unit_price', 'subtotal', 'total', 'total_amount', 'estimated_price', 'final_price',
         'payment_status', 'payment_method', 'order_status', 'status', 'order_id', 'order_item_id',
         'design_file', 'design_image', 'design_upload', 'design_upload_path', 'design_upload_name',
-        'design_upload_data', 'design_upload_mime', 'reference_file', 'reference_image', 'csrf_token',
+        'design_upload_data', 'design_upload_mime', 'design_upload_files', 'uploaded_files',
+        'reference_file', 'reference_image', 'csrf_token',
     ];
+    if (function_exists('pf_order_ui_should_skip_spec_key') && pf_order_ui_should_skip_spec_key($key)) {
+        return true;
+    }
     if (in_array($key, $exact, true)) {
         return true;
     }
@@ -712,6 +730,10 @@ function printflow_revision_review_payload(int $orderId, bool $markReviewing = f
         'changes' => !empty($revised) ? printflow_revision_changes($previous, $revised) : [],
         'previous_design' => $previousDesign,
         'replacement_design' => $replacementDesign,
+        'replacement_design_files' => printflow_revision_design_files_list_for_request(
+            (int)$revision['revision_request_id'],
+            $designItemId > 0 ? $designItemId : 0
+        ),
         'price_review_required' => !empty($revised['_revision']['price_review_required']),
     ];
 }
@@ -1134,6 +1156,7 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
     }
 
     $newRevisionUploadDiskPath = null;
+    $stagedRevisionDiskPaths = [];
     try {
         $orderRows = db_query(
             'SELECT * FROM orders WHERE order_id = ? AND customer_id = ? LIMIT 1 FOR UPDATE',
@@ -1159,14 +1182,15 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             && printflow_revision_price_impacting($permissions)) {
             throw new RuntimeException('This paid order contains price-impacting changes and must be handled by staff. No order values were changed.');
         }
-        $allowedPostKeys = ['csrf_token', 'order_id', 'resubmit_order', 'spec', 'quantity', 'order_notes', 'design_order_item_id'];
+        $allowedPostKeys = ['csrf_token', 'order_id', 'resubmit_order', 'spec', 'quantity', 'order_notes', 'design_order_item_id', 'design_upload_idempotency'];
         foreach (array_keys($post) as $postKey) {
             if (!in_array((string)$postKey, $allowedPostKeys, true)) {
                 throw new RuntimeException('An unauthorized order field change was rejected.');
             }
         }
         foreach (array_keys($files) as $fileKey) {
-            if ((string)$fileKey !== 'design_file') {
+            $normalizedFileKey = preg_replace('/\[\]$/', '', (string)$fileKey) ?? (string)$fileKey;
+            if ($normalizedFileKey !== 'design_file') {
                 throw new RuntimeException('An unauthorized file field was rejected.');
             }
         }
@@ -1304,9 +1328,16 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
 
         $designRequired = in_array('uploaded_design', $permissions, true);
         $designTargetItemId = 0;
-        $designFile = $files['design_file'] ?? null;
+        $designUploads = function_exists('printflow_normalize_php_file_uploads')
+            ? printflow_normalize_php_file_uploads('design_file')
+            : [];
+        if ($designUploads === [] && function_exists('printflow_normalize_php_file_uploads')) {
+            $designUploads = printflow_normalize_php_file_uploads('design_file[]');
+        }
+        $revisionRequestId = (int)$request['revision_request_id'];
+        $registeredRevisionFiles = [];
         if ($designRequired) {
-            if (!is_array($designFile) || (int) ($designFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            if ($designUploads === []) {
                 throw new RuntimeException('Please upload the revised design requested by staff.');
             }
             $designTargetItemId = (int)($post['design_order_item_id'] ?? 0);
@@ -1316,17 +1347,71 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             if ($designTargetItemId <= 0 || !isset($itemMap[$designTargetItemId])) {
                 throw new RuntimeException('The replacement design was not linked to a valid order item. No design was changed.');
             }
-            $storedDesign = printflow_revision_store_uploaded_design(
-                $designFile,
-                $orderId,
-                (int)$request['revision_request_id'],
-                $designTargetItemId
-            );
-            $newRevisionUploadDiskPath = (string)$storedDesign['disk_path'];
-            $storedBinary = file_get_contents((string)$storedDesign['disk_path']);
-            if ($storedBinary === false || strlen($storedBinary) !== (int)$storedDesign['size']) {
+            $limitCheck = printflow_revision_design_files_assert_can_add($revisionRequestId, count($designUploads));
+            if (!$limitCheck['ok']) {
+                throw new RuntimeException($limitCheck['message']);
+            }
+            $clientIdempotency = trim((string)($post['design_upload_idempotency'] ?? ''));
+            if ($clientIdempotency === '') {
+                $clientIdempotency = 'rev-client-' . hash('sha256', $revisionRequestId . '|' . $designTargetItemId . '|' . count($designUploads));
+            }
+            foreach ($designUploads as $uploadIndex => $designFile) {
+                if (!is_array($designFile) || (int)($designFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                    throw new RuntimeException('One or more replacement design uploads did not complete. Please try again.');
+                }
+                if (printflow_revision_design_files_active_count($revisionRequestId) >= printflow_order_item_design_files_max_per_item()) {
+                    throw new RuntimeException(printflow_order_item_design_files_limit_error_message(0));
+                }
+                $storedDesign = printflow_revision_store_uploaded_design(
+                    $designFile,
+                    $orderId,
+                    $revisionRequestId,
+                    $designTargetItemId
+                );
+                $stagedRevisionDiskPaths[] = (string)$storedDesign['disk_path'];
+                $idempotencyKey = substr(
+                    hash('sha256', 'rev-' . $revisionRequestId . '|' . $clientIdempotency . '|' . $uploadIndex . '|' . (string)$storedDesign['path']),
+                    0,
+                    64
+                );
+                $registered = printflow_order_item_design_file_register([
+                    'order_item_id' => $designTargetItemId,
+                    'order_id' => $orderId,
+                    'customer_id' => $customerId,
+                    'revision_request_id' => $revisionRequestId,
+                    'display_name' => (string)$storedDesign['name'],
+                    'mime_type' => (string)$storedDesign['mime'],
+                    'storage_path' => (string)$storedDesign['path'],
+                    'file_size' => (int)$storedDesign['size'],
+                    'upload_sort' => $uploadIndex,
+                    'idempotency_key' => $idempotencyKey,
+                    'file_role' => 'revision_replacement',
+                ]);
+                if (!empty($registered['limit_reached']) || (int)($registered['file_id'] ?? 0) <= 0) {
+                    throw new RuntimeException(printflow_order_item_design_files_limit_error_message(0));
+                }
+                $registeredRevisionFiles[] = (int)$registered['file_id'];
+            }
+            if ($registeredRevisionFiles === []) {
+                throw new RuntimeException('Please upload the revised design requested by staff.');
+            }
+            $primaryFileRows = db_query(
+                'SELECT storage_path, mime_type, display_name, file_size FROM order_item_design_files WHERE file_id = ? LIMIT 1',
+                'i',
+                [$registeredRevisionFiles[0]]
+            ) ?: [];
+            $primaryRow = $primaryFileRows[0] ?? [];
+            $storedWebPath = trim((string)($primaryRow['storage_path'] ?? ''));
+            $storedMime = trim((string)($primaryRow['mime_type'] ?? ''));
+            $storedOriginalName = trim((string)($primaryRow['display_name'] ?? 'Uploaded design'));
+            $primaryDisk = $storedWebPath !== '' && function_exists('printflow_resolve_order_upload_disk_path')
+                ? printflow_resolve_order_upload_disk_path($storedWebPath)
+                : null;
+            $storedBinary = ($primaryDisk !== null && is_file($primaryDisk)) ? file_get_contents($primaryDisk) : false;
+            if ($storedBinary === false || $storedBinary === '') {
                 throw new RuntimeException('The revised design could not be verified before database storage.');
             }
+            $newRevisionUploadDiskPath = is_string($primaryDisk) ? $primaryDisk : null;
             $designStmt = $conn->prepare(
                 'UPDATE order_items
                  SET design_image = ?, design_image_mime = ?, design_image_name = ?, design_file = ?
@@ -1336,9 +1421,6 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
                 throw new RuntimeException('The revised design could not be prepared for database storage.');
             }
             $blobPlaceholder = null;
-            $storedMime = (string)$storedDesign['mime'];
-            $storedOriginalName = (string)$storedDesign['name'];
-            $storedWebPath = (string)$storedDesign['path'];
             $designStmt->bind_param(
                 'bsssii',
                 $blobPlaceholder,
@@ -1352,10 +1434,10 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             $designSaved = $designStmt->execute();
             $designStmt->close();
             if (!$designSaved) {
-                error_log('[REV-UP-' . $orderId . '-' . (int)$request['revision_request_id'] . '-' . $designTargetItemId . '] Order-item media metadata update failed after upload storage.');
+                error_log('[REV-UP-' . $orderId . '-' . $revisionRequestId . '-' . $designTargetItemId . '] Order-item media metadata update failed after upload storage.');
                 throw new RuntimeException('The revised design could not be saved.');
             }
-        } elseif (isset($designFile) && is_array($designFile) && (int) ($designFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+        } elseif ($designUploads !== []) {
             throw new RuntimeException('A design upload was not authorized for this revision.');
         }
 
@@ -1364,6 +1446,7 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             'price_review_required' => printflow_revision_price_impacting($permissions),
             'submitted_permissions' => $permissions,
             'design_order_item_id' => $designTargetItemId,
+            'design_file_ids' => $registeredRevisionFiles,
         ];
         if (!db_execute(
             "UPDATE order_revision_requests
@@ -1403,6 +1486,11 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
     } catch (Throwable $e) {
         if ($started) {
             $conn->rollback();
+        }
+        foreach ($stagedRevisionDiskPaths as $stagedPath) {
+            if (is_string($stagedPath) && $stagedPath !== '' && is_file($stagedPath) && !@unlink($stagedPath)) {
+                error_log('[REV-UP-' . $orderId . '] Failed to remove an uncommitted replacement upload after transaction rollback.');
+            }
         }
         if (is_string($newRevisionUploadDiskPath) && $newRevisionUploadDiskPath !== '' && is_file($newRevisionUploadDiskPath)) {
             if (!@unlink($newRevisionUploadDiskPath)) {

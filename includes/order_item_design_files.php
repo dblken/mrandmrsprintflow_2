@@ -176,6 +176,7 @@ if (!function_exists('printflow_order_item_design_file_register')) {
         $orderId = max(0, (int)($input['order_id'] ?? 0));
         $customerId = max(0, (int)($input['customer_id'] ?? 0));
         $customizationId = max(0, (int)($input['customization_id'] ?? 0));
+        $revisionRequestId = max(0, (int)($input['revision_request_id'] ?? 0));
         $role = trim((string)($input['file_role'] ?? 'design'));
         if ($role === '') {
             $role = 'design';
@@ -273,12 +274,20 @@ if (!function_exists('printflow_order_item_design_file_register')) {
         }
 
         $maxFiles = printflow_order_item_design_files_max_per_item();
-        if (printflow_order_item_design_files_active_count($orderItemId) >= $maxFiles) {
+        if ($revisionRequestId > 0) {
+            if (printflow_revision_design_files_active_count($revisionRequestId) >= $maxFiles) {
+                return ['file_id' => 0, 'reused' => false, 'row' => null, 'limit_reached' => true];
+            }
+        } elseif (printflow_order_item_design_files_active_count($orderItemId) >= $maxFiles) {
             return ['file_id' => 0, 'reused' => false, 'row' => null, 'limit_reached' => true];
         }
 
         if ($uploadSort === null) {
-            $uploadSort = printflow_order_item_design_files_next_sort($orderItemId);
+            if ($revisionRequestId > 0) {
+                $uploadSort = printflow_revision_design_files_active_count($revisionRequestId);
+            } else {
+                $uploadSort = printflow_order_item_design_files_next_sort($orderItemId);
+            }
         }
 
         if ($fileSize <= 0 && function_exists('printflow_resolve_order_upload_disk_path')) {
@@ -297,15 +306,16 @@ if (!function_exists('printflow_order_item_design_file_register')) {
 
         $ok = db_execute(
             'INSERT INTO order_item_design_files
-                (order_item_id, order_id, customer_id, customization_id, file_role,
+                (order_item_id, order_id, customer_id, customization_id, revision_request_id, file_role,
                  display_name, mime_type, file_size, storage_path, upload_sort, idempotency_key)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            'iiiisssisis',
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'iiiiisssisis',
             [
                 $orderItemId,
                 $orderId,
                 $customerId,
                 $customizationId > 0 ? $customizationId : 0,
+                $revisionRequestId > 0 ? $revisionRequestId : 0,
                 $role,
                 $displayName,
                 $mime,
@@ -393,11 +403,91 @@ if (!function_exists('printflow_order_item_design_files_active_count')) {
         }
         printflow_ensure_order_item_design_files_schema();
         $rows = db_query(
-            'SELECT COUNT(*) AS cnt FROM order_item_design_files WHERE order_item_id = ?',
+            'SELECT COUNT(*) AS cnt FROM order_item_design_files
+             WHERE order_item_id = ?
+               AND (revision_request_id IS NULL OR revision_request_id = 0)',
             'i',
             [$orderItemId]
         ) ?: [];
         return (int)($rows[0]['cnt'] ?? 0);
+    }
+}
+
+if (!function_exists('printflow_revision_design_files_active_count')) {
+    function printflow_revision_design_files_active_count(int $revisionRequestId): int
+    {
+        if ($revisionRequestId <= 0) {
+            return 0;
+        }
+        printflow_ensure_order_item_design_files_schema();
+        $rows = db_query(
+            'SELECT COUNT(*) AS cnt FROM order_item_design_files WHERE revision_request_id = ?',
+            'i',
+            [$revisionRequestId]
+        ) ?: [];
+        return (int)($rows[0]['cnt'] ?? 0);
+    }
+}
+
+if (!function_exists('printflow_revision_design_files_assert_can_add')) {
+    /**
+     * @return array{ok:bool,message:string,existing_count:int,remaining_slots:int,max_files:int}
+     */
+    function printflow_revision_design_files_assert_can_add(int $revisionRequestId, int $addingCount): array
+    {
+        $max = printflow_order_item_design_files_max_per_item();
+        $existing = printflow_revision_design_files_active_count($revisionRequestId);
+        $addingCount = max(0, $addingCount);
+        $remaining = max(0, $max - $existing);
+        if ($addingCount > $remaining) {
+            return [
+                'ok' => false,
+                'message' => printflow_order_item_design_files_limit_error_message($remaining),
+                'existing_count' => $existing,
+                'remaining_slots' => $remaining,
+                'max_files' => $max,
+            ];
+        }
+        return [
+            'ok' => true,
+            'message' => '',
+            'existing_count' => $existing,
+            'remaining_slots' => $remaining,
+            'max_files' => $max,
+        ];
+    }
+}
+
+if (!function_exists('printflow_revision_design_files_list_for_request')) {
+    /**
+     * Authoritative replacement designs for one staff revision request.
+     *
+     * @return list<array<string,mixed>>
+     */
+    function printflow_revision_design_files_list_for_request(int $revisionRequestId, int $orderItemId = 0): array
+    {
+        if ($revisionRequestId <= 0) {
+            return [];
+        }
+        printflow_ensure_order_item_design_files_schema();
+        if ($orderItemId > 0) {
+            $rows = db_query(
+                'SELECT * FROM order_item_design_files
+                 WHERE revision_request_id = ? AND order_item_id = ?
+                 ORDER BY upload_sort ASC, file_id ASC',
+                'ii',
+                [$revisionRequestId, $orderItemId]
+            ) ?: [];
+        } else {
+            $rows = db_query(
+                'SELECT * FROM order_item_design_files
+                 WHERE revision_request_id = ?
+                 ORDER BY upload_sort ASC, file_id ASC',
+                'i',
+                [$revisionRequestId]
+            ) ?: [];
+        }
+        return printflow_order_item_design_files_to_api($rows);
     }
 }
 
@@ -680,7 +770,10 @@ if (!function_exists('printflow_order_item_design_files_list_raw')) {
             printflow_order_item_design_files_backfill_legacy($orderItemId);
         }
         $rows = db_query(
-            'SELECT * FROM order_item_design_files WHERE order_item_id = ? ORDER BY upload_sort ASC, file_id ASC',
+            'SELECT * FROM order_item_design_files
+             WHERE order_item_id = ?
+               AND (revision_request_id IS NULL OR revision_request_id = 0)
+             ORDER BY upload_sort ASC, file_id ASC',
             'i',
             [$orderItemId]
         ) ?: [];

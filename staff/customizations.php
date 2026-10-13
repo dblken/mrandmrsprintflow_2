@@ -3584,10 +3584,48 @@ $online_closed_count = 0;
                                     <a :href="revisionReplacementDesignUrl()" target="_blank" rel="noopener noreferrer" style="font-size:11px;font-weight:700;color:#166534;text-decoration:none;padding:7px 10px;background:#fff;border:1px solid #bbf7d0;border-radius:7px;" x-text="revisionDesignLinkLabel('replacement')"></a>
                                 </template>
                             </div>
-                            <template x-if="revisionReplacementIsImage()">
+                            <template x-if="revisionReplacementIsImage() && !revisionReplacementDesignFiles().length">
                                 <div style="margin-top:12px;">
                                     <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;margin-bottom:6px;">Customer's Updated Design — Awaiting Staff Review</div>
                                     <img :src="revisionReplacementDesignUrl()" alt="Customer updated design awaiting review" @click="previewFile = revisionReplacementDesignUrl()" style="display:block;max-width:min(100%,320px);max-height:220px;object-fit:contain;cursor:zoom-in;border-radius:10px;border:1px solid #bae6fd;background:#fff;box-shadow:0 2px 8px rgba(2,132,199,.12);">
+                                </div>
+                            </template>
+                            <template x-if="revisionReplacementDesignFiles().length">
+                                <div style="margin-top:14px;">
+                                    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                                        <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;">Replacement design files</div>
+                                        <div style="font-size:10px;font-weight:700;color:#475569;" x-text="revisionReplacementDesignFiles().length + '/' + staffDesignFilesMaxPerItem({}) + ' files'"></div>
+                                    </div>
+                                    <div class="pf-design-files" :class="{ 'is-expanded': revisionReplacementDesignExpanded() }" data-pf-design-files>
+                                        <div class="pf-design-files__toolbar" x-show="revisionReplacementDesignFiles().length > 1">
+                                            <a class="pf-design-files__zip" :href="revisionReplacementDesignZipUrl()">Download all (ZIP)</a>
+                                        </div>
+                                        <div class="pf-design-files__grid">
+                                            <template x-for="designFile in revisionReplacementDesignFiles()" :key="'rev-design-' + designFile.file_id">
+                                                <article class="pf-design-file-card" x-show="revisionReplacementDesignFileVisible(designFile)">
+                                                    <p class="pf-design-file-card__name" :title="designFile.display_name || 'Design file'" x-text="designFile.display_name || 'Design file'"></p>
+                                                    <div class="pf-design-file-card__meta">
+                                                        <span x-text="staffDesignFileTypeLabel(designFile)"></span>
+                                                        <span x-show="designFile.file_size"> · </span>
+                                                        <span x-text="staffFormatDesignFileSize(designFile.file_size)"></span>
+                                                    </div>
+                                                    <template x-if="staffDesignFileUnavailable(designFile)">
+                                                        <div class="pf-design-file-card__unavailable" role="status">File unavailable</div>
+                                                    </template>
+                                                    <template x-if="!staffDesignFileUnavailable(designFile) && designFile.is_previewable_image && (designFile.preview_url || designFile.download_url)">
+                                                        <div class="pf-design-file-card__preview">
+                                                            <img class="pf-design-file-card__img" :src="designFile.preview_url || designFile.download_url" :alt="'Preview of ' + (designFile.display_name || 'design')" @click="previewFile = designFile.preview_url || designFile.download_url" loading="lazy" decoding="async">
+                                                        </div>
+                                                    </template>
+                                                    <div class="pf-design-file-card__actions" x-show="!staffDesignFileUnavailable(designFile)">
+                                                        <a class="pf-modal-design-action-btn" :href="designFile.download_url || designFile.preview_url" download target="_blank" rel="noopener noreferrer">Download</a>
+                                                    </div>
+                                                </article>
+                                            </template>
+                                        </div>
+                                        <button type="button" class="pf-design-files__toggle" @click="revisionExpandReplacementDesignFiles()" x-show="!revisionReplacementDesignExpanded() && revisionReplacementDesignFiles().length > 3" x-text="staffDesignFilesShowMoreLabel({ design_files: revisionReplacementDesignFiles() })"></button>
+                                        <button type="button" class="pf-design-files__toggle" @click="revisionCollapseReplacementDesignFiles()" x-show="revisionReplacementDesignExpanded() && revisionReplacementDesignFiles().length > 3">Show less</button>
+                                    </div>
                                 </div>
                             </template>
                         </div>
@@ -6913,6 +6951,46 @@ window.pfServiceFieldCatalog = (() => {
             },
             revisionReplacementDesignUrl() {
                 return String(this.currentJo?.revision_review?.replacement_design?.url || '');
+            },
+            revisionReplacementDesignFiles() {
+                const raw = this.currentJo?.revision_review?.replacement_design_files;
+                const PF = window.PrintflowOrderItemDesignFiles;
+                const list = Array.isArray(raw) ? raw : [];
+                let out = PF ? PF.dedupe(list) : list;
+                const hasDb = out.some((row) => Number(row && row.file_id) > 0);
+                if (hasDb) {
+                    out = out.filter((row) => Number(row && row.file_id) > 0);
+                    out = PF ? PF.dedupe(out) : out;
+                }
+                return out;
+            },
+            revisionReplacementDesignZipUrl() {
+                const revId = Number(this.currentJo?.revision_review?.id || 0);
+                if (revId <= 0) return '#';
+                const files = this.revisionReplacementDesignFiles();
+                const itemId = Number(files[0]?.order_item_id || 0);
+                const base = document.body.getAttribute('data-base-url') || '';
+                let url = base + '/public/download_revision_design_files_zip.php?revision_request_id=' + revId;
+                if (itemId > 0) url += '&order_item_id=' + itemId;
+                return url;
+            },
+            revisionReplacementDesignExpandKey() {
+                const revId = Number(this.currentJo?.revision_review?.id || 0);
+                return revId > 0 ? ('revision-files-' + revId) : 'revision-files-0';
+            },
+            revisionReplacementDesignExpanded() {
+                return !!this.designFilesExpandedKeys[this.revisionReplacementDesignExpandKey()];
+            },
+            revisionExpandReplacementDesignFiles() {
+                this.designFilesExpandedKeys[this.revisionReplacementDesignExpandKey()] = true;
+            },
+            revisionCollapseReplacementDesignFiles() {
+                delete this.designFilesExpandedKeys[this.revisionReplacementDesignExpandKey()];
+            },
+            revisionReplacementDesignFileVisible(designFile) {
+                if (this.revisionReplacementDesignExpanded()) return true;
+                const PF = window.PrintflowOrderItemDesignFiles;
+                return PF ? PF.isInPreviewList(designFile, this.revisionReplacementDesignFiles()) : false;
             },
             revisionReplacementIsImage() {
                 const design = this.currentJo?.revision_review?.replacement_design || {};
