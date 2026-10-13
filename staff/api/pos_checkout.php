@@ -18,6 +18,7 @@ require_once __DIR__ . '/../../includes/pos_draft_lifecycle.php';
 require_once __DIR__ . '/../../includes/service_order_helper.php';
 require_once __DIR__ . '/../../includes/pos_customer_helpers.php';
 require_once __DIR__ . '/../../includes/pos_set_price_helpers.php';
+require_once __DIR__ . '/../../includes/order_item_design_files.php';
 
 function pos_payload_item_is_service(array $item): bool {
     if (!empty($item['is_service'])) {
@@ -1367,6 +1368,22 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         
         $customization_id = $conn->insert_id;
         pos_sync_order_item_customization_json($order_item_id, $order_id, $customization_id, $customization);
+        if (function_exists('printflow_order_item_design_files_sync_from_customization')) {
+            $syncedDesignFiles = printflow_order_item_design_files_sync_from_customization(
+                (int)$order_item_id,
+                (int)$order_id,
+                (int)$customer_id,
+                (int)$customization_id,
+                is_array($customization) ? $customization : []
+            );
+            if (
+                $syncedDesignFiles !== []
+                && function_exists('printflow_customization_apply_synced_design_files')
+            ) {
+                $customization = printflow_customization_apply_synced_design_files($customization, $syncedDesignFiles);
+                pos_sync_order_item_customization_json($order_item_id, $order_id, $customization_id, $customization);
+            }
+        }
 
         $conn->commit();
         $transaction_open = false;
@@ -1942,6 +1959,14 @@ try {
                     $pendingOrderItemId = (int)($customizationExists[0]['order_item_id'] ?? $pendingOrderItemId);
                     if ($pendingOrderItemId > 0) {
                         pos_copy_order_item_media_if_missing($pendingOrderItemId, $order_item_id);
+                        if (function_exists('printflow_order_item_design_files_migrate_order_item')) {
+                            printflow_order_item_design_files_migrate_order_item(
+                                $pendingOrderItemId,
+                                (int)$order_item_id,
+                                (int)$order_id,
+                                $pendingCustomizationId
+                            );
+                        }
                     }
                     $customizationStatus = $isPayMongo ? 'Awaiting Payment' : 'In Production';
                     $customization_result = db_execute(
@@ -1977,6 +2002,14 @@ try {
                             $pendingOrderItemId = (int)($firstPendingRow['order_item_id'] ?? 0);
                             if ($pendingOrderItemId > 0) {
                                 pos_copy_order_item_media_if_missing($pendingOrderItemId, $order_item_id);
+                                if (function_exists('printflow_order_item_design_files_migrate_order_item')) {
+                                    printflow_order_item_design_files_migrate_order_item(
+                                        $pendingOrderItemId,
+                                        (int)$order_item_id,
+                                        (int)$order_id,
+                                        (int)($firstPendingRow['customization_id'] ?? 0)
+                                    );
+                                }
                             }
                             $placeholders = implode(',', array_fill(0, count($customizationIds), '?'));
                             $customizationStatus = $isPayMongo ? 'Awaiting Payment' : 'In Production';

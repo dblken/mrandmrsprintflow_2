@@ -568,6 +568,10 @@ try {
             if ($customization_id > 0) {
                 $_SESSION['pos_cart'][$index]['pending_customization_id'] = $customization_id;
             }
+            $pending_order_item_id = (int)($data['pending_order_item_id'] ?? 0);
+            if ($pending_order_item_id > 0) {
+                $_SESSION['pos_cart'][$index]['pending_order_item_id'] = $pending_order_item_id;
+            }
             break;
 
         case 'remove':

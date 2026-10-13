@@ -3685,7 +3685,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 is_service: item.is_service || false,
                 price_set: item.price_set === true,
                 pending_order_id: item.pending_order_id || 0,
-                pending_customization_id: item.pending_customization_id || 0
+                pending_customization_id: item.pending_customization_id || 0,
+                pending_order_item_id: item.pending_order_item_id || 0
             };
         }
 
@@ -5068,6 +5069,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             fd.append('field', field);
             fd.append('csrf_token', POS_CSRF_TOKEN);
             fd.append('upload_sort', String(existing));
+            const pendingOrderItemId = Number(customization.pending_order_item_id || customization.order_item_id || 0);
+            if (pendingOrderItemId > 0) {
+                fd.append('order_item_id', String(pendingOrderItemId));
+            }
             files.forEach((file) => {
                 fd.append(field === 'reference' ? 'reference_file[]' : 'design_file[]', file);
             });
@@ -8059,8 +8064,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     await syncedCartAction('update_service_link', {
                         index,
                         pending_order_id: parseInt(data.order_id, 10) || 0,
-                        customization_id: parseInt(data.customization_id, 10) || 0
+                        customization_id: parseInt(data.customization_id, 10) || 0,
+                        pending_order_item_id: parseInt(data.order_item_id, 10) || 0
                     }, { silentErrors: true });
+                    if (cart[index] && cart[index].customization && parseInt(data.order_item_id, 10) > 0) {
+                        cart[index].customization.pending_order_item_id = parseInt(data.order_item_id, 10);
+                        cart[index].pending_order_item_id = parseInt(data.order_item_id, 10);
+                    }
 
                     // Deep-link into the pricing/material flow using a POS-specific context.
                     const redirectUrl = new URL(<?php echo json_encode(BASE_PATH . '/staff/customizations.php'); ?>, window.location.origin);

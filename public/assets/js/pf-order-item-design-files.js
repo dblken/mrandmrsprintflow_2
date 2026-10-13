@@ -12,15 +12,7 @@
         }
         var fileId = entry.file_id;
         if (fileId != null && String(fileId).trim() !== '' && String(fileId) !== '0') {
-            return 'id:' + String(fileId);
-        }
-        var idem = String(entry.idempotency_key || '').trim();
-        if (idem) {
-            return 'idem:' + idem;
-        }
-        var url = String(entry.preview_url || entry.download_url || entry.storage_path || '').trim();
-        if (url) {
-            return 'url:' + url;
+            return String(fileId);
         }
         return '';
     }
@@ -36,7 +28,7 @@
                 return;
             }
             var identity = designFileIdentity(entry);
-            if (identity) {
+            if (identity !== '') {
                 if (seen.has(identity)) {
                     return;
                 }

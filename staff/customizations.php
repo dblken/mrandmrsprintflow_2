@@ -6603,20 +6603,16 @@ window.pfServiceFieldCatalog = (() => {
                     return prev;
                 }
                 const byId = new Map();
-                prev.forEach((row) => {
+                const addRow = (row) => {
                     const PFLocal = window.PrintflowOrderItemDesignFiles;
-                    const key = PFLocal ? PFLocal.designFileIdentity(row) : String(row && row.file_id);
-                    if (key) {
-                        byId.set(key, row);
+                    const key = PFLocal ? PFLocal.designFileIdentity(row) : '';
+                    if (key === '') {
+                        return;
                     }
-                });
-                inc.forEach((row) => {
-                    const PFLocal = window.PrintflowOrderItemDesignFiles;
-                    const key = PFLocal ? PFLocal.designFileIdentity(row) : String(row && row.file_id);
-                    if (key) {
-                        byId.set(key, row);
-                    }
-                });
+                    byId.set(key, row);
+                };
+                prev.forEach(addRow);
+                inc.forEach(addRow);
                 const merged = Array.from(byId.values());
                 return PF ? PF.dedupe(merged) : merged;
             },

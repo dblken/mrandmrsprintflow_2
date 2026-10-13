@@ -1043,6 +1043,17 @@ function jo_api_order_items_with_design_files(int $orderId): array
     $payload = JobOrderService::getStoreOrderItemsPayload($orderId, false, true);
     $items = array_values($payload['items'] ?? []);
     jo_api_hydrate_items_raw($orderId, $items);
+    if (function_exists('printflow_order_item_design_files_reconcile_order_item')) {
+        foreach ($items as &$item) {
+            $orderItemId = (int)($item['order_item_id'] ?? 0);
+            if ($orderItemId <= 0) {
+                continue;
+            }
+            printflow_order_item_design_files_reconcile_order_item($orderItemId);
+        }
+        unset($item);
+        jo_api_hydrate_items_raw($orderId, $items);
+    }
     return $items;
 }
 

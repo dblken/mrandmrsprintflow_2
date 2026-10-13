@@ -222,10 +222,33 @@ if (!function_exists('printflow_order_item_design_file_register')) {
             [$idempotencyKey]
         ) ?: [];
         if (!empty($existing[0])) {
+            $row = $existing[0];
+            $existingItemId = (int)($row['order_item_id'] ?? 0);
+            if ($orderItemId > 0 && $existingItemId > 0 && $existingItemId !== $orderItemId) {
+                $targetCustomizationId = $customizationId > 0
+                    ? $customizationId
+                    : (int)($row['customization_id'] ?? 0);
+                $targetOrderId = $orderId > 0 ? $orderId : (int)($row['order_id'] ?? 0);
+                db_execute(
+                    'UPDATE order_item_design_files
+                     SET order_item_id = ?, order_id = ?, customization_id = ?
+                     WHERE file_id = ?',
+                    'iiii',
+                    [$orderItemId, $targetOrderId, $targetCustomizationId, (int)($row['file_id'] ?? 0)]
+                );
+                $refreshed = db_query(
+                    'SELECT * FROM order_item_design_files WHERE file_id = ? LIMIT 1',
+                    'i',
+                    [(int)($row['file_id'] ?? 0)]
+                ) ?: [];
+                if (!empty($refreshed[0])) {
+                    $row = $refreshed[0];
+                }
+            }
             return [
-                'file_id' => (int)($existing[0]['file_id'] ?? 0),
+                'file_id' => (int)($row['file_id'] ?? 0),
                 'reused' => true,
-                'row' => $existing[0],
+                'row' => $row,
             ];
         }
 
@@ -275,10 +298,33 @@ if (!function_exists('printflow_order_item_design_file_register')) {
                 [$idempotencyKey]
             ) ?: [];
             if (!empty($again[0])) {
+                $row = $again[0];
+                $existingItemId = (int)($row['order_item_id'] ?? 0);
+                if ($orderItemId > 0 && $existingItemId > 0 && $existingItemId !== $orderItemId) {
+                    $targetCustomizationId = $customizationId > 0
+                        ? $customizationId
+                        : (int)($row['customization_id'] ?? 0);
+                    $targetOrderId = $orderId > 0 ? $orderId : (int)($row['order_id'] ?? 0);
+                    db_execute(
+                        'UPDATE order_item_design_files
+                         SET order_item_id = ?, order_id = ?, customization_id = ?
+                         WHERE file_id = ?',
+                        'iiii',
+                        [$orderItemId, $targetOrderId, $targetCustomizationId, (int)($row['file_id'] ?? 0)]
+                    );
+                    $refreshed = db_query(
+                        'SELECT * FROM order_item_design_files WHERE file_id = ? LIMIT 1',
+                        'i',
+                        [(int)($row['file_id'] ?? 0)]
+                    ) ?: [];
+                    if (!empty($refreshed[0])) {
+                        $row = $refreshed[0];
+                    }
+                }
                 return [
-                    'file_id' => (int)($again[0]['file_id'] ?? 0),
+                    'file_id' => (int)($row['file_id'] ?? 0),
                     'reused' => true,
-                    'row' => $again[0],
+                    'row' => $row,
                 ];
             }
             return ['file_id' => 0, 'reused' => false, 'row' => null];
@@ -291,6 +337,237 @@ if (!function_exists('printflow_order_item_design_file_register')) {
             : null;
 
         return ['file_id' => $fileId, 'reused' => false, 'row' => is_array($row) ? $row : null];
+    }
+}
+
+if (!function_exists('printflow_order_item_design_files_stats')) {
+    /**
+     * @param list<array<string,mixed>> $apiFiles
+     * @return array{total_file_count:int,unique_file_count:int,file_ids:list<int>}
+     */
+    function printflow_order_item_design_files_stats(array $apiFiles): array
+    {
+        $ids = [];
+        foreach ($apiFiles as $file) {
+            if (!is_array($file)) {
+                continue;
+            }
+            $fileId = (int)($file['file_id'] ?? 0);
+            if ($fileId > 0) {
+                $ids[$fileId] = $fileId;
+            }
+        }
+        $uniqueIds = array_values($ids);
+        sort($uniqueIds, SORT_NUMERIC);
+        return [
+            'total_file_count' => count($apiFiles),
+            'unique_file_count' => count($uniqueIds),
+            'file_ids' => $uniqueIds,
+        ];
+    }
+}
+
+if (!function_exists('printflow_order_item_design_files_migrate_order_item')) {
+    /**
+     * Move every design file row from one order line to another (POS pending → final line).
+     */
+    function printflow_order_item_design_files_migrate_order_item(
+        int $fromOrderItemId,
+        int $toOrderItemId,
+        int $orderId = 0,
+        int $customizationId = 0
+    ): int {
+        if ($fromOrderItemId <= 0 || $toOrderItemId <= 0 || $fromOrderItemId === $toOrderItemId) {
+            return 0;
+        }
+        printflow_ensure_order_item_design_files_schema();
+        $rows = db_query(
+            'SELECT file_id FROM order_item_design_files WHERE order_item_id = ?',
+            'i',
+            [$fromOrderItemId]
+        ) ?: [];
+        if ($rows === []) {
+            return 0;
+        }
+        if ($orderId <= 0) {
+            $ctx = db_query(
+                'SELECT order_id FROM order_items WHERE order_item_id = ? LIMIT 1',
+                'i',
+                [$toOrderItemId]
+            ) ?: [];
+            $orderId = (int)($ctx[0]['order_id'] ?? 0);
+        }
+        if ($orderId > 0 && $customizationId > 0) {
+            db_execute(
+                'UPDATE order_item_design_files
+                 SET order_item_id = ?, order_id = ?, customization_id = ?
+                 WHERE order_item_id = ?',
+                'iiii',
+                [$toOrderItemId, $orderId, $customizationId, $fromOrderItemId]
+            );
+        } elseif ($orderId > 0) {
+            db_execute(
+                'UPDATE order_item_design_files SET order_item_id = ?, order_id = ? WHERE order_item_id = ?',
+                'iii',
+                [$toOrderItemId, $orderId, $fromOrderItemId]
+            );
+        } else {
+            db_execute(
+                'UPDATE order_item_design_files SET order_item_id = ? WHERE order_item_id = ?',
+                'ii',
+                [$toOrderItemId, $fromOrderItemId]
+            );
+        }
+        global $conn;
+        if ($conn instanceof mysqli) {
+            return (int)$conn->affected_rows;
+        }
+        return count($rows);
+    }
+}
+
+if (!function_exists('printflow_order_item_design_files_reconcile_order_item')) {
+    /**
+     * Ensure DB rows and customization JSON reflect all staged uploads for one line (never deletes files).
+     */
+    function printflow_order_item_design_files_reconcile_order_item(int $orderItemId, int $customizationId = 0): array
+    {
+        if ($orderItemId <= 0) {
+            return [];
+        }
+        $itemRows = db_query(
+            'SELECT order_id, customization_data FROM order_items WHERE order_item_id = ? LIMIT 1',
+            'i',
+            [$orderItemId]
+        ) ?: [];
+        if ($itemRows === []) {
+            return [];
+        }
+        $orderId = (int)($itemRows[0]['order_id'] ?? 0);
+        $custom = function_exists('customer_orders_decode_customization_payload')
+            ? customer_orders_decode_customization_payload((string)($itemRows[0]['customization_data'] ?? ''))
+            : [];
+        if (!is_array($custom)) {
+            $custom = [];
+        }
+        if ($customizationId <= 0 && $orderId > 0) {
+            $custRows = db_query(
+                'SELECT customization_id FROM customizations WHERE order_item_id = ? ORDER BY customization_id DESC LIMIT 1',
+                'i',
+                [$orderItemId]
+            ) ?: [];
+            $customizationId = (int)($custRows[0]['customization_id'] ?? 0);
+        }
+        $customerId = 0;
+        if ($orderId > 0) {
+            $orderRows = db_query('SELECT customer_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]) ?: [];
+            $customerId = (int)($orderRows[0]['customer_id'] ?? 0);
+        }
+        if (function_exists('printflow_order_item_design_files_sync_from_customization')) {
+            printflow_order_item_design_files_sync_from_customization(
+                $orderItemId,
+                $orderId,
+                $customerId,
+                $customizationId,
+                $custom
+            );
+        }
+        $authoritative = printflow_order_item_design_files_list_for_item($orderItemId, false);
+        if (
+            $authoritative !== []
+            && function_exists('printflow_customization_apply_synced_design_files')
+        ) {
+            $custom = printflow_customization_apply_synced_design_files($custom, $authoritative);
+            db_execute(
+                'UPDATE order_items SET customization_data = ? WHERE order_item_id = ?',
+                'si',
+                [json_encode($custom ?: new stdClass()), $orderItemId]
+            );
+            if ($customizationId > 0) {
+                db_execute(
+                    'UPDATE customizations SET customization_details = ?, updated_at = NOW() WHERE customization_id = ?',
+                    'si',
+                    [json_encode($custom ?: new stdClass()), $customizationId]
+                );
+            }
+        }
+        return $authoritative;
+    }
+}
+
+if (!function_exists('printflow_order_item_design_files_diagnostic')) {
+    /**
+     * Read-only counts for verifying DB vs API parity (no filesystem paths exposed).
+     *
+     * @return array<string,mixed>
+     */
+    function printflow_order_item_design_files_diagnostic(int $orderItemId): array
+    {
+        if ($orderItemId <= 0) {
+            return ['success' => false, 'error' => 'order_item_id required'];
+        }
+        $itemRows = db_query(
+            'SELECT oi.order_item_id, oi.order_id, c.customization_id
+             FROM order_items oi
+             LEFT JOIN customizations c ON c.order_item_id = oi.order_item_id
+             WHERE oi.order_item_id = ?
+             ORDER BY c.customization_id DESC
+             LIMIT 1',
+            'i',
+            [$orderItemId]
+        ) ?: [];
+        if ($itemRows === []) {
+            return ['success' => false, 'error' => 'Order item not found'];
+        }
+        $row = $itemRows[0];
+        $dbCountRows = db_query(
+            'SELECT COUNT(*) AS cnt FROM order_item_design_files WHERE order_item_id = ?',
+            'i',
+            [$orderItemId]
+        ) ?: [];
+        $dbCount = (int)($dbCountRows[0]['cnt'] ?? 0);
+        $apiFiles = printflow_order_item_design_files_list_for_item($orderItemId, true);
+        $stats = printflow_order_item_design_files_stats($apiFiles);
+        $jsonCount = 0;
+        $jsonIds = [];
+        $customRows = db_query(
+            'SELECT customization_data FROM order_items WHERE order_item_id = ? LIMIT 1',
+            'i',
+            [$orderItemId]
+        ) ?: [];
+        if (!empty($customRows[0]['customization_data'])) {
+            $custom = function_exists('customer_orders_decode_customization_payload')
+                ? customer_orders_decode_customization_payload((string)$customRows[0]['customization_data'])
+                : [];
+            if (is_array($custom['design_upload_files'] ?? null)) {
+                foreach ($custom['design_upload_files'] as $entry) {
+                    if (!is_array($entry)) {
+                        continue;
+                    }
+                    $jsonCount++;
+                    $fid = (int)($entry['file_id'] ?? 0);
+                    if ($fid > 0) {
+                        $jsonIds[$fid] = $fid;
+                    }
+                }
+            }
+        }
+        $jsonIds = array_values($jsonIds);
+        sort($jsonIds, SORT_NUMERIC);
+        return [
+            'success' => true,
+            'order_item_id' => $orderItemId,
+            'order_id' => (int)($row['order_id'] ?? 0),
+            'customization_id' => (int)($row['customization_id'] ?? 0),
+            'database_file_count' => $dbCount,
+            'api_file_count' => (int)($stats['total_file_count'] ?? 0),
+            'api_unique_file_count' => (int)($stats['unique_file_count'] ?? 0),
+            'api_file_ids' => $stats['file_ids'] ?? [],
+            'customization_json_file_count' => $jsonCount,
+            'customization_json_file_ids' => $jsonIds,
+            'counts_match' => $dbCount === (int)($stats['unique_file_count'] ?? 0)
+                && $dbCount === $jsonCount,
+        ];
     }
 }
 
@@ -710,6 +987,12 @@ if (!function_exists('printflow_order_item_design_files_attach_to_item_views')) 
             $files = $grouped[$orderItemId] ?? [];
             $view['design_files'] = $files;
             $view['files'] = $files;
+            $stats = printflow_order_item_design_files_stats($files);
+            $view['design_files_meta'] = array_merge($stats, [
+                'order_item_id' => $orderItemId,
+                'order_id' => (int)($view['order_id'] ?? 0),
+                'customization_id' => isset($view['customization_id']) ? (int)$view['customization_id'] : null,
+            ]);
             if ($files !== []) {
                 $primary = $files[0];
                 if (empty($view['design_open_url']) && !empty($primary['preview_url'])) {
