@@ -15,7 +15,7 @@ if (!preg_match('/async function posStageDesignUploadsFromModal\(body, customiza
     }
 }
 
-if (strpos($content, 'window.showPOSMode = showPOSMode;') === false) {
+if (substr_count($content, 'window.showPOSMode = showPOSMode;') < 1) {
     $failures[] = 'showPOSMode must be exposed on window for inline onclick handlers';
 }
 if (strpos($content, 'window.backToSelection = backToSelection;') === false) {

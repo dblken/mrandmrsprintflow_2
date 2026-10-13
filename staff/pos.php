@@ -4628,6 +4628,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 document.getElementById('services-view').style.display = 'flex';
             }
         }
+        window.showPOSMode = showPOSMode;
 
         function backToSelection() {
             currentMode = null;
@@ -4635,6 +4636,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             document.getElementById('products-view').style.display = 'none';
             document.getElementById('services-view').style.display = 'none';
         }
+        window.backToSelection = backToSelection;
 
         document.addEventListener('DOMContentLoaded', async () => {
             updatePosTransactionDateTimeSummaryUI();
@@ -5856,10 +5858,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const textInput = row.querySelector('input[type="text"]:not(.pf-service-quantity-input):not(.select-others-input):not(.radio-others-input), input[type="number"]:not(#quantity-input):not(.pf-service-quantity-input), input[type="url"].pf-design-link-input');
                 if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
                     if (textInput.classList.contains('pf-design-link-input')) {
-                        const uploadGroup = row.querySelector('.pf-file-upload-group');
-                        const modeSelect = uploadGroup ? uploadGroup.querySelector('.pf-design-mode-select') : null;
+                        const linkUploadGroup = row.querySelector('.pf-file-upload-group');
+                        const modeSelect = linkUploadGroup ? linkUploadGroup.querySelector('.pf-design-mode-select') : null;
                         const designMode = String(
-                            (modeSelect && modeSelect.value) || (uploadGroup && uploadGroup.dataset.pfDesignMode) || ''
+                            (modeSelect && modeSelect.value) || (linkUploadGroup && linkUploadGroup.dataset.pfDesignMode) || ''
                         ).trim();
                         if (designMode === 'link') {
                             posStoreDesignLink(customization, row, textInput);
