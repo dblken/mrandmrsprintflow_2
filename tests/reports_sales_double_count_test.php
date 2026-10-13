@@ -34,8 +34,12 @@ $assert(
     'job exclusion must not require order_type=custom (online rows can stay product typed)'
 );
 $assert(
-    str_contains($excludeSql, 'jo.order_id > 0') || str_contains($excludeSql, 'order_id > 0'),
+    str_contains($excludeSql, 'order_id AS UNSIGNED') || str_contains($excludeSql, 'order_id > 0'),
     'job exclusion must require a linked store order_id'
+);
+$assert(
+    str_contains($reportsSource, 'function pf_reports_canonical_official_sales_totals'),
+    'official sales must use canonical store-order + orphan-job totals'
 );
 $assert(
     str_contains($excludeSql, 'STORE_SALES_EXPR') || str_contains($reportsSource, 'pf_reports_store_order_sales_expr(\'o_ex\')'),
@@ -83,6 +87,10 @@ $assert(
 
 $paymentPage = (string)file_get_contents($root . '/admin/sales.php');
 $assert(str_contains($paymentPage, 'pf_reports_official_sales_breakdown'), 'Admin Sales uses the shared official sales breakdown');
+$assert(
+    str_contains($reportsSource, "\$summary['total_sales'] = \$canonical['total_sales']"),
+    'KPI total must not sum product + custom + job buckets directly'
+);
 
 if ($failures !== []) {
     fwrite(STDERR, "Reports sales double-count test failed:\n- " . implode("\n- ", $failures) . "\n");

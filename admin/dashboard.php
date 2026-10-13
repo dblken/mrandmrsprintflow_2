@@ -148,10 +148,14 @@ try {
     $jSqlFrag .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id');
     $orderTypes = 'ss' . ($bT3 ?: '') . 'ss' . ($jT3 ?: '');
     $orderParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP3 ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP3 ?: []);
+    require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
+    $jobDateExpr = pf_reports_job_order_sales_date_expr('j');
+    $jobExcludeOrders = pf_reports_job_exclude_linked_custom_store_sale_sql('j');
     $total_orders = db_query(
         "SELECT (
              (SELECT COUNT(*) FROM orders o WHERE o.order_date BETWEEN ? AND ? {$bSqlFrag}) +
-             (SELECT COUNT(*) FROM job_orders j WHERE j.created_at BETWEEN ? AND ? {$jSqlFrag})
+             (SELECT COUNT(*) FROM job_orders j
+              WHERE {$jobDateExpr} BETWEEN ? AND ? {$jSqlFrag}{$jobExcludeOrders})
          ) AS cnt",
         $orderTypes,
         $orderParams

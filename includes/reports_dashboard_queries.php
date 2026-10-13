@@ -140,11 +140,70 @@ function pf_reports_job_exclude_linked_custom_store_sale_sql(string $alias = 'jo
     $storeSales = pf_reports_store_order_sales_expr('o_ex');
     return " AND NOT EXISTS (
         SELECT 1 FROM orders o_ex
-        WHERE o_ex.order_id = {$alias}.order_id
-          AND {$alias}.order_id IS NOT NULL
-          AND {$alias}.order_id > 0
+        WHERE CAST(o_ex.order_id AS UNSIGNED) = CAST({$alias}.order_id AS UNSIGNED)
+          AND CAST({$alias}.order_id AS UNSIGNED) > 0
           AND {$storeSales}
     )";
+}
+
+/**
+ * Canonical official revenue: each store order once (order_date) + orphan jobs only.
+ *
+ * @return array{store_revenue:float,store_count:int,orphan_job_revenue:float,orphan_job_count:int,total_sales:float,transaction_count:int}
+ */
+function pf_reports_canonical_official_sales_totals(string $from, string $toEnd, $branchId): array {
+    $storeSales = pf_reports_store_order_sales_expr('o');
+    $storeRevenue = pf_reports_store_order_revenue_expr('o');
+    $jobSales = pf_reports_job_order_sales_expr('jo');
+    $jobRevenue = pf_reports_job_order_revenue_expr('jo');
+    $jobDate = pf_reports_job_order_sales_date_expr('jo');
+    $jobExcludeLinkedCustomStore = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
+
+    $out = [
+        'store_revenue' => 0.0,
+        'store_count' => 0,
+        'orphan_job_revenue' => 0.0,
+        'orphan_job_count' => 0,
+        'total_sales' => 0.0,
+        'transaction_count' => 0,
+    ];
+
+    try {
+        [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
+        [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
+        $row = db_query(
+            "SELECT COUNT(*) AS cnt, COALESCE(SUM({$storeRevenue}), 0) AS rev
+             FROM orders o
+             WHERE {$storeSales}{$do}{$bo}",
+            $dto . $bto,
+            array_merge($dpo, $bpo)
+        )[0] ?? [];
+        $out['store_count'] = (int)($row['cnt'] ?? 0);
+        $out['store_revenue'] = (float)($row['rev'] ?? 0);
+    } catch (Throwable $e) {
+    }
+
+    try {
+        [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
+        [$dj, $dtj, $dpj] = pf_reports_date_expr_where($jobDate, $from, $toEnd);
+        $row = db_query(
+            "SELECT COUNT(*) AS cnt, COALESCE(SUM({$jobRevenue}), 0) AS rev
+             FROM job_orders jo
+             WHERE {$jobSales}{$jobExcludeLinkedCustomStore}{$dj}{$bj}",
+            $dtj . $btj,
+            array_merge($dpj, $bpj)
+        )[0] ?? [];
+        $out['orphan_job_count'] = (int)($row['cnt'] ?? 0);
+        $out['orphan_job_revenue'] = (float)($row['rev'] ?? 0);
+    } catch (Throwable $e) {
+    }
+
+    $out['store_revenue'] = round($out['store_revenue'], 2);
+    $out['orphan_job_revenue'] = round($out['orphan_job_revenue'], 2);
+    $out['total_sales'] = round($out['store_revenue'] + $out['orphan_job_revenue'], 2);
+    $out['transaction_count'] = $out['store_count'] + $out['orphan_job_count'];
+
+    return $out;
 }
 
 /** Official product/store revenue amount. Uses amount_paid when the column exists. */
@@ -269,8 +328,11 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
         $summary['service_sales'] += (float)($row['rev'] ?? 0);
     } catch (Throwable $e) {}
 
-    $summary['total_sales'] = round((float)$summary['product_sales'] + (float)$summary['service_sales'], 2);
-    $summary['transaction_count'] = (int)$summary['product_transactions'] + (int)$summary['service_transactions'];
+    $canonical = pf_reports_canonical_official_sales_totals($from, $toEnd, $branchId);
+    $summary['store_order_revenue_total'] = $canonical['store_revenue'];
+    $summary['orphan_job_revenue_total'] = $canonical['orphan_job_revenue'];
+    $summary['total_sales'] = $canonical['total_sales'];
+    $summary['transaction_count'] = $canonical['transaction_count'];
     $summary['product_sales'] = round((float)$summary['product_sales'], 2);
     $summary['service_sales'] = round((float)$summary['service_sales'], 2);
 
