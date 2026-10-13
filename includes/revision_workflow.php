@@ -837,7 +837,8 @@ function printflow_revision_repair_customer_order_access(int $orderId, int $cust
         $orderId,
         $targetCustomizationId,
         $legacyReason,
-        $revisionRequest
+        $revisionRequest,
+        false
     );
     return true;
 }
@@ -941,7 +942,8 @@ function printflow_revision_sync_entities_after_staff_request(
     int $orderId,
     int $targetCustomizationId,
     string $legacyReason,
-    array $revisionRequest
+    array $revisionRequest,
+    bool $requireOrderUpdate = true
 ): array {
     if (!function_exists('printflow_ensure_orders_status_schema')) {
         require_once __DIR__ . '/ensure_orders_status_schema.php';
@@ -970,9 +972,12 @@ function printflow_revision_sync_entities_after_staff_request(
         ['For Revision', $legacyReason, 'Revision Requested', $orderId]
     );
     if ($orderUpdated === false) {
-        throw new RuntimeException(
-            'Unable to update the order for Request Add Details. The order status column may need a schema update—contact support.'
-        );
+        error_log("Request Add Details: unable to update orders.status for order #{$orderId}.");
+        if ($requireOrderUpdate) {
+            throw new RuntimeException(
+                'Unable to update the order for Request Add Details. The order status column may need a schema update—contact support.'
+            );
+        }
     }
 
     $jobStatusSync = 'skipped';
