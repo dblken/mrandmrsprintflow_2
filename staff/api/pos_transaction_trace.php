@@ -28,7 +28,7 @@ $branchFilter = function_exists('printflow_branch_filter_for_user')
 // and makes the following lookup look like a missing order.
 global $conn;
 $readOnlySnapshot = false;
-$orderSql = 'SELECT order_id, branch_id, order_source, order_date, created_at, status, payment_status, total_amount
+$orderSql = 'SELECT order_id, branch_id, order_source, order_date, status, payment_status, total_amount
              FROM orders WHERE order_id = ?';
 $orderTypes = 'i';
 $orderParams = [$orderId];
@@ -37,9 +37,12 @@ if ($branchFilter !== null && (int)$branchFilter > 0) {
     $orderTypes .= 'i';
     $orderParams[] = (int)$branchFilter;
 }
+$errorsBeforeLookup = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
 $orders = db_query($orderSql, $orderTypes, $orderParams) ?: [];
-$orderLookupErrors = function_exists('printflow_db_errors') ? printflow_db_errors() : [];
-if ($orderLookupErrors !== []) {
+$orderLookupErrors = function_exists('printflow_db_errors')
+    ? array_slice(printflow_db_errors(), $errorsBeforeLookup)
+    : [];
+if ($orders === [] && $orderLookupErrors !== []) {
     error_log('[PrintFlow POS trace] order=' . $orderId . ' lookup_errors=' . json_encode(array_map(static function ($error) {
         return [
             'stage' => (string)($error['stage'] ?? ''),
@@ -65,7 +68,7 @@ $items = db_query(
     [$orderId]
 ) ?: [];
 $customizations = db_query(
-    'SELECT customization_id, order_id, order_item_id, status, created_at, updated_at FROM customizations WHERE order_id = ? ORDER BY customization_id',
+    'SELECT customization_id, order_id, order_item_id, status FROM customizations WHERE order_id = ? ORDER BY customization_id',
     'i',
     [$orderId]
 ) ?: [];
@@ -90,7 +93,7 @@ if ($jobIds !== []) {
         array_merge($jobIds, [$orderId])
     ) ?: [];
     $ledger = db_query(
-        "SELECT id, transaction_id, item_id, product_id, branch_id, direction, quantity, uom, ref_type, ref_id, transaction_date, created_at, notes
+        "SELECT id, item_id, branch_id, direction, quantity, uom, ref_type, ref_id, transaction_date, notes
          FROM inventory_transactions
          WHERE (UPPER(ref_type) = 'JOB_ORDER' AND ref_id IN ({$placeholders}))
             OR (UPPER(ref_type) IN ('ORDER', 'ORDER_PRODUCT') AND ref_id = ?)
@@ -104,7 +107,7 @@ if ($jobIds !== []) {
         'i', [$orderId]
     ) ?: [];
     $ledger = db_query(
-        "SELECT id, transaction_id, item_id, product_id, branch_id, direction, quantity, uom, ref_type, ref_id, transaction_date, created_at, notes
+        "SELECT id, item_id, branch_id, direction, quantity, uom, ref_type, ref_id, transaction_date, notes
          FROM inventory_transactions
          WHERE UPPER(ref_type) IN ('ORDER', 'ORDER_PRODUCT') AND ref_id = ?
          ORDER BY id DESC",
@@ -182,7 +185,9 @@ foreach ($materials as $material) {
         ];
     }
 }
-$queryErrors = function_exists('printflow_db_errors') ? printflow_db_errors() : [];
+$queryErrors = function_exists('printflow_db_errors')
+    ? array_slice(printflow_db_errors(), $errorsBeforeLookup)
+    : [];
 // Never report an empty result as proof that no rows exist if a query failed.
 if ($queryErrors !== []) {
     if ($readOnlySnapshot && function_exists('printflow_db_in_transaction') && printflow_db_in_transaction($conn)) {
