@@ -1182,7 +1182,14 @@ class JobOrderService {
                 return true;
             }
 
-            if ($normalizedNewStatus === 'FOR_REVISION' && !empty($order['order_id'])) {
+            if ($normalizedNewStatus === 'FOR_REVISION' && !empty($order['order_id']) && empty($revisionMeta['skip_revision_create'])) {
+                $revisionContext = [
+                    'order_item_id' => (int)($revisionMeta['order_item_id'] ?? 0),
+                    'customization_id' => (int)($revisionMeta['customization_id'] ?? 0),
+                    'selected_design_file_ids' => is_array($revisionMeta['selected_design_file_ids'] ?? null)
+                        ? $revisionMeta['selected_design_file_ids']
+                        : [],
+                ];
                 $revisionRequest = printflow_revision_create_request(
                     (int) $order['order_id'],
                     function_exists('get_user_id') ? (int) get_user_id() : 0,
@@ -1191,7 +1198,8 @@ class JobOrderService {
                     is_array($revisionMeta['permitted_fields'] ?? null)
                         ? $revisionMeta['permitted_fields']
                         : [],
-                    (string)($revisionMeta['reason_label'] ?? $reason)
+                    (string)($revisionMeta['reason_label'] ?? $reason),
+                    $revisionContext
                 );
                 $reason = (string) $revisionRequest['legacy_reason'];
             } elseif (!empty($order['order_id'])) {

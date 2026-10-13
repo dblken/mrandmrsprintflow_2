@@ -3080,7 +3080,59 @@ try {
             jo_api_json_response(['success' => true, 'data' => $data]);
             break;
 
+        case 'request_add_details':
+            jo_api_require_staff_mutation();
+            require_once __DIR__ . '/../includes/revision_workflow.php';
+            $orderId = (int)($_POST['order_id'] ?? 0);
+            if ($orderId <= 0) {
+                throw new InvalidArgumentException('order_id is required.');
+            }
+            jo_api_require_staff_order_branch($joStaffBranch, $orderId);
+            $revisionPermittedFields = $_POST['revision_permitted_fields'] ?? [];
+            if (!is_array($revisionPermittedFields)) {
+                $revisionPermittedFields = [$revisionPermittedFields];
+            }
+            $selectedDesignIds = $_POST['revision_selected_design_file_ids'] ?? [];
+            if (!is_array($selectedDesignIds)) {
+                $selectedDesignIds = [$selectedDesignIds];
+            }
+            try {
+                $result = printflow_revision_submit_staff_request([
+                    'order_id' => $orderId,
+                    'staff_id' => (int)get_user_id(),
+                    'customization_id' => (int)($_POST['customization_id'] ?? 0),
+                    'order_item_id' => (int)($_POST['revision_order_item_id'] ?? 0),
+                    'reason_code' => sanitize($_POST['revision_reason_code'] ?? ''),
+                    'reason_label' => sanitize($_POST['revision_reason_label'] ?? ''),
+                    'instruction' => trim((string)($_POST['revision_instruction'] ?? '')),
+                    'permitted_fields' => $revisionPermittedFields,
+                    'selected_design_file_ids' => array_map('intval', $selectedDesignIds),
+                    'idempotency_key' => sanitize($_POST['revision_idempotency_key'] ?? ''),
+                ]);
+            } catch (InvalidArgumentException $e) {
+                jo_api_json_response([
+                    'success' => false,
+                    'error' => $e->getMessage(),
+                    'message' => $e->getMessage(),
+                ], 422);
+            } catch (RuntimeException $e) {
+                jo_api_json_response([
+                    'success' => false,
+                    'error' => $e->getMessage(),
+                    'message' => $e->getMessage(),
+                ], 409);
+            }
+            if (($result['job_status_sync'] ?? '') === 'skipped' && empty($result['duplicate'])) {
+                $result['warning'] = 'The request was saved. No linked production job required a status change.';
+            }
+            if ($orderId > 0) {
+                $result['items'] = jo_api_order_items_with_design_files($orderId);
+            }
+            jo_api_json_response($result);
+            break;
+
         case 'update_status':
+            jo_api_require_staff_mutation();
             $id = (int)($_POST['id'] ?? 0);
             $status = sanitize($_POST['status'] ?? '');
             $machineId = isset($_POST['machine_id']) ? (int)$_POST['machine_id'] : null;
@@ -3091,6 +3143,10 @@ try {
             $revisionPermittedFields = $_POST['revision_permitted_fields'] ?? [];
             if (!is_array($revisionPermittedFields)) {
                 $revisionPermittedFields = [$revisionPermittedFields];
+            }
+            $revisionSelectedDesignIds = $_POST['revision_selected_design_file_ids'] ?? [];
+            if (!is_array($revisionSelectedDesignIds)) {
+                $revisionSelectedDesignIds = [$revisionSelectedDesignIds];
             }
             if ($status === 'For Revision' && $revisionInstruction !== '') {
                 $reason = trim($reason . ': ' . $revisionInstruction, ': ');
@@ -3105,6 +3161,9 @@ try {
                     'reason_label' => $revisionReasonLabel !== '' ? $revisionReasonLabel : $reason,
                     'instruction' => $revisionInstruction !== '' ? $revisionInstruction : $reason,
                     'permitted_fields' => $revisionPermittedFields,
+                    'order_item_id' => (int)($_POST['revision_order_item_id'] ?? 0),
+                    'customization_id' => (int)($_POST['customization_id'] ?? 0),
+                    'selected_design_file_ids' => array_map('intval', $revisionSelectedDesignIds),
                 ];
             }
             $res = JobOrderService::updateStatus($id, $status, $machineId, $reason, false, $revisionMeta);

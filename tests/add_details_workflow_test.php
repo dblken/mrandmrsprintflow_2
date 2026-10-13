@@ -6,6 +6,7 @@ $revision = (string)file_get_contents($root . '/includes/revision_workflow.php')
 $designCore = (string)file_get_contents($root . '/includes/order_item_design_files.php');
 $functions = (string)file_get_contents($root . '/includes/functions.php');
 $customizations = (string)file_get_contents($root . '/staff/customizations.php');
+$jobOrdersApi = (string)file_get_contents($root . '/admin/job_orders_api.php');
 
 $failures = [];
 $expect = static function (bool $condition, string $message) use (&$failures): void {
@@ -26,6 +27,10 @@ $expect(strpos($revision, "'unified_design_files'") !== false, 'revision review 
 $expect(strpos($customizations, 'revisionOriginalDesignFiles') !== false, 'staff modal renders original design comparison column');
 $expect(strpos($customizations, 'revisionCurrentResponseDesignFiles') !== false, 'staff modal renders customer new upload comparison column');
 $expect(strpos($customizations, 'revisionReviewActiveForItem') !== false, 'staff modal hides item design section during add-details review');
+$expect(strpos($revision, 'printflow_revision_submit_staff_request') !== false, 'staff add-details submit helper exists');
+$expect(strpos($jobOrdersApi, "case 'request_add_details':") !== false, 'job orders API exposes request_add_details action');
+$expect(strpos($customizations, "action', 'request_add_details'") !== false, 'staff modal submits request_add_details directly');
+$expect(strpos($customizations, 'revision_idempotency_key') !== false, 'staff modal sends revision idempotency key');
 
 if ($failures !== []) {
     fwrite(STDERR, "add_details_workflow_test failed:\n- " . implode("\n- ", $failures) . "\n");

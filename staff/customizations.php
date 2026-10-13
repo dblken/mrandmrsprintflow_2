@@ -4295,6 +4295,7 @@ window.pfServiceFieldCatalog = (() => {
             revisionSubmitting: false,
             revisionModalError: '',
             revisionSelectedDesignFileIds: [],
+            revisionIdempotencyKey: '',
             deepLinkRevisionRequestId: 0,
             addDetailsHighlight: false,
             showChangeItemModal: false,
@@ -10298,6 +10299,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.revisionInstruction = '';
                 this.revisionEditableFields = [];
                 this.revisionSelectedDesignFileIds = [];
+                this.revisionIdempotencyKey = 'staff-add-details-' + String(this.currentJo?.order_id || this.currentJo?.id || '0') + '-' + Date.now();
                 this.revisionFieldOptions = this.buildRevisionFieldOptions();
                 this.revisionModalError = '';
                 this.revisionSubmitting = false;
@@ -10767,8 +10769,11 @@ window.pfServiceFieldCatalog = (() => {
                 this.showRevisionModal = false;
             },
             async submitRevision() {
-                const oid = await this.resolveEffectiveJobId();
-                if (!oid) return;
+                const orderId = Number(this.currentJo?.order_id || 0);
+                if (orderId <= 0) {
+                    this.revisionModalError = 'This order could not be identified. Close the modal and open the order again.';
+                    return;
+                }
                 if (!this.revisionReasonSelect) {
                     this.revisionModalError = 'Please select a revision reason.';
                     return;
@@ -10806,17 +10811,55 @@ window.pfServiceFieldCatalog = (() => {
                 this.revisionSubmitting = true;
                 try {
                     const designItem = this.revisionPrimaryDesignItem();
-                    const ok = await this.updateStatus(oid, 'For Revision', null, legacyReason, {
-                        reasonCode: this.revisionReasonSelect,
-                        reasonLabel: legacyReason,
-                        instruction: this.revisionInstruction.trim(),
-                        permittedFields: [...this.revisionEditableFields],
-                        orderItemId: designItem ? Number(designItem.order_item_id || 0) : 0,
-                        selectedDesignFileIds: [...(this.revisionSelectedDesignFileIds || [])],
+                    const customizationId = this.currentJo?.order_type === 'CUSTOMIZATION'
+                        ? Number(this.currentJo.id || this.currentJo.customization_id || 0)
+                        : Number(this.currentJo.customization_id || 0);
+                    const fd = new FormData();
+                    fd.append('action', 'request_add_details');
+                    fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                    fd.append('order_id', String(orderId));
+                    if (customizationId > 0) {
+                        fd.append('customization_id', String(customizationId));
+                    }
+                    fd.append('revision_reason_code', this.revisionReasonSelect);
+                    fd.append('revision_reason_label', legacyReason);
+                    fd.append('revision_instruction', this.revisionInstruction.trim());
+                    fd.append('reason', legacyReason);
+                    if (this.revisionIdempotencyKey) {
+                        fd.append('revision_idempotency_key', this.revisionIdempotencyKey);
+                    }
+                    (this.revisionEditableFields || []).forEach((field) => fd.append('revision_permitted_fields[]', field));
+                    const orderItemId = designItem ? Number(designItem.order_item_id || 0) : 0;
+                    if (orderItemId > 0) {
+                        fd.append('revision_order_item_id', String(orderItemId));
+                    }
+                    (this.revisionSelectedDesignFileIds || []).forEach((fileId) => {
+                        fd.append('revision_selected_design_file_ids[]', String(fileId));
                     });
-                    if (ok) {
+                    const endpoint = this.adminApiUrl('job_orders_api.php');
+                    const res = await this.parseJsonResponse(
+                        await fetch(endpoint, {
+                            method: 'POST',
+                            headers: { 'Accept': 'application/json' },
+                            body: fd,
+                        }),
+                        'Request Add Details',
+                        endpoint
+                    );
+                    if (res.success) {
+                        const detailId = this.currentJo?.id;
+                        const detailType = this.currentJo?.order_type || 'JOB';
+                        await this.loadOrders({ force: true });
+                        if (this.showDetailsModal && detailId != null) {
+                            await this.viewDetails(detailId, detailType);
+                        }
                         this.showRevisionModal = false;
-                        this.showStaffAlert('Success', 'Additional details request sent successfully.');
+                        const successText = res.duplicate
+                            ? 'This request was already submitted.'
+                            : (res.warning || 'Additional details request sent successfully.');
+                        this.showStaffAlert('Success', successText);
+                    } else {
+                        this.revisionModalError = res.error || res.message || 'Unable to send the request. Please try again.';
                     }
                 } finally {
                     this.revisionSubmitting = false;
