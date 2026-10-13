@@ -3865,7 +3865,27 @@ function openItemsModal(orderId, event, options = {}) {
                 }
             }
 
-            const design = item.has_design_file || item.has_design ? `<a class="im-asset-trigger" href="${item.design_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.design_url}" class="im-thumb hover:scale-105 transition-transform" alt="Design"></span></a>` : '';
+            const imDesignFileThumbs = (() => {
+                const list = Array.isArray(item.design_files) ? item.design_files : (Array.isArray(item.files) ? item.files : []);
+                const seen = new Set();
+                const html = [];
+                list.forEach((file) => {
+                    if (!file || typeof file !== 'object') return;
+                    const fileId = Number(file.file_id || 0);
+                    if (fileId > 0) {
+                        if (seen.has(fileId)) return;
+                        seen.add(fileId);
+                    }
+                    const url = String(file.preview_url || file.download_url || '').trim();
+                    if (!url) return;
+                    html.push(`<a class="im-asset-trigger" href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${url}" class="im-thumb hover:scale-105 transition-transform" alt="${escIM(file.display_name || 'Design')}"></span></a>`);
+                });
+                if (!html.length && (item.has_design_file || item.has_design) && item.design_url) {
+                    html.push(`<a class="im-asset-trigger" href="${item.design_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.design_url}" class="im-thumb hover:scale-105 transition-transform" alt="Design"></span></a>`);
+                }
+                return html.join('');
+            })();
+            const design = imDesignFileThumbs;
             const designLink = imRenderDesignLinkBlock(item);
             const reference = item.has_reference ? `<a class="im-asset-trigger" href="${item.reference_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.reference_url}" class="im-thumb hover:scale-105 transition-transform" alt="Reference"></span></a>` : '';
             const descLabel = data.is_service_order ? 'Service Description' : 'Item Description';

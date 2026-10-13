@@ -948,6 +948,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                 }
                             }
                             printflow_sync_job_orders_artwork_for_order_item((int)$order_item_id);
+                            if (function_exists('printflow_order_item_design_files_sync_from_customization')) {
+                                printflow_order_item_design_files_sync_from_customization(
+                                    (int)$order_item_id,
+                                    (int)$order_id,
+                                    (int)$customer_id,
+                                    0,
+                                    is_array($custom) ? $custom : []
+                                );
+                            }
                             error_log('ORDER ITEM ID: ' . $order_item_id);
                             error_log('DESIGN FILE: ' . (string)($design_file_path ?? ''));
                             error_log('FULL PATH: ' . (string)(printflow_resolve_order_upload_disk_path((string)($design_file_path ?? '')) ?? 'null'));

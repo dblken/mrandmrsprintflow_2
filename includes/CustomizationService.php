@@ -618,6 +618,7 @@ class CustomizationService
         foreach ($items as $item) {
             $itemViews[] = $this->buildItemView($item, $order);
         }
+        $this->attachDesignFilesToItemViews($itemViews);
         $this->consolidateItemNotes($order, $itemViews);
 
         $address = $this->composeAddress($order);
@@ -2384,6 +2385,44 @@ class CustomizationService
                 error_log('CustomizationService::syncJobs status failed for job #' . $jobId . ': ' . $e->getMessage());
             }
         }
+    }
+
+    /**
+     * @param list<array<string,mixed>> $itemViews
+     */
+    private function attachDesignFilesToItemViews(array &$itemViews): void
+    {
+        if (!function_exists('printflow_order_item_design_files_list_for_items')) {
+            return;
+        }
+        $ids = [];
+        foreach ($itemViews as $view) {
+            $orderItemId = (int)($view['order_item_id'] ?? 0);
+            if ($orderItemId > 0) {
+                $ids[] = $orderItemId;
+            }
+        }
+        if ($ids === []) {
+            return;
+        }
+        $grouped = printflow_order_item_design_files_list_for_items($ids);
+        foreach ($itemViews as &$view) {
+            $orderItemId = (int)($view['order_item_id'] ?? 0);
+            $files = $grouped[$orderItemId] ?? [];
+            $view['design_files'] = $files;
+            $view['files'] = $files;
+            if ($files !== []) {
+                $primary = $files[0];
+                if (empty($view['design_open_url']) && !empty($primary['preview_url'])) {
+                    $view['design_open_url'] = (string)$primary['preview_url'];
+                    $view['design_url'] = (string)$primary['preview_url'];
+                }
+                if (empty($view['design_name']) && !empty($primary['display_name'])) {
+                    $view['design_name'] = (string)$primary['display_name'];
+                }
+            }
+        }
+        unset($view);
     }
 
     /**

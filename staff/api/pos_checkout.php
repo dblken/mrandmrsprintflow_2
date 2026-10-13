@@ -1841,6 +1841,16 @@ try {
             [$customization_json, $order_item_id]
         );
 
+        if (function_exists('printflow_order_item_design_files_sync_from_customization')) {
+            printflow_order_item_design_files_sync_from_customization(
+                (int)$order_item_id,
+                (int)$order_id,
+                (int)$customer_id,
+                0,
+                is_array($custom_details) ? $custom_details : []
+            );
+        }
+
         // Always create or re-link customization entry for service items
         if ($is_service) {
             $details = $custom_details;

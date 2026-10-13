@@ -1239,6 +1239,12 @@ foreach ($items as $lineIndex => $item) {
                 : pf_asset_kind($item['design_image_mime'] ?? '', $item['design_file'] ?? '')),
         'reference_kind'=> pf_asset_kind('', $item['reference_image_file'] ?? ''),
         'design_url'    => $design_url,
+        'design_files'  => function_exists('printflow_order_item_design_files_list_for_item')
+            ? printflow_order_item_design_files_list_for_item($line_oid)
+            : [],
+        'files'         => function_exists('printflow_order_item_design_files_list_for_item')
+            ? printflow_order_item_design_files_list_for_item($line_oid)
+            : [],
         'design_external_link' => $designExternalLink,
         'has_design_link' => $designExternalLink !== '',
         'design_link_platform' => $designLinkPlatform !== '' ? $designLinkPlatform : 'Design Link',

@@ -4966,10 +4966,26 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
         }
 
-        async function posStageMediaUpload(file, field = 'design') {
+        function posNewUploadIdempotencyKey() {
+            if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+                return crypto.randomUUID();
+            }
+            return 'pf-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+        }
+
+        async function posStageMediaUpload(file, field = 'design', options = {}) {
             const fd = new FormData();
             fd.append('field', field);
             fd.append('csrf_token', POS_CSRF_TOKEN);
+            if (options.idempotency_key) {
+                fd.append('idempotency_key', String(options.idempotency_key));
+            }
+            if (options.upload_sort !== undefined && options.upload_sort !== null) {
+                fd.append('upload_sort', String(options.upload_sort));
+            }
+            if (options.order_item_id) {
+                fd.append('order_item_id', String(options.order_item_id));
+            }
             fd.append(field === 'reference' ? 'reference_file' : 'design_file', file);
             const res = await fetch(staffUrl('staff/api/pos_upload_design.php'), {
                 method: 'POST',
@@ -4982,8 +4998,46 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return data;
         }
 
+        function posEnsureDesignUploadFiles(customization) {
+            if (!Array.isArray(customization.design_upload_files)) {
+                customization.design_upload_files = [];
+            }
+            return customization.design_upload_files;
+        }
+
+        function posUpsertDesignUploadFile(customization, staged, idempotencyKey) {
+            const list = posEnsureDesignUploadFiles(customization);
+            const key = String(staged.idempotency_key || idempotencyKey || '');
+            if (key && list.some((entry) => String(entry.idempotency_key || '') === key)) {
+                return staged;
+            }
+            const entry = {
+                path: staged.path,
+                name: staged.name,
+                mime: staged.mime,
+                size: staged.size || 0,
+                upload_sort: typeof staged.upload_sort === 'number' ? staged.upload_sort : list.length,
+                idempotency_key: key || posNewUploadIdempotencyKey(),
+                file_id: staged.file_id || 0,
+            };
+            list.push(entry);
+            list.sort((a, b) => (Number(a.upload_sort || 0) - Number(b.upload_sort || 0)) || (Number(a.file_id || 0) - Number(b.file_id || 0)));
+            customization.design_upload = entry.name;
+            customization.design_upload_name = entry.name;
+            customization.design_upload_mime = entry.mime;
+            customization.design_upload_path = entry.path;
+            customization.design_upload_idempotency_key = entry.idempotency_key;
+            delete customization.design_upload_data;
+            return staged;
+        }
+
         async function posApplyStagedUpload(customization, file, field = 'design') {
-            const staged = await posStageMediaUpload(file, field);
+            const idempotencyKey = posNewUploadIdempotencyKey();
+            const uploadSort = field === 'design' ? posEnsureDesignUploadFiles(customization).length : 0;
+            const staged = await posStageMediaUpload(file, field, {
+                idempotency_key: idempotencyKey,
+                upload_sort: uploadSort,
+            });
             if (field === 'reference') {
                 customization.reference_upload = staged.name;
                 customization.reference_upload_name = staged.name;
@@ -4991,13 +5045,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 customization.reference_upload_path = staged.path;
                 delete customization.reference_upload_data;
             } else {
-                customization.design_upload = staged.name;
-                customization.design_upload_name = staged.name;
-                customization.design_upload_mime = staged.mime;
-                customization.design_upload_path = staged.path;
-                delete customization.design_upload_data;
+                posUpsertDesignUploadFile(customization, staged, idempotencyKey);
             }
             return staged;
+        }
+
+        async function posApplyStagedUploadMany(customization, fileList, field = 'design') {
+            const files = Array.from(fileList || []);
+            for (const file of files) {
+                if (!file) continue;
+                await posApplyStagedUpload(customization, file, field);
+            }
         }
 
         async function confirmServiceModalLegacy() {
@@ -5105,7 +5163,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (!(fileInput.files && fileInput.files.length > 0)) {
                     continue;
                 }
-                const file = fileInput.files[0];
                 const row = fileInput.closest('.shopee-form-row');
                 const label = row ? row.querySelector('.shopee-form-label') : null;
                 const labelText = label ? label.innerText.replace('*', '').trim() : (fileInput.name || 'File');
@@ -5121,13 +5178,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                 try {
                     if (isDesignField) {
-                        await posApplyStagedUpload(customization, file, 'design');
+                        await posApplyStagedUploadMany(customization, fileInput.files, 'design');
                         customization[labelText] = customization.design_upload_name;
                     } else if (isReferenceField) {
-                        await posApplyStagedUpload(customization, file, 'reference');
+                        await posApplyStagedUploadMany(customization, fileInput.files, 'reference');
                         customization[labelText] = customization.reference_upload_name;
                     } else {
-                        const payload = await posReadFilePayload(file);
+                        const payload = await posReadFilePayload(fileInput.files[0]);
                         customization[labelText] = payload.name;
                     }
                 } catch (uploadErr) {
@@ -5666,7 +5723,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const serviceFileInputs = Array.from(body.querySelectorAll('input[type="file"]'));
                 for (const fileInput of serviceFileInputs) {
                     if (!(fileInput.files && fileInput.files.length > 0)) continue;
-                    const file = fileInput.files[0];
                     const row = fileInput.closest('.shopee-form-row');
                     const labelText = row ? serviceFieldLabel(row) : (fileInput.name || 'File');
                     const nameLc = String(fileInput.name || '').toLowerCase();
@@ -5675,13 +5731,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const isReferenceField = nameLc === 'reference_file' || nameLc.includes('reference') || (labelLc.includes('upload') && labelLc.includes('reference'));
 
                     if (isDesignField) {
-                        await posApplyStagedUpload(customization, file, 'design');
+                        await posApplyStagedUploadMany(customization, fileInput.files, 'design');
                         setCustomizationValue(customization, row, fileInput, customization.design_upload_name);
                     } else if (isReferenceField) {
-                        await posApplyStagedUpload(customization, file, 'reference');
+                        await posApplyStagedUploadMany(customization, fileInput.files, 'reference');
                         setCustomizationValue(customization, row, fileInput, customization.reference_upload_name);
                     } else {
-                        const payload = await posReadFilePayload(file);
+                        const payload = await posReadFilePayload(fileInput.files[0]);
                         setCustomizationValue(customization, row, fileInput, payload.name);
                     }
                 }
@@ -6384,7 +6440,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 inputHtml += `</select>`;
                 div.innerHTML = label + inputHtml;
             } else if (req.type === 'file') {
-                inputHtml = `<input type="file" id="custom_field_${idx}" name="${reqName}" accept="${(req.accept || '').replace(/"/g, '&quot;')}" style="${baseStyle}" data-field-name="${reqName}">`;
+                const reqNameLc = String(reqName || '').toLowerCase();
+                const allowMultiple = reqNameLc === 'design_file' || reqNameLc.includes('design');
+                const multipleAttr = allowMultiple ? ' multiple' : '';
+                inputHtml = `<input type="file" id="custom_field_${idx}" name="${reqName}"${multipleAttr} accept="${(req.accept || '').replace(/"/g, '&quot;')}" style="${baseStyle}" data-field-name="${reqName}">`;
                 div.innerHTML = label + inputHtml;
             } else if (req.type === 'date') {
                 const isNeededDate = (reqName && reqName.includes('needed_date'))
@@ -6618,10 +6677,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
                 try {
                     if (name === 'design_file') {
-                        await posApplyStagedUpload(customization, el.files[0], 'design');
+                        await posApplyStagedUploadMany(customization, el.files, 'design');
                         customization[name] = customization.design_upload_name;
                     } else if (name === 'reference_file') {
-                        await posApplyStagedUpload(customization, el.files[0], 'reference');
+                        await posApplyStagedUploadMany(customization, el.files, 'reference');
                         customization[name] = customization.reference_upload_name;
                     } else {
                         const payload = await posReadFilePayload(el.files[0]);

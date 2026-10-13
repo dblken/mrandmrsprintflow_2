@@ -2916,34 +2916,38 @@ $online_closed_count = 0;
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:8px;" x-text="staffDesignSectionLabel(item)"></div>
                                             <template x-if="staffItemHasUploadedDesignFile(item)">
                                                 <div style="margin-bottom:12px;">
-                                                    <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">📁 Uploaded File</div>
-                                                    <div style="font-size:13px; font-weight:600; color:#1f2937; word-break:break-word; overflow-wrap:anywhere; margin-bottom:8px;" x-text="staffDesignDisplayFilename(item)"></div>
-                                            <template x-if="staffEffectiveDesignOpenUrl(item) && staffDesignShowsAsImage(item)">
-                                                <div style="display:flex; flex-direction:column; align-items:flex-start; gap:8px; max-width:100%; margin-bottom:8px;">
-                                                    <img :src="staffEffectiveDesignOpenUrl(item)"
-                                                         @click="previewFile = staffEffectiveDesignOpenUrl(item)"
-                                                         loading="lazy"
-                                                         decoding="async"
-                                                         width="160"
-                                                         height="160"
-                                                         style="width:min(100%, 220px); max-height:220px; object-fit:contain; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.08); background:#f8fafc;"
-                                                         onerror="this.style.display='none';">
-                                                </div>
-                                            </template>
-                                                    <div class="pf-modal-design-actions">
-                                                        <button type="button"
-                                                                class="pf-modal-design-action-btn"
-                                                                @click="previewFile = staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)">
-                                                            View
-                                                        </button>
-                                                        <a class="pf-modal-design-action-btn"
-                                                           :href="staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)"
-                                                           target="_blank"
-                                                           rel="noopener noreferrer"
+                                                    <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:6px;" x-text="staffItemDesignFiles(item).length > 1 ? '📁 Uploaded Files' : '📁 Uploaded File'"></div>
+                                                    <template x-for="designFile in staffItemDesignFiles(item)" :key="'design-file-' + (designFile.file_id || designFile.display_name)">
+                                                        <div style="margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #f1f5f9;">
+                                                            <div style="font-size:13px; font-weight:600; color:#1f2937; word-break:break-word; overflow-wrap:anywhere; margin-bottom:8px;" x-text="designFile.display_name || staffDesignDisplayFilename(item)"></div>
+                                                            <template x-if="(designFile.preview_url || designFile.download_url) && (designFile.is_previewable_image || staffDesignShowsAsImage(item))">
+                                                                <div style="display:flex; flex-direction:column; align-items:flex-start; gap:8px; max-width:100%; margin-bottom:8px;">
+                                                                    <img :src="designFile.preview_url || designFile.download_url"
+                                                                         @click="previewFile = designFile.preview_url || designFile.download_url"
+                                                                         loading="lazy"
+                                                                         decoding="async"
+                                                                         width="160"
+                                                                         height="160"
+                                                                         style="width:min(100%, 220px); max-height:220px; object-fit:contain; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.08); background:#f8fafc;"
+                                                                         onerror="this.style.display='none';">
+                                                                </div>
+                                                            </template>
+                                                            <div class="pf-modal-design-actions">
+                                                                <button type="button"
+                                                                        class="pf-modal-design-action-btn"
+                                                                        @click="previewFile = designFile.preview_url || designFile.download_url || staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)">
+                                                                    View
+                                                                </button>
+                                                                <a class="pf-modal-design-action-btn"
+                                                                   :href="designFile.download_url || designFile.preview_url || staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)"
+                                                                   target="_blank"
+                                                                   rel="noopener noreferrer"
                                                            download>
                                                             Download
                                                         </a>
-                                                    </div>
+                                                            </div>
+                                                        </div>
+                                                    </template>
                                                 </div>
                                             </template>
                                             <template x-if="staffGetDesignExternalLink(item)">
@@ -6941,6 +6945,42 @@ window.pfServiceFieldCatalog = (() => {
             },
             staffItemHasStoredDesign(item) {
                 return this.staffItemHasActualUploadedDesignFile(item);
+            },
+            staffItemDesignFiles(item) {
+                if (!item || typeof item !== 'object') return [];
+                const raw = Array.isArray(item.design_files)
+                    ? item.design_files
+                    : (Array.isArray(item.files) ? item.files : []);
+                const seen = new Set();
+                const out = [];
+                raw.forEach((entry) => {
+                    if (!entry || typeof entry !== 'object') return;
+                    const fileId = Number(entry.file_id || 0);
+                    if (fileId > 0) {
+                        if (seen.has(fileId)) return;
+                        seen.add(fileId);
+                    }
+                    out.push(entry);
+                });
+                out.sort((a, b) => {
+                    const sortDelta = Number(a.upload_sort || 0) - Number(b.upload_sort || 0);
+                    if (sortDelta !== 0) return sortDelta;
+                    return Number(a.file_id || 0) - Number(b.file_id || 0);
+                });
+                if (out.length === 0 && this.staffItemHasUploadedDesignFile(item)) {
+                    const previewUrl = this.staffEffectiveDesignOpenUrl(item) || this.staffOrderItemDesignServeUrl(item);
+                    if (previewUrl) {
+                        out.push({
+                            file_id: 'legacy-' + String(item.order_item_id || '0'),
+                            display_name: this.staffDesignDisplayFilename(item),
+                            preview_url: previewUrl,
+                            download_url: previewUrl,
+                            is_previewable_image: this.staffDesignShowsAsImage(item),
+                            upload_sort: 0,
+                        });
+                    }
+                }
+                return out;
             },
             /** Fallback when API omitted design_open_url but line item has stored artwork + filename */
             staffOrderItemDesignServeUrl(item) {
