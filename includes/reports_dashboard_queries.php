@@ -94,16 +94,40 @@ function pf_reports_store_order_sales_expr(string $alias = 'o'): string {
              OR LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed'))";
 }
 
-/** Store orders that belong on the Products / Orders page (excludes custom checkout rows). */
-function pf_reports_store_product_order_scope_sql(string $alias = 'o'): string {
+/**
+ * SQL predicate: store order is a customization/service checkout (not a plain product cart).
+ * Matches CustomizationRepository rules — do not treat NULL order_type as product when customized.
+ */
+function pf_reports_store_custom_service_exists_sql(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
-    return '(' . printflow_order_archive_scope_sql($alias) . " AND LOWER(TRIM(COALESCE({$alias}.order_type, 'product'))) = 'product')";
+    $parts = ["LOWER(TRIM(COALESCE({$alias}.order_type, ''))) = 'custom'"];
+    if (function_exists('pf_reports_table_has_column') ? pf_reports_table_has_column('order_items', 'customization_data') : true) {
+        $parts[] = "EXISTS (SELECT 1 FROM order_items oi_cs WHERE oi_cs.order_id = {$alias}.order_id AND TRIM(COALESCE(oi_cs.customization_data, '')) NOT IN ('', '[]', '{}', 'null'))";
+    }
+    if (function_exists('pf_reports_table_has_column') ? pf_reports_table_has_column('customizations', 'order_id') : true) {
+        $parts[] = "EXISTS (SELECT 1 FROM customizations cz_cs WHERE cz_cs.order_id = {$alias}.order_id)";
+    }
+    if (function_exists('pf_reports_table_has_column') ? pf_reports_table_has_column('job_orders', 'order_id') : true) {
+        $parts[] = "EXISTS (SELECT 1 FROM job_orders jo_cs WHERE jo_cs.order_id = {$alias}.order_id)";
+    }
+
+    return '(' . implode(' OR ', $parts) . ')';
 }
 
-/** Store orders from custom/service checkout rows (POS or online custom carts). */
+/** Plain product store orders (excludes customization/service checkouts). */
+function pf_reports_store_product_order_scope_sql(string $alias = 'o'): string {
+    $alias = pf_reports_sql_alias($alias, 'o');
+    $custom = pf_reports_store_custom_service_exists_sql($alias);
+
+    return '(' . printflow_order_archive_scope_sql($alias) . " AND NOT {$custom})";
+}
+
+/** Customization/service store orders (POS custom, online service, backdated POS). */
 function pf_reports_store_custom_order_scope_sql(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
-    return '(' . printflow_order_archive_scope_sql($alias) . " AND LOWER(TRIM(COALESCE({$alias}.order_type, 'product'))) = 'custom')";
+    $custom = pf_reports_store_custom_service_exists_sql($alias);
+
+    return '(' . printflow_order_archive_scope_sql($alias) . " AND {$custom})";
 }
 
 /**
@@ -149,10 +173,14 @@ function pf_reports_job_order_revenue_expr(string $alias = 'jo'): string {
     return "COALESCE(NULLIF({$alias}.amount_paid, 0), {$alias}.estimated_total, 0)";
 }
 
-/** Official customization/job-order sales date. */
+/** Official customization/job-order sales date (prefer linked store order business date). */
 function pf_reports_job_order_sales_date_expr(string $alias = 'jo'): string {
     $alias = pf_reports_sql_alias($alias, 'jo');
-    return "COALESCE({$alias}.payment_verified_at, {$alias}.created_at)";
+    $linkedOrderDate = "(SELECT o_biz.order_date FROM orders o_biz
+        WHERE o_biz.order_id = {$alias}.order_id AND {$alias}.order_id > 0
+        LIMIT 1)";
+
+    return "COALESCE({$linkedOrderDate}, {$alias}.payment_verified_at, {$alias}.created_at)";
 }
 
 /**

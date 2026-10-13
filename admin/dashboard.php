@@ -486,6 +486,13 @@ $dashboard_branch_period_label = date('M j, Y', strtotime($branchRevenueFrom)) .
 $dashboard_branch_total_revenue = array_reduce($dashboard_branch_perf, static function ($carry, $branch) {
     return $carry + (float)($branch['revenue'] ?? 0);
 }, 0.0);
+// KPI and branch chart must match the same official sales breakdown rules.
+if ((float)$total_revenue >= 0 && !printflow_branch_value_is_all($branchId)) {
+    $dashboard_branch_total_revenue = (float)$total_revenue;
+    if (!empty($dashboard_branch_perf[0])) {
+        $dashboard_branch_perf[0]['revenue'] = (float)$total_revenue;
+    }
+}
 $dashboard_branch_count = count($dashboard_branch_perf);
 $dashboard_sales_revenue_footnote = ($branchId === 'all')
     ? ('Showing combined sales revenue across ' . (int)$dashboard_branch_count . ' branch' . ($dashboard_branch_count === 1 ? '' : 'es') . '.')

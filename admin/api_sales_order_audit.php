@@ -55,9 +55,30 @@ try {
     $submissions = [];
 }
 
-$from = $order ? substr((string)$order['order_date'], 0, 10) : date('Y-m-d', strtotime('-30 days'));
-$toEnd = date('Y-m-d 23:59:59', strtotime($from . ' +1 day'));
+$from = trim((string)($_GET['business_date'] ?? ''));
+if ($from === '' && $order) {
+    $from = substr((string)$order['order_date'], 0, 10);
+}
+if ($from === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
+    $from = date('Y-m-d', strtotime('-30 days'));
+}
+$toEnd = $from . ' 23:59:59';
 $breakdown = pf_reports_official_sales_breakdown($from, $toEnd, 'all', 5000);
+$storeDaySum = 0.0;
+$storeDayCount = 0;
+if ($order && function_exists('pf_reports_store_order_sales_expr') && function_exists('pf_reports_store_order_revenue_expr')) {
+    $storeSales = pf_reports_store_order_sales_expr('o');
+    $storeRevenue = pf_reports_store_order_revenue_expr('o');
+    $dayRow = db_query(
+        "SELECT COUNT(*) AS cnt, COALESCE(SUM({$storeRevenue}), 0) AS rev
+         FROM orders o
+         WHERE DATE(o.order_date) = ? AND {$storeSales}",
+        's',
+        [$from]
+    )[0] ?? [];
+    $storeDayCount = (int)($dayRow['cnt'] ?? 0);
+    $storeDaySum = round((float)($dayRow['rev'] ?? 0), 2);
+}
 $txnForOrder = array_values(array_filter(
     $breakdown['transactions'] ?? [],
     static fn(array $row): bool => (int)($row['store_order_id'] ?? 0) === $orderId
@@ -77,4 +98,8 @@ echo json_encode([
     'official_sales_transaction_count' => count($txnForOrder),
     'official_sales_transaction_total' => $txnTotal,
     'duplicate_risk' => count($txnForOrder) > 1,
+    'business_date' => $from,
+    'store_orders_on_business_date_count' => $storeDayCount,
+    'store_orders_on_business_date_revenue_sum' => $storeDaySum,
+    'official_breakdown_summary_total' => round((float)($breakdown['summary']['total_sales'] ?? 0), 2),
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
