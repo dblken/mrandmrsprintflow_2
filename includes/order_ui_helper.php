@@ -122,13 +122,10 @@ if (!function_exists('pf_order_ui_is_safe_external_url')) {
             return false;
         }
         $url = trim((string)$value);
-        if ($url === '' || !preg_match('/^https?:\/\//i', $url)) {
-            return false;
+        if (!function_exists('service_order_validate_design_link')) {
+            require_once __DIR__ . '/service_order_helper.php';
         }
-        if (preg_match('/^\s*(javascript|data|file|vbscript):/i', $url)) {
-            return false;
-        }
-        return filter_var($url, FILTER_VALIDATE_URL) !== false;
+        return service_order_validate_design_link($url)['ok'];
     }
 }
 
@@ -139,7 +136,7 @@ if (!function_exists('pf_order_ui_design_link_platform_label')) {
         if ($host === '') {
             return 'Design Link';
         }
-        if (str_contains($host, 'canva.com')) {
+        if (str_contains($host, 'canva.com') || $host === 'canva.link' || str_ends_with($host, '.canva.link')) {
             return 'Canva Design';
         }
         if (str_contains($host, 'drive.google.com') || str_contains($host, 'docs.google.com')) {
@@ -165,7 +162,7 @@ if (!function_exists('pf_order_ui_is_direct_renderable_image_url')) {
             return false;
         }
         $host = strtolower((string)(parse_url($url, PHP_URL_HOST) ?? ''));
-        if (preg_match('/(?:^|\.)canva\.com$|drive\.google\.com|docs\.google\.com|dropbox\.com|onedrive\.live\.com|1drv\.ms|photos\.google\.com/', $host)) {
+        if (preg_match('/(?:^|\.)canva\.com$|(?:^|\.)canva\.link$|drive\.google\.com|docs\.google\.com|dropbox\.com|onedrive\.live\.com|1drv\.ms|photos\.google\.com/', $host)) {
             return false;
         }
         $path = strtolower((string)(parse_url($url, PHP_URL_PATH) ?? ''));

@@ -377,6 +377,7 @@ try {
                     }
                 }
                 $price = (float)$priceCalc['unit_price'];
+                service_order_persist_validated_design_links($serviceCustomization, $serviceFieldConfigs);
                 $preparedCustomization = $serviceCustomization;
                 $preparedCustomization['calculated_unit_price'] = number_format($price, 2, '.', '');
                 $preparedCustomization['calculated_estimated_price'] = number_format($price * $qty, 2, '.', '');

@@ -6271,7 +6271,7 @@ window.pfServiceFieldCatalog = (() => {
             },
             staffGetDesignExternalLink(item) {
                 if (!item) return '';
-                if (item.design_external_link && /^https?:\/\//i.test(String(item.design_external_link).trim())) {
+                if (item.design_external_link && /^https:\/\//i.test(String(item.design_external_link).trim())) {
                     return String(item.design_external_link).trim();
                 }
                 const custom = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
@@ -6282,21 +6282,19 @@ window.pfServiceFieldCatalog = (() => {
                 if (profile && profile.designField && profile.designField.label) {
                     candidates.push(String(profile.designField.label).trim() + ' Link');
                 }
-                candidates.push('design_link', 'design_file_link', 'Upload Design Link', 'Design Link');
+                candidates.push('design_link', 'design_file_link', 'upload_design_link', 'design_external_link', 'Upload Design Link', 'Design Link');
                 for (const candidate of candidates) {
                     if (!Object.prototype.hasOwnProperty.call(custom, candidate)) continue;
                     const value = this.staffCustomizationValueText(custom[candidate]);
-                    if (value && /^https?:\/\//i.test(value)) return value;
+                    if (value && /^https:\/\//i.test(value)) return value;
                 }
                 for (const [key, value] of Object.entries(custom)) {
                     if (typeof key !== 'string' || !this.staffMeaningfulSpecValue(value)) continue;
-                    if (!/ link$/i.test(key.trim())) continue;
                     const text = this.staffCustomizationValueText(value);
-                    if (text && /^https?:\/\//i.test(text)) return text;
                     const token = this.staffCustomizationKeyToken(key);
-                    if (token.endsWith('_link') && (token.includes('design') || token.includes('upload'))) {
-                        if (text && /^https?:\/\//i.test(text)) return text;
-                    }
+                    const isDesignLinkKey = / link$/i.test(key.trim())
+                        || (token.endsWith('_link') && (token.includes('design') || token.includes('upload')));
+                    if (isDesignLinkKey && text && /^https:\/\//i.test(text)) return text;
                 }
                 return '';
             },
@@ -6718,18 +6716,20 @@ window.pfServiceFieldCatalog = (() => {
                 if (v == null || typeof v === 'object') return false;
                 const s = String(v).trim();
                 if (s.length < 2) return false;
-                if (/^https?:\/\//i.test(s)) return true;
+                if (/^(javascript|data|file|vbscript):/i.test(s)) return false;
+                if (/^https:\/\//i.test(s)) return true;
                 return s.startsWith('/');
             },
             sanitizeStaffLink(v) {
                 const s = String(v).trim();
-                if (/^https?:\/\//i.test(s)) return s;
+                if (/^(javascript|data|file|vbscript):/i.test(s)) return '#';
+                if (/^https:\/\//i.test(s)) return s;
                 if (s.startsWith('/')) return s;
                 return '#';
             },
             async staffCopyDesignLink(url, event) {
                 const text = String(url || '').trim();
-                if (!text || !/^https?:\/\//i.test(text)) return false;
+                if (!text || !/^https:\/\//i.test(text)) return false;
                 const btn = event && event.currentTarget ? event.currentTarget : null;
                 let copied = false;
                 try {

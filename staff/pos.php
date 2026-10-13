@@ -5072,7 +5072,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const textInput = row.querySelector('input[type="text"], input[type="number"]:not(#quantity-input), input[type="url"].pf-design-link-input');
                 if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
                     if (textInput.classList.contains('pf-design-link-input')) {
-                        customization[labelText + ' Link'] = textInput.value.trim();
+                        posStoreDesignLink(customization, row, textInput);
                     } else {
                         customization[labelText] = textInput.value.trim();
                     }
@@ -5088,7 +5088,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         showPOSAlert('Required Field', 'Please upload a design or paste a design link.', 'warning');
                         valid = false;
                     } else if (hasLink && !isValidDesignLink(linkInput.value.trim())) {
-                        showPOSAlert('Invalid Link', 'Please enter a valid HTTP or HTTPS design link.', 'warning');
+                        showPOSAlert('Invalid Link', 'Please enter a valid HTTPS design link.', 'warning');
                         valid = false;
                     }
                 }
@@ -5317,15 +5317,44 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
         }
 
+        function isPublicDesignLinkHost(hostname) {
+            const host = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
+            if (!host || host === 'localhost' || host === '0.0.0.0' || host === '::1') return false;
+            if (host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return false;
+            if (host.startsWith('127.') || host.startsWith('10.') || host.startsWith('192.168.') || host.startsWith('169.254.')) return false;
+            if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return false;
+            return true;
+        }
+
         function isValidDesignLink(value) {
             const text = String(value || '').trim();
             if (!text) return true;
-            if (/^\s*(javascript|data|file|vbscript):/i.test(text)) return false;
+            if (/^(javascript|data|file|vbscript):/i.test(text)) return false;
             try {
                 const parsed = new URL(text);
-                return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+                return parsed.protocol === 'https:' && isPublicDesignLinkHost(parsed.hostname);
             } catch (err) {
                 return false;
+            }
+        }
+
+        function posStoreDesignLink(customization, row, linkInput) {
+            const linkValue = String(linkInput && linkInput.value || '').trim();
+            if (!linkValue) return;
+            const fieldKey = serviceFieldKey(row, '');
+            const linkName = String(linkInput && linkInput.name || '').trim() || (fieldKey ? fieldKey + '_link' : 'design_link');
+            customization[linkName] = linkValue;
+            if (fieldKey) {
+                customization[fieldKey + '_link'] = linkValue;
+                if (customization[fieldKey] === 'link' || customization[fieldKey] === 'file' || customization[fieldKey] === linkValue) {
+                    delete customization[fieldKey];
+                }
+            }
+            customization.design_external_link = linkValue;
+            const labelEl = row ? row.querySelector('.pf-field-label-text') : null;
+            const cleanLabel = String(labelEl ? labelEl.textContent : '').replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+            if (cleanLabel) {
+                customization[cleanLabel + ' Link'] = linkValue;
             }
         }
 
@@ -5337,9 +5366,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const errors = {};
             if (!body) return { valid: false, errors };
 
-            const addError = (row, input, keyOverride) => {
+            const addError = (row, input, keyOverride, messageOverride) => {
                 const key = keyOverride || serviceFieldKey(row, input ? input.name : '');
-                if (!errors[key]) errors[key] = { row, field: key, message: serviceValidationMessage(row, input) };
+                if (!errors[key]) errors[key] = { row, field: key, message: messageOverride || serviceValidationMessage(row, input) };
             };
 
             body.querySelectorAll('.shopee-form-row').forEach(row => {
@@ -5423,7 +5452,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         return;
                     }
                     if (!isValidDesignLink(linkValue)) {
-                        addError(row, linkInput || group, linkFieldKey);
+                        addError(row, linkInput || group, linkFieldKey, 'Please enter a valid HTTPS design link.');
                     }
                     return;
                 }
@@ -5433,7 +5462,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     return;
                 }
                 if (linkValue && !hasFile && !isValidDesignLink(linkValue)) {
-                    addError(row, linkInput || group, linkFieldKey);
+                    addError(row, linkInput || group, linkFieldKey, 'Please enter a valid HTTPS design link.');
                 }
             });
 
@@ -5557,9 +5586,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             (modeSelect && modeSelect.value) || (uploadGroup && uploadGroup.dataset.pfDesignMode) || ''
                         ).trim();
                         if (designMode === 'link') {
-                            const labelText = serviceFieldLabel(row);
-                            customization[labelText + ' Link'] = textInput.value.trim();
-                            setCustomizationValue(customization, row, textInput, textInput.value.trim());
+                            posStoreDesignLink(customization, row, textInput);
                         }
                     } else {
                         setCustomizationValue(customization, row, textInput, textInput.value.trim());

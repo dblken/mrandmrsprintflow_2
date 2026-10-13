@@ -2208,13 +2208,22 @@ document.addEventListener('DOMContentLoaded', function() {
             continueBtn.focus();
         });
 
+        const isPublicDesignLinkHost = (hostname) => {
+            const host = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
+            if (!host || host === 'localhost' || host === '0.0.0.0' || host === '::1') return false;
+            if (host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return false;
+            if (host.startsWith('127.') || host.startsWith('10.') || host.startsWith('192.168.') || host.startsWith('169.254.')) return false;
+            if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return false;
+            return true;
+        };
+
         const isValidDesignLink = (value) => {
             const text = String(value || '').trim();
             if (!text) return true;
-            if (/^\s*(javascript|data|file|vbscript):/i.test(text)) return false;
+            if (/^(javascript|data|file|vbscript):/i.test(text)) return false;
             try {
                 const parsed = new URL(text);
-                return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+                return parsed.protocol === 'https:' && isPublicDesignLinkHost(parsed.hostname);
             } catch (err) {
                 return false;
             }
@@ -2283,7 +2292,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 row.querySelectorAll('.pf-design-link-input').forEach(linkInput => {
                     const linkValue = String(linkInput.value || '').trim();
                     if (linkValue !== '' && !isValidDesignLink(linkValue)) {
-                        setError(linkInput, 'Please enter a valid HTTP or HTTPS design link.');
+                        setError(linkInput, 'Please enter a valid HTTPS design link.');
                     }
                 });
             });

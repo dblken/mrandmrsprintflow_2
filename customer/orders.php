@@ -4637,7 +4637,7 @@ function imIsDesignLinkKey(key) {
 function imDesignLinkPlatform(url) {
     try {
         const host = new URL(String(url || '')).hostname.toLowerCase();
-        if (host.includes('canva.com')) return 'Canva Design';
+        if (host.includes('canva.com') || host === 'canva.link' || host.endsWith('.canva.link')) return 'Canva Design';
         if (host.includes('drive.google.com') || host.includes('docs.google.com')) return 'Google Drive';
         if (host.includes('dropbox.com')) return 'Dropbox';
         if (host.includes('onedrive.live.com') || host.includes('1drv.ms')) return 'OneDrive';
@@ -4648,11 +4648,11 @@ function imDesignLinkPlatform(url) {
 
 function imIsDirectImageUrl(url) {
     const text = String(url || '').trim();
-    if (!/^https?:\/\//i.test(text)) return false;
+    if (!/^https:\/\//i.test(text)) return false;
     try {
         const parsed = new URL(text);
         const host = parsed.hostname.toLowerCase();
-        if (/canva\.com|drive\.google\.com|docs\.google\.com|dropbox\.com|onedrive\.live\.com|1drv\.ms|photos\.google\.com/.test(host)) {
+        if (/canva\.com|canva\.link|drive\.google\.com|docs\.google\.com|dropbox\.com|onedrive\.live\.com|1drv\.ms|photos\.google\.com/.test(host)) {
             return false;
         }
         return /\.(?:jpe?g|png|gif|webp|svg|bmp|avif)(?:$|[?#])/i.test(parsed.pathname);
@@ -4702,7 +4702,7 @@ async function imCopyExternalLink(url, btn) {
 
 function imRenderDesignLinkBlock(item) {
     const url = String(item.design_external_link || '').trim();
-    if (!url || !/^https?:\/\//i.test(url)) return '';
+    if (!url || !/^https:\/\//i.test(url)) return '';
     const isDirect = item.design_link_is_direct_image || imIsDirectImageUrl(url);
     const safeUrl = escIM(url);
     const preview = isDirect
