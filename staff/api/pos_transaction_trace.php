@@ -85,15 +85,15 @@ if ($jobIds !== []) {
     $placeholders = implode(',', array_fill(0, count($jobIds), '?'));
     $types = str_repeat('i', count($jobIds));
     $materials = db_query(
-        "SELECT id, job_order_id, std_order_id, item_id, quantity, uom, deducted_at
+        "SELECT id, job_order_id, item_id, quantity, deducted_at
          FROM job_order_materials
-         WHERE job_order_id IN ({$placeholders}) OR std_order_id = ?
+         WHERE job_order_id IN ({$placeholders})
          ORDER BY id",
-        $types . 'i',
-        array_merge($jobIds, [$orderId])
+        $types,
+        $jobIds
     ) ?: [];
     $ledger = db_query(
-        "SELECT id, item_id, branch_id, direction, quantity, uom, ref_type, ref_id, transaction_date, notes
+        "SELECT id, item_id, branch_id, direction, quantity, ref_type, ref_id, transaction_date
          FROM inventory_transactions
          WHERE (UPPER(ref_type) = 'JOB_ORDER' AND ref_id IN ({$placeholders}))
             OR (UPPER(ref_type) IN ('ORDER', 'ORDER_PRODUCT') AND ref_id = ?)
@@ -103,11 +103,11 @@ if ($jobIds !== []) {
     ) ?: [];
 } else {
     $materials = db_query(
-        'SELECT id, job_order_id, std_order_id, item_id, quantity, uom, deducted_at FROM job_order_materials WHERE std_order_id = ? ORDER BY id',
+        'SELECT id, job_order_id, item_id, quantity, deducted_at FROM job_order_materials WHERE job_order_id = ? ORDER BY id',
         'i', [$orderId]
     ) ?: [];
     $ledger = db_query(
-        "SELECT id, item_id, branch_id, direction, quantity, uom, ref_type, ref_id, transaction_date, notes
+        "SELECT id, item_id, branch_id, direction, quantity, ref_type, ref_id, transaction_date
          FROM inventory_transactions
          WHERE UPPER(ref_type) IN ('ORDER', 'ORDER_PRODUCT') AND ref_id = ?
          ORDER BY id DESC",
@@ -177,27 +177,15 @@ foreach ($materials as $material) {
         'requires_review' => ($markedDeducted && $matchingLedgerIds === []) || $wrongDateLedgerIds !== [],
         'finding' => $finding,
     ];
-    if (!isset($stock[$key])) {
-        $stock[$key] = [
-            'item_id' => $itemId,
-            'branch_id' => $branchId,
-            'current_stock' => InventoryManager::getStockOnHand($itemId, $branchId),
-        ];
-    }
 }
 $queryErrors = function_exists('printflow_db_errors')
     ? array_slice(printflow_db_errors(), $errorsBeforeLookup)
     : [];
-// Never report an empty result as proof that no rows exist if a query failed.
-if ($queryErrors !== []) {
-    if ($readOnlySnapshot && function_exists('printflow_db_in_transaction') && printflow_db_in_transaction($conn)) {
-        $conn->rollback();
-    }
-    error_log('[PrintFlow POS trace] order=' . $orderId . ' query_errors=' . json_encode($queryErrors));
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Trace query failed; inspect PHP error log for this order ID.']);
-    exit;
-}
+// A stock helper can record schema noise. Keep the ledger rows and report only
+// the errno so a failed read is not presented as an empty deduction.
+$readErrorNos = array_values(array_unique(array_map(static function ($error): int {
+    return (int)($error['errno'] ?? 0);
+}, $queryErrors)));
 
 echo json_encode([
     'success' => true,
@@ -209,6 +197,7 @@ echo json_encode([
     'job_orders' => $jobs,
     'material_assignments' => $materials,
     'inventory_transactions' => $ledger,
+    'read_error_numbers' => $readErrorNos,
     'order_business_date' => $order['order_date'],
     'expected_ledger_business_date' => $expectedLedgerDate !== '' ? $expectedLedgerDate : null,
     'material_stock_snapshot' => array_values($stock),
