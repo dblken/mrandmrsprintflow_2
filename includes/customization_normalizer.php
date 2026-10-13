@@ -163,7 +163,8 @@ function printflow_customization_field_meta(string $key): array {
     ];
     if (isset($map[$token])) {
         [$group, $label, $priority] = $map[$token];
-        return ['group' => $group, 'label' => $label, 'priority' => $priority, 'hidden' => false, 'design' => in_array($group, ['uploaded_design', 'design_external_link'], true)];
+        $hidden = $group === 'material';
+        return ['group' => $group, 'label' => $label, 'priority' => $priority, 'hidden' => $hidden, 'design' => in_array($group, ['uploaded_design', 'design_external_link'], true)];
     }
     if (str_ends_with($token, '_link') && (str_contains($token, 'design') || str_contains($token, 'upload'))) {
         return ['group' => 'design_external_link', 'label' => 'Design Link', 'priority' => 61, 'hidden' => false, 'design' => true];

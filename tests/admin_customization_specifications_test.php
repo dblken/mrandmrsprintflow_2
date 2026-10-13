@@ -76,7 +76,7 @@ $displaySpecs = printflow_customization_display_specs($stickerLine['customizatio
     'include_notes' => true,
     'include_quantity' => false,
 ]);
-$assert(isset($displaySpecs['Material']) && $displaySpecs['Material'] === 'Sticker Black', 'spec grid includes material');
+$assert(!isset($displaySpecs['Material']), 'raw display builder hides material from customer-facing grids');
 $assert(isset($displaySpecs['Notes']) && str_contains($displaySpecs['Notes'], 'XYZ-12158'), 'spec grid includes customer notes');
 
 $filtered = printflow_filter_operations_display_specifications([
@@ -88,7 +88,7 @@ $filtered = printflow_filter_operations_display_specifications([
     'Layout' => 'with_layout',
     'Calculated Unit Price' => '250.00',
 ]);
-$assert(isset($filtered['Material']) && !isset($filtered['Material Name']), 'Material Name duplicate is removed');
+$assert(!isset($filtered['Material']) && !isset($filtered['Material Name']), 'Material is hidden from operations display');
 $assert(!isset($filtered['Design Input Mode']), 'Design Input Mode is hidden from operations display');
 $assert(!isset($filtered['Calculated Unit Price']), 'calculated price metadata is hidden');
 $assert(isset($filtered['Layout']), 'valid customer layout remains visible');
@@ -114,7 +114,7 @@ $adminFiltered = printflow_filter_admin_customization_display_specifications([
     'Material' => 'Sticker Black',
     'Layout' => 'with_layout',
 ]);
-$assert(($adminFiltered['Material'] ?? '') === 'Sticker Black', 'explicit customer material remains a valid specification');
+$assert(!isset($adminFiltered['Material']), 'admin summary must not show material tile');
 $assert(isset($adminFiltered['Layout']), 'admin summary keeps other valid specs');
 
 $needed = printflow_job_order_line_needed_date_payload([

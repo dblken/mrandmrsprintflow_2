@@ -89,7 +89,11 @@ function printflow_job_order_service_label_from_sources(?array $storeLine, array
 {
     if (is_array($storeLine)) {
         $fromName = trim((string)($storeLine['product_name'] ?? ''));
-        if ($fromName !== '' && strcasecmp($fromName, 'Custom Order') !== 0) {
+        if (
+            $fromName !== ''
+            && strcasecmp($fromName, 'Custom Order') !== 0
+            && !(function_exists('customer_orders_is_generic_item_name') && customer_orders_is_generic_item_name($fromName))
+        ) {
             return $fromName;
         }
         $lineCustom = is_array($storeLine['customization'] ?? null)
@@ -321,6 +325,7 @@ function printflow_filter_operations_display_specifications(array $specs): array
         'Size',
         'Size / Dimensions',
         'Design Input Mode',
+        'Material',
         'Material Name',
         'Calculated Unit Price',
         'Calculated Estimated Price',
@@ -373,7 +378,7 @@ function printflow_filter_operations_display_specifications(array $specs): array
 }
 
 /**
- * Admin customization modal: hide material tiles (staff POS detail still shows them).
+ * Admin/staff/customer specification grids: hide material (production uses it internally).
  *
  * @param array<string,string> $specs
  * @return array<string,string>

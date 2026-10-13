@@ -3652,7 +3652,21 @@ function customer_orders_is_generic_item_name(string $name): bool {
         'pos service',
         'pos-service',
     ];
-    return in_array($normalized, $generic, true);
+    if (in_array($normalized, $generic, true)) {
+        return true;
+    }
+
+    return customer_orders_is_pos_placeholder_product_name($name);
+}
+
+/** POS checkout sometimes attaches every service line to one catalog SKU (e.g. "Tshirt"). */
+function customer_orders_is_pos_placeholder_product_name(string $name): bool {
+    $token = strtolower(preg_replace('/[^a-z0-9]+/', '', trim($name)));
+    if ($token === '') {
+        return false;
+    }
+    $placeholders = ['tshirt', 'tshirts', 'posserviceitem', 'posservice', 'positem'];
+    return in_array($token, $placeholders, true);
 }
 
 function customer_orders_resolve_service_name_by_id(int $service_id): string {
@@ -4457,17 +4471,164 @@ function printflow_merge_dynamic_form_data_into_customization(array $custom, arr
 }
 
 function customer_orders_custom_order_is_catalog_product(array $custom): bool {
+    $serviceId = (int)($custom['service_id'] ?? 0);
+    $serviceType = trim((string)($custom['service_type'] ?? ''));
+    $source = strtolower(trim((string)($custom['source'] ?? '')));
+    if (
+        $serviceId > 0
+        || ($serviceType !== '' && !customer_orders_is_generic_item_name($serviceType))
+        || in_array($source, ['service', 'pos'], true)
+    ) {
+        return false;
+    }
+
     $src = strtolower(trim((string)($custom['source_page'] ?? '')));
-    if (in_array($src, ['products', 'dynamic_form', 'product'], true)) {
+    if (in_array($src, ['products', 'product'], true)) {
         return true;
     }
-    if (isset($custom['form_type']) && strtolower(trim((string)$custom['form_type'])) === 'dynamic') {
+    if ($src === 'dynamic_form' && $serviceId <= 0 && $serviceType === '') {
         return true;
     }
-    if (!empty($custom['config_id'])) {
+    if (isset($custom['form_type']) && strtolower(trim((string)$custom['form_type'])) === 'dynamic' && $serviceId <= 0 && $serviceType === '') {
+        return true;
+    }
+    if (!empty($custom['config_id']) && $serviceId <= 0 && $serviceType === '') {
         return true;
     }
     return false;
+}
+
+/**
+ * Merge order_items JSON with customizations-table rows and catalog service_id.
+ *
+ * @param array<string,mixed> $orderMeta orders row subset (reference_id, order_type, …)
+ * @param array<string,mixed> $tableFallback ['details' => array, 'service_type' => string]
+ * @return array<string,mixed>
+ */
+function printflow_merge_store_line_customization(array $item, array $orderMeta, array $tableFallback = []): array
+{
+    $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+    $savedSpecs = printflow_decode_modal_customization_payload((string)($item['specifications'] ?? ''));
+    if ($savedSpecs !== []) {
+        $custom = printflow_overlay_nonempty_assoc($custom, $savedSpecs);
+    }
+    $tableDetails = is_array($tableFallback['details'] ?? null) ? $tableFallback['details'] : [];
+    if ($tableDetails !== []) {
+        $custom = printflow_overlay_nonempty_assoc($tableDetails, $custom);
+    }
+    $tableServiceType = trim((string)($tableFallback['service_type'] ?? ''));
+    if ($tableServiceType !== '' && trim((string)($custom['service_type'] ?? '')) === '') {
+        $custom['service_type'] = $tableServiceType;
+    }
+    $custom = customer_orders_sanitize_generic_service_labels($custom);
+
+    return customer_orders_enrich_line_customization($custom, $orderMeta);
+}
+
+/**
+ * @param int[] $orderIds
+ * @return array<int, array<int, array{details: array<string,mixed>, service_type: string}>>
+ */
+function printflow_load_customizations_by_order_item_for_orders(array $orderIds): array
+{
+    $orderIds = array_values(array_filter(array_unique(array_map('intval', $orderIds))));
+    if ($orderIds === []) {
+        return [];
+    }
+
+    $idsStr = implode(',', $orderIds);
+    $rows = db_query(
+        "SELECT order_id, order_item_id, service_type, customization_details
+         FROM customizations
+         WHERE order_id IN ({$idsStr})
+         ORDER BY customization_id ASC"
+    ) ?: [];
+
+    $out = [];
+    foreach ($rows as $row) {
+        $orderId = (int)($row['order_id'] ?? 0);
+        $orderItemId = (int)($row['order_item_id'] ?? 0);
+        if ($orderId <= 0) {
+            continue;
+        }
+        $serviceType = trim((string)($row['service_type'] ?? ''));
+        $details = printflow_decode_modal_customization_payload((string)($row['customization_details'] ?? ''));
+        if ($serviceType !== '' && empty($details['service_type'])) {
+            $details['service_type'] = $serviceType;
+        }
+        if ($orderItemId <= 0) {
+            if (!isset($out[$orderId][0])) {
+                $out[$orderId][0] = ['details' => [], 'service_type' => ''];
+            }
+            $out[$orderId][0]['details'] = printflow_overlay_nonempty_assoc($out[$orderId][0]['details'], $details);
+            if ($serviceType !== '' && $out[$orderId][0]['service_type'] === '') {
+                $out[$orderId][0]['service_type'] = $serviceType;
+            }
+            continue;
+        }
+        if (!isset($out[$orderId][$orderItemId])) {
+            $out[$orderId][$orderItemId] = ['details' => [], 'service_type' => ''];
+        }
+        $out[$orderId][$orderItemId]['details'] = printflow_overlay_nonempty_assoc(
+            $out[$orderId][$orderItemId]['details'],
+            $details
+        );
+        if ($serviceType !== '' && $out[$orderId][$orderItemId]['service_type'] === '') {
+            $out[$orderId][$orderItemId]['service_type'] = $serviceType;
+        }
+    }
+
+    return $out;
+}
+
+/**
+ * Pick the primary service label for an order from resolved line summaries.
+ *
+ * @param array<int,array<string,mixed>> $itemsOut
+ * @return array{service_type:string,service_id:int,first_custom:array<string,mixed>}
+ */
+function printflow_pick_primary_service_from_summaries(array $itemsOut, array $firstCustom = []): array
+{
+    $serviceName = '';
+    $serviceId = 0;
+    foreach ($itemsOut as $line) {
+        if (!is_array($line)) {
+            continue;
+        }
+        $isServiceLine = ($line['item_type'] ?? '') === 'service'
+            || (int)($line['service_id'] ?? 0) > 0;
+        if (!$isServiceLine) {
+            continue;
+        }
+        $candidate = trim((string)($line['product_name'] ?? ''));
+        if ($candidate !== '' && !customer_orders_is_generic_item_name($candidate)) {
+            $serviceName = $candidate;
+            $serviceId = (int)($line['service_id'] ?? 0);
+            break;
+        }
+    }
+    if ($serviceName === '' && $itemsOut !== []) {
+        foreach ($itemsOut as $line) {
+            $candidate = trim((string)($line['product_name'] ?? ''));
+            if ($candidate !== '' && !customer_orders_is_generic_item_name($candidate)) {
+                $serviceName = $candidate;
+                $serviceId = (int)($line['service_id'] ?? 0);
+                break;
+            }
+        }
+    }
+    if ($serviceName === '' && $firstCustom !== []) {
+        $serviceName = get_service_name_from_customization($firstCustom, '');
+    }
+    if ($serviceName === '') {
+        $serviceName = 'Custom Service';
+    }
+
+    return [
+        'service_type' => $serviceName,
+        'service_id' => $serviceId,
+        'first_custom' => $firstCustom,
+    ];
 }
 
 /**
@@ -4499,12 +4660,21 @@ function printflow_resolve_order_line_identity(array $order, array $item, array 
         || in_array($sourcePage, ['service', 'services', 'dynamic_form'], true)
         || in_array($source, ['service', 'pos'], true)
         || ($orderType === 'custom' && !$catalogProduct);
-    if (in_array($explicitType, ['product', 'catalog_product'], true) || $catalogProduct) {
+    if (in_array($explicitType, ['product', 'catalog_product'], true)) {
+        $isService = false;
+    } elseif ($catalogProduct) {
         $isService = false;
     }
     if (
         !$isService
         && $source === 'pos'
+        && ($customServiceType !== '' || (int)($custom['service_id'] ?? 0) > 0)
+    ) {
+        $isService = true;
+    }
+    if (
+        !$isService
+        && customer_orders_is_pos_placeholder_product_name(trim((string)($item['product_name'] ?? '')))
         && ($customServiceType !== '' || (int)($custom['service_id'] ?? 0) > 0)
     ) {
         $isService = true;
@@ -4521,10 +4691,21 @@ function printflow_resolve_order_line_identity(array $order, array $item, array 
         ) {
             $productName = $customServiceType;
         }
+        if (
+            $productName !== ''
+            && $customServiceType !== ''
+            && strcasecmp($productName, $customServiceType) !== 0
+            && (int)($custom['service_id'] ?? 0) > 0
+        ) {
+            $catalogName = customer_orders_resolve_service_name_by_id((int)$custom['service_id']);
+            if ($catalogName !== '') {
+                $productName = $catalogName;
+            }
+        }
         return [
             'item_type' => 'product',
             'product_id' => max(0, (int)($item['product_id'] ?? 0)),
-            'service_id' => 0,
+            'service_id' => max(0, (int)($custom['service_id'] ?? 0)),
             'display_name' => $productName !== '' ? $productName : 'Order Item',
         ];
     }
@@ -4590,11 +4771,14 @@ function printflow_resolve_order_line_identity(array $order, array $item, array 
     if ($displayName === '') {
         $displayName = $fallbackName !== '' ? $fallbackName : 'Service Order';
     }
-    if (
-        function_exists('get_service_name_from_customization')
-        && ($displayName === '' || $displayName === 'Service Order')
-    ) {
-        $displayName = get_service_name_from_customization($custom, $displayName);
+    if ($displayName === '' || $displayName === 'Service Order' || customer_orders_is_generic_item_name($displayName)) {
+        $fromSaved = get_service_name_from_customization($custom, '');
+        if ($fromSaved !== '' && !customer_orders_is_generic_item_name($fromSaved)) {
+            $displayName = $fromSaved;
+        }
+    }
+    if (customer_orders_is_generic_item_name($displayName)) {
+        $displayName = $customServiceType !== '' ? $customServiceType : 'Service Order';
     }
 
     return [
@@ -7105,42 +7289,12 @@ function get_service_name_from_customization($custom, $fallback = 'Custom Order'
         return $explicit_product_service;
     }
     
-    // User Requested Priority Logic
-    // 1. Sintra Board
-    if (!empty($custom['sintra_type']) || !empty($custom['Sintra Type']) || !empty($custom['is_standee'])) {
-        return 'Sintraboard Standees';
-    }
-    // 2. Tarpaulin Printing
-    if (!empty($custom['tarp_size']) || !empty($custom['Tarp Size']) || (!empty($custom['width']) && !empty($custom['height']) && (!empty($custom['finish']) || !empty($custom['with_eyelets'])))) {
-        return 'Tarpaulin Printing';
-    }
-    // 3. T-Shirt Printing
-    if (!empty($custom['vinyl_type']) || !empty($custom['print_placement']) || !empty($custom['tshirt_color']) || !empty($custom['shirt_source'])) {
-        return 'T-Shirt Printing';
-    }
-    // 3.5 Reflectorized
-    if (
-        !empty($custom['gate_pass_subdivision']) ||
-        !empty($custom['gate_pass_number']) ||
-        !empty($custom['gate_pass_plate']) ||
-        !empty($custom['gate_pass_year']) ||
-        !empty($custom['temp_plate_material']) ||
-        !empty($custom['temp_plate_number']) ||
-        !empty($custom['temp_plate_text']) ||
-        !empty($custom['mv_file_number']) ||
-        !empty($custom['dealer_name']) ||
-        !empty($custom['material_type']) ||
-        !empty($custom['reflective_color']) ||
-        (!empty($custom['product_type']) && stripos((string)$custom['product_type'], 'reflectorized') !== false)
-    ) {
-        return 'Reflectorized';
-    }
-    // 4. Decals/Stickers — require sticker-specific fields; do not use `shape` alone (mug/merch forms reuse "shape").
-    if (!empty($custom['sticker_type']) || !empty($custom['Sticker Type']) || !empty($custom['Cut_Type'])) {
-        return 'Decals/Stickers (Print/Cut)';
+    $fallback = trim((string)$fallback);
+    if ($fallback !== '' && customer_orders_is_generic_item_name($fallback)) {
+        $fallback = '';
     }
 
-    return normalize_service_name($fallback, $fallback);
+    return $fallback !== '' ? normalize_service_name($fallback, $fallback) : '';
 }
 
 function printflow_customization_summary($custom, $fallback = 'Custom Service') {

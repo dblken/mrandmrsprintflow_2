@@ -5841,7 +5841,8 @@ window.pfServiceFieldCatalog = (() => {
                 };
                 if (map[token]) {
                     const [group, label, priority] = map[token];
-                    return { group, label, priority, hidden: false, design: group === 'uploaded_design' || group === 'design_external_link' };
+                    const hidden = group === 'material';
+                    return { group, label, priority, hidden, design: group === 'uploaded_design' || group === 'design_external_link' };
                 }
                 if (token.endsWith('_link') && (token.includes('design') || token.includes('upload'))) {
                     return { group: 'design_external_link', label: 'Design Link', priority: 61, hidden: false, design: true };
@@ -6379,6 +6380,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (Object.prototype.hasOwnProperty.call(out, 'Material Name')) {
                     delete out['Material Name'];
                 }
+                delete out['Material'];
                 delete out['Design Input Mode'];
                 delete out['Calculated Unit Price'];
                 delete out['Calculated Estimated Price'];
@@ -8306,7 +8308,9 @@ window.pfServiceFieldCatalog = (() => {
                 const cachedDetail = this.modalCache[cacheKey] || null;
                 const cachedAt = Number(this.modalCacheLoadedAt[cacheKey] || 0);
                 if (cachedDetail && cachedAt > 0 && (Date.now() - cachedAt) < this.modalCacheTtlMs) {
-                    this.finishDetailLoadWith(cachedDetail, cachedDetail.order_type || orderType, cacheKey);
+                    if (requestToken === this.detailRequestToken) {
+                        this.finishDetailLoadWith(cachedDetail, cachedDetail.order_type || orderType, cacheKey);
+                    }
                     this.loadingDetails = false;
                     this.loadingDetailKey = '';
                     return;
