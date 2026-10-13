@@ -5717,6 +5717,91 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 return fingerprint;
             },
+            staffCanonicalSpecBucket(label, metaGroup) {
+                const group = String(metaGroup || '').trim().toLowerCase();
+                if (group !== '') {
+                    if (group === 'dimensions' || group === 'dimension' || group === 'size' || group === 'custom_size') {
+                        return 'dimensions';
+                    }
+                    if (group === 'material') {
+                        return 'material';
+                    }
+                }
+                const key = String(label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                if (key === '' || key === 'material' || key === 'material_type' || key === 'materials') {
+                    return key === 'material' || key === 'material_type' || key === 'materials' ? 'material' : '';
+                }
+                const dimensionKeys = [
+                    'dimensions', 'dimension', 'size', 'custom_size', 'width_height', 'width_x_height',
+                    'dimensions_and_finish_other', 'dimension_and_finish_other', 'dimensions_finish_other',
+                    'size_other', 'custom_dimensions', 'custom_dimension',
+                ];
+                if (dimensionKeys.indexOf(key) !== -1) {
+                    return 'dimensions';
+                }
+                if (key.indexOf('dimension') !== -1 && (key.indexOf('finish') !== -1 || key.indexOf('other') !== -1 || key.indexOf('size') !== -1)) {
+                    return 'dimensions';
+                }
+                if (key === 'width' || key === 'height' || key === 'width_ft' || key === 'height_ft') {
+                    return 'dimensions_part';
+                }
+                return key;
+            },
+            staffDisplaySpecValueFingerprint(bucket, value) {
+                let fp = this.staffCustomizationValueFingerprint(value);
+                if (bucket === 'dimensions' || bucket === 'dimensions_part') {
+                    fp = fp.replace(/[×*]/g, 'x');
+                    fp = fp.replace(/\s*x\s*/gi, 'x');
+                    fp = fp.replace(/\s+/g, '');
+                    fp = fp.replace(/ft\.?/gi, 'ft');
+                }
+                if (/^-?\d+(?:\.\d+)?$/.test(fp)) {
+                    fp = String(parseFloat(fp)).replace(/\.?0+$/, '');
+                }
+                return fp;
+            },
+            staffDeduplicateDisplaySpecRows(rows) {
+                if (!rows || typeof rows !== 'object') {
+                    return {};
+                }
+                const out = {};
+                const seenBucketValue = {};
+                const dimensionLabels = ['Dimensions', 'Dimension', 'Size', 'Custom Size', 'Width × Height'];
+                Object.keys(rows).forEach((label) => {
+                    const text = this.staffCustomizationValueText(rows[label]);
+                    if (text === '') {
+                        return;
+                    }
+                    const meta = this.staffCustomizationMetaForLabel(label);
+                    const bucket = this.staffCanonicalSpecBucket(label, meta.group);
+                    if (bucket === 'material') {
+                        return;
+                    }
+                    if (bucket === 'dimensions_part') {
+                        return;
+                    }
+                    const fp = this.staffDisplaySpecValueFingerprint(bucket, text);
+                    const dedupeKey = (bucket !== '' ? bucket : label.toLowerCase()) + '|' + fp;
+                    if (seenBucketValue[dedupeKey]) {
+                        return;
+                    }
+                    if (bucket === 'dimensions') {
+                        const hasCanonical = dimensionLabels.some((dimLabel) => out[dimLabel] !== undefined);
+                        if (hasCanonical && dimensionLabels.indexOf(label) === -1) {
+                            const existingFp = dimensionLabels
+                                .filter((dimLabel) => out[dimLabel] !== undefined)
+                                .map((dimLabel) => this.staffDisplaySpecValueFingerprint('dimensions', out[dimLabel]))
+                                .find((existing) => existing === fp);
+                            if (existingFp !== undefined) {
+                                return;
+                            }
+                        }
+                    }
+                    seenBucketValue[dedupeKey] = true;
+                    out[label] = rows[label];
+                });
+                return out;
+            },
             staffValueLooksLikeUploadFilename(value) {
                 const text = this.staffCustomizationValueText(value);
                 if (!text) return false;
@@ -6129,11 +6214,12 @@ window.pfServiceFieldCatalog = (() => {
                         delete out[key];
                         return;
                     }
-                    if (meta.group === 'dimensions' || stripKeys.has(key)) {
+                    const bucket = this.staffCanonicalSpecBucket(key, meta.group);
+                    if (bucket === 'dimensions' || bucket === 'dimensions_part' || meta.group === 'dimensions' || stripKeys.has(key)) {
                         delete out[key];
                     }
                 });
-                return out;
+                return this.staffDeduplicateDisplaySpecRows(out);
             },
             staffMeaningfulSpecValue(value) {
                 const text = this.staffCustomizationValueText(value);
@@ -6384,7 +6470,7 @@ window.pfServiceFieldCatalog = (() => {
                 delete out['Design Input Mode'];
                 delete out['Calculated Unit Price'];
                 delete out['Calculated Estimated Price'];
-                return out;
+                return this.staffDeduplicateDisplaySpecRows(out);
             },
             formatCustomerPriorityDisplay(value) {
                 const text = String(value || '').trim();
@@ -6524,9 +6610,10 @@ window.pfServiceFieldCatalog = (() => {
                     includeNotes: options.includeNotes !== undefined ? options.includeNotes : isDetail,
                     includeQuantity: options.includeQuantity !== undefined ? options.includeQuantity : true
                 });
-                const specs = isDetail || options.skipServiceFilter === true
+                let specs = isDetail || options.skipServiceFilter === true
                     ? normalized
                     : this.staffFilterSpecsByServiceForm(normalized, item);
+                specs = this.staffDeduplicateDisplaySpecRows(specs);
 
                 const entries = Object.entries(specs).filter(([k, v]) => {
                     if (this.staffCustomizationIsInternalKey(k)) return false;
@@ -6619,15 +6706,22 @@ window.pfServiceFieldCatalog = (() => {
                     || token.includes('design');
             },
             staffSpecIsRedundantDimensionPart(key, specs, item) {
-                if (key === 'Dimensions' || key === 'Size / Dimensions') return false;
+                if (key === 'Dimensions' || key === 'Size / Dimensions' || key === 'Size') return false;
                 if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return false;
-                const hasCanonicalDimensions = this.staffMeaningfulSpecValue(specs.Dimensions)
-                    || this.staffMeaningfulSpecValue(specs['Size / Dimensions']);
+                const canonicalDim = specs.Dimensions ?? specs['Size / Dimensions'] ?? specs.Size;
+                const hasCanonicalDimensions = this.staffMeaningfulSpecValue(canonicalDim);
                 if (!hasCanonicalDimensions) return false;
 
                 const meta = this.staffCustomizationFieldMeta(key);
                 const token = this.staffCustomizationKeyToken(key);
-                if (meta.group === 'dimensions') return false;
+                const bucket = this.staffCanonicalSpecBucket(key, meta.group);
+                if (bucket === 'dimensions') {
+                    const fpCanon = this.staffDisplaySpecValueFingerprint('dimensions', canonicalDim);
+                    const fpHere = this.staffDisplaySpecValueFingerprint('dimensions', specs[key]);
+                    if (fpCanon !== '' && fpCanon === fpHere) {
+                        return true;
+                    }
+                }
                 if (meta.group === 'width' || meta.group === 'height') return true;
                 if (token.endsWith('_width') || token.endsWith('_height')) return true;
                 if (['width', 'height', 'width_ft', 'height_ft', 'widthft', 'heightft'].includes(token)) return true;
@@ -8296,6 +8390,11 @@ window.pfServiceFieldCatalog = (() => {
                 this.detailError = '';
                 this.previewFile = '';
                 this.currentJo = {};
+                if (this._lastDetailCacheKey && this._lastDetailCacheKey !== cacheKey) {
+                    delete this.modalCache[this._lastDetailCacheKey];
+                    delete this.modalCacheLoadedAt[this._lastDetailCacheKey];
+                }
+                this._lastDetailCacheKey = cacheKey;
                 this.detailRetryPayload = { id, orderType };
                 this.loadingModalAssignments = false;
                 this.footerActionError = '';

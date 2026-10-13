@@ -949,15 +949,52 @@ function custom_payment_badge($status) {
                     }
                     return '';
                 },
+                adminCanonicalSpecBucket(label) {
+                    const key = String(label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                    if (key === '' || key === 'material' || key === 'material_type' || key === 'materials') {
+                        return key === 'material' || key === 'material_type' || key === 'materials' ? 'material' : '';
+                    }
+                    const dimensionKeys = [
+                        'dimensions', 'dimension', 'size', 'custom_size', 'width_height', 'width_x_height',
+                        'dimensions_and_finish_other', 'dimension_and_finish_other', 'dimensions_finish_other',
+                        'size_other', 'custom_dimensions', 'custom_dimension', 'size_dimensions',
+                    ];
+                    if (dimensionKeys.indexOf(key) !== -1) {
+                        return 'dimensions';
+                    }
+                    if (key.indexOf('dimension') !== -1 && (key.indexOf('finish') !== -1 || key.indexOf('other') !== -1 || key.indexOf('size') !== -1)) {
+                        return 'dimensions';
+                    }
+                    if (key === 'width' || key === 'height' || key === 'width_ft' || key === 'height_ft') {
+                        return 'dimensions_part';
+                    }
+                    return key;
+                },
+                adminDisplaySpecValueFingerprint(bucket, value) {
+                    let fp = String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+                    if (bucket === 'dimensions' || bucket === 'dimensions_part') {
+                        fp = fp.replace(/[×*]/g, 'x');
+                        fp = fp.replace(/\s*x\s*/gi, 'x');
+                        fp = fp.replace(/\s+/g, '');
+                        fp = fp.replace(/ft\.?/gi, 'ft');
+                    }
+                    if (/^-?\d+(?:\.\d+)?$/.test(fp)) {
+                        fp = String(parseFloat(fp)).replace(/\.?0+$/, '');
+                    }
+                    return fp;
+                },
                 adminItemSpecEntries(job, item) {
-                    const dimensionLabels = new Set(['Dimensions', 'Size / Dimensions', 'Size', 'Width', 'Height', 'Width (ft)', 'Height (ft)']);
                     const seen = new Set();
                     const entries = [];
                     const push = (label, value) => {
                         const key = String(label || '').trim();
                         const text = String(value ?? '').trim();
                         if (!key || !text) return;
-                        const fp = key.toLowerCase() + '|' + text.toLowerCase();
+                        const bucket = this.adminCanonicalSpecBucket(key);
+                        if (bucket === 'material' || bucket === 'dimensions_part') {
+                            return;
+                        }
+                        const fp = (bucket !== '' ? bucket : key.toLowerCase()) + '|' + this.adminDisplaySpecValueFingerprint(bucket, text);
                         if (seen.has(fp)) return;
                         seen.add(fp);
                         entries.push({ label: key, value: text });
@@ -969,7 +1006,11 @@ function custom_payment_badge($status) {
                     const qty = Math.max(1, Number(item?.quantity ?? job?.quantity ?? 1));
                     push('Quantity', String(qty));
                     Object.entries(specs).forEach(([label, value]) => {
-                        if (!dimensionLabels.has(String(label)) || dimensions === 'Not provided') push(label, value);
+                        const bucket = this.adminCanonicalSpecBucket(label);
+                        if (bucket === 'material') return;
+                        if (bucket === 'dimensions') return;
+                        if (bucket === 'dimensions_part') return;
+                        push(label, value);
                     });
                     if (dimensions && dimensions !== 'Not specified' && dimensions !== 'Not provided') {
                         push('Dimensions', dimensions);

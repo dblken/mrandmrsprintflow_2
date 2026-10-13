@@ -374,7 +374,11 @@ function printflow_filter_operations_display_specifications(array $specs): array
         $out[$label] = $text;
     }
 
-    return $out;
+    if (!function_exists('printflow_deduplicate_display_specifications')) {
+        require_once __DIR__ . '/customization_normalizer.php';
+    }
+
+    return printflow_deduplicate_display_specifications($out);
 }
 
 /**
@@ -390,7 +394,11 @@ function printflow_filter_admin_customization_display_specifications(array $spec
     if ($orderPriority !== '') {
         $filtered['Order Priority'] = printflow_format_customer_priority_display($orderPriority) ?: $orderPriority;
     }
-    return $filtered;
+    if (!function_exists('printflow_deduplicate_display_specifications')) {
+        require_once __DIR__ . '/customization_normalizer.php';
+    }
+
+    return printflow_deduplicate_display_specifications($filtered);
 }
 
 /**
