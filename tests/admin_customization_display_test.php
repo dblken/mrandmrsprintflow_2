@@ -16,7 +16,8 @@ $jobSummary = (string)file_get_contents($root . '/includes/job_order_summary.php
 $jobService = (string)file_get_contents($root . '/includes/JobOrderService.php');
 
 $assert(str_contains($adminPage, 'jo_ord.order_date AS store_order_date'), 'admin list must load store order_date');
-$assert(str_contains($adminPage, 'COALESCE(jo_ord.order_date, jo.created_at)'), 'admin list must prefer business order_date over job created_at');
+$assert(str_contains($adminPage, 'jo_ord.order_date'), 'admin list must use store order_date for submitted date');
+$assert(!str_contains($adminPage, 'jo.created_at'), 'admin customizations must not reference job created_at for display');
 $assert(str_contains($adminPage, 'printflow_job_order_display_service_type'), 'admin list must resolve per-line service names');
 $assert(str_contains($adminPage, 'formatBusinessSubmittedAt'), 'admin modal must format business submitted date');
 $assert(!str_contains($adminPage, 'System Created At'), 'admin UI must not expose database insertion timestamp');

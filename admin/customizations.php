@@ -111,7 +111,7 @@ $jobCustomizationScopeSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.
 )";
 
 // Build query (branch from job row or linked store order)
-$jobSubmittedAtExpr = 'COALESCE(jo_ord.order_date, jo.created_at)';
+$jobSubmittedAtExpr = 'jo_ord.order_date';
 $sql = "SELECT jo.*, CONCAT(c.first_name, ' ', c.last_name) AS customer_name, c.email AS customer_email,
                jo_ord.payment_status AS order_payment_status,
                jo_ord.order_date AS store_order_date,
@@ -1600,7 +1600,7 @@ function custom_payment_badge($status) {
                             <div class="history-item">
                                 <div>
                                     <div style="font-size: 13px; font-weight: 700; color: #1f2937;" x-text="cst.service_type"></div>
-                                    <div style="font-size: 11px; color: #9ca3af;" x-text="new Date(cst.created_at).toLocaleDateString()"></div>
+                                    <div style="font-size: 11px; color: #9ca3af;" x-text="formatBusinessSubmittedAt(cst)"></div>
                                 </div>
                                 <div style="text-align: right;">
                                     <div style="font-size: 13px; font-weight: 700; color: #1f2937;" x-text="cst.estimated_total ? '₱' + parseFloat(cst.estimated_total).toFixed(2) : 'Pending'"></div>
