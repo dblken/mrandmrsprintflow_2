@@ -128,6 +128,15 @@ $salesData['by_item'] = array_values($itemTotals);
 usort($salesData['by_item'], static fn($a, $b) => (($b['revenue'] ?? 0) <=> ($a['revenue'] ?? 0)));
 
 $salesSummary = pf_sales_summary_from_transactions($salesData['transactions']);
+$useCanonicalSalesKpi = $salesTypeFilter === 'all'
+    && $salesMethodFilter === 'all'
+    && trim($salesItemFilter) === '';
+if ($useCanonicalSalesKpi && !empty($salesData['summary'])) {
+    $salesSummary['total_sales'] = (float)($salesData['summary']['total_sales'] ?? $salesSummary['total_sales']);
+    $salesSummary['transaction_count'] = (int)($salesData['summary']['transaction_count'] ?? $salesSummary['transaction_count']);
+    $salesSummary['product_sales'] = (float)($salesData['summary']['product_sales'] ?? $salesSummary['product_sales']);
+    $salesSummary['service_sales'] = (float)($salesData['summary']['service_sales'] ?? $salesSummary['service_sales']);
+}
 $salesTrendIsAllBranches = printflow_branch_value_is_all($branchId);
 try {
     $salesTrendData = $salesTrendIsAllBranches

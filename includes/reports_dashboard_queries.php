@@ -90,7 +90,9 @@ function pf_reports_service_order_completed_expr(string $alias = 'so'): string {
 function pf_reports_store_order_sales_expr(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
     $activeArchiveScope = printflow_order_archive_scope_sql($alias);
-    return "({$activeArchiveScope} AND (LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
+    // pos_merged rows are draft shells re-linked during POS checkout; the paid pos order is canonical.
+    return "({$activeArchiveScope} AND LOWER(TRIM(COALESCE({$alias}.order_source, ''))) NOT IN ('pos_merged', 'pos_draft')
+             AND (LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
              OR LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed'))";
 }
 

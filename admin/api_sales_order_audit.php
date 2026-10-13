@@ -21,9 +21,16 @@ if ($orderId <= 0) {
     exit;
 }
 
+require_once __DIR__ . '/../includes/db.php';
+$orderSelect = 'order_id, order_type, order_date, status, payment_status, payment_method, total_amount, branch_id';
+if (function_exists('db_table_has_column') && db_table_has_column('orders', 'amount_paid')) {
+    $orderSelect .= ', amount_paid';
+}
+if (function_exists('db_table_has_column') && db_table_has_column('orders', 'order_source')) {
+    $orderSelect .= ', order_source';
+}
 $order = db_query(
-    'SELECT order_id, order_type, order_date, status, payment_status, payment_method, total_amount, amount_paid, branch_id
-     FROM orders WHERE order_id = ? LIMIT 1',
+    "SELECT {$orderSelect} FROM orders WHERE order_id = ? LIMIT 1",
     'i',
     [$orderId]
 )[0] ?? null;
@@ -69,12 +76,13 @@ $storeDayCount = 0;
 if ($order && function_exists('pf_reports_store_order_sales_expr') && function_exists('pf_reports_store_order_revenue_expr')) {
     $storeSales = pf_reports_store_order_sales_expr('o');
     $storeRevenue = pf_reports_store_order_revenue_expr('o');
+    [$daySql, $dayTypes, $dayParams] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
     $dayRow = db_query(
         "SELECT COUNT(*) AS cnt, COALESCE(SUM({$storeRevenue}), 0) AS rev
          FROM orders o
-         WHERE DATE(o.order_date) = ? AND {$storeSales}",
-        's',
-        [$from]
+         WHERE {$storeSales}{$daySql}",
+        $dayTypes,
+        $dayParams
     )[0] ?? [];
     $storeDayCount = (int)($dayRow['cnt'] ?? 0);
     $storeDaySum = round((float)($dayRow['rev'] ?? 0), 2);

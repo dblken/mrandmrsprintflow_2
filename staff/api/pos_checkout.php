@@ -1985,18 +1985,17 @@ try {
                 }
                 db_execute(
                     "UPDATE orders
-                     SET payment_status = ?,
+                     SET payment_status = 'Unpaid',
                          payment_method = ?,
-                         total_amount = ?,
-                         status = 'Pending',
+                         status = 'Cancelled',
                          order_source = 'pos_merged',
                          order_date = ?,
                          updated_at = NOW()
                          {$pendingPriceFinalSql}
                      WHERE order_id = ?",
-                    'ssds' . $pendingPriceFinalTypes . 'i',
+                    's' . $pendingPriceFinalTypes . 'i',
                     array_merge(
-                        [$initial_payment_status, $payment_method, $price * $qty, $selectedTransactionAt],
+                        [$payment_method, $selectedTransactionAt],
                         $pendingPriceFinalParams,
                         [$pendingOrderId]
                     )

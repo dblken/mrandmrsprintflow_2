@@ -91,6 +91,16 @@ $assert(
     str_contains($reportsSource, "\$summary['total_sales'] = \$canonical['total_sales']"),
     'KPI total must not sum product + custom + job buckets directly'
 );
+$assert(
+    str_contains($reportsSource, "NOT IN ('pos_merged', 'pos_draft')"),
+    'official store sales must exclude POS draft merge shell orders'
+);
+
+$salesPage = (string)file_get_contents($root . '/admin/sales.php');
+$assert(
+    str_contains($salesPage, 'useCanonicalSalesKpi') || str_contains($salesPage, "\$salesData['summary']['total_sales']"),
+    'Admin Sales KPI must align with canonical breakdown summary when unfiltered'
+);
 
 if ($failures !== []) {
     fwrite(STDERR, "Reports sales double-count test failed:\n- " . implode("\n- ", $failures) . "\n");
