@@ -3050,7 +3050,7 @@ $online_closed_count = 0;
                                     <label style="font-size:11px;font-weight:700;color:#047857;text-transform:uppercase;display:block;margin-bottom:6px;">Pending Order</label>
                                     <div style="font-size:13px; color:#065f46;">This order is still active and can be marked as completed once the printing or release is finished.</div>
                                 </div>
-                                <button type="button" @click="openPosCompleteConfirm()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Mark as Completed</button>
+                                <button type="button" @click="openPosCompleteConfirm()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''" x-text="actionBusy ? 'Completing…' : 'Mark as Completed'"></button>
                             </div>
                         </div>
                     </template>
@@ -3700,7 +3700,7 @@ $online_closed_count = 0;
             </div>
             <div style="padding:16px 20px; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:10px;">
                 <button type="button" @click="closePosCompleteConfirm()" class="btn-secondary">Cancel</button>
-                <button type="button" @click="confirmPosComplete()" class="pf-entry-btn pf-entry-in" style="background:#10b981; color:#fff;">Mark as Completed</button>
+                <button type="button" @click="confirmPosComplete()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="(actionBusy ? 'opacity:.6;cursor:not-allowed;' : '') + 'background:#10b981; color:#fff;'" x-text="actionBusy ? 'Completing…' : 'Mark as Completed'"></button>
             </div>
         </div>
     </div>
@@ -8436,7 +8436,7 @@ window.pfServiceFieldCatalog = (() => {
                             const normalized = this.applyPosSetPriceDeepLinkOverride({
                                 ...detailRes.data,
                                 order_type: detailRes.data.order_type || (fallbackOrderId ? 'ORDER' : 'CUSTOMIZATION'),
-                                status: (order && order.status) || detailRes.data.status
+                                status: detailRes.data.status || (order && order.status)
                             });
                             this.finishDetailLoadWith(normalized, normalized.order_type || 'ORDER', cacheKey);
                             this.loadingDetails = false;
@@ -8672,6 +8672,7 @@ window.pfServiceFieldCatalog = (() => {
                     const backendMessage = payload && (payload.message || payload.error);
                     return {
                         ...(payload || {}),
+                        httpStatus: r.status,
                         success: false,
                         error: backendMessage || `${label} failed: HTTP ${r.status}`
                     };
@@ -8683,7 +8684,7 @@ window.pfServiceFieldCatalog = (() => {
                             contentType
                         });
                     }
-                    return payload;
+                    return { ...payload, httpStatus: r.status };
                 }
                 if (!contentType.includes('application/json')) {
                     console.error(`[Customizations] ${label} returned non-JSON`, {
@@ -10328,7 +10329,13 @@ window.pfServiceFieldCatalog = (() => {
                 }
             },
             openPosCompleteConfirm(jo = null) {
-                this.posCompleteConfirmTarget = jo || this.currentJo || null;
+                const target = jo || this.currentJo || null;
+                if (target && this.getPosWalkInBucket(target) === 'COMPLETED') {
+                    this.showStaffAlert('Completed', 'This order is already completed.');
+                    return;
+                }
+                if (this.actionBusy) return;
+                this.posCompleteConfirmTarget = target;
                 this.showPosCompleteConfirmModal = true;
             },
             closePosCompleteConfirm() {
@@ -10344,13 +10351,45 @@ window.pfServiceFieldCatalog = (() => {
                 this.posCancelConfirmTarget = null;
             },
             async confirmPosComplete() {
+                if (this.actionBusy) return;
                 const target = this.posCompleteConfirmTarget || this.currentJo || null;
                 this.closePosCompleteConfirm();
                 if (!target) return;
+                if (this.getPosWalkInBucket(target) === 'COMPLETED') {
+                    this.showStaffAlert('Completed', 'This order is already completed.');
+                    return;
+                }
                 if (!this.showDetailsModal) {
                     this.currentJo = { ...target };
                 }
                 await this.completeOrder();
+            },
+            canonicalWorkflowStatusKey(status) {
+                return String(status || '').trim().toUpperCase().replace(/\s+/g, '_');
+            },
+            isAlreadyCompletedOrderConflict(res) {
+                if (!res || res.success) return false;
+                if (Number(res.httpStatus) !== 409) return false;
+                return this.canonicalWorkflowStatusKey(res.current_status) === 'COMPLETED';
+            },
+            async applyStoreOrderCompletedUi(res, orderId) {
+                if (this.currentJo) {
+                    this.currentJo.status = 'COMPLETED';
+                }
+                this.activeStatus = 'COMPLETED';
+                this.modalCache = {};
+                this.modalCacheLoadedAt = {};
+                await this.loadOrders({ force: true });
+                if (this.showDetailsModal && orderId) {
+                    await this.viewDetails(orderId, 'ORDER', this.resolveOrderDetailHints({ order_id: orderId }));
+                }
+                const already = !!(res && (res.already_completed || this.isAlreadyCompletedOrderConflict(res)));
+                this.showStaffAlert(
+                    already ? 'Completed' : 'Success',
+                    already
+                        ? (res.message || 'This order is already completed.')
+                        : (res.message || 'Order marked as completed.')
+                );
             },
             async cancelPosWalkInOrder() {
                 this.openPosCancelConfirm();
@@ -10493,18 +10532,8 @@ window.pfServiceFieldCatalog = (() => {
                             endpoint
                         );
 
-                        if (res.success) {
-                            if (this.currentJo) {
-                                this.currentJo.status = 'COMPLETED';
-                            }
-                            this.activeStatus = 'COMPLETED';
-                            this.modalCache = {};
-                            this.modalCacheLoadedAt = {};
-                            await this.loadOrders({ force: true });
-                            this.showStaffAlert(
-                                res.already_completed ? 'Completed' : 'Success',
-                                res.message || 'Order marked as completed.'
-                            );
+                        if (res.success || this.isAlreadyCompletedOrderConflict(res)) {
+                            await this.applyStoreOrderCompletedUi(res, orderId);
                         } else {
                             this.showStaffAlert('Error', res.error || 'Failed to mark order as completed.');
                         }

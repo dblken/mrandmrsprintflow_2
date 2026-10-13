@@ -134,12 +134,18 @@ try {
     }
 
     if ($canonicalStatus($oldStatus) !== $canonicalStatus($expectedStatus)) {
-        if ($transactionStarted) $conn->rollback();
-        printflow_json_response([
-            'success' => false,
-            'error' => 'This order was updated by another staff member. Please refresh and review the latest status.',
-            'current_status' => $oldStatus,
-        ], 409);
+        $requestingCompleted = strcasecmp($newStatus, 'Completed') === 0;
+        $alreadyCompleted = $canonicalStatus($oldStatus) === 'COMPLETED';
+        // Stale expected_status from the UI must not block idempotent completion when the
+        // order is already Completed in the database (no duplicate status write or deduction).
+        if (!($requestingCompleted && $alreadyCompleted)) {
+            if ($transactionStarted) $conn->rollback();
+            printflow_json_response([
+                'success' => false,
+                'error' => 'This order was updated by another staff member. Please refresh and review the latest status.',
+                'current_status' => $oldStatus,
+            ], 409);
+        }
     }
     $customerId = (int)($order['customer_id'] ?? 0);
     $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
