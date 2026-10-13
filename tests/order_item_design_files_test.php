@@ -34,8 +34,10 @@ $designJs = (string)file_get_contents($root . '/public/assets/js/pf-order-item-d
 $expect(strpos($designJs, 'showMoreLabel') !== false && strpos($designJs, 'PREVIEW_LIMIT') !== false, 'shared JS caps preview at 3 with show-more label');
 $orderUi = (string)file_get_contents($root . '/includes/order_ui_helper.php');
 $expect(strpos($orderUi, 'pf_order_ui_render_design_files_html') !== false, 'order review renders multi-design block');
-$expect(strpos($staffUi, 'staffDesignFilesPreview') !== false, 'staff modal previews first 3 design files');
-$expect(strpos($adminUi, 'adminDesignFilesPreview') !== false, 'admin modal previews first 3 design files');
+$expect(strpos($staffUi, 'staffDesignFileCardVisible') !== false && strpos($staffUi, 'Show less') !== false, 'staff modal uses inline expand/collapse grid');
+$expect(strpos($adminUi, 'adminDesignFileCardVisible') !== false && strpos($adminUi, 'Show less') !== false, 'admin modal uses inline expand/collapse grid');
+$expect(strpos($designJs, 'bindDesignFilesBlocks') !== false, 'shared JS binds inline expand/collapse');
+$expect(is_file($root . '/public/assets/css/pf-order-item-design-files.css'), 'shared design files CSS exists');
 $expect(strpos($core, 'printflow_order_item_design_files_to_api') !== false, 'core normalizes API file rows');
 $expect(strpos($core, 'printflow_order_item_design_files_sync_from_customization') !== false, 'checkout sync helper exists');
 $expect(strpos($core, 'design_upload_files') !== false, 'sync reads design_upload_files payload');

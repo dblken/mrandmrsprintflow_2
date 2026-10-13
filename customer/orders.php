@@ -2902,6 +2902,7 @@ function get_preview_image_for_order_ui($order, $display_name) {
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<link rel="stylesheet" href="<?php echo htmlspecialchars(rtrim((defined('BASE_URL') ? BASE_URL : '/printflow'), '/') . '/public/assets/css/pf-order-item-design-files.css?v=' . (int) @filemtime(__DIR__ . '/../public/assets/css/pf-order-item-design-files.css')); ?>">
 <script src="<?php echo htmlspecialchars(rtrim((defined('BASE_URL') ? BASE_URL : '/printflow'), '/') . '/public/assets/js/pf-order-item-design-files.js?v=' . (int) @filemtime(__DIR__ . '/../public/assets/js/pf-order-item-design-files.js')); ?>"></script>
 
 <script>
@@ -3881,35 +3882,40 @@ function openItemsModal(orderId, event, options = {}) {
                     }];
                 }
                 if (!list.length) return '';
-                const preview = PF ? PF.previewList(list) : list.slice(0, 3);
-                const moreLabel = PF ? PF.showMoreLabel(list) : '';
                 const orderItemId = Number(item.order_item_id || 0);
-                const parts = ['<div class="im-design-files-block" style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;">'];
+                const moreLabel = PF ? PF.showMoreLabel(list) : '';
+                const parts = [`<div class="pf-design-files" data-pf-design-files data-order-item-id="${orderItemId}">`];
                 if (list.length > 1 && orderItemId > 0 && PF) {
-                    parts.push(`<a href="${escIM(PF.zipDownloadUrl(orderItemId, CUSTOMER_BASE_URL))}" style="font-size:11px;font-weight:700;color:#53c5e0;">Download all (ZIP)</a>`);
+                    parts.push(`<div class="pf-design-files__toolbar"><a class="pf-design-files__zip" href="${escIM(PF.zipDownloadUrl(orderItemId, CUSTOMER_BASE_URL))}">Download all (ZIP)</a></div>`);
                 }
-                preview.forEach((file) => {
+                parts.push('<div class="pf-design-files__grid">');
+                list.forEach((file, index) => {
                     if (!file || typeof file !== 'object') return;
-                    if (PF && PF.fileUnavailable(file)) {
-                        parts.push(`<div style="font-size:12px;color:#94a3b8;font-weight:600;">${escIM(file.display_name || 'File')} — File unavailable</div>`);
-                        return;
-                    }
-                    const url = String(file.preview_url || file.download_url || '').trim();
-                    const name = escIM(file.display_name || 'Design');
+                    const fileId = escIM(String(file.file_id ?? ''));
+                    const nameRaw = String(file.display_name || 'Uploaded design');
+                    const name = escIM(nameRaw);
                     const meta = PF ? escIM(PF.fileTypeLabel(file) + (file.file_size ? ' · ' + PF.formatFileSize(file.file_size) : '')) : '';
-                    if (file.is_previewable_image && url) {
-                        parts.push(`<a class="im-asset-trigger" href="${escIM(url)}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${escIM(url)}" class="im-thumb hover:scale-105 transition-transform" alt="${name}"></span></a>`);
+                    const collapsible = index >= 3 ? ' data-pf-design-collapsible hidden' : '';
+                    parts.push(`<article class="pf-design-file-card" data-file-id="${fileId}"${collapsible}>`);
+                    parts.push(`<p class="pf-design-file-card__name">${name}</p>`);
+                    parts.push(`<div class="pf-design-file-card__meta">${meta}</div>`);
+                    if (PF && PF.fileUnavailable(file)) {
+                        parts.push('<div class="pf-design-file-card__unavailable" role="status">File unavailable</div>');
+                    } else {
+                        const url = String(file.preview_url || file.download_url || '').trim();
+                        if (file.is_previewable_image && url) {
+                            parts.push(`<div class="pf-design-file-card__preview"><img class="pf-design-file-card__img" src="${escIM(url)}" alt="${escIM('Preview of ' + nameRaw)}" loading="lazy" decoding="async"></div>`);
+                        }
+                        if (url) {
+                            parts.push(`<div class="pf-design-file-card__actions"><a href="${escIM(url)}" download target="_blank" rel="noopener noreferrer" class="pf-modal-design-action-btn" aria-label="${escIM('Download ' + nameRaw)}">Download</a></div>`);
+                        }
                     }
-                    parts.push(`<div style="font-size:11px;color:#9fc4d4;"><strong style="color:#eaf6fb;">${name}</strong>${meta ? ' · ' + meta : ''}${url ? ` · <a href="${escIM(url)}" download target="_blank" rel="noopener noreferrer" style="color:#53c5e0;font-weight:700;">Download</a>` : ''}</div>`);
+                    parts.push('</article>');
                 });
+                parts.push('</div>');
                 if (moreLabel) {
-                    const payload = JSON.stringify({
-                        title: (item.product_name || 'Designs') + ' — all uploaded files',
-                        files: list,
-                        orderItemId,
-                        baseUrl: CUSTOMER_BASE_URL,
-                    });
-                    parts.push(`<button type="button" class="pf-design-gallery-trigger" data-pf-design-gallery="${escIM(payload)}" style="padding:6px 10px;border:1px solid rgba(83,197,224,0.35);border-radius:8px;background:rgba(83,197,224,0.08);color:#53c5e0;font-size:11px;font-weight:700;cursor:pointer;">${escIM(moreLabel)}</button>`);
+                    parts.push(`<button type="button" class="pf-design-files__toggle" data-pf-design-more aria-label="${escIM(moreLabel)}">${escIM(moreLabel)}</button>`);
+                    parts.push('<button type="button" class="pf-design-files__toggle" data-pf-design-less hidden aria-label="Show less">Show less</button>');
                 }
                 parts.push('</div>');
                 return parts.join('');
@@ -4131,10 +4137,10 @@ function openItemsModal(orderId, event, options = {}) {
                     : 'Rate This Order';
             }
         }
-        if (window.PrintflowOrderItemDesignFiles && typeof window.PrintflowOrderItemDesignFiles.bindDesignGalleryButtons === 'function') {
+        if (window.PrintflowOrderItemDesignFiles && typeof window.PrintflowOrderItemDesignFiles.bindDesignFilesBlocks === 'function') {
             const imBody = document.getElementById('imBody');
             if (imBody) {
-                window.PrintflowOrderItemDesignFiles.bindDesignGalleryButtons(imBody);
+                window.PrintflowOrderItemDesignFiles.bindDesignFilesBlocks(imBody);
             }
         }
     })

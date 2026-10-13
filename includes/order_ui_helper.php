@@ -467,38 +467,32 @@ if (!function_exists('pf_order_ui_render_design_files_html')) {
      */
     function pf_order_ui_render_design_files_html(array $files, int $orderItemId = 0, string $galleryTitle = 'Uploaded designs'): string
     {
+        unset($galleryTitle);
         if ($files === []) {
             return '';
         }
         $limit = 3;
-        $preview = count($files) <= $limit ? $files : array_slice($files, 0, $limit);
         $hidden = max(0, count($files) - $limit);
-        $base = defined('BASE_URL') ? rtrim((string)BASE_URL, '/') : (function_exists('pf_app_base_path') ? rtrim((string)pf_app_base_path(), '/') : '');
         $zipUrl = ($orderItemId > 0 && function_exists('printflow_order_item_design_files_zip_url'))
             ? printflow_order_item_design_files_zip_url($orderItemId)
             : '';
 
-        $html = '<div class="pf-order-item-design-files" style="grid-column:1/-1;">';
+        $html = '<div class="pf-design-files" data-pf-design-files data-order-item-id="' . (int)$orderItemId . '" style="grid-column:1/-1;">';
         $html .= '<div class="pf-spec-label" style="font-size:0.65rem;color:#9fc4d4;font-weight:700;text-transform:uppercase;margin-bottom:8px;">Design / Image</div>';
         if (count($files) > 1 && $zipUrl !== '') {
-            $html .= '<p style="margin:0 0 10px;"><a href="' . pf_order_ui_escape($zipUrl) . '" style="font-size:12px;font-weight:700;color:#53c5e0;">Download all (ZIP)</a></p>';
+            $html .= '<div class="pf-design-files__toolbar"><a class="pf-design-files__zip" href="' . pf_order_ui_escape($zipUrl) . '">Download all (ZIP)</a></div>';
         }
-        foreach ($preview as $file) {
-            $html .= pf_order_ui_render_one_design_file_card($file);
+        $html .= '<div class="pf-design-files__grid">';
+        foreach ($files as $index => $file) {
+            $html .= pf_order_ui_render_one_design_file_card($file, $index >= $limit);
         }
+        $html .= '</div>';
         if ($hidden > 0) {
-            $payload = json_encode([
-                'title' => $galleryTitle,
-                'files' => $files,
-                'orderItemId' => $orderItemId,
-                'baseUrl' => $base,
-            ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES);
-            if ($payload === false) {
-                $payload = '{}';
-            }
-            $html .= '<button type="button" class="pf-design-gallery-trigger" data-pf-design-gallery="' . pf_order_ui_escape($payload) . '" style="margin-top:8px;padding:8px 12px;border:1px solid rgba(83,197,224,0.35);border-radius:8px;background:rgba(83,197,224,0.08);color:#53c5e0;font-size:12px;font-weight:700;cursor:pointer;">'
-                . pf_order_ui_escape('Show more images (' . $hidden . ' more)')
+            $moreLabel = 'Show more images (' . $hidden . ' more)';
+            $html .= '<button type="button" class="pf-design-files__toggle" data-pf-design-more aria-label="' . pf_order_ui_escape($moreLabel) . '">'
+                . pf_order_ui_escape($moreLabel)
                 . '</button>';
+            $html .= '<button type="button" class="pf-design-files__toggle" data-pf-design-less hidden aria-label="Show less">Show less</button>';
         }
         $html .= '</div>';
         return $html;
@@ -509,28 +503,38 @@ if (!function_exists('pf_order_ui_render_one_design_file_card')) {
     /**
      * @param array<string,mixed> $file
      */
-    function pf_order_ui_render_one_design_file_card(array $file): string
+    function pf_order_ui_render_one_design_file_card(array $file, bool $isCollapsible = false): string
     {
-        $name = pf_order_ui_escape((string)($file['display_name'] ?? 'Uploaded design'));
+        $fileId = pf_order_ui_escape((string)($file['file_id'] ?? ''));
+        $nameRaw = (string)($file['display_name'] ?? 'Uploaded design');
+        $name = pf_order_ui_escape($nameRaw);
         $mime = pf_order_ui_escape((string)($file['mime_type'] ?? 'File'));
         $sizeBytes = (int)($file['file_size'] ?? 0);
         $sizeLabel = $sizeBytes > 0 ? pf_order_ui_escape(pf_order_ui_format_bytes($sizeBytes)) : '—';
         $unavailable = array_key_exists('exists', $file) && empty($file['exists']);
         $url = trim((string)($file['preview_url'] ?? ($file['download_url'] ?? '')));
         $isImage = !empty($file['is_previewable_image']);
+        $collapsibleAttr = $isCollapsible ? ' data-pf-design-collapsible hidden' : '';
 
-        $html = '<div style="margin-bottom:12px;padding:10px;border:1px solid rgba(83,197,224,0.18);border-radius:10px;background:rgba(255,255,255,0.04);">';
-        $html .= '<div style="font-size:0.9rem;font-weight:700;color:#eaf6fb;margin-bottom:4px;">' . $name . '</div>';
-        $html .= '<div style="font-size:0.68rem;color:#9fc4d4;margin-bottom:8px;">' . $mime . ' · ' . $sizeLabel . '</div>';
+        $html = '<article class="pf-design-file-card" data-file-id="' . $fileId . '"' . $collapsibleAttr . '>';
         if ($unavailable) {
-            $html .= '<div style="padding:10px;border:1px dashed rgba(148,163,184,0.5);border-radius:8px;color:#94a3b8;font-size:12px;font-weight:600;">File unavailable</div>';
-        } elseif ($isImage && $url !== '') {
-            $html .= '<img src="' . pf_order_ui_escape($url) . '" alt="" style="width:100%;max-width:320px;max-height:240px;object-fit:contain;border-radius:8px;border:1px solid rgba(83,197,224,0.22);background:rgba(0,0,0,0.25);display:block;margin-bottom:8px;">';
+            $html .= '<p class="pf-design-file-card__name">' . $name . '</p>';
+            $html .= '<div class="pf-design-file-card__meta">' . $mime . ' · ' . $sizeLabel . '</div>';
+            $html .= '<div class="pf-design-file-card__unavailable" role="status">File unavailable</div>';
+        } else {
+            $html .= '<p class="pf-design-file-card__name">' . $name . '</p>';
+            $html .= '<div class="pf-design-file-card__meta">' . $mime . ' · ' . $sizeLabel . '</div>';
+            if ($isImage && $url !== '') {
+                $alt = pf_order_ui_escape('Preview of ' . $nameRaw);
+                $html .= '<div class="pf-design-file-card__preview"><img class="pf-design-file-card__img" src="' . pf_order_ui_escape($url) . '" alt="' . $alt . '" loading="lazy" decoding="async"></div>';
+            }
+            if ($url !== '') {
+                $html .= '<div class="pf-design-file-card__actions">';
+                $html .= '<a href="' . pf_order_ui_escape($url) . '" download target="_blank" rel="noopener noreferrer" class="pf-modal-design-action-btn" aria-label="' . pf_order_ui_escape('Download ' . $nameRaw) . '">Download</a>';
+                $html .= '</div>';
+            }
         }
-        if (!$unavailable && $url !== '') {
-            $html .= '<a href="' . pf_order_ui_escape($url) . '" download target="_blank" rel="noopener noreferrer" style="font-size:12px;font-weight:700;color:#53c5e0;">Download</a>';
-        }
-        $html .= '</div>';
+        $html .= '</article>';
         return $html;
     }
 }
@@ -560,13 +564,15 @@ if (!function_exists('pf_order_ui_print_design_files_script_once')) {
         }
         $done = true;
         $base = defined('BASE_URL') ? rtrim((string)BASE_URL, '/') : (function_exists('pf_app_base_path') ? rtrim((string)pf_app_base_path(), '/') : '');
-        $v = (int)@filemtime(__DIR__ . '/../public/assets/js/pf-order-item-design-files.js');
-        echo '<script src="' . pf_order_ui_escape($base . '/public/assets/js/pf-order-item-design-files.js?v=' . $v) . '"></script>';
+        $vJs = (int)@filemtime(__DIR__ . '/../public/assets/js/pf-order-item-design-files.js');
+        $vCss = (int)@filemtime(__DIR__ . '/../public/assets/css/pf-order-item-design-files.css');
+        echo '<link rel="stylesheet" href="' . pf_order_ui_escape($base . '/public/assets/css/pf-order-item-design-files.css?v=' . $vCss) . '">';
+        echo '<script src="' . pf_order_ui_escape($base . '/public/assets/js/pf-order-item-design-files.js?v=' . $vJs) . '"></script>';
         echo <<<'HTML'
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    if (window.PrintflowOrderItemDesignFiles && typeof window.PrintflowOrderItemDesignFiles.bindDesignGalleryButtons === 'function') {
-        window.PrintflowOrderItemDesignFiles.bindDesignGalleryButtons(document);
+    if (window.PrintflowOrderItemDesignFiles && typeof window.PrintflowOrderItemDesignFiles.bindDesignFilesBlocks === 'function') {
+        window.PrintflowOrderItemDesignFiles.bindDesignFilesBlocks(document);
     }
 });
 </script>

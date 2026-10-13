@@ -746,6 +746,7 @@ function custom_payment_badge($status) {
             }
         }
     </style>
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(rtrim((string)$base_path, '/') . '/public/assets/css/pf-order-item-design-files.css?v=' . (int) @filemtime(__DIR__ . '/../public/assets/css/pf-order-item-design-files.css')); ?>">
     <script src="<?php echo htmlspecialchars(rtrim((string)$base_path, '/') . '/public/assets/js/pf-order-item-design-files.js?v=' . (int) @filemtime(__DIR__ . '/../public/assets/js/pf-order-item-design-files.js')); ?>"></script>
 </head>
 <body>
@@ -780,7 +781,7 @@ function custom_payment_badge($status) {
                 // Image Viewer State
                 showImageViewer: false,
                 currentImage: '',
-                designFilesGallery: null,
+                designFilesExpandedKeys: {},
 
                 modalOrderCode: '',
                 basePath: '<?php echo rtrim((string)$base_path, '/'); ?>',
@@ -797,6 +798,7 @@ function custom_payment_badge($status) {
                     this.job = null;
                     this.showImageViewer = false;
                     this.currentImage = '';
+                    this.designFilesExpandedKeys = {};
                 },
                 resolveMediaUrl(raw) {
                     const s = String(raw ?? '').trim();
@@ -1211,24 +1213,33 @@ function custom_payment_badge($status) {
                     }
                     return out;
                 },
-                adminDesignFilesPreview(item) {
-                    const PF = window.PrintflowOrderItemDesignFiles;
-                    const all = this.adminItemDesignFiles(item);
-                    return PF ? PF.previewList(all) : all.slice(0, 3);
+                adminDesignFilesExpandKey(item) {
+                    const oid = Number(item?.order_item_id || 0);
+                    if (oid > 0) {
+                        return 'oi-' + oid;
+                    }
+                    return 'line-' + String(item?.product_name || 'item');
+                },
+                adminDesignFilesExpanded(item) {
+                    return !!this.designFilesExpandedKeys[this.adminDesignFilesExpandKey(item)];
+                },
+                adminExpandDesignFiles(item) {
+                    this.designFilesExpandedKeys[this.adminDesignFilesExpandKey(item)] = true;
+                },
+                adminCollapseDesignFiles(item) {
+                    delete this.designFilesExpandedKeys[this.adminDesignFilesExpandKey(item)];
                 },
                 adminDesignFilesShowMoreLabel(item) {
                     const PF = window.PrintflowOrderItemDesignFiles;
                     return PF ? PF.showMoreLabel(this.adminItemDesignFiles(item)) : '';
                 },
-                adminOpenDesignFilesGallery(item) {
-                    this.designFilesGallery = {
-                        title: (item?.product_name || 'Designs') + ' — all uploaded files',
-                        files: this.adminItemDesignFiles(item),
-                        orderItemId: Number(item?.order_item_id || 0),
-                    };
-                },
-                adminCloseDesignFilesGallery() {
-                    this.designFilesGallery = null;
+                adminDesignFileCardVisible(item, designFile) {
+                    if (this.adminDesignFilesExpanded(item)) {
+                        return true;
+                    }
+                    const PF = window.PrintflowOrderItemDesignFiles;
+                    const all = this.adminItemDesignFiles(item);
+                    return PF ? PF.isInPreviewList(designFile, all) : false;
                 },
                 adminDesignFileZipUrl(item) {
                     const PF = window.PrintflowOrderItemDesignFiles;
@@ -1761,38 +1772,54 @@ function custom_payment_badge($status) {
                                     <div style="margin-top:10px;padding:12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">
                                         <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">Design / Image</div>
                                         <template x-if="itemHasUploadedDesignFile(item)">
-                                            <div style="margin-bottom:10px;">
+                                            <div class="pf-design-files" :class="{ 'is-expanded': adminDesignFilesExpanded(item) }">
                                                 <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:6px;" x-text="adminItemDesignFiles(item).length > 1 ? 'Uploaded Files' : 'Uploaded File'"></div>
-                                                <template x-if="adminItemDesignFiles(item).length > 1">
-                                                    <div style="margin-bottom:10px;">
-                                                        <a class="pf-modal-design-action-btn" :href="adminDesignFileZipUrl(item)" style="display:inline-flex;text-decoration:none;">Download all (ZIP)</a>
-                                                    </div>
-                                                </template>
-                                                <template x-for="designFile in adminDesignFilesPreview(item)" :key="'admin-design-file-' + designFile.file_id">
-                                                    <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #f1f5f9;">
-                                                        <div style="font-size:13px;font-weight:600;color:#1f2937;word-break:break-word;overflow-wrap:anywhere;margin-bottom:4px;" x-text="designFile.display_name || getItemDesignFilename(item)"></div>
-                                                        <div style="font-size:11px;color:#6b7280;margin-bottom:8px;">
-                                                            <span x-text="adminDesignFileTypeLabel(designFile)"></span>
-                                                            <span x-show="designFile.file_size"> · </span>
-                                                            <span x-text="adminFormatDesignFileSize(designFile.file_size)"></span>
-                                                        </div>
-                                                        <template x-if="adminDesignFileUnavailable(designFile)">
-                                                            <div style="padding:10px;border:1px dashed #cbd5e1;border-radius:8px;color:#64748b;font-size:12px;font-weight:600;margin-bottom:8px;">File unavailable</div>
-                                                        </template>
-                                                        <template x-if="!adminDesignFileUnavailable(designFile) && adminDesignFileMediaUrl(designFile, item) && (designFile.is_previewable_image !== false)">
-                                                            <img :src="adminDesignFileMediaUrl(designFile, item)" @click="viewImage(adminDesignFileMediaUrl(designFile, item))" @error="handleModalImageError($el)" style="width:min(100%,160px);max-height:160px;object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;box-shadow:0 4px 6px -1px rgba(0,0,0,0.08);background:#f8fafc;margin-bottom:8px;display:block;" alt="Design">
-                                                        </template>
-                                                        <div class="pf-modal-design-actions" x-show="!adminDesignFileUnavailable(designFile)">
-                                                            <button type="button" class="pf-modal-design-action-btn" @click="viewImage(adminDesignFileMediaUrl(designFile, item))">View</button>
-                                                            <a class="pf-modal-design-action-btn" :href="designFile.download_url || adminDesignFileMediaUrl(designFile, item)" target="_blank" rel="noopener noreferrer" download>Download</a>
-                                                        </div>
-                                                    </div>
-                                                </template>
+                                                <div class="pf-design-files__toolbar" x-show="adminItemDesignFiles(item).length > 1">
+                                                    <a class="pf-design-files__zip" :href="adminDesignFileZipUrl(item)">Download all (ZIP)</a>
+                                                </div>
+                                                <div class="pf-design-files__grid">
+                                                    <template x-for="designFile in adminItemDesignFiles(item)" :key="'admin-design-file-' + designFile.file_id">
+                                                        <article class="pf-design-file-card" x-show="adminDesignFileCardVisible(item, designFile)">
+                                                            <p class="pf-design-file-card__name" x-text="designFile.display_name || getItemDesignFilename(item)"></p>
+                                                            <div class="pf-design-file-card__meta">
+                                                                <span x-text="adminDesignFileTypeLabel(designFile)"></span>
+                                                                <span x-show="designFile.file_size"> · </span>
+                                                                <span x-text="adminFormatDesignFileSize(designFile.file_size)"></span>
+                                                            </div>
+                                                            <template x-if="adminDesignFileUnavailable(designFile)">
+                                                                <div class="pf-design-file-card__unavailable" role="status">File unavailable</div>
+                                                            </template>
+                                                            <template x-if="!adminDesignFileUnavailable(designFile) && adminDesignFileMediaUrl(designFile, item) && (designFile.is_previewable_image !== false)">
+                                                                <div class="pf-design-file-card__preview">
+                                                                    <img class="pf-design-file-card__img"
+                                                                         :src="adminDesignFileMediaUrl(designFile, item)"
+                                                                         :alt="'Preview of ' + (designFile.display_name || getItemDesignFilename(item))"
+                                                                         @click="viewImage(adminDesignFileMediaUrl(designFile, item))"
+                                                                         @error="handleModalImageError($el)"
+                                                                         loading="lazy"
+                                                                         decoding="async">
+                                                                </div>
+                                                            </template>
+                                                            <div class="pf-design-file-card__actions" x-show="!adminDesignFileUnavailable(designFile)">
+                                                                <button type="button" class="pf-modal-design-action-btn" :aria-label="'View ' + (designFile.display_name || 'design file')" @click="viewImage(adminDesignFileMediaUrl(designFile, item))">View</button>
+                                                                <a class="pf-modal-design-action-btn" :href="designFile.download_url || adminDesignFileMediaUrl(designFile, item)" :aria-label="'Download ' + (designFile.display_name || 'design file')" target="_blank" rel="noopener noreferrer" download>Download</a>
+                                                            </div>
+                                                        </article>
+                                                    </template>
+                                                </div>
                                                 <button type="button"
-                                                        x-show="adminDesignFilesShowMoreLabel(item)"
-                                                        @click="adminOpenDesignFilesGallery(item)"
-                                                        style="margin-top:4px;padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#4f46e5;cursor:pointer;"
+                                                        class="pf-design-files__toggle"
+                                                        x-show="!adminDesignFilesExpanded(item) && adminDesignFilesShowMoreLabel(item)"
+                                                        @click="adminExpandDesignFiles(item)"
+                                                        :aria-label="adminDesignFilesShowMoreLabel(item)"
                                                         x-text="adminDesignFilesShowMoreLabel(item)"></button>
+                                                <button type="button"
+                                                        class="pf-design-files__toggle"
+                                                        x-show="adminDesignFilesExpanded(item) && adminItemDesignFiles(item).length > 3"
+                                                        @click="adminCollapseDesignFiles(item)"
+                                                        aria-label="Show less">
+                                                    Show less
+                                                </button>
                                             </div>
                                         </template>
                                         <template x-if="getItemDesignExternalLink(item)">
@@ -1842,38 +1869,6 @@ function custom_payment_badge($status) {
 </div>
 
 <!-- Image Viewer Modal -->
-<div x-show="designFilesGallery" x-cloak class="custom-image-viewer" style="position:fixed;top:0;bottom:0;left:0;right:0;z-index:10050;" @click="adminCloseDesignFilesGallery()">
-    <div class="custom-image-viewer-backdrop" @click.stop style="align-items:flex-start;padding-top:4vh;">
-        <div class="custom-image-viewer-panel" style="max-height:90vh;overflow:auto;width:min(92vw,720px);">
-            <button type="button" @click="adminCloseDesignFilesGallery()" style="position:absolute;top:12px;right:12px;background:#f3f4f6;border:none;width:36px;height:36px;border-radius:50%;cursor:pointer;">&times;</button>
-            <div style="font-size:15px;font-weight:700;margin:0 40px 12px 0;" x-text="designFilesGallery ? designFilesGallery.title : ''"></div>
-            <template x-if="designFilesGallery && designFilesGallery.files && designFilesGallery.files.length > 1">
-                <a class="pf-modal-design-action-btn" :href="adminDesignFileZipUrl({ order_item_id: designFilesGallery.orderItemId })" style="display:inline-flex;margin-bottom:12px;text-decoration:none;">Download all (ZIP)</a>
-            </template>
-            <template x-for="designFile in (designFilesGallery ? designFilesGallery.files : [])" :key="'admin-gallery-' + designFile.file_id">
-                <div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #f1f5f9;">
-                    <div style="font-weight:600;margin-bottom:4px;" x-text="designFile.display_name || 'Uploaded design'"></div>
-                    <div style="font-size:11px;color:#6b7280;margin-bottom:8px;">
-                        <span x-text="adminDesignFileTypeLabel(designFile)"></span>
-                        <span x-show="designFile.file_size"> · </span>
-                        <span x-text="adminFormatDesignFileSize(designFile.file_size)"></span>
-                    </div>
-                    <template x-if="adminDesignFileUnavailable(designFile)">
-                        <div style="padding:10px;border:1px dashed #cbd5e1;border-radius:8px;color:#64748b;font-size:12px;font-weight:600;">File unavailable</div>
-                    </template>
-                    <template x-if="!adminDesignFileUnavailable(designFile) && adminDesignFileMediaUrl(designFile, { order_item_id: designFilesGallery.orderItemId })">
-                        <img :src="adminDesignFileMediaUrl(designFile, { order_item_id: designFilesGallery.orderItemId })" @click="viewImage(adminDesignFileMediaUrl(designFile, { order_item_id: designFilesGallery.orderItemId }))" style="max-width:280px;max-height:220px;object-fit:contain;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:8px;cursor:zoom-in;">
-                    </template>
-                    <div class="pf-modal-design-actions" x-show="!adminDesignFileUnavailable(designFile)">
-                        <button type="button" class="pf-modal-design-action-btn" @click="viewImage(adminDesignFileMediaUrl(designFile, { order_item_id: designFilesGallery.orderItemId }))">View</button>
-                        <a class="pf-modal-design-action-btn" :href="designFile.download_url || adminDesignFileMediaUrl(designFile, { order_item_id: designFilesGallery.orderItemId })" target="_blank" rel="noopener noreferrer" download>Download</a>
-                    </div>
-                </div>
-            </template>
-        </div>
-    </div>
-</div>
-
 <div x-show="showImageViewer" x-cloak class="custom-image-viewer" style="position:fixed;top:0;bottom:0;left:0;right:0;z-index:10000;" @click="showImageViewer = false">
     <div class="custom-image-viewer-backdrop" style="position:absolute;top:0;bottom:0;left:240px;right:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;">
         <div class="custom-image-viewer-panel" style="position:relative;max-width:85%;max-height:85%;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 25px 50px rgba(0,0,0,0.5);" @click.stop>
