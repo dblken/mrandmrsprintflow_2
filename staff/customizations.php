@@ -5371,14 +5371,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (display) return display;
                 const raw = String(row.needed_date || '').trim();
                 if (!raw) {
-                    const business = String(row.order_business_date || row.order_date || row.created_at || '').trim();
-                    if (business && /^\d{4}-\d{2}-\d{2}/.test(business)) {
-                        const stamp = Date.parse(business.slice(0, 10));
-                        if (!Number.isNaN(stamp)) {
-                            return new Date(stamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-                        }
-                    }
-                    return forTitle ? '' : '—';
+                    return forTitle ? '' : 'Not provided';
                 }
                 if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
                     const stamp = Date.parse(raw.slice(0, 10));
@@ -5737,7 +5730,12 @@ window.pfServiceFieldCatalog = (() => {
                     'has_priority_field',
                     'calculated_unit_price',
                     'calculated_estimated_price',
-                ].includes(token);
+                    'price_unconfigured',
+                    'design_input_mode',
+                    'dimensions_design_input_mode',
+                    'upload_design_design_input_mode',
+                    'material_name',
+                ].includes(token) || token.includes('design_input_mode');
             },
             staffCustomizationIsInternalLabel(label) {
                 const raw = String(label || '').trim();
@@ -6436,6 +6434,9 @@ window.pfServiceFieldCatalog = (() => {
                             .replace(/\b\w/g, (char) => char.toUpperCase());
                         if (rows[label]) label += ' 2';
                     }
+                    if (/^order\s+priority$/i.test(label)) {
+                        text = this.formatCustomerPriorityDisplay(text);
+                    }
 
                     rows[label] = { value: text, priority: meta.priority, position: position++ };
                     seen[fingerprint] = label;
@@ -6452,7 +6453,23 @@ window.pfServiceFieldCatalog = (() => {
                 for (const [label, row] of sorted) {
                     out[label] = row.value;
                 }
+                if (out['Material'] && out['Material Name'] && String(out['Material Name']).trim() === String(out['Material']).trim()) {
+                    delete out['Material Name'];
+                }
+                if (Object.prototype.hasOwnProperty.call(out, 'Material Name')) {
+                    delete out['Material Name'];
+                }
+                delete out['Design Input Mode'];
+                delete out['Calculated Unit Price'];
+                delete out['Calculated Estimated Price'];
                 return out;
+            },
+            formatCustomerPriorityDisplay(value) {
+                const text = String(value || '').trim();
+                if (!text) return 'Not specified';
+                if (/^regular(\s+order)?$/i.test(text)) return 'Regular';
+                if (/^urgent(\s+order)?$/i.test(text)) return 'Urgent';
+                return text;
             },
             /**
              * Collapse aliased customization keys into canonical display labels.

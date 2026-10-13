@@ -779,11 +779,19 @@ function custom_payment_badge($status) {
                 displaySpecificationEntries(job) {
                     const specs = job?.display_specifications;
                     if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return [];
-                    const skip = new Set(['Dimensions', 'Size / Dimensions', 'Size', 'Notes']);
-                    return Object.entries(specs).filter(([label, value]) => {
-                        if (skip.has(label)) return false;
-                        return String(value ?? '').trim() !== '';
-                    });
+                    return Object.entries(specs).filter(([, value]) => String(value ?? '').trim() !== '');
+                },
+                displayNeededDate(job) {
+                    const display = String(job?.needed_date_display || '').trim();
+                    if (display) return display;
+                    const raw = String(job?.needed_date || '').trim();
+                    if (raw) return raw;
+                    return 'Not provided';
+                },
+                displayCustomerPriority(job) {
+                    const label = String(job?.display_priority || job?.priority_request_value || '').trim();
+                    if (label) return label;
+                    return 'Not specified';
                 },
                 openModal(id, orderCode = '') {
                     this.showModal = true;
@@ -1468,7 +1476,7 @@ function custom_payment_badge($status) {
                         </div>
                         <div class="detail-block">
                             <label>Priority</label>
-                            <span x-text="job?.priority ?? 'NORMAL'"></span>
+                            <span x-text="displayCustomerPriority(job)"></span>
                         </div>
                     </div>
                     <div class="detail-row">
@@ -1477,8 +1485,8 @@ function custom_payment_badge($status) {
                             <span x-text="formatBusinessSubmittedAt(job)"></span>
                         </div>
                         <div class="detail-block">
-                            <label>Due Date</label>
-                            <span x-text="job?.due_date ? new Date(job.due_date).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : 'Not set'"></span>
+                            <label>Needed Date</label>
+                            <span x-text="displayNeededDate(job)"></span>
                         </div>
                     </div>
                     <!-- Notes -->

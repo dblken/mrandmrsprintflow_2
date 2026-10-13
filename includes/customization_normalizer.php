@@ -73,6 +73,8 @@ function printflow_customization_field_meta(string $key): array {
     $hidden = [
         'branch', 'branch_id', 'branch_name', 'branchname', 'pickup_branch', 'pickupbranch', 'service_id', 'customization_id', 'order_id', 'order_item_id',
         'product_id', 'config_id', 'source', 'source_page', 'form_type', 'cart_key',
+        'design_input_mode', 'dimensions_design_input_mode', 'calculated_unit_price', 'calculated_estimated_price',
+        'price_unconfigured', 'material_name',
         'design_upload_path', 'design_file', 'design_mime', 'design_upload_mime',
         'design_image', 'design_image_path',
         'reference_upload', 'reference_upload_name', 'upload_reference',
@@ -85,7 +87,7 @@ function printflow_customization_field_meta(string $key): array {
         || str_contains($token, '_blob')
         || str_contains($token, '_tmp_path')
         || str_ends_with($token, '_path');
-    if ($token === '' || $token[0] === '_' || $looksInternal || in_array($token, $hidden, true)) {
+    if ($token === '' || $token[0] === '_' || $looksInternal || in_array($token, $hidden, true) || str_contains($token, 'design_input_mode')) {
         return ['group' => $token, 'label' => '', 'priority' => 999, 'hidden' => true, 'design' => false];
     }
 

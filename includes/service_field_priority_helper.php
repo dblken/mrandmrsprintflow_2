@@ -410,9 +410,24 @@ if (!function_exists('printflow_is_internal_customization_key')) {
             'is_urgent_request',
             'is_regular_priority',
             'has_priority_field',
+            'design_input_mode',
+            'dimensions_design_input_mode',
+            'upload_design_design_input_mode',
+            'calculated_unit_price',
+            'calculated_estimated_price',
+            'price_unconfigured',
+            'material_name',
         ];
 
-        return in_array($token, $hiddenTokens, true);
+        if (in_array($token, $hiddenTokens, true)) {
+            return true;
+        }
+
+        if (str_contains($token, 'design_input_mode')) {
+            return true;
+        }
+
+        return false;
     }
 }
 

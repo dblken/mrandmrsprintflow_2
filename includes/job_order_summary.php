@@ -266,3 +266,119 @@ function printflow_job_order_display_service_type(array $jobRow): string
 
     return trim((string)($jobRow['service_type'] ?? $jobRow['job_title'] ?? ''));
 }
+
+/**
+ * Customer-facing priority label (not job_orders.priority workflow codes).
+ */
+function printflow_format_customer_priority_display(?string $selectedValue): string
+{
+    $value = trim((string)$selectedValue);
+    if ($value === '') {
+        return '';
+    }
+    if (preg_match('/^regular(\s+order)?$/i', $value)) {
+        return 'Regular';
+    }
+    if (preg_match('/^urgent(\s+order)?$/i', $value)) {
+        return 'Urgent';
+    }
+
+    return $value;
+}
+
+/**
+ * Remove internal POS metadata and duplicate specification tiles from admin/staff views.
+ *
+ * @param array<string,string> $specs
+ * @return array<string,string>
+ */
+function printflow_filter_operations_display_specifications(array $specs): array
+{
+    if ($specs === []) {
+        return [];
+    }
+
+    if (!function_exists('printflow_is_internal_customization_key')) {
+        require_once __DIR__ . '/service_field_priority_helper.php';
+    }
+
+    $skipExact = [
+        'Needed Date',
+        'Order Priority',
+        'Quantity',
+        'Qty',
+        'Dimensions',
+        'Size',
+        'Size / Dimensions',
+        'Design Input Mode',
+        'Material Name',
+        'Calculated Unit Price',
+        'Calculated Estimated Price',
+        'Notes',
+    ];
+
+    $material = trim((string)($specs['Material'] ?? ''));
+    $out = [];
+    $seenFingerprints = [];
+
+    foreach ($specs as $label => $value) {
+        if (!is_string($label)) {
+            continue;
+        }
+        $text = trim((string)$value);
+        if ($text === '') {
+            continue;
+        }
+        if (in_array($label, $skipExact, true)) {
+            continue;
+        }
+        if (printflow_is_internal_customization_key($label)) {
+            continue;
+        }
+        if (preg_match('/design\s*(input\s*)?mode$/iu', $label)) {
+            continue;
+        }
+        if (preg_match('/^calculated\b/iu', $label)) {
+            continue;
+        }
+        if (strcasecmp($label, 'Material Name') === 0) {
+            continue;
+        }
+        if (strcasecmp($text, 'file') === 0 && preg_match('/design|upload|input|mode/iu', $label)) {
+            continue;
+        }
+        if ($material !== '' && strcasecmp($label, 'Material') !== 0 && strcasecmp($text, $material) === 0) {
+            continue;
+        }
+
+        $fingerprint = strtolower(preg_replace('/\s+/', ' ', $label)) . '|' . strtolower(preg_replace('/\s+/', ' ', $text));
+        if (isset($seenFingerprints[$fingerprint])) {
+            continue;
+        }
+        $seenFingerprints[$fingerprint] = true;
+        $out[$label] = $text;
+    }
+
+    return $out;
+}
+
+/**
+ * Resolve needed date for one anchored customization line (no order_date fallback).
+ *
+ * @param array<string,mixed> $customization
+ * @return array{needed_date:string,needed_date_display:string}
+ */
+function printflow_job_order_line_needed_date_payload(array $customization): array
+{
+    require_once __DIR__ . '/service_field_priority_helper.php';
+    $serviceId = (int)($customization['service_id'] ?? 0);
+    $raw = printflow_resolve_needed_date_from_customization($customization, $serviceId);
+    if ($raw === '') {
+        return ['needed_date' => '', 'needed_date_display' => ''];
+    }
+
+    return [
+        'needed_date' => $raw,
+        'needed_date_display' => printflow_format_needed_date_display($raw),
+    ];
+}

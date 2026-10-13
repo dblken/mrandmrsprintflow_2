@@ -75,6 +75,35 @@ $displaySpecs = printflow_customization_display_specs($stickerLine['customizatio
 $assert(isset($displaySpecs['Material']) && $displaySpecs['Material'] === 'Sticker Black', 'spec grid includes material');
 $assert(isset($displaySpecs['Notes']) && str_contains($displaySpecs['Notes'], 'XYZ-12158'), 'spec grid includes customer notes');
 
+$filtered = printflow_filter_operations_display_specifications([
+    'Material' => 'Sticker Black',
+    'Material Name' => 'Sticker Black',
+    'Design Input Mode' => 'file',
+    'Order Priority' => 'Regular Order',
+    'Needed Date' => 'Sep 7, 2026',
+    'Layout' => 'with_layout',
+    'Calculated Unit Price' => '250.00',
+]);
+$assert(isset($filtered['Material']) && !isset($filtered['Material Name']), 'Material Name duplicate is removed');
+$assert(!isset($filtered['Design Input Mode']), 'Design Input Mode is hidden from operations display');
+$assert(!isset($filtered['Calculated Unit Price']), 'calculated price metadata is hidden');
+$assert(isset($filtered['Layout']), 'valid customer layout remains visible');
+$assert(printflow_format_customer_priority_display('Regular Order') === 'Regular', 'priority displays Regular for regular order selection');
+$assert(printflow_format_customer_priority_display('') === '', 'empty priority stays empty for Not specified handling');
+
+$needed = printflow_job_order_line_needed_date_payload([
+    'Needed Date' => '2026-09-07',
+    'service_id' => 12,
+]);
+$assert($needed['needed_date'] === '2026-09-07', 'needed date resolves from customer field only');
+$assert($needed['needed_date_display'] === 'Sep 7, 2026', 'needed date display format preserved');
+
+$adminPage = (string)file_get_contents($root . '/admin/customizations.php');
+$assert(str_contains($adminPage, 'Needed Date'), 'admin modal uses Needed Date label');
+$assert(!str_contains($adminPage, 'Due Date'), 'admin modal must not show Due Date label');
+$assert(str_contains($adminPage, 'displayCustomerPriority'), 'admin modal uses customer priority display');
+$assert(str_contains($adminPage, 'Not specified'), 'admin modal shows Not specified when priority missing');
+
 if ($failures !== []) {
     fwrite(STDERR, "Admin customization specifications test failed:\n- " . implode("\n- ", $failures) . "\n");
     exit(1);

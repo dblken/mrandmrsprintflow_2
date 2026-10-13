@@ -3985,7 +3985,17 @@ class JobOrderService {
             $rawCustomForDisplay = $order['customization_details'];
         }
         require_once __DIR__ . '/customization_normalizer.php';
-        $order['display_specifications'] = $rawCustomForDisplay !== []
+        require_once __DIR__ . '/service_field_priority_helper.php';
+        $serviceIdForLine = (int)($rawCustomForDisplay['service_id'] ?? ($anchoredItem['service_id'] ?? 0));
+        $neededPayload = printflow_job_order_line_needed_date_payload($rawCustomForDisplay);
+        $order['needed_date'] = $neededPayload['needed_date'];
+        $order['needed_date_display'] = $neededPayload['needed_date_display'];
+        $priorityPayload = printflow_resolve_dynamic_order_priority($serviceIdForLine, $rawCustomForDisplay);
+        printflow_apply_priority_request_to_row($order, $priorityPayload);
+        $order['display_priority'] = printflow_format_customer_priority_display(
+            (string)($order['priority_request_value'] ?? '')
+        );
+        $displaySpecsRaw = $rawCustomForDisplay !== []
             ? printflow_customization_display_specs($rawCustomForDisplay, [
                 'include_service' => false,
                 'include_design' => false,
@@ -3993,6 +4003,7 @@ class JobOrderService {
                 'include_quantity' => false,
             ])
             : [];
+        $order['display_specifications'] = printflow_filter_operations_display_specifications($displaySpecsRaw);
 
         return $order;
     }
