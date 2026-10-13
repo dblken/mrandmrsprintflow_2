@@ -904,6 +904,28 @@ function printflow_notify_chat_message(int $order_id, string $senderRole, string
 /**
  * Target URL when a staff user opens a notification (dashboard, list, etc.).
  */
+function printflow_notification_is_staff_add_details_request(array $notification): bool
+{
+    $dataId = (int)($notification['data_id'] ?? 0);
+    if ($dataId <= 0) {
+        return false;
+    }
+    $message = strtolower(trim((string)($notification['message'] ?? '')));
+    $markers = [
+        'staff requested additional details',
+        'request add details',
+        'additional details for order',
+    ];
+    foreach ($markers as $marker) {
+        if (str_contains($message, $marker)) {
+            return true;
+        }
+    }
+    $reviewId = (int)($notification['review_id'] ?? 0);
+    $type = strtolower(trim((string)($notification['type'] ?? '')));
+    return $type === 'design' && $reviewId > 0 && str_contains($message, 'order #');
+}
+
 function printflow_notification_is_revision_submission(array $notification): bool {
     $dataId = (int)($notification['data_id'] ?? 0);
     if ($dataId <= 0) {
@@ -2669,7 +2691,19 @@ function customer_notification_target_url(array $notification) {
             }
             return $base . '/customer/orders.php?highlight=' . $data_id;
         }
+        if (printflow_notification_is_staff_add_details_request($notification)) {
+            if (!function_exists('printflow_customer_add_details_notification_url')) {
+                require_once __DIR__ . '/revision_workflow.php';
+            }
+            return printflow_customer_add_details_notification_url($data_id, $review_id);
+        }
         if ($type === 'Design' || strpos($message_l, 'design') !== false || strpos($message_l, 'revision') !== false) {
+            if ($review_id > 0) {
+                if (!function_exists('printflow_customer_add_details_notification_url')) {
+                    require_once __DIR__ . '/revision_workflow.php';
+                }
+                return printflow_customer_add_details_notification_url($data_id, $review_id);
+            }
             return $base . '/customer/chat.php?order_id=' . $data_id;
         }
         if ($type === 'Job Order') {

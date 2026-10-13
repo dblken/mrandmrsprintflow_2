@@ -20,6 +20,8 @@ $expect(strpos($revision, 'printflow_staff_add_details_notification_url') !== fa
 $expect(strpos($revision, 'selected_design_file_ids') !== false, 'request stores selected design file ids');
 $expect(strpos($revision, 'printflow_revision_file_sections_for_request') !== false, 'file section grouping helper exists');
 $expect(strpos($functions, 'printflow_staff_add_details_notification_url') !== false, 'staff notification routing uses add details URL');
+$expect(strpos($revision, 'printflow_customer_add_details_notification_url') !== false, 'customer notification URL helper exists');
+$expect(strpos($functions, 'printflow_notification_is_staff_add_details_request') !== false, 'customer notification classifier for staff requests exists');
 $expect(strpos($customizations, 'revisionSelectedDesignFileIds') !== false, 'staff modal tracks selected design file ids');
 $expect(strpos($customizations, 'focus_add_details') !== false, 'customizations deep link supports focus_add_details');
 $expect(strpos($revision, 'printflow_revision_unified_design_files_for_request') !== false, 'unified design file dedupe helper exists');

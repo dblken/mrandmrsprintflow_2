@@ -260,7 +260,7 @@ $pfAssetBase = rtrim((function_exists('pf_app_base_path') ? pf_app_base_path() :
     </div>
 
     <section class="revision-feedback">
-        <h2>Reason for Request Add Details</h2>
+        <h2>Staff Requested Additional Details</h2>
         <p><strong><?php echo htmlspecialchars((string)$revision['revision_reason']); ?></strong></p>
         <p><?php echo nl2br(htmlspecialchars((string)$revision['staff_instruction'])); ?></p>
         <?php if (!empty($permissionLabels)): ?>

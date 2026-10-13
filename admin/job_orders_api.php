@@ -3083,6 +3083,7 @@ try {
         case 'request_add_details':
             jo_api_require_staff_mutation();
             require_once __DIR__ . '/../includes/revision_workflow.php';
+            require_once __DIR__ . '/../includes/add_details_labels.php';
             $orderId = (int)($_POST['order_id'] ?? 0);
             if ($orderId <= 0) {
                 throw new InvalidArgumentException('order_id is required.');
@@ -3110,19 +3111,23 @@ try {
                     'idempotency_key' => sanitize($_POST['revision_idempotency_key'] ?? ''),
                 ]);
             } catch (InvalidArgumentException $e) {
+                $msg = printflow_add_details_replace_phrases($e->getMessage());
                 jo_api_json_response([
                     'success' => false,
-                    'error' => $e->getMessage(),
-                    'message' => $e->getMessage(),
+                    'error' => $msg,
+                    'message' => $msg,
                 ], 422);
             } catch (RuntimeException $e) {
+                $msg = printflow_add_details_replace_phrases($e->getMessage());
                 jo_api_json_response([
                     'success' => false,
-                    'error' => $e->getMessage(),
-                    'message' => $e->getMessage(),
+                    'error' => $msg,
+                    'message' => $msg,
                 ], 409);
             }
-            if (($result['job_status_sync'] ?? '') === 'skipped' && empty($result['duplicate'])) {
+            if (!empty($result['repaired'])) {
+                $result['warning'] = 'The existing Request Add Details was updated and the customer was notified again.';
+            } elseif (($result['job_status_sync'] ?? '') === 'skipped' && empty($result['duplicate'])) {
                 $result['warning'] = 'The request was saved. No linked production job required a status change.';
             }
             if ($orderId > 0) {

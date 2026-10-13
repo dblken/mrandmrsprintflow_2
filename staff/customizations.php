@@ -10854,12 +10854,14 @@ window.pfServiceFieldCatalog = (() => {
                             await this.viewDetails(detailId, detailType);
                         }
                         this.showRevisionModal = false;
-                        const successText = res.duplicate
-                            ? 'This request was already submitted.'
-                            : (res.warning || 'Additional details request sent successfully.');
+                        const successText = res.repaired
+                            ? (res.warning || 'The existing Request Add Details was updated and the customer was notified.')
+                            : (res.duplicate
+                                ? 'This request was already submitted.'
+                                : (res.warning || 'Request Add Details sent successfully.'));
                         this.showStaffAlert('Success', successText);
                     } else {
-                        this.revisionModalError = res.error || res.message || 'Unable to send the request. Please try again.';
+                        this.revisionModalError = res.error || res.message || 'Unable to send Request Add Details. Please try again.';
                     }
                 } finally {
                     this.revisionSubmitting = false;
