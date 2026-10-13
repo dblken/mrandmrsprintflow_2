@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
+require_once __DIR__ . '/../includes/job_order_summary.php';
 
 require_role(['Admin', 'Manager']);
 // Ensure $base_path is defined
@@ -110,8 +111,11 @@ $jobCustomizationScopeSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.
 )";
 
 // Build query (branch from job row or linked store order)
+$jobSubmittedAtExpr = 'COALESCE(jo_ord.order_date, jo.created_at)';
 $sql = "SELECT jo.*, CONCAT(c.first_name, ' ', c.last_name) AS customer_name, c.email AS customer_email,
                jo_ord.payment_status AS order_payment_status,
+               jo_ord.order_date AS store_order_date,
+               {$jobSubmittedAtExpr} AS order_business_date,
                COALESCE(jo.branch_id, jo_ord.branch_id) AS branch_display_id,
                b.branch_name AS branch_name
         FROM job_orders jo
@@ -160,13 +164,13 @@ if ($payment_filter === 'PAID') {
 }
 
 if (!empty($date_from)) {
-    $sql .= " AND DATE(jo.created_at) >= ?";
+    $sql .= " AND DATE({$jobSubmittedAtExpr}) >= ?";
     $params[] = $date_from;
     $types .= 's';
 }
 
 if (!empty($date_to)) {
-    $sql .= " AND DATE(jo.created_at) <= ?";
+    $sql .= " AND DATE({$jobSubmittedAtExpr}) <= ?";
     $params[] = $date_to;
     $types .= 's';
 }
@@ -180,15 +184,19 @@ $offset = ($page - 1) * $per_page;
 
 // Sorting
 $order_clause = match($sort_by) {
-    'oldest' => "jo.created_at ASC",
+    'oldest' => "{$jobSubmittedAtExpr} ASC",
     'az'     => "c.first_name ASC, c.last_name ASC",
     'za'     => "c.first_name DESC, c.last_name DESC",
-    default  => "jo.created_at DESC"
+    default  => "{$jobSubmittedAtExpr} DESC"
 };
 $sql .= " ORDER BY $order_clause LIMIT $per_page OFFSET $offset";
 $jobs = db_query($sql, $types ?: null, $params ?: null) ?: [];
 foreach ($jobs as &$jobRow) {
     $jobRow['order_code'] = admin_customization_order_code($jobRow);
+    $jobRow['display_service_type'] = printflow_job_order_display_service_type($jobRow);
+    $jobRow['display_submitted_at'] = printflow_format_business_datetime_display(
+        printflow_job_order_business_date_value($jobRow)
+    );
 }
 unset($jobRow);
 
@@ -231,14 +239,14 @@ if (isset($_GET['ajax'])) {
                             <div class="text-xs text-gray-400"><?php echo htmlspecialchars($jo['customer_email'] ?: ''); ?></div>
                         </td>
                         <td class="py-3">
-                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($jo['service_type']); ?>">
-                                <?php echo htmlspecialchars($jo['service_type']); ?>
+                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>">
+                                <?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>
                             </div>
                             <?php if ($jo['quantity'] > 1): ?>
                                 <div class="text-xs text-gray-400">Qty: <?php echo $jo['quantity']; ?></div>
                             <?php endif; ?>
                         </td>
-                        <td class="py-3 text-center text-gray-500 text-xs"><?php echo date('M j, Y', strtotime($jo['created_at'])); ?></td>
+                        <td class="py-3 text-center text-gray-500 text-xs"><?php echo htmlspecialchars($jo['display_submitted_at'] ?? ''); ?></td>
                         <?php if ($branchId !== 'all'): ?>
                         <td class="py-3" style="max-width:140px;">
                             <?php
@@ -738,6 +746,34 @@ function custom_payment_badge($status) {
                 currentImage: '',
 
                 modalOrderCode: '',
+                formatBusinessSubmittedAt(job) {
+                    const value = String(job?.order_business_date || job?.order_date || job?.created_at || '').trim();
+                    if (!value) return '—';
+                    const parsed = new Date(value.replace(' ', 'T'));
+                    if (Number.isNaN(parsed.getTime())) return value;
+                    return parsed.toLocaleString('en-US', {
+                        timeZone: 'Asia/Manila',
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit'
+                    });
+                },
+                formatSystemCreatedAt(job) {
+                    const value = String(job?.system_created_at || '').trim();
+                    if (!value) return '';
+                    const parsed = new Date(value.replace(' ', 'T'));
+                    if (Number.isNaN(parsed.getTime())) return value;
+                    return parsed.toLocaleString('en-US', {
+                        timeZone: 'Asia/Manila',
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit'
+                    });
+                },
                 openModal(id, orderCode = '') {
                     this.showModal = true;
                     this.loading = true;
@@ -1260,14 +1296,14 @@ function custom_payment_badge($status) {
                                             </div>
                                         </td>
                                         <td class="py-3">
-                                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($jo['service_type']); ?>">
-                                                <?php echo htmlspecialchars($jo['service_type']); ?>
+                                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>">
+                                                <?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>
                                             </div>
                                             <?php if ($jo['quantity'] > 1): ?>
                                                 <div class="text-xs text-gray-400">Qty: <?php echo $jo['quantity']; ?></div>
                                             <?php endif; ?>
                                         </td>
-                                        <td class="py-3 text-center text-gray-500 text-xs"><?php echo date('M j, Y', strtotime($jo['created_at'])); ?></td>
+                                        <td class="py-3 text-center text-gray-500 text-xs"><?php echo htmlspecialchars($jo['display_submitted_at'] ?? ''); ?></td>
                                         <?php if ($branchId !== 'all'): ?>
                                         <td class="py-3" style="max-width:140px;">
                                             <?php
@@ -1418,11 +1454,17 @@ function custom_payment_badge($status) {
                     <div class="detail-row">
                         <div class="detail-block">
                             <label>Date Submitted</label>
-                            <span x-text="job?.created_at ? new Date(job.created_at).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : '—'"></span>
+                            <span x-text="formatBusinessSubmittedAt(job)"></span>
                         </div>
                         <div class="detail-block">
                             <label>Due Date</label>
                             <span x-text="job?.due_date ? new Date(job.due_date).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : 'Not set'"></span>
+                        </div>
+                    </div>
+                    <div class="detail-row" x-show="job?.system_created_at">
+                        <div class="detail-block">
+                            <label>System Created At</label>
+                            <span x-text="formatSystemCreatedAt(job)"></span>
                         </div>
                     </div>
                     <!-- Notes -->

@@ -40,3 +40,104 @@ function jo_api_summary_rows(array $rows): array
 {
     return array_map('jo_api_summary_row', $rows);
 }
+
+/**
+ * Business/order datetime for customizations (POS backdated order_date when set).
+ */
+function printflow_job_order_business_date_value(array $jobRow, ?array $orderRow = null): string
+{
+    $orderDate = '';
+    if ($orderRow !== null) {
+        $orderDate = trim((string)($orderRow['order_date'] ?? ''));
+    }
+    if ($orderDate === '') {
+        $orderDate = trim((string)($jobRow['order_date'] ?? $jobRow['store_order_date'] ?? ''));
+    }
+    if ($orderDate !== '') {
+        return $orderDate;
+    }
+
+    return trim((string)($jobRow['created_at'] ?? ''));
+}
+
+function printflow_format_business_datetime_display(string $raw, string $timezone = 'Asia/Manila'): string
+{
+    $raw = trim($raw);
+    if ($raw === '') {
+        return '';
+    }
+    try {
+        $dt = new DateTimeImmutable(str_replace('T', ' ', $raw), new DateTimeZone($timezone));
+    } catch (Throwable $e) {
+        $ts = strtotime($raw);
+        if ($ts === false) {
+            return $raw;
+        }
+        $dt = (new DateTimeImmutable('@' . $ts))->setTimezone(new DateTimeZone($timezone));
+    }
+
+    return $dt->format('M j, Y g:i A');
+}
+
+/**
+ * Resolve the service label for one job line (customization/order item), not the first cart line.
+ */
+function printflow_job_order_display_service_type(array $jobRow): string
+{
+    $orderId = (int)($jobRow['order_id'] ?? 0);
+    $orderItemId = (int)($jobRow['order_item_id'] ?? 0);
+
+    if ($orderId > 0 && $orderItemId > 0 && function_exists('db_query')) {
+        $rows = db_query(
+            "SELECT c.service_type, c.customization_details, oi.customization_data
+             FROM customizations c
+             LEFT JOIN order_items oi ON oi.order_item_id = c.order_item_id
+             WHERE c.order_id = ? AND c.order_item_id = ?
+             LIMIT 1",
+            'ii',
+            [$orderId, $orderItemId]
+        ) ?: [];
+        if (!empty($rows[0])) {
+            $serviceType = trim((string)($rows[0]['service_type'] ?? ''));
+            if ($serviceType !== '') {
+                return $serviceType;
+            }
+            if (!function_exists('printflow_decode_modal_customization_payload')) {
+                require_once __DIR__ . '/functions.php';
+            }
+            $details = printflow_decode_modal_customization_payload((string)($rows[0]['customization_details'] ?? ''));
+            if ($details === [] && !empty($rows[0]['customization_data'])) {
+                $details = printflow_decode_modal_customization_payload((string)$rows[0]['customization_data']);
+            }
+            if (function_exists('get_service_name_from_customization')) {
+                $fromCustom = get_service_name_from_customization($details, '');
+                if ($fromCustom !== '') {
+                    return $fromCustom;
+                }
+            }
+        }
+    }
+
+    if ($orderId > 0 && $orderItemId > 0) {
+        require_once __DIR__ . '/JobOrderService.php';
+        $payload = JobOrderService::getStoreOrderItemsPayload($orderId, false, true);
+        $items = is_array($payload['items'] ?? null) ? $payload['items'] : [];
+        if (function_exists('printflow_anchor_material_context_to_order_item')) {
+            require_once __DIR__ . '/functions.php';
+            $ctx = printflow_anchor_material_context_to_order_item(
+                $items,
+                $orderItemId,
+                trim((string)($jobRow['service_type'] ?? '')),
+                [],
+                (string)($jobRow['width_ft'] ?? '1'),
+                (string)($jobRow['height_ft'] ?? '1')
+            );
+            $resolved = trim((string)($ctx['serviceName'] ?? ''));
+            if ($resolved !== '' && strcasecmp($resolved, 'Custom Order') !== 0) {
+                return $resolved;
+            }
+        }
+    }
+
+    return trim((string)($jobRow['service_type'] ?? $jobRow['job_title'] ?? ''));
+}

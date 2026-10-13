@@ -3572,7 +3572,23 @@ class JobOrderService {
         if (!empty($payload['customization_details']) && is_array($payload['customization_details'])) {
             $jo['customization_details'] = $payload['customization_details'];
         }
-        if (trim((string)($payload['service_type'] ?? '')) !== ''
+        $ownItemId = (int)($jo['order_item_id'] ?? 0);
+        $lineService = '';
+        if ($ownItemId > 0 && !empty($payload['items']) && is_array($payload['items'])) {
+            foreach ($payload['items'] as $lineItem) {
+                if ((int)($lineItem['order_item_id'] ?? 0) !== $ownItemId) {
+                    continue;
+                }
+                $lineService = trim((string)($lineItem['product_name'] ?? ''));
+                if ($lineService === '' && is_array($lineItem['customization'] ?? null) && function_exists('get_service_name_from_customization')) {
+                    $lineService = get_service_name_from_customization($lineItem['customization'], '');
+                }
+                break;
+            }
+        }
+        if ($lineService !== '' && strcasecmp($lineService, 'Custom Order') !== 0) {
+            $jo['service_type'] = $lineService;
+        } elseif (trim((string)($payload['service_type'] ?? '')) !== ''
             && strcasecmp(trim((string)($payload['service_type'] ?? '')), 'Custom Order') !== 0) {
             $jo['service_type'] = trim((string)$payload['service_type']);
         }
@@ -3628,6 +3644,7 @@ class JobOrderService {
                        TRIM(CONCAT_WS(', ', NULLIF(TRIM(c.street_address), ''), NULLIF(TRIM(c.barangay), ''), NULLIF(TRIM(c.city), ''))) AS customer_address,
                        COALESCE(jo.branch_id, ord.branch_id) AS branch_display_id,
                        b.branch_name AS branch_name,
+                       ord.order_date AS store_order_date,
                        oi.order_item_id AS joined_order_item_id,
                        oi.customization_data AS joined_customization_data,
                        oi.design_file AS joined_design_file,
@@ -3646,6 +3663,7 @@ class JobOrderService {
         $order = db_query($sql, 'i', [$id]);
         if (!$order) return null;
         $order = $order[0];
+        $order['system_created_at'] = $order['created_at'];
         
         // Format customer picture with full path
         if (!empty($order['profile_picture'])) {
@@ -3909,6 +3927,23 @@ class JobOrderService {
                     $fallbackInkTypes .= 'i';
                 }
                 $order['ink_usage'] = db_query($fallbackInkSql, $fallbackInkTypes, $fallbackInkParams) ?: [];
+            }
+        }
+
+        require_once __DIR__ . '/job_order_summary.php';
+        $businessRaw = printflow_job_order_business_date_value($order);
+        $order['order_business_date'] = $businessRaw;
+        if (trim((string)($order['order_date'] ?? '')) === '') {
+            $order['order_date'] = trim((string)($order['store_order_date'] ?? '')) !== ''
+                ? trim((string)$order['store_order_date'])
+                : $businessRaw;
+        }
+        $resolvedService = printflow_job_order_display_service_type($order);
+        if ($resolvedService !== '') {
+            $order['service_type'] = $resolvedService;
+            if (trim((string)($order['job_title'] ?? '')) === ''
+                || strcasecmp(trim((string)($order['job_title'] ?? '')), trim((string)($order['service_type'] ?? ''))) === 0) {
+                $order['job_title'] = $resolvedService;
             }
         }
 
