@@ -149,6 +149,14 @@ function printflow_pos_customization_estimated_total(array $customization, int $
     return 0.0;
 }
 
+/**
+ * Customer-facing copy when a service estimate is ₱0 or not yet configured (not POS).
+ */
+function printflow_customer_zero_estimated_price_message(): string
+{
+    return 'The price is not zero. Our staff will review the material and specifications needed for your order before confirming the final price.';
+}
+
 function pos_cart_resolve_price_set_on_add(bool $isService, array $data, array $itemSeed): bool
 {
     if (!$isService) {

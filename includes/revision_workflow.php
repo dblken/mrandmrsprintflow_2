@@ -745,6 +745,103 @@ function printflow_staff_add_details_notification_url(int $orderId, int $revisio
     return $base . '/staff/customizations.php?' . http_build_query($params);
 }
 
+function printflow_order_status_is_for_revision(string $status): bool
+{
+    $normalized = strtoupper(str_replace([' ', '-', '–'], '_', trim($status)));
+    $normalized = preg_replace('/_+/', '_', $normalized) ?? $normalized;
+    return $normalized === 'FOR_REVISION';
+}
+
+function printflow_revision_request_is_customer_pending(array $revision): bool
+{
+    return in_array((string)($revision['request_status'] ?? ''), ['Requested', 'Customer Updating Details'], true);
+}
+
+/**
+ * Pending Request Add Details the customer may respond to (active request is authoritative).
+ */
+function printflow_revision_get_customer_pending_request(
+    int $orderId,
+    int $customerId,
+    ?int $revisionRequestId = null
+): ?array {
+    if ($orderId <= 0 || $customerId <= 0 || !printflow_revision_ensure_schema()) {
+        return null;
+    }
+    if ($revisionRequestId !== null && $revisionRequestId > 0) {
+        $rows = db_query(
+            'SELECT * FROM order_revision_requests
+             WHERE revision_request_id = ? AND order_id = ? AND customer_id = ? AND active_flag = 1
+             LIMIT 1',
+            'iii',
+            [$revisionRequestId, $orderId, $customerId]
+        ) ?: [];
+        if (!empty($rows[0])) {
+            $row = $rows[0];
+            $row['permitted_fields_array'] = printflow_revision_decode_json($row['permitted_fields'] ?? '[]');
+            $row['previous_values_array'] = printflow_revision_decode_json($row['previous_values'] ?? '{}');
+            $revision = printflow_revision_hydrate_request_row($row);
+            return printflow_revision_request_is_customer_pending($revision) ? $revision : null;
+        }
+    }
+    $revision = printflow_revision_get_active_or_legacy($orderId, $customerId);
+    if ($revision === null || !printflow_revision_request_is_customer_pending($revision)) {
+        return null;
+    }
+    return $revision;
+}
+
+/**
+ * When a pending request exists but order rows were not synced, restore customer access.
+ *
+ * @param array<string,mixed> $revision
+ */
+function printflow_revision_repair_customer_order_access(int $orderId, int $customerId, array $revision): bool
+{
+    if ($orderId <= 0 || $customerId <= 0) {
+        return false;
+    }
+    $requestStatus = (string)($revision['request_status'] ?? '');
+    if (!in_array($requestStatus, ['Requested', 'Customer Updating Details'], true)) {
+        return false;
+    }
+    $orderRows = db_query(
+        'SELECT status, design_status FROM orders WHERE order_id = ? AND customer_id = ? LIMIT 1',
+        'ii',
+        [$orderId, $customerId]
+    ) ?: [];
+    if (empty($orderRows[0])) {
+        return false;
+    }
+    $orderStatus = (string)($orderRows[0]['status'] ?? '');
+    $designStatus = strtolower(trim((string)($orderRows[0]['design_status'] ?? '')));
+    if (printflow_order_status_is_for_revision($orderStatus)
+        && $designStatus === strtolower('Revision Requested')) {
+        return false;
+    }
+    $reasonLabel = trim((string)($revision['revision_reason'] ?? ''));
+    $instruction = trim((string)($revision['staff_instruction'] ?? ''));
+    $legacyReason = $reasonLabel !== '' && $instruction !== ''
+        ? $reasonLabel . ': ' . $instruction
+        : ($instruction !== '' ? $instruction : $reasonLabel);
+    if ($legacyReason === '') {
+        $legacyReason = 'Request Add Details';
+    }
+    $targetCustomizationId = (int)($revision['customization_id'] ?? 0);
+    $revisionRequest = [
+        'permitted_fields' => is_array($revision['permitted_fields_array'] ?? null)
+            ? $revision['permitted_fields_array']
+            : [],
+    ];
+    printflow_revision_sync_entities_after_staff_request(
+        $orderId,
+        $targetCustomizationId,
+        $legacyReason,
+        $revisionRequest
+    );
+    return true;
+}
+
 function printflow_customer_add_details_notification_url(int $orderId, int $revisionRequestId = 0): string
 {
     $base = function_exists('printflow_notification_base_path')
@@ -846,6 +943,11 @@ function printflow_revision_sync_entities_after_staff_request(
     string $legacyReason,
     array $revisionRequest
 ): array {
+    if (!function_exists('printflow_ensure_orders_status_schema')) {
+        require_once __DIR__ . '/ensure_orders_status_schema.php';
+    }
+    printflow_ensure_orders_status_schema();
+
     if ($targetCustomizationId > 0) {
         db_execute(
             'UPDATE customizations SET status = ?, rejection_reason = ?, updated_at = NOW() WHERE customization_id = ? AND order_id = ?',
@@ -862,11 +964,16 @@ function printflow_revision_sync_entities_after_staff_request(
         );
     }
 
-    db_execute(
+    $orderUpdated = db_execute(
         'UPDATE orders SET status = ?, rejection_reason = ?, design_status = ? WHERE order_id = ?',
         'sssi',
         ['For Revision', $legacyReason, 'Revision Requested', $orderId]
     );
+    if ($orderUpdated === false) {
+        throw new RuntimeException(
+            'Unable to update the order for Request Add Details. The order status column may need a schema update—contact support.'
+        );
+    }
 
     $jobStatusSync = 'skipped';
     $jobRows = db_query(
@@ -1695,8 +1802,8 @@ function printflow_revision_get_active_or_legacy(int $orderId, int $customerId):
     ) ?: [];
     $order = $rows[0] ?? null;
     if ($order === null
-        || (string)($order['status'] ?? '') !== 'For Revision'
-        || (string)($order['design_status'] ?? '') !== 'Revision Requested') {
+        || !printflow_order_status_is_for_revision((string)($order['status'] ?? ''))
+        || strtolower(trim((string)($order['design_status'] ?? ''))) !== strtolower('Revision Requested')) {
         return null;
     }
     $legacyReason = trim((string)($order['revision_reason'] ?? ''));
@@ -2290,15 +2397,35 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             throw new RuntimeException('Order not found.');
         }
         $order = $orderRows[0];
-        if ((string) ($order['status'] ?? '') !== 'For Revision') {
-            throw new RuntimeException('This order is not currently open for revision.');
+        if (!printflow_order_status_is_for_revision((string)($order['status'] ?? ''))) {
+            $request = printflow_revision_get_active($orderId, $customerId, false);
+            if (is_array($request)
+                && in_array((string)($request['request_status'] ?? ''), ['Requested', 'Customer Updating Details'], true)
+                && printflow_revision_repair_customer_order_access($orderId, $customerId, $request)) {
+                $orderRows = db_query(
+                    'SELECT * FROM orders WHERE order_id = ? AND customer_id = ? LIMIT 1 FOR UPDATE',
+                    'ii',
+                    [$orderId, $customerId]
+                ) ?: [];
+                if (!empty($orderRows[0])) {
+                    $order = $orderRows[0];
+                }
+            }
         }
         $request = printflow_revision_get_active($orderId, $customerId, true);
-        if ($request === null) {
-            throw new RuntimeException('No active revision request was found.');
+        if ($request === null || !printflow_revision_request_is_customer_pending($request)) {
+            throw new RuntimeException('No active Request Add Details was found for this order.');
         }
-        if (!in_array((string)($request['request_status'] ?? ''), ['Requested', 'Customer Updating Details'], true)) {
-            throw new RuntimeException('This revision request has already been resolved or submitted.');
+        if (!printflow_order_status_is_for_revision((string)($order['status'] ?? ''))) {
+            printflow_revision_repair_customer_order_access($orderId, $customerId, $request);
+            $orderRows = db_query(
+                'SELECT * FROM orders WHERE order_id = ? AND customer_id = ? LIMIT 1 FOR UPDATE',
+                'ii',
+                [$orderId, $customerId]
+            ) ?: [];
+            if (!empty($orderRows[0])) {
+                $order = $orderRows[0];
+            }
         }
         $permissions = $request['permitted_fields_array'];
         if (strtoupper(trim((string)($order['payment_status'] ?? ''))) === 'PAID'

@@ -12,8 +12,10 @@ $check = static function (bool $ok, string $label) use (&$passed): void {
     echo 'PASS: ', $label, PHP_EOL;
 };
 
-$modalMessage = 'This specification does not have an estimated price yet. The final price will be set by Staff before payment or order completion. Do you want to continue?';
-$check(!str_contains($modalMessage, 'Price Pending') && !str_contains($modalMessage, 'Needs Staff Pricing'), 'warning note is not a status label');
+$posModalMessage = 'This specification does not have an estimated price yet. The final price will be set by Staff before payment or order completion. Do you want to continue?';
+$customerZeroPriceMessage = printflow_customer_zero_estimated_price_message();
+$check(!str_contains($customerZeroPriceMessage, 'Price Pending') && !str_contains($customerZeroPriceMessage, 'Needs Staff Pricing'), 'customer zero-price note is not a status label');
+$check(str_contains($customerZeroPriceMessage, 'The price is not zero'), 'customer zero-price note explains staff will confirm price');
 $check(printflow_price_is_configured(360.0), 'a configured price stays valid');
 $check(!printflow_price_is_configured(0.0), 'a missing price is not treated as configured');
 
@@ -68,11 +70,13 @@ $check($servicesView !== '' && !str_contains($servicesView, 'pos-catalog-card__p
 $check(str_contains($pos, 'aria-label="Price"'), 'product cards still show their price');
 $check(str_contains($pos, 'id="pos-estimated-price-display" class="pos-estimated-price-display"') && !str_contains($pos, 'pos-estimated-price-display" hidden'), 'the order form shows Estimated Price');
 $check(str_contains($pos, 'pos-est-price-label">Estimated Price') && str_contains($pos, '₱0.00') && str_contains($pos, 'showSetPrice && item.price_set !== true'), 'a zero estimated price is still displayed');
-$check(str_contains($pos, $modalMessage) && str_contains($pos, 'confirmMissingEstimatedPrice'), 'POS asks before adding a specification with no estimated price');
+$check(str_contains($pos, $posModalMessage) && str_contains($pos, 'confirmMissingEstimatedPrice'), 'POS asks before adding a specification with no estimated price');
 $check(str_contains($pos, "if (priced.unitPrice <= 0)") && str_contains($pos, "if (!proceed) return"), 'Cancel leaves the item off the order');
-$check(str_contains($customerOrder, $modalMessage) && str_contains($customerOrder, 'pf-missing-estimate-continue') && str_contains($customerOrder, 'pf-missing-estimate-cancel'), 'the customer ordering page uses the same Continue and Cancel warning');
+$check(str_contains($customerOrder, 'pf-customer-zero-price-note') && str_contains($customerOrder, 'printflow_customer_zero_estimated_price_message'), 'customer ordering shows inline zero-price guidance');
+$check(!str_contains($customerOrder, $posModalMessage), 'customer ordering does not reuse the POS Continue/Cancel modal copy');
+$check(strpos($customerOrder, 'pf-missing-estimate-continue') === false, 'customer ordering does not block submit with a Continue/Cancel modal');
 $check(!str_contains($estimator, 'no configured price yet') && !str_contains($cart, 'no configured price yet') && !str_contains($pos, 'pos-unconfigured-price-note'), 'the ordering page no longer shows an inline missing-price message');
-$check(str_contains($customerOrder, 'specificationHasEstimatedPrice') && str_contains($customerOrder, 'estimatedPrice > 0') && str_contains($customerOrder, 'form.requestSubmit'), 'the warning appears only when estimated price is 0, and Continue submits the order');
+$check(str_contains($customerOrder, 'specificationHasEstimatedPrice') && str_contains($customerOrder, 'syncCustomerZeroPriceNote'), 'customer page shows guidance when estimated price is 0 without blocking submit');
 $check(str_contains($payment, 'total_to_pay <= 0'), 'payment stays blocked while the order total is not a valid price');
 $check(str_contains($priceApi, 'Price must be a valid amount of at least PHP 1.00'), 'Staff cannot save a zero or negative final price');
 

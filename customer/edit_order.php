@@ -9,7 +9,7 @@ require_role('Customer');
 
 $order_id = (int)($_GET['order_id'] ?? $_POST['order_id'] ?? 0);
 $customer_id = (int)get_user_id();
-$revisionReference = 'REV-' . max(0, $order_id) . '-' . strtoupper(substr(hash('sha256', $order_id . '|' . $customer_id . '|' . date('Y-m-d-H')), 0, 8));
+$revisionReference = 'ADD-' . max(0, $order_id) . '-' . strtoupper(substr(hash('sha256', $order_id . '|' . $customer_id . '|' . date('Y-m-d-H')), 0, 8));
 
 function customer_revision_stop(string $message, string $reference, int $orderId): never
 {
@@ -54,26 +54,57 @@ if (empty($orderRows)) {
     customer_revision_stop($message, $revisionReference, $order_id);
 }
 $order = $orderRows[0];
-$revision = printflow_revision_get_active_or_legacy($order_id, $customer_id);
+$revisionRequestIdHint = (int)($_GET['revision_request_id'] ?? 0);
+$revision = printflow_revision_get_customer_pending_request(
+    $order_id,
+    $customer_id,
+    $revisionRequestIdHint > 0 ? $revisionRequestIdHint : null
+);
 $revisionLoadError = '';
 if ($revision === null) {
-    error_log("[{$revisionReference}] Customer revision form could not load an active request for Order #{$order_id}.");
+    error_log("[{$revisionReference}] Customer Request Add Details form could not load an active request for Order #{$order_id}.");
     $latestRevision = printflow_revision_get_latest($order_id);
     $latestStatus = (string)($latestRevision['request_status'] ?? '');
-    $revisionLoadError = in_array($latestStatus, ['Resubmitted for Review', 'Staff Reviewing', 'Approved to Set Price'], true)
-        ? 'This revision was already submitted and is no longer open for customer editing.'
-        : 'No active revision request exists for this order.';
+    if ($revisionRequestIdHint > 0 && $latestRevision !== null
+        && (int)($latestRevision['revision_request_id'] ?? 0) !== $revisionRequestIdHint) {
+        $revisionLoadError = 'This notification links to a different Request Add Details record. Open My Orders and use the latest staff message for this order.';
+    } elseif (in_array($latestStatus, ['Resubmitted for Review', 'Staff Reviewing', 'Approved to Set Price'], true)) {
+        $revisionLoadError = 'Staff already received your response for this Request Add Details. You cannot upload again until staff sends a new request.';
+    } elseif ($latestStatus !== '') {
+        $revisionLoadError = 'This Request Add Details is no longer open (status: ' . printflow_add_details_status_label($latestStatus) . ').';
+    } else {
+        $revisionLoadError = 'No active Request Add Details exists for this order. Ask staff to send the request again from Customizations.';
+    }
 } elseif (!in_array((string)($revision['request_status'] ?? ''), ['Requested', 'Customer Updating Details'], true)) {
-    error_log("[{$revisionReference}] Customer attempted to open a closed revision state for Order #{$order_id}.");
-    $revisionLoadError = 'This revision request is no longer open for editing. Refresh My Orders to see its current status.';
+    error_log("[{$revisionReference}] Customer attempted to open a closed Request Add Details state for Order #{$order_id}.");
+    $revisionLoadError = 'This Request Add Details is no longer open for editing (status: '
+        . printflow_add_details_status_label((string)($revision['request_status'] ?? ''))
+        . '). Refresh My Orders to see its current status.';
 }
-$permissions = is_array($revision['permitted_fields_array'] ?? null) ? $revision['permitted_fields_array'] : [];
+$permissions = ($revision !== null && is_array($revision['permitted_fields_array'] ?? null))
+    ? $revision['permitted_fields_array']
+    : [];
 if ($revision !== null && empty($permissions)) {
-    error_log("[{$revisionReference}] Customer revision form found no permitted fields for Order #{$order_id}, Request #" . (int)$revision['revision_request_id']);
-    $revisionLoadError = 'The requested editable field is unavailable. Please ask the shop to issue a new revision request.';
+    error_log("[{$revisionReference}] Customer Request Add Details form found no permitted fields for Order #{$order_id}, Request #" . (int)$revision['revision_request_id']);
+    $revisionLoadError = 'Staff did not authorize any editable fields for this request. Please ask the shop to resend Request Add Details with the correct fields selected.';
 }
-if ($revision !== null && (string)($order['status'] ?? '') !== 'For Revision') {
-    $revisionLoadError = 'This order is no longer in a customer-editable revision status.';
+if ($revision !== null && !printflow_order_status_is_for_revision((string)($order['status'] ?? ''))) {
+    if (printflow_revision_repair_customer_order_access($order_id, $customer_id, $revision)) {
+        $orderRows = db_query(
+            "SELECT o.*, b.branch_name
+             FROM orders o
+             LEFT JOIN branches b ON b.id = o.branch_id
+             WHERE o.order_id = ? AND o.customer_id = ? LIMIT 1",
+            'ii',
+            [$order_id, $customer_id]
+        ) ?: [];
+        if (!empty($orderRows[0])) {
+            $order = $orderRows[0];
+        }
+    } elseif (!printflow_order_status_is_for_revision((string)($order['status'] ?? ''))) {
+        error_log("[{$revisionReference}] Pending Request Add Details #{$revisionRequestIdHint} for Order #{$order_id} while order status remains "
+            . (string)($order['status'] ?? '') . '; allowing customer upload from active request record.');
+    }
 }
 if ($revisionLoadError !== '') {
     customer_revision_stop($revisionLoadError, $revisionReference, $order_id);
@@ -260,7 +291,7 @@ $pfAssetBase = rtrim((function_exists('pf_app_base_path') ? pf_app_base_path() :
     </div>
 
     <section class="revision-feedback">
-        <h2>Staff Requested Additional Details</h2>
+        <h2>Additional Details Requested by Staff</h2>
         <p><strong><?php echo htmlspecialchars((string)$revision['revision_reason']); ?></strong></p>
         <p><?php echo nl2br(htmlspecialchars((string)$revision['staff_instruction'])); ?></p>
         <?php if (!empty($permissionLabels)): ?>

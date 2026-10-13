@@ -1314,13 +1314,24 @@ if ($order['status'] === 'Cancelled') {
 $can_cancel = !$payment_received && can_customer_cancel_order($order);
 $active_revision = null;
 $revision_request_error = '';
-if (($order['status'] ?? '') === 'For Revision' || ($order['design_status'] ?? '') === 'Revision Requested') {
-    $active_revision = printflow_revision_get_active_or_legacy($order_id, $customer_id);
-    if ($active_revision === null || empty($active_revision['permitted_fields_array'])) {
-        $requestId = (int)($active_revision['revision_request_id'] ?? 0);
-        $revision_request_error = 'This revision request is missing editable fields. The shop has been notified.';
-        error_log("Revision authorization invalid for customer Order #{$order_id}, Request #{$requestId}, while the order is marked Revision Requested.");
-        $active_revision = null;
+$active_revision = printflow_revision_get_customer_pending_request($order_id, $customer_id, null);
+if ($active_revision !== null && empty($active_revision['permitted_fields_array'])) {
+    $requestId = (int)($active_revision['revision_request_id'] ?? 0);
+    $revision_request_error = 'This Request Add Details is missing editable fields. The shop has been notified.';
+    error_log("Request Add Details authorization invalid for customer Order #{$order_id}, Request #{$requestId}.");
+    $active_revision = null;
+} elseif ($active_revision === null
+    && (($order['status'] ?? '') === 'For Revision' || ($order['design_status'] ?? '') === 'Revision Requested')) {
+    $legacyRevision = printflow_revision_get_active_or_legacy($order_id, $customer_id);
+    if ($legacyRevision !== null && printflow_revision_request_is_customer_pending($legacyRevision)) {
+        $active_revision = empty($legacyRevision['permitted_fields_array']) ? null : $legacyRevision;
+    }
+}
+if ($active_revision !== null && !printflow_order_status_is_for_revision((string)($order['status'] ?? ''))) {
+    printflow_revision_repair_customer_order_access($order_id, $customer_id, $active_revision);
+    $order_result = db_query($orderSql, 'ii', [$order_id, $customer_id]);
+    if (!empty($order_result[0])) {
+        $order = $order_result[0];
     }
 }
 $restriction_msg = '';
@@ -1443,7 +1454,9 @@ customer_order_items_json([
             'action_label' => printflow_revision_action_label($active_revision['permitted_fields_array']),
             'requested_at' => (string) $active_revision['requested_at'],
             'selected_source_files' => $selectedSourceFiles,
-            'revise_url' => (function_exists('pf_app_base_path') ? pf_app_base_path() : '') . '/customer/edit_order.php?order_id=' . $order_id,
+            'revise_url' => (function_exists('pf_app_base_path') ? pf_app_base_path() : '')
+                . '/customer/edit_order.php?order_id=' . $order_id
+                . '&revision_request_id=' . (int)($active_revision['revision_request_id'] ?? 0),
         ];
     })() : null,
     'revision_request_error' => $revision_request_error,

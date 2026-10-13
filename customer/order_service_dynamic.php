@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/customer_profile_completion.php';
 require_once __DIR__ . '/../includes/service_field_renderer.php';
+require_once __DIR__ . '/../includes/pos_set_price_helpers.php';
 
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
@@ -1197,6 +1198,9 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                         <div style="margin-top:0.5rem;font-size:0.875rem;color:#64748b;text-align:right;font-weight:500;">
                             Quantity: <span id="qty-display">1</span> | Final price will be confirmed by staff
                         </div>
+                        <p id="pf-customer-zero-price-note" hidden style="margin:0.85rem 0 0;padding:0.75rem 0.9rem;border-radius:10px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a5f;font-size:0.875rem;line-height:1.55;text-align:left;font-weight:500;">
+                            <?php echo htmlspecialchars(printflow_customer_zero_estimated_price_message(), ENT_QUOTES, 'UTF-8'); ?>
+                        </p>
                     </div>
                     
                     <?php echo render_service_fields($service_id, $branches, $existing_data); ?>
@@ -2081,29 +2085,7 @@ document.addEventListener('keydown', function(e) {
 });
 </script>
 
-<div id="pf-missing-estimate-modal" role="dialog" aria-modal="true" aria-labelledby="pf-missing-estimate-title" hidden style="position:fixed;inset:0;z-index:4000;display:none;align-items:center;justify-content:center;padding:1.25rem;background:rgba(15,23,42,0.55);">
-    <div style="width:min(440px,100%);background:#fff;border-radius:16px;padding:1.75rem 1.5rem;box-shadow:0 20px 50px rgba(15,23,42,0.2);text-align:center;">
-        <h3 id="pf-missing-estimate-title" style="margin:0 0 0.75rem;font-size:1.125rem;color:#0f172a;">Estimated Price</h3>
-        <p id="pf-missing-estimate-message" style="margin:0 0 1.25rem;font-size:0.95rem;line-height:1.5;color:#334155;">This specification does not have an estimated price yet. The final price will be set by Staff before payment or order completion. Do you want to continue?</p>
-        <div style="display:flex;gap:0.75rem;justify-content:center;">
-            <button type="button" id="pf-missing-estimate-cancel" style="min-width:120px;padding:0.65rem 1rem;border:1px solid #e2e8f0;background:#f8fafc;color:#475569;border-radius:10px;font-weight:700;cursor:pointer;">Cancel</button>
-            <button type="button" id="pf-missing-estimate-continue" style="min-width:120px;padding:0.65rem 1rem;border:none;background:#0a2530;color:#fff;border-radius:10px;font-weight:700;cursor:pointer;">Continue</button>
-        </div>
-    </div>
-</div>
 <script src="<?php echo htmlspecialchars($base_path . '/public/assets/js/service_estimated_price.js'); ?>"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const form = document.getElementById('serviceForm');
-    if (!form || typeof window.printflowInitServiceEstimatedPrice !== 'function') return;
-
-    window.printflowInitServiceEstimatedPrice(form, {
-        basePrice: <?php echo (float)($service['base_price'] ?? 0); ?>,
-        form: form
-    });
-});
-</script>
-
 <script>
 // Final Validation Script Update - v4.0.0
 document.addEventListener('DOMContentLoaded', function() {
@@ -2232,8 +2214,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (getRowValueState(row).rowHasValue) removeRowErrors(row);
         };
 
-        let missingEstimateConfirmed = false;
-        const missingEstimateMessage = 'This specification does not have an estimated price yet. The final price will be set by Staff before payment or order completion. Do you want to continue?';
+        const zeroPriceNote = document.getElementById('pf-customer-zero-price-note');
 
         const currentEstimatedPrice = () => {
             if (typeof window.calculateEstimatedPrice === 'function') {
@@ -2249,27 +2230,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const specificationHasEstimatedPrice = (estimatedPrice) => Number.isFinite(estimatedPrice) && estimatedPrice > 0;
 
-        const confirmMissingEstimatedPrice = () => new Promise((resolve) => {
-            const overlay = document.getElementById('pf-missing-estimate-modal');
-            const cancelBtn = document.getElementById('pf-missing-estimate-cancel');
-            const continueBtn = document.getElementById('pf-missing-estimate-continue');
-            if (!overlay || !cancelBtn || !continueBtn) {
-                resolve(window.confirm(missingEstimateMessage));
-                return;
-            }
-            const finish = (proceed) => {
-                overlay.hidden = true;
-                overlay.style.display = 'none';
-                cancelBtn.onclick = null;
-                continueBtn.onclick = null;
-                resolve(proceed);
-            };
-            cancelBtn.onclick = () => finish(false);
-            continueBtn.onclick = () => finish(true);
-            overlay.hidden = false;
-            overlay.style.display = 'flex';
-            continueBtn.focus();
-        });
+        const syncCustomerZeroPriceNote = () => {
+            if (!zeroPriceNote) return;
+            zeroPriceNote.hidden = specificationHasEstimatedPrice(currentEstimatedPrice());
+        };
 
         const isPublicDesignLinkHost = (hostname) => {
             const host = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
@@ -2397,21 +2361,27 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
-            if (!missingEstimateConfirmed && !specificationHasEstimatedPrice(currentEstimatedPrice())) {
-                e.preventDefault();
-                const submitter = e.submitter || null;
-                confirmMissingEstimatedPrice().then((proceed) => {
-                    if (!proceed) return;
-                    missingEstimateConfirmed = true;
-                    if (typeof form.requestSubmit === 'function') {
-                        form.requestSubmit(submitter);
-                    } else {
-                        form.submit();
-                    }
-                    missingEstimateConfirmed = false;
-                });
-            }
         });
+
+        if (typeof window.printflowInitServiceEstimatedPrice === 'function') {
+            const priceWidget = window.printflowInitServiceEstimatedPrice(form, {
+                basePrice: <?php echo (float)($service['base_price'] ?? 0); ?>,
+                form: form
+            });
+            if (priceWidget && typeof priceWidget.recalculate === 'function') {
+                const baseRecalculate = priceWidget.recalculate.bind(priceWidget);
+                priceWidget.recalculate = function () {
+                    const result = baseRecalculate();
+                    syncCustomerZeroPriceNote();
+                    return result;
+                };
+                priceWidget.recalculate();
+            } else {
+                syncCustomerZeroPriceNote();
+            }
+            form.addEventListener('change', syncCustomerZeroPriceNote);
+            form.addEventListener('input', syncCustomerZeroPriceNote);
+        }
 
         ['input', 'change', 'click'].forEach(eventName => {
             form.addEventListener(eventName, function(e) {
