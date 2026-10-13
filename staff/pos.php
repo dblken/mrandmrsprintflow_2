@@ -89,18 +89,11 @@ try {
             $pos_default_catalog_img
         );
         $image_url = pf_normalize_service_image_path($img, $pos_base_path, $pos_default_catalog_img);
-        $price_label = trim((string) ($pricing['price_label'] ?? ''));
-        if ($price_label === '') {
-            $price_label = 'Custom Pricing';
-        }
-        $display_price = $pricing['display_price'] ?? null;
         $pos_services[] = [
             'service_id' => $sid,
             'name' => $row['name'],
             'category' => $row['category'] ?? '',
             'image_url' => $image_url,
-            'price_label' => $price_label,
-            'display_price' => $display_price,
             'pricing_type' => (string) ($pricing['pricing_type'] ?? 'custom'),
         ];
         if (printflow_service_requires_pos_set_price($sid, (string) ($row['name'] ?? ''), (string) ($row['category'] ?? ''))) {
@@ -3117,10 +3110,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                     <?php foreach ($pos_services as $svc):
                                         $svc_img = htmlspecialchars($svc['image_url'] ?? $pos_default_catalog_img, ENT_QUOTES);
                                         $svc_name = htmlspecialchars($svc['name'] ?? '', ENT_QUOTES);
-                                        $svc_price = $svc['display_price'] ?? null;
-                                        $price_text = ($svc_price !== null && $svc_price !== '')
-                                            ? '₱' . number_format((float) $svc_price, 2)
-                                            : htmlspecialchars($svc['price_label'] ?? 'Custom Pricing', ENT_QUOTES);
                                     ?>
                                         <button type="button" class="pos-catalog-card"
                                             data-service-id="<?php echo (int) $svc['service_id']; ?>"
@@ -3136,7 +3125,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                                     <span class="pos-catalog-card__meta"><?php echo htmlspecialchars($svc['category']); ?></span>
                                                 <?php endif; ?>
                                                 <p class="pos-catalog-card__name" title="<?php echo $svc_name; ?>"><?php echo $svc_name; ?></p>
-                                                <div class="pos-catalog-card__price"><?php echo $price_text; ?></div>
                                             </div>
                                         </button>
                                     <?php endforeach; ?>
@@ -3341,7 +3329,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             <div id="sm-fields-body" style="overflow-y:auto;flex:1;padding:20px 24px;"></div>
             <div id="sm-footer-actions" class="sm-footer-actions" style="display:none;">
                 <div class="sm-footer-inner">
-                    <div id="pos-estimated-price-display" class="pos-estimated-price-display">
+                    <div id="pos-estimated-price-display" class="pos-estimated-price-display" hidden aria-hidden="true">
                         <div class="pos-est-price-label">Estimated Price</div>
                         <div id="pos-estimated-total" class="pos-est-price-amount">₱0.00</div>
                         <div class="pos-est-price-meta">Based on selected options · Qty <span id="pos-qty-display">1</span></div>
