@@ -197,11 +197,90 @@ if (!function_exists('printflow_require_staff_module')) {
     }
 }
 
+if (!function_exists('printflow_order_channel_is_pos')) {
+    function printflow_order_channel_is_pos(?string $orderSource): bool
+    {
+        return in_array(strtolower(trim((string)$orderSource)), ['pos', 'walk-in', 'pos_merged', 'pos_draft'], true);
+    }
+}
+
+if (!function_exists('printflow_resolve_staff_order_source')) {
+    /**
+     * Resolve the staff channel for an order (POS vs online), including Set Price drafts.
+     */
+    function printflow_resolve_staff_order_source(?int $orderId, ?string $currentSource = null): string
+    {
+        $source = strtolower(trim((string)$currentSource));
+        if (in_array($source, ['pos', 'walk-in', 'pos_merged', 'pos_draft'], true)) {
+            return $source;
+        }
+
+        if ($orderId === null || $orderId <= 0 || !function_exists('db_query')) {
+            return $source !== '' ? $source : 'customer';
+        }
+
+        $sourceCheckRows = db_query(
+            "SELECT
+                LOWER(TRIM(COALESCE(o.order_source, ''))) AS db_order_source,
+                LOWER(TRIM(COALESCE(c.email, ''))) AS customer_email,
+                EXISTS(
+                    SELECT 1
+                    FROM customizations cust
+                    WHERE cust.order_id = o.order_id
+                      AND (
+                          cust.customization_details LIKE '%\"source\":\"POS\"%'
+                          OR cust.customization_details LIKE '%\"source\": \"POS\"%'
+                      )
+                ) AS has_pos_customization,
+                EXISTS(
+                    SELECT 1
+                    FROM order_items oi
+                    WHERE oi.order_id = o.order_id
+                      AND (
+                          oi.customization_data LIKE '%\"source\":\"POS\"%'
+                          OR oi.customization_data LIKE '%\"source\": \"POS\"%'
+                      )
+                ) AS has_pos_order_item
+             FROM orders o
+             LEFT JOIN customers c ON c.customer_id = o.customer_id
+             WHERE o.order_id = ?
+             LIMIT 1",
+            'i',
+            [$orderId]
+        );
+        $sourceCheck = $sourceCheckRows[0] ?? [];
+        $dbOrderSource = strtolower(trim((string)($sourceCheck['db_order_source'] ?? '')));
+        if (in_array($dbOrderSource, ['pos', 'walk-in', 'pos_merged', 'pos_draft'], true)) {
+            return $dbOrderSource;
+        }
+
+        $customerEmail = strtolower(trim((string)($sourceCheck['customer_email'] ?? '')));
+        $isWalkInGuest = $customerEmail === 'walkin@pos.local';
+        $hasPosCustomization = !empty($sourceCheck['has_pos_customization']);
+        $hasPosOrderItem = !empty($sourceCheck['has_pos_order_item']);
+        if ($isWalkInGuest || $hasPosCustomization || $hasPosOrderItem) {
+            if (function_exists('db_execute')) {
+                db_execute(
+                    "UPDATE orders
+                     SET order_source = 'pos'
+                     WHERE order_id = ?
+                       AND LOWER(TRIM(COALESCE(order_source, ''))) NOT IN ('pos', 'walk-in', 'pos_merged', 'pos_draft')",
+                    'i',
+                    [$orderId]
+                );
+            }
+            return 'pos';
+        }
+
+        return $source !== '' ? $source : 'customer';
+    }
+}
+
 if (!function_exists('printflow_staff_order_source_sql')) {
     function printflow_staff_order_source_sql(string $orderAlias = 'o', ?string $role = null): string {
         $role = printflow_normalize_staff_access_role($role ?? printflow_get_staff_access_role());
         $posPredicate = "(
-            LOWER(TRIM(COALESCE({$orderAlias}.order_source, ''))) IN ('pos', 'walk-in', 'pos_merged')
+            LOWER(TRIM(COALESCE({$orderAlias}.order_source, ''))) IN ('pos', 'walk-in', 'pos_merged', 'pos_draft')
             OR EXISTS (
                 SELECT 1
                 FROM customizations pos_scope
@@ -272,8 +351,7 @@ if (!function_exists('printflow_resolve_order_source_for_staff_scope')) {
 if (!function_exists('printflow_staff_role_can_access_order_source')) {
     function printflow_staff_role_can_access_order_source(?string $staffRole, ?string $orderSource): bool {
         $staffRole = printflow_normalize_staff_access_role($staffRole ?? printflow_get_staff_access_role());
-        $orderSource = strtolower(trim((string)$orderSource));
-        $isPos = in_array($orderSource, ['pos', 'walk-in', 'pos_merged'], true);
+        $isPos = printflow_order_channel_is_pos($orderSource);
 
         if ($staffRole === 'pos') {
             return $isPos;

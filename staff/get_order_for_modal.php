@@ -13,6 +13,7 @@ require_once __DIR__ . '/../includes/production_requirements.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/change_item_workflow.php';
 require_once __DIR__ . '/../includes/pos_customer_helpers.php';
+require_once __DIR__ . '/../includes/staff_access.php';
 
 header('Content-Type: application/json');
 
@@ -51,8 +52,8 @@ if (empty($order_row)) {
 
 $o = $order_row[0];
 $o['customer_full_name'] = printflow_pos_order_customer_display_name($o);
-$resolvedOrderSource = strtolower(trim((string)($o['order_source'] ?? 'customer')));
-$isPosSource = in_array($resolvedOrderSource, ['pos', 'walk-in', 'pos_merged'], true);
+$resolvedOrderSource = printflow_resolve_staff_order_source($order_id, (string)($o['order_source'] ?? 'customer'));
+$o['order_source'] = $resolvedOrderSource;
 if (get_user_type() === 'Staff') {
     $staffAccessRole = printflow_get_staff_access_role();
     $allowsCrossChannelRead = false;
@@ -63,7 +64,7 @@ if (get_user_type() === 'Staff') {
     }
     if (
         !$allowsCrossChannelRead
-        && (($staffAccessRole === 'pos' && !$isPosSource) || ($staffAccessRole === 'online' && $isPosSource))
+        && !printflow_staff_role_can_access_order_source($staffAccessRole, $resolvedOrderSource)
     ) {
         if (getenv('PRINTFLOW_NOTIFICATION_DEBUG') === '1') {
             error_log('[get_order_for_modal] access denied order_id=' . $order_id
