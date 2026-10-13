@@ -219,21 +219,10 @@ function printflow_job_order_display_service_type(array $jobRow): string
         $payload = JobOrderService::getStoreOrderItemsPayload($orderId, false, true);
         $items = is_array($payload['items'] ?? null) ? $payload['items'] : [];
         $storeLine = printflow_job_order_find_store_line($items, $orderItemId);
-        if ($storeLine === null && $orderItemId <= 0 && function_exists('printflow_anchor_material_context_to_order_item')) {
-            require_once __DIR__ . '/functions.php';
-            $ctx = printflow_anchor_material_context_to_order_item(
-                $items,
-                0,
-                trim((string)($jobRow['service_type'] ?? '')),
-                [],
-                (string)($jobRow['width_ft'] ?? '1'),
-                (string)($jobRow['height_ft'] ?? '1')
-            );
-            $primary = $ctx['primaryItem'] ?? null;
-            if (is_array($primary)) {
-                $storeLine = $primary;
-                $orderItemId = (int)($primary['order_item_id'] ?? 0);
-            }
+        if ($storeLine === null && count($items) > 1) {
+            // There is no resolvable job-to-line relationship. Never select the
+            // first cart line or an unrelated legacy workflow title.
+            return 'Unknown Service';
         }
     }
 

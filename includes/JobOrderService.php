@@ -2513,7 +2513,6 @@ class JobOrderService {
         if ($storeOrderId <= 0) {
             return ['items' => [], 'width_ft' => '1', 'height_ft' => '1', 'service_type' => ''];
         }
-        self::repairMissingOrderItemLinks($storeOrderId);
         if (function_exists('printflow_ensure_order_items_specifications_column')) {
             printflow_ensure_order_items_specifications_column();
         }
@@ -3628,11 +3627,6 @@ class JobOrderService {
     }
 
     public static function getOrder($id) {
-        $linkedStoreOrderId = self::getLinkedStoreOrderId((int)$id);
-        if ($linkedStoreOrderId > 0) {
-            self::repairMissingOrderItemLinks($linkedStoreOrderId);
-        }
-
         $sql = "SELECT jo.*, 
                        c.customer_type, c.transaction_count,
                        CONCAT(c.first_name, ' ', c.last_name) as customer_full_name,
@@ -3654,9 +3648,9 @@ class JobOrderService {
                 LEFT JOIN customers c ON jo.customer_id = c.customer_id
                 LEFT JOIN orders ord ON ord.order_id = jo.order_id
                 LEFT JOIN branches b ON b.id = COALESCE(jo.branch_id, ord.branch_id)
-                LEFT JOIN order_items oi ON oi.order_item_id = COALESCE(
+                LEFT JOIN order_items oi ON oi.order_id = jo.order_id AND oi.order_item_id = COALESCE(
                     NULLIF(jo.order_item_id, 0),
-                    (SELECT MIN(oi2.order_item_id) FROM order_items oi2 WHERE oi2.order_id = jo.order_id)
+                    (SELECT MIN(oi2.order_item_id) FROM order_items oi2 WHERE oi2.order_id = jo.order_id HAVING COUNT(*) = 1)
                 )
                 WHERE jo.id = ?";
         
@@ -3676,11 +3670,15 @@ class JobOrderService {
         $storeOid = (int)($order['order_id'] ?? 0);
         if ($storeOid > 0) {
             $payload = self::getStoreOrderItemsPayload($storeOid, false, true);
-            if (empty($order['order_item_id']) && !empty($payload['items']) && count($payload['items']) === 1) {
-                $order['order_item_id'] = (int)($payload['items'][0]['order_item_id'] ?? 0);
-            } elseif (empty($order['order_item_id']) && !empty($order['joined_order_item_id'])) {
-                $order['order_item_id'] = (int)$order['joined_order_item_id'];
-            }
+            // Legacy POS jobs may still reference a staged item in another order.
+            // Resolve only within this order, without repairing persisted records.
+            require_once __DIR__ . '/job_order_summary.php';
+            $displayLine = printflow_job_order_find_store_line(
+                is_array($payload['items'] ?? null) ? $payload['items'] : [],
+                (int)($order['order_item_id'] ?? 0)
+            );
+            $order['saved_job_order_item_id'] = (int)($order['order_item_id'] ?? 0);
+            $order['order_item_id'] = is_array($displayLine) ? (int)$displayLine['order_item_id'] : 0;
             self::enrichStaffJobRowFromStorePayload($order, $payload);
             $order['customization_details'] = is_array($payload['customization_details'] ?? null)
                 ? $payload['customization_details']
@@ -3943,8 +3941,9 @@ class JobOrderService {
         if ($resolvedService !== '') {
             $order['display_service_type'] = $resolvedService;
             $order['service_type'] = $resolvedService;
-            if (trim((string)($order['job_title'] ?? '')) === ''
-                || strcasecmp(trim((string)($order['job_title'] ?? '')), trim((string)($order['service_type'] ?? ''))) === 0) {
+            if ($storeOrderId > 0
+                || trim((string)($order['job_title'] ?? '')) === ''
+                || strcasecmp(trim((string)($order['job_title'] ?? '')), $resolvedService) === 0) {
                 $order['job_title'] = $resolvedService;
             }
         }

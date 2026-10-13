@@ -752,6 +752,7 @@ function custom_payment_badge($status) {
         function custModal() {
             return {
                 showModal: false,
+                modalRequestToken: 0,
                 loading: false,
                 errorMsg: '',
                 job: null,
@@ -782,6 +783,7 @@ function custom_payment_badge($status) {
                     return String(j.id ?? j.order_id ?? this.modalOrderCode ?? 'job');
                 },
                 closeCustomizationModal() {
+                    this.modalRequestToken++;
                     this.showModal = false;
                     this.loading = false;
                     this.errorMsg = '';
@@ -987,6 +989,7 @@ function custom_payment_badge($status) {
                     return label === 'Notes' || text.length > 120;
                 },
                 openModal(id, orderCode = '') {
+                    const requestToken = this.modalRequestToken = (this.modalRequestToken || 0) + 1;
                     this.showModal = true;
                     this.loading = true;
                     this.errorMsg = '';
@@ -998,6 +1001,7 @@ function custom_payment_badge($status) {
                     fetch('<?php echo $base_path; ?>/admin/job_orders_api.php?action=get_order&id=' + id)
                         .then(async (r) => {
                             const text = await r.text();
+                            if (requestToken !== this.modalRequestToken) return;
                             let data;
                             try {
                                 data = JSON.parse(text);
@@ -1018,6 +1022,7 @@ function custom_payment_badge($status) {
                             }
                         })
                         .catch(() => {
+                            if (requestToken !== this.modalRequestToken) return;
                             this.loading = false;
                             this.errorMsg = 'Failed to connect to server.';
                         });

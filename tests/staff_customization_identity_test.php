@@ -15,7 +15,7 @@ $assert(str_contains($functionsSource, 'placeholder product_id'), 'identity help
 $serviceSource = (string)file_get_contents(__DIR__ . '/../includes/JobOrderService.php');
 $assert(str_contains($serviceSource, 'resolveBatchStoreOrderLineIdentity'), 'staff batch loader has shared identity resolver');
 $assert(str_contains($serviceSource, 'printflow_resolve_order_line_identity'), 'staff batch loader reuses customer identity rules');
-$assert(str_contains($serviceSource, 'SELECT order_id, order_type, reference_id FROM orders'), 'staff batch loader reads order type metadata');
+$assert((bool)preg_match('/SELECT order_id, order_type, reference_id(?:, order_date)? FROM orders/', $serviceSource), 'staff batch loader reads order type metadata');
 $assert(str_contains($serviceSource, "'product_name' => \$identity['display_name']"), 'summary batch uses resolved display_name instead of joined product name');
 
 $customizationsSource = (string)file_get_contents(__DIR__ . '/../staff/customizations.php');
