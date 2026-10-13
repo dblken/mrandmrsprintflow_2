@@ -3592,26 +3592,31 @@ $online_closed_count = 0;
                                     <a :href="revisionReplacementDesignUrl()" target="_blank" rel="noopener noreferrer" style="font-size:11px;font-weight:700;color:#166534;text-decoration:none;padding:7px 10px;background:#fff;border:1px solid #bbf7d0;border-radius:7px;" x-text="revisionDesignLinkLabel('replacement')"></a>
                                 </template>
                             </div>
-                            <template x-if="revisionReplacementIsImage() && !revisionReplacementDesignFiles().length">
+                            <template x-if="revisionReplacementIsImage() && !revisionUnifiedDesignFiles().length">
                                 <div style="margin-top:12px;">
                                     <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;margin-bottom:6px;">Customer's Updated Design — Awaiting Staff Review</div>
                                     <img :src="revisionReplacementDesignUrl()" alt="Customer updated design awaiting review" @click="previewFile = revisionReplacementDesignUrl()" style="display:block;max-width:min(100%,320px);max-height:220px;object-fit:contain;cursor:zoom-in;border-radius:10px;border:1px solid #bae6fd;background:#fff;box-shadow:0 2px 8px rgba(2,132,199,.12);">
                                 </div>
                             </template>
-                            <template x-if="revisionReplacementDesignFiles().length">
+                            <template x-if="revisionUnifiedDesignFiles().length">
                                 <div style="margin-top:14px;">
                                     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-                                        <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;">Additional Design Files</div>
-                                        <div style="font-size:10px;font-weight:700;color:#475569;" x-text="revisionReplacementDesignFiles().length + '/' + staffDesignFilesMaxPerItem({}) + ' files'"></div>
+                                        <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;">Design Files</div>
+                                        <div style="font-size:10px;font-weight:700;color:#475569;" x-text="revisionUnifiedDesignFileCountLabel()"></div>
                                     </div>
-                                    <div class="pf-design-files" :class="{ 'is-expanded': revisionReplacementDesignExpanded() }" data-pf-design-files>
-                                        <div class="pf-design-files__toolbar" x-show="revisionReplacementDesignFiles().length > 1">
-                                            <a class="pf-design-files__zip" :href="revisionReplacementDesignZipUrl()">Download all (ZIP)</a>
+                                    <div class="pf-design-files" :class="{ 'is-expanded': revisionUnifiedDesignExpanded() }" data-pf-design-files>
+                                        <div class="pf-design-files__toolbar" x-show="revisionUnifiedDesignFiles().length > 1">
+                                            <a class="pf-design-files__zip" :href="revisionUnifiedDesignZipUrl()">Download all (ZIP)</a>
                                         </div>
                                         <div class="pf-design-files__grid">
-                                            <template x-for="designFile in revisionReplacementDesignFiles()" :key="'rev-design-' + designFile.file_id">
-                                                <article class="pf-design-file-card" x-show="revisionReplacementDesignFileVisible(designFile)">
+                                            <template x-for="designFile in revisionUnifiedDesignFiles()" :key="'rev-unified-' + designFile.file_id">
+                                                <article class="pf-design-file-card" x-show="revisionUnifiedDesignFileVisible(designFile)">
                                                     <p class="pf-design-file-card__name" :title="designFile.display_name || 'Design file'" x-text="designFile.display_name || 'Design file'"></p>
+                                                    <div class="pf-design-file-card__meta" x-show="(designFile.source_labels || []).length" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;">
+                                                        <template x-for="badge in (designFile.source_labels || [])" :key="'rev-unified-lbl-' + designFile.file_id + '-' + badge">
+                                                            <span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:700;background:#e0f2fe;color:#0369a1;line-height:1.3;" x-text="badge"></span>
+                                                        </template>
+                                                    </div>
                                                     <div class="pf-design-file-card__meta">
                                                         <span x-text="staffDesignFileTypeLabel(designFile)"></span>
                                                         <span x-show="designFile.file_size"> · </span>
@@ -3631,31 +3636,9 @@ $online_closed_count = 0;
                                                 </article>
                                             </template>
                                         </div>
-                                        <button type="button" class="pf-design-files__toggle" @click="revisionExpandReplacementDesignFiles()" x-show="!revisionReplacementDesignExpanded() && revisionReplacementDesignFiles().length > 3" x-text="staffDesignFilesShowMoreLabel({ design_files: revisionReplacementDesignFiles() })"></button>
-                                        <button type="button" class="pf-design-files__toggle" @click="revisionCollapseReplacementDesignFiles()" x-show="revisionReplacementDesignExpanded() && revisionReplacementDesignFiles().length > 3">Show less</button>
+                                        <button type="button" class="pf-design-files__toggle" @click="revisionExpandUnifiedDesignFiles()" x-show="!revisionUnifiedDesignExpanded() && revisionUnifiedDesignFiles().length > 3" x-text="staffDesignFilesShowMoreLabel({ design_files: revisionUnifiedDesignFiles() })"></button>
+                                        <button type="button" class="pf-design-files__toggle" @click="revisionCollapseUnifiedDesignFiles()" x-show="revisionUnifiedDesignExpanded() && revisionUnifiedDesignFiles().length > 3">Show less</button>
                                     </div>
-                                </div>
-                            </template>
-                            <template x-if="revisionReviewFileSections().length">
-                                <div style="margin-top:14px;display:grid;gap:12px;">
-                                    <template x-for="section in revisionReviewFileSections()" :key="section.key + '-' + section.revision_request_id">
-                                        <div style="padding:10px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;">
-                                            <div style="font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#475569;margin-bottom:8px;" x-text="section.label"></div>
-                                            <div class="pf-design-files__grid" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;">
-                                                <template x-for="designFile in (section.files || [])" :key="'sec-' + section.key + '-' + designFile.file_id">
-                                                    <article class="pf-design-file-card">
-                                                        <div class="pf-design-file-card__name" x-text="designFile.display_name || 'Design file'" :title="designFile.display_name || ''"></div>
-                                                        <div class="pf-design-file-card__preview" x-show="designFile.preview_url && designFile.is_previewable_image">
-                                                            <img class="pf-design-file-card__img" :src="designFile.preview_url" alt="" loading="lazy" style="object-fit:contain;">
-                                                        </div>
-                                                        <div class="pf-design-file-card__actions" x-show="designFile.download_url">
-                                                            <a class="pf-modal-design-action-btn" :href="designFile.download_url" target="_blank" rel="noopener noreferrer">Download</a>
-                                                        </div>
-                                                    </article>
-                                                </template>
-                                            </div>
-                                        </div>
-                                    </template>
                                 </div>
                             </template>
                         </div>
@@ -6407,7 +6390,24 @@ window.pfServiceFieldCatalog = (() => {
                 });
                 return out;
             },
+            revisionReviewActiveForItem(item) {
+                const rev = this.currentJo?.revision_review;
+                if (!rev || !item) return false;
+                if (!['Resubmitted for Review', 'Staff Reviewing'].includes(String(rev.status || ''))) {
+                    return false;
+                }
+                const itemId = Number(item.order_item_id || 0);
+                const revItemId = Number(rev.order_item_id || 0);
+                if (revItemId > 0 && itemId > 0) {
+                    return revItemId === itemId;
+                }
+                const items = Array.isArray(this.currentJo?.items) ? this.currentJo.items : [];
+                return items.length === 1 && itemId > 0;
+            },
             staffShouldRenderDesignSection(item) {
+                if (this.revisionReviewActiveForItem(item)) {
+                    return false;
+                }
                 return !!(this.staffItemHasUploadedDesignFile(item) || this.staffGetDesignExternalLink(item));
             },
             staffGetDesignExternalLink(item) {
@@ -7017,45 +7017,111 @@ window.pfServiceFieldCatalog = (() => {
             revisionReplacementDesignUrl() {
                 return String(this.currentJo?.revision_review?.replacement_design?.url || '');
             },
-            revisionReplacementDesignFiles() {
-                const raw = this.currentJo?.revision_review?.replacement_design_files;
-                const PF = window.PrintflowOrderItemDesignFiles;
-                const list = Array.isArray(raw) ? raw : [];
-                let out = PF ? PF.dedupe(list) : list;
-                const hasDb = out.some((row) => Number(row && row.file_id) > 0);
-                if (hasDb) {
-                    out = out.filter((row) => Number(row && row.file_id) > 0);
-                    out = PF ? PF.dedupe(out) : out;
-                }
+            revisionMergeDesignFileRecords(existing, incoming) {
+                if (!existing || !incoming) return existing || incoming;
+                const uniq = (values) => {
+                    const out = [];
+                    (Array.isArray(values) ? values : []).forEach((value) => {
+                        const text = String(value || '').trim();
+                        if (text !== '' && !out.includes(text)) out.push(text);
+                    });
+                    return out;
+                };
+                existing.source_labels = uniq([...(existing.source_labels || []), ...(incoming.source_labels || [])]);
+                existing.source_types = uniq([...(existing.source_types || []), ...(incoming.source_types || [])]);
+                return existing;
+            },
+            revisionDedupeDesignFilesById(list) {
+                const byId = new Map();
+                (Array.isArray(list) ? list : []).forEach((file) => {
+                    const fileId = Number(file && file.file_id);
+                    if (fileId <= 0) return;
+                    if (byId.has(fileId)) {
+                        byId.set(fileId, this.revisionMergeDesignFileRecords(byId.get(fileId), file));
+                    } else {
+                        byId.set(fileId, { ...file });
+                    }
+                });
+                const out = Array.from(byId.values());
+                out.sort((a, b) => {
+                    const sortDelta = (Number(a.upload_sort) || 0) - (Number(b.upload_sort) || 0);
+                    if (sortDelta !== 0) return sortDelta;
+                    return (Number(a.file_id) || 0) - (Number(b.file_id) || 0);
+                });
                 return out;
             },
-            revisionReplacementDesignZipUrl() {
+            revisionUnifiedDesignFiles() {
+                const raw = this.currentJo?.revision_review?.unified_design_files;
+                const list = Array.isArray(raw) ? raw : [];
+                if (list.length > 0) {
+                    return this.revisionDedupeDesignFilesById(list);
+                }
+                return this.revisionReplacementDesignFiles();
+            },
+            revisionUnifiedDesignFileCounts() {
+                const counts = this.currentJo?.revision_review?.design_file_counts;
+                if (counts && typeof counts === 'object' && !Array.isArray(counts)) {
+                    return counts;
+                }
+                const files = this.revisionUnifiedDesignFiles();
+                return { unique_total: files.length };
+            },
+            revisionUnifiedDesignFileCountLabel() {
+                const counts = this.revisionUnifiedDesignFileCounts();
+                const total = Number(counts.unique_total ?? this.revisionUnifiedDesignFiles().length);
+                const suffix = total === 1 ? '' : 's';
+                return total + ' unique file' + suffix;
+            },
+            revisionReplacementDesignFiles() {
+                const raw = this.currentJo?.revision_review?.replacement_design_files;
+                const list = Array.isArray(raw) ? raw : [];
+                return this.revisionDedupeDesignFilesById(list);
+            },
+            revisionUnifiedDesignZipUrl() {
                 const revId = Number(this.currentJo?.revision_review?.id || 0);
                 if (revId <= 0) return '#';
-                const files = this.revisionReplacementDesignFiles();
-                const itemId = Number(files[0]?.order_item_id || 0);
+                const files = this.revisionUnifiedDesignFiles();
+                const itemId = Number(this.currentJo?.revision_review?.order_item_id || files[0]?.order_item_id || 0);
                 const base = document.body.getAttribute('data-base-url') || '';
-                let url = base + '/public/download_revision_design_files_zip.php?revision_request_id=' + revId;
+                let url = base + '/public/download_revision_design_files_zip.php?revision_request_id=' + revId + '&scope=unified';
                 if (itemId > 0) url += '&order_item_id=' + itemId;
                 return url;
             },
-            revisionReplacementDesignExpandKey() {
+            revisionReplacementDesignZipUrl() {
+                return this.revisionUnifiedDesignZipUrl();
+            },
+            revisionUnifiedDesignExpandKey() {
                 const revId = Number(this.currentJo?.revision_review?.id || 0);
-                return revId > 0 ? ('revision-files-' + revId) : 'revision-files-0';
+                return revId > 0 ? ('revision-unified-' + revId) : 'revision-unified-0';
+            },
+            revisionUnifiedDesignExpanded() {
+                return !!this.designFilesExpandedKeys[this.revisionUnifiedDesignExpandKey()];
+            },
+            revisionExpandUnifiedDesignFiles() {
+                this.designFilesExpandedKeys[this.revisionUnifiedDesignExpandKey()] = true;
+            },
+            revisionCollapseUnifiedDesignFiles() {
+                delete this.designFilesExpandedKeys[this.revisionUnifiedDesignExpandKey()];
+            },
+            revisionUnifiedDesignFileVisible(designFile) {
+                if (this.revisionUnifiedDesignExpanded()) return true;
+                const PF = window.PrintflowOrderItemDesignFiles;
+                return PF ? PF.isInPreviewList(designFile, this.revisionUnifiedDesignFiles()) : false;
+            },
+            revisionReplacementDesignExpandKey() {
+                return this.revisionUnifiedDesignExpandKey();
             },
             revisionReplacementDesignExpanded() {
-                return !!this.designFilesExpandedKeys[this.revisionReplacementDesignExpandKey()];
+                return this.revisionUnifiedDesignExpanded();
             },
             revisionExpandReplacementDesignFiles() {
-                this.designFilesExpandedKeys[this.revisionReplacementDesignExpandKey()] = true;
+                this.revisionExpandUnifiedDesignFiles();
             },
             revisionCollapseReplacementDesignFiles() {
-                delete this.designFilesExpandedKeys[this.revisionReplacementDesignExpandKey()];
+                this.revisionCollapseUnifiedDesignFiles();
             },
             revisionReplacementDesignFileVisible(designFile) {
-                if (this.revisionReplacementDesignExpanded()) return true;
-                const PF = window.PrintflowOrderItemDesignFiles;
-                return PF ? PF.isInPreviewList(designFile, this.revisionReplacementDesignFiles()) : false;
+                return this.revisionUnifiedDesignFileVisible(designFile);
             },
             revisionReplacementIsImage() {
                 const design = this.currentJo?.revision_review?.replacement_design || {};
@@ -10111,8 +10177,7 @@ window.pfServiceFieldCatalog = (() => {
                 return count + ' image' + (count === 1 ? '' : 's') + ' selected';
             },
             revisionReviewFileSections() {
-                const sections = this.currentJo?.revision_review?.file_sections;
-                return Array.isArray(sections) ? sections : [];
+                return [];
             },
             async focusAddDetailsDeepLink(revisionRequestId, orderItemId) {
                 this.addDetailsHighlight = true;

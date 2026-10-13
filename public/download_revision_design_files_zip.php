@@ -43,7 +43,23 @@ if ($is_staff && $orderId > 0) {
     printflow_assert_order_branch_access($orderId);
 }
 
-$apiFiles = printflow_revision_design_files_list_for_request($revisionRequestId, $orderItemId);
+$scope = strtolower(trim((string)($_GET['scope'] ?? 'response')));
+$apiFiles = [];
+if ($scope === 'unified') {
+    $revisionRows = db_query(
+        'SELECT * FROM order_revision_requests WHERE revision_request_id = ? LIMIT 1',
+        'i',
+        [$revisionRequestId]
+    ) ?: [];
+    if (!empty($revisionRows[0])) {
+        $revisionRow = printflow_revision_hydrate_request_row($revisionRows[0]);
+        $revisionRow['previous_values_array'] = printflow_revision_decode_json($revisionRow['previous_values'] ?? '{}');
+        $unified = printflow_revision_unified_design_files_for_request($revisionRow);
+        $apiFiles = is_array($unified['files'] ?? null) ? $unified['files'] : [];
+    }
+} else {
+    $apiFiles = printflow_revision_design_files_list_for_request($revisionRequestId, $orderItemId);
+}
 if ($apiFiles === []) {
     http_response_code(404);
     echo 'No replacement design files found.';

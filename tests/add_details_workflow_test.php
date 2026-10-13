@@ -21,6 +21,10 @@ $expect(strpos($revision, 'printflow_revision_file_sections_for_request') !== fa
 $expect(strpos($functions, 'printflow_staff_add_details_notification_url') !== false, 'staff notification routing uses add details URL');
 $expect(strpos($customizations, 'revisionSelectedDesignFileIds') !== false, 'staff modal tracks selected design file ids');
 $expect(strpos($customizations, 'focus_add_details') !== false, 'customizations deep link supports focus_add_details');
+$expect(strpos($revision, 'printflow_revision_unified_design_files_for_request') !== false, 'unified design file dedupe helper exists');
+$expect(strpos($revision, "'unified_design_files'") !== false, 'revision review payload exposes unified_design_files');
+$expect(strpos($customizations, 'revisionUnifiedDesignFiles') !== false, 'staff modal renders deduplicated unified design gallery');
+$expect(strpos($customizations, 'revisionReviewActiveForItem') !== false, 'staff modal hides item design section during add-details review');
 
 if ($failures !== []) {
     fwrite(STDERR, "add_details_workflow_test failed:\n- " . implode("\n- ", $failures) . "\n");

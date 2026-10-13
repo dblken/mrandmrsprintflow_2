@@ -383,6 +383,83 @@ function printflow_revision_file_sections_for_request(array $revisionRow): array
     return $sections;
 }
 
+/**
+ * Merge all design file sources for one request into one deduplicated list (key: file_id).
+ *
+ * @return array{files:list<array<string,mixed>>,counts:array<string,int>}
+ */
+function printflow_revision_unified_design_files_for_request(array $revisionRow): array
+{
+    $sections = printflow_revision_file_sections_for_request($revisionRow);
+    $byId = [];
+    $idsBySource = [
+        'original' => [],
+        'selected' => [],
+        'response_current' => [],
+        'response_history' => [],
+    ];
+
+    foreach ($sections as $section) {
+        if (!is_array($section)) {
+            continue;
+        }
+        $sectionKey = (string)($section['key'] ?? '');
+        $normalizedType = match (true) {
+            $sectionKey === 'original' => 'original',
+            $sectionKey === 'selected' => 'selected',
+            $sectionKey === 'response_current' => 'response_current',
+            str_starts_with($sectionKey, 'response_history_') => 'response_history',
+            default => '',
+        };
+        if ($normalizedType === '') {
+            continue;
+        }
+        $label = (string)($section['label'] ?? '');
+        $files = is_array($section['files'] ?? null) ? $section['files'] : [];
+        foreach ($files as $file) {
+            if (!is_array($file)) {
+                continue;
+            }
+            $fileId = (int)($file['file_id'] ?? 0);
+            if ($fileId <= 0) {
+                continue;
+            }
+            if (!isset($byId[$fileId])) {
+                $byId[$fileId] = $file;
+                $byId[$fileId]['source_types'] = [];
+                $byId[$fileId]['source_labels'] = [];
+            }
+            if (!in_array($normalizedType, $byId[$fileId]['source_types'], true)) {
+                $byId[$fileId]['source_types'][] = $normalizedType;
+                if ($label !== '' && !in_array($label, $byId[$fileId]['source_labels'], true)) {
+                    $byId[$fileId]['source_labels'][] = $label;
+                }
+                $idsBySource[$normalizedType][$fileId] = $fileId;
+            }
+        }
+    }
+
+    $files = array_values($byId);
+    usort($files, static function (array $a, array $b): int {
+        $sortDelta = ((int)($a['upload_sort'] ?? 0)) <=> ((int)($b['upload_sort'] ?? 0));
+        if ($sortDelta !== 0) {
+            return $sortDelta;
+        }
+        return ((int)($a['file_id'] ?? 0)) <=> ((int)($b['file_id'] ?? 0));
+    });
+
+    return [
+        'files' => $files,
+        'counts' => [
+            'unique_total' => count($files),
+            'original' => count($idsBySource['original']),
+            'selected' => count($idsBySource['selected']),
+            'response_current' => count($idsBySource['response_current']),
+            'response_history' => count($idsBySource['response_history']),
+        ],
+    ];
+}
+
 function printflow_staff_add_details_notification_url(int $orderId, int $revisionRequestId = 0, int $orderItemId = 0, int $customizationId = 0, int $jobOrderId = 0): string
 {
     $base = function_exists('printflow_notification_base_path')
@@ -1002,6 +1079,7 @@ function printflow_revision_review_payload(int $orderId, bool $markReviewing = f
         $designItemId,
         $revision['selected_design_file_ids_array'] ?? []
     );
+    $unifiedDesign = printflow_revision_unified_design_files_for_request($revision);
 
     return [
         'id' => (int)$revision['revision_request_id'],
@@ -1020,7 +1098,9 @@ function printflow_revision_review_payload(int $orderId, bool $markReviewing = f
         'replacement_design' => $replacementDesign,
         'replacement_design_files' => $replacementFiles,
         'selected_source_files' => $selectedSourceFiles,
-        'file_sections' => printflow_revision_file_sections_for_request($revision),
+        'file_sections' => [],
+        'unified_design_files' => $unifiedDesign['files'],
+        'design_file_counts' => $unifiedDesign['counts'],
         'price_review_required' => !empty($revised['_revision']['price_review_required']),
     ];
 }
