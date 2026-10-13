@@ -371,38 +371,31 @@ function custom_payment_badge($status) {
         .btn-action.teal  { color:#14b8a6; border-color:#14b8a6; }
         .btn-action.teal:hover  { background:#14b8a6; color:white; }
 
-        .modal-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:10px; }
-        .modal-panel { background:#fff;border-radius:10px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:min(980px,96vw);max-height:calc(100vh - 20px);display:flex;flex-direction:column;position:relative;overflow:hidden; }
+        .modal-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px; }
+        .modal-panel { background:#fff;border-radius:12px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:560px;max-height:88vh;display:flex;flex-direction:column;position:relative;overflow:hidden;margin:16px; }
         .modal-content { overflow-y:auto;flex:1;min-height:0; }
-        .customization-modal-header { padding:10px 16px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:8px; }
-        .customization-modal-header h3 { font-size:17px;font-weight:700;color:#1f2937;margin:0;line-height:1.25; }
-        .customization-modal-body { padding:12px 16px 10px; }
-        .customization-modal-footer { padding:10px 16px;border-top:1px solid #f3f4f6;display:flex;justify-content:flex-end;gap:8px;flex-shrink:0; }
-        .customization-customer-block { margin-bottom:10px; }
-        .customization-customer-block > p { font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 6px;letter-spacing:.35px; }
-        .customization-customer-row { display:flex;align-items:center;gap:10px; }
-        .customization-customer-row .avatar { width:36px;height:36px;border-radius:50%;flex-shrink:0; }
-        .customization-details-grid,
-        .customization-spec-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:8px;margin-bottom:8px; }
-        @media (min-width: 900px) {
-            .customization-details-grid,
-            .customization-spec-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
-        }
-        @media (max-width: 768px) {
-            .customization-details-grid,
-            .customization-spec-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
-        }
-        @media (max-width: 480px) {
-            .customization-details-grid,
-            .customization-spec-grid { grid-template-columns:1fr; }
-        }
-        .customization-attachments { margin-top:10px; }
-        .customization-attachments > .attachments-row { display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start; }
-        .customization-section-label { font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 6px;letter-spacing:.35px; }
-        .customization-notes-block { margin-top:6px; }
-        .customization-notes-block .notes-box { background:#f9fafb;border-radius:6px;padding:8px 10px;font-size:12px;color:#374151;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;line-height:1.45; }
-        .customization-design-card { border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;background:#fff;max-width:100%;box-sizing:border-box; }
-        .customization-design-card .design-thumb { width:100px;height:100px;border-radius:6px; }
+        .customization-modal-header { padding:20px 24px;border-bottom:1px solid #f3f4f6;display:flex;align-items:flex-start;justify-content:space-between;flex-shrink:0;gap:12px; }
+        .customization-modal-header h3 { font-size:18px;font-weight:700;color:#1f2937;margin:0;line-height:1.25; }
+        .customization-modal-subtitle { font-size:12px;color:#6b7280;margin:2px 0 0;line-height:1.35;word-wrap:break-word;overflow-wrap:break-word; }
+        .pf-customization-modal-body { padding:16px 20px 12px; }
+        .customization-modal-footer { padding:12px 20px;border-top:1px solid #f3f4f6;display:flex;justify-content:flex-end;gap:8px;flex-shrink:0; }
+        .pf-customization-spec-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;width:100%;max-width:100%;min-width:0;box-sizing:border-box; }
+        .pf-customization-spec-cell { padding:8px;border:1px solid #e5e7eb;border-radius:6px;background:#fff;min-width:0;overflow-wrap:break-word;box-sizing:border-box; }
+        .pf-customization-spec-cell--full { grid-column:1 / -1; }
+        .pf-customization-spec-label { display:block;font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:2px; }
+        .pf-customization-spec-value { font-size:12px;font-weight:500;color:#1f2937;word-break:break-word;overflow-wrap:anywhere;line-height:1.35; }
+        .pf-customization-order-details { margin-bottom:14px;padding:14px;border-radius:12px;border:1px solid #e5e7eb;background:#f9fafb; }
+        .pf-customization-item-block { margin-bottom:12px;padding:12px;background:#fff;border:1px solid #e5e7eb;border-radius:8px; }
+        .pf-customization-item-block:last-child { margin-bottom:0; }
+        .pf-modal-design-actions { display:flex;flex-wrap:wrap;gap:8px;width:100%;max-width:100%;min-width:0; }
+        .pf-modal-design-action-btn { display:inline-flex;align-items:center;justify-content:center;padding:8px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#334155;text-decoration:none;cursor:pointer;box-sizing:border-box;min-width:88px;text-align:center;line-height:1.25; }
+        a.pf-modal-design-action-btn { text-decoration:none; }
+        .customization-customer-block { margin-bottom:14px; }
+        .customization-customer-block > p { font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 8px; }
+        .customization-customer-row { display:flex;align-items:center;gap:12px; }
+        .customization-customer-row .avatar { width:40px;height:40px;border-radius:50%;flex-shrink:0; }
+        .customization-notes-block { margin-top:8px; }
+        .customization-notes-block .notes-box { background:#fffbeb;border:1px solid #fef3c7;border-radius:8px;padding:10px 12px;font-size:13px;color:#6b7280;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;line-height:1.45; }
         .customizations-list-card .customs-table thead th { padding-top:8px;padding-bottom:8px; }
         .customizations-list-card .customs-table tbody td { padding-top:7px;padding-bottom:7px;vertical-align:middle; }
         [x-cloak] { display:none !important; }
@@ -637,8 +630,7 @@ function custom_payment_badge($status) {
                 margin: 52px auto 12px !important;
                 border-radius: 8px !important;
             }
-            main[x-data="custModal()"] .customization-details-grid,
-            main[x-data="custModal()"] .customization-spec-grid {
+            main[x-data="custModal()"] .pf-customization-spec-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
             }
             main[x-data="custModal()"] .modal-content {
@@ -835,23 +827,98 @@ function custom_payment_badge($status) {
                     if (raw) return raw;
                     return 'Not provided';
                 },
-                displayCustomerPriority(job) {
-                    const fromApi = String(job?.display_priority || job?.priority_request_value || '').trim();
-                    if (fromApi) return this.formatCustomerPriorityLabel(fromApi);
+                resolvePriorityValue(job) {
+                    const tryFormat = (raw) => {
+                        const text = String(raw || '').trim();
+                        return text ? this.formatCustomerPriorityLabel(text) : '';
+                    };
+                    let value = tryFormat(job?.display_priority) || tryFormat(job?.priority_request_value);
+                    if (value) return value;
                     const specs = job?.display_specifications && typeof job.display_specifications === 'object'
                         ? job.display_specifications
                         : {};
-                    if (specs['Order Priority']) {
-                        return this.formatCustomerPriorityLabel(specs['Order Priority']);
-                    }
-                    const item = Array.isArray(job?.items) ? job.items[0] : null;
-                    const custom = item?.customization && typeof item.customization === 'object' ? item.customization : {};
-                    for (const [key, value] of Object.entries(custom)) {
-                        if (/^order\s+priority$/i.test(String(key)) && String(value || '').trim() !== '') {
-                            return this.formatCustomerPriorityLabel(value);
+                    value = tryFormat(specs['Order Priority']);
+                    if (value) return value;
+                    const items = Array.isArray(job?.items) ? job.items : [];
+                    for (const item of items) {
+                        const custom = item?.customization && typeof item.customization === 'object' ? item.customization : {};
+                        for (const [key, raw] of Object.entries(custom)) {
+                            if (/order\s*priority/i.test(String(key))) {
+                                value = tryFormat(raw);
+                                if (value) return value;
+                            }
                         }
                     }
-                    return 'Not specified';
+                    return '';
+                },
+                displayCustomerPriority(job) {
+                    const value = this.resolvePriorityValue(job);
+                    return value || 'Not specified';
+                },
+                adminModalItems(job) {
+                    if (Array.isArray(job?.items) && job.items.length > 0) {
+                        return job.items;
+                    }
+                    return [{
+                        quantity: job?.quantity ?? 1,
+                        product_name: this.displayServiceType(job),
+                        customization: job?.display_specifications || {},
+                    }];
+                },
+                adminItemTitle(item, job) {
+                    const name = String(item?.product_name || job?.display_service_type || job?.service_type || this.displayServiceType(job)).trim();
+                    const qty = Math.max(1, Number(item?.quantity ?? job?.quantity ?? 1));
+                    return (name || 'Custom Order') + ' × ' + qty;
+                },
+                adminProductServiceImageUrl(item) {
+                    const url = String(item?.service_image || item?.catalog_service_image || item?.product_image || '').trim();
+                    return url || '';
+                },
+                adminItemSpecEntries(job, item) {
+                    const hideMaterial = new Set(['Material', 'Material Type', 'Temp Plate Material']);
+                    const seen = new Set();
+                    const entries = [];
+                    const push = (label, value) => {
+                        const key = String(label || '').trim();
+                        const text = String(value ?? '').trim();
+                        if (!key || !text) return;
+                        if (hideMaterial.has(key)) return;
+                        const fp = key.toLowerCase() + '|' + text.toLowerCase();
+                        if (seen.has(fp)) return;
+                        seen.add(fp);
+                        entries.push({ label: key, value: text });
+                    };
+                    const specs = job?.display_specifications && typeof job.display_specifications === 'object'
+                        ? job.display_specifications
+                        : {};
+                    const qty = Math.max(1, Number(item?.quantity ?? job?.quantity ?? 1));
+                    push('Quantity', String(qty));
+                    Object.entries(specs).forEach(([label, value]) => push(label, value));
+                    const dimensions = this.displayDimensions(job);
+                    if (dimensions && dimensions !== 'Not specified') {
+                        push('Dimensions', dimensions);
+                    }
+                    const needed = this.displayNeededDate(job);
+                    if (needed && needed !== 'Not provided') {
+                        push('Needed Date', needed);
+                    }
+                    const priority = this.resolvePriorityValue(job);
+                    if (priority) {
+                        push('Order Priority', priority);
+                    }
+                    return entries;
+                },
+                adminOrderMetaEntries(job) {
+                    return [
+                        { label: 'Branch', value: job?.branch_name || (job?.branch_display_id ? ('Branch #' + job.branch_display_id) : 'Unassigned') },
+                        { label: 'Date Submitted', value: this.formatBusinessSubmittedAt(job) },
+                        { label: 'Estimated Total', value: job?.estimated_total ? ('₱' + parseFloat(job.estimated_total).toFixed(2)) : 'Pending' },
+                        { label: 'Amount Paid', value: '₱' + parseFloat(job?.amount_paid ?? 0).toFixed(2) },
+                    ];
+                },
+                adminSpecCellFullWidth(label, value) {
+                    const text = String(value || '');
+                    return label === 'Notes' || text.length > 120;
                 },
                 openModal(id, orderCode = '') {
                     this.showModal = true;
@@ -1447,7 +1514,7 @@ function custom_payment_badge($status) {
 <!-- View Details Modal (inside main x-data so Alpine binds showModal; avoids full-screen overlay blocking clicks) -->
 <div x-show="showModal" x-cloak>
     <div class="modal-overlay" @click.self="showModal = false">
-        <div class="modal-panel" @click.stop>
+        <div class="modal-panel admin-customization-modal" @click.stop>
             <!-- Loading -->
             <div x-show="loading" style="padding:48px;text-align:center;">
                 <div style="width:40px;height:40px;border:3px solid #e5e7eb;border-top-color:#6366f1;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>
@@ -1462,17 +1529,17 @@ function custom_payment_badge($status) {
             <div x-show="job && !loading" class="modal-content">
                 <!-- Header -->
                 <div class="customization-modal-header">
-                    <div>
+                    <div style="min-width:0;flex:1;">
                         <h3 x-text="(job?.order_code || modalOrderCode || ('Customization #' + (job?.id ?? '')) )"></h3>
-                        <div x-html="statusBadge(job?.status)" style="display:inline-block;margin-top:2px;"></div>
+                        <p class="customization-modal-subtitle" x-text="displayServiceType(job)"></p>
+                        <div x-html="statusBadge(job?.status)" style="display:inline-block;margin-top:6px;"></div>
                     </div>
-                    <button @click="showModal = false" style="background:transparent;border:none;cursor:pointer;color:#6b7280;">
+                    <button @click="showModal = false" style="background:transparent;border:none;cursor:pointer;color:#6b7280;flex-shrink:0;">
                         <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                 </div>
                 <!-- Body -->
-                <div class="customization-modal-body">
-                    <!-- Customer -->
+                <div class="pf-customization-modal-body">
                     <div class="customization-customer-block">
                         <p>Customer</p>
                         <div class="customization-customer-row">
@@ -1480,144 +1547,99 @@ function custom_payment_badge($status) {
                                 <img class="avatar" :src="job.customer_picture" alt="Customer" style="object-fit:cover;">
                             </template>
                             <template x-if="!job?.customer_picture">
-                                <div class="avatar" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:15px;" x-text="job?.customer_name?.charAt(0)?.toUpperCase() || 'W'"></div>
+                                <div class="avatar" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:16px;" x-text="job?.customer_name?.charAt(0)?.toUpperCase() || 'W'"></div>
                             </template>
                             <div style="flex:1;min-width:0;">
-                                <div style="font-weight:700;font-size:13px;color:#1f2937;word-wrap:break-word;overflow-wrap:break-word;line-height:1.3;" x-text="job?.customer_name || 'Walk-in Customer'"></div>
-                                <div style="font-size:11px;color:#6b7280;word-wrap:break-word;overflow-wrap:break-word;line-height:1.3;" x-text="job?.customer_email || ''"></div>
+                                <div style="font-weight:700;font-size:14px;color:#1f2937;word-wrap:break-word;overflow-wrap:break-word;" x-text="job?.customer_name || 'Walk-in Customer'"></div>
+                                <div style="font-size:12px;color:#6b7280;word-wrap:break-word;overflow-wrap:break-word;" x-text="job?.customer_email || ''"></div>
                             </div>
                         </div>
                     </div>
-                    <div class="customization-details-grid">
-                        <div class="detail-block">
-                            <label>Branch</label>
-                            <span x-text="job?.branch_name || (job?.branch_display_id ? ('Branch #' + job.branch_display_id) : 'Unassigned')"></span>
-                        </div>
-                        <div class="detail-block">
-                            <label>Service Type</label>
-                            <span x-text="displayServiceType(job)"></span>
-                        </div>
-                        <div class="detail-block">
-                            <label>Quantity</label>
-                            <span x-text="job?.quantity ?? 1"></span>
-                        </div>
-                        <div class="detail-block">
-                            <label>Dimensions</label>
-                            <span x-text="displayDimensions(job)"></span>
-                        </div>
-                        <div class="detail-block">
-                            <label>Estimated Total</label>
-                            <span x-text="job?.estimated_total ? '₱' + parseFloat(job.estimated_total).toFixed(2) : 'Pending'"></span>
-                        </div>
-                        <div class="detail-block">
-                            <label>Amount Paid</label>
-                            <span x-text="'₱' + parseFloat(job?.amount_paid ?? 0).toFixed(2)"></span>
-                        </div>
-                        <div class="detail-block">
-                            <label>Payment Status</label>
-                            <span x-html="paymentBadge(getEffectivePaymentStatus(job))"></span>
-                        </div>
-                        <div class="detail-block">
-                            <label>Priority</label>
-                            <span x-text="displayCustomerPriority(job)"></span>
-                        </div>
-                        <div class="detail-block">
-                            <label>Date Submitted</label>
-                            <span x-text="formatBusinessSubmittedAt(job)"></span>
-                        </div>
-                        <div class="detail-block">
-                            <label>Needed Date</label>
-                            <span x-text="displayNeededDate(job)"></span>
-                        </div>
+                    <div class="pf-customization-order-details">
+                        <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;display:block;margin-bottom:10px;">Order Details (Customer Specifications)</label>
+                        <template x-for="(item, idx) in adminModalItems(job)" :key="item.order_item_id || idx">
+                            <div class="pf-customization-item-block">
+                                <div style="font-size:13px;font-weight:700;color:#1f2937;margin-bottom:10px;word-wrap:break-word;overflow-wrap:break-word;" x-text="adminItemTitle(item, job)"></div>
+                                <template x-if="adminProductServiceImageUrl(item)">
+                                    <div style="margin-bottom:10px;">
+                                        <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:6px;">Product/Service Image</div>
+                                        <img :src="adminProductServiceImageUrl(item)" @click="viewImage(adminProductServiceImageUrl(item))" loading="lazy" decoding="async" width="120" height="120" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;background:#f8fafc;" alt="Product">
+                                    </div>
+                                </template>
+                                <div class="pf-customization-spec-grid">
+                                    <template x-for="entry in adminItemSpecEntries(job, item)" :key="entry.label">
+                                        <div class="pf-customization-spec-cell" :class="{ 'pf-customization-spec-cell--full': adminSpecCellFullWidth(entry.label, entry.value) }">
+                                            <span class="pf-customization-spec-label" x-text="entry.label"></span>
+                                            <div class="pf-customization-spec-value" x-text="entry.value"></div>
+                                        </div>
+                                    </template>
+                                </div>
+                                <template x-if="itemHasDesignDetails(item) || item.reference_url || job?.artwork_path">
+                                    <div style="margin-top:10px;padding:12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">
+                                        <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">Design / Image</div>
+                                        <template x-if="job?.artwork_path && idx === 0">
+                                            <div style="margin-bottom:10px;">
+                                                <img :src="job.artwork_path" @click="viewImage(job.artwork_path)" style="width:min(100%,160px);max-height:160px;object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;background:#f8fafc;" alt="Artwork">
+                                            </div>
+                                        </template>
+                                        <template x-if="itemHasUploadedDesignFile(item)">
+                                            <div style="margin-bottom:10px;">
+                                                <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:6px;">Uploaded File</div>
+                                                <div style="font-size:13px;font-weight:600;color:#1f2937;word-break:break-word;overflow-wrap:anywhere;margin-bottom:8px;" x-text="getItemDesignFilename(item)"></div>
+                                                <template x-if="getItemDesignFileUrl(item)">
+                                                    <img :src="getItemDesignFileUrl(item)" @click="viewImage(getItemDesignFileUrl(item))" style="width:min(100%,160px);max-height:160px;object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;box-shadow:0 4px 6px -1px rgba(0,0,0,0.08);background:#f8fafc;margin-bottom:8px;display:block;" alt="Design">
+                                                </template>
+                                                <div class="pf-modal-design-actions">
+                                                    <button type="button" class="pf-modal-design-action-btn" @click="viewImage(getItemDesignFileUrl(item))">View</button>
+                                                    <a class="pf-modal-design-action-btn" :href="getItemDesignFileUrl(item)" target="_blank" rel="noopener noreferrer" download>Download</a>
+                                                </div>
+                                            </div>
+                                        </template>
+                                        <template x-if="getItemDesignExternalLink(item)">
+                                            <div style="margin-bottom:10px;">
+                                                <div style="font-size:13px;font-weight:600;color:#1f2937;word-break:break-all;overflow-wrap:anywhere;margin-bottom:8px;" x-text="'🔗 ' + getItemDesignExternalLink(item)"></div>
+                                                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                                                    <button type="button" @click="copyDesignLink(getItemDesignExternalLink(item), $event)" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#334155;cursor:pointer;">Copy Link</button>
+                                                    <a :href="sanitizeExternalLink(getItemDesignExternalLink(item))" target="_blank" rel="noopener noreferrer" style="padding:8px 12px;border:1px solid #dbeafe;border-radius:8px;background:#eff6ff;font-size:12px;font-weight:600;color:#1d4ed8;text-decoration:none;">Open Link</a>
+                                                </div>
+                                            </div>
+                                        </template>
+                                        <template x-if="item.reference_url">
+                                            <div>
+                                                <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Reference</div>
+                                                <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;" @click="viewImage(item.reference_url)">
+                                                    <img :src="item.reference_url" style="width:100%;height:100%;object-fit:cover;" alt="Reference">
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
                     </div>
-                    <template x-if="displaySpecificationEntries(job).length">
-                        <div class="customization-spec-grid">
-                            <template x-for="entry in displaySpecificationEntries(job)" :key="entry[0]">
-                                <div class="detail-block">
-                                    <label x-text="entry[0]"></label>
-                                    <span x-text="entry[1]"></span>
+                    <div class="pf-customization-order-details" style="margin-bottom:0;">
+                        <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;display:block;margin-bottom:10px;">Order &amp; Payment</label>
+                        <div class="pf-customization-spec-grid">
+                            <template x-for="entry in adminOrderMetaEntries(job)" :key="entry.label">
+                                <div class="pf-customization-spec-cell">
+                                    <span class="pf-customization-spec-label" x-text="entry.label"></span>
+                                    <div class="pf-customization-spec-value" x-text="entry.value"></div>
                                 </div>
                             </template>
+                            <div class="pf-customization-spec-cell">
+                                <span class="pf-customization-spec-label">Payment Status</span>
+                                <div class="pf-customization-spec-value" x-html="paymentBadge(getEffectivePaymentStatus(job))"></div>
+                            </div>
                         </div>
-                    </template>
-                    <!-- Notes -->
-                    <div x-show="job?.notes" class="customization-notes-block">
-                        <p class="customization-section-label">Notes</p>
+                    </div>
+                    <div x-show="job?.notes" class="customization-notes-block" style="margin-top:12px;">
+                        <p class="customization-section-label" style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 8px;">Notes</p>
                         <div class="notes-box" x-text="job?.notes"></div>
                     </div>
-                    <!-- Design Files & Payment Proof -->
-                    <div x-show="(job?.artwork_path || job?.payment_proof_path || (job?.items && job.items.length > 0 && job.items.some(i => i.design_url || i.reference_url || itemHasDesignDetails(i))))" class="customization-attachments">
-                        <div class="attachments-row">
-                            <!-- Design Files -->
-                            <div x-show="(job?.artwork_path || (job?.items && job.items.length > 0 && job.items.some(i => i.design_url || i.reference_url || itemHasDesignDetails(i))))" style="flex:1;min-width:min(100%,280px);">
-                                <p class="customization-section-label">Design Files</p>
-                                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
-                                    <template x-if="job?.artwork_path">
-                                        <div class="design-thumb" style="position:relative;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;" @click="viewImage(job.artwork_path)">
-                                            <img :src="job.artwork_path" style="width:100%;height:100%;object-fit:cover;" alt="Artwork">
-                                            <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.6);color:white;font-size:9px;padding:3px;text-align:center;">Artwork</div>
-                                        </div>
-                                    </template>
-                                    <template x-if="job?.items && job.items.length > 0">
-                                        <div style="display:flex;flex-direction:column;gap:8px;flex:1;min-width:min(100%,240px);">
-                                            <template x-for="(item, idx) in job.items" :key="idx">
-                                                <div x-show="itemHasDesignDetails(item) || item.reference_url" class="customization-design-card">
-                                                    <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:6px;">Upload Design</div>
-                                                    <template x-if="itemHasUploadedDesignFile(item)">
-                                                        <div style="margin-bottom:6px;">
-                                                            <div style="font-size:9px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:3px;">Uploaded File</div>
-                                                            <div style="font-size:12px;font-weight:600;color:#1f2937;word-break:break-word;overflow-wrap:anywhere;margin-bottom:6px;line-height:1.35;" x-text="getItemDesignFilename(item)"></div>
-                                                            <template x-if="getItemDesignFileUrl(item)">
-                                                                <div class="design-thumb" style="position:relative;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;margin-bottom:6px;" @click="viewImage(getItemDesignFileUrl(item))">
-                                                                    <img :src="getItemDesignFileUrl(item)" style="width:100%;height:100%;object-fit:cover;" alt="Design">
-                                                                </div>
-                                                            </template>
-                                                            <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                                                                <button type="button" @click="viewImage(getItemDesignFileUrl(item))" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-size:11px;font-weight:600;color:#334155;cursor:pointer;">View</button>
-                                                                <a :href="getItemDesignFileUrl(item)" target="_blank" rel="noopener noreferrer" download style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-size:11px;font-weight:600;color:#334155;text-decoration:none;">Download</a>
-                                                            </div>
-                                                        </div>
-                                                    </template>
-                                                    <template x-if="getItemDesignExternalLink(item)">
-                                                        <div style="margin-bottom:10px;">
-                                                            <div style="font-size:13px;font-weight:600;color:#1f2937;word-break:break-all;overflow-wrap:anywhere;margin-bottom:8px;" x-text="'🔗 ' + getItemDesignExternalLink(item)"></div>
-                                                            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-                                                                <button type="button" @click="copyDesignLink(getItemDesignExternalLink(item), $event)" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#334155;cursor:pointer;">Copy Link</button>
-                                                                <a :href="sanitizeExternalLink(getItemDesignExternalLink(item))" target="_blank" rel="noopener noreferrer" style="padding:8px 12px;border:1px solid #dbeafe;border-radius:8px;background:#eff6ff;font-size:12px;font-weight:600;color:#1d4ed8;text-decoration:none;">Open Link</a>
-                                                            </div>
-                                                        </div>
-                                                    </template>
-                                                    <template x-if="item.reference_url">
-                                                        <div>
-                                                            <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Reference</div>
-                                                            <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;" @click="viewImage(item.reference_url)">
-                                                                <img :src="item.reference_url" style="width:100%;height:100%;object-fit:cover;" alt="Reference">
-                                                            </div>
-                                                        </div>
-                                                    </template>
-                                                </div>
-                                            </template>
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
-                            <!-- Payment Proof -->
-                            <div x-show="job?.payment_proof_path" style="flex:0 0 auto;min-width:min(100%,140px);">
-                                <p class="customization-section-label" style="color:#10b981;">Payment Proof</p>
-                                <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                                    <template x-if="job?.payment_proof_path">
-                                        <div class="design-thumb" style="position:relative;overflow:hidden;border:2px solid #10b981;cursor:pointer;box-shadow:0 2px 6px rgba(16,185,129,0.12);" @click="viewImage(job.payment_proof_path)">
-                                            <img :src="job.payment_proof_path" style="width:100%;height:100%;object-fit:cover;" alt="Payment Proof">
-                                            <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(16,185,129,0.95);color:white;font-size:10px;padding:4px;text-align:center;font-weight:600;">
-                                                <svg style="width:12px;height:12px;display:inline-block;margin-right:3px;vertical-align:middle;" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                                                </svg>
-                                                Payment Proof
-                                            </div>
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
+                    <div x-show="job?.payment_proof_path" style="margin-top:12px;">
+                        <p style="font-size:11px;font-weight:600;color:#10b981;text-transform:uppercase;margin:0 0 8px;">Payment Proof</p>
+                        <div class="design-thumb" style="position:relative;overflow:hidden;border:2px solid #10b981;cursor:pointer;width:120px;height:120px;border-radius:8px;" @click="viewImage(job.payment_proof_path)">
+                            <img :src="job.payment_proof_path" style="width:100%;height:100%;object-fit:cover;" alt="Payment Proof">
                         </div>
                     </div>
                 </div>

@@ -24,6 +24,10 @@ $assert(!str_contains($adminPage, 'System Created At'), 'admin UI must not expos
 $assert(!str_contains($adminPage, 'formatSystemCreatedAt'), 'admin UI must not format system created_at for display');
 $assert(str_contains($adminPage, "job?.order_business_date || job?.order_date || job?.store_order_date"), 'date submitted must use business order_date only');
 $assert(str_contains($adminPage, 'Asia/Manila'), 'admin modal must format dates in Manila timezone');
+$assert(str_contains($adminPage, 'max-width:560px'), 'admin modal must match staff medium width');
+$assert(str_contains($adminPage, 'pf-customization-order-details'), 'admin modal must use staff order details layout');
+$assert(str_contains($adminPage, 'adminItemSpecEntries'), 'admin modal must build spec grid from API display_specifications');
+$assert(str_contains($adminPage, 'resolvePriorityValue'), 'admin modal must resolve priority before Not specified fallback');
 
 $assert(str_contains($jobSummary, 'function printflow_job_order_business_date_value'), 'shared helper for business date exists');
 $assert(str_contains($jobSummary, 'function printflow_job_order_display_service_type'), 'shared helper for line service exists');

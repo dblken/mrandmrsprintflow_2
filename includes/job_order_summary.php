@@ -370,7 +370,11 @@ function printflow_filter_operations_display_specifications(array $specs): array
  */
 function printflow_filter_admin_customization_display_specifications(array $specs): array
 {
+    $orderPriority = trim((string)($specs['Order Priority'] ?? ''));
     $filtered = printflow_filter_operations_display_specifications($specs);
+    if ($orderPriority !== '') {
+        $filtered['Order Priority'] = printflow_format_customer_priority_display($orderPriority) ?: $orderPriority;
+    }
     foreach (['Material', 'Material Type', 'Temp Plate Material'] as $label) {
         unset($filtered[$label]);
     }
