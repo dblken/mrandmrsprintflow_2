@@ -363,6 +363,58 @@ function printflow_filter_operations_display_specifications(array $specs): array
 }
 
 /**
+ * Admin customization modal: hide material tiles (staff POS detail still shows them).
+ *
+ * @param array<string,string> $specs
+ * @return array<string,string>
+ */
+function printflow_filter_admin_customization_display_specifications(array $specs): array
+{
+    $filtered = printflow_filter_operations_display_specifications($specs);
+    foreach (['Material', 'Material Type', 'Temp Plate Material'] as $label) {
+        unset($filtered[$label]);
+    }
+
+    return $filtered;
+}
+
+/**
+ * Merge persisted order-item JSON with hydrated store line payload (staff/admin source of truth).
+ *
+ * @param array<string,mixed>|null $storeLine
+ * @return array<string,mixed>
+ */
+function printflow_merge_order_item_customization_sources(?array $storeLine): array
+{
+    if (!is_array($storeLine)) {
+        return [];
+    }
+
+    if (!function_exists('printflow_decode_modal_customization_payload')) {
+        require_once __DIR__ . '/functions.php';
+    }
+
+    $merged = printflow_decode_modal_customization_payload((string)($storeLine['customization_data'] ?? ''));
+    $specifications = printflow_decode_modal_customization_payload((string)($storeLine['specifications_raw'] ?? ''));
+    if ($specifications !== []) {
+        $merged = function_exists('printflow_overlay_nonempty_assoc')
+            ? printflow_overlay_nonempty_assoc($merged, $specifications)
+            : array_merge($merged, $specifications);
+    }
+
+    $hydrated = is_array($storeLine['customization'] ?? null)
+        ? $storeLine['customization']
+        : (is_array($storeLine['specifications'] ?? null) ? $storeLine['specifications'] : []);
+    if ($hydrated !== []) {
+        $merged = function_exists('printflow_overlay_nonempty_assoc')
+            ? printflow_overlay_nonempty_assoc($merged, $hydrated)
+            : array_merge($merged, $hydrated);
+    }
+
+    return is_array($merged) ? $merged : [];
+}
+
+/**
  * Resolve needed date for one anchored customization line (no order_date fallback).
  *
  * @param array<string,mixed> $customization

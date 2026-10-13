@@ -91,6 +91,28 @@ $assert(isset($filtered['Layout']), 'valid customer layout remains visible');
 $assert(printflow_format_customer_priority_display('Regular Order') === 'Regular', 'priority displays Regular for regular order selection');
 $assert(printflow_format_customer_priority_display('') === '', 'empty priority stays empty for Not specified handling');
 
+require_once $root . '/includes/service_field_priority_helper.php';
+$regularPriority = printflow_resolve_customer_priority_from_customization([
+    'Order Priority' => 'Regular Order',
+]);
+$assert(
+    ($regularPriority['selected_value'] ?? '') === 'Regular Order',
+    'priority resolves Regular Order from submitted label without service_id'
+);
+$assert(
+    printflow_format_customer_priority_display((string)($regularPriority['selected_value'] ?? '')) === 'Regular',
+    'admin/staff priority label matches Regular'
+);
+$emptyPriority = printflow_resolve_customer_priority_from_customization([]);
+$assert(trim((string)($emptyPriority['selected_value'] ?? '')) === '', 'empty customization yields no priority value');
+
+$adminFiltered = printflow_filter_admin_customization_display_specifications([
+    'Material' => 'Sticker Black',
+    'Layout' => 'with_layout',
+]);
+$assert(!isset($adminFiltered['Material']), 'admin summary must not show Material tile');
+$assert(isset($adminFiltered['Layout']), 'admin summary keeps other valid specs');
+
 $needed = printflow_job_order_line_needed_date_payload([
     'Needed Date' => '2026-09-07',
     'service_id' => 12,

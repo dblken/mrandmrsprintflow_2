@@ -779,7 +779,18 @@ function custom_payment_badge($status) {
                 displaySpecificationEntries(job) {
                     const specs = job?.display_specifications;
                     if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return [];
-                    return Object.entries(specs).filter(([, value]) => String(value ?? '').trim() !== '');
+                    const hideMaterial = new Set(['Material', 'Material Type', 'Temp Plate Material']);
+                    return Object.entries(specs).filter(([label, value]) => {
+                        if (hideMaterial.has(String(label))) return false;
+                        return String(value ?? '').trim() !== '';
+                    });
+                },
+                formatCustomerPriorityLabel(value) {
+                    const text = String(value || '').trim();
+                    if (!text) return '';
+                    if (/^regular(\s+order)?$/i.test(text)) return 'Regular';
+                    if (/^urgent(\s+order)?$/i.test(text)) return 'Urgent';
+                    return text;
                 },
                 displayNeededDate(job) {
                     const display = String(job?.needed_date_display || '').trim();
@@ -789,8 +800,21 @@ function custom_payment_badge($status) {
                     return 'Not provided';
                 },
                 displayCustomerPriority(job) {
-                    const label = String(job?.display_priority || job?.priority_request_value || '').trim();
-                    if (label) return label;
+                    const fromApi = String(job?.display_priority || job?.priority_request_value || '').trim();
+                    if (fromApi) return this.formatCustomerPriorityLabel(fromApi);
+                    const specs = job?.display_specifications && typeof job.display_specifications === 'object'
+                        ? job.display_specifications
+                        : {};
+                    if (specs['Order Priority']) {
+                        return this.formatCustomerPriorityLabel(specs['Order Priority']);
+                    }
+                    const item = Array.isArray(job?.items) ? job.items[0] : null;
+                    const custom = item?.customization && typeof item.customization === 'object' ? item.customization : {};
+                    for (const [key, value] of Object.entries(custom)) {
+                        if (/^order\s+priority$/i.test(String(key)) && String(value || '').trim() !== '') {
+                            return this.formatCustomerPriorityLabel(value);
+                        }
+                    }
                     return 'Not specified';
                 },
                 openModal(id, orderCode = '') {

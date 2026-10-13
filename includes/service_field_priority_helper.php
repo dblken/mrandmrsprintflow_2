@@ -250,6 +250,60 @@ if (!function_exists('printflow_collect_priority_related_fields')) {
     }
 }
 
+if (!function_exists('printflow_resolve_customer_priority_from_customization')) {
+    /**
+     * Same priority resolution staff spec tiles use, including Regular when service_id is missing from payload.
+     *
+     * @param array<string,mixed> $customization
+     * @return array<string,mixed>
+     */
+    function printflow_resolve_customer_priority_from_customization(array $customization): array
+    {
+        $serviceId = (int)($customization['service_id'] ?? 0);
+        $priority = printflow_resolve_dynamic_order_priority($serviceId, $customization);
+        $selected = trim((string)($priority['selected_value'] ?? ''));
+        if ($selected !== '') {
+            return $priority;
+        }
+
+        if (!function_exists('printflow_customization_key_token')) {
+            require_once __DIR__ . '/customization_normalizer.php';
+        }
+
+        foreach ($customization as $key => $value) {
+            if (!is_string($key) || !is_scalar($value)) {
+                continue;
+            }
+            $token = printflow_customization_key_token($key);
+            $isPriorityField = ($token === 'order_priority')
+                || strcasecmp(trim($key), 'Order Priority') === 0
+                || (str_contains($token, 'priority') && !str_contains($token, 'priority_request'));
+            if (!$isPriorityField) {
+                continue;
+            }
+            $submitted = trim((string)$value);
+            if ($submitted === '') {
+                continue;
+            }
+            $isUrgent = (bool)preg_match('/\burgent\b/i', $submitted);
+
+            return array_merge(printflow_priority_request_default(), [
+                'is_urgent_request' => $isUrgent,
+                'is_regular' => !$isUrgent,
+                'has_priority_field' => true,
+                'field_key' => $token !== '' ? $token : 'order_priority',
+                'field_label' => trim($key),
+                'selected_value' => $submitted,
+                'related_fields' => [],
+                'job_priority' => $isUrgent ? 'HIGH' : 'NORMAL',
+                'source' => 'customization_label',
+            ]);
+        }
+
+        return $priority;
+    }
+}
+
 if (!function_exists('printflow_resolve_dynamic_order_priority')) {
     /**
      * Resolve customer priority/urgent request from service field config + submitted customization.

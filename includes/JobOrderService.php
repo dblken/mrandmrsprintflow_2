@@ -3975,22 +3975,24 @@ class JobOrderService {
             is_array($anchoredItem) ? $anchoredItem : null,
             $order
         );
-        $rawCustomForDisplay = [];
-        if (is_array($anchoredItem)) {
-            $rawCustomForDisplay = is_array($anchoredItem['customization'] ?? null)
-                ? $anchoredItem['customization']
-                : (is_array($anchoredItem['specifications'] ?? null) ? $anchoredItem['specifications'] : []);
-        }
+        $rawCustomForDisplay = printflow_merge_order_item_customization_sources(
+            is_array($anchoredItem) ? $anchoredItem : null
+        );
         if ($rawCustomForDisplay === [] && is_array($order['customization_details'] ?? null)) {
             $rawCustomForDisplay = $order['customization_details'];
         }
         require_once __DIR__ . '/customization_normalizer.php';
         require_once __DIR__ . '/service_field_priority_helper.php';
-        $serviceIdForLine = (int)($rawCustomForDisplay['service_id'] ?? ($anchoredItem['service_id'] ?? 0));
+        if ((int)($rawCustomForDisplay['service_id'] ?? 0) <= 0 && is_array($anchoredItem)) {
+            $lineServiceId = (int)($anchoredItem['service_id'] ?? 0);
+            if ($lineServiceId > 0) {
+                $rawCustomForDisplay['service_id'] = $lineServiceId;
+            }
+        }
         $neededPayload = printflow_job_order_line_needed_date_payload($rawCustomForDisplay);
         $order['needed_date'] = $neededPayload['needed_date'];
         $order['needed_date_display'] = $neededPayload['needed_date_display'];
-        $priorityPayload = printflow_resolve_dynamic_order_priority($serviceIdForLine, $rawCustomForDisplay);
+        $priorityPayload = printflow_resolve_customer_priority_from_customization($rawCustomForDisplay);
         printflow_apply_priority_request_to_row($order, $priorityPayload);
         $order['display_priority'] = printflow_format_customer_priority_display(
             (string)($order['priority_request_value'] ?? '')
@@ -4003,7 +4005,7 @@ class JobOrderService {
                 'include_quantity' => false,
             ])
             : [];
-        $order['display_specifications'] = printflow_filter_operations_display_specifications($displaySpecsRaw);
+        $order['display_specifications'] = printflow_filter_admin_customization_display_specifications($displaySpecsRaw);
 
         return $order;
     }
