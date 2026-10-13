@@ -4022,7 +4022,7 @@ function openItemsModal(orderId, event, options = {}) {
 
         const estimatedCompLabel = data.estimated_comp_label || 'Estimated completion';
         const revisionActionUrl = data.revision_request?.revise_url || (CUSTOMER_BASE_URL + '/customer/edit_order.php?order_id=' + data.order_id);
-        const revisionActionLabel = data.revision_request?.action_label || 'Update Requested Details';
+        const revisionActionLabel = data.revision_request?.action_label || 'Respond to Request Add Details';
         const revisionFieldLabels = Array.isArray(data.revision_request?.permitted_field_labels)
             ? data.revision_request.permitted_field_labels
             : [];
@@ -4121,7 +4121,7 @@ function openItemsModal(orderId, event, options = {}) {
                     <div class="mt-auto pt-4 im-order-actions">
                         ${data.design_status === 'Revision Requested' && data.revision_request ? `
                             <div class="im-reject-card">
-                                <div class="im-reject-title">Revision Requested</div>
+                                <div class="im-reject-title">Request Add Details</div>
                                 <p class="im-reject-copy"><strong>Reason:</strong> ${escIM(data.revision_request?.reason || 'Additional details required')}</p>
                                 <p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Staff instruction:</strong> ${escIM(data.revision_request?.instruction || data.revision_reason || 'Please review and correct the fields requested by staff.')}</p>
                                 ${data.revision_request?.requested_at ? `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Requested:</strong> ${escIM(formatRevisionRequestedAt(data.revision_request.requested_at))}</p>` : ''}
@@ -4132,7 +4132,7 @@ function openItemsModal(orderId, event, options = {}) {
                             </div>
                         ` : data.design_status === 'Revision Requested' ? `
                             <div class="im-reject-card">
-                                <div class="im-reject-title">Revision Request Unavailable</div>
+                                <div class="im-reject-title">Request Add Details Unavailable</div>
                                 <p class="im-reject-copy">${escIM(data.revision_request_error || 'We could not load the requested updates. Please refresh the order or contact the shop.')}</p>
                             </div>
                         ` : ''}

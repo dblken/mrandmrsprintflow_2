@@ -3559,7 +3559,7 @@ $online_closed_count = 0;
                         <div style="margin-bottom:20px;padding:14px;background:#f0f9ff;border:1px solid #7dd3fc;border-radius:10px;">
                             <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:10px;">
                                 <div>
-                                    <div style="font-size:13px;font-weight:800;color:#075985;">Revision Comparison</div>
+                                    <div style="font-size:13px;font-weight:800;color:#075985;">Request Add Details Comparison</div>
                                     <div style="font-size:11px;color:#0369a1;margin-top:3px;" x-text="currentJo.revision_review.reason + ' • ' + currentJo.revision_review.status"></div>
                                 </div>
                                 <div style="font-size:11px;color:#475569;" x-text="currentJo.revision_review.resubmitted_at ? 'Submitted: ' + currentJo.revision_review.resubmitted_at : ''"></div>
@@ -3593,7 +3593,7 @@ $online_closed_count = 0;
                             <template x-if="revisionReplacementDesignFiles().length">
                                 <div style="margin-top:14px;">
                                     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-                                        <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;">Replacement design files</div>
+                                        <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;">Additional Design Files</div>
                                         <div style="font-size:10px;font-weight:700;color:#475569;" x-text="revisionReplacementDesignFiles().length + '/' + staffDesignFilesMaxPerItem({}) + ' files'"></div>
                                     </div>
                                     <div class="pf-design-files" :class="{ 'is-expanded': revisionReplacementDesignExpanded() }" data-pf-design-files>
@@ -3638,7 +3638,7 @@ $online_closed_count = 0;
                                  <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 11l5 5m0 0l-5 5m5-5H6"/></svg>
                              </div>
                             <div style="flex:1; min-width:0;">
-                                <div style="font-size:13px; font-weight:700; color:#0369a1;">Revision Re-submitted</div>
+                                <div style="font-size:13px; font-weight:700; color:#0369a1;">Request Add Details Submitted</div>
                                 <div style="font-size:12px; color:#075985;">The customer submitted the requested updates. Compare the previous and revised values before continuing.</div>
                             </div>
                             <template x-for="(revItem, revIdx) in (currentJo.items || [])" :key="revItem.order_item_id || revIdx">

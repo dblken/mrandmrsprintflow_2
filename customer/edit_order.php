@@ -13,13 +13,16 @@ $revisionReference = 'REV-' . max(0, $order_id) . '-' . strtoupper(substr(hash('
 
 function customer_revision_stop(string $message, string $reference, int $orderId): never
 {
-    $page_title = 'Revision Request Error';
+    if (function_exists('printflow_add_details_replace_phrases')) {
+        $message = printflow_add_details_replace_phrases($message);
+    }
+    $page_title = 'Request Add Details Error';
     $use_customer_css = true;
     require __DIR__ . '/../includes/header.php';
     ?>
     <main style="max-width:720px;margin:0 auto;padding:3rem 1rem;">
         <section style="background:#fff;border:1px solid #fecaca;border-left:5px solid #dc2626;border-radius:14px;padding:1.4rem;box-shadow:0 8px 24px rgba(15,42,54,.08);">
-            <h1 style="margin:0 0 .65rem;color:#991b1b;font-size:1.35rem;">Revision Request Unavailable</h1>
+            <h1 style="margin:0 0 .65rem;color:#991b1b;font-size:1.35rem;">Request Add Details Unavailable</h1>
             <p style="margin:0 0 .8rem;color:#7f1d1d;line-height:1.55;"><?php echo htmlspecialchars($message); ?></p>
             <p style="margin:0 0 1.2rem;color:#64748b;font-size:.85rem;">Reference ID: <strong><?php echo htmlspecialchars($reference); ?></strong></p>
             <a href="orders.php<?php echo $orderId > 0 ? '?highlight=' . $orderId : ''; ?>" style="display:inline-flex;min-height:42px;align-items:center;padding:0 1rem;border-radius:8px;background:#0b3441;color:#fff;text-decoration:none;font-weight:700;">Back to My Orders</a>
@@ -202,7 +205,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resubmit_order'])) {
                 $staffNotified = (bool)create_notification(
                     $staffId,
                     $staffRole,
-                    "{$customerName} submitted revised details for Order #{$order_id}. Review is required.",
+                    "{$customerName} submitted Request Add Details for Order #{$order_id}. Review is required.",
                     'Design',
                     false,
                     false,
@@ -211,25 +214,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resubmit_order'])) {
             }
             if (!$staffNotified) {
                 notify_shop_users(
-                    "{$customerName} submitted revised details for Order #{$order_id}. Review is required.",
+                    "{$customerName} submitted Request Add Details for Order #{$order_id}. Review is required.",
                     'Design', false, false, $order_id, ['Staff', 'Admin', 'Manager']
                 );
             }
-            $_SESSION['success'] = "Order #{$order_id} was resubmitted for staff review.";
+            $_SESSION['success'] = "Order #{$order_id} Request Add Details was submitted for staff review.";
             redirect('orders.php');
         } catch (Throwable $e) {
             $error = $e->getMessage();
+            if (function_exists('printflow_add_details_replace_phrases')) {
+                $error = printflow_add_details_replace_phrases($error);
+            }
         }
     }
 }
 
-$page_title = "Revise Order #{$order_id}";
+$page_title = function_exists('printflow_add_details_order_page_title')
+    ? printflow_add_details_order_page_title($order_id)
+    : "Request Add Details — Order #{$order_id}";
 $use_customer_css = true;
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <style>
-.revision-page{max-width:920px;margin:0 auto;padding:2rem 1rem 3rem}.revision-head{margin-bottom:1.5rem}.revision-title{font-size:1.55rem;font-weight:800;color:#102a36;margin:0 0 .35rem}.revision-sub{color:#64748b;font-size:.92rem}.revision-feedback{background:#fff8e6;border:1px solid #f5d88b;border-left:4px solid #e8a317;border-radius:12px;padding:1rem 1.1rem;margin-bottom:1.25rem}.revision-feedback h2{font-size:.82rem;text-transform:uppercase;letter-spacing:.04em;color:#92400e;margin:0 0 .45rem}.revision-feedback p{margin:.25rem 0;color:#78350f;line-height:1.55}.revision-permissions{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.75rem}.revision-permission{padding:.35rem .6rem;border-radius:999px;background:#fff;border:1px solid #f5d88b;color:#78350f;font-size:.72rem;font-weight:700}.revision-card{background:#fff;border:1px solid #dce5ea;border-radius:14px;padding:1.25rem;margin-bottom:1rem;box-shadow:0 6px 20px rgba(15,42,54,.06)}.revision-card-head{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding-bottom:.9rem;margin-bottom:1rem;border-bottom:1px solid #e7edf0}.revision-card-head h2{margin:0;color:#102a36;font-size:1.05rem}.revision-readonly{font-size:.78rem;color:#64748b}.revision-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.9rem}.revision-field{padding:.8rem;border:1px solid #e5eaed;border-radius:10px;background:#f8fafb;min-width:0}.revision-field.required{background:#f0fbfd;border-color:#53c5e0;box-shadow:0 0 0 2px rgba(83,197,224,.08)}.revision-label{display:block;font-size:.69rem;font-weight:800;text-transform:uppercase;letter-spacing:.035em;color:#648897;margin-bottom:.4rem}.revision-value{color:#243c47;font-size:.9rem;font-weight:600;overflow-wrap:anywhere}.revision-input{width:100%;box-sizing:border-box;border:1px solid #9dcbd6;border-radius:8px;background:#fff;color:#18333e;padding:.68rem .75rem;font:inherit}.revision-help{display:block;color:#0e7490;font-size:.72rem;margin-top:.4rem}.revision-design{display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap}.revision-design img{width:180px;max-height:180px;object-fit:contain;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc}.revision-new-preview{display:none;margin-top:.8rem;padding:.75rem;border:1px solid #bae6fd;border-radius:10px;background:#f0f9ff}.revision-new-preview.open{display:block}.revision-new-preview img{display:block;width:180px;max-height:180px;object-fit:contain;margin-bottom:.65rem}.revision-file-actions{display:flex;align-items:center;gap:.65rem;flex-wrap:wrap}.revision-remove-file{border:1px solid #fca5a5;background:#fff;color:#b91c1c;border-radius:7px;padding:.45rem .65rem;font-weight:700;cursor:pointer}.revision-file-error{display:none;color:#b91c1c;font-size:.75rem;font-weight:700;margin-top:.5rem}.revision-design-list{display:grid;gap:.75rem;margin-top:.75rem}.revision-design-pick-row{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;margin-bottom:.5rem}.revision-design-count{font-size:.78rem;font-weight:800;color:#0e7490}.revision-design-pick-card{display:flex;gap:.75rem;align-items:flex-start;padding:.75rem;border:1px solid #dbeafe;border-radius:10px;background:#fff}.revision-design-pick-card img{width:72px;height:72px;object-fit:contain;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;flex-shrink:0}.revision-design-pick-meta{flex:1;min-width:0}.revision-design-pick-name{font-size:.82rem;font-weight:700;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}.revision-design-pick-size{font-size:.72rem;color:#64748b;margin-top:.2rem}.revision-actions{display:flex;justify-content:flex-end;gap:.75rem;margin-top:1.25rem}.revision-btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 1.15rem;border-radius:9px;font-weight:700;text-decoration:none;cursor:pointer}.revision-btn.secondary{border:1px solid #cbd5e1;color:#475569;background:#fff}.revision-btn.primary{border:1px solid #0e94a8;color:#fff;background:#0e94a8}.revision-btn:disabled{opacity:.6;cursor:wait}.revision-alert{padding:.9rem 1rem;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;margin-bottom:1rem}.revision-meta{display:flex;gap:1.25rem;flex-wrap:wrap;color:#526b77;font-size:.82rem;margin-top:.55rem}
+.revision-page{max-width:920px;margin:0 auto;padding:2rem 1rem 3rem}.revision-head{margin-bottom:1.5rem}.revision-title{font-size:1.55rem;font-weight:800;color:#102a36;margin:0 0 .35rem}.revision-sub{color:#64748b;font-size:.92rem}.revision-feedback{background:#fff8e6;border:1px solid #f5d88b;border-left:4px solid #e8a317;border-radius:12px;padding:1rem 1.1rem;margin-bottom:1.25rem}.revision-feedback h2{font-size:.82rem;text-transform:uppercase;letter-spacing:.04em;color:#92400e;margin:0 0 .45rem}.revision-feedback p{margin:.25rem 0;color:#78350f;line-height:1.55}.revision-permissions{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.75rem}.revision-permission{padding:.35rem .6rem;border-radius:999px;background:#fff;border:1px solid #f5d88b;color:#78350f;font-size:.72rem;font-weight:700}.revision-card{background:#fff;border:1px solid #dce5ea;border-radius:14px;padding:1.25rem;margin-bottom:1rem;box-shadow:0 6px 20px rgba(15,42,54,.06)}.revision-card-head{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding-bottom:.9rem;margin-bottom:1rem;border-bottom:1px solid #e7edf0}.revision-card-head h2{margin:0;color:#102a36;font-size:1.05rem}.revision-readonly{font-size:.78rem;color:#64748b}.revision-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.9rem}.revision-field{padding:.8rem;border:1px solid #e5eaed;border-radius:10px;background:#f8fafb;min-width:0}.revision-field.required{background:#f0fbfd;border-color:#53c5e0;box-shadow:0 0 0 2px rgba(83,197,224,.08)}.revision-label{display:block;font-size:.69rem;font-weight:800;text-transform:uppercase;letter-spacing:.035em;color:#648897;margin-bottom:.4rem}.revision-value{color:#243c47;font-size:.9rem;font-weight:600;overflow-wrap:anywhere}.revision-input{width:100%;box-sizing:border-box;border:1px solid #9dcbd6;border-radius:8px;background:#fff;color:#18333e;padding:.68rem .75rem;font:inherit}.revision-help{display:block;color:#0e7490;font-size:.72rem;margin-top:.4rem}.revision-design{display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap}.revision-design img{width:180px;max-height:180px;object-fit:contain;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc}.revision-new-preview{display:none;margin-top:.8rem;padding:.75rem;border:1px solid #bae6fd;border-radius:10px;background:#f0f9ff}.revision-new-preview.open{display:block}.revision-new-preview img{display:block;width:180px;max-height:180px;object-fit:contain;margin-bottom:.65rem}.revision-file-actions{display:flex;align-items:center;gap:.65rem;flex-wrap:wrap}.revision-remove-file{border:1px solid #fca5a5;background:#fff;color:#b91c1c;border-radius:7px;padding:.45rem .65rem;font-weight:700;cursor:pointer}.revision-file-error{display:none;color:#b91c1c;font-size:.75rem;font-weight:700;margin-top:.5rem}.revision-design-list{display:grid;gap:.75rem;margin-top:.75rem}.revision-design-pick-row{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;margin-bottom:.5rem}.revision-design-count{font-size:.78rem;font-weight:800;color:#0e7490}.revision-design-pick-card{display:flex;gap:.75rem;align-items:flex-start;padding:.75rem;border:1px solid #dbeafe;border-radius:10px;background:#fff}.revision-design-pick-card img{width:72px;height:72px;object-fit:contain;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;flex-shrink:0}.revision-design-pick-meta{flex:1;min-width:0}.revision-design-pick-name{font-size:.82rem;font-weight:700;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}.revision-design-pick-size{font-size:.72rem;color:#64748b;margin-top:.2rem}.revision-actions{display:flex;justify-content:flex-end;gap:.75rem;margin-top:1.25rem}.revision-btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 1.15rem;border-radius:9px;font-weight:700;text-decoration:none;cursor:pointer}.revision-btn.secondary{border:1px solid #cbd5e1;color:#475569;background:#fff}.revision-btn.primary{border:1px solid #0e94a8;color:#fff;background:#0e94a8}.revision-btn:disabled{opacity:.6;cursor:wait}.revision-input--pick-blocked{pointer-events:none;opacity:.55}.revision-alert{padding:.9rem 1rem;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;margin-bottom:1rem}.revision-meta{display:flex;gap:1.25rem;flex-wrap:wrap;color:#526b77;font-size:.82rem;margin-top:.55rem}
 @media(max-width:640px){.revision-page{padding-top:1.1rem}.revision-grid{grid-template-columns:1fr}.revision-card{padding:1rem}.revision-card-head{align-items:flex-start;flex-direction:column}.revision-actions{flex-direction:column-reverse}.revision-btn{width:100%;box-sizing:border-box}.revision-design img{width:100%;max-width:260px}}
 </style>
 <?php
@@ -240,17 +248,17 @@ $pfAssetBase = rtrim((function_exists('pf_app_base_path') ? pf_app_base_path() :
 <main class="revision-page">
     <div class="revision-head">
         <a href="orders.php" style="display:inline-block;color:#526b77;text-decoration:none;margin-bottom:.8rem;">&larr; Back to Orders</a>
-        <h1 class="revision-title">Revise Order #<?php echo $order_id; ?></h1>
+        <h1 class="revision-title">Request Add Details — Order #<?php echo $order_id; ?></h1>
         <p class="revision-sub">Only fields authorized by staff can be changed. All other order information remains read-only.</p>
         <div class="revision-meta">
             <span>Branch: <strong><?php echo htmlspecialchars((string)($order['branch_name'] ?? 'Not specified')); ?></strong></span>
-            <span>Status: <strong>Customer Updating Details</strong></span>
+            <span>Status: <strong><?php echo htmlspecialchars(function_exists('printflow_add_details_status_label') ? printflow_add_details_status_label('Customer Updating Details') : 'Customer Updating Details'); ?></strong></span>
             <span>Requested: <strong><?php echo htmlspecialchars(format_datetime((string)$revision['requested_at'])); ?></strong></span>
         </div>
     </div>
 
     <section class="revision-feedback">
-        <h2>Reason for Revision</h2>
+        <h2>Reason for Request Add Details</h2>
         <p><strong><?php echo htmlspecialchars((string)$revision['revision_reason']); ?></strong></p>
         <p><?php echo nl2br(htmlspecialchars((string)$revision['staff_instruction'])); ?></p>
         <?php if (!empty($permissionLabels)): ?>
@@ -404,7 +412,7 @@ $pfAssetBase = rtrim((function_exists('pf_app_base_path') ? pf_app_base_path() :
 
         <div class="revision-actions">
             <a href="orders.php" class="revision-btn secondary">Cancel</a>
-            <button type="submit" id="revision_submit_button" class="revision-btn primary">Submit Updated Details</button>
+            <button type="submit" id="revision_submit_button" class="revision-btn primary">Submit Request Add Details</button>
         </div>
     </form>
 </main>
@@ -413,6 +421,7 @@ $pfAssetBase = rtrim((function_exists('pf_app_base_path') ? pf_app_base_path() :
 <script>
 (function () {
     const MAX_FILES = <?php echo (int)$revisionMaxDesignFiles; ?>;
+    const designUploadRequired = <?php echo !empty($designEditable) ? 'true' : 'false'; ?>;
     const form = document.querySelector('.revision-page form');
     const fileInput = document.getElementById('design_file');
     const pickList = document.getElementById('revision_design_pick_list');
@@ -423,6 +432,15 @@ $pfAssetBase = rtrim((function_exists('pf_app_base_path') ? pf_app_base_path() :
     const allowed = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
     let selected = [];
     let submitLock = false;
+    const submitDefaultLabel = submitButton ? submitButton.textContent : 'Submit Request Add Details';
+
+    function resetSubmitState() {
+        submitLock = false;
+        if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = submitDefaultLabel;
+        }
+    }
 
     function showFileError(message) {
         if (!fileError) return;
@@ -484,7 +502,8 @@ $pfAssetBase = rtrim((function_exists('pf_app_base_path') ? pf_app_base_path() :
             });
         });
         if (fileInput) {
-            fileInput.disabled = selected.length >= MAX_FILES;
+            fileInput.classList.toggle('revision-input--pick-blocked', selected.length >= MAX_FILES);
+            fileInput.setAttribute('aria-disabled', selected.length >= MAX_FILES ? 'true' : 'false');
         }
     }
 
@@ -526,15 +545,27 @@ $pfAssetBase = rtrim((function_exists('pf_app_base_path') ? pf_app_base_path() :
     }
 
     if (form) form.addEventListener('submit', function (event) {
-        if (fileInput && selected.length === 0) {
+        showFileError('');
+        if (designUploadRequired && fileInput && selected.length === 0) {
             event.preventDefault();
-            showFileError('Select at least one replacement design before submitting.');
+            showFileError('Select at least one design file before submitting your Request Add Details.');
             fileInput.focus();
+            resetSubmitState();
             return;
+        }
+        if (designUploadRequired && fileInput) {
+            syncInputFiles();
+            if (!fileInput.files || fileInput.files.length === 0) {
+                event.preventDefault();
+                showFileError('Your selected files could not be attached. Please choose them again and submit.');
+                resetSubmitState();
+                return;
+            }
         }
         if (!form.checkValidity()) {
             event.preventDefault();
             form.reportValidity();
+            resetSubmitState();
             return;
         }
         if (submitLock) {
@@ -544,7 +575,7 @@ $pfAssetBase = rtrim((function_exists('pf_app_base_path') ? pf_app_base_path() :
         submitLock = true;
         if (submitButton) {
             submitButton.disabled = true;
-            submitButton.textContent = 'Submitting Updates…';
+            submitButton.textContent = 'Submitting Request Add Details…';
         }
     });
 

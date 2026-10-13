@@ -1613,7 +1613,7 @@ function get_order_status_notification_payload($order_id, $status) {
         'Pending' => "Your order has been received and is pending confirmation.",
         'Pending Review' => "Your order has been received and is pending confirmation.",
         'Pending Approval' => "Your order has been received and is pending confirmation.",
-        'For Revision' => "Your order needs revision. Please review the request details.",
+        'For Revision' => "Your order needs Request Add Details. Please review the staff message and respond.",
         'Approved' => "Your order has been approved and will proceed to payment.",
         'To Pay' => "Your order is ready. Please proceed to payment of {amount}.",
         'To Verify' => "Your payment is currently being verified.",

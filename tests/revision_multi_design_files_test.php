@@ -15,7 +15,8 @@ $expect = static function (bool $condition, string $message) use (&$failures): v
 };
 
 $expect(strpos($revision, 'printflow_revision_design_files_assert_can_add') !== false, 'revision submit uses per-request file limit');
-$expect(strpos($revision, 'printflow_normalize_php_file_uploads') !== false, 'revision submit accepts multi-file uploads');
+$expect(strpos($revision, 'printflow_revision_collect_design_uploads') !== false, 'revision submit collects multi-file uploads');
+$expect(strpos($revision, 'service_order_helper.php') !== false, 'revision workflow loads upload normalizer');
 $expect(strpos($revision, 'revision_replacement') !== false, 'revision files stored with revision_replacement role');
 $expect(strpos($revision, 'replacement_design_files') !== false, 'staff API payload includes replacement_design_files');
 $expect(strpos($designCore, 'printflow_revision_design_files_list_for_request') !== false, 'revision file list helper exists');

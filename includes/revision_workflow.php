@@ -11,6 +11,60 @@ require_once __DIR__ . '/order_ui_helper.php';
 require_once __DIR__ . '/service_field_config_helper.php';
 require_once __DIR__ . '/product_field_config_helper.php';
 require_once __DIR__ . '/order_item_design_files.php';
+require_once __DIR__ . '/service_order_helper.php';
+require_once __DIR__ . '/add_details_labels.php';
+
+/**
+ * Normalize multi-file design uploads from the current request.
+ *
+ * @return list<array<string,mixed>>
+ */
+function printflow_revision_collect_design_uploads(array $files): array
+{
+    if (function_exists('printflow_normalize_php_file_uploads')) {
+        $uploads = printflow_normalize_php_file_uploads('design_file');
+        if ($uploads !== []) {
+            return $uploads;
+        }
+        $uploads = printflow_normalize_php_file_uploads('design_file[]');
+        if ($uploads !== []) {
+            return $uploads;
+        }
+    }
+
+    $candidates = ['design_file', 'design_file[]'];
+    foreach ($candidates as $field) {
+        if (!isset($files[$field]) || !is_array($files[$field])) {
+            continue;
+        }
+        $upload = $files[$field];
+        if (!is_array($upload['name'] ?? null)) {
+            if (($upload['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                continue;
+            }
+            return [$upload];
+        }
+        $out = [];
+        $count = count($upload['name']);
+        for ($i = 0; $i < $count; $i++) {
+            if (($upload['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                continue;
+            }
+            $out[] = [
+                'name' => $upload['name'][$i] ?? '',
+                'type' => $upload['type'][$i] ?? '',
+                'tmp_name' => $upload['tmp_name'][$i] ?? '',
+                'error' => $upload['error'][$i] ?? UPLOAD_ERR_NO_FILE,
+                'size' => $upload['size'][$i] ?? 0,
+            ];
+        }
+        if ($out !== []) {
+            return $out;
+        }
+    }
+
+    return [];
+}
 
 function printflow_revision_ensure_schema(): bool
 {
@@ -180,9 +234,9 @@ function printflow_revision_action_label(array $permissions): string
     if (empty($permissions)) return '';
     $hasDesign = printflow_revision_has_design_permission($permissions);
     $hasDetails = printflow_revision_has_detail_permission($permissions);
-    if ($hasDesign && !$hasDetails) return 'Upload New Design';
-    if (!$hasDesign && $hasDetails) return 'Edit Requested Details';
-    return 'Update Requested Details';
+    if ($hasDesign && !$hasDetails) return 'Respond to Request Add Details';
+    if (!$hasDesign && $hasDetails) return 'Respond to Request Add Details';
+    return 'Respond to Request Add Details';
 }
 
 function printflow_revision_price_impacting(array $permissions): bool
@@ -1328,17 +1382,12 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
 
         $designRequired = in_array('uploaded_design', $permissions, true);
         $designTargetItemId = 0;
-        $designUploads = function_exists('printflow_normalize_php_file_uploads')
-            ? printflow_normalize_php_file_uploads('design_file')
-            : [];
-        if ($designUploads === [] && function_exists('printflow_normalize_php_file_uploads')) {
-            $designUploads = printflow_normalize_php_file_uploads('design_file[]');
-        }
+        $designUploads = printflow_revision_collect_design_uploads($files);
         $revisionRequestId = (int)$request['revision_request_id'];
         $registeredRevisionFiles = [];
         if ($designRequired) {
             if ($designUploads === []) {
-                throw new RuntimeException('Please upload the revised design requested by staff.');
+                throw new RuntimeException('Please upload the design file(s) requested by staff for this Request Add Details.');
             }
             $designTargetItemId = (int)($post['design_order_item_id'] ?? 0);
             if ($designTargetItemId <= 0 && count($itemMap) === 1) {
@@ -1393,7 +1442,7 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
                 $registeredRevisionFiles[] = (int)$registered['file_id'];
             }
             if ($registeredRevisionFiles === []) {
-                throw new RuntimeException('Please upload the revised design requested by staff.');
+                throw new RuntimeException('Please upload the design file(s) requested by staff for this Request Add Details.');
             }
             $primaryFileRows = db_query(
                 'SELECT storage_path, mime_type, display_name, file_size FROM order_item_design_files WHERE file_id = ? LIMIT 1',

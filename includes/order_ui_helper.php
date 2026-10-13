@@ -411,6 +411,59 @@ if (!function_exists('pf_order_ui_cart_design_upload_entries')) {
     }
 }
 
+if (!function_exists('pf_order_ui_expand_composite_design_file_rows')) {
+    /**
+     * Split legacy rows where many filenames were stored in one display_name (comma-separated).
+     *
+     * @param list<array<string,mixed>> $files
+     * @return list<array<string,mixed>>
+     */
+    function pf_order_ui_expand_composite_design_file_rows(array $files): array
+    {
+        $expanded = [];
+        foreach ($files as $file) {
+            if (!is_array($file)) {
+                continue;
+            }
+            $name = trim((string)($file['display_name'] ?? ''));
+            if ($name === '' || !str_contains($name, ',')) {
+                $expanded[] = $file;
+                continue;
+            }
+            $parts = preg_split('/\s*,\s*/', $name) ?: [];
+            $valid = [];
+            foreach ($parts as $part) {
+                $part = trim((string)$part);
+                if ($part === '') {
+                    continue;
+                }
+                if (preg_match('/\.(jpe?g|png|gif|webp|pdf|ai|psd|bmp|svg)$/i', $part) !== 1) {
+                    continue;
+                }
+                $valid[] = $part;
+            }
+            if (count($valid) < 2) {
+                $expanded[] = $file;
+                continue;
+            }
+            $baseId = (string)($file['file_id'] ?? '0');
+            $sort = (int)($file['upload_sort'] ?? 0);
+            foreach ($valid as $index => $part) {
+                $clone = $file;
+                $clone['display_name'] = $part;
+                $clone['file_id'] = $baseId . '-part-' . $index;
+                $clone['upload_sort'] = $sort + $index;
+                if ($index > 0) {
+                    unset($clone['preview_url'], $clone['download_url']);
+                }
+                $clone['is_previewable_image'] = preg_match('/\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i', $part) === 1;
+                $expanded[] = $clone;
+            }
+        }
+        return $expanded;
+    }
+}
+
 if (!function_exists('pf_order_ui_dedupe_design_file_rows')) {
     /**
      * @param list<array<string,mixed>> $files
@@ -607,6 +660,7 @@ if (!function_exists('pf_order_ui_render_design_files_html')) {
         if ($files === []) {
             return '';
         }
+        $files = pf_order_ui_expand_composite_design_file_rows($files);
         $files = pf_order_ui_dedupe_design_file_rows($files);
         if ($files === []) {
             return '';

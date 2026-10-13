@@ -558,7 +558,17 @@ function staff_orders_status_pill_style(string $displayStatus): string {
 
 function staff_orders_status_pill_html(string $displayStatus): string {
     $style = staff_orders_status_pill_style($displayStatus);
-    $label = htmlspecialchars(ucwords(strtolower(trim($displayStatus))));
+    $raw = trim($displayStatus);
+    if (!function_exists('printflow_add_details_status_label')) {
+        $labelPath = __DIR__ . '/../includes/add_details_labels.php';
+        if (is_file($labelPath)) {
+            require_once $labelPath;
+        }
+    }
+    $labelText = function_exists('printflow_add_details_status_label')
+        ? printflow_add_details_status_label($raw)
+        : ucwords(strtolower($raw));
+    $label = htmlspecialchars($labelText);
     return '<span class="pf-pill" style="' . $style . '">' . $label . '</span>';
 }
 
