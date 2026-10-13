@@ -108,4 +108,30 @@ foreach ($layoutWithPrice['options'] as $opt) {
 }
 layout_test_assert($optionTotal === 200.0, 'without_layout slug earns Without Layout option price');
 
+$withDesign = [
+    'layout' => 'with_layout',
+    'design_upload_files' => [['path' => '/uploads/orders/a.jpg', 'name' => 'a.jpg']],
+    'design_upload_path' => '/uploads/orders/a.jpg',
+    'design_external_link' => 'https://example.com/design.png',
+    'Upload Design Link' => 'https://example.com/legacy.png',
+];
+$cleared = printflow_customization_clear_ephemeral_design_media($withDesign);
+layout_test_assert(!isset($cleared['design_upload_files']), 'clear removes design_upload_files');
+layout_test_assert(!isset($cleared['design_upload_path']), 'clear removes design_upload_path');
+layout_test_assert(!isset($cleared['design_external_link']), 'clear removes design link keys');
+layout_test_assert(!isset($cleared['Upload Design Link']), 'clear removes labeled design link keys');
+
+layout_test_assert(
+    printflow_customization_layout_is_without(['Layout' => 'Without Layout']),
+    'detects without layout from label key'
+);
+layout_test_assert(
+    !printflow_service_design_upload_is_active($allConfigs, ['layout' => 'without_layout']),
+    'design upload inactive helper matches conditional rules'
+);
+
+$rendererJs = (string) file_get_contents(__DIR__ . '/../includes/service_field_renderer.php');
+layout_test_assert(strpos($rendererJs, 'pfClearDesignUploadGroup') !== false, 'renderer exposes design clear on layout switch');
+layout_test_assert(strpos($rendererJs, 'pfClearDesignUploadGroup(uploadGroup)') !== false, 'conditional fields clear uploads when layout disables design');
+
 echo "All service_layout_design_validation tests passed.\n";

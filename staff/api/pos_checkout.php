@@ -1775,6 +1775,25 @@ try {
             $custom_details['service_id'] = $product_id;
         }
         pos_normalize_media_upload_keys($custom_details);
+        if (
+            function_exists('printflow_customization_layout_is_without')
+            && printflow_customization_layout_is_without($custom_details)
+        ) {
+            $custom_details = printflow_customization_clear_ephemeral_design_media($custom_details);
+        } elseif (function_exists('printflow_service_design_upload_is_active')) {
+            require_once __DIR__ . '/../../includes/service_field_config_helper.php';
+            $serviceIdForFields = (int)($custom_details['service_id'] ?? $product_id);
+            if ($is_service && $serviceIdForFields > 0 && function_exists('get_service_field_config')) {
+                $fieldConfigs = get_service_field_config($serviceIdForFields) ?: [];
+                if ($fieldConfigs !== []) {
+                    $fieldValues = $custom_details;
+                    printflow_apply_layout_canonical_to_customization($fieldValues, $fieldConfigs);
+                    if (!printflow_service_design_upload_is_active($fieldConfigs, $fieldValues)) {
+                        $custom_details = printflow_customization_clear_ephemeral_design_media($custom_details);
+                    }
+                }
+            }
+        }
         $hasPersistedDesignPath = pos_customization_has_persisted_media_path($custom_details, 'design_upload');
         $hasPersistedReferencePath = pos_customization_has_persisted_media_path($custom_details, 'reference_upload');
         $designPayload = $hasPersistedDesignPath

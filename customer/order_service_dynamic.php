@@ -789,6 +789,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 $estimated_price = $posted_estimated_price;
             }
             
+            printflow_apply_layout_canonical_to_customization($customization, $field_configs);
+            $field_values_for_design = printflow_service_field_values_from_post($_POST);
+            if (!printflow_service_design_upload_is_active($field_configs, $field_values_for_design)) {
+                $customization = printflow_customization_clear_ephemeral_design_media($customization);
+                $uploaded_design_files = [];
+                $design_tmp_path = null;
+                $design_name = null;
+                $design_mime = null;
+            }
+
             if ($uploaded_design_files !== []) {
                 $customization['design_upload_files'] = array_map(static function (array $row): array {
                     return [
@@ -2284,6 +2294,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
         form.addEventListener('submit', function(e) {
             document.querySelectorAll('.pf-file-upload-group').forEach(function(group) {
+                const row = group.closest('.shopee-form-row');
+                if (row && row.dataset.pfFieldInactive === '1') {
+                    if (typeof window.pfClearDesignUploadGroup === 'function') {
+                        window.pfClearDesignUploadGroup(group);
+                    }
+                    return;
+                }
                 if (typeof window.pfSyncDesignQueueToFileInput === 'function') {
                     window.pfSyncDesignQueueToFileInput(group);
                 }

@@ -803,10 +803,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             $fallbackSourcePage = review_item_is_service($item) ? 'services' : 'products';
                             $custom['source_page'] = trim((string)($item['source_page'] ?? $fallbackSourcePage)) ?: $fallbackSourcePage;
                         }
+                        $reviewDesignUploadActive = true;
+                        if (review_item_is_service($item)) {
+                            require_once __DIR__ . '/../includes/service_field_config_helper.php';
+                            $reviewServiceId = (int)($custom['service_id'] ?? 0);
+                            $stripDesignMedia = function_exists('printflow_customization_layout_is_without')
+                                && printflow_customization_layout_is_without($custom);
+                            if ($reviewServiceId > 0 && function_exists('get_service_field_config')) {
+                                $reviewFieldConfigs = get_service_field_config($reviewServiceId) ?: [];
+                                if ($reviewFieldConfigs !== []) {
+                                    printflow_apply_layout_canonical_to_customization($custom, $reviewFieldConfigs);
+                                    $stripDesignMedia = !printflow_service_design_upload_is_active($reviewFieldConfigs, $custom);
+                                }
+                            }
+                            $reviewDesignUploadActive = !$stripDesignMedia;
+                            if ($stripDesignMedia && function_exists('printflow_customization_clear_ephemeral_design_media')) {
+                                $custom = printflow_customization_clear_ephemeral_design_media($custom);
+                            }
+                        }
                         $uploadedFilesMeta = [];
                         $design_binary = null;
-                        $design_mime   = $item['design_mime']   ?? null;
-                        $design_name   = $item['design_name']   ?? null;
+                        $design_mime   = $reviewDesignUploadActive ? ($item['design_mime'] ?? null) : null;
+                        $design_name   = $reviewDesignUploadActive ? ($item['design_name'] ?? null) : null;
                         
                         $upload_dir = __DIR__ . '/../uploads/orders';
                         if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
@@ -814,7 +832,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                         $design_file_path = null;
                         $reference_file_path = null;
 
-                        if (!empty($item['design_tmp_path']) && file_exists($item['design_tmp_path'])) {
+                        if ($reviewDesignUploadActive && !empty($item['design_tmp_path']) && file_exists($item['design_tmp_path'])) {
                             $design_binary = file_get_contents($item['design_tmp_path']);
                             $design_file_path = printflow_copy_cart_design_to_orders_dir(
                                 (string)$item['design_tmp_path'],
@@ -837,7 +855,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             }
                         }
 
-                        if (!empty($item['uploaded_files']) && is_array($item['uploaded_files'])) {
+                        if ($reviewDesignUploadActive && !empty($item['uploaded_files']) && is_array($item['uploaded_files'])) {
                             foreach ($item['uploaded_files'] as $upload) {
                                 $tmpPath = trim((string)($upload['tmp_path'] ?? ''));
                                 $origName = trim((string)($upload['name'] ?? 'upload'));

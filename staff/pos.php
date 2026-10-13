@@ -5102,9 +5102,51 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
         }
 
+        function posClearDesignCustomizationKeys(customization) {
+            if (!customization || typeof customization !== 'object') return;
+            delete customization.design_upload_files;
+            delete customization.design_upload_path;
+            delete customization.design_upload_name;
+            delete customization.design_upload_mime;
+            delete customization.design_upload;
+            delete customization.design_upload_idempotency_key;
+            delete customization.design_upload_data;
+            delete customization.design_file;
+            delete customization.design_tmp_path;
+            delete customization.design_external_link;
+            delete customization.design_link;
+            delete customization.design_file_link;
+            delete customization.design_input_mode;
+            delete customization.uploaded_files;
+            delete customization._uploaded_files;
+            Object.keys(customization).forEach((key) => {
+                if (/design.*link$/i.test(String(key))) {
+                    delete customization[key];
+                }
+            });
+        }
+
+        function posStripInactiveDesignUploads(body, customization) {
+            if (!body) return;
+            let shouldStrip = false;
+            body.querySelectorAll('.pf-file-upload-group').forEach((group) => {
+                const row = group.closest('.shopee-form-row');
+                if (row && row.dataset.pfFieldInactive === '1') {
+                    shouldStrip = true;
+                }
+            });
+            if (shouldStrip) {
+                posClearDesignCustomizationKeys(customization);
+            }
+        }
+
         async function posStageDesignUploadsFromModal(body, customization) {
             const groups = body.querySelectorAll('.pf-file-upload-group');
             for (const group of groups) {
+                const row = group.closest('.shopee-form-row');
+                if (row && row.dataset.pfFieldInactive === '1') {
+                    continue;
+                }
                 const modeSelect = group.querySelector('.pf-design-mode-select');
                 const designMode = String((modeSelect && modeSelect.value) || group.dataset.pfDesignMode || '').trim();
                 if (designMode !== 'file') continue;
@@ -5231,18 +5273,28 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
             }
             body.querySelectorAll('.pf-file-upload-group').forEach((group) => {
+                const row = group.closest('.shopee-form-row');
+                if (row && row.dataset.pfFieldInactive === '1') {
+                    if (typeof window.pfClearDesignUploadGroup === 'function') {
+                        window.pfClearDesignUploadGroup(group);
+                    }
+                    return;
+                }
                 if (typeof window.pfSyncDesignQueueToFileInput === 'function') {
                     window.pfSyncDesignQueueToFileInput(group);
                 }
             });
 
             try {
+                posStripInactiveDesignUploads(body, customization);
                 await posStageDesignUploadsFromModal(body, customization);
+                posStripInactiveDesignUploads(body, customization);
                 const serviceFileInputs = Array.from(body.querySelectorAll('input[type="file"]'));
                 for (const fileInput of serviceFileInputs) {
                     if (fileInput.classList.contains('pf-design-file-input')) continue;
                     if (!(fileInput.files && fileInput.files.length > 0)) continue;
                     const row = fileInput.closest('.shopee-form-row');
+                    if (row && row.dataset.pfFieldInactive === '1') continue;
                     const label = row ? row.querySelector('.shopee-form-label') : null;
                     const labelText = label ? label.innerText.replace('*', '').trim() : (fileInput.name || 'File');
                     const nameLc = String(fileInput.name || '').toLowerCase();
@@ -5258,6 +5310,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         customization[labelText] = payload.name;
                     }
                 }
+                posStripInactiveDesignUploads(body, customization);
             } catch (uploadErr) {
                 await showPOSAlert('Upload Failed', uploadErr.message || 'Could not save the design file.', 'error');
                 return;
@@ -5671,6 +5724,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
             }
             body.querySelectorAll('.pf-file-upload-group').forEach((group) => {
+                const row = group.closest('.shopee-form-row');
+                if (row && row.dataset.pfFieldInactive === '1') {
+                    if (typeof window.pfClearDesignUploadGroup === 'function') {
+                        window.pfClearDesignUploadGroup(group);
+                    }
+                    return;
+                }
                 if (typeof window.pfSyncDesignQueueToFileInput === 'function') {
                     window.pfSyncDesignQueueToFileInput(group);
                 }
@@ -5812,12 +5872,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
 
             try {
+                posStripInactiveDesignUploads(body, customization);
                 await posStageDesignUploadsFromModal(body, customization);
+                posStripInactiveDesignUploads(body, customization);
                 const serviceFileInputs = Array.from(body.querySelectorAll('input[type="file"]'));
                 for (const fileInput of serviceFileInputs) {
                     if (fileInput.classList.contains('pf-design-file-input')) continue;
                     if (!(fileInput.files && fileInput.files.length > 0)) continue;
                     const row = fileInput.closest('.shopee-form-row');
+                    if (row && row.dataset.pfFieldInactive === '1') continue;
                     const labelText = row ? serviceFieldLabel(row) : (fileInput.name || 'File');
                     const nameLc = String(fileInput.name || '').toLowerCase();
                     const labelLc = String(labelText || '').toLowerCase();
@@ -5830,6 +5893,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         setCustomizationValue(customization, row, fileInput, payload.name);
                     }
                 }
+                posStripInactiveDesignUploads(body, customization);
             } catch (uploadErr) {
                 await showPOSAlert('Upload Failed', uploadErr.message || 'Could not save the design file.', 'error');
                 isAddingToOrder = false;

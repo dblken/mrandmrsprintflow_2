@@ -1933,20 +1933,30 @@ function updateConditionalFields() {
     const allRows = document.querySelectorAll('.shopee-form-row[data-pf-conditional-rules], .shopee-form-row[data-parent-field]');
     
     allRows.forEach(row => {
+        const uploadGroup = row.querySelector('.pf-file-upload-group');
+        const wasInactive = row.dataset.pfFieldInactive === '1';
         const uiState = pfRowConditionalUIState(row);
+        const isInactive = uiState.shouldHide || uiState.shouldDisable;
+
         if (uiState.shouldHide) {
             hideFieldRow(row);
             pfApplyConditionalDisabledUI(row, false, '');
             pfSyncConditionalRowRequiredState(row, false);
-            return;
-        }
-        showFieldRow(row);
-        if (uiState.shouldDisable) {
-            pfApplyConditionalDisabledUI(row, true, uiState.customerNote);
-            pfSyncConditionalRowRequiredState(row, false);
         } else {
-            pfApplyConditionalDisabledUI(row, false, '');
-            pfSyncConditionalRowRequiredState(row, true);
+            showFieldRow(row);
+            if (uiState.shouldDisable) {
+                pfApplyConditionalDisabledUI(row, true, uiState.customerNote);
+                pfSyncConditionalRowRequiredState(row, false);
+            } else {
+                pfApplyConditionalDisabledUI(row, false, '');
+                pfSyncConditionalRowRequiredState(row, true);
+            }
+        }
+
+        if (uploadGroup && typeof pfClearDesignUploadGroup === 'function') {
+            if (isInactive || (!isInactive && wasInactive)) {
+                pfClearDesignUploadGroup(uploadGroup);
+            }
         }
     });
 }
@@ -2060,6 +2070,55 @@ function pfValidateDesignFileClient(file, group) {
         return { valid: false, error: 'Invalid file type for this design upload.' };
     }
     return { valid: true, error: '' };
+}
+
+function pfClearDesignUploadGroup(group) {
+    if (!group) return;
+    pfGetDesignUploadQueue(group).forEach(function(entry) {
+        if (entry && entry.previewUrl) {
+            URL.revokeObjectURL(entry.previewUrl);
+        }
+    });
+    group.pfDesignQueue = [];
+    const fileInput = group.querySelector('.pf-design-file-input, input[type="file"][name="design_file"], input[type="file"][name="design_file[]"]');
+    const linkInput = group.querySelector('.pf-design-link-input');
+    const modeSelect = group.querySelector('.pf-design-mode-select');
+    const errorsEl = group.querySelector('.pf-design-file-errors');
+    if (fileInput) {
+        fileInput.value = '';
+        if (typeof DataTransfer !== 'undefined') {
+            try {
+                fileInput.files = new DataTransfer().files;
+            } catch (ignore) {}
+        }
+    }
+    if (linkInput) {
+        linkInput.value = '';
+        linkInput.classList.remove('field-invalid');
+        linkInput.removeAttribute('aria-invalid');
+    }
+    if (modeSelect) {
+        modeSelect.value = '';
+    }
+    group.dataset.pfDesignMode = '';
+    group.querySelectorAll('.pf-design-mode-panel').forEach(function(panel) {
+        panel.setAttribute('hidden', '');
+        panel.querySelectorAll('input,select,textarea,button').forEach(function(control) {
+            control.disabled = true;
+        });
+    });
+    if (errorsEl) {
+        errorsEl.textContent = '';
+    }
+    const row = group.closest('.shopee-form-row');
+    if (row) {
+        row.querySelectorAll('.field-error, .field-error-message').forEach(function(el) { el.remove(); });
+        row.querySelectorAll('.field-invalid').forEach(function(el) { el.classList.remove('field-invalid'); });
+    }
+    pfRenderDesignUploadQueue(group);
+    if (typeof document !== 'undefined' && typeof CustomEvent !== 'undefined') {
+        document.dispatchEvent(new CustomEvent('pf:design-upload-cleared', { bubbles: true, detail: { group: group } }));
+    }
 }
 
 function pfGetDesignUploadQueue(group) {
@@ -2178,6 +2237,13 @@ function pfValidateDesignUploadGroups(root) {
     const scope = root || document;
     const errors = [];
     scope.querySelectorAll('.pf-file-upload-group').forEach(group => {
+        const row = group.closest('.shopee-form-row');
+        if (row && row.dataset.pfFieldInactive === '1') {
+            return;
+        }
+        if (row && row.offsetParent === null) {
+            return;
+        }
         const mode = String(group.dataset.pfDesignMode || '').trim();
         if (mode !== 'file') return;
         const required = group.dataset.pfRequired === '1';
@@ -2202,6 +2268,7 @@ window.pfSyncDesignQueueToFileInput = pfSyncDesignQueueToFileInput;
 window.pfDesignQueueValidFiles = pfDesignQueueValidFiles;
 window.pfValidateDesignUploadGroups = pfValidateDesignUploadGroups;
 window.pfAppendDesignFilesToQueue = pfAppendDesignFilesToQueue;
+window.pfClearDesignUploadGroup = pfClearDesignUploadGroup;
 
 function initPfDesignUploadGroups(root) {
     const scope = root || document;
