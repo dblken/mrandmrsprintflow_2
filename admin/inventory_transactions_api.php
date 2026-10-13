@@ -167,8 +167,8 @@ try {
             }
             if ($start_date && $end_date) {
                 $sql .= " AND t.transaction_date BETWEEN ? AND ?";
-                $params[] = $start_date;
-                $params[] = $end_date;
+                $params[] = printflow_ledger_datetime_range_bound((string)$start_date, false);
+                $params[] = printflow_ledger_datetime_range_bound((string)$end_date, true);
                 $types .= 'ss';
             }
             
@@ -313,8 +313,8 @@ try {
                 $days[] = date('Y-m-d', strtotime("-$i days"));
             }
             
-            $start = $days[0];
-            $end = $days[29];
+            $start = printflow_ledger_datetime_range_bound($days[0], false);
+            $end = printflow_ledger_datetime_range_bound($days[29], true);
             
             // 1. Get initial stock BEFORE the 30-day window
             [$histBranchSql, $histBranchTypes, $histBranchParams] = InventoryManager::branchClause('branch_id', $branchId);

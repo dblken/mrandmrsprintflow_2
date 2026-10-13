@@ -1387,11 +1387,21 @@ class JobOrderService {
             [(int)$orderId]
         ) ?: [];
         $storeOrderId = (int)($jobOrderRows[0]['order_id'] ?? 0);
+        $normalizeBusinessDate = static function (?string $value): ?string {
+            $value = trim((string)$value);
+            if ($value === '') {
+                return null;
+            }
+            if (function_exists('printflow_normalize_business_datetime')) {
+                return printflow_normalize_business_datetime($value) ?: $value;
+            }
+            return $value;
+        };
         $ledgerTransactionDate = null;
         if (!empty($options['transaction_date'])) {
-            $ledgerTransactionDate = (string)$options['transaction_date'];
+            $ledgerTransactionDate = $normalizeBusinessDate((string)$options['transaction_date']);
         } elseif ($storeOrderId > 0 && function_exists('printflow_store_order_ledger_date')) {
-            $ledgerTransactionDate = printflow_store_order_ledger_date($storeOrderId);
+            $ledgerTransactionDate = $normalizeBusinessDate(printflow_store_order_ledger_date($storeOrderId));
         }
         // Do not reduce order_date to a calendar date: InventoryManager and
         // RollService accept this optional final parameter as a full ledger
@@ -1402,8 +1412,13 @@ class JobOrderService {
                 'job_order_id' => (int)$orderId,
                 'store_order_id' => $storeOrderId,
                 'branch_id' => $branchId,
+                'order_id' => $storeOrderId,
+                'selected_order_date' => (string)$ledgerTransactionDate,
                 'transaction_date' => (string)$ledgerTransactionDate,
+                'ledger_transaction_date' => (string)$ledgerTransactionDate,
+                'completion_timestamp' => date('Y-m-d H:i:s'),
                 'processing_at' => date('Y-m-d H:i:s'),
+                'deduction_path' => 'job_order',
                 'process_materials' => (bool)$processMaterials,
                 'process_inks' => (bool)$processInks,
             ]);
@@ -1487,6 +1502,9 @@ class JobOrderService {
                             $ledgerTransactionDate
                         );
                         $debugLog('roll_material_deducted', [
+                            'deduction_path' => 'job_order_roll',
+                            'order_id' => $storeOrderId,
+                            'ledger_transaction_date' => (string)$ledgerTransactionDate,
                             'assignment_id' => (int)($m['id'] ?? 0),
                             'item_id' => $itemId,
                             'length_needed' => $lengthNeeded,
@@ -1579,6 +1597,9 @@ class JobOrderService {
                         );
                     }
                     $debugLog('material_deducted', [
+                        'deduction_path' => 'job_order_material',
+                        'order_id' => $storeOrderId,
+                        'ledger_transaction_date' => (string)$ledgerTransactionDate,
                         'assignment_id' => (int)($m['id'] ?? 0),
                         'item_id' => $itemId,
                         'quantity' => $quantityNeeded,

@@ -45,7 +45,7 @@ class RollService {
      * @param int|null $jobOrderMaterialId To mark as deducted (idempotency)
      * @return bool
      */
-    public static function deductFromRoll($rollId, $lengthToDeduct, $jobOrderId, $jobOrderMaterialId = null) {
+    public static function deductFromRoll($rollId, $lengthToDeduct, $jobOrderId, $jobOrderMaterialId = null, $transactionDate = null) {
         global $conn;
         $wasInTransaction = printflow_db_in_transaction($conn);
         if (!$wasInTransaction) {
@@ -59,6 +59,19 @@ class RollService {
         $stmt->execute();
         $roll = $stmt->get_result()->fetch_assoc();
         $stmt->close();
+
+        if ($transactionDate === null || $transactionDate === '') {
+            $jobRows = db_query('SELECT order_id FROM job_orders WHERE id = ? LIMIT 1', 'i', [(int)$jobOrderId]) ?: [];
+            $linkedOrderId = $jobRows !== []
+                ? (int)($jobRows[0]['order_id'] ?? 0)
+                : (int)$jobOrderId;
+            if ($linkedOrderId > 0 && function_exists('printflow_store_order_ledger_date')) {
+                $transactionDate = printflow_store_order_ledger_date($linkedOrderId);
+            }
+        }
+        if (function_exists('printflow_normalize_business_datetime') && $transactionDate !== null && $transactionDate !== '') {
+            $transactionDate = printflow_normalize_business_datetime((string)$transactionDate) ?: $transactionDate;
+        }
 
         if (!$roll) throw new Exception("Roll ID #{$rollId} not found.");
         if ($roll['status'] !== 'OPEN') throw new Exception("Roll is no longer open.");
@@ -93,7 +106,7 @@ class RollService {
             $rollId, 
             "Deducted for {$jobLabel}",
             null,
-            null,
+            $transactionDate,
             (int)($roll['branch_id'] ?? 0)
         );
 

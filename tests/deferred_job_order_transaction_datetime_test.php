@@ -22,7 +22,7 @@ $assert(
     'deferred deductions use the linked parent orders.order_date as their business timestamp'
 );
 $assert(
-    str_contains($jobs, '$ledgerTransactionDate = printflow_store_order_ledger_date($storeOrderId);')
+    str_contains($jobs, '$ledgerTransactionDate = $normalizeBusinessDate(printflow_store_order_ledger_date($storeOrderId));')
         && !str_contains($jobs, 'substr($ledgerTransactionDate, 0, 10)'),
     'job deduction keeps the complete parent transaction datetime'
 );
