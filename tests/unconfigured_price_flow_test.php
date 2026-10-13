@@ -55,7 +55,7 @@ $check(str_contains($pos, 'price_unconfigured'), 'the missing-price state is kep
 $check(str_contains($pos, 'Set Price') && str_contains($pos, 'redirectToSetPrice'), 'Staff Set Price remains available');
 $check(str_contains($pos, 'Please set the price for all items before completing the sale'), 'POS completion stays blocked until a price exists');
 $check(str_contains($checkout, 'printflow_checkout_unconfigured_price_message'), 'checkout rejects an unpriced sale before payment and inventory');
-$check(str_contains($cartApi, "'reason' ?? '') === 'unconfigured'"), 'the cart accepts a specification that has no configured price');
+$check(str_contains($cartApi, "=== 'unconfigured'") && str_contains($cartApi, "price_unconfigured"), 'the cart accepts a specification that has no configured price');
 $check(str_contains($jobs, 'order_total_not_configured'), 'inventory deduction waits until the order has a valid price');
 $check(str_contains($jobs, 'Set a valid price before completing this order.'), 'job completion waits for a valid price');
 $check(str_contains($status, 'Set a valid price before completing this order.'), 'order completion waits for a valid price');
