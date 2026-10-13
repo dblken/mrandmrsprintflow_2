@@ -196,7 +196,7 @@ foreach ($jobs as &$jobRow) {
     $jobRow['display_service_type'] = printflow_job_order_display_service_type($jobRow);
     $submittedRaw = trim((string)($jobRow['store_order_date'] ?? $jobRow['order_date'] ?? ''));
     $jobRow['display_submitted_at'] = $submittedRaw !== ''
-        ? printflow_format_business_datetime_display($submittedRaw)
+        ? printflow_format_business_date_display($submittedRaw)
         : '';
 }
 unset($jobRow);
@@ -852,9 +852,7 @@ function custom_payment_badge($status) {
                         timeZone: 'Asia/Manila',
                         month: 'short',
                         day: 'numeric',
-                        year: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit'
+                        year: 'numeric'
                     });
                 },
                 displayServiceType(job) {

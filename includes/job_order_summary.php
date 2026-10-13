@@ -79,6 +79,25 @@ function printflow_format_business_datetime_display(string $raw, string $timezon
     return $dt->format('M j, Y g:i A');
 }
 
+function printflow_format_business_date_display(string $raw, string $timezone = 'Asia/Manila'): string
+{
+    $raw = trim($raw);
+    if ($raw === '') {
+        return '';
+    }
+    try {
+        $dt = new DateTimeImmutable(str_replace('T', ' ', $raw), new DateTimeZone($timezone));
+    } catch (Throwable $e) {
+        $ts = strtotime($raw);
+        if ($ts === false) {
+            return $raw;
+        }
+        $dt = (new DateTimeImmutable('@' . $ts))->setTimezone(new DateTimeZone($timezone));
+    }
+
+    return $dt->format('M j, Y');
+}
+
 /**
  * Prefer saved order-item specifications over workflow mirror columns (e.g. customizations.service_type).
  *
