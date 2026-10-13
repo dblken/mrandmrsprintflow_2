@@ -405,8 +405,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 $link_post_name = service_order_design_link_post_name($key);
                 $design_link_raw = trim((string)($_POST[$link_post_name] ?? ''));
                 $design_mode = trim((string)($_POST['design_input_mode'] ?? ''));
-                $file_input_name = 'design_file';
-                $has_uploaded_file = isset($_FILES[$file_input_name]) && $_FILES[$file_input_name]['error'] === UPLOAD_ERR_OK;
+                $upload_candidates = printflow_normalize_php_file_uploads('design_file');
+                if ($upload_candidates === []) {
+                    $upload_candidates = printflow_normalize_php_file_uploads('design_file[]');
+                }
+                $has_uploaded_file = $upload_candidates !== [];
                 $has_design_link = $design_link_raw !== '';
 
                 if ($design_mode !== '' && !in_array($design_mode, ['file', 'link'], true)) {
@@ -514,6 +517,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $design_name = null;
         $design_mime = null;
         $design_link_url = null;
+        $uploaded_design_files = [];
+        $max_design_files = defined('PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM') ? (int)PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM : 10;
         
         $field_values = printflow_service_field_values_from_post($_POST);
         $active_file_field_key = null;
@@ -524,25 +529,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             }
         }
 
-        if ($active_file_field_key !== null && isset($_FILES['design_file']) && $_FILES['design_file']['error'] === UPLOAD_ERR_OK) {
-            $has_design_field = true;
-            $valid = service_order_validate_file($_FILES['design_file']);
-            if (!$valid['ok']) {
-                $error = $valid['error'];
-            } else {
-                $item_key = 'service_' . $service_id . '_' . time() . '_' . rand(100, 999);
-                $original_name = $_FILES['design_file']['name'];
-                $mime = $valid['mime'];
-                $ext = pathinfo($original_name, PATHINFO_EXTENSION);
-                $new_name = uniqid('tmp_') . '.' . $ext;
-                $tmp_dest = service_order_temp_dir() . DIRECTORY_SEPARATOR . $new_name;
-
-                if (move_uploaded_file($_FILES['design_file']['tmp_name'], $tmp_dest)) {
-                    $design_tmp_path = $tmp_dest;
-                    $design_name = $original_name;
-                    $design_mime = $mime;
+        if ($active_file_field_key !== null) {
+            $upload_candidates = printflow_normalize_php_file_uploads('design_file');
+            if ($upload_candidates === []) {
+                $upload_candidates = printflow_normalize_php_file_uploads('design_file[]');
+            }
+            if ($upload_candidates !== []) {
+                $has_design_field = true;
+                if (count($upload_candidates) > $max_design_files) {
+                    $error = 'You can upload up to ' . $max_design_files . ' design files per item.';
                 } else {
-                    $error = 'Failed to process uploaded file.';
+                    $stored_names = [];
+                    foreach ($upload_candidates as $file_index => $file) {
+                        $valid = service_order_validate_file($file);
+                        if (!$valid['ok']) {
+                            $error = $valid['error'];
+                            break;
+                        }
+                        if (!isset($item_key)) {
+                            $item_key = 'service_' . $service_id . '_' . time() . '_' . rand(100, 999);
+                        }
+                        $original_name = (string)($file['name'] ?? 'design');
+                        $mime = (string)($valid['mime'] ?? '');
+                        $ext = pathinfo($original_name, PATHINFO_EXTENSION);
+                        $new_name = uniqid('tmp_') . '.' . $ext;
+                        $tmp_dest = service_order_temp_dir() . DIRECTORY_SEPARATOR . $new_name;
+                        if (!move_uploaded_file((string)($file['tmp_name'] ?? ''), $tmp_dest)) {
+                            $error = 'Failed to process uploaded file.';
+                            break;
+                        }
+                        $stored_names[] = $original_name;
+                        $uploaded_design_files[] = [
+                            'label' => 'Upload Design',
+                            'tmp_path' => $tmp_dest,
+                            'name' => $original_name,
+                            'mime' => $mime,
+                            'upload_sort' => count($uploaded_design_files),
+                            'idempotency_key' => hash('sha256', 'service-' . $service_id . '|' . $tmp_dest . '|' . $file_index),
+                        ];
+                        if ($design_tmp_path === null) {
+                            $design_tmp_path = $tmp_dest;
+                            $design_name = $original_name;
+                            $design_mime = $mime;
+                        }
+                    }
+                    if ($error === '' && $stored_names !== []) {
+                        $design_name = implode(', ', $stored_names);
+                    }
                 }
             }
         }
@@ -756,6 +789,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 $estimated_price = $posted_estimated_price;
             }
             
+            if ($uploaded_design_files !== []) {
+                $customization['design_upload_files'] = array_map(static function (array $row): array {
+                    return [
+                        'path' => '',
+                        'name' => (string)($row['name'] ?? ''),
+                        'mime' => (string)($row['mime'] ?? ''),
+                        'tmp_path' => (string)($row['tmp_path'] ?? ''),
+                        'upload_sort' => (int)($row['upload_sort'] ?? 0),
+                        'idempotency_key' => (string)($row['idempotency_key'] ?? ''),
+                    ];
+                }, $uploaded_design_files);
+                $customization['uploaded_files'] = $uploaded_design_files;
+            }
+
             $_SESSION['cart'][$item_key] = [
                 'type' => 'Service',
                 'item_type' => 'service',
@@ -771,6 +818,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 'design_tmp_path' => $design_tmp_path,
                 'design_name' => $design_name,
                 'design_mime' => $design_mime,
+                'uploaded_files' => $uploaded_design_files,
                 'customization' => $customization
             ];
             
@@ -2137,6 +2185,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 hasControls = true;
                 if (file.files && file.files.length > 0) rowHasValue = true;
             });
+            const uploadGroup = row.querySelector('.pf-file-upload-group');
+            if (uploadGroup && typeof window.pfDesignQueueValidFiles === 'function') {
+                hasControls = true;
+                if (window.pfDesignQueueValidFiles(uploadGroup).length > 0) rowHasValue = true;
+            }
 
             row.querySelectorAll('.pf-design-link-input').forEach(linkInput => {
                 hasControls = true;
@@ -2230,6 +2283,23 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         form.addEventListener('submit', function(e) {
+            document.querySelectorAll('.pf-file-upload-group').forEach(function(group) {
+                if (typeof window.pfSyncDesignQueueToFileInput === 'function') {
+                    window.pfSyncDesignQueueToFileInput(group);
+                }
+            });
+            if (typeof window.pfValidateDesignUploadGroups === 'function') {
+                const designValidation = window.pfValidateDesignUploadGroups(form);
+                if (!designValidation.ok) {
+                    e.preventDefault();
+                    const topError = document.getElementById('error-message');
+                    if (topError) {
+                        topError.textContent = designValidation.errors[0] || 'Please fix your design uploads.';
+                        topError.style.display = 'block';
+                    }
+                    return;
+                }
+            }
             if (typeof updateConditionalFields === 'function') {
                 updateConditionalFields();
             }

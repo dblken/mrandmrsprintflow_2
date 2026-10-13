@@ -314,6 +314,17 @@ function pos_customization_has_persisted_media_path(array $customization, string
         }
     }
 
+    if ($prefix === 'design_upload' && !empty($customization['design_upload_files']) && is_array($customization['design_upload_files'])) {
+        foreach ($customization['design_upload_files'] as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            if (trim((string)($entry['path'] ?? ($entry['storage_path'] ?? ''))) !== '') {
+                return true;
+            }
+        }
+    }
+
     return false;
 }
 
@@ -1842,13 +1853,25 @@ try {
         );
 
         if (function_exists('printflow_order_item_design_files_sync_from_customization')) {
-            printflow_order_item_design_files_sync_from_customization(
+            $syncedDesignFiles = printflow_order_item_design_files_sync_from_customization(
                 (int)$order_item_id,
                 (int)$order_id,
                 (int)$customer_id,
                 0,
                 is_array($custom_details) ? $custom_details : []
             );
+            if (
+                $syncedDesignFiles !== []
+                && function_exists('printflow_customization_apply_synced_design_files')
+            ) {
+                $custom_details = printflow_customization_apply_synced_design_files($custom_details, $syncedDesignFiles);
+                $custom_details = printflow_customization_normalize_storage($custom_details);
+                db_execute(
+                    'UPDATE order_items SET customization_data = ? WHERE order_item_id = ?',
+                    'si',
+                    [json_encode($custom_details ?: new stdClass()), $order_item_id]
+                );
+            }
         }
 
         // Always create or re-link customization entry for service items

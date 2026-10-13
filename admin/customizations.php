@@ -1186,6 +1186,49 @@ function custom_payment_badge($status) {
                     return this.itemHasUploadedDesignFile(item) || !!this.getItemDesignExternalLink(item);
                 },
 
+                adminItemDesignFiles(item) {
+                    if (!item || typeof item !== 'object') return [];
+                    const raw = Array.isArray(item.design_files)
+                        ? item.design_files
+                        : (Array.isArray(item.files) ? item.files : []);
+                    const seen = new Set();
+                    const out = [];
+                    raw.forEach((entry) => {
+                        if (!entry || typeof entry !== 'object') return;
+                        const fileId = Number(entry.file_id || 0);
+                        if (fileId > 0) {
+                            if (seen.has(fileId)) return;
+                            seen.add(fileId);
+                        }
+                        out.push(entry);
+                    });
+                    out.sort((a, b) => {
+                        const sortDelta = Number(a.upload_sort || 0) - Number(b.upload_sort || 0);
+                        if (sortDelta !== 0) return sortDelta;
+                        return Number(a.file_id || 0) - Number(b.file_id || 0);
+                    });
+                    if (out.length === 0 && this.itemHasUploadedDesignFile(item)) {
+                        const previewUrl = this.getItemDesignFileUrl(item);
+                        if (previewUrl) {
+                            out.push({
+                                file_id: 'legacy-' + String(item.order_item_id || '0'),
+                                display_name: this.getItemDesignFilename(item),
+                                preview_url: previewUrl,
+                                download_url: previewUrl,
+                                is_previewable_image: true,
+                                upload_sort: 0,
+                            });
+                        }
+                    }
+                    return out;
+                },
+
+                adminDesignFileMediaUrl(designFile, item) {
+                    const direct = String(designFile?.preview_url || designFile?.download_url || '').trim();
+                    if (direct) return this.resolveMediaUrl(direct);
+                    return this.getItemDesignFileUrl(item);
+                },
+
                 sanitizeExternalLink(url) {
                     const s = String(url || '').trim();
                     return /^https?:\/\//i.test(s) ? s : '#';
@@ -1693,15 +1736,19 @@ function custom_payment_badge($status) {
                                         <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">Design / Image</div>
                                         <template x-if="itemHasUploadedDesignFile(item)">
                                             <div style="margin-bottom:10px;">
-                                                <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:6px;">Uploaded File</div>
-                                                <div style="font-size:13px;font-weight:600;color:#1f2937;word-break:break-word;overflow-wrap:anywhere;margin-bottom:8px;" x-text="getItemDesignFilename(item)"></div>
-                                                <template x-if="getItemDesignFileUrl(item)">
-                                                    <img :src="getItemDesignFileUrl(item)" @click="viewImage(getItemDesignFileUrl(item))" @error="handleModalImageError($el)" style="width:min(100%,160px);max-height:160px;object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;box-shadow:0 4px 6px -1px rgba(0,0,0,0.08);background:#f8fafc;margin-bottom:8px;display:block;" alt="Design">
+                                                <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:6px;" x-text="adminItemDesignFiles(item).length > 1 ? 'Uploaded Files' : 'Uploaded File'"></div>
+                                                <template x-for="designFile in adminItemDesignFiles(item)" :key="'admin-design-file-' + (designFile.file_id || designFile.display_name)">
+                                                    <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #f1f5f9;">
+                                                        <div style="font-size:13px;font-weight:600;color:#1f2937;word-break:break-word;overflow-wrap:anywhere;margin-bottom:8px;" x-text="designFile.display_name || getItemDesignFilename(item)"></div>
+                                                        <template x-if="adminDesignFileMediaUrl(designFile, item) && (designFile.is_previewable_image !== false)">
+                                                            <img :src="adminDesignFileMediaUrl(designFile, item)" @click="viewImage(adminDesignFileMediaUrl(designFile, item))" @error="handleModalImageError($el)" style="width:min(100%,160px);max-height:160px;object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;box-shadow:0 4px 6px -1px rgba(0,0,0,0.08);background:#f8fafc;margin-bottom:8px;display:block;" alt="Design">
+                                                        </template>
+                                                        <div class="pf-modal-design-actions">
+                                                            <button type="button" class="pf-modal-design-action-btn" @click="viewImage(adminDesignFileMediaUrl(designFile, item))">View</button>
+                                                            <a class="pf-modal-design-action-btn" :href="adminDesignFileMediaUrl(designFile, item)" target="_blank" rel="noopener noreferrer" download>Download</a>
+                                                        </div>
+                                                    </div>
                                                 </template>
-                                                <div class="pf-modal-design-actions">
-                                                    <button type="button" class="pf-modal-design-action-btn" @click="viewImage(getItemDesignFileUrl(item))">View</button>
-                                                    <a class="pf-modal-design-action-btn" :href="getItemDesignFileUrl(item)" target="_blank" rel="noopener noreferrer" download>Download</a>
-                                                </div>
                                             </div>
                                         </template>
                                         <template x-if="getItemDesignExternalLink(item)">

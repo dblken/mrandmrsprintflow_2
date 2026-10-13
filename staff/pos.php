@@ -5050,11 +5050,73 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return staged;
         }
 
+        const PF_MAX_DESIGN_FILES_PER_ITEM = 10;
+
         async function posApplyStagedUploadMany(customization, fileList, field = 'design') {
-            const files = Array.from(fileList || []);
-            for (const file of files) {
-                if (!file) continue;
-                await posApplyStagedUpload(customization, file, field);
+            const files = Array.from(fileList || []).filter(Boolean);
+            if (files.length === 0) return;
+            if (field === 'design' && files.length > PF_MAX_DESIGN_FILES_PER_ITEM) {
+                throw new Error('You can upload up to ' + PF_MAX_DESIGN_FILES_PER_ITEM + ' design files per item.');
+            }
+            const existing = field === 'design' ? posEnsureDesignUploadFiles(customization).length : 0;
+            if (field === 'design' && (existing + files.length) > PF_MAX_DESIGN_FILES_PER_ITEM) {
+                throw new Error('You can upload up to ' + PF_MAX_DESIGN_FILES_PER_ITEM + ' design files per item.');
+            }
+            const fd = new FormData();
+            fd.append('field', field);
+            fd.append('csrf_token', POS_CSRF_TOKEN);
+            fd.append('upload_sort', String(existing));
+            files.forEach((file) => {
+                fd.append(field === 'reference' ? 'reference_file[]' : 'design_file[]', file);
+            });
+            const res = await fetch(staffUrl('staff/api/pos_upload_design.php'), { method: 'POST', body: fd });
+            const data = await res.json();
+            if (!data || !data.success) {
+                const detail = (data && data.errors && data.errors.length)
+                    ? data.errors.map((row) => row.message || row.name).join(' ')
+                    : ((data && data.message) ? data.message : 'Failed to stage uploads.');
+                throw new Error(detail);
+            }
+            const stagedList = Array.isArray(data.staged) ? data.staged : (data.path ? [data] : []);
+            stagedList.forEach((staged, index) => {
+                if (field === 'reference') {
+                    customization.reference_upload = staged.name;
+                    customization.reference_upload_name = staged.name;
+                    customization.reference_upload_mime = staged.mime;
+                    customization.reference_upload_path = staged.path;
+                    delete customization.reference_upload_data;
+                } else {
+                    posUpsertDesignUploadFile(customization, staged, staged.idempotency_key || ('batch-' + index));
+                }
+            });
+            if (field === 'design' && Array.isArray(data.files) && data.files.length) {
+                customization.design_upload_files = data.files.map((row) => ({
+                    file_id: row.file_id || 0,
+                    path: row.storage_path || row.path || '',
+                    name: row.display_name || row.name || '',
+                    mime: row.mime_type || row.mime || '',
+                    size: row.file_size || row.size || 0,
+                    upload_sort: row.upload_sort || 0,
+                    idempotency_key: row.idempotency_key || '',
+                }));
+            }
+        }
+
+        async function posStageDesignUploadsFromModal(body, customization) {
+            const groups = body.querySelectorAll('.pf-file-upload-group');
+            for (const group of groups) {
+                const modeSelect = group.querySelector('.pf-design-mode-select');
+                const designMode = String((modeSelect && modeSelect.value) || group.dataset.pfDesignMode || '').trim();
+                if (designMode !== 'file') continue;
+                const files = typeof window.pfDesignQueueValidFiles === 'function'
+                    ? window.pfDesignQueueValidFiles(group)
+                    : Array.from((group.querySelector('.pf-design-file-input') || {}).files || []);
+                if (!files.length) continue;
+                const row = group.closest('.shopee-form-row');
+                await posApplyStagedUploadMany(customization, files, 'design');
+                if (row) {
+                    setCustomizationValue(customization, row, group.querySelector('.pf-design-file-input'), customization.design_upload_name);
+                }
             }
         }
 
@@ -5146,7 +5208,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (uploadGroup && isRequired && isServiceUploadGroupRequired(uploadGroup)) {
                     const fileInput = uploadGroup.querySelector('.pf-design-file-input');
                     const linkInput = uploadGroup.querySelector('.pf-design-link-input');
-                    const hasFile = !!(fileInput && fileInput.files && fileInput.files.length > 0);
+                    const queueFiles = (typeof window.pfDesignQueueValidFiles === 'function')
+                        ? window.pfDesignQueueValidFiles(uploadGroup)
+                        : [];
+                    const hasFile = queueFiles.length > 0 || !!(fileInput && fileInput.files && fileInput.files.length > 0);
                     const hasLink = !!(linkInput && linkInput.value.trim());
                     if (!hasFile && !hasLink) {
                         showPOSAlert('Required Field', 'Please upload a design or paste a design link.', 'warning');
@@ -5158,39 +5223,44 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
             });
 
-            const serviceFileInputs = Array.from(body.querySelectorAll('input[type="file"]'));
-            for (const fileInput of serviceFileInputs) {
-                if (!(fileInput.files && fileInput.files.length > 0)) {
-                    continue;
+            if (typeof window.pfValidateDesignUploadGroups === 'function') {
+                const designValidation = window.pfValidateDesignUploadGroups(body);
+                if (!designValidation.ok) {
+                    await showPOSAlert('Upload Design', designValidation.errors[0] || 'Please fix your design uploads.', 'warning');
+                    return;
                 }
-                const row = fileInput.closest('.shopee-form-row');
-                const label = row ? row.querySelector('.shopee-form-label') : null;
-                const labelText = label ? label.innerText.replace('*', '').trim() : (fileInput.name || 'File');
+            }
+            body.querySelectorAll('.pf-file-upload-group').forEach((group) => {
+                if (typeof window.pfSyncDesignQueueToFileInput === 'function') {
+                    window.pfSyncDesignQueueToFileInput(group);
+                }
+            });
 
-                const nameLc = String(fileInput.name || '').toLowerCase();
-                const labelLc = String(labelText || '').toLowerCase();
-                const isDesignField = nameLc === 'design_file'
-                    || nameLc.includes('design')
-                    || (labelLc.includes('upload') && labelLc.includes('design'));
-                const isReferenceField = nameLc === 'reference_file'
-                    || nameLc.includes('reference')
-                    || (labelLc.includes('upload') && labelLc.includes('reference'));
-
-                try {
-                    if (isDesignField) {
-                        await posApplyStagedUploadMany(customization, fileInput.files, 'design');
-                        customization[labelText] = customization.design_upload_name;
-                    } else if (isReferenceField) {
+            try {
+                await posStageDesignUploadsFromModal(body, customization);
+                const serviceFileInputs = Array.from(body.querySelectorAll('input[type="file"]'));
+                for (const fileInput of serviceFileInputs) {
+                    if (fileInput.classList.contains('pf-design-file-input')) continue;
+                    if (!(fileInput.files && fileInput.files.length > 0)) continue;
+                    const row = fileInput.closest('.shopee-form-row');
+                    const label = row ? row.querySelector('.shopee-form-label') : null;
+                    const labelText = label ? label.innerText.replace('*', '').trim() : (fileInput.name || 'File');
+                    const nameLc = String(fileInput.name || '').toLowerCase();
+                    const labelLc = String(labelText || '').toLowerCase();
+                    const isReferenceField = nameLc === 'reference_file'
+                        || nameLc.includes('reference')
+                        || (labelLc.includes('upload') && labelLc.includes('reference'));
+                    if (isReferenceField) {
                         await posApplyStagedUploadMany(customization, fileInput.files, 'reference');
                         customization[labelText] = customization.reference_upload_name;
                     } else {
                         const payload = await posReadFilePayload(fileInput.files[0]);
                         customization[labelText] = payload.name;
                     }
-                } catch (uploadErr) {
-                    await showPOSAlert('Upload Failed', uploadErr.message || 'Could not save the design file.', 'error');
-                    return;
                 }
+            } catch (uploadErr) {
+                await showPOSAlert('Upload Failed', uploadErr.message || 'Could not save the design file.', 'error');
+                return;
             }
 
             // Add service to cart with calculated unit price from the modal estimator
@@ -5532,7 +5602,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 ).trim();
                 const fileInput = group.querySelector('.pf-design-file-input');
                 const linkInput = group.querySelector('.pf-design-link-input');
-                const hasFile = !!(fileInput && fileInput.files && fileInput.files.length > 0);
+                const queueFiles = (typeof window.pfDesignQueueValidFiles === 'function')
+                    ? window.pfDesignQueueValidFiles(group)
+                    : [];
+                const hasFile = queueFiles.length > 0 || !!(fileInput && fileInput.files && fileInput.files.length > 0);
+                const hasInvalid = (typeof window.pfGetDesignUploadQueue === 'function')
+                    ? window.pfGetDesignUploadQueue(group).some(entry => !entry.valid)
+                    : false;
+                if (hasInvalid) {
+                    addError(row, fileInput || group, null, 'Fix invalid design files before continuing.');
+                    return;
+                }
                 const linkValue = linkInput ? String(linkInput.value || '').trim() : '';
                 const linkFieldKey = (linkInput && linkInput.name) ? linkInput.name : 'design_link';
 
@@ -5583,6 +5663,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 focusFirstInvalidField(validationResult.errors);
                 return;
             }
+            if (typeof window.pfValidateDesignUploadGroups === 'function') {
+                const designValidation = window.pfValidateDesignUploadGroups(body);
+                if (!designValidation.ok) {
+                    await showPOSAlert('Upload Design', designValidation.errors[0] || 'Please fix your design uploads.', 'warning');
+                    return;
+                }
+            }
+            body.querySelectorAll('.pf-file-upload-group').forEach((group) => {
+                if (typeof window.pfSyncDesignQueueToFileInput === 'function') {
+                    window.pfSyncDesignQueueToFileInput(group);
+                }
+            });
             if (typeof pfPrepareServiceFormDimensions === 'function') {
                 pfPrepareServiceFormDimensions(body);
             }
@@ -5720,20 +5812,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
 
             try {
+                await posStageDesignUploadsFromModal(body, customization);
                 const serviceFileInputs = Array.from(body.querySelectorAll('input[type="file"]'));
                 for (const fileInput of serviceFileInputs) {
+                    if (fileInput.classList.contains('pf-design-file-input')) continue;
                     if (!(fileInput.files && fileInput.files.length > 0)) continue;
                     const row = fileInput.closest('.shopee-form-row');
                     const labelText = row ? serviceFieldLabel(row) : (fileInput.name || 'File');
                     const nameLc = String(fileInput.name || '').toLowerCase();
                     const labelLc = String(labelText || '').toLowerCase();
-                    const isDesignField = nameLc === 'design_file' || nameLc.includes('design') || (labelLc.includes('upload') && labelLc.includes('design'));
                     const isReferenceField = nameLc === 'reference_file' || nameLc.includes('reference') || (labelLc.includes('upload') && labelLc.includes('reference'));
-
-                    if (isDesignField) {
-                        await posApplyStagedUploadMany(customization, fileInput.files, 'design');
-                        setCustomizationValue(customization, row, fileInput, customization.design_upload_name);
-                    } else if (isReferenceField) {
+                    if (isReferenceField) {
                         await posApplyStagedUploadMany(customization, fileInput.files, 'reference');
                         setCustomizationValue(customization, row, fileInput, customization.reference_upload_name);
                     } else {

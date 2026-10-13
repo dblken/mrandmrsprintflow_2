@@ -520,6 +520,18 @@ if (!function_exists('printflow_order_item_design_files_sync_from_customization'
                     continue;
                 }
                 $path = trim((string)($entry['path'] ?? ($entry['storage_path'] ?? '')));
+                $tmpPath = trim((string)($entry['tmp_path'] ?? ''));
+                if ($path === '' && $tmpPath !== '' && is_file($tmpPath)) {
+                    $binary = @file_get_contents($tmpPath);
+                    if ($binary !== false && $binary !== '') {
+                        $path = printflow_write_order_upload_file(
+                            $binary,
+                            (string)($entry['name'] ?? basename($tmpPath)),
+                            $orderItemId,
+                            'design'
+                        ) ?? '';
+                    }
+                }
                 if ($path === '') {
                     continue;
                 }
@@ -598,6 +610,65 @@ if (!function_exists('printflow_order_item_design_files_sync_from_customization'
         }
 
         return printflow_order_item_design_files_list_for_item($orderItemId, false);
+    }
+}
+
+if (!function_exists('printflow_customization_apply_synced_design_files')) {
+    /**
+     * Merge authoritative design file rows into customization JSON (legacy single-file keys + design_upload_files).
+     *
+     * @param list<array<string,mixed>> $apiFiles
+     * @return array<string,mixed>
+     */
+    function printflow_customization_apply_synced_design_files(array $customization, array $apiFiles): array
+    {
+        if ($apiFiles === []) {
+            return $customization;
+        }
+
+        $entries = [];
+        foreach ($apiFiles as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $path = trim((string)($row['storage_path'] ?? ($row['path'] ?? '')));
+            if ($path === '') {
+                continue;
+            }
+            $entries[] = [
+                'file_id' => (int)($row['file_id'] ?? 0),
+                'path' => $path,
+                'name' => trim((string)($row['display_name'] ?? ($row['name'] ?? 'design'))),
+                'mime' => trim((string)($row['mime_type'] ?? ($row['mime'] ?? ''))),
+                'size' => (int)($row['file_size'] ?? ($row['size'] ?? 0)),
+                'upload_sort' => (int)($row['upload_sort'] ?? 0),
+                'idempotency_key' => trim((string)($row['idempotency_key'] ?? '')),
+            ];
+        }
+
+        if ($entries === []) {
+            return $customization;
+        }
+
+        usort($entries, static function (array $a, array $b): int {
+            $sortDelta = ($a['upload_sort'] ?? 0) <=> ($b['upload_sort'] ?? 0);
+            if ($sortDelta !== 0) {
+                return $sortDelta;
+            }
+            return ($a['file_id'] ?? 0) <=> ($b['file_id'] ?? 0);
+        });
+
+        $customization['design_upload_files'] = $entries;
+        $first = $entries[0];
+        $customization['design_upload_path'] = (string)$first['path'];
+        $customization['design_file'] = (string)$first['path'];
+        $customization['design_upload_name'] = (string)$first['name'];
+        $customization['design_upload'] = (string)$first['name'];
+        if (($first['mime'] ?? '') !== '') {
+            $customization['design_upload_mime'] = (string)$first['mime'];
+        }
+
+        return $customization;
     }
 }
 

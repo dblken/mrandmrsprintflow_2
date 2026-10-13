@@ -18,6 +18,8 @@ $serve = (string)file_get_contents($root . '/public/serve_design.php');
 $staffUi = (string)file_get_contents($root . '/staff/customizations.php');
 $posJs = (string)file_get_contents($root . '/staff/pos.php');
 $service = (string)file_get_contents($root . '/includes/CustomizationService.php');
+$fieldRenderer = (string)file_get_contents($root . '/includes/service_field_renderer.php');
+$adminUi = (string)file_get_contents($root . '/admin/customizations.php');
 
 $expect(strpos($schema, 'order_item_design_files') !== false, 'schema creates order_item_design_files table');
 $expect(strpos($schema, 'uq_order_item_design_file_idempotency') !== false, 'schema enforces idempotency unique key');
@@ -32,6 +34,11 @@ $expect(strpos($serve, "order_item_file") !== false, 'serve_design supports per-
 $expect(strpos($staffUi, 'staffItemDesignFiles') !== false, 'staff modal renders deduped design file list');
 $expect(strpos($posJs, 'design_upload_files') !== false && strpos($posJs, 'posApplyStagedUploadMany') !== false, 'POS stages multiple design uploads');
 $expect(strpos($service, 'attachDesignFilesToItemViews') !== false, 'CustomizationService attaches batched design files');
+$expect(strpos($fieldRenderer, 'multiple class="input-field pf-design-file-input"') !== false, 'service field renderer uses multi-select design input');
+$expect(strpos($fieldRenderer, 'pfAppendDesignFilesToQueue') !== false, 'service field renderer appends files to queue');
+$expect(strpos($core, 'printflow_customization_apply_synced_design_files') !== false, 'customization JSON stores synced design_upload_files');
+$expect(strpos($adminUi, 'adminItemDesignFiles') !== false, 'admin modal renders deduped design file list');
+$expect(strpos($posCheckout, 'design_upload_files') !== false, 'POS checkout recognizes multi-file customization payload');
 
 if ($failures !== []) {
     fwrite(STDERR, "order_item_design_files_test failed:\n- " . implode("\n- ", $failures) . "\n");

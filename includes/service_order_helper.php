@@ -18,6 +18,50 @@ define('SERVICE_ORDER_ALLOWED_MIME', [
 define('SERVICE_ORDER_ALLOWED_EXT', ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'pdf', 'ai', 'psd']);
 define('SERVICE_ORDER_MAX_SIZE', 5 * 1024 * 1024); // 5MB limit requested by user
 define('SERVICE_ORDER_SUPPORTED_FORMATS_LABEL', 'PNG, JPG, JPEG, WEBP, GIF, SVG, PDF, AI, PSD');
+if (!defined('PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM')) {
+    define('PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM', 10);
+}
+
+/**
+ * Normalize a single or multi PHP upload field into a list of file arrays.
+ *
+ * @return list<array<string,mixed>>
+ */
+function printflow_normalize_php_file_uploads(string $field): array
+{
+    $candidates = [$field, $field . '[]', rtrim($field, '[]')];
+    $upload = null;
+    foreach ($candidates as $candidate) {
+        if (isset($_FILES[$candidate]) && is_array($_FILES[$candidate])) {
+            $upload = $_FILES[$candidate];
+            break;
+        }
+    }
+    if ($upload === null) {
+        return [];
+    }
+    if (!is_array($upload['name'] ?? null)) {
+        if (($upload['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            return [];
+        }
+        return [$upload];
+    }
+    $out = [];
+    $count = count($upload['name']);
+    for ($i = 0; $i < $count; $i++) {
+        if (($upload['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            continue;
+        }
+        $out[] = [
+            'name' => $upload['name'][$i] ?? '',
+            'type' => $upload['type'][$i] ?? '',
+            'tmp_name' => $upload['tmp_name'][$i] ?? '',
+            'error' => $upload['error'][$i] ?? UPLOAD_ERR_NO_FILE,
+            'size' => $upload['size'][$i] ?? 0,
+        ];
+    }
+    return $out;
+}
 
 /**
  * POST field name for the optional design/image link paired with a file field.
