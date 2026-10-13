@@ -63,7 +63,7 @@ $check(str_contains($pos, $modalMessage) && str_contains($pos, 'confirmMissingEs
 $check(str_contains($pos, "if (priced.unitPrice <= 0)") && str_contains($pos, "if (!proceed) return"), 'Cancel leaves the item off the order');
 $check(str_contains($customerOrder, $modalMessage) && str_contains($customerOrder, 'pf-missing-estimate-continue') && str_contains($customerOrder, 'pf-missing-estimate-cancel'), 'the customer ordering page uses the same Continue and Cancel warning');
 $check(!str_contains($estimator, 'no configured price yet') && !str_contains($cart, 'no configured price yet') && !str_contains($pos, 'pos-unconfigured-price-note'), 'the ordering page no longer shows an inline missing-price message');
-$check(str_contains($customerOrder, 'currentEstimatedUnitPrice() <= 0') && str_contains($customerOrder, 'form.requestSubmit'), 'Continue adds the item, and a priced specification skips the warning');
+$check(str_contains($customerOrder, 'specificationHasEstimatedPrice') && str_contains($customerOrder, 'estimatedPrice > 0') && str_contains($customerOrder, 'form.requestSubmit'), 'the warning appears only when estimated price is 0, and Continue submits the order');
 $check(str_contains($payment, 'total_to_pay <= 0'), 'payment stays blocked while the order total is not a valid price');
 $check(str_contains($priceApi, 'Price must be a valid amount of at least PHP 1.00'), 'Staff cannot save a zero or negative final price');
 

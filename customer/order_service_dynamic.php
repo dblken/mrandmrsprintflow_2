@@ -2172,16 +2172,19 @@ document.addEventListener('DOMContentLoaded', function() {
         let missingEstimateConfirmed = false;
         const missingEstimateMessage = 'This specification does not have an estimated price yet. The final price will be set by Staff before payment or order completion. Do you want to continue?';
 
-        const currentEstimatedUnitPrice = () => {
+        const currentEstimatedPrice = () => {
             if (typeof window.calculateEstimatedPrice === 'function') {
                 const result = window.calculateEstimatedPrice();
-                const unit = Number(result && result.unitPrice);
-                if (Number.isFinite(unit)) return unit;
+                const estimated = Number(result && result.estimatedTotal);
+                if (Number.isFinite(estimated)) return estimated;
             }
-            const input = document.getElementById('calculated-unit-price');
-            const unit = input ? parseFloat(input.value) : 0;
-            return Number.isFinite(unit) ? unit : 0;
+            const input = document.getElementById('calculated-estimated-price');
+            if (!input || String(input.value).trim() === '') return 0;
+            const estimated = parseFloat(input.value);
+            return Number.isFinite(estimated) ? estimated : 0;
         };
+
+        const specificationHasEstimatedPrice = (estimatedPrice) => Number.isFinite(estimatedPrice) && estimatedPrice > 0;
 
         const confirmMissingEstimatedPrice = () => new Promise((resolve) => {
             const overlay = document.getElementById('pf-missing-estimate-modal');
@@ -2298,7 +2301,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
-            if (!missingEstimateConfirmed && currentEstimatedUnitPrice() <= 0) {
+            if (!missingEstimateConfirmed && !specificationHasEstimatedPrice(currentEstimatedPrice())) {
                 e.preventDefault();
                 const submitter = e.submitter || null;
                 confirmMissingEstimatedPrice().then((proceed) => {
