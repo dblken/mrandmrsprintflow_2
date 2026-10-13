@@ -23,7 +23,7 @@ $check(str_contains($orderSql, "ce.status = 'active'") && str_contains($orderSql
 $recordSql = printflow_customer_exclusion_record_scope_sql('order_messages', 'm.message_id', 'm.order_id');
 $check(str_contains($recordSql, "ce_row.record_table = 'order_messages'") && str_contains($recordSql, 'm.message_id') && str_contains($recordSql, 'm.order_id'), 'related-record scope matches exact table, ID, and inherited order');
 $notificationSql = printflow_customer_exclusion_notification_scope_sql('n');
-$check(str_contains($notificationSql, 'n.user_type') && str_contains($notificationSql, 'n.data_id'), 'notification scope handles customer and order-targeted notifications');
+$check(str_contains($notificationSql, 'n.customer_id') && str_contains($notificationSql, 'n.data_id') && !str_contains($notificationSql, 'user_type'), 'notification scope uses customer_id and order data_id without legacy user_type column');
 $inventorySql = printflow_customer_exclusion_inventory_scope_sql('it');
 $check(str_contains($inventorySql, "'JOB_ORDER'") && str_contains($inventorySql, "'CHANGE_ITEM'") && str_contains($inventorySql, "ce_order_owner.customer_id") && !str_contains($inventorySql, "'ORDER_PRODUCT'"), 'inventory scope follows verified customer/order/job/change-item references and never infers shared product ownership');
 $check(str_contains($inventorySql, 'AND NOT EXISTS') && str_contains($inventorySql, 'AND NOT (NOT EXISTS'), 'inventory predicate retains ordinary rows and suppresses only rows with a matching exclusion');

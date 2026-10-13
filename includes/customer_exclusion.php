@@ -108,9 +108,15 @@ if (!function_exists('printflow_customer_exclusion_notification_scope_sql')) {
     {
         if (!preg_match('/^[A-Za-z][A-Za-z0-9_]*$/D', $alias)) throw new InvalidArgumentException('Invalid notification alias.');
         if (!printflow_customer_exclusion_schema_ready()) return '1=1';
-        $customerPredicate = printflow_customer_exclusion_customer_scope_sql($alias . '.user_id');
+        // Customer notifications store the recipient on customer_id; staff rows use user_id.
+        // Do not reference notifications.user_type (column does not exist) or staff user_id
+        // when evaluating customer archive exclusions.
+        $customerPredicate = printflow_customer_exclusion_customer_scope_sql($alias . '.customer_id');
         $orderPredicate = printflow_customer_exclusion_order_scope_sql('CAST(' . $alias . '.data_id AS UNSIGNED)');
-        return "((LOWER(TRIM(COALESCE({$alias}.user_type, ''))) <> 'customer' OR {$customerPredicate}) AND (LOWER(TRIM(COALESCE({$alias}.type, ''))) <> 'order' OR {$orderPredicate}))";
+        $customerRowGuard = "({$alias}.customer_id IS NOT NULL)";
+        $orderTypeGuard = "(LOWER(TRIM(COALESCE({$alias}.type, ''))) IN ('order', 'message')
+            AND CAST(COALESCE({$alias}.data_id, '0') AS UNSIGNED) > 0)";
+        return "((NOT {$customerRowGuard} OR {$customerPredicate}) AND (NOT {$orderTypeGuard} OR {$orderPredicate}))";
     }
 }
 

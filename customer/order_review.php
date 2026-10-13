@@ -331,8 +331,25 @@ function review_checkout_existing_order(int $customerId, string $token): int {
 
 function review_checkout_redirect_existing(int $orderId, bool $ajax): void {
     if ($orderId <= 0) return;
-    $rows = db_query('SELECT order_type FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]) ?: [];
-    $redirect = strtolower(trim((string)($rows[0]['order_type'] ?? ''))) === 'custom'
+    $rows = db_query('SELECT order_type, customer_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]) ?: [];
+    $orderType = strtolower(trim((string)($rows[0]['order_type'] ?? '')));
+    if ($orderType === 'custom' && function_exists('printflow_ensure_staff_new_order_notification')) {
+        $customerId = (int)($rows[0]['customer_id'] ?? 0);
+        $customerName = 'Customer';
+        if ($customerId > 0) {
+            $customerRow = db_query(
+                'SELECT first_name, last_name FROM customers WHERE customer_id = ? LIMIT 1',
+                'i',
+                [$customerId]
+            ) ?: [];
+            $customerName = trim((string)($customerRow[0]['first_name'] ?? '') . ' ' . (string)($customerRow[0]['last_name'] ?? ''));
+            if ($customerName === '') {
+                $customerName = 'Customer';
+            }
+        }
+        printflow_ensure_staff_new_order_notification($orderId, $customerName, $customerId);
+    }
+    $redirect = $orderType === 'custom'
         ? 'orders.php'
         : 'payment.php?order_id=' . $orderId;
     if ($ajax) {
@@ -1143,7 +1160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                 }
                             }
                         }
-                        notify_staff_new_order($order_id, $customer_name, $customer_id);
+                        printflow_ensure_staff_new_order_notification($order_id, $customer_name, $customer_id);
                         printflow_send_order_update($order_id, 'inquiry');
                     }
                     

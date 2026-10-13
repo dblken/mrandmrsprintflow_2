@@ -329,7 +329,11 @@ if (!function_exists('printflow_resolve_order_source_for_staff_scope')) {
             [$dataId]
         );
         if (!empty($orderRows[0]['order_source'])) {
-            return strtolower(trim((string)$orderRows[0]['order_source']));
+            $rawSource = (string)$orderRows[0]['order_source'];
+            if (function_exists('printflow_resolve_staff_order_source')) {
+                return printflow_resolve_staff_order_source($dataId, $rawSource);
+            }
+            return strtolower(trim($rawSource));
         }
 
         $jobRows = db_query(

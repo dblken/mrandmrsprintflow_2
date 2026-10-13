@@ -783,6 +783,37 @@ function printflow_notification_target_url_for_user(string $userType, array $not
 }
 
 /**
+ * True when at least one staff/manager shop notification exists for a new-order event.
+ */
+function printflow_staff_new_order_notification_exists(int $order_id): bool {
+    $order_id = (int)$order_id;
+    if ($order_id <= 0) {
+        return false;
+    }
+    $rows = db_query(
+        "SELECT notification_id
+         FROM notifications
+         WHERE type = 'Order'
+           AND data_id = ?
+           AND user_id IS NOT NULL
+         LIMIT 1",
+        'i',
+        [$order_id]
+    );
+    return !empty($rows);
+}
+
+/**
+ * Idempotent wrapper: notify shop staff once per order even on checkout replay.
+ */
+function printflow_ensure_staff_new_order_notification(int $order_id, string $customer_first_name = '', int $customer_id = 0): void {
+    if (printflow_staff_new_order_notification_exists($order_id)) {
+        return;
+    }
+    notify_staff_new_order($order_id, $customer_first_name, $customer_id);
+}
+
+/**
  * Notify all activated shop users (Staff, Admin, Manager) about a new customer order.
  */
 function notify_staff_new_order(int $order_id, string $customer_first_name, int $customer_id = 0): void {
@@ -2173,6 +2204,20 @@ function redirect($url) {
 }
 
 /**
+ * SQL fragment for staff/manager unread queries: Counter Staff omit Message (Chats badge).
+ * Online Operations Staff include Message inquiries in the Notifications bell count.
+ */
+function printflow_staff_notifications_unread_type_sql_clause(string $userType): string {
+    if ($userType === 'Staff' && function_exists('printflow_get_staff_access_role') && printflow_get_staff_access_role() === 'online') {
+        return '';
+    }
+    if (in_array($userType, ['Staff', 'Manager'], true)) {
+        return " AND type != 'Message'";
+    }
+    return '';
+}
+
+/**
  * Get unread notification count
  * @param int $user_id
  * @param string $user_type
@@ -2190,10 +2235,11 @@ function get_unread_notification_count($user_id, $user_type) {
         ) ?: [];
         return count(printflow_collapse_duplicate_notifications_latest($rows));
     } else {
+        $typeClause = printflow_staff_notifications_unread_type_sql_clause((string)$user_type);
         $rows = db_query(
             "SELECT notification_id, user_id, message, type, data_id, is_read, created_at
              FROM notifications n
-             WHERE user_id = ? AND is_read = 0 AND type != 'Message' AND " . printflow_order_archive_notification_exclusion_sql('n') . "
+             WHERE user_id = ? AND is_read = 0{$typeClause} AND " . printflow_order_archive_notification_exclusion_sql('n') . "
              ORDER BY created_at DESC, notification_id DESC",
             'i',
             [$user_id]
