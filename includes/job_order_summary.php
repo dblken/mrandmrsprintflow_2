@@ -205,6 +205,20 @@ function printflow_job_order_find_store_line(array $items, int $orderItemId): ?a
 /**
  * Resolve the service label for one job line (customization/order item), not the first cart line.
  */
+function printflow_job_order_find_store_line_from_references(array $items, int $selectedItemId, int $jobItemId): ?array
+{
+    foreach ([$selectedItemId, $jobItemId] as $reference) {
+        if ($reference <= 0) continue;
+        foreach ($items as $line) {
+            if (is_array($line) && (int)($line['order_item_id'] ?? 0) === $reference) {
+                return $line;
+            }
+        }
+    }
+    return printflow_job_order_find_store_line($items, 0);
+}
+
+/** Resolve one job's display identity from its own saved order line. */
 function printflow_job_order_display_service_type(array $jobRow): string
 {
     $orderId = (int)($jobRow['order_id'] ?? 0);

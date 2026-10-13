@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
+require_once __DIR__ . '/../includes/job_order_summary.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
@@ -148,12 +149,17 @@ if ($linked_job_id <= 0 && $ensureJob && strtolower(trim((string)($o['order_type
     }
 }
 
-// Root-cause fix: getStoreOrderItemsPayload() aggregates the WHOLE store order and
-// derives service_type/width/height from the FIRST line item. Re-anchor the
-// service/dimensions/category to the order_item this job is actually linked to.
+// Prefer the selected customization's saved line over a legacy staged job link.
+// Both references must resolve within this order; a sole line is unambiguous.
+$displayLine = printflow_job_order_find_store_line_from_references(
+    $items_out, $hintOrderItemId, $linked_job_order_item_id
+);
+$displayOrderItemId = is_array($displayLine)
+    ? (int)$displayLine['order_item_id']
+    : ($hintOrderItemId > 0 ? $hintOrderItemId : $linked_job_order_item_id);
 $materialContext = printflow_anchor_material_context_to_order_item(
     $items_out,
-    $linked_job_order_item_id > 0 ? $linked_job_order_item_id : $hintOrderItemId,
+    $displayOrderItemId,
     $service_name,
     $first_custom,
     $width_ft,
@@ -165,7 +171,6 @@ $service_id = (int)($materialContext['serviceId'] ?? 0);
 $first_custom = is_array($materialContext['firstCustom'] ?? null) ? $materialContext['firstCustom'] : $first_custom;
 $width_ft = (string)($materialContext['widthFt'] ?? $width_ft);
 $height_ft = (string)($materialContext['heightFt'] ?? $height_ft);
-$displayOrderItemId = $linked_job_order_item_id > 0 ? $linked_job_order_item_id : $hintOrderItemId;
 if ($displayOrderItemId > 0) {
     $primaryItem = is_array($materialContext['primaryItem'] ?? null) ? $materialContext['primaryItem'] : null;
     if ($primaryItem !== null) {
