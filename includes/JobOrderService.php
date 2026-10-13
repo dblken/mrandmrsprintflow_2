@@ -3676,15 +3676,15 @@ class JobOrderService {
         $storeOid = (int)($order['order_id'] ?? 0);
         if ($storeOid > 0) {
             $payload = self::getStoreOrderItemsPayload($storeOid, false, true);
-            self::enrichStaffJobRowFromStorePayload($order, $payload);
-            $order['customization_details'] = is_array($payload['customization_details'] ?? null)
-                ? $payload['customization_details']
-                : [];
             if (empty($order['order_item_id']) && !empty($payload['items']) && count($payload['items']) === 1) {
                 $order['order_item_id'] = (int)($payload['items'][0]['order_item_id'] ?? 0);
             } elseif (empty($order['order_item_id']) && !empty($order['joined_order_item_id'])) {
                 $order['order_item_id'] = (int)$order['joined_order_item_id'];
             }
+            self::enrichStaffJobRowFromStorePayload($order, $payload);
+            $order['customization_details'] = is_array($payload['customization_details'] ?? null)
+                ? $payload['customization_details']
+                : [];
 
             // Root-cause fix: re-anchor material context to this job's order line.
             $ownItemId = (int)($order['order_item_id'] ?? 0);
@@ -3941,12 +3941,58 @@ class JobOrderService {
         }
         $resolvedService = printflow_job_order_display_service_type($order);
         if ($resolvedService !== '') {
+            $order['display_service_type'] = $resolvedService;
             $order['service_type'] = $resolvedService;
             if (trim((string)($order['job_title'] ?? '')) === ''
                 || strcasecmp(trim((string)($order['job_title'] ?? '')), trim((string)($order['service_type'] ?? ''))) === 0) {
                 $order['job_title'] = $resolvedService;
             }
         }
+
+        $anchoredItem = null;
+        $anchoredItemId = (int)($order['order_item_id'] ?? $order['linked_order_item_id'] ?? 0);
+        foreach (is_array($order['items'] ?? null) ? $order['items'] : [] as $candidateItem) {
+            if (!is_array($candidateItem)) {
+                continue;
+            }
+            if ($anchoredItemId > 0 && (int)($candidateItem['order_item_id'] ?? 0) === $anchoredItemId) {
+                $anchoredItem = $candidateItem;
+                break;
+            }
+            if ($anchoredItem === null) {
+                $anchoredItem = $candidateItem;
+            }
+        }
+        if ($storeOrderId > 0) {
+            $payloadForDisplay = self::getStoreOrderItemsPayload($storeOrderId, false, true);
+            $storeItems = is_array($payloadForDisplay['items'] ?? null) ? $payloadForDisplay['items'] : [];
+            $fromStore = printflow_job_order_find_store_line($storeItems, $anchoredItemId);
+            if (is_array($fromStore)) {
+                $anchoredItem = $fromStore;
+            }
+        }
+        $order['display_dimensions'] = printflow_job_order_display_dimensions_label(
+            is_array($anchoredItem) ? $anchoredItem : null,
+            $order
+        );
+        $rawCustomForDisplay = [];
+        if (is_array($anchoredItem)) {
+            $rawCustomForDisplay = is_array($anchoredItem['customization'] ?? null)
+                ? $anchoredItem['customization']
+                : (is_array($anchoredItem['specifications'] ?? null) ? $anchoredItem['specifications'] : []);
+        }
+        if ($rawCustomForDisplay === [] && is_array($order['customization_details'] ?? null)) {
+            $rawCustomForDisplay = $order['customization_details'];
+        }
+        require_once __DIR__ . '/customization_normalizer.php';
+        $order['display_specifications'] = $rawCustomForDisplay !== []
+            ? printflow_customization_display_specs($rawCustomForDisplay, [
+                'include_service' => false,
+                'include_design' => false,
+                'include_notes' => true,
+                'include_quantity' => false,
+            ])
+            : [];
 
         return $order;
     }

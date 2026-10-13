@@ -29,6 +29,8 @@ $assert(str_contains($jobSummary, 'function printflow_job_order_business_date_va
 $assert(str_contains($jobSummary, 'function printflow_job_order_display_service_type'), 'shared helper for line service exists');
 $assert(str_contains($jobService, 'ord.order_date AS store_order_date'), 'getOrder must expose store order_date');
 $assert(str_contains($jobService, 'printflow_job_order_display_service_type($order)'), 'getOrder must resolve line-specific service type');
+$assert(str_contains($jobService, 'display_service_type'), 'getOrder must expose display_service_type for admin modal');
+$assert(str_contains($jobService, 'display_dimensions'), 'getOrder must expose display_dimensions from order item');
 $assert(str_contains($jobService, 'order_business_date'), 'getOrder must expose order_business_date for API consumers');
 $assert(str_contains($jobService, '$ownItemId = (int)($jo[\'order_item_id\']'), 'store payload enrichment must anchor service to order_item_id');
 

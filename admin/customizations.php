@@ -761,6 +761,30 @@ function custom_payment_badge($status) {
                         minute: '2-digit'
                     });
                 },
+                displayServiceType(job) {
+                    const label = String(job?.display_service_type || job?.service_type || '').trim();
+                    return label || 'Not provided';
+                },
+                displayDimensions(job) {
+                    const fromApi = String(job?.display_dimensions || '').trim();
+                    if (fromApi) return fromApi;
+                    const specs = job?.display_specifications && typeof job.display_specifications === 'object'
+                        ? job.display_specifications
+                        : {};
+                    for (const key of ['Dimensions', 'Size / Dimensions', 'Size']) {
+                        if (specs[key]) return String(specs[key]);
+                    }
+                    return 'Not provided';
+                },
+                displaySpecificationEntries(job) {
+                    const specs = job?.display_specifications;
+                    if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return [];
+                    const skip = new Set(['Dimensions', 'Size / Dimensions', 'Size', 'Notes']);
+                    return Object.entries(specs).filter(([label, value]) => {
+                        if (skip.has(label)) return false;
+                        return String(value ?? '').trim() !== '';
+                    });
+                },
                 openModal(id, orderCode = '') {
                     this.showModal = true;
                     this.loading = true;
@@ -1404,7 +1428,7 @@ function custom_payment_badge($status) {
                         </div>
                         <div class="detail-block">
                             <label>Service Type</label>
-                            <span style="word-wrap:break-word;overflow-wrap:break-word;display:block;" x-text="job?.service_type"></span>
+                            <span style="word-wrap:break-word;overflow-wrap:break-word;display:block;" x-text="displayServiceType(job)"></span>
                         </div>
                     </div>
                     <div class="detail-row">
@@ -1414,10 +1438,19 @@ function custom_payment_badge($status) {
                         </div>
                         <div class="detail-block">
                             <label>Dimensions</label>
-                            <span x-text="job?.width_ft && job?.height_ft ? job.width_ft + ' ft × ' + job.height_ft + ' ft' : '—'"></span>
-                            <div style="font-size:12px;color:#6b7280;margin-top:4px;" x-text="job?.total_sqft ? (job.total_sqft + ' sqft') : ''"></div>
+                            <span x-text="displayDimensions(job)"></span>
                         </div>
                     </div>
+                    <template x-if="displaySpecificationEntries(job).length">
+                        <div class="detail-row" style="flex-wrap:wrap;">
+                            <template x-for="entry in displaySpecificationEntries(job)" :key="entry[0]">
+                                <div class="detail-block" style="min-width:45%;">
+                                    <label x-text="entry[0]"></label>
+                                    <span style="word-wrap:break-word;overflow-wrap:break-word;display:block;" x-text="entry[1]"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
                     <div class="detail-row">
                         <div class="detail-block">
                             <label>Estimated Total</label>

@@ -80,16 +80,160 @@ function printflow_format_business_datetime_display(string $raw, string $timezon
 }
 
 /**
+ * Prefer saved order-item specifications over workflow mirror columns (e.g. customizations.service_type).
+ *
+ * @param array<string,mixed>|null $storeLine One line from getStoreOrderItemsPayload()['items']
+ * @param array<string,mixed> $customizationMirror Row from customizations + order_items join
+ */
+function printflow_job_order_service_label_from_sources(?array $storeLine, array $customizationMirror = [], string $jobFallback = ''): string
+{
+    if (is_array($storeLine)) {
+        $fromName = trim((string)($storeLine['product_name'] ?? ''));
+        if ($fromName !== '' && strcasecmp($fromName, 'Custom Order') !== 0) {
+            return $fromName;
+        }
+        $lineCustom = is_array($storeLine['customization'] ?? null)
+            ? $storeLine['customization']
+            : (is_array($storeLine['specifications'] ?? null) ? $storeLine['specifications'] : []);
+        if ($lineCustom !== [] && function_exists('get_service_name_from_customization')) {
+            require_once __DIR__ . '/functions.php';
+            $fromLine = get_service_name_from_customization($lineCustom, '');
+            if ($fromLine !== '' && strcasecmp($fromLine, 'Custom Order') !== 0) {
+                return $fromLine;
+            }
+        }
+    }
+
+    if (!function_exists('printflow_decode_modal_customization_payload')) {
+        require_once __DIR__ . '/functions.php';
+    }
+    $details = printflow_decode_modal_customization_payload((string)($customizationMirror['customization_details'] ?? ''));
+    if ($details === [] && !empty($customizationMirror['customization_data'])) {
+        $details = printflow_decode_modal_customization_payload((string)$customizationMirror['customization_data']);
+    }
+    if ($details !== [] && function_exists('get_service_name_from_customization')) {
+        $fromDetails = get_service_name_from_customization($details, '');
+        if ($fromDetails !== '' && strcasecmp($fromDetails, 'Custom Order') !== 0) {
+            return $fromDetails;
+        }
+    }
+
+    $mirrorType = trim((string)($customizationMirror['service_type'] ?? ''));
+    if ($mirrorType !== '' && strcasecmp($mirrorType, 'Custom Order') !== 0) {
+        return $mirrorType;
+    }
+
+    $fallback = trim($jobFallback);
+    return $fallback !== '' ? $fallback : '';
+}
+
+/**
+ * Human-readable dimensions for one anchored order line (customer-submitted values).
+ *
+ * @param array<string,mixed>|null $storeLine
+ */
+function printflow_job_order_display_dimensions_label(?array $storeLine, array $jobRow = []): string
+{
+    $custom = [];
+    if (is_array($storeLine)) {
+        $custom = is_array($storeLine['customization'] ?? null)
+            ? $storeLine['customization']
+            : (is_array($storeLine['specifications'] ?? null) ? $storeLine['specifications'] : []);
+    }
+    if ($custom === [] && is_array($jobRow['customization_details'] ?? null)) {
+        $custom = $jobRow['customization_details'];
+    }
+
+    require_once __DIR__ . '/customization_normalizer.php';
+    $resolved = printflow_resolve_customization_dimensions($custom);
+    $width = trim((string)($resolved['width'] ?? ''));
+    $height = trim((string)($resolved['height'] ?? ''));
+    if ($width !== '' && $height !== '') {
+        return $width . ' ft × ' . $height . ' ft';
+    }
+
+    foreach (['Dimensions', 'Size / Dimensions', 'dimensions', 'size', 'Size'] as $key) {
+        if (!empty($custom[$key])) {
+            $text = trim((string)$custom[$key]);
+            if ($text !== '') {
+                return $text;
+            }
+        }
+    }
+
+    $jw = trim((string)($jobRow['width_ft'] ?? ''));
+    $jh = trim((string)($jobRow['height_ft'] ?? ''));
+    $numeric = static function (string $v): bool {
+        return $v !== '' && is_numeric($v) && abs((float)$v) >= 0.000001;
+    };
+    if ($numeric($jw) && $numeric($jh)) {
+        return $jw . ' ft × ' . $jh . ' ft';
+    }
+    if ($numeric($jw) && !$numeric($jh)) {
+        return $jw . ' ft';
+    }
+
+    return '';
+}
+
+/**
+ * @return array<string,mixed>|null
+ */
+function printflow_job_order_find_store_line(array $items, int $orderItemId): ?array
+{
+    if ($orderItemId > 0) {
+        foreach ($items as $line) {
+            if ((int)($line['order_item_id'] ?? 0) === $orderItemId) {
+                return is_array($line) ? $line : null;
+            }
+        }
+    }
+    if (count($items) === 1 && is_array($items[0])) {
+        return $items[0];
+    }
+
+    return null;
+}
+
+/**
  * Resolve the service label for one job line (customization/order item), not the first cart line.
  */
 function printflow_job_order_display_service_type(array $jobRow): string
 {
     $orderId = (int)($jobRow['order_id'] ?? 0);
     $orderItemId = (int)($jobRow['order_item_id'] ?? 0);
+    if ($orderItemId <= 0 && (int)($jobRow['linked_order_item_id'] ?? 0) > 0) {
+        $orderItemId = (int)$jobRow['linked_order_item_id'];
+    }
 
+    $storeLine = null;
+    if ($orderId > 0) {
+        require_once __DIR__ . '/JobOrderService.php';
+        $payload = JobOrderService::getStoreOrderItemsPayload($orderId, false, true);
+        $items = is_array($payload['items'] ?? null) ? $payload['items'] : [];
+        $storeLine = printflow_job_order_find_store_line($items, $orderItemId);
+        if ($storeLine === null && $orderItemId <= 0 && function_exists('printflow_anchor_material_context_to_order_item')) {
+            require_once __DIR__ . '/functions.php';
+            $ctx = printflow_anchor_material_context_to_order_item(
+                $items,
+                0,
+                trim((string)($jobRow['service_type'] ?? '')),
+                [],
+                (string)($jobRow['width_ft'] ?? '1'),
+                (string)($jobRow['height_ft'] ?? '1')
+            );
+            $primary = $ctx['primaryItem'] ?? null;
+            if (is_array($primary)) {
+                $storeLine = $primary;
+                $orderItemId = (int)($primary['order_item_id'] ?? 0);
+            }
+        }
+    }
+
+    $customizationMirror = [];
     if ($orderId > 0 && $orderItemId > 0 && function_exists('db_query')) {
         $rows = db_query(
-            "SELECT c.service_type, c.customization_details, oi.customization_data
+            "SELECT c.service_type, c.customization_details, oi.customization_data, oi.specifications
              FROM customizations c
              LEFT JOIN order_items oi ON oi.order_item_id = c.order_item_id
              WHERE c.order_id = ? AND c.order_item_id = ?
@@ -98,45 +242,26 @@ function printflow_job_order_display_service_type(array $jobRow): string
             [$orderId, $orderItemId]
         ) ?: [];
         if (!empty($rows[0])) {
-            $serviceType = trim((string)($rows[0]['service_type'] ?? ''));
-            if ($serviceType !== '') {
-                return $serviceType;
-            }
-            if (!function_exists('printflow_decode_modal_customization_payload')) {
-                require_once __DIR__ . '/functions.php';
-            }
-            $details = printflow_decode_modal_customization_payload((string)($rows[0]['customization_details'] ?? ''));
-            if ($details === [] && !empty($rows[0]['customization_data'])) {
-                $details = printflow_decode_modal_customization_payload((string)$rows[0]['customization_data']);
-            }
-            if (function_exists('get_service_name_from_customization')) {
-                $fromCustom = get_service_name_from_customization($details, '');
-                if ($fromCustom !== '') {
-                    return $fromCustom;
-                }
+            $customizationMirror = $rows[0];
+        } elseif ($storeLine === null) {
+            $itemRows = db_query(
+                "SELECT customization_data, specifications FROM order_items WHERE order_id = ? AND order_item_id = ? LIMIT 1",
+                'ii',
+                [$orderId, $orderItemId]
+            ) ?: [];
+            if (!empty($itemRows[0])) {
+                $customizationMirror = $itemRows[0];
             }
         }
     }
 
-    if ($orderId > 0 && $orderItemId > 0) {
-        require_once __DIR__ . '/JobOrderService.php';
-        $payload = JobOrderService::getStoreOrderItemsPayload($orderId, false, true);
-        $items = is_array($payload['items'] ?? null) ? $payload['items'] : [];
-        if (function_exists('printflow_anchor_material_context_to_order_item')) {
-            require_once __DIR__ . '/functions.php';
-            $ctx = printflow_anchor_material_context_to_order_item(
-                $items,
-                $orderItemId,
-                trim((string)($jobRow['service_type'] ?? '')),
-                [],
-                (string)($jobRow['width_ft'] ?? '1'),
-                (string)($jobRow['height_ft'] ?? '1')
-            );
-            $resolved = trim((string)($ctx['serviceName'] ?? ''));
-            if ($resolved !== '' && strcasecmp($resolved, 'Custom Order') !== 0) {
-                return $resolved;
-            }
-        }
+    $resolved = printflow_job_order_service_label_from_sources(
+        $storeLine,
+        $customizationMirror,
+        trim((string)($jobRow['service_type'] ?? $jobRow['job_title'] ?? ''))
+    );
+    if ($resolved !== '') {
+        return $resolved;
     }
 
     return trim((string)($jobRow['service_type'] ?? $jobRow['job_title'] ?? ''));
