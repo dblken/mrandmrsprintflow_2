@@ -14,7 +14,8 @@ if ($item_key === '' || !isset($_SESSION['cart'][$item_key]) || !is_array($_SESS
 }
 
 $item = $_SESSION['cart'][$item_key];
-$resolved = pf_order_ui_cart_temp_disk_path($item, $field === 'reference' ? 'reference' : 'design');
+$fileIndex = max(0, (int)($_GET['index'] ?? 0));
+$resolved = pf_order_ui_cart_temp_disk_path($item, $field === 'reference' ? 'reference' : 'design', $fileIndex);
 if ($resolved === null) {
     http_response_code(404);
     exit;

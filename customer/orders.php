@@ -3087,6 +3087,87 @@ window.addEventListener('DOMContentLoaded', () => {
 </div>
 
 <script>
+function imShouldSkipCustomizationKey(k, v) {
+    const nk = String(k || '').toLowerCase().replace(/\s+/g, '_').trim();
+    if (!nk || String(k).startsWith('_')) {
+        return true;
+    }
+    if ([
+        'uploaded_files',
+        'design_upload_files',
+        '_uploaded_files',
+        'design_upload',
+        'design_upload_name',
+        'design_upload_data',
+        'upload_design_data',
+        'design_data',
+        'design_upload_path',
+        'design_upload_mime',
+        'design_file',
+        'design_external_link',
+        'design_link',
+        'design_file_link',
+        'upload_design_link',
+        'job_notes',
+        'reference_upload',
+        'idempotency_key',
+    ].includes(nk)) {
+        return true;
+    }
+    if (v && typeof v === 'object') {
+        if (Array.isArray(v)) {
+            if (v.length && v[0] && typeof v[0] === 'object' && ('tmp_path' in v[0] || 'idempotency_key' in v[0])) {
+                return true;
+            }
+        } else if ('tmp_path' in v || 'idempotency_key' in v || 'storage_path' in v) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function imDedupeDesignFilesForDisplay(list) {
+    const PF = window.PrintflowOrderItemDesignFiles;
+    let out = PF ? PF.dedupe(Array.isArray(list) ? list : []) : (Array.isArray(list) ? list : []);
+    const hasDbIds = out.some((row) => Number(row && row.file_id) > 0);
+    if (hasDbIds) {
+        out = out.filter((row) => Number(row && row.file_id) > 0);
+        out = PF ? PF.dedupe(out) : out;
+    }
+    return out;
+}
+
+function imRenderLongFormSection(parts) {
+    if (!Array.isArray(parts) || !parts.length) {
+        return '';
+    }
+    const body = parts.map((part) => {
+        const label = String(part.label || '').trim();
+        const text = String(part.text || '').trim();
+        if (!text) {
+            return '';
+        }
+        if (label) {
+            return label + ':\n' + text;
+        }
+        return text;
+    }).filter(Boolean).join('\n\n');
+    if (!body) {
+        return '';
+    }
+    const needsToggle = body.length > 420 || body.split('\n').length >= 6;
+    const clampClass = needsToggle ? ' pf-customer-notes-text--clamped' : '';
+    const toggles = needsToggle
+        ? `<button type="button" class="pf-customer-notes-toggle" data-pf-notes-more style="margin-top:8px;padding:0;border:none;background:none;color:#0369a1;font-size:0.82rem;font-weight:700;cursor:pointer;">See more</button>
+           <button type="button" class="pf-customer-notes-toggle" data-pf-notes-less hidden style="margin-top:8px;padding:0;border:none;background:none;color:#0369a1;font-size:0.82rem;font-weight:700;cursor:pointer;">See less</button>`
+        : '';
+    return `<div class="im-longform-section">
+        <div class="im-longform-label">Customization details</div>
+        <div class="im-longform-text pf-customer-notes-text${clampClass}">${escIM(body)}</div>
+        ${toggles}
+    </div>`;
+}
+
 function imIsLongFormSpecKey(k) {
     const s = String(k || '').toLowerCase().replace(/\s+/g, ' ').trim();
     if (!s) {
@@ -3814,45 +3895,27 @@ function openItemsModal(orderId, event, options = {}) {
             if (item.customization) {
                 const entries = Object.entries(item.customization).filter(([k, v]) => {
                     if (v === null || v === undefined || v === '') return false;
+                    if (imShouldSkipCustomizationKey(k, v)) return false;
                     const nk = String(k).toLowerCase().replace(/\s+/g, '_');
                     if (imIsDesignLinkKey(k)) return false;
                     if ((v === 'No' || v === 'None') && nk !== 'custom_print') return false;
-                    if ([
-                        'design_upload',
-                        'design_upload_name',
-                        'design_upload_data',
-                        'upload_design_data',
-                        'design_data',
-                        'design_upload_path',
-                        'design_upload_mime',
-                        'design_file',
-                        'design_external_link',
-                        'design_link',
-                        'design_file_link',
-                        'upload_design_link',
-                        'job_notes',
-                        'reference_upload'
-                    ].includes(nk) || String(k).startsWith('_')) return false;
                     return true;
                 });
                 const specParts = [];
+                const longFormParts = [];
                 for (const [k, v] of entries) {
-                    let disp = v;
                     if (typeof v === 'object' && v !== null) {
-                        try { disp = JSON.stringify(v); } catch (e) { disp = String(v); }
+                        continue;
                     }
-                    const dispStr = String(disp);
-                    const kl = String(k).toLowerCase();
+                    const dispStr = String(v);
                     if (imIsLongFormSpecKey(k)) {
                         if (dispStr.trim() !== '' && dispStr.trim() === String(data.notes || '').trim()) {
                             continue;
                         }
-                        const label = String(k).replace(/_/g, ' ');
-                        longFormHtml += `
-                        <div class="im-longform-block">
-                            <div class="im-longform-label">${escIM(label)}</div>
-                            <div class="im-longform-text">${escIM(dispStr)}</div>
-                        </div>`;
+                        longFormParts.push({
+                            label: String(k).replace(/_/g, ' '),
+                            text: dispStr,
+                        });
                         continue;
                     }
                     specParts.push(`
@@ -3865,12 +3928,13 @@ function openItemsModal(orderId, event, options = {}) {
                 if (specParts.length) {
                     specs = `<div class="im-spec-grid">${specParts.join('')}</div>`;
                 }
+                longFormHtml = imRenderLongFormSection(longFormParts);
             }
 
             const imDesignFileThumbs = (() => {
                 const PF = window.PrintflowOrderItemDesignFiles;
                 const raw = Array.isArray(item.design_files) ? item.design_files : (Array.isArray(item.files) ? item.files : []);
-                let list = PF ? PF.dedupe(raw) : raw;
+                let list = imDedupeDesignFilesForDisplay(raw);
                 if (!list.length && (item.has_design_file || item.has_design) && item.design_url) {
                     list = [{
                         file_id: 'legacy-' + String(item.order_item_id || '0'),
@@ -4141,6 +4205,9 @@ function openItemsModal(orderId, event, options = {}) {
             const imBody = document.getElementById('imBody');
             if (imBody) {
                 window.PrintflowOrderItemDesignFiles.bindDesignFilesBlocks(imBody);
+                if (typeof window.PrintflowOrderItemDesignFiles.bindCustomerNotesBlocks === 'function') {
+                    window.PrintflowOrderItemDesignFiles.bindCustomerNotesBlocks(imBody);
+                }
             }
         }
     })

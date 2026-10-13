@@ -505,6 +505,23 @@ if (!function_exists('printflow_is_internal_customization_value')) {
             return true;
         }
 
+        if (array_key_exists('tmp_path', $value) || array_key_exists('idempotency_key', $value)) {
+            return true;
+        }
+
+        if (array_key_exists('storage_path', $value) && (array_key_exists('display_name', $value) || array_key_exists('mime_type', $value))) {
+            return true;
+        }
+
+        $keys = array_keys($value);
+        $isList = $keys === range(0, count($value) - 1);
+        if ($isList && isset($value[0]) && is_array($value[0])) {
+            $first = $value[0];
+            if (array_key_exists('tmp_path', $first) || array_key_exists('idempotency_key', $first)) {
+                return true;
+            }
+        }
+
         return false;
     }
 }

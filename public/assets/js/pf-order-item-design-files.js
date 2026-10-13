@@ -102,7 +102,7 @@
         if (n <= 0) {
             return '';
         }
-        return 'Show more images (' + n + ' more)';
+        return 'Show all images (' + n + ' more)';
     }
 
     function fileIdsMatch(a, b) {
@@ -169,6 +169,46 @@
         }
     }
 
+    function bindCustomerNotesBlocks(root) {
+        if (!global.document) {
+            return;
+        }
+        var scope = root && root.querySelectorAll ? root : global.document;
+        scope.querySelectorAll('[data-pf-notes-more]').forEach(function (moreBtn) {
+            if (moreBtn.dataset.pfNotesBound === '1') {
+                return;
+            }
+            var wrap = moreBtn.closest('.im-longform-section, div');
+            if (!wrap) {
+                return;
+            }
+            var textEl = wrap.querySelector('.pf-customer-notes-text, .im-longform-text, .im-note-copy');
+            var lessBtn = wrap.querySelector('[data-pf-notes-less]');
+            if (!textEl) {
+                return;
+            }
+            moreBtn.dataset.pfNotesBound = '1';
+            moreBtn.addEventListener('click', function (ev) {
+                ev.preventDefault();
+                textEl.classList.remove('pf-customer-notes-text--clamped');
+                textEl.classList.add('pf-customer-notes-text--expanded');
+                moreBtn.hidden = true;
+                if (lessBtn) {
+                    lessBtn.hidden = false;
+                }
+            });
+            if (lessBtn) {
+                lessBtn.addEventListener('click', function (ev) {
+                    ev.preventDefault();
+                    textEl.classList.add('pf-customer-notes-text--clamped');
+                    textEl.classList.remove('pf-customer-notes-text--expanded');
+                    lessBtn.hidden = true;
+                    moreBtn.hidden = false;
+                });
+            }
+        });
+    }
+
     function bindDesignFilesBlocks(root) {
         if (!global.document) {
             return;
@@ -221,6 +261,7 @@
         zipDownloadUrl: zipDownloadUrl,
         fileUnavailable: fileUnavailable,
         bindDesignFilesBlocks: bindDesignFilesBlocks,
+        bindCustomerNotesBlocks: bindCustomerNotesBlocks,
         bindDesignGalleryButtons: bindDesignGalleryButtons,
         setBlockExpanded: setBlockExpanded,
     };

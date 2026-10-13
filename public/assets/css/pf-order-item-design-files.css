@@ -189,3 +189,20 @@
     background: rgba(83, 197, 224, 0.08);
     color: #53c5e0;
 }
+
+.pf-customer-notes-text--clamped {
+    display: -webkit-box;
+    -webkit-line-clamp: 8;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.pf-customer-notes-text--expanded {
+    display: block;
+    -webkit-line-clamp: unset;
+    overflow: visible;
+}
+
+.im-longform-section .pf-customer-notes-text--clamped {
+    -webkit-line-clamp: 6;
+}
