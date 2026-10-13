@@ -5,6 +5,7 @@ require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
+require_once __DIR__ . '/../includes/job_order_summary.php';
 
 require_role(['Admin', 'Manager']);
 
@@ -72,17 +73,18 @@ function pf_status_badge(string $s): string
 
 function pf_payment_order_type(array $row): string
 {
-    return strtolower(trim((string)($row['order_type'] ?? ''))) === 'custom' || trim((string)($row['service_names'] ?? '')) !== ''
-        ? 'Custom Order'
-        : 'Product Order';
+    if (strtolower(trim((string)($row['order_type'] ?? ''))) === 'custom') {
+        return 'Custom Order';
+    }
+
+    return trim((string)($row['service_names'] ?? '')) !== '' ? 'Custom Order' : 'Product Order';
 }
 
-function pf_payment_item_label(array $row): string
+function pf_payment_item_label(array $row, array $identityLabels = []): string
 {
-    $services = trim((string)($row['service_names'] ?? ''));
-    $products = trim((string)($row['product_names'] ?? ''));
-    return $services !== '' ? $services : ($products !== '' ? $products : 'Item details unavailable');
+    return printflow_payment_transaction_item_label($row, $identityLabels);
 }
+
 function pf_date_range(string $p, string $f, string $t): array
 {
     if ($p === 'all') {
@@ -264,6 +266,19 @@ usort($transactions, fn($a, $b) => match ($sortBy) {
     'reference_za' => strcasecmp($b['reference'], $a['reference']),
     default => strtotime($b['at']) <=> strtotime($a['at']),
 });
+
+$paymentIdentityLabels = [];
+if ($transactions !== [] && function_exists('printflow_dashboard_order_service_labels')) {
+    $paymentOrderIds = array_values(array_unique(array_filter(array_map(
+        static fn(array $tx): int => (int)($tx['order_id'] ?? 0),
+        $transactions
+    ))));
+    $paymentIdentityLabels = printflow_dashboard_order_service_labels($paymentOrderIds);
+    foreach ($transactions as &$paymentTx) {
+        $paymentTx['item'] = pf_payment_item_label($paymentTx, $paymentIdentityLabels);
+    }
+    unset($paymentTx);
+}
 
 $paid = array_values(array_filter($transactions, fn($r) => $r['status'] === 'Paid'));
 $totalSales = array_sum(array_column($paid, 'amount'));

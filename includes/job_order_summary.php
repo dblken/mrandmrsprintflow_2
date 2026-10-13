@@ -85,6 +85,35 @@ function printflow_format_business_datetime_display(string $raw, string $timezon
  * @param array<string,mixed>|null $storeLine One line from getStoreOrderItemsPayload()['items']
  * @param array<string,mixed> $customizationMirror Row from customizations + order_items join
  */
+/**
+ * Payment list/modal Product/Service label from saved order lines (not job_orders mirror or POS placeholder products).
+ *
+ * @param array<string,mixed> $row
+ * @param array<int,string> $identityLabels from printflow_dashboard_order_service_labels()
+ */
+function printflow_payment_transaction_item_label(array $row, array $identityLabels = []): string
+{
+    $orderId = (int)($row['order_id'] ?? 0);
+    if ($orderId > 0 && isset($identityLabels[$orderId])) {
+        $resolved = trim((string)$identityLabels[$orderId]);
+        if ($resolved !== '' && strcasecmp($resolved, 'Custom Service') !== 0) {
+            return $resolved;
+        }
+    }
+
+    if (strtolower(trim((string)($row['order_type'] ?? ''))) === 'custom') {
+        return 'Customization';
+    }
+
+    $products = trim((string)($row['product_names'] ?? ''));
+    if ($products !== '') {
+        return $products;
+    }
+
+    $services = trim((string)($row['service_names'] ?? ''));
+    return $services !== '' ? $services : 'Item details unavailable';
+}
+
 function printflow_job_order_service_label_from_sources(?array $storeLine, array $customizationMirror = [], string $jobFallback = ''): string
 {
     if (is_array($storeLine)) {
