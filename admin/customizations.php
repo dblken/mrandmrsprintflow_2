@@ -371,9 +371,40 @@ function custom_payment_badge($status) {
         .btn-action.teal  { color:#14b8a6; border-color:#14b8a6; }
         .btn-action.teal:hover  { background:#14b8a6; color:white; }
 
-        .modal-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px; }
-        .modal-panel { background:#fff;border-radius:12px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:640px;max-height:calc(100vh - 32px);display:flex;flex-direction:column;position:relative;overflow:hidden; }
-        .modal-content { overflow-y:auto;flex:1; }
+        .modal-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:10px; }
+        .modal-panel { background:#fff;border-radius:10px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:min(980px,96vw);max-height:calc(100vh - 20px);display:flex;flex-direction:column;position:relative;overflow:hidden; }
+        .modal-content { overflow-y:auto;flex:1;min-height:0; }
+        .customization-modal-header { padding:10px 16px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:8px; }
+        .customization-modal-header h3 { font-size:17px;font-weight:700;color:#1f2937;margin:0;line-height:1.25; }
+        .customization-modal-body { padding:12px 16px 10px; }
+        .customization-modal-footer { padding:10px 16px;border-top:1px solid #f3f4f6;display:flex;justify-content:flex-end;gap:8px;flex-shrink:0; }
+        .customization-customer-block { margin-bottom:10px; }
+        .customization-customer-block > p { font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 6px;letter-spacing:.35px; }
+        .customization-customer-row { display:flex;align-items:center;gap:10px; }
+        .customization-customer-row .avatar { width:36px;height:36px;border-radius:50%;flex-shrink:0; }
+        .customization-details-grid,
+        .customization-spec-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:8px;margin-bottom:8px; }
+        @media (min-width: 900px) {
+            .customization-details-grid,
+            .customization-spec-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+        }
+        @media (max-width: 768px) {
+            .customization-details-grid,
+            .customization-spec-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+        }
+        @media (max-width: 480px) {
+            .customization-details-grid,
+            .customization-spec-grid { grid-template-columns:1fr; }
+        }
+        .customization-attachments { margin-top:10px; }
+        .customization-attachments > .attachments-row { display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start; }
+        .customization-section-label { font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 6px;letter-spacing:.35px; }
+        .customization-notes-block { margin-top:6px; }
+        .customization-notes-block .notes-box { background:#f9fafb;border-radius:6px;padding:8px 10px;font-size:12px;color:#374151;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;line-height:1.45; }
+        .customization-design-card { border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;background:#fff;max-width:100%;box-sizing:border-box; }
+        .customization-design-card .design-thumb { width:100px;height:100px;border-radius:6px; }
+        .customizations-list-card .customs-table thead th { padding-top:8px;padding-bottom:8px; }
+        .customizations-list-card .customs-table tbody td { padding-top:7px;padding-bottom:7px;vertical-align:middle; }
         [x-cloak] { display:none !important; }
         @keyframes spin { to { transform:rotate(360deg); } }
 
@@ -382,7 +413,7 @@ function custom_payment_badge($status) {
         .search-box input:focus { border-color:#3b82f6;outline:none;box-shadow:0 0 0 3px rgba(59,130,246,.1); }
         .search-box .search-icon { position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9ca3af;pointer-events:none; }
 
-        .kpi-row { display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px; }
+        .kpi-row { display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px; }
         @media(max-width:768px){ .kpi-row{grid-template-columns:repeat(2,1fr);} }
         .kpi-card { background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px;position:relative;overflow:hidden; }
         .kpi-card::before { content:'';position:absolute;top:0;left:0;right:0;height:3px; }
@@ -579,10 +610,11 @@ function custom_payment_badge($status) {
             .mobile-header { display:flex;position:fixed;top:0;left:0;right:0;height:60px;background:#fff;z-index:60;padding:0 20px;align-items:center;justify-content:space-between;border-bottom:1px solid #e5e7eb; }
         }
 
-        .detail-row { display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px; }
-        .detail-block { flex:1;min-width:140px;background:#f9fafb;border-radius:8px;padding:12px 14px; }
-        .detail-block label { font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px; }
-        .detail-block span  { font-size:13px;font-weight:400;color:#1f2937; }
+        .detail-row { display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px; }
+        .detail-block { flex:1;min-width:0;background:#f9fafb;border-radius:6px;padding:7px 9px; }
+        .detail-block label { font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.35px;display:block;margin-bottom:2px;line-height:1.2; }
+        .detail-block span  { font-size:12px;font-weight:400;color:#1f2937;line-height:1.35;word-wrap:break-word;overflow-wrap:break-word;display:block; }
+        main[x-data="custModal()"] .modal-panel .detail-block { min-width:0; }
 
         /* Transaction History Tabs */
         .tab-btn { padding: 8px 16px; font-size: 13px; font-weight: 500; border-radius: 8px; transition: all 0.2s; cursor: pointer; border: 1px solid transparent; }
@@ -600,10 +632,14 @@ function custom_payment_badge($status) {
             }
             main[x-data="custModal()"] .modal-panel {
                 width: 100% !important;
-                max-width: calc(100vw - 20px) !important;
-                max-height: calc(100dvh - 76px) !important;
-                margin: 56px auto 16px !important;
+                max-width: calc(100vw - 16px) !important;
+                max-height: calc(100dvh - 72px) !important;
+                margin: 52px auto 12px !important;
                 border-radius: 8px !important;
+            }
+            main[x-data="custModal()"] .customization-details-grid,
+            main[x-data="custModal()"] .customization-spec-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
             }
             main[x-data="custModal()"] .modal-content {
                 overflow-y: auto !important;
@@ -1169,8 +1205,8 @@ function custom_payment_badge($status) {
             </div>
 
             <!-- Table Card -->
-            <div class="card">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+            <div class="card customizations-list-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px;">
                     <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;">
                         Customizations List
                     </h3>
@@ -1425,45 +1461,42 @@ function custom_payment_badge($status) {
             <!-- Content -->
             <div x-show="job && !loading" class="modal-content">
                 <!-- Header -->
-                <div style="padding:18px 24px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+                <div class="customization-modal-header">
                     <div>
-                        <h3 style="font-size:18px;font-weight:700;color:#1f2937;margin:0 0 2px;" x-text="(job?.order_code || modalOrderCode || ('Customization #' + (job?.id ?? '')) )"></h3>
-                        <div x-html="statusBadge(job?.status)" style="display:inline-block;"></div>
+                        <h3 x-text="(job?.order_code || modalOrderCode || ('Customization #' + (job?.id ?? '')) )"></h3>
+                        <div x-html="statusBadge(job?.status)" style="display:inline-block;margin-top:2px;"></div>
                     </div>
                     <button @click="showModal = false" style="background:transparent;border:none;cursor:pointer;color:#6b7280;">
                         <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                 </div>
                 <!-- Body -->
-                <div style="padding:24px;">
+                <div class="customization-modal-body">
                     <!-- Customer -->
-                    <div style="margin-bottom:18px;">
-                        <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin-bottom:8px;">Customer</p>
-                        <div style="display:flex;align-items:center;gap:12px;">
+                    <div class="customization-customer-block">
+                        <p>Customer</p>
+                        <div class="customization-customer-row">
                             <template x-if="job?.customer_picture">
-                                <img :src="job.customer_picture" alt="Customer" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0;">
+                                <img class="avatar" :src="job.customer_picture" alt="Customer" style="object-fit:cover;">
                             </template>
                             <template x-if="!job?.customer_picture">
-                                <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:16px;" x-text="job?.customer_name?.charAt(0)?.toUpperCase() || 'W'"></div>
+                                <div class="avatar" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:15px;" x-text="job?.customer_name?.charAt(0)?.toUpperCase() || 'W'"></div>
                             </template>
                             <div style="flex:1;min-width:0;">
-                                <div style="font-weight:700;color:#1f2937;word-wrap:break-word;overflow-wrap:break-word;" x-text="job?.customer_name || 'Walk-in Customer'"></div>
-                                <div style="font-size:12px;color:#6b7280;word-wrap:break-word;overflow-wrap:break-word;" x-text="job?.customer_email || ''"></div>
+                                <div style="font-weight:700;font-size:13px;color:#1f2937;word-wrap:break-word;overflow-wrap:break-word;line-height:1.3;" x-text="job?.customer_name || 'Walk-in Customer'"></div>
+                                <div style="font-size:11px;color:#6b7280;word-wrap:break-word;overflow-wrap:break-word;line-height:1.3;" x-text="job?.customer_email || ''"></div>
                             </div>
                         </div>
                     </div>
-                    <!-- Details Grid -->
-                    <div class="detail-row">
+                    <div class="customization-details-grid">
                         <div class="detail-block">
                             <label>Branch</label>
                             <span x-text="job?.branch_name || (job?.branch_display_id ? ('Branch #' + job.branch_display_id) : 'Unassigned')"></span>
                         </div>
                         <div class="detail-block">
                             <label>Service Type</label>
-                            <span style="word-wrap:break-word;overflow-wrap:break-word;display:block;" x-text="displayServiceType(job)"></span>
+                            <span x-text="displayServiceType(job)"></span>
                         </div>
-                    </div>
-                    <div class="detail-row">
                         <div class="detail-block">
                             <label>Quantity</label>
                             <span x-text="job?.quantity ?? 1"></span>
@@ -1472,18 +1505,6 @@ function custom_payment_badge($status) {
                             <label>Dimensions</label>
                             <span x-text="displayDimensions(job)"></span>
                         </div>
-                    </div>
-                    <template x-if="displaySpecificationEntries(job).length">
-                        <div class="detail-row" style="flex-wrap:wrap;">
-                            <template x-for="entry in displaySpecificationEntries(job)" :key="entry[0]">
-                                <div class="detail-block" style="min-width:45%;">
-                                    <label x-text="entry[0]"></label>
-                                    <span style="word-wrap:break-word;overflow-wrap:break-word;display:block;" x-text="entry[1]"></span>
-                                </div>
-                            </template>
-                        </div>
-                    </template>
-                    <div class="detail-row">
                         <div class="detail-block">
                             <label>Estimated Total</label>
                             <span x-text="job?.estimated_total ? '₱' + parseFloat(job.estimated_total).toFixed(2) : 'Pending'"></span>
@@ -1492,8 +1513,6 @@ function custom_payment_badge($status) {
                             <label>Amount Paid</label>
                             <span x-text="'₱' + parseFloat(job?.amount_paid ?? 0).toFixed(2)"></span>
                         </div>
-                    </div>
-                    <div class="detail-row">
                         <div class="detail-block">
                             <label>Payment Status</label>
                             <span x-html="paymentBadge(getEffectivePaymentStatus(job))"></span>
@@ -1502,8 +1521,6 @@ function custom_payment_badge($status) {
                             <label>Priority</label>
                             <span x-text="displayCustomerPriority(job)"></span>
                         </div>
-                    </div>
-                    <div class="detail-row">
                         <div class="detail-block">
                             <label>Date Submitted</label>
                             <span x-text="formatBusinessSubmittedAt(job)"></span>
@@ -1513,41 +1530,51 @@ function custom_payment_badge($status) {
                             <span x-text="displayNeededDate(job)"></span>
                         </div>
                     </div>
+                    <template x-if="displaySpecificationEntries(job).length">
+                        <div class="customization-spec-grid">
+                            <template x-for="entry in displaySpecificationEntries(job)" :key="entry[0]">
+                                <div class="detail-block">
+                                    <label x-text="entry[0]"></label>
+                                    <span x-text="entry[1]"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
                     <!-- Notes -->
-                    <div x-show="job?.notes" style="margin-top:4px;">
-                        <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin-bottom:6px;">Notes</p>
-                        <div style="background:#f9fafb;border-radius:8px;padding:12px 14px;font-size:13px;color:#374151;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;" x-text="job?.notes"></div>
+                    <div x-show="job?.notes" class="customization-notes-block">
+                        <p class="customization-section-label">Notes</p>
+                        <div class="notes-box" x-text="job?.notes"></div>
                     </div>
                     <!-- Design Files & Payment Proof -->
-                    <div x-show="(job?.artwork_path || job?.payment_proof_path || (job?.items && job.items.length > 0 && job.items.some(i => i.design_url || i.reference_url || itemHasDesignDetails(i))))" style="margin-top:18px;">
-                        <div style="display:flex;gap:24px;flex-wrap:wrap;">
+                    <div x-show="(job?.artwork_path || job?.payment_proof_path || (job?.items && job.items.length > 0 && job.items.some(i => i.design_url || i.reference_url || itemHasDesignDetails(i))))" class="customization-attachments">
+                        <div class="attachments-row">
                             <!-- Design Files -->
-                            <div x-show="(job?.artwork_path || (job?.items && job.items.length > 0 && job.items.some(i => i.design_url || i.reference_url || itemHasDesignDetails(i))))" style="flex:1;min-width:200px;">
-                                <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin-bottom:8px;">Design Files</p>
-                                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                            <div x-show="(job?.artwork_path || (job?.items && job.items.length > 0 && job.items.some(i => i.design_url || i.reference_url || itemHasDesignDetails(i))))" style="flex:1;min-width:min(100%,280px);">
+                                <p class="customization-section-label">Design Files</p>
+                                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
                                     <template x-if="job?.artwork_path">
-                                        <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;" @click="viewImage(job.artwork_path)">
+                                        <div class="design-thumb" style="position:relative;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;" @click="viewImage(job.artwork_path)">
                                             <img :src="job.artwork_path" style="width:100%;height:100%;object-fit:cover;" alt="Artwork">
-                                            <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.6);color:white;font-size:10px;padding:4px;text-align:center;">Artwork</div>
+                                            <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.6);color:white;font-size:9px;padding:3px;text-align:center;">Artwork</div>
                                         </div>
                                     </template>
                                     <template x-if="job?.items && job.items.length > 0">
-                                        <div style="display:flex;flex-direction:column;gap:12px;width:100%;">
+                                        <div style="display:flex;flex-direction:column;gap:8px;flex:1;min-width:min(100%,240px);">
                                             <template x-for="(item, idx) in job.items" :key="idx">
-                                                <div x-show="itemHasDesignDetails(item) || item.reference_url" style="border:1px solid #e5e7eb;border-radius:10px;padding:12px;background:#fff;max-width:100%;box-sizing:border-box;">
-                                                    <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">Upload Design</div>
+                                                <div x-show="itemHasDesignDetails(item) || item.reference_url" class="customization-design-card">
+                                                    <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:6px;">Upload Design</div>
                                                     <template x-if="itemHasUploadedDesignFile(item)">
-                                                        <div style="margin-bottom:10px;">
-                                                            <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">📁 Uploaded File</div>
-                                                            <div style="font-size:13px;font-weight:600;color:#1f2937;word-break:break-word;overflow-wrap:anywhere;margin-bottom:8px;" x-text="getItemDesignFilename(item)"></div>
+                                                        <div style="margin-bottom:6px;">
+                                                            <div style="font-size:9px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:3px;">Uploaded File</div>
+                                                            <div style="font-size:12px;font-weight:600;color:#1f2937;word-break:break-word;overflow-wrap:anywhere;margin-bottom:6px;line-height:1.35;" x-text="getItemDesignFilename(item)"></div>
                                                             <template x-if="getItemDesignFileUrl(item)">
-                                                                <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;margin-bottom:8px;" @click="viewImage(getItemDesignFileUrl(item))">
+                                                                <div class="design-thumb" style="position:relative;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;margin-bottom:6px;" @click="viewImage(getItemDesignFileUrl(item))">
                                                                     <img :src="getItemDesignFileUrl(item)" style="width:100%;height:100%;object-fit:cover;" alt="Design">
                                                                 </div>
                                                             </template>
-                                                            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                                                                <button type="button" @click="viewImage(getItemDesignFileUrl(item))" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#334155;cursor:pointer;">View</button>
-                                                                <a :href="getItemDesignFileUrl(item)" target="_blank" rel="noopener noreferrer" download style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#334155;text-decoration:none;">Download</a>
+                                                            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                                                                <button type="button" @click="viewImage(getItemDesignFileUrl(item))" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-size:11px;font-weight:600;color:#334155;cursor:pointer;">View</button>
+                                                                <a :href="getItemDesignFileUrl(item)" target="_blank" rel="noopener noreferrer" download style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;font-size:11px;font-weight:600;color:#334155;text-decoration:none;">Download</a>
                                                             </div>
                                                         </div>
                                                     </template>
@@ -1575,11 +1602,11 @@ function custom_payment_badge($status) {
                                 </div>
                             </div>
                             <!-- Payment Proof -->
-                            <div x-show="job?.payment_proof_path" style="flex:0 0 auto;min-width:200px;">
-                                <p style="font-size:11px;font-weight:600;color:#10b981;text-transform:uppercase;margin-bottom:8px;">Payment Proof</p>
-                                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                            <div x-show="job?.payment_proof_path" style="flex:0 0 auto;min-width:min(100%,140px);">
+                                <p class="customization-section-label" style="color:#10b981;">Payment Proof</p>
+                                <div style="display:flex;gap:8px;flex-wrap:wrap;">
                                     <template x-if="job?.payment_proof_path">
-                                        <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #10b981;cursor:pointer;box-shadow:0 2px 8px rgba(16,185,129,0.15);" @click="viewImage(job.payment_proof_path)">
+                                        <div class="design-thumb" style="position:relative;overflow:hidden;border:2px solid #10b981;cursor:pointer;box-shadow:0 2px 6px rgba(16,185,129,0.12);" @click="viewImage(job.payment_proof_path)">
                                             <img :src="job.payment_proof_path" style="width:100%;height:100%;object-fit:cover;" alt="Payment Proof">
                                             <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(16,185,129,0.95);color:white;font-size:10px;padding:4px;text-align:center;font-weight:600;">
                                                 <svg style="width:12px;height:12px;display:inline-block;margin-right:3px;vertical-align:middle;" fill="currentColor" viewBox="0 0 20 20">
@@ -1595,7 +1622,7 @@ function custom_payment_badge($status) {
                     </div>
                 </div>
                 <!-- Footer -->
-                <div style="padding:16px 24px;border-top:1px solid #f3f4f6;display:flex;justify-content:flex-end;gap:8px;flex-shrink:0;">
+                <div class="customization-modal-footer">
                     <button @click="showModal = false" class="btn-secondary">Close</button>
                 </div>
             </div>
