@@ -43,6 +43,14 @@
             }
             return Number(a.file_id || 0) - Number(b.file_id || 0);
         });
+        var hasDbIds = out.some(function (entry) {
+            return Number(entry && entry.file_id) > 0;
+        });
+        if (hasDbIds) {
+            out = out.filter(function (entry) {
+                return Number(entry && entry.file_id) > 0;
+            });
+        }
         return out;
     }
 

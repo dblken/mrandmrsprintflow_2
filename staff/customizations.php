@@ -2917,7 +2917,10 @@ $online_closed_count = 0;
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:8px;" x-text="staffDesignSectionLabel(item)"></div>
                                             <template x-if="staffItemHasUploadedDesignFile(item)">
                                                 <div class="pf-design-files" :class="{ 'is-expanded': staffDesignFilesExpanded(item) }">
-                                                    <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:6px;" x-text="staffItemDesignFiles(item).length > 1 ? '📁 Uploaded Files' : '📁 Uploaded File'"></div>
+                                                    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
+                                                        <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;" x-text="staffItemDesignFiles(item).length > 1 ? '📁 Uploaded Files' : '📁 Uploaded File'"></div>
+                                                        <div style="font-size:10px;font-weight:700;color:#4b5563;" x-text="staffDesignFilesCountLabel(item)"></div>
+                                                    </div>
                                                     <div class="pf-design-files__toolbar" x-show="staffItemDesignFiles(item).length > 1">
                                                         <a class="pf-design-files__zip" :href="staffDesignFileZipUrl(item)">Download all (ZIP)</a>
                                                     </div>
@@ -6635,7 +6638,10 @@ window.pfServiceFieldCatalog = (() => {
                     if (!prior) {
                         return { ...incoming };
                     }
-                    const designFiles = this.mergeDesignFilesLists(incoming.design_files, prior.design_files);
+                    const PF = window.PrintflowOrderItemDesignFiles;
+                    const designFiles = Array.isArray(incoming.design_files)
+                        ? (PF ? PF.dedupe(incoming.design_files) : incoming.design_files)
+                        : (Array.isArray(prior.design_files) ? (PF ? PF.dedupe(prior.design_files) : prior.design_files) : []);
                     const priorCustom = prior.customization && typeof prior.customization === 'object' && !Array.isArray(prior.customization)
                         ? prior.customization
                         : {};
@@ -7156,6 +7162,15 @@ window.pfServiceFieldCatalog = (() => {
                 const PF = window.PrintflowOrderItemDesignFiles;
                 return PF ? PF.dedupe(out) : out;
             },
+            staffDesignFilesMaxPerItem(item) {
+                const meta = item && item.design_files_meta ? item.design_files_meta : null;
+                return Number(meta && meta.max_files ? meta.max_files : 10) || 10;
+            },
+            staffDesignFilesCountLabel(item) {
+                const count = this.staffItemDesignFiles(item).length;
+                const max = this.staffDesignFilesMaxPerItem(item);
+                return count + '/' + max + ' files';
+            },
             staffItemDesignFiles(item) {
                 if (!item || typeof item !== 'object') return [];
                 const raw = Array.isArray(item.design_files)
@@ -7163,7 +7178,12 @@ window.pfServiceFieldCatalog = (() => {
                     : (Array.isArray(item.files) ? item.files : []);
                 const PF = window.PrintflowOrderItemDesignFiles;
                 let out = PF ? PF.dedupe(raw) : raw;
-                if (out.length === 0) {
+                const hasDbBackedFiles = out.some((row) => Number(row && row.file_id) > 0);
+                if (hasDbBackedFiles) {
+                    out = out.filter((row) => Number(row && row.file_id) > 0);
+                    out = PF ? PF.dedupe(out) : out;
+                }
+                if (out.length === 0 && !hasDbBackedFiles) {
                     out = this.staffDesignFilesFromCustomization(item);
                     out = PF ? PF.dedupe(out) : out;
                 }

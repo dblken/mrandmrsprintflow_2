@@ -5054,58 +5054,115 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         const PF_MAX_DESIGN_FILES_PER_ITEM = 10;
+        let posDesignUploadInFlight = false;
+
+        function posCountUniqueDesignFiles(customization) {
+            const list = posEnsureDesignUploadFiles(customization);
+            const seen = new Set();
+            let count = 0;
+            list.forEach((entry) => {
+                const fileId = Number(entry && entry.file_id ? entry.file_id : 0);
+                if (fileId > 0) {
+                    if (seen.has(fileId)) {
+                        return;
+                    }
+                    seen.add(fileId);
+                }
+                count++;
+            });
+            return count;
+        }
+
+        function posApplyAuthoritativeDesignFiles(customization, apiFiles) {
+            if (!Array.isArray(apiFiles)) {
+                return;
+            }
+            const PF = window.PrintflowOrderItemDesignFiles;
+            const normalized = PF ? PF.dedupe(apiFiles) : apiFiles;
+            customization.design_upload_files = normalized.map((row) => ({
+                file_id: row.file_id || 0,
+                path: row.storage_path || row.path || '',
+                name: row.display_name || row.name || '',
+                mime: row.mime_type || row.mime || '',
+                size: row.file_size || row.size || 0,
+                upload_sort: row.upload_sort || 0,
+                idempotency_key: row.idempotency_key || '',
+            }));
+            const first = customization.design_upload_files[0];
+            if (first) {
+                customization.design_upload = first.name;
+                customization.design_upload_name = first.name;
+                customization.design_upload_mime = first.mime;
+                customization.design_upload_path = first.path;
+                customization.design_upload_idempotency_key = first.idempotency_key || '';
+            }
+        }
 
         async function posApplyStagedUploadMany(customization, fileList, field = 'design') {
+            if (field === 'design' && posDesignUploadInFlight) {
+                throw new Error('An upload is already in progress. Please wait.');
+            }
             const files = Array.from(fileList || []).filter(Boolean);
             if (files.length === 0) return;
-            if (field === 'design' && files.length > PF_MAX_DESIGN_FILES_PER_ITEM) {
-                throw new Error('You can upload up to ' + PF_MAX_DESIGN_FILES_PER_ITEM + ' design files per item.');
+            const existing = field === 'design' ? posCountUniqueDesignFiles(customization) : 0;
+            const remaining = PF_MAX_DESIGN_FILES_PER_ITEM - existing;
+            if (field === 'design' && remaining <= 0) {
+                throw new Error('Maximum ' + PF_MAX_DESIGN_FILES_PER_ITEM + ' design files allowed for this order item.');
             }
-            const existing = field === 'design' ? posEnsureDesignUploadFiles(customization).length : 0;
-            if (field === 'design' && (existing + files.length) > PF_MAX_DESIGN_FILES_PER_ITEM) {
-                throw new Error('You can upload up to ' + PF_MAX_DESIGN_FILES_PER_ITEM + ' design files per item.');
+            let batch = files;
+            if (field === 'design' && files.length > remaining) {
+                batch = files.slice(0, remaining);
+                if (batch.length === 0) {
+                    throw new Error('Maximum ' + PF_MAX_DESIGN_FILES_PER_ITEM + ' design files allowed for this order item.');
+                }
+                await showPOSAlert(
+                    'Upload limit',
+                    'Only ' + remaining + ' more design file(s) can be added (maximum ' + PF_MAX_DESIGN_FILES_PER_ITEM + '). Extra selected files were not uploaded.',
+                    'warning'
+                );
             }
             const fd = new FormData();
             fd.append('field', field);
             fd.append('csrf_token', POS_CSRF_TOKEN);
             fd.append('upload_sort', String(existing));
+            fd.append('existing_design_file_count', String(existing));
             const pendingOrderItemId = Number(customization.pending_order_item_id || customization.order_item_id || 0);
             if (pendingOrderItemId > 0) {
                 fd.append('order_item_id', String(pendingOrderItemId));
             }
-            files.forEach((file) => {
+            batch.forEach((file) => {
                 fd.append(field === 'reference' ? 'reference_file[]' : 'design_file[]', file);
             });
-            const res = await fetch(staffUrl('staff/api/pos_upload_design.php'), { method: 'POST', body: fd });
-            const data = await res.json();
-            if (!data || !data.success) {
-                const detail = (data && data.errors && data.errors.length)
-                    ? data.errors.map((row) => row.message || row.name).join(' ')
-                    : ((data && data.message) ? data.message : 'Failed to stage uploads.');
-                throw new Error(detail);
+            if (field === 'design') {
+                posDesignUploadInFlight = true;
             }
-            const stagedList = Array.isArray(data.staged) ? data.staged : (data.path ? [data] : []);
-            stagedList.forEach((staged, index) => {
-                if (field === 'reference') {
-                    customization.reference_upload = staged.name;
-                    customization.reference_upload_name = staged.name;
-                    customization.reference_upload_mime = staged.mime;
-                    customization.reference_upload_path = staged.path;
-                    delete customization.reference_upload_data;
-                } else {
-                    posUpsertDesignUploadFile(customization, staged, staged.idempotency_key || ('batch-' + index));
+            try {
+                const res = await fetch(staffUrl('staff/api/pos_upload_design.php'), { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!data || !data.success) {
+                    const detail = (data && data.errors && data.errors.length)
+                        ? data.errors.map((row) => row.message || row.name).join(' ')
+                        : ((data && data.message) ? data.message : 'Failed to stage uploads.');
+                    throw new Error(detail);
                 }
-            });
-            if (field === 'design' && Array.isArray(data.files) && data.files.length) {
-                customization.design_upload_files = data.files.map((row) => ({
-                    file_id: row.file_id || 0,
-                    path: row.storage_path || row.path || '',
-                    name: row.display_name || row.name || '',
-                    mime: row.mime_type || row.mime || '',
-                    size: row.file_size || row.size || 0,
-                    upload_sort: row.upload_sort || 0,
-                    idempotency_key: row.idempotency_key || '',
-                }));
+                if (field === 'reference') {
+                    const stagedList = Array.isArray(data.staged) ? data.staged : (data.path ? [data] : []);
+                    stagedList.forEach((staged) => {
+                        customization.reference_upload = staged.name;
+                        customization.reference_upload_name = staged.name;
+                        customization.reference_upload_mime = staged.mime;
+                        customization.reference_upload_path = staged.path;
+                        delete customization.reference_upload_data;
+                    });
+                    return;
+                }
+                if (Array.isArray(data.files)) {
+                    posApplyAuthoritativeDesignFiles(customization, data.files);
+                }
+            } finally {
+                if (field === 'design') {
+                    posDesignUploadInFlight = false;
+                }
             }
         }
 

@@ -196,6 +196,26 @@ if (!function_exists('printflow_order_item_design_file_register')) {
             return ['file_id' => 0, 'reused' => false, 'row' => null];
         }
 
+        $normalizedPath = function_exists('printflow_normalize_order_upload_web_path')
+            ? printflow_normalize_order_upload_web_path($storagePath)
+            : $storagePath;
+        if ($normalizedPath !== '') {
+            $pathDup = db_query(
+                'SELECT * FROM order_item_design_files WHERE order_item_id = ? AND storage_path = ? LIMIT 1',
+                'is',
+                [$orderItemId, $normalizedPath]
+            ) ?: [];
+            if (!empty($pathDup[0])) {
+                $row = $pathDup[0];
+                return [
+                    'file_id' => (int)($row['file_id'] ?? 0),
+                    'reused' => true,
+                    'row' => $row,
+                ];
+            }
+            $storagePath = $normalizedPath;
+        }
+
         if ($orderId <= 0 || $customerId <= 0) {
             $ctx = db_query(
                 'SELECT oi.order_id, o.customer_id
@@ -250,6 +270,11 @@ if (!function_exists('printflow_order_item_design_file_register')) {
                 'reused' => true,
                 'row' => $row,
             ];
+        }
+
+        $maxFiles = printflow_order_item_design_files_max_per_item();
+        if (printflow_order_item_design_files_active_count($orderItemId) >= $maxFiles) {
+            return ['file_id' => 0, 'reused' => false, 'row' => null, 'limit_reached' => true];
         }
 
         if ($uploadSort === null) {
@@ -340,6 +365,73 @@ if (!function_exists('printflow_order_item_design_file_register')) {
     }
 }
 
+if (!function_exists('printflow_order_item_design_files_max_per_item')) {
+    function printflow_order_item_design_files_max_per_item(): int
+    {
+        $max = defined('PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM') ? (int)PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM : 10;
+        return max(1, $max);
+    }
+}
+
+if (!function_exists('printflow_order_item_design_files_limit_error_message')) {
+    function printflow_order_item_design_files_limit_error_message(int $remaining = 0): string
+    {
+        $max = printflow_order_item_design_files_max_per_item();
+        if ($remaining <= 0) {
+            return 'Maximum ' . $max . ' design files allowed for this order item.';
+        }
+        return 'Maximum ' . $max . ' design files allowed for this order item. You can add '
+            . $remaining . ' more.';
+    }
+}
+
+if (!function_exists('printflow_order_item_design_files_active_count')) {
+    function printflow_order_item_design_files_active_count(int $orderItemId): int
+    {
+        if ($orderItemId <= 0) {
+            return 0;
+        }
+        printflow_ensure_order_item_design_files_schema();
+        $rows = db_query(
+            'SELECT COUNT(*) AS cnt FROM order_item_design_files WHERE order_item_id = ?',
+            'i',
+            [$orderItemId]
+        ) ?: [];
+        return (int)($rows[0]['cnt'] ?? 0);
+    }
+}
+
+if (!function_exists('printflow_order_item_design_files_assert_can_add')) {
+    /**
+     * @return array{ok:bool,message:string,existing_count:int,remaining_slots:int,max_files:int}
+     */
+    function printflow_order_item_design_files_assert_can_add(int $orderItemId, int $addingCount, int $existingOverride = -1): array
+    {
+        $max = printflow_order_item_design_files_max_per_item();
+        $existing = $orderItemId > 0
+            ? printflow_order_item_design_files_active_count($orderItemId)
+            : max(0, $existingOverride);
+        $addingCount = max(0, $addingCount);
+        $remaining = max(0, $max - $existing);
+        if ($addingCount > $remaining) {
+            return [
+                'ok' => false,
+                'message' => printflow_order_item_design_files_limit_error_message($remaining),
+                'existing_count' => $existing,
+                'remaining_slots' => $remaining,
+                'max_files' => $max,
+            ];
+        }
+        return [
+            'ok' => true,
+            'message' => '',
+            'existing_count' => $existing,
+            'remaining_slots' => $remaining,
+            'max_files' => $max,
+        ];
+    }
+}
+
 if (!function_exists('printflow_order_item_design_files_stats')) {
     /**
      * @param list<array<string,mixed>> $apiFiles
@@ -359,10 +451,13 @@ if (!function_exists('printflow_order_item_design_files_stats')) {
         }
         $uniqueIds = array_values($ids);
         sort($uniqueIds, SORT_NUMERIC);
+        $max = printflow_order_item_design_files_max_per_item();
         return [
             'total_file_count' => count($apiFiles),
             'unique_file_count' => count($uniqueIds),
             'file_ids' => $uniqueIds,
+            'max_files' => $max,
+            'remaining_slots' => max(0, $max - count($uniqueIds)),
         ];
     }
 }
@@ -747,7 +842,11 @@ if (!function_exists('printflow_order_item_design_files_backfill_legacy')) {
         }
 
         $seenPath = [];
+        $maxFiles = printflow_order_item_design_files_max_per_item();
         foreach ($candidates as $candidate) {
+            if (printflow_order_item_design_files_active_count($orderItemId) >= $maxFiles) {
+                break;
+            }
             $path = function_exists('printflow_normalize_order_upload_web_path')
                 ? printflow_normalize_order_upload_web_path((string)$candidate['path'])
                 : (string)$candidate['path'];
@@ -861,7 +960,35 @@ if (!function_exists('printflow_order_item_design_files_sync_from_customization'
             }
         }
 
+        $seenNewPath = [];
+        $newInsertCount = 0;
+        foreach ($entries as $entry) {
+            $path = function_exists('printflow_normalize_order_upload_web_path')
+                ? printflow_normalize_order_upload_web_path((string)($entry['path'] ?? ''))
+                : trim((string)($entry['path'] ?? ''));
+            if ($path === '' || isset($seenNewPath[$path])) {
+                continue;
+            }
+            $seenNewPath[$path] = true;
+            $pathDup = db_query(
+                'SELECT file_id FROM order_item_design_files WHERE order_item_id = ? AND storage_path = ? LIMIT 1',
+                'is',
+                [$orderItemId, $path]
+            ) ?: [];
+            if (empty($pathDup[0])) {
+                $newInsertCount++;
+            }
+        }
+        $limitCheck = printflow_order_item_design_files_assert_can_add($orderItemId, $newInsertCount);
+        if (!$limitCheck['ok']) {
+            return printflow_order_item_design_files_list_for_item($orderItemId, false);
+        }
+
+        $maxFiles = printflow_order_item_design_files_max_per_item();
         foreach ($entries as $index => $entry) {
+            if (printflow_order_item_design_files_active_count($orderItemId) >= $maxFiles) {
+                break;
+            }
             $path = function_exists('printflow_normalize_order_upload_web_path')
                 ? printflow_normalize_order_upload_web_path((string)$entry['path'])
                 : (string)$entry['path'];

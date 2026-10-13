@@ -29,7 +29,8 @@ $field = $field === 'reference' ? 'reference' : 'design';
 $inputName = $field === 'reference' ? 'reference_file' : 'design_file';
 $orderItemId = max(0, (int)($_POST['order_item_id'] ?? 0));
 $uploadSortBase = max(0, (int)($_POST['upload_sort'] ?? 0));
-$maxFiles = defined('PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM') ? (int)PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM : 10;
+$maxFiles = printflow_order_item_design_files_max_per_item();
+$existingOverride = max(0, (int)($_POST['existing_design_file_count'] ?? -1));
 
 $uploads = printflow_normalize_php_file_uploads($inputName);
 if ($uploads === [] && $field === 'design') {
@@ -37,13 +38,6 @@ if ($uploads === [] && $field === 'design') {
 }
 if ($uploads === []) {
     echo json_encode(['success' => false, 'message' => 'No file received.']);
-    exit;
-}
-if (count($uploads) > $maxFiles) {
-    echo json_encode([
-        'success' => false,
-        'message' => 'You can upload up to ' . $maxFiles . ' design files per item.',
-    ]);
     exit;
 }
 
@@ -56,6 +50,25 @@ if ($orderItemId > 0) {
     }
 }
 
+if ($field === 'design') {
+    $limitCheck = printflow_order_item_design_files_assert_can_add(
+        $orderItemId,
+        count($uploads),
+        $orderItemId > 0 ? -1 : $existingOverride
+    );
+    if (!$limitCheck['ok']) {
+        http_response_code(422);
+        echo json_encode([
+            'success' => false,
+            'message' => $limitCheck['message'],
+            'max_files' => $limitCheck['max_files'],
+            'existing_count' => $limitCheck['existing_count'],
+            'remaining_slots' => $limitCheck['remaining_slots'],
+        ]);
+        exit;
+    }
+}
+
 global $conn;
 $useTxn = $orderItemId > 0 && $field === 'design' && $conn instanceof mysqli;
 if ($useTxn && !printflow_db_in_transaction($conn)) {
@@ -64,9 +77,17 @@ if ($useTxn && !printflow_db_in_transaction($conn)) {
 
 $staged = [];
 $errors = [];
+$stagedPaths = [];
 $sort = $uploadSortBase;
+$batchLimitHit = false;
 
 foreach ($uploads as $index => $file) {
+    if ($field === 'design' && $orderItemId > 0
+        && printflow_order_item_design_files_active_count($orderItemId) >= $maxFiles) {
+        $batchLimitHit = true;
+        break;
+    }
+
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
         $errors[] = [
             'name' => (string)($file['name'] ?? ('file_' . $index)),
@@ -127,6 +148,7 @@ foreach ($uploads as $index => $file) {
         ];
         continue;
     }
+    $stagedPaths[] = $webPath;
 
     $idempotencyKey = trim((string)($_POST['idempotency_key'] ?? ''));
     if ($idempotencyKey === '') {
@@ -159,12 +181,75 @@ foreach ($uploads as $index => $file) {
             'idempotency_key' => $idempotencyKey,
             'file_role' => 'design',
         ]);
+        if (!empty($registered['limit_reached'])) {
+            $batchLimitHit = true;
+            if ($useTxn && printflow_db_in_transaction($conn)) {
+                $conn->rollback();
+            }
+            foreach ($stagedPaths as $pathToRemove) {
+                if (function_exists('printflow_resolve_order_upload_disk_path')) {
+                    $disk = printflow_resolve_order_upload_disk_path($pathToRemove);
+                    if ($disk !== null && is_file($disk)) {
+                        @unlink($disk);
+                    }
+                }
+            }
+            http_response_code(422);
+            echo json_encode([
+                'success' => false,
+                'message' => printflow_order_item_design_files_limit_error_message(0),
+                'max_files' => $maxFiles,
+                'existing_count' => printflow_order_item_design_files_active_count($orderItemId),
+                'remaining_slots' => 0,
+            ]);
+            exit;
+        }
         $entry['file_id'] = (int)($registered['file_id'] ?? 0);
         $entry['reused'] = !empty($registered['reused']);
     }
 
     $staged[] = $entry;
     $sort++;
+}
+
+if ($batchLimitHit && $staged === []) {
+    if ($useTxn && printflow_db_in_transaction($conn)) {
+        $conn->rollback();
+    }
+    http_response_code(422);
+    echo json_encode([
+        'success' => false,
+        'message' => printflow_order_item_design_files_limit_error_message(0),
+        'max_files' => $maxFiles,
+    ]);
+    exit;
+}
+
+if ($field === 'design' && $batchLimitHit && $staged !== []) {
+    if ($useTxn && printflow_db_in_transaction($conn)) {
+        $conn->rollback();
+    }
+    foreach ($stagedPaths as $pathToRemove) {
+        if (function_exists('printflow_resolve_order_upload_disk_path')) {
+            $disk = printflow_resolve_order_upload_disk_path($pathToRemove);
+            if ($disk !== null && is_file($disk)) {
+                @unlink($disk);
+            }
+        }
+    }
+    http_response_code(422);
+    echo json_encode([
+        'success' => false,
+        'message' => printflow_order_item_design_files_limit_error_message(0),
+        'max_files' => $maxFiles,
+        'existing_count' => $orderItemId > 0
+            ? printflow_order_item_design_files_active_count($orderItemId)
+            : $existingOverride,
+        'remaining_slots' => max(0, $maxFiles - ($orderItemId > 0
+            ? printflow_order_item_design_files_active_count($orderItemId)
+            : $existingOverride)),
+    ]);
+    exit;
 }
 
 if ($staged === [] && $errors !== []) {
@@ -206,6 +291,10 @@ $response = [
     'staged' => $staged,
     'errors' => $errors,
     'partial' => $errors !== [],
+    'max_files' => $maxFiles,
+    'existing_count' => $orderItemId > 0
+        ? printflow_order_item_design_files_active_count($orderItemId)
+        : count($authoritative !== [] ? $authoritative : $staged),
 ];
 
 if ($staged !== []) {

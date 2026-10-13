@@ -59,12 +59,19 @@ if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
 }
 
 $usedNames = [];
+$seenFileIds = [];
 $added = 0;
 foreach ($apiFiles as $file) {
     if (!is_array($file)) {
         continue;
     }
     $fileId = (int)($file['file_id'] ?? 0);
+    if ($fileId > 0) {
+        if (isset($seenFileIds[$fileId])) {
+            continue;
+        }
+        $seenFileIds[$fileId] = true;
+    }
     $displayName = trim((string)($file['display_name'] ?? 'design'));
     $displayName = preg_replace('/[\x00-\x1F\x7F"\\\\]+/u', '_', basename($displayName)) ?: 'design';
     $storagePath = trim((string)($file['storage_path'] ?? ''));
