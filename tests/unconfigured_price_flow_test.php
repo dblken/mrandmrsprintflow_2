@@ -42,6 +42,7 @@ $check(
 $root = dirname(__DIR__);
 $pos = (string)file_get_contents($root . '/staff/pos.php');
 $checkout = (string)file_get_contents($root . '/staff/api/pos_checkout.php');
+$cartApi = (string)file_get_contents($root . '/staff/api/pos_cart_handler.php');
 $jobs = (string)file_get_contents($root . '/includes/JobOrderService.php');
 $status = (string)file_get_contents($root . '/staff/update_order_status_process.php');
 $cart = (string)file_get_contents($root . '/customer/cart.php');
@@ -54,6 +55,7 @@ $check(str_contains($pos, 'price_unconfigured'), 'the missing-price state is kep
 $check(str_contains($pos, 'Set Price') && str_contains($pos, 'redirectToSetPrice'), 'Staff Set Price remains available');
 $check(str_contains($pos, 'Please set the price for all items before completing the sale'), 'POS completion stays blocked until a price exists');
 $check(str_contains($checkout, 'printflow_checkout_unconfigured_price_message'), 'checkout rejects an unpriced sale before payment and inventory');
+$check(str_contains($cartApi, "'reason' ?? '') === 'unconfigured'"), 'the cart accepts a specification that has no configured price');
 $check(str_contains($jobs, 'order_total_not_configured'), 'inventory deduction waits until the order has a valid price');
 $check(str_contains($jobs, 'Set a valid price before completing this order.'), 'job completion waits for a valid price');
 $check(str_contains($status, 'Set a valid price before completing this order.'), 'order completion waits for a valid price');

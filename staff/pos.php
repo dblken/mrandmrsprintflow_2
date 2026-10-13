@@ -4835,6 +4835,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 estimatedTotalEl: footer.querySelector('#pos-estimated-total'),
                 qtyDisplayEl: footer.querySelector('#pos-qty-display')
             });
+            if (posEstimatedPriceController && typeof posEstimatedPriceController.recalculate === 'function') {
+                const recalculate = posEstimatedPriceController.recalculate.bind(posEstimatedPriceController);
+                posEstimatedPriceController.recalculate = function () {
+                    const result = recalculate();
+                    syncUnconfiguredPriceNote(result && result.unitPrice);
+                    return result;
+                };
+                posEstimatedPriceController.recalculate();
+            }
         }
 
         function resolveServiceModalPricing() {

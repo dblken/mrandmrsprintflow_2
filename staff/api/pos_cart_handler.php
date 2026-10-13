@@ -363,6 +363,13 @@ try {
                             'unit_price' => round($fallbackUnit, 2),
                             'message' => '',
                         ];
+                    } elseif (($priceCalc['reason'] ?? '') === 'unconfigured') {
+                        $serviceCustomization['price_unconfigured'] = '1';
+                        $priceCalc = [
+                            'ok' => true,
+                            'unit_price' => 0.0,
+                            'message' => '',
+                        ];
                     } else {
                         throw new PosCartValidationException([
                             'price' => (string)($priceCalc['message'] ?? 'Price could not be calculated.'),
