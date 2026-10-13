@@ -306,14 +306,23 @@ $total_rows = $total_rows_res[0]['count'] ?? 0;
 $total_pages = ceil($total_rows / $limit);
 
 $recent_orders = db_query("
-    SELECT o.*, CONCAT(c.first_name, ' ', c.last_name) as customer_name,
-    (SELECT COALESCE(p.name, s.name, 'Custom Service') FROM order_items oi {$dashboardProductJoinSql} {$dashboardServiceJoinSql} WHERE oi.order_id = o.order_id LIMIT 1) as service_type
+    SELECT o.*, CONCAT(c.first_name, ' ', c.last_name) as customer_name
     FROM orders o 
     LEFT JOIN customers c ON o.customer_id = c.customer_id 
     $sql_cond
     ORDER BY o.order_date DESC 
     LIMIT $limit OFFSET $offset
 ", $types, $params);
+if (!empty($recent_orders) && function_exists('printflow_dashboard_order_service_labels')) {
+    $dashboardServiceLabels = printflow_dashboard_order_service_labels(array_map(static function (array $row): int {
+        return (int)($row['order_id'] ?? 0);
+    }, $recent_orders));
+    foreach ($recent_orders as &$dashboardOrderRow) {
+        $oid = (int)($dashboardOrderRow['order_id'] ?? 0);
+        $dashboardOrderRow['service_type'] = $dashboardServiceLabels[$oid] ?? 'Custom Service';
+    }
+    unset($dashboardOrderRow);
+}
 
 // Get low-stock products (view-only)
 $low_stock = db_query("

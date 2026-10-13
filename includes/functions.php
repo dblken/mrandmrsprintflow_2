@@ -3292,13 +3292,6 @@ function printflow_staff_order_management_url(int $orderId, bool $preferPendingS
         }
     }
 
-    // POS / walk-in orders must always stay on the walk-in orders side.
-    // This prevents POS custom transactions from being routed into the
-    // online/customizations page just because they carry service data.
-    if (in_array($orderSource, ['pos', 'walk-in', 'pos_merged'], true)) {
-        return $base . '/staff/orders.php?order_id=' . $orderId;
-    }
-
     $isCustom = ($orderType === 'custom');
 
     if (!$isCustom) {
@@ -3320,13 +3313,16 @@ function printflow_staff_order_management_url(int $orderId, bool $preferPendingS
         }
     }
 
-    if ($isCustom) {
+    if ($isCustom || printflow_order_uses_customizations_page($orderId)) {
         $url = $base . '/staff/customizations.php?order_id=' . $orderId;
-        // For custom orders, we often want to default to PENDING status if they haven't been reviewed
-        if ($preferPendingStatus && $orderSource !== 'pos' && $orderSource !== 'walk-in') {
+        if ($preferPendingStatus && !in_array($orderSource, ['pos', 'walk-in', 'pos_merged'], true)) {
             $url .= '&status=PENDING';
         }
         return $url;
+    }
+
+    if (in_array($orderSource, ['pos', 'walk-in', 'pos_merged'], true)) {
+        return $base . '/staff/orders.php?order_id=' . $orderId;
     }
 
     return $base . '/staff/orders.php?order_id=' . $orderId;
@@ -4495,17 +4491,36 @@ function printflow_resolve_order_line_identity(array $order, array $item, array 
     $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
     $catalogProduct = customer_orders_custom_order_is_catalog_product($custom);
 
+    $customServiceType = trim((string)($custom['service_type'] ?? ''));
     $isService = in_array($explicitType, ['service', 'custom_service'], true)
         || (int)($item['service_id'] ?? 0) > 0
-        || in_array($sourcePage, ['service', 'services'], true)
-        || $source === 'service'
+        || (int)($custom['service_id'] ?? 0) > 0
+        || $customServiceType !== ''
+        || in_array($sourcePage, ['service', 'services', 'dynamic_form'], true)
+        || in_array($source, ['service', 'pos'], true)
         || ($orderType === 'custom' && !$catalogProduct);
     if (in_array($explicitType, ['product', 'catalog_product'], true) || $catalogProduct) {
         $isService = false;
     }
+    if (
+        !$isService
+        && $source === 'pos'
+        && ($customServiceType !== '' || (int)($custom['service_id'] ?? 0) > 0)
+    ) {
+        $isService = true;
+    }
 
     if (!$isService) {
         $productName = trim((string)($item['product_name'] ?? $item['name'] ?? ''));
+        if (
+            $productName !== ''
+            && $customServiceType !== ''
+            && strcasecmp($productName, $customServiceType) !== 0
+            && function_exists('customer_orders_is_generic_item_name')
+            && customer_orders_is_generic_item_name($productName)
+        ) {
+            $productName = $customServiceType;
+        }
         return [
             'item_type' => 'product',
             'product_id' => max(0, (int)($item['product_id'] ?? 0)),
@@ -4568,12 +4583,78 @@ function printflow_resolve_order_line_identity(array $order, array $item, array 
         ?? $order['first_job_title']
         ?? ''
     ));
+    $displayName = trim((string)($service['name'] ?? ''));
+    if ($displayName === '' && $customServiceType !== '') {
+        $displayName = $customServiceType;
+    }
+    if ($displayName === '') {
+        $displayName = $fallbackName !== '' ? $fallbackName : 'Service Order';
+    }
+    if (
+        function_exists('get_service_name_from_customization')
+        && ($displayName === '' || $displayName === 'Service Order')
+    ) {
+        $displayName = get_service_name_from_customization($custom, $displayName);
+    }
+
     return [
         'item_type' => 'service',
         'product_id' => 0,
         'service_id' => (int)($service['service_id'] ?? 0),
-        'display_name' => trim((string)($service['name'] ?? '')) ?: ($fallbackName ?: 'Service Order'),
+        'display_name' => $displayName,
     ];
+}
+
+/**
+ * Resolve dashboard/list labels from saved order-item data (not product-table fallbacks).
+ *
+ * @param int[] $orderIds
+ * @return array<int,string>
+ */
+function printflow_dashboard_order_service_labels(array $orderIds): array
+{
+    $orderIds = array_values(array_unique(array_filter(array_map('intval', $orderIds))));
+    if ($orderIds === []) {
+        return [];
+    }
+
+    require_once __DIR__ . '/JobOrderService.php';
+    $batch = JobOrderService::getStoreOrderItemSummariesBatch($orderIds, false);
+    $labels = [];
+    foreach ($orderIds as $orderId) {
+        $summary = $batch[$orderId] ?? null;
+        $label = is_array($summary) ? trim((string)($summary['service_type'] ?? '')) : '';
+        if ($label === '' && is_array($summary) && !empty($summary['items'][0]['product_name'])) {
+            $label = trim((string)$summary['items'][0]['product_name']);
+        }
+        $labels[$orderId] = $label !== '' ? $label : 'Custom Service';
+    }
+
+    return $labels;
+}
+
+/**
+ * Admin/Manager dashboard Manage link for a store order.
+ */
+function printflow_admin_order_management_url(int $orderId, bool $preferPendingStatus = false): string
+{
+    $base = printflow_notification_base_path();
+    $viewerRole = function_exists('get_user_type') ? (string)get_user_type() : '';
+    $panelBase = $viewerRole === 'Manager' ? ($base . '/manager') : ($base . '/admin');
+    $orderId = (int)$orderId;
+    if ($orderId <= 0) {
+        return $panelBase . '/orders_management.php';
+    }
+
+    if (printflow_order_uses_customizations_page($orderId)) {
+        $url = $panelBase . '/customizations.php?order_id=' . $orderId;
+        if ($preferPendingStatus) {
+            $url .= '&status=PENDING';
+        }
+        return $url;
+    }
+
+    return $panelBase . '/orders_management.php?open_order=' . $orderId;
 }
 
 /** A positive order total is final only after an explicit or legacy pricing milestone. */
