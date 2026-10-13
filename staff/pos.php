@@ -3329,7 +3329,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             <div id="sm-fields-body" style="overflow-y:auto;flex:1;padding:20px 24px;"></div>
             <div id="sm-footer-actions" class="sm-footer-actions" style="display:none;">
                 <div class="sm-footer-inner">
-                    <div id="pos-estimated-price-display" class="pos-estimated-price-display" hidden aria-hidden="true">
+                    <div id="pos-estimated-price-display" class="pos-estimated-price-display">
                         <div class="pos-est-price-label">Estimated Price</div>
                         <div id="pos-estimated-total" class="pos-est-price-amount">₱0.00</div>
                         <div class="pos-est-price-meta">Based on selected options · Qty <span id="pos-qty-display">1</span></div>
@@ -6745,7 +6745,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const showEditPrice = posCartItemShowsEditPriceButton(item);
                     const isServiceLine = posCartItemRequiresSetPrice(item);
                     const materialLabel = posCartItemMaterialLabel(item);
-                    const showEstimateBesideRemove = showSetPrice && isServiceLine && unitPrice > 0 && item.price_set !== true;
+                    const showEstimateBesideRemove = showSetPrice && item.price_set !== true;
                     const estimateBesideRemoveHtml = showEstimateBesideRemove
                         ? `<span class="pos-item-estimate-label" style="font-size:12px;font-weight:600;color:#64748b;white-space:nowrap;">Estimated Price: ${formatMoney(unitPrice)}</span>`
                         : '';

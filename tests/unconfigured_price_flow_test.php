@@ -66,7 +66,8 @@ $servicesView = ($servicesViewStart !== false && $servicesViewEnd !== false)
     : '';
 $check($servicesView !== '' && !str_contains($servicesView, 'pos-catalog-card__price') && !str_contains($servicesView, 'Custom Pricing'), 'service cards do not show a fixed, default, or placeholder price');
 $check(str_contains($pos, 'aria-label="Price"'), 'product cards still show their price');
-$check(str_contains($pos, 'id="pos-estimated-price-display" class="pos-estimated-price-display" hidden'), 'the service selection screen does not show an estimated price');
+$check(str_contains($pos, 'id="pos-estimated-price-display" class="pos-estimated-price-display"') && !str_contains($pos, 'pos-estimated-price-display" hidden'), 'the order form shows Estimated Price');
+$check(str_contains($pos, 'pos-est-price-label">Estimated Price') && str_contains($pos, '₱0.00') && str_contains($pos, 'showSetPrice && item.price_set !== true'), 'a zero estimated price is still displayed');
 $check(str_contains($pos, $modalMessage) && str_contains($pos, 'confirmMissingEstimatedPrice'), 'POS asks before adding a specification with no estimated price');
 $check(str_contains($pos, "if (priced.unitPrice <= 0)") && str_contains($pos, "if (!proceed) return"), 'Cancel leaves the item off the order');
 $check(str_contains($customerOrder, $modalMessage) && str_contains($customerOrder, 'pf-missing-estimate-continue') && str_contains($customerOrder, 'pf-missing-estimate-cancel'), 'the customer ordering page uses the same Continue and Cancel warning');
