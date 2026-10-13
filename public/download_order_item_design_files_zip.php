@@ -34,7 +34,7 @@ if (!class_exists('ZipArchive')) {
     exit;
 }
 
-$apiFiles = printflow_order_item_design_files_list_for_item($orderItemId, true);
+$apiFiles = printflow_order_item_design_files_list_for_item($orderItemId, false);
 if ($apiFiles === []) {
     http_response_code(404);
     header('Content-Type: text/plain; charset=UTF-8');
@@ -60,6 +60,7 @@ if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
 
 $usedNames = [];
 $seenFileIds = [];
+$seenPhysical = [];
 $added = 0;
 foreach ($apiFiles as $file) {
     if (!is_array($file)) {
@@ -71,6 +72,15 @@ foreach ($apiFiles as $file) {
             continue;
         }
         $seenFileIds[$fileId] = true;
+    }
+    if (function_exists('printflow_order_item_design_file_physical_identity_key')) {
+        $physicalKey = printflow_order_item_design_file_physical_identity_key($file);
+        if ($physicalKey !== '' && isset($seenPhysical[$physicalKey])) {
+            continue;
+        }
+        if ($physicalKey !== '') {
+            $seenPhysical[$physicalKey] = true;
+        }
     }
     $displayName = trim((string)($file['display_name'] ?? 'design'));
     $displayName = preg_replace('/[\x00-\x1F\x7F"\\\\]+/u', '_', basename($displayName)) ?: 'design';

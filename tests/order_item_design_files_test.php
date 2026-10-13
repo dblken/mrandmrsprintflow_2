@@ -59,7 +59,9 @@ $expect(strpos($jobOrdersApi, 'printflow_order_item_design_files_attach_to_item_
 $expect(strpos($staffUi, 'mergeStaffOrderItemsByOrderItemId') !== false, 'staff modal merges order items by order_item_id after refresh');
 $expect(strpos($staffUi, 'reloadStaffOrderItemsAfterMutation') !== false, 'staff modal reloads design files after price mutations');
 $expect(strpos($designJs, 'designFileIdentity') !== false, 'shared JS dedupes design files by file_id');
+$expect(strpos($designJs, 'dedupePhysical') !== false, 'shared JS dedupes duplicate physical files for display');
 $expect(strpos($designJs, 'url:') === false, 'shared JS does not dedupe by URL');
+$expect(strpos($core, 'printflow_order_item_design_files_database_counts_for_items') !== false, 'core exposes per-item database file counts');
 
 if ($failures !== []) {
     fwrite(STDERR, "order_item_design_files_test failed:\n- " . implode("\n- ", $failures) . "\n");

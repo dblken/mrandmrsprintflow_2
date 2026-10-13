@@ -65,6 +65,169 @@ if (!function_exists('printflow_order_item_design_files_normalize_rows')) {
     }
 }
 
+if (!function_exists('printflow_order_item_design_file_display_title')) {
+    /**
+     * @param array<string,mixed> $file
+     */
+    function printflow_order_item_design_file_display_title(array $file): string
+    {
+        $name = trim((string)($file['display_name'] ?? ($file['name'] ?? '')));
+        if ($name === '') {
+            return 'Design file';
+        }
+        if (str_contains($name, ',')) {
+            $parts = preg_split('/\s*,\s*/', $name) ?: [];
+            foreach ($parts as $part) {
+                $part = trim((string)$part);
+                if ($part !== '') {
+                    return $part;
+                }
+            }
+        }
+        return $name;
+    }
+}
+
+if (!function_exists('printflow_order_item_design_file_identity_key')) {
+    /**
+     * @param array<string,mixed> $file
+     */
+    function printflow_order_item_design_file_identity_key(array $file): string
+    {
+        $path = strtolower(str_replace('\\', '/', trim((string)($file['storage_path'] ?? ($file['path'] ?? '')))));
+        if ($path !== '') {
+            return 'path:' . $path;
+        }
+        $fileId = (int)($file['file_id'] ?? 0);
+        return $fileId > 0 ? ('id:' . $fileId) : '';
+    }
+}
+
+if (!function_exists('printflow_order_item_design_file_content_fingerprint')) {
+    /**
+     * @param array<string,mixed> $file
+     */
+    function printflow_order_item_design_file_content_fingerprint(array $file): string
+    {
+        $cached = trim((string)($file['content_fingerprint'] ?? ''));
+        if ($cached !== '') {
+            return $cached;
+        }
+        $path = trim((string)($file['storage_path'] ?? ($file['path'] ?? '')));
+        if ($path === '' || !function_exists('printflow_resolve_order_upload_disk_path')) {
+            return '';
+        }
+        $disk = printflow_resolve_order_upload_disk_path($path);
+        if ($disk === null || !is_file($disk) || !is_readable($disk)) {
+            return '';
+        }
+        $hash = hash_file('sha256', $disk);
+        return is_string($hash) ? $hash : '';
+    }
+}
+
+if (!function_exists('printflow_order_item_design_file_physical_identity_key')) {
+    /**
+     * @param array<string,mixed> $file
+     */
+    function printflow_order_item_design_file_physical_identity_key(array $file): string
+    {
+        $fingerprint = printflow_order_item_design_file_content_fingerprint($file);
+        if ($fingerprint !== '') {
+            return 'hash:' . $fingerprint;
+        }
+        return printflow_order_item_design_file_identity_key($file);
+    }
+}
+
+if (!function_exists('printflow_order_item_design_files_dedupe_for_display')) {
+    /**
+     * @param list<array<string,mixed>> $apiFiles
+     * @return list<array<string,mixed>>
+     */
+    function printflow_order_item_design_files_dedupe_for_display(array $apiFiles): array
+    {
+        $byId = [];
+        foreach ($apiFiles as $file) {
+            if (!is_array($file)) {
+                continue;
+            }
+            $fileId = (int)($file['file_id'] ?? 0);
+            if ($fileId <= 0) {
+                continue;
+            }
+            $byId[$fileId] = $file;
+        }
+        $deduped = [];
+        $seenPhysical = [];
+        foreach (array_values($byId) as $file) {
+            $physicalKey = printflow_order_item_design_file_physical_identity_key($file);
+            if ($physicalKey !== '' && isset($seenPhysical[$physicalKey])) {
+                continue;
+            }
+            if ($physicalKey !== '') {
+                $seenPhysical[$physicalKey] = true;
+            }
+            $file['display_name'] = printflow_order_item_design_file_display_title($file);
+            $fingerprint = printflow_order_item_design_file_content_fingerprint($file);
+            if ($fingerprint !== '') {
+                $file['content_fingerprint'] = $fingerprint;
+            }
+            $deduped[] = $file;
+        }
+        usort($deduped, static function (array $a, array $b): int {
+            $sortDelta = ((int)($a['upload_sort'] ?? 0)) <=> ((int)($b['upload_sort'] ?? 0));
+            if ($sortDelta !== 0) {
+                return $sortDelta;
+            }
+            return ((int)($a['file_id'] ?? 0)) <=> ((int)($b['file_id'] ?? 0));
+        });
+        return $deduped;
+    }
+}
+
+if (!function_exists('printflow_order_item_design_files_database_counts_for_items')) {
+    /**
+     * @param list<int> $orderItemIds
+     * @return array<int,int>
+     */
+    function printflow_order_item_design_files_database_counts_for_items(array $orderItemIds): array
+    {
+        $ids = [];
+        foreach ($orderItemIds as $id) {
+            $id = (int)$id;
+            if ($id > 0) {
+                $ids[$id] = $id;
+            }
+        }
+        if ($ids === []) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $types = str_repeat('i', count($ids));
+        $rows = db_query(
+            "SELECT order_item_id, COUNT(*) AS file_count
+             FROM order_item_design_files
+             WHERE order_item_id IN ({$placeholders})
+               AND (revision_request_id IS NULL OR revision_request_id = 0)
+             GROUP BY order_item_id",
+            $types,
+            array_values($ids)
+        ) ?: [];
+        $out = [];
+        foreach ($ids as $id) {
+            $out[$id] = 0;
+        }
+        foreach ($rows as $row) {
+            $oid = (int)($row['order_item_id'] ?? 0);
+            if ($oid > 0) {
+                $out[$oid] = (int)($row['file_count'] ?? 0);
+            }
+        }
+        return $out;
+    }
+}
+
 if (!function_exists('printflow_order_item_design_files_to_api')) {
     /**
      * @param list<array<string,mixed>> $dbRows
@@ -77,8 +240,10 @@ if (!function_exists('printflow_order_item_design_files_to_api')) {
         foreach ($normalized as $row) {
             $fileId = (int)($row['file_id'] ?? 0);
             $orderItemId = (int)($row['order_item_id'] ?? 0);
-            $name = trim((string)($row['display_name'] ?? ''));
-            if ($name === '') {
+            $name = printflow_order_item_design_file_display_title([
+                'display_name' => (string)($row['display_name'] ?? ''),
+            ]);
+            if ($name === 'Design file') {
                 $name = 'Uploaded design';
             }
             $mime = trim((string)($row['mime_type'] ?? ''));
@@ -544,12 +709,14 @@ if (!function_exists('printflow_order_item_design_files_stats')) {
         $uniqueIds = array_values($ids);
         sort($uniqueIds, SORT_NUMERIC);
         $max = printflow_order_item_design_files_max_per_item();
+        $uniqueCount = count($uniqueIds);
         return [
             'total_file_count' => count($apiFiles),
-            'unique_file_count' => count($uniqueIds),
+            'unique_file_count' => $uniqueCount,
+            'api_file_count' => count($apiFiles),
             'file_ids' => $uniqueIds,
             'max_files' => $max,
-            'remaining_slots' => max(0, $max - count($uniqueIds)),
+            'remaining_slots' => max(0, $max - $uniqueCount),
         ];
     }
 }
@@ -791,9 +958,10 @@ if (!function_exists('printflow_order_item_design_files_list_for_item')) {
      */
     function printflow_order_item_design_files_list_for_item(int $orderItemId, bool $backfillLegacy = true): array
     {
-        return printflow_order_item_design_files_to_api(
+        $api = printflow_order_item_design_files_to_api(
             printflow_order_item_design_files_list_raw($orderItemId, $backfillLegacy)
         );
+        return printflow_order_item_design_files_dedupe_for_display($api);
     }
 }
 
@@ -842,7 +1010,9 @@ if (!function_exists('printflow_order_item_design_files_list_for_items')) {
             $grouped[$oid][] = $row;
         }
         foreach ($grouped as $oid => $list) {
-            $grouped[$oid] = printflow_order_item_design_files_to_api($list);
+            $grouped[$oid] = printflow_order_item_design_files_dedupe_for_display(
+                printflow_order_item_design_files_to_api($list)
+            );
         }
         return $grouped;
     }
@@ -862,6 +1032,9 @@ if (!function_exists('printflow_order_item_design_files_backfill_legacy')) {
             [$orderItemId]
         ) ?: [];
         $hasAny = $existing !== [];
+        if ($hasAny) {
+            return;
+        }
 
         $itemRows = db_query(
             'SELECT oi.order_item_id, oi.order_id, oi.design_file, oi.design_image_name, oi.design_image_mime,
@@ -1206,14 +1379,17 @@ if (!function_exists('printflow_order_item_design_files_attach_to_item_views')) 
         if ($ids === []) {
             return;
         }
-        $grouped = printflow_order_item_design_files_list_for_items($ids);
+        $grouped = printflow_order_item_design_files_list_for_items($ids, false);
+        $dbCounts = printflow_order_item_design_files_database_counts_for_items($ids);
         foreach ($itemViews as &$view) {
             $orderItemId = (int)($view['order_item_id'] ?? 0);
             $files = $grouped[$orderItemId] ?? [];
             $view['design_files'] = $files;
             $view['files'] = $files;
             $stats = printflow_order_item_design_files_stats($files);
+            $databaseFileCount = (int)($dbCounts[$orderItemId] ?? 0);
             $view['design_files_meta'] = array_merge($stats, [
+                'database_file_count' => $databaseFileCount,
                 'order_item_id' => $orderItemId,
                 'order_id' => (int)($view['order_id'] ?? 0),
                 'customization_id' => isset($view['customization_id']) ? (int)$view['customization_id'] : null,

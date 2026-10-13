@@ -17,6 +17,21 @@
         return '';
     }
 
+    function physicalIdentity(entry) {
+        if (!entry || typeof entry !== 'object') {
+            return '';
+        }
+        var fingerprint = String(entry.content_fingerprint || '').trim();
+        if (fingerprint) {
+            return 'hash:' + fingerprint;
+        }
+        var path = String(entry.storage_path || entry.path || '').trim().toLowerCase().replace(/\\/g, '/');
+        if (path) {
+            return 'path:' + path;
+        }
+        return designFileIdentity(entry);
+    }
+
     function dedupeDesignFiles(raw) {
         if (!Array.isArray(raw)) {
             return [];
@@ -54,6 +69,23 @@
         return out;
     }
 
+    function dedupeDesignFilesPhysical(raw) {
+        var byId = dedupeDesignFiles(raw);
+        var seenPhysical = new Set();
+        var out = [];
+        byId.forEach(function (entry) {
+            var physicalKey = physicalIdentity(entry);
+            if (physicalKey && seenPhysical.has(physicalKey)) {
+                return;
+            }
+            if (physicalKey) {
+                seenPhysical.add(physicalKey);
+            }
+            out.push(entry);
+        });
+        return out;
+    }
+
     function formatFileSize(bytes) {
         var n = Number(bytes || 0);
         if (!n || n < 0) {
@@ -85,7 +117,7 @@
     }
 
     function previewList(files) {
-        var list = dedupeDesignFiles(files);
+        var list = dedupeDesignFilesPhysical(files);
         if (list.length <= PREVIEW_LIMIT) {
             return list;
         }
@@ -93,7 +125,7 @@
     }
 
     function hiddenCount(files) {
-        var list = dedupeDesignFiles(files);
+        var list = dedupeDesignFilesPhysical(files);
         return Math.max(0, list.length - PREVIEW_LIMIT);
     }
 
@@ -250,7 +282,9 @@
     global.PrintflowOrderItemDesignFiles = {
         PREVIEW_LIMIT: PREVIEW_LIMIT,
         designFileIdentity: designFileIdentity,
+        physicalIdentity: physicalIdentity,
         dedupe: dedupeDesignFiles,
+        dedupePhysical: dedupeDesignFilesPhysical,
         formatFileSize: formatFileSize,
         fileTypeLabel: fileTypeLabel,
         previewList: previewList,

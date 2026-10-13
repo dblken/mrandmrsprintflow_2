@@ -6778,6 +6778,9 @@ window.pfServiceFieldCatalog = (() => {
                 prev.forEach(addRow);
                 inc.forEach(addRow);
                 const merged = Array.from(byId.values());
+                if (PF && PF.dedupePhysical) {
+                    return PF.dedupePhysical(merged);
+                }
                 return PF ? PF.dedupe(merged) : merged;
             },
             mergeStaffOrderItemsByOrderItemId(previousItems, incomingItems) {
@@ -6800,9 +6803,10 @@ window.pfServiceFieldCatalog = (() => {
                         return { ...incoming };
                     }
                     const PF = window.PrintflowOrderItemDesignFiles;
-                    const designFiles = Array.isArray(incoming.design_files)
-                        ? (PF ? PF.dedupe(incoming.design_files) : incoming.design_files)
-                        : (Array.isArray(prior.design_files) ? (PF ? PF.dedupe(prior.design_files) : prior.design_files) : []);
+                    const designFiles = this.mergeDesignFilesLists(
+                        incoming.design_files,
+                        prior.design_files
+                    );
                     const priorCustom = prior.customization && typeof prior.customization === 'object' && !Array.isArray(prior.customization)
                         ? prior.customization
                         : {};
@@ -7553,15 +7557,20 @@ window.pfServiceFieldCatalog = (() => {
                     ? item.design_files
                     : (Array.isArray(item.files) ? item.files : []);
                 const PF = window.PrintflowOrderItemDesignFiles;
-                let out = PF ? PF.dedupe(raw) : raw;
-                const hasDbBackedFiles = out.some((row) => Number(row && row.file_id) > 0);
+                let out = PF ? (PF.dedupePhysical ? PF.dedupePhysical(raw) : PF.dedupe(raw)) : raw;
+                const meta = item.design_files_meta && typeof item.design_files_meta === 'object'
+                    ? item.design_files_meta
+                    : null;
+                const hasDbBackedFiles = out.some((row) => Number(row && row.file_id) > 0)
+                    || Number(meta && meta.database_file_count) > 0
+                    || Number(meta && meta.unique_file_count) > 0;
                 if (hasDbBackedFiles) {
                     out = out.filter((row) => Number(row && row.file_id) > 0);
-                    out = PF ? PF.dedupe(out) : out;
+                    out = PF ? (PF.dedupePhysical ? PF.dedupePhysical(out) : PF.dedupe(out)) : out;
                 }
                 if (out.length === 0 && !hasDbBackedFiles) {
                     out = this.staffDesignFilesFromCustomization(item);
-                    out = PF ? PF.dedupe(out) : out;
+                    out = PF ? (PF.dedupePhysical ? PF.dedupePhysical(out) : PF.dedupe(out)) : out;
                 }
                 if (out.length === 0 && this.staffItemHasUploadedDesignFile(item) && !this.staffItemEvidenceOfMultipleDesignFiles(item)) {
                     const previewUrl = this.staffEffectiveDesignOpenUrl(item) || this.staffOrderItemDesignServeUrl(item);

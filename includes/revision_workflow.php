@@ -388,20 +388,11 @@ function printflow_revision_file_sections_for_request(array $revisionRow): array
  */
 function printflow_revision_design_file_display_title(array $file): string
 {
+    if (function_exists('printflow_order_item_design_file_display_title')) {
+        return printflow_order_item_design_file_display_title($file);
+    }
     $name = trim((string)($file['display_name'] ?? ''));
-    if ($name === '') {
-        return 'Design file';
-    }
-    if (str_contains($name, ',')) {
-        $parts = preg_split('/\s*,\s*/', $name) ?: [];
-        foreach ($parts as $part) {
-            $part = trim((string)$part);
-            if ($part !== '') {
-                return $part;
-            }
-        }
-    }
-    return $name;
+    return $name !== '' ? $name : 'Design file';
 }
 
 /**
