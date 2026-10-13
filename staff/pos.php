@@ -5154,7 +5154,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     ? window.pfDesignQueueValidFiles(group)
                     : Array.from((group.querySelector('.pf-design-file-input') || {}).files || []);
                 if (!files.length) continue;
-                const row = group.closest('.shopee-form-row');
                 await posApplyStagedUploadMany(customization, files, 'design');
                 if (row) {
                     setCustomizationValue(customization, row, group.querySelector('.pf-design-file-input'), customization.design_upload_name);
@@ -8185,6 +8184,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         window.posOpenServiceFromCard = posOpenServiceFromCard;
         window.openServiceModal = openServiceModal;
         window.confirmServiceModal = confirmServiceModal;
+        window.showPOSMode = showPOSMode;
+        window.backToSelection = backToSelection;
     </script>
 
     <script>window.PFConfig = Object.assign({}, window.PFConfig || {}, { basePath: <?php echo json_encode(rtrim(defined('BASE_PATH') ? (string)BASE_PATH : '', '/')); ?> });</script>
