@@ -1174,13 +1174,19 @@ function handleQtyInput(input) {
     const sanitized = input.value.replace(/[^0-9]/g, '');
     const availableStock = input.dataset.availableStock === undefined ? 99 : parseInt(input.dataset.availableStock, 10);
     let nextValue = sanitized.replace(/^0+(?=\d)/, '');
+    let exceededStock = false;
     if (nextValue === '0') nextValue = '1';
     if (nextValue !== '' && availableStock <= 0) {
+        exceededStock = true;
         nextValue = String(Math.max(1, parseInt(input.dataset.savedQty, 10) || 1));
     } else if (nextValue !== '' && parseInt(nextValue, 10) > availableStock) {
+        exceededStock = true;
         nextValue = String(availableStock);
     }
     if (input.value !== nextValue) input.value = nextValue;
+    if (exceededStock) {
+        showCartToast('Only ' + Math.max(availableStock, 0) + ' item(s) available.', true);
+    }
     if (nextValue !== '' && parseInt(nextValue, 10) >= 1) {
         previewQty(input.closest('.cart-row'), parseInt(nextValue, 10));
     }
