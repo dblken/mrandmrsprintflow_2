@@ -2078,6 +2078,7 @@ function pfClearDesignUploadGroup(group) {
         }
     });
     group.pfDesignQueue = [];
+    group.pfDesignQueueError = '';
     const fileInput = group.querySelector('.pf-design-file-input, input[type="file"][name="design_file"], input[type="file"][name="design_file[]"]');
     const linkInput = group.querySelector('.pf-design-link-input');
     const modeSelect = group.querySelector('.pf-design-mode-select');
@@ -2163,6 +2164,9 @@ function pfRenderDesignUploadQueue(group) {
     }
     if (errorsEl) {
         const messages = queue.filter(entry => !entry.valid && entry.error).map(entry => entry.error);
+        if (group.pfDesignQueueError) {
+            messages.unshift(group.pfDesignQueueError);
+        }
         errorsEl.textContent = messages.length ? messages.join(' ') : '';
     }
 }
@@ -2178,6 +2182,7 @@ function pfRemoveDesignQueueEntry(group, entryId) {
         next.push(entry);
     });
     group.pfDesignQueue = next;
+    group.pfDesignQueueError = '';
     pfRenderDesignUploadQueue(group);
     pfSyncDesignQueueToFileInput(group);
 }
@@ -2195,7 +2200,7 @@ function pfAppendDesignFilesToQueue(group, fileList) {
             && entry.file.lastModified === file.lastModified);
         if (duplicate) return;
         if (queue.length >= maxFiles) {
-            batchErrors.push('You can upload up to ' + maxFiles + ' design files per item.');
+            batchErrors.push('You can upload a maximum of ' + maxFiles + ' design files. Remove a file before adding another.');
             return;
         }
         const validation = pfValidateDesignFileClient(file, group);
@@ -2212,6 +2217,7 @@ function pfAppendDesignFilesToQueue(group, fileList) {
         queue.push(entry);
     });
     group.pfDesignQueue = queue;
+    group.pfDesignQueueError = batchErrors.length ? batchErrors[0] : '';
     pfRenderDesignUploadQueue(group);
     pfSyncDesignQueueToFileInput(group);
     return batchErrors;
@@ -2325,6 +2331,7 @@ function initPfDesignUploadGroups(root) {
                 if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
             });
             group.pfDesignQueue = [];
+            group.pfDesignQueueError = '';
             pfRenderDesignUploadQueue(group);
             fileInput.value = '';
             fileInput.dispatchEvent(new Event('change', { bubbles: true }));

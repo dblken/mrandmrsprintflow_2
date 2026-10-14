@@ -144,5 +144,10 @@ layout_test_assert(
 $rendererJs = (string) file_get_contents(__DIR__ . '/../includes/service_field_renderer.php');
 layout_test_assert(strpos($rendererJs, 'pfClearDesignUploadGroup') !== false, 'renderer exposes design clear on layout switch');
 layout_test_assert(strpos($rendererJs, 'pfClearDesignUploadGroup(uploadGroup)') !== false, 'conditional fields clear uploads when layout disables design');
+layout_test_assert(
+    strpos($rendererJs, 'You can upload a maximum of ') !== false
+        && strpos($rendererJs, 'group.pfDesignQueueError') !== false,
+    'renderer displays an inline error when the design file limit is exceeded'
+);
 
 echo "All service_layout_design_validation tests passed.\n";
