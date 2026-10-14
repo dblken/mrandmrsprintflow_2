@@ -238,6 +238,8 @@ require_once __DIR__ . '/../includes/header.php';
         box-shadow: var(--shopee-glass-shadow);
         backdrop-filter: blur(18px);
         -webkit-backdrop-filter: blur(18px);
+        color: inherit;
+        text-decoration: none;
     }
 
     .shopee-card::before {
@@ -262,6 +264,13 @@ require_once __DIR__ . '/../includes/header.php';
         transform: translateY(-8px);
         box-shadow: var(--shopee-glass-shadow-hover);
         border-color: rgba(93, 158, 188, 0.42);
+    }
+
+    .shopee-card:focus-visible {
+        outline: 3px solid #38bdf8;
+        outline-offset: 3px;
+        transform: translateY(-4px);
+        box-shadow: var(--shopee-glass-shadow-hover);
     }
 
     .shopee-card > * {
@@ -413,6 +422,25 @@ require_once __DIR__ . '/../includes/header.php';
         box-shadow: 0 16px 32px rgba(15, 58, 73, 0.28);
     }
 
+    .shopee-card-cta {
+        min-height: 36px;
+        gap: 6px;
+        font-size: 0.68rem;
+        letter-spacing: 0;
+        text-transform: none;
+    }
+
+    .shopee-card-cta-arrow {
+        font-size: 1rem;
+        line-height: 1;
+        transition: transform 0.2s ease;
+    }
+
+    .shopee-card:hover .shopee-card-cta-arrow,
+    .shopee-card:focus-visible .shopee-card-cta-arrow {
+        transform: translateX(3px);
+    }
+
     .rating-stars {
         color: #ffca11;
         font-size: 0.62rem;
@@ -470,7 +498,7 @@ require_once __DIR__ . '/../includes/header.php';
                         $review_count = (int) ($groupStats['review_count'] ?? 0);
                         $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k' : $sold_count;
                 ?>
-                    <div class="shopee-card shopee-card-group" onclick="window.location.href='product_group.php?group_id=<?php echo $groupId; ?>'">
+                    <a class="shopee-card shopee-card-group" href="product_group.php?group_id=<?php echo $groupId; ?>" aria-label="View <?php echo htmlspecialchars((string)($entry['name'] ?? 'product group'), ENT_QUOTES, 'UTF-8'); ?> products">
                         <div class="shopee-img-wrap">
                             <?php
                             echo pf_catalog_image_tag($cover, 'card', [
@@ -501,7 +529,10 @@ require_once __DIR__ . '/../includes/header.php';
                                 <span class="shopee-price"><?php echo format_currency($minPrice); ?></span>
                             </div>
                         </div>
-                    </div>
+                        <div class="shopee-footer" aria-hidden="true">
+                            <span class="shopee-btn shopee-btn-buy shopee-card-cta">View Products <span class="shopee-card-cta-arrow">&rarr;</span></span>
+                        </div>
+                    </a>
                 <?php
                         continue;
                     endif;
@@ -521,7 +552,7 @@ require_once __DIR__ . '/../includes/header.php';
                     $stock = (int)$product['stock_quantity'];
                     $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k' : $sold_count;
                 ?>
-                    <div class="shopee-card" onclick="window.location.href='order_create.php?product_id=<?php echo $product['product_id']; ?>'">
+                    <a class="shopee-card" href="order_create.php?product_id=<?php echo $product_id; ?>" aria-label="View <?php echo htmlspecialchars((string)$product['name'], ENT_QUOTES, 'UTF-8'); ?>">
                         <?php if ($is_video_media): ?>
                             <video
                                 src="<?php echo htmlspecialchars($display_img); ?>#t=1"
@@ -568,7 +599,10 @@ require_once __DIR__ . '/../includes/header.php';
                                 <span class="shopee-price"><?php echo format_currency($product['price']); ?></span>
                             </div>
                         </div>
-                    </div>
+                        <div class="shopee-footer" aria-hidden="true">
+                            <span class="shopee-btn shopee-btn-buy shopee-card-cta">View Product <span class="shopee-card-cta-arrow">&rarr;</span></span>
+                        </div>
+                    </a>
                 <?php endforeach; ?>
             </div>
 

@@ -38,6 +38,9 @@ $assert(str_contains($services, 'printflow_catalog_service_card_stats_map'), 'se
 $assert(!str_contains($services, 'service_ids_with_field_config') && !str_contains($services, 'init_service_field_config'), 'services listing avoids field-config lookups and writes for unrelated cards');
 $assert(str_contains($products, "define('PF_CUSTOMER_CATALOG_NAV', true)"), 'products page opts into catalog navigation cache policy');
 $assert(str_contains($products, 'pf_catalog_image_tag'), 'products cards use optimized responsive images');
+$assert(str_contains($products, '<a class="shopee-card') && !str_contains($products, '<div class="shopee-card" onclick='), 'entire product cards are semantic keyboard-accessible links');
+$assert(str_contains($products, 'View Product') && str_contains($products, 'shopee-card-cta'), 'product cards expose a visible view-product action');
+$assert(str_contains($products, '.shopee-card:focus-visible'), 'product cards show a visible keyboard focus state');
 $assert(str_contains($auth, 'PF_CUSTOMER_CATALOG_NAV'), 'auth uses softer cache headers on catalog pages');
 $assert(str_contains($navHeader, 'setTimeout(pollCart, 30000)'), 'cart badge background polling is limited to a lower-frequency refresh');
 $assert(str_contains($navHeader, 'if (cartPollFlight) return cartPollFlight;'), 'cart badge refresh prevents duplicate in-flight requests');
