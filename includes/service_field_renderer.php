@@ -684,6 +684,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $html .= '<div class="pf-design-selected-files-wrap">';
             $html .= '<div class="pf-design-file-count" aria-live="polite">0 / ' . $max_design_files . ' selected</div>';
             $html .= '<ul class="pf-design-file-list"></ul>';
+            $html .= '<button type="button" class="pf-design-file-toggle" aria-expanded="false" hidden>Show more</button>';
             $html .= '<div class="pf-design-file-errors" role="alert"></div>';
             $html .= '</div>';
             $html .= '<p class="pf-supported-formats" style="margin:0;font-size:12px;color:#6b7280;line-height:1.5;">Supported: ' . htmlspecialchars($formats_label, ENT_QUOTES, 'UTF-8') . '<br>Maximum file size: 5 MB each. Up to ' . $max_design_files . ' files.</p>';
@@ -956,6 +957,26 @@ function get_service_field_scripts() {
     flex-direction: column;
     gap: 8px;
 }
+.pf-design-file-toggle {
+    display: block;
+    border: 0;
+    background: transparent;
+    color: #0e7490;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 0;
+    margin: 0 0 8px;
+    cursor: pointer;
+}
+.pf-design-file-toggle:hover,
+.pf-design-file-toggle:focus-visible {
+    color: #155e75;
+    text-decoration: underline;
+}
+.pf-design-file-toggle[hidden] {
+    display: none;
+}
 .pf-design-file-item {
     display: flex;
     gap: 10px;
@@ -964,6 +985,9 @@ function get_service_field_scripts() {
     border: 1px solid #e5e7eb;
     border-radius: 8px;
     background: #fff;
+}
+.pf-design-file-item[hidden] {
+    display: none;
 }
 .pf-design-file-item.is-invalid {
     border-color: #fca5a5;
@@ -2079,6 +2103,7 @@ function pfClearDesignUploadGroup(group) {
     });
     group.pfDesignQueue = [];
     group.pfDesignQueueError = '';
+    group.pfDesignListExpanded = false;
     const fileInput = group.querySelector('.pf-design-file-input, input[type="file"][name="design_file"], input[type="file"][name="design_file[]"]');
     const linkInput = group.querySelector('.pf-design-link-input');
     const modeSelect = group.querySelector('.pf-design-mode-select');
@@ -2131,19 +2156,27 @@ function pfGetDesignUploadQueue(group) {
 function pfRenderDesignUploadQueue(group) {
     const listEl = group.querySelector('.pf-design-file-list');
     const countEl = group.querySelector('.pf-design-file-count');
+    const toggleEl = group.querySelector('.pf-design-file-toggle');
     const errorsEl = group.querySelector('.pf-design-file-errors');
     const maxFiles = pfDesignMaxFilesForGroup(group);
     const queue = pfGetDesignUploadQueue(group);
+    const visibleLimit = 2;
+    if (queue.length <= visibleLimit) {
+        group.pfDesignListExpanded = false;
+    }
+    const expanded = group.pfDesignListExpanded === true;
+    const hiddenCount = Math.max(0, queue.length - visibleLimit);
     const validCount = queue.filter(entry => entry.valid).length;
     if (countEl) {
         countEl.textContent = validCount + ' / ' + maxFiles + ' selected';
     }
     if (listEl) {
         listEl.innerHTML = '';
-        queue.forEach(entry => {
+        queue.forEach((entry, index) => {
             const li = document.createElement('li');
             li.className = 'pf-design-file-item' + (entry.valid ? '' : ' is-invalid');
             li.dataset.pfQueueId = entry.id;
+            li.hidden = !expanded && index >= visibleLimit;
             let thumbHtml = '';
             if (entry.previewUrl && entry.valid) {
                 thumbHtml = '<img class="pf-design-file-thumb" src="' + entry.previewUrl + '" alt="">';
@@ -2161,6 +2194,11 @@ function pfRenderDesignUploadQueue(group) {
             });
             listEl.appendChild(li);
         });
+    }
+    if (toggleEl) {
+        toggleEl.hidden = hiddenCount === 0;
+        toggleEl.textContent = expanded ? 'Show less' : 'Show ' + hiddenCount + ' more';
+        toggleEl.setAttribute('aria-expanded', expanded ? 'true' : 'false');
     }
     if (errorsEl) {
         const messages = queue.filter(entry => !entry.valid && entry.error).map(entry => entry.error);
@@ -2279,8 +2317,10 @@ function initPfDesignUploadGroups(root) {
     scope.querySelectorAll('.pf-file-upload-group:not([data-pf-design-init])').forEach(group => {
         group.dataset.pfDesignInit = '1';
         group.pfDesignQueue = [];
+        group.pfDesignListExpanded = false;
         const tabs = Array.from(group.querySelectorAll('.pf-design-mode-tab'));
         const modeSelect = group.querySelector('.pf-design-mode-select');
+        const fileListToggle = group.querySelector('.pf-design-file-toggle');
         const panels = Array.from(group.querySelectorAll('.pf-design-mode-panel'));
         const setMode = (mode) => {
             const nextMode = mode === 'link' || mode === 'file' ? mode : '';
@@ -2318,6 +2358,12 @@ function initPfDesignUploadGroups(root) {
         if (modeSelect) {
             modeSelect.addEventListener('change', function() { setMode(this.value); });
         }
+        if (fileListToggle) {
+            fileListToggle.addEventListener('click', function() {
+                group.pfDesignListExpanded = group.pfDesignListExpanded !== true;
+                pfRenderDesignUploadQueue(group);
+            });
+        }
         const fileInput = group.querySelector('input[type="file"].pf-design-file-input, input[type="file"][name="design_file"]');
         const linkInput = group.querySelector('.pf-design-link-input');
         const clearLinkInput = () => {
@@ -2332,6 +2378,7 @@ function initPfDesignUploadGroups(root) {
             });
             group.pfDesignQueue = [];
             group.pfDesignQueueError = '';
+            group.pfDesignListExpanded = false;
             pfRenderDesignUploadQueue(group);
             fileInput.value = '';
             fileInput.dispatchEvent(new Event('change', { bubbles: true }));

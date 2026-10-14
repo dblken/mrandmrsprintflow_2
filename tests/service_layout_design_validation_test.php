@@ -149,5 +149,11 @@ layout_test_assert(
         && strpos($rendererJs, 'group.pfDesignQueueError') !== false,
     'renderer displays an inline error when the design file limit is exceeded'
 );
+layout_test_assert(
+    strpos($rendererJs, 'const visibleLimit = 2;') !== false
+        && strpos($rendererJs, "'Show ' + hiddenCount + ' more'") !== false
+        && strpos($rendererJs, "'Show less'") !== false,
+    'renderer initially shows two design files and provides expand and collapse controls'
+);
 
 echo "All service_layout_design_validation tests passed.\n";
