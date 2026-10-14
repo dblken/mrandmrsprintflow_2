@@ -98,7 +98,7 @@ if (isset($_GET['ajax'])) {
                     $branchData = json_encode([
                         'id' => $branch['id'],
                         'name' => $branch['branch_name'],
-                        'email' => $branch['email'] ?? '',
+                        'email' => strtolower(trim((string)($branch['email'] ?? ''))),
                         'address' => $branch['address'] ?? '',
                         'address_line' => $branch['address_line'] ?? '',
                         'address_barangay' => $branch['barangay'] ?? '',
@@ -113,7 +113,7 @@ if (isset($_GET['ajax'])) {
                     <tr data-branch="<?php echo $branchDataAttr; ?>" style="cursor:pointer;">
                         <td style="color:#6b7280;font-size:12px;"><?php echo $branch['id']; ?></td>
                         <td style="font-weight:600;color:#111827;"><?php echo htmlspecialchars($branch['branch_name']); ?></td>
-                        <td style="color:#374151;font-size:13px;"><?php echo htmlspecialchars($branch['email'] ?: '—'); ?></td>
+                        <td style="color:#374151;font-size:13px;"><?php echo htmlspecialchars(strtolower(trim((string)($branch['email'] ?? ''))) ?: '—'); ?></td>
                         <td><?php echo htmlspecialchars($branch['contact_number'] ?: '—'); ?></td>
                         <td>
                             <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#dbeafe;color:#1e40af;">
@@ -334,7 +334,7 @@ if (isset($_GET['ajax'])) {
                 } else if (mode === 'update' && data) {
                     this.form = {
                         branch_id: data.id, branch_name: (data.name || '').replace(/\s+Branch$/i, ''),
-                        email: data.email || '', address: data.address || '',
+                        email: (data.email || '').toLowerCase(), address: data.address || '',
                         address_province: data.address_province || '', address_city: data.address_city || '',
                         address_barangay: data.address_barangay || '', address_line: data.address_line || '',
                         contact_number: data.contact || '', status: data.status || 'Active'
@@ -624,7 +624,7 @@ if (isset($_GET['ajax'])) {
                                     $branchData = json_encode([
                                         'id' => $branch['id'],
                                         'name' => $branch['branch_name'],
-                                        'email' => $branch['email'] ?? '',
+                                        'email' => strtolower(trim((string)($branch['email'] ?? ''))),
                                         'address' => $branch['address'] ?? '',
                                         'address_line' => $branch['address_line'] ?? '',
                                         'address_barangay' => $branch['barangay'] ?? '',
@@ -639,7 +639,7 @@ if (isset($_GET['ajax'])) {
                                     <tr data-branch="<?php echo $branchDataAttr; ?>" style="cursor:pointer;">
                                         <td style="color:#6b7280;font-size:12px;"><?php echo $branch['id']; ?></td>
                                         <td style="font-weight:600;color:#111827;"><?php echo htmlspecialchars($branch['branch_name']); ?></td>
-                                        <td style="color:#374151;font-size:13px;"><?php echo htmlspecialchars($branch['email'] ?: '—'); ?></td>
+                                        <td style="color:#374151;font-size:13px;"><?php echo htmlspecialchars(strtolower(trim((string)($branch['email'] ?? ''))) ?: '—'); ?></td>
                                         <td><?php echo htmlspecialchars($branch['contact_number'] ?: '—'); ?></td>
                                         <td>
                                             <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#dbeafe;color:#1e40af;">
@@ -811,7 +811,7 @@ if (isset($_GET['ajax'])) {
                     <label class="form-label">Email Address <span style="color:#ef4444">*</span></label>
                     <input type="email" x-model="form.email" 
                            @keydown.space.prevent
-                           @input="form.email = form.email.replace(/\s/g, ''); validateEmail()" 
+                           @input="form.email = form.email.replace(/\s/g, '').toLowerCase(); validateEmail()"
                            class="form-input" placeholder="e.g. branch@printflow.com" required>
                     <template x-if="errors.email">
                         <div class="error-message" x-text="errors.email" style="color:#ef4444; font-size:12px; margin-top:4px; display:block;"></div>

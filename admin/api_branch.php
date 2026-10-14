@@ -43,7 +43,7 @@ try {
     // ACTION: CHECK EMAIL EXISTENCE
     // ==========================================
     if ($action === 'check_email') {
-        $email = sanitize($data['email'] ?? '');
+        $email = strtolower(trim(sanitize($data['email'] ?? '')));
         $exclude_id = (int)($data['exclude_id'] ?? 0);
 
         if (empty($email)) {
@@ -51,7 +51,7 @@ try {
             exit;
         }
 
-        $query = "SELECT id FROM branches WHERE email = ? AND status != 'Archived'";
+        $query = "SELECT id FROM branches WHERE LOWER(TRIM(email)) = ? AND status != 'Archived'";
         $params = [$email];
         $types = "s";
 
@@ -97,7 +97,7 @@ try {
                 $viewData = [
                     'id' => $b['id'],
                     'name' => $b['branch_name'],
-                    'email' => $b['email'] ?? '',
+                    'email' => strtolower(trim((string)($b['email'] ?? ''))),
                     'address' => $b['address'] ?? '',
                     'address_line' => $b['address_line'] ?? '',
                     'address_barangay' => $b['barangay'] ?? '',
@@ -111,7 +111,7 @@ try {
                 $html .= '<tr>';
                 $html .= '<td>' . $b['id'] . '</td>';
                 $html .= '<td style="font-weight:500; max-width:200px; word-break:break-word;">' . htmlspecialchars($b['branch_name']) . '</td>';
-                $html .= '<td style="max-width:220px; word-break:break-all;">' . htmlspecialchars($b['email'] ?? '—') . '</td>';
+                $html .= '<td style="max-width:220px; word-break:break-all;">' . htmlspecialchars(strtolower(trim((string)($b['email'] ?? ''))) ?: '—') . '</td>';
                 $html .= '<td style="text-align:right;white-space:nowrap;">';
                 $html .= '<button type="button" data-action="view" data-branch="' . $viewDataAttr . '" class="btn-action blue" style="margin-right:4px;">View</button>';
                 $html .= '<button type="button" data-action="restore" data-id="' . (int)$b['id'] . '" data-name="' . htmlspecialchars($b['branch_name'], ENT_QUOTES) . '" class="btn-action teal">Restore</button>';
@@ -156,7 +156,7 @@ try {
     // ==========================================
     if ($action === 'create') {
         $branch_name      = normalize_branch_name($data['branch_name'] ?? '');
-        $email            = sanitize($data['email'] ?? '');
+        $email            = strtolower(trim(sanitize($data['email'] ?? '')));
         $contact_number   = sanitize($data['contact_number'] ?? '09');
         $address          = sanitize($data['address'] ?? '');
         $address_line     = sanitize($data['address_line'] ?? '');
@@ -221,7 +221,7 @@ try {
     elseif ($action === 'update') {
         $branch_id      = (int)($data['branch_id'] ?? 0);
         $branch_name    = normalize_branch_name($data['branch_name'] ?? '');
-        $email            = sanitize($data['email'] ?? '');
+        $email            = strtolower(trim(sanitize($data['email'] ?? '')));
         $address          = sanitize($data['address'] ?? '');
         $address_line     = sanitize($data['address_line'] ?? '');
         $barangay         = sanitize($data['address_barangay'] ?? '');
