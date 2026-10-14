@@ -4,7 +4,7 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../includes/service_field_config_helper.php';
+require_once __DIR__ . '/../includes/service_field_renderer.php';
 
 function layout_test_assert(bool $cond, string $msg): void
 {
@@ -107,6 +107,17 @@ foreach ($layoutWithPrice['options'] as $opt) {
     }
 }
 layout_test_assert($optionTotal === 200.0, 'without_layout slug earns Without Layout option price');
+
+$renderedUpload = render_service_field('upload_design', $uploadField, [], [], $allConfigs);
+layout_test_assert(
+    str_contains($renderedUpload, '>Choose an option</option>'),
+    'design mode uses the concise dropdown placeholder'
+);
+layout_test_assert(
+    !str_contains($renderedUpload, 'Select Upload Design Option')
+        && !str_contains($renderedUpload, 'How would you like to provide your design?'),
+    'design mode omits duplicate label and question copy'
+);
 
 $withDesign = [
     'layout' => 'with_layout',
