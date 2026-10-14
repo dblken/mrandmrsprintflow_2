@@ -1262,7 +1262,7 @@ async function commitQty(pid) {
         return;
     }
     const cartTotal = getCartTotal();
-    if (cartTotal - currentQty + newQty > 99) {
+    if (cartTotal > 99) {
         input.value = String(currentQty);
         previewQty(row, currentQty);
         setQtyError(row, 'Your cart cannot exceed 99 items.');
