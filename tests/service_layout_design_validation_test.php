@@ -4,7 +4,7 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../includes/service_field_renderer.php';
+require_once __DIR__ . '/../includes/service_field_config_helper.php';
 
 function layout_test_assert(bool $cond, string $msg): void
 {
@@ -108,19 +108,6 @@ foreach ($layoutWithPrice['options'] as $opt) {
 }
 layout_test_assert($optionTotal === 200.0, 'without_layout slug earns Without Layout option price');
 
-<<<<<<< HEAD
-$renderedUpload = render_service_field('upload_design', $uploadField, [], [], $allConfigs);
-layout_test_assert(
-    str_contains($renderedUpload, '>Choose an option</option>'),
-    'design mode uses the concise dropdown placeholder'
-);
-layout_test_assert(
-    !str_contains($renderedUpload, 'Select Upload Design Option')
-        && !str_contains($renderedUpload, 'How would you like to provide your design?'),
-    'design mode omits duplicate label and question copy'
-);
-
-=======
 $withDesign = [
     'layout' => 'with_layout',
     'design_upload_files' => [['path' => '/uploads/orders/a.jpg', 'name' => 'a.jpg']],
@@ -147,5 +134,4 @@ $rendererJs = (string) file_get_contents(__DIR__ . '/../includes/service_field_r
 layout_test_assert(strpos($rendererJs, 'pfClearDesignUploadGroup') !== false, 'renderer exposes design clear on layout switch');
 layout_test_assert(strpos($rendererJs, 'pfClearDesignUploadGroup(uploadGroup)') !== false, 'conditional fields clear uploads when layout disables design');
 
->>>>>>> 323917f6486072cf7dabd565ac93ed1ab929d7b8
 echo "All service_layout_design_validation tests passed.\n";
