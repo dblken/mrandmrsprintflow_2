@@ -64,8 +64,8 @@ $effective_date = 'August 30, 2026';
             </section>
             <section>
                 <h2 class="lp-card-title">Sharing and Selling</h2>
-                <p class="lp-card-text">This policy does not claim that PrintFlow sells customer information. The current code supports internal use for the printing workflow and integrations needed for configured features such as email delivery, OTP delivery, address selection, payment processing, push notifications, or Google Sign-In.</p>
-                <p class="lp-card-text"><strong style="color:#fbbf24;">For review:</strong> Add any business-approved third-party disclosure details only after confirming the deployed integrations and operational policy.</p>
+                <p class="lp-card-text">PrintFlow does not sell customer personal information.</p>
+                <p class="lp-card-text">Customer information may be shared with trusted service providers only when necessary to operate PrintFlow features, such as email and OTP delivery, payment processing, address services, push notifications, and Google Sign-In.</p>
             </section>
             <section>
                 <h2 class="lp-card-title">Customer Responsibilities</h2>

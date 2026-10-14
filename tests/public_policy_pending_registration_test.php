@@ -16,5 +16,8 @@ $assert(str_contains($terms, 'removed after 24 hours'), 'Terms disclose 24-hour 
 $assert(str_contains($terms, 'Google Sign-In accounts') && str_contains($terms, 'orders or other protected business activity'), 'Terms preserve protected account and business records');
 $assert(str_contains($privacy, 'retained for up to 24 hours'), 'Privacy Policy describes pending registration retention');
 $assert(str_contains($privacy, 'security, legal, accounting, dispute-resolution, or operational purposes'), 'Privacy Policy preserves required record retention');
+$assert(str_contains($privacy, 'PrintFlow does not sell customer personal information.'), 'Privacy Policy states that customer information is not sold');
+$assert(str_contains($privacy, 'trusted service providers only when necessary'), 'Privacy Policy describes limited service-provider sharing');
+$assert(!str_contains($privacy, 'For review:'), 'Privacy Policy has no internal review placeholder');
 
 echo "Pending registration policy tests passed.\n";
