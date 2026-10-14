@@ -551,6 +551,18 @@ require_once __DIR__ . '/../includes/header.php';
         background: transparent;
         outline: none;
         -moz-appearance: textfield;
+        -webkit-appearance: none;
+        appearance: textfield;
+    }
+    .pf-group-qty-control input::-webkit-inner-spin-button,
+    .pf-group-qty-control input::-webkit-outer-spin-button {
+        margin: 0;
+        -webkit-appearance: none;
+    }
+    #pf-group-branch:focus {
+        outline: none;
+        border-color: #0f6b93;
+        box-shadow: 0 0 0 3px rgba(15, 107, 147, 0.16);
     }
     .field-error {
         color: #ef4444;

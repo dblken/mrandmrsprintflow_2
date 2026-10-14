@@ -18,6 +18,8 @@ $assert(strpos($groupPage, 'printflow_get_branch_product_stock') !== false, 'gro
 $assert(strpos($groupPage, 'PF_GROUP_PRODUCT_STOCK') !== false, 'group page exposes variant stock to JS');
 $assert(strpos($groupPage, 'id="pf-group-variant-options"') !== false, 'group page renders size picker container');
 $assert(strpos($groupPage, 'id="pf-group-qty"') !== false, 'group page renders quantity control');
+$assert(strpos($groupPage, '::-webkit-inner-spin-button') !== false && strpos($groupPage, '-webkit-appearance: none;') !== false, 'group quantity hides native browser spinners');
+$assert(strpos($groupPage, '#pf-group-branch:focus') !== false && strpos($groupPage, 'box-shadow: 0 0 0 3px rgba(15, 107, 147, 0.16)') !== false, 'group branch select uses custom focus styling');
 $assert(strpos($groupPage, 'customization: customization') !== false, 'group cart requests send customization payload');
 
 $assert(strpos($cartApi, 'function cart_key(int $product_id, ?int $variant_id, array $customization = [])') !== false, 'cart keys include customization');
