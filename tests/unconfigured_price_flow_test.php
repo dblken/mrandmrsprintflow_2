@@ -72,7 +72,14 @@ $check(str_contains($pos, 'id="pos-estimated-price-display" class="pos-estimated
 $check(str_contains($pos, 'pos-est-price-label">Estimated Price') && str_contains($pos, '₱0.00') && str_contains($pos, 'showSetPrice && item.price_set !== true'), 'a zero estimated price is still displayed');
 $check(str_contains($pos, $posModalMessage) && str_contains($pos, 'confirmMissingEstimatedPrice'), 'POS asks before adding a specification with no estimated price');
 $check(str_contains($pos, "if (priced.unitPrice <= 0)") && str_contains($pos, "if (!proceed) return"), 'Cancel leaves the item off the order');
-$check(str_contains($customerOrder, 'pf-customer-zero-price-note') && str_contains($customerOrder, 'printflow_customer_zero_estimated_price_message'), 'customer ordering shows inline zero-price guidance');
+$check(
+    str_contains($customerOrder, 'pf-customer-zero-price-note')
+        && str_contains($customerOrder, 'pf-estimated-price-tooltip')
+        && str_contains($customerOrder, 'aria-label="Estimated price information"')
+        && str_contains($customerOrder, 'printflow_customer_zero_estimated_price_message'),
+    'customer ordering shows zero-price guidance in an accessible Estimated Price tooltip'
+);
+$check(!str_contains($customerOrder, '<p id="pf-customer-zero-price-note"'), 'customer ordering removes the large inline zero-price notice');
 $check(!str_contains($customerOrder, $posModalMessage), 'customer ordering does not reuse the POS Continue/Cancel modal copy');
 $check(strpos($customerOrder, 'pf-missing-estimate-continue') === false, 'customer ordering does not block submit with a Continue/Cancel modal');
 $check(!str_contains($estimator, 'no configured price yet') && !str_contains($cart, 'no configured price yet') && !str_contains($pos, 'pos-unconfigured-price-note'), 'the ordering page no longer shows an inline missing-price message');

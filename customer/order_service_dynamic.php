@@ -1192,15 +1192,18 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                     <!-- Estimated Price Display -->
                     <div id="estimated-price-display" style="position:sticky;top:80px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;z-index:10;">
                         <div style="border-top:1px solid #e5e7eb;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;">
-                            <span style="font-size:1.125rem;color:#0a2530;font-weight:800;">Estimated Price:</span>
+                            <span class="pf-estimated-price-label" style="font-size:1.125rem;color:#0a2530;font-weight:800;">
+                                Estimated Price:
+                                <span id="pf-customer-zero-price-note" class="pf-field-help pf-estimated-price-info" data-pf-field-help="1" hidden>
+                                    <button type="button" class="pf-field-help-trigger pf-custom-size-info" aria-label="Estimated price information" aria-expanded="false" aria-controls="pf-estimated-price-tooltip">ⓘ</button>
+                                    <span id="pf-estimated-price-tooltip" class="pf-field-help-tooltip" role="tooltip" hidden><?php echo htmlspecialchars(printflow_customer_zero_estimated_price_message(), ENT_QUOTES, 'UTF-8'); ?></span>
+                                </span>
+                            </span>
                             <span id="estimated-total" style="font-size:1.5rem;color:#0a2530;font-weight:900;">₱0</span>
                         </div>
                         <div style="margin-top:0.5rem;font-size:0.875rem;color:#64748b;text-align:right;font-weight:500;">
                             Quantity: <span id="qty-display">1</span> | Final price will be confirmed by staff
                         </div>
-                        <p id="pf-customer-zero-price-note" hidden style="margin:0.85rem 0 0;padding:0.75rem 0.9rem;border-radius:10px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a5f;font-size:0.875rem;line-height:1.55;text-align:left;font-weight:500;">
-                            <?php echo htmlspecialchars(printflow_customer_zero_estimated_price_message(), ENT_QUOTES, 'UTF-8'); ?>
-                        </p>
                     </div>
                     
                     <?php echo render_service_fields($service_id, $branches, $existing_data); ?>
@@ -1593,6 +1596,8 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
 </div>
 
 <style>
+.pf-estimated-price-label { display:inline-flex;align-items:center;gap:0.25rem; }
+.pf-estimated-price-info[hidden] { display:none !important; }
 .poc-section-title { font-size:1.1rem;font-weight:700;color:#111827;margin:0 0 0.75rem; }
 .poc-filter-btn.active { background:#0a2530 !important;color:white !important;border-color:#0a2530 !important; }
 .poc-filter-btn:hover { border-color:#0a2530;background:#f0f4f5; }
@@ -2232,7 +2237,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const syncCustomerZeroPriceNote = () => {
             if (!zeroPriceNote) return;
-            zeroPriceNote.hidden = specificationHasEstimatedPrice(currentEstimatedPrice());
+            const shouldHide = specificationHasEstimatedPrice(currentEstimatedPrice());
+            zeroPriceNote.hidden = shouldHide;
+            if (shouldHide) {
+                zeroPriceNote.classList.remove('is-open');
+                const trigger = zeroPriceNote.querySelector('.pf-field-help-trigger');
+                const tooltip = zeroPriceNote.querySelector('.pf-field-help-tooltip');
+                if (trigger) trigger.setAttribute('aria-expanded', 'false');
+                if (tooltip) tooltip.hidden = true;
+            }
         };
 
         const isPublicDesignLinkHost = (hostname) => {
