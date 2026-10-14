@@ -15,5 +15,6 @@ $assert(substr_count($api, 'strtolower(trim(sanitize(') >= 3, 'branch API lowerc
 $assert(str_contains($api, 'LOWER(TRIM(email)) = ?'), 'branch email duplicate checks are case-insensitive');
 $assert(str_contains($page, "form.email.replace(/\\s/g, '').toLowerCase()"), 'branch email input lowercases values and blocks spaces');
 $assert(substr_count($page, 'strtolower(trim((string)') >= 4, 'branch email displays are lowercase in all table views');
+$assert(str_contains($page, '.branches-table th:nth-child(3), .branches-table td:nth-child(3) { text-transform: lowercase; }'), 'branch email table column enforces lowercase presentation');
 
 echo "Branch email normalization tests passed.\n";

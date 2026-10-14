@@ -162,6 +162,7 @@ if (isset($_GET['ajax'])) {
         .branches-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: auto; }
         .branches-table th { padding: 12px 16px; font-size: 13px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         .branches-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; color: #374151; max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .branches-table th:nth-child(3), .branches-table td:nth-child(3) { text-transform: lowercase; }
         .no-truncate { max-width: none !important; overflow: visible !important; white-space: nowrap !important; text-overflow: clip !important; }
         .branches-table tbody tr { cursor: pointer; transition: background 0.1s; }
         .branches-table tbody tr:hover td { background: #f9fafb; }
