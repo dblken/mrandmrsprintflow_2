@@ -62,7 +62,7 @@ if ($order_id < 1) {
 }
 
 $order_row = db_query(
-    'SELECT * FROM service_orders WHERE id = ?' . $serviceOrderBranchSql,
+    'SELECT * FROM service_orders WHERE id = ? AND ' . printflow_customer_exclusion_customer_scope_sql('service_orders.customer_id') . $serviceOrderBranchSql,
     'i' . $serviceOrderBranchTypes,
     array_merge([$order_id], $serviceOrderBranchParams)
 );
@@ -87,13 +87,16 @@ if ($op === 'approve') {
         if ($transactionStarted && !$conn->begin_transaction()) {
             throw new RuntimeException('Unable to start the service inventory transaction.');
         }
-        $lockedOrderRows = db_query("SELECT id, status, branch_id FROM service_orders WHERE id = ? FOR UPDATE", 'i', [$order_id]) ?: [];
+        $lockedOrderRows = db_query("SELECT id, status, branch_id, created_at FROM service_orders WHERE id = ? FOR UPDATE", 'i', [$order_id]) ?: [];
         if ($lockedOrderRows === []) throw new RuntimeException('The service order no longer exists.');
         $lockedOrder = $lockedOrderRows[0];
         $branchId = (int)($lockedOrder['branch_id'] ?? 0);
         if ($branchId <= 0) {
             throw new RuntimeException('The service order does not identify an inventory branch.');
         }
+        $serviceBusinessAt = function_exists('printflow_normalize_business_datetime')
+            ? printflow_normalize_business_datetime((string)($lockedOrder['created_at'] ?? ''))
+            : null;
 
         // Get materials assigned to this service order
         $materials = db_query(
@@ -126,7 +129,8 @@ if ($op === 'approve') {
                             'SERVICE_ORDER',
                             $order_id,
                             "Deducted for Service Order #{$order_id}",
-                            $branchId
+                            $branchId,
+                            $serviceBusinessAt
                         );
                     } catch (Exception $e) {
                         throw new Exception(
@@ -149,7 +153,8 @@ if ($op === 'approve') {
                                         'SERVICE_ORDER',
                                         $order_id,
                                         "Lamination deducted for Service Order #{$order_id}",
-                                        $branchId
+                                        $branchId,
+                                        $serviceBusinessAt
                                     );
                                 } else {
                                     InventoryManager::issueStock(
@@ -161,7 +166,8 @@ if ($op === 'approve') {
                                         "Lamination deducted for Service Order #{$order_id}",
                                         false,
                                         false,
-                                        $branchId
+                                        $branchId,
+                                        $serviceBusinessAt
                                     );
                                 }
                             } catch (Exception $e) {
@@ -185,7 +191,8 @@ if ($op === 'approve') {
                         "Deducted for Service Order #{$order_id}",
                         false,
                         false,
-                        $branchId
+                        $branchId,
+                        $serviceBusinessAt
                     );
                     db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ?", 'i', [$m['id']]);
                 }
@@ -224,7 +231,8 @@ if ($op === 'approve') {
                     "{$ink['ink_color']} ink used for Service Order #{$order_id}",
                     false,
                     false,
-                    $branchId
+                    $branchId,
+                    $serviceBusinessAt
                 );
                 if (db_execute(
                     "UPDATE job_order_ink_usage SET deducted_at = NOW()

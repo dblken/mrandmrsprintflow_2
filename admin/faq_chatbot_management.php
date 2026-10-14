@@ -146,14 +146,15 @@ if ($active_tab === 'responses') {
 }
 
 // Fetch conversation counts (active inbox only, excludes archived)
-$conv_counts = db_query("SELECT status, COUNT(*) as cnt FROM chatbot_conversations WHERE (is_archived = 0 OR is_archived IS NULL) GROUP BY status") ?: [];
+$chatbotCustomerScope = printflow_customer_exclusion_customer_scope_sql('c.customer_id');
+$conv_counts = db_query("SELECT c.status, COUNT(*) as cnt FROM chatbot_conversations c WHERE " . $chatbotCustomerScope . " AND (c.is_archived = 0 OR c.is_archived IS NULL) GROUP BY c.status") ?: [];
 $inq_pending  = 0;
 $inq_answered = 0;
 foreach ($conv_counts as $r) {
     if ($r['status'] === 'pending') $inq_pending = (int)$r['cnt'];
     if ($r['status'] === 'answered') $inq_answered = (int)$r['cnt'];
 }
-$conv_total = db_query("SELECT COUNT(*) as cnt FROM chatbot_conversations") ?: [];
+$conv_total = db_query("SELECT COUNT(*) as cnt FROM chatbot_conversations c WHERE " . $chatbotCustomerScope) ?: [];
 $inq_total  = (int)($conv_total[0]['cnt'] ?? 0);
 
 // Server-side: fetch conversations when on inquiries tab (shows data immediately, no JS fetch needed for initial load)
@@ -171,6 +172,7 @@ $inq_per_page = 5;
 $inq_offset = ($inq_page - 1) * $inq_per_page;
 $inq_search = trim($_GET['search'] ?? '');
 $inq_where = ["1=1"];
+$inq_where[] = printflow_customer_exclusion_customer_scope_sql('c.customer_id');
 $inq_params = [];
 $inq_types = '';
 if ($inq_filter === 'pending') $inq_where[] = "c.status = 'pending' AND (c.is_archived = 0 OR c.is_archived IS NULL)";

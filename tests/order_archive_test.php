@@ -20,7 +20,8 @@ $assert($threw, 'SQL expression aliases are validated');
 $root = dirname(__DIR__);
 $migration = file_get_contents($root . '/migrations/20261008_create_order_archive_tables.sql') ?: '';
 $batchMigration = file_get_contents($root . '/migrations/20261008_create_order_archive_batch_events.sql') ?: '';
-$admin = file_get_contents($root . '/admin/archived_orders.php') ?: '';
+$admin = file_get_contents($root . '/admin/archived_orders_manifest.php') ?: '';
+$archiveUi = file_get_contents($root . '/admin/archived_orders.php') ?: '';
 $helper = file_get_contents($root . '/includes/order_archive.php') ?: '';
 $settings = file_get_contents($root . '/admin/settings.php') ?: '';
 $orders = file_get_contents($root . '/admin/orders_management.php') ?: '';
@@ -33,6 +34,9 @@ $assert(str_contains($batchMigration, '`date_range_start`') && str_contains($bat
 $assert(!preg_match('/\b(DELETE|UPDATE|DROP|TRUNCATE|ALTER)\b/i', $batchMigration), 'batch audit migration has no data-changing or destructive SQL');
 $assert(str_contains($admin, "require_role('Admin')") && str_contains($admin, 'verify_csrf_token') && str_contains($admin, 'begin_transaction') && str_contains($admin, 'rollback()'), 'archive and restore route is Admin, CSRF, and transaction protected');
 $assert(str_contains($settings, '/admin/archived_orders.php') && strpos($settings, '<h1 class="page-title">Settings</h1>') < strpos($settings, 'Archived Orders'), 'Settings header exposes the Archived Orders link');
+$assert(str_contains($archiveUi, '<h1') && str_contains($archiveUi, 'Archived Orders') && str_contains($archiveUi, 'phone number, or customer ID'), 'Settings archive link opens the reusable Archived Orders page');
+$assert(str_contains($archiveUi, 'api_jenny_customer_exclusion.php') && str_contains($archiveUi, '?search=') && str_contains($archiveUi, 'Hide All Orders') && str_contains($archiveUi, 'Restore All Orders'), 'simplified page supports customer search, hide, and restore controls');
+$assert(str_contains($archiveUi, 'api_jenny_cleanup_preview.php') && str_contains($archiveUi, 'archivePreviewToken'), 'hide and restore controls require a fresh live preview');
 $assert(str_contains($admin, "'ARCHIVE PRINTFLOW 224 ORDERS'") && str_contains($admin, "'RESTORE SELECTED ORDERS'"), 'typed confirmations are enforced');
 $assert(str_contains($admin, 'SELECT order_id FROM orders WHERE order_id IN') && str_contains($admin, 'ORDER BY order_id FOR UPDATE'), 'archive locks and revalidates the exact ID manifest');
 $assert(str_contains($admin, 'begin_transaction()') && str_contains($admin, 'commit()') && str_contains($admin, 'rollback()'), 'archive and restore are transactional');
@@ -42,6 +46,7 @@ $assert(str_contains($helper, 'pf_oam.order_id = {$orderIdExpression}') && !str_
 $assert(!preg_match('/\b(DELETE\s+FROM\s+(orders|order_items|customers|provider_payments|inventory_transactions)|UPDATE\s+(orders|customers|provider_payments|inventory_transactions)\s+SET)\b/i', $admin), 'archive route does not mutate transactional or master rows');
 $assert(str_contains($orders, 'printflow_order_archive_scope_sql') && str_contains($repo, 'printflow_order_archive_scope_sql'), 'active order and customization lists use centralized scope');
 $assert(str_contains($customer, 'printflow_order_archive_scope_sql'), 'customer orders API uses centralized scope');
+$assert(str_contains(file_get_contents($root . '/admin/jenny_customer_archive.php') ?: '', '/admin/archived_orders.php'), 'legacy Jenny archive URL redirects to the simplified page');
 
 if ($failures !== []) {
     fwrite(STDERR, "FAIL order_archive_test\n - " . implode("\n - ", $failures) . "\n");

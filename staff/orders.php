@@ -17,6 +17,7 @@ require_once __DIR__ . '/../includes/staff_pending_check.php';
 require_once __DIR__ . '/../includes/pos_customer_helpers.php';
 
 printflow_pos_ensure_orders_guest_display_name_column();
+printflow_pos_ensure_orders_guest_email_column();
 
 $branch_ctx    = init_branch_context(false);
 $staffBranchId = (int)$branch_ctx['selected_branch_id'];
@@ -64,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 
         // Fetch current status and customer ID (only if order is in this branch)
         $order_info = db_query(
-            "SELECT customer_id, status FROM orders WHERE order_id = ? AND branch_id = ? AND {$staffOrderScopeSql}",
+            "SELECT customer_id, status FROM orders WHERE order_id = ? AND branch_id = ? AND {$staffOrderScopeSql} AND " . printflow_order_archive_scope_sql('orders'),
             'ii',
             [$order_id, $staffBranchId]
         );
@@ -76,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
             // Only proceed if the status is actually changing
             if ($current_status !== $new_status) {
                 // Use the centralized update_order_status logic
-                $success = db_execute("UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?", 'si', [$new_status, $order_id]);
+                $success = db_execute("UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ? AND " . printflow_customer_exclusion_customer_scope_sql('orders.customer_id'), 'si', [$new_status, $order_id]);
 
                 if ($success) {
                     // Log activity
@@ -557,7 +558,17 @@ function staff_orders_status_pill_style(string $displayStatus): string {
 
 function staff_orders_status_pill_html(string $displayStatus): string {
     $style = staff_orders_status_pill_style($displayStatus);
-    $label = htmlspecialchars(ucwords(strtolower(trim($displayStatus))));
+    $raw = trim($displayStatus);
+    if (!function_exists('printflow_add_details_status_label')) {
+        $labelPath = __DIR__ . '/../includes/add_details_labels.php';
+        if (is_file($labelPath)) {
+            require_once $labelPath;
+        }
+    }
+    $labelText = function_exists('printflow_add_details_status_label')
+        ? printflow_add_details_status_label($raw)
+        : ucwords(strtolower($raw));
+    $label = htmlspecialchars($labelText);
     return '<span class="pf-pill" style="' . $style . '">' . $label . '</span>';
 }
 
@@ -614,6 +625,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
                     <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars($order['customer_name']); ?>">
                         <?php echo htmlspecialchars($order['customer_name']); ?>
                     </div>
+                    <?php if (($order['order_source'] ?? '') === 'pos' && !empty($order['pos_guest_email'])): ?>
+                        <div class="table-text-sub truncate-ellipsis"><?php echo htmlspecialchars((string)$order['pos_guest_email'], ENT_QUOTES, 'UTF-8'); ?></div>
+                    <?php endif; ?>
                 </td>
                 <?php if (!$is_pos_staff): ?>
                 <td class="px-4 py-4 status-col-cell source-cell" data-label="Source">
@@ -3190,6 +3204,9 @@ $page_title = 'Product Orders - PrintFlow';
                                         <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars($order['customer_name']); ?>">
                                             <?php echo htmlspecialchars($order['customer_name']); ?>
                                         </div>
+                                        <?php if (($order['order_source'] ?? '') === 'pos' && !empty($order['pos_guest_email'])): ?>
+                                            <div class="table-text-sub truncate-ellipsis"><?php echo htmlspecialchars((string)$order['pos_guest_email'], ENT_QUOTES, 'UTF-8'); ?></div>
+                                        <?php endif; ?>
                                     </td>
                                     <?php if (!$is_pos_staff): ?>
                                     <td class="px-4 py-4 status-col-cell source-cell" data-label="Source">

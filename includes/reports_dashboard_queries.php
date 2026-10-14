@@ -8,6 +8,7 @@ if (defined('REPORTS_DASHBOARD_QUERIES_LOADED')) {
 }
 define('REPORTS_DASHBOARD_QUERIES_LOADED', true);
 
+require_once __DIR__ . '/sales_report_dedupe.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/order_archive.php';
 require_once __DIR__ . '/branch_context.php';
@@ -48,7 +49,7 @@ function pf_reports_branch_has_activity($branchId): bool {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
         $c1 = (int) (db_query("SELECT COUNT(*) as c FROM orders o WHERE " . printflow_order_archive_scope_sql('o') . "$b", $bt ?: null, $bp ?: null)[0]['c'] ?? 0);
         [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
-        $c2 = (int) (db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE " . printflow_order_archive_exclusion_sql('jo.order_id') . "$bj", $btj ?: null, $bpj ?: null)[0]['c'] ?? 0);
+        $c2 = (int) (db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE " . printflow_order_archive_exclusion_sql('jo.order_id') . " AND " . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . "$bj", $btj ?: null, $bpj ?: null)[0]['c'] ?? 0);
         return ($c1 + $c2) > 0;
     } catch (Throwable $e) {
         return false;
@@ -82,43 +83,129 @@ function pf_reports_job_order_paid_completed_expr(string $alias = 'jo'): string 
 /** Service order counts as completed for revenue exports. */
 function pf_reports_service_order_completed_expr(string $alias = 'so'): string {
     $alias = pf_reports_sql_alias($alias, 'so');
-    return "{$alias}.status = 'Completed'";
+    return '(' . printflow_customer_exclusion_customer_scope_sql($alias . '.customer_id') . " AND {$alias}.status = 'Completed')";
 }
 
 /** Official product/store sales inclusion rule for all reports. */
 function pf_reports_store_order_sales_expr(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
     $activeArchiveScope = printflow_order_archive_scope_sql($alias);
-    return "({$activeArchiveScope} AND (LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
+    // pos_merged rows are draft shells re-linked during POS checkout; the paid pos order is canonical.
+    return "({$activeArchiveScope} AND LOWER(TRIM(COALESCE({$alias}.order_source, ''))) NOT IN ('pos_merged', 'pos_draft')
+             AND (LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
              OR LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed'))";
 }
 
-/** Store orders that belong on the Products / Orders page (excludes custom checkout rows). */
-function pf_reports_store_product_order_scope_sql(string $alias = 'o'): string {
+/**
+ * SQL predicate: store order is a customization/service checkout (not a plain product cart).
+ * Matches CustomizationRepository rules — do not treat NULL order_type as product when customized.
+ */
+function pf_reports_store_custom_service_exists_sql(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
-    return '(' . printflow_order_archive_scope_sql($alias) . " AND LOWER(TRIM(COALESCE({$alias}.order_type, 'product'))) = 'product')";
+    $parts = ["LOWER(TRIM(COALESCE({$alias}.order_type, ''))) = 'custom'"];
+    if (function_exists('pf_reports_table_has_column') ? pf_reports_table_has_column('order_items', 'customization_data') : true) {
+        $parts[] = "EXISTS (SELECT 1 FROM order_items oi_cs WHERE oi_cs.order_id = {$alias}.order_id AND TRIM(COALESCE(oi_cs.customization_data, '')) NOT IN ('', '[]', '{}', 'null'))";
+    }
+    if (function_exists('pf_reports_table_has_column') ? pf_reports_table_has_column('customizations', 'order_id') : true) {
+        $parts[] = "EXISTS (SELECT 1 FROM customizations cz_cs WHERE cz_cs.order_id = {$alias}.order_id)";
+    }
+    if (function_exists('pf_reports_table_has_column') ? pf_reports_table_has_column('job_orders', 'order_id') : true) {
+        $parts[] = "EXISTS (SELECT 1 FROM job_orders jo_cs WHERE jo_cs.order_id = {$alias}.order_id)";
+    }
+
+    return '(' . implode(' OR ', $parts) . ')';
 }
 
-/** Store orders from custom/service checkout rows (POS or online custom carts). */
+/** Plain product store orders (excludes customization/service checkouts). */
+function pf_reports_store_product_order_scope_sql(string $alias = 'o'): string {
+    $alias = pf_reports_sql_alias($alias, 'o');
+    $custom = pf_reports_store_custom_service_exists_sql($alias);
+
+    return '(' . printflow_order_archive_scope_sql($alias) . " AND NOT {$custom})";
+}
+
+/** Customization/service store orders (POS custom, online service, backdated POS). */
 function pf_reports_store_custom_order_scope_sql(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
-    return '(' . printflow_order_archive_scope_sql($alias) . " AND LOWER(TRIM(COALESCE({$alias}.order_type, 'product'))) = 'custom')";
+    $custom = pf_reports_store_custom_service_exists_sql($alias);
+
+    return '(' . printflow_order_archive_scope_sql($alias) . " AND {$custom})";
 }
 
 /**
  * Skip job-order revenue when the linked custom store order is already a recognized sale.
- * Prevents double-counting paid POS customizations that still have a pending job row.
+ * Prevents double-counting POS/online checkouts that create both orders + job_orders rows.
+ * Store orders are canonical; job_orders are excluded when the linked order is already a sale.
  */
 function pf_reports_job_exclude_linked_custom_store_sale_sql(string $alias = 'jo'): string {
     $alias = pf_reports_sql_alias($alias, 'jo');
     $storeSales = pf_reports_store_order_sales_expr('o_ex');
-    $customScope = pf_reports_store_custom_order_scope_sql('o_ex');
     return " AND NOT EXISTS (
         SELECT 1 FROM orders o_ex
-        WHERE o_ex.order_id = {$alias}.order_id
+        WHERE CAST(o_ex.order_id AS UNSIGNED) = CAST({$alias}.order_id AS UNSIGNED)
+          AND CAST({$alias}.order_id AS UNSIGNED) > 0
           AND {$storeSales}
-          AND {$customScope}
     )";
+}
+
+/**
+ * Canonical official revenue: each store order once (order_date) + orphan jobs only.
+ *
+ * @return array{store_revenue:float,store_count:int,orphan_job_revenue:float,orphan_job_count:int,total_sales:float,transaction_count:int}
+ */
+function pf_reports_canonical_official_sales_totals(string $from, string $toEnd, $branchId): array {
+    $storeSales = pf_reports_store_order_sales_expr('o');
+    $storeRevenue = pf_reports_store_order_revenue_expr('o');
+    $jobSales = pf_reports_job_order_sales_expr('jo');
+    $jobRevenue = pf_reports_job_order_revenue_expr('jo');
+    $jobDate = pf_reports_job_order_sales_date_expr('jo');
+    $jobExcludeLinkedCustomStore = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
+
+    $out = [
+        'store_revenue' => 0.0,
+        'store_count' => 0,
+        'orphan_job_revenue' => 0.0,
+        'orphan_job_count' => 0,
+        'total_sales' => 0.0,
+        'transaction_count' => 0,
+    ];
+
+    try {
+        [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
+        [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
+        $row = db_query(
+            "SELECT COUNT(*) AS cnt, COALESCE(SUM({$storeRevenue}), 0) AS rev
+             FROM orders o
+             WHERE {$storeSales}{$do}{$bo}",
+            $dto . $bto,
+            array_merge($dpo, $bpo)
+        )[0] ?? [];
+        $out['store_count'] = (int)($row['cnt'] ?? 0);
+        $out['store_revenue'] = (float)($row['rev'] ?? 0);
+    } catch (Throwable $e) {
+    }
+
+    try {
+        [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
+        [$dj, $dtj, $dpj] = pf_reports_date_expr_where($jobDate, $from, $toEnd);
+        $row = db_query(
+            "SELECT COUNT(*) AS cnt, COALESCE(SUM({$jobRevenue}), 0) AS rev
+             FROM job_orders jo
+             WHERE {$jobSales}{$jobExcludeLinkedCustomStore}{$dj}{$bj}",
+            $dtj . $btj,
+            array_merge($dpj, $bpj)
+        )[0] ?? [];
+        $out['orphan_job_count'] = (int)($row['cnt'] ?? 0);
+        $out['orphan_job_revenue'] = (float)($row['rev'] ?? 0);
+    } catch (Throwable $e) {
+    }
+
+    $out['store_revenue'] = round($out['store_revenue'], 2);
+    $out['orphan_job_revenue'] = round($out['orphan_job_revenue'], 2);
+    $out['total_sales'] = round($out['store_revenue'] + $out['orphan_job_revenue'], 2);
+    $out['transaction_count'] = $out['store_count'] + $out['orphan_job_count'];
+
+    return $out;
 }
 
 /** Official product/store revenue amount. Uses amount_paid when the column exists. */
@@ -136,7 +223,8 @@ function pf_reports_store_order_revenue_expr(string $alias = 'o'): string {
 function pf_reports_job_order_sales_expr(string $alias = 'jo'): string {
     $alias = pf_reports_sql_alias($alias, 'jo');
     $activeArchiveScope = printflow_order_archive_exclusion_sql($alias . '.order_id');
-    return "({$activeArchiveScope} AND (LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
+    $customerScope = printflow_customer_exclusion_customer_scope_sql($alias . '.customer_id');
+    return "({$activeArchiveScope} AND {$customerScope} AND (LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
              OR LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed'))";
 }
 
@@ -146,10 +234,14 @@ function pf_reports_job_order_revenue_expr(string $alias = 'jo'): string {
     return "COALESCE(NULLIF({$alias}.amount_paid, 0), {$alias}.estimated_total, 0)";
 }
 
-/** Official customization/job-order sales date. */
+/** Official customization/job-order sales date (prefer linked store order business date). */
 function pf_reports_job_order_sales_date_expr(string $alias = 'jo'): string {
     $alias = pf_reports_sql_alias($alias, 'jo');
-    return "COALESCE({$alias}.payment_verified_at, {$alias}.created_at)";
+    $linkedOrderDate = "(SELECT o_biz.order_date FROM orders o_biz
+        WHERE o_biz.order_id = {$alias}.order_id AND {$alias}.order_id > 0
+        LIMIT 1)";
+
+    return "COALESCE({$linkedOrderDate}, {$alias}.payment_verified_at, {$alias}.created_at)";
 }
 
 /**
@@ -238,8 +330,11 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
         $summary['service_sales'] += (float)($row['rev'] ?? 0);
     } catch (Throwable $e) {}
 
-    $summary['total_sales'] = round((float)$summary['product_sales'] + (float)$summary['service_sales'], 2);
-    $summary['transaction_count'] = (int)$summary['product_transactions'] + (int)$summary['service_transactions'];
+    $canonical = pf_reports_canonical_official_sales_totals($from, $toEnd, $branchId);
+    $summary['store_order_revenue_total'] = $canonical['store_revenue'];
+    $summary['orphan_job_revenue_total'] = $canonical['orphan_job_revenue'];
+    $summary['total_sales'] = $canonical['total_sales'];
+    $summary['transaction_count'] = $canonical['transaction_count'];
     $summary['product_sales'] = round((float)$summary['product_sales'], 2);
     $summary['service_sales'] = round((float)$summary['service_sales'], 2);
 
@@ -336,7 +431,7 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
         [$dj, $dtj, $dpj] = pf_reports_date_expr_where($jobDate, $from, $toEnd);
         $txnRows = array_merge($txnRows, db_query("SELECT 'Service' AS type, 'job' AS ref_type, jo.id AS id, jo.order_id AS store_order_id, {$jobDate} AS sales_date, {$jobRevenue} AS amount, {$jobPaymentMethod} AS payment_method, jo.payment_status, jo.status, COALESCE(b.branch_name, CONCAT('Branch #', jo.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name, COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS item_name FROM job_orders jo LEFT JOIN customers c ON c.customer_id = jo.customer_id LEFT JOIN branches b ON b.id = jo.branch_id WHERE {$jobSales}{$jobExcludeLinkedCustomStore}{$dj}{$bj}", $dtj . $btj, array_merge($dpj, $bpj)) ?: []);
     } catch (Throwable $e) {}
-    usort($txnRows, static fn($a, $b) => strcmp((string)($b['sales_date'] ?? ''), (string)($a['sales_date'] ?? '')));
+    $txnRows = pf_reports_deduplicate_official_sales_transactions($txnRows);
     foreach (array_slice($txnRows, 0, $limit) as $row) {
         $transactions[] = [
             'type' => (string)($row['type'] ?? ''),

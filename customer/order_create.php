@@ -161,7 +161,7 @@ function printflow_render_product_custom_field(string $field_key, array $config,
             $html .= '<option value="later">Send Later</option>';
         }
         $html .= '</select>';
-        $html .= '<input type="file" name="' . $name . '" class="field-input pf-product-design-file" disabled ' . ($required ? 'required' : '') . ' style="max-width:420px;display:none;">';
+        $html .= '<input type="file" name="' . $name . '[]" multiple class="field-input pf-product-design-file" disabled ' . ($required ? 'required' : '') . ' style="max-width:420px;display:none;">';
         if ($saved !== '') {
             $html .= '<div style="font-size:12px;color:#64748b;margin-top:8px;">Current file: ' . htmlspecialchars($saved) . '</div>';
         }
@@ -242,8 +242,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
 
         if ($type === 'file') {
             $design_mode = trim((string)($_POST['design_input_mode'] ?? ''));
-            $file = $_FILES[$field_key] ?? null;
-            $has_file = is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+            $fileEntries = [];
+            if (isset($_FILES[$field_key]) && is_array($_FILES[$field_key])) {
+                $multi = $_FILES[$field_key];
+                if (is_array($multi['name'] ?? null)) {
+                    $count = count($multi['name']);
+                    for ($fi = 0; $fi < $count; $fi++) {
+                        if (($multi['error'][$fi] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                            continue;
+                        }
+                        $fileEntries[] = [
+                            'name' => $multi['name'][$fi] ?? '',
+                            'type' => $multi['type'][$fi] ?? '',
+                            'tmp_name' => $multi['tmp_name'][$fi] ?? '',
+                            'error' => $multi['error'][$fi] ?? UPLOAD_ERR_NO_FILE,
+                            'size' => $multi['size'][$fi] ?? 0,
+                        ];
+                    }
+                } elseif (($multi['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                    $fileEntries = [$multi];
+                }
+            }
+            $has_file = $fileEntries !== [];
             if ($design_mode !== '' && !in_array($design_mode, ['file', 'later'], true)) {
                 $error = 'Please select a valid upload design option.';
                 break;
@@ -260,26 +280,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 break;
             }
             if ($has_file) {
-                $valid = service_order_validate_file($file);
-                if (!$valid['ok']) {
-                    $error = $valid['error'];
-                    break;
+                $storedNames = [];
+                foreach ($fileEntries as $fileIndex => $file) {
+                    if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                        continue;
+                    }
+                    $valid = service_order_validate_file($file);
+                    if (!$valid['ok']) {
+                        $error = $valid['error'];
+                        break 2;
+                    }
+                    $tmpDir = service_order_temp_dir();
+                    $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
+                    $target = $tmpDir . DIRECTORY_SEPARATOR . 'product_field_' . $product_id . '_' . $field_key . '_' . uniqid('', true) . '.' . $ext;
+                    if (!move_uploaded_file((string)$file['tmp_name'], $target)) {
+                        $error = 'Failed to keep uploaded file for checkout.';
+                        break 2;
+                    }
+                    $storedNames[] = trim((string)$file['name']);
+                    $uploaded_files[] = [
+                        'field_key' => $field_key,
+                        'label' => $label,
+                        'tmp_path' => $target,
+                        'name' => trim((string)$file['name']),
+                        'mime' => (string)$valid['mime'],
+                        'upload_sort' => count($uploaded_files),
+                        'idempotency_key' => hash('sha256', $field_key . '|' . $target . '|' . (string)$fileIndex),
+                    ];
                 }
-                $tmpDir = service_order_temp_dir();
-                $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
-                $target = $tmpDir . DIRECTORY_SEPARATOR . 'product_field_' . $product_id . '_' . $field_key . '_' . uniqid('', true) . '.' . $ext;
-                if (!move_uploaded_file($file['tmp_name'], $target)) {
-                    $error = 'Failed to keep uploaded file for checkout.';
-                    break;
+                if ($storedNames !== []) {
+                    $value = implode(', ', $storedNames);
                 }
-                $value = trim((string)$file['name']);
-                $uploaded_files[] = [
-                    'field_key' => $field_key,
-                    'label' => $label,
-                    'tmp_path' => $target,
-                    'name' => $value,
-                    'mime' => (string)$valid['mime'],
-                ];
             } else {
                 if ($required_field && $design_mode !== 'file') {
                     $error = 'Please upload the required design file.';

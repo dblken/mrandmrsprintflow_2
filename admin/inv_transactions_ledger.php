@@ -212,7 +212,7 @@ $sql = "SELECT t.*,
             FROM customizations
             GROUP BY order_id
         ) cust_map ON cust_map.order_id = jo.order_id
-        WHERE 1=1";
+        WHERE 1=1 AND " . printflow_customer_exclusion_inventory_scope_sql('t', 'inventory_transactions');
 $params = [];
 $types = '';
 if ($branchId > 0) {
@@ -291,8 +291,8 @@ if ($search) {
 }
 if ($start_date && $end_date) {
     $sql .= " AND t.transaction_date BETWEEN ? AND ?";
-    $params[] = $start_date;
-    $params[] = $end_date;
+    $params[] = printflow_ledger_datetime_range_bound((string)$start_date, false);
+    $params[] = printflow_ledger_datetime_range_bound((string)$end_date, true);
     $types .= 'ss';
 }
 

@@ -15,7 +15,7 @@ $order_id = (int)($_GET['order_id'] ?? 0);
 $customer_id = get_customer_id();
 
 // Get order
-$order = db_query("SELECT * FROM orders WHERE order_id = ? AND customer_id = ?", 'ii', [$order_id, $customer_id]);
+$order = db_query("SELECT * FROM orders WHERE order_id = ? AND customer_id = ? AND " . printflow_order_archive_scope_sql('orders'), 'ii', [$order_id, $customer_id]);
 
 if (empty($order)) {
     redirect('/printflow/customer/orders.php');
@@ -53,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     if (!$transactionStarted) throw new RuntimeException('Could not start payment transaction.');
 
                     $updated = db_execute(
-                        "UPDATE orders SET status = 'To Verify', payment_status = 'Unpaid', payment_method = ?, payment_reference = ?, payment_proof_path = ?, updated_at = NOW() WHERE order_id = ? AND customer_id = ?",
+                        "UPDATE orders SET status = 'To Verify', payment_status = 'Unpaid', payment_method = ?, payment_reference = ?, payment_proof_path = ?, updated_at = NOW() WHERE order_id = ? AND customer_id = ? AND " . printflow_customer_exclusion_customer_scope_sql('orders.customer_id'),
                         'sssii',
                         [$payment_method, $reference_number, $file_path, $order_id, $customer_id]
                     );

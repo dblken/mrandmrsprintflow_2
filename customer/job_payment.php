@@ -15,7 +15,7 @@ $job_id = (int)($_GET['id'] ?? 0);
 $customer_id = get_customer_id();
 
 // Get customization
-$job = db_query("SELECT * FROM job_orders WHERE id = ? AND customer_id = ?", 'ii', [$job_id, $customer_id]);
+$job = db_query("SELECT * FROM job_orders WHERE id = ? AND customer_id = ? AND " . printflow_order_archive_exclusion_sql('job_orders.order_id') . " AND " . printflow_customer_exclusion_customer_scope_sql('job_orders.customer_id'), 'ii', [$job_id, $customer_id]);
 
 if (empty($job)) {
     redirect('/printflow/customer/services.php');

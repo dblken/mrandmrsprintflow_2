@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                s.first_name as staff_first_name, s.last_name as staff_last_name
         FROM orders o
         LEFT JOIN staff s ON o.staff_id = s.staff_id
-        WHERE o.order_id = ? AND o.customer_id = ?
+        WHERE o.order_id = ? AND o.customer_id = ? AND " . printflow_order_archive_scope_sql('o') . "
     ";
     
     $result = db_query($sql, 'ii', [$order_id, $customer_id]);

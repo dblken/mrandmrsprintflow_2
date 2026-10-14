@@ -8,6 +8,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/order_items_persistence.php';
+require_once __DIR__ . '/../includes/order_item_design_files.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 
 // Base directories used by older and newer upload code.
@@ -917,6 +918,38 @@ if ($type === 'job_order') {
     } else {
         pf_serve_design_emit_fallback('File unavailable');
     }
+}
+
+if ($type === 'order_item_file') {
+    $orderItemIdHint = max(0, (int)($_GET['item_id'] ?? 0));
+    $rows = db_query(
+        'SELECT file_id, order_item_id, order_id, customer_id, display_name, mime_type, storage_path
+         FROM order_item_design_files
+         WHERE file_id = ?
+         LIMIT 1',
+        'i',
+        [$id]
+    ) ?: [];
+    if ($rows === []) {
+        pf_serve_design_emit_fallback('Design file not found');
+    }
+    $row = $rows[0];
+    if ($orderItemIdHint > 0 && (int)($row['order_item_id'] ?? 0) !== $orderItemIdHint) {
+        pf_serve_design_emit_fallback('Design file not found for this item');
+    }
+    if (!printflow_order_item_design_file_assert_access($id, (int)$user_id, $is_staff)) {
+        http_response_code(403);
+        die('Unauthorized access to this file.');
+    }
+    $disk = function_exists('printflow_resolve_order_upload_disk_path')
+        ? printflow_resolve_order_upload_disk_path((string)($row['storage_path'] ?? ''))
+        : null;
+    if ($disk === null || !is_file($disk)) {
+        pf_serve_design_emit_fallback('File unavailable');
+    }
+    $filename = (string)($row['display_name'] ?? basename($disk));
+    $mime = trim((string)($row['mime_type'] ?? ''));
+    pf_serve_design_emit_file($disk, $mime, $filename);
 }
 
 if ($type === 'order_item') {

@@ -92,6 +92,8 @@ if (isset($_SESSION['user_id'])) {
                     <a href="<?php echo $base_path; ?>/admin/customizations.php" class="nav-subitem <?php echo in_array($current_page, ['customizations.php', 'job_orders.php'], true) ? 'active' : ''; ?>" data-nav-page="customizations.php">
                         Custom Orders
                     </a>
+                    <?php if (function_exists('is_admin') && is_admin()): ?>
+                    <?php endif; ?>
                 </div>
             </div>
 

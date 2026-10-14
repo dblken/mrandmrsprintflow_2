@@ -24,15 +24,11 @@ if ($orderId <= 0) {
 $branchFilter = function_exists('printflow_branch_filter_for_user')
     ? printflow_branch_filter_for_user()
     : null;
-// Stock helpers detect this transaction and skip their legacy schema setup.
-// Keep every diagnostic query read-only and in one consistent snapshot.
+// Ordinary SELECTs. A read-only snapshot on this host aborts the connection
+// and makes the following lookup look like a missing order.
 global $conn;
-if (!$conn->begin_transaction(MYSQLI_TRANS_START_READ_ONLY | MYSQLI_TRANS_START_WITH_CONSISTENT_SNAPSHOT)) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Unable to start read-only trace.']);
-    exit;
-}
-$orderSql = 'SELECT order_id, branch_id, order_source, order_type, order_date, created_at, updated_at, status, payment_status, total_amount
+$readOnlySnapshot = false;
+$orderSql = 'SELECT order_id, branch_id, order_source, order_date, status, payment_status, total_amount
              FROM orders WHERE order_id = ?';
 $orderTypes = 'i';
 $orderParams = [$orderId];
@@ -41,8 +37,26 @@ if ($branchFilter !== null && (int)$branchFilter > 0) {
     $orderTypes .= 'i';
     $orderParams[] = (int)$branchFilter;
 }
+$errorsBeforeLookup = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
 $orders = db_query($orderSql, $orderTypes, $orderParams) ?: [];
+$orderLookupErrors = function_exists('printflow_db_errors')
+    ? array_slice(printflow_db_errors(), $errorsBeforeLookup)
+    : [];
+if ($orders === [] && $orderLookupErrors !== []) {
+    error_log('[PrintFlow POS trace] order=' . $orderId . ' lookup_errors=' . json_encode(array_map(static function ($error) {
+        return [
+            'stage' => (string)($error['stage'] ?? ''),
+            'errno' => (int)($error['errno'] ?? 0),
+        ];
+    }, $orderLookupErrors)));
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Trace query failed before the order lookup.']);
+    exit;
+}
 if ($orders === []) {
+    if ($readOnlySnapshot && function_exists('printflow_db_in_transaction') && printflow_db_in_transaction($conn)) {
+        $conn->rollback();
+    }
     http_response_code(404);
     echo json_encode(['success' => false, 'message' => 'Order not found in your branch.']);
     exit;
@@ -54,7 +68,7 @@ $items = db_query(
     [$orderId]
 ) ?: [];
 $customizations = db_query(
-    'SELECT customization_id, order_id, order_item_id, status, created_at, updated_at FROM customizations WHERE order_id = ? ORDER BY customization_id',
+    'SELECT customization_id, order_id, order_item_id, status FROM customizations WHERE order_id = ? ORDER BY customization_id',
     'i',
     [$orderId]
 ) ?: [];
@@ -71,15 +85,15 @@ if ($jobIds !== []) {
     $placeholders = implode(',', array_fill(0, count($jobIds), '?'));
     $types = str_repeat('i', count($jobIds));
     $materials = db_query(
-        "SELECT id, job_order_id, std_order_id, item_id, quantity, uom, deducted_at
+        "SELECT id, job_order_id, item_id, quantity, deducted_at
          FROM job_order_materials
-         WHERE job_order_id IN ({$placeholders}) OR std_order_id = ?
+         WHERE job_order_id IN ({$placeholders})
          ORDER BY id",
-        $types . 'i',
-        array_merge($jobIds, [$orderId])
+        $types,
+        $jobIds
     ) ?: [];
     $ledger = db_query(
-        "SELECT id, transaction_id, item_id, product_id, branch_id, direction, quantity, uom, ref_type, ref_id, transaction_date, created_at, notes
+        "SELECT id, item_id, branch_id, direction, quantity, ref_type, ref_id, transaction_date
          FROM inventory_transactions
          WHERE (UPPER(ref_type) = 'JOB_ORDER' AND ref_id IN ({$placeholders}))
             OR (UPPER(ref_type) IN ('ORDER', 'ORDER_PRODUCT') AND ref_id = ?)
@@ -89,11 +103,11 @@ if ($jobIds !== []) {
     ) ?: [];
 } else {
     $materials = db_query(
-        'SELECT id, job_order_id, std_order_id, item_id, quantity, uom, deducted_at FROM job_order_materials WHERE std_order_id = ? ORDER BY id',
+        'SELECT id, job_order_id, item_id, quantity, deducted_at FROM job_order_materials WHERE job_order_id = ? ORDER BY id',
         'i', [$orderId]
     ) ?: [];
     $ledger = db_query(
-        "SELECT id, transaction_id, item_id, product_id, branch_id, direction, quantity, uom, ref_type, ref_id, transaction_date, created_at, notes
+        "SELECT id, item_id, branch_id, direction, quantity, ref_type, ref_id, transaction_date
          FROM inventory_transactions
          WHERE UPPER(ref_type) IN ('ORDER', 'ORDER_PRODUCT') AND ref_id = ?
          ORDER BY id DESC",
@@ -107,9 +121,9 @@ $deductionAudit = [];
 $expectedLedgerDateRaw = function_exists('printflow_store_order_ledger_date')
     ? printflow_store_order_ledger_date($orderId)
     : trim((string)($order['order_date'] ?? ''));
-$expectedLedgerDate = $expectedLedgerDateRaw !== '' && $expectedLedgerDateRaw !== null
-    ? substr((string)$expectedLedgerDateRaw, 0, 10)
-    : '';
+$expectedLedgerDate = function_exists('printflow_normalize_business_datetime')
+    ? (printflow_normalize_business_datetime((string)$expectedLedgerDateRaw) ?? '')
+    : trim((string)$expectedLedgerDateRaw);
 foreach ($materials as $material) {
     $itemId = (int)$material['item_id'];
     $branchId = (int)$order['branch_id'];
@@ -131,7 +145,9 @@ foreach ($materials as $material) {
             && $jobMatches && (int)$movement['item_id'] === $itemId
             && (int)$movement['branch_id'] === $branchId) {
             $matchingLedgerIds[] = (int)$movement['id'];
-            $movementBusinessDate = substr(trim((string)$movement['transaction_date']), 0, 10);
+            $movementBusinessDate = function_exists('printflow_normalize_business_datetime')
+                ? (printflow_normalize_business_datetime((string)$movement['transaction_date']) ?? '')
+                : trim((string)$movement['transaction_date']);
             if ($expectedLedgerDate !== '' && $movementBusinessDate !== $expectedLedgerDate) {
                 $wrongDateLedgerIds[] = (int)$movement['id'];
             }
@@ -161,36 +177,33 @@ foreach ($materials as $material) {
         'requires_review' => ($markedDeducted && $matchingLedgerIds === []) || $wrongDateLedgerIds !== [],
         'finding' => $finding,
     ];
-    if (!isset($stock[$key])) {
-        $stock[$key] = [
-            'item_id' => $itemId,
-            'branch_id' => $branchId,
-            'current_stock' => InventoryManager::getStockOnHand($itemId, $branchId),
-        ];
-    }
 }
-$queryErrors = function_exists('printflow_db_errors') ? printflow_db_errors() : [];
-// Never report an empty result as proof that no rows exist if a query failed.
-if ($queryErrors !== []) {
-    error_log('[PrintFlow POS trace] order=' . $orderId . ' query_errors=' . json_encode($queryErrors));
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Trace query failed; inspect PHP error log for this order ID.']);
-    exit;
-}
+$queryErrors = function_exists('printflow_db_errors')
+    ? array_slice(printflow_db_errors(), $errorsBeforeLookup)
+    : [];
+// A stock helper can record schema noise. Keep the ledger rows and report only
+// the errno so a failed read is not presented as an empty deduction.
+$readErrorNos = array_values(array_unique(array_map(static function ($error): int {
+    return (int)($error['errno'] ?? 0);
+}, $queryErrors)));
 
 echo json_encode([
     'success' => true,
     'trace_generated_at' => date('Y-m-d H:i:s'),
+    'read_only_snapshot' => $readOnlySnapshot,
     'order' => $order,
     'order_items' => $items,
     'customizations' => $customizations,
     'job_orders' => $jobs,
     'material_assignments' => $materials,
     'inventory_transactions' => $ledger,
+    'read_error_numbers' => $readErrorNos,
     'order_business_date' => $order['order_date'],
     'expected_ledger_business_date' => $expectedLedgerDate !== '' ? $expectedLedgerDate : null,
     'material_stock_snapshot' => array_values($stock),
     'material_deduction_audit' => $deductionAudit,
     'stock_snapshot_note' => 'Current stock only. Capture before and after completion to prove the change.',
 ], JSON_UNESCAPED_SLASHES);
-$conn->rollback();
+if ($readOnlySnapshot && function_exists('printflow_db_in_transaction') && printflow_db_in_transaction($conn)) {
+    $conn->rollback();
+}

@@ -32,7 +32,7 @@ $deepLinkOrderId = (int)($_GET['order_id'] ?? 0);
 $deepLinkJobType = strtoupper(trim((string)($_GET['job_type'] ?? '')));
 if ($deepLinkOrderId > 0 && !in_array($deepLinkJobType, ['JOB', 'CUSTOMIZATION', 'ORDER'], true)) {
     $deepLinkOrder = db_query(
-        "SELECT order_type FROM orders WHERE order_id = ? LIMIT 1",
+        "SELECT order_type FROM orders WHERE order_id = ? AND " . printflow_order_archive_scope_sql('orders') . " LIMIT 1",
         'i',
         [$deepLinkOrderId]
     );
@@ -69,7 +69,7 @@ $ordBranchTypes = '';
 $ordBranchParams = [];
 if ($branchFilter !== null) {
     $b = (int) $branchFilter;
-    $joBranchSql = ' AND COALESCE(jo.branch_id, (SELECT o2.branch_id FROM orders o2 WHERE o2.order_id = jo.order_id LIMIT 1)) = ?';
+    $joBranchSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . ' AND COALESCE(jo.branch_id, (SELECT o2.branch_id FROM orders o2 WHERE o2.order_id = jo.order_id LIMIT 1)) = ?';
     $joBranchTypes = 'i';
     $joBranchParams = [$b];
     $ordBranchSql = ' AND branch_id = ?';
@@ -103,9 +103,10 @@ $online_closed_count = 0;
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="turbo-visit-control" content="reload">
     <title><?php echo $page_title; ?></title>
-    <!-- customizations_query_version: demo_seed_visibility_fix_20261001_live -->
-    <meta name="customizations-query-version" content="demo_seed_visibility_fix_20261001_live">
+    <!-- customizations_query_version: staff_customizations_query_live_20261001 -->
+    <meta name="customizations-query-version" content="staff_customizations_query_live_20261001">
     <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/output.css'); ?>">
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/pf-order-item-design-files.css?v=' . (int) @filemtime(__DIR__ . '/../public/assets/css/pf-order-item-design-files.css')); ?>">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
         @keyframes spin {
@@ -1192,6 +1193,14 @@ $online_closed_count = 0;
 
         .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999; }
         .modal-panel { background:#fff; border-radius:12px; box-shadow:0 25px 50px rgba(0,0,0,0.25); width:100%; max-width:560px; max-height:88vh; overflow-y:auto; margin:16px; position:relative; }
+        .pf-add-details-highlight {
+            box-shadow: 0 0 0 3px rgba(14, 116, 144, 0.35);
+            animation: pfAddDetailsPulse 1.2s ease-in-out 2;
+        }
+        @keyframes pfAddDetailsPulse {
+            0%, 100% { box-shadow: 0 0 0 3px rgba(14, 116, 144, 0.25); }
+            50% { box-shadow: 0 0 0 6px rgba(14, 116, 144, 0.45); }
+        }
         body.pf-revision-modal-open {
             overflow: hidden;
         }
@@ -2887,7 +2896,7 @@ $online_closed_count = 0;
                         <div class="pf-customization-order-details" style="margin-bottom:20px; padding:16px; border-radius:12px; border:1px solid #e5e7eb; background:#f9fafb;">
                             <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;display:block;margin-bottom:12px;">Order Details (Customer Specifications)</label>
                             <template x-for="(item, idx) in currentJo.items" :key="item.order_item_id || idx">
-                                <div class="pf-customization-item-block" style="margin-bottom:16px; padding:12px; background:#fff; border:1px solid #e5e7eb; border-radius:8px;">
+                                <div class="pf-customization-item-block" :data-order-item-id="item.order_item_id || 0" style="margin-bottom:16px; padding:12px; background:#fff; border:1px solid #e5e7eb; border-radius:8px;">
                                     <div class="modal-wrap-text modal-item-title" style="font-size:13px; font-weight:700; color:#1f2937; margin-bottom:10px;" x-text="getDynamicProductName(item) + ' × ' + item.quantity"></div>
                                     <template x-if="staffProductServiceImageUrl(item)">
                                         <div style="margin-bottom:12px;">
@@ -2915,35 +2924,68 @@ $online_closed_count = 0;
                                         <div style="margin-top:12px; padding:12px; border:1px solid #e5e7eb; border-radius:8px; background:#fff;">
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:8px;" x-text="staffDesignSectionLabel(item)"></div>
                                             <template x-if="staffItemHasUploadedDesignFile(item)">
-                                                <div style="margin-bottom:12px;">
-                                                    <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">📁 Uploaded File</div>
-                                                    <div style="font-size:13px; font-weight:600; color:#1f2937; word-break:break-word; overflow-wrap:anywhere; margin-bottom:8px;" x-text="staffDesignDisplayFilename(item)"></div>
-                                            <template x-if="staffEffectiveDesignOpenUrl(item) && staffDesignShowsAsImage(item)">
-                                                <div style="display:flex; flex-direction:column; align-items:flex-start; gap:8px; max-width:100%; margin-bottom:8px;">
-                                                    <img :src="staffEffectiveDesignOpenUrl(item)"
-                                                         @click="previewFile = staffEffectiveDesignOpenUrl(item)"
-                                                         loading="lazy"
-                                                         decoding="async"
-                                                         width="160"
-                                                         height="160"
-                                                         style="width:min(100%, 220px); max-height:220px; object-fit:contain; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.08); background:#f8fafc;"
-                                                         onerror="this.style.display='none';">
-                                                </div>
-                                            </template>
-                                                    <div class="pf-modal-design-actions">
-                                                        <button type="button"
-                                                                class="pf-modal-design-action-btn"
-                                                                @click="previewFile = staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)">
-                                                            View
-                                                        </button>
-                                                        <a class="pf-modal-design-action-btn"
-                                                           :href="staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)"
-                                                           target="_blank"
-                                                           rel="noopener noreferrer"
-                                                           download>
-                                                            Download
-                                                        </a>
+                                                <div class="pf-design-files" :class="{ 'is-expanded': staffDesignFilesExpanded(item) }">
+                                                    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
+                                                        <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;" x-text="staffItemDesignFiles(item).length > 1 ? '📁 Uploaded Files' : '📁 Uploaded File'"></div>
+                                                        <div style="font-size:10px;font-weight:700;color:#4b5563;" x-text="staffDesignFilesCountLabel(item)"></div>
                                                     </div>
+                                                    <div class="pf-design-files__toolbar" x-show="staffItemDesignFiles(item).length > 1">
+                                                        <a class="pf-design-files__zip" :href="staffDesignFileZipUrl(item)">Download all (ZIP)</a>
+                                                    </div>
+                                                    <div class="pf-design-files__grid">
+                                                        <template x-for="designFile in staffItemDesignFiles(item)" :key="'design-file-' + designFile.file_id">
+                                                            <article class="pf-design-file-card" x-show="staffDesignFileCardVisible(item, designFile)">
+                                                                <p class="pf-design-file-card__name" x-text="designFile.display_name || staffDesignDisplayFilename(item)"></p>
+                                                                <div class="pf-design-file-card__meta">
+                                                                    <span x-text="staffDesignFileTypeLabel(designFile)"></span>
+                                                                    <span x-show="designFile.file_size"> · </span>
+                                                                    <span x-text="staffFormatDesignFileSize(designFile.file_size)"></span>
+                                                                </div>
+                                                                <template x-if="staffDesignFileUnavailable(designFile)">
+                                                                    <div class="pf-design-file-card__unavailable" role="status">File unavailable</div>
+                                                                </template>
+                                                                <template x-if="!staffDesignFileUnavailable(designFile) && (designFile.preview_url || designFile.download_url) && (designFile.is_previewable_image || staffDesignShowsAsImage(item))">
+                                                                    <div class="pf-design-file-card__preview">
+                                                                        <img class="pf-design-file-card__img"
+                                                                             :src="designFile.preview_url || designFile.download_url"
+                                                                             :alt="'Preview of ' + (designFile.display_name || staffDesignDisplayFilename(item))"
+                                                                             @click="previewFile = designFile.preview_url || designFile.download_url"
+                                                                             loading="lazy"
+                                                                             decoding="async">
+                                                                    </div>
+                                                                </template>
+                                                                <div class="pf-design-file-card__actions" x-show="!staffDesignFileUnavailable(designFile)">
+                                                                    <button type="button"
+                                                                            class="pf-modal-design-action-btn"
+                                                                            :aria-label="'View ' + (designFile.display_name || 'design file')"
+                                                                            @click="previewFile = designFile.preview_url || designFile.download_url || staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)">
+                                                                        View
+                                                                    </button>
+                                                                    <a class="pf-modal-design-action-btn"
+                                                                       :href="designFile.download_url || designFile.preview_url || staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)"
+                                                                       :aria-label="'Download ' + (designFile.display_name || 'design file')"
+                                                                       target="_blank"
+                                                                       rel="noopener noreferrer"
+                                                                       download>
+                                                                        Download
+                                                                    </a>
+                                                                </div>
+                                                            </article>
+                                                        </template>
+                                                    </div>
+                                                    <button type="button"
+                                                            class="pf-design-files__toggle"
+                                                            x-show="!staffDesignFilesExpanded(item) && staffDesignFilesShowMoreLabel(item)"
+                                                            @click="staffExpandDesignFiles(item)"
+                                                            :aria-label="staffDesignFilesShowMoreLabel(item)"
+                                                            x-text="staffDesignFilesShowMoreLabel(item)"></button>
+                                                    <button type="button"
+                                                            class="pf-design-files__toggle"
+                                                            x-show="staffDesignFilesExpanded(item) && staffItemDesignFiles(item).length > 3"
+                                                            @click="staffCollapseDesignFiles(item)"
+                                                            aria-label="Show less">
+                                                        Show less
+                                                    </button>
                                                 </div>
                                             </template>
                                             <template x-if="staffGetDesignExternalLink(item)">
@@ -3050,7 +3092,7 @@ $online_closed_count = 0;
                                     <label style="font-size:11px;font-weight:700;color:#047857;text-transform:uppercase;display:block;margin-bottom:6px;">Pending Order</label>
                                     <div style="font-size:13px; color:#065f46;">This order is still active and can be marked as completed once the printing or release is finished.</div>
                                 </div>
-                                <button type="button" @click="openPosCompleteConfirm()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Mark as Completed</button>
+                                <button type="button" @click="openPosCompleteConfirm()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''" x-text="actionBusy ? 'Completing…' : 'Mark as Completed'"></button>
                             </div>
                         </div>
                     </template>
@@ -3069,6 +3111,7 @@ $online_closed_count = 0;
                                                   @error="handlePaymentProofImageError($el)">
                                         </div>
                                     </template>
+                                <p x-show="!staffPaymentProofSrc(currentJo)" style="font-size:12px;color:#6b7280;font-style:italic;margin:0;">No payment proof uploaded</p>
                                 
                                 <div style="padding:14px 16px; border-radius:10px; background:#fff; border:1px solid #e5e7eb;">
                                     <div style="font-size:11px; color:#6b7280; font-weight:700; text-transform:uppercase; letter-spacing:.04em;">Amount Submitted</div>
@@ -3521,10 +3564,10 @@ $online_closed_count = 0;
 
                     <!-- Revision audit comparison -->
                     <template x-if="currentJo.revision_review && ['Resubmitted for Review', 'Staff Reviewing'].includes(currentJo.revision_review.status)">
-                        <div style="margin-bottom:20px;padding:14px;background:#f0f9ff;border:1px solid #7dd3fc;border-radius:10px;">
+                        <div data-pf-add-details-review :class="addDetailsHighlight ? 'pf-add-details-highlight' : ''" style="margin-bottom:20px;padding:14px;background:#f0f9ff;border:1px solid #7dd3fc;border-radius:10px;">
                             <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:10px;">
                                 <div>
-                                    <div style="font-size:13px;font-weight:800;color:#075985;">Revision Comparison</div>
+                                    <div style="font-size:13px;font-weight:800;color:#075985;">Request Add Details Comparison</div>
                                     <div style="font-size:11px;color:#0369a1;margin-top:3px;" x-text="currentJo.revision_review.reason + ' • ' + currentJo.revision_review.status"></div>
                                 </div>
                                 <div style="font-size:11px;color:#475569;" x-text="currentJo.revision_review.resubmitted_at ? 'Submitted: ' + currentJo.revision_review.resubmitted_at : ''"></div>
@@ -3549,10 +3592,118 @@ $online_closed_count = 0;
                                     <a :href="revisionReplacementDesignUrl()" target="_blank" rel="noopener noreferrer" style="font-size:11px;font-weight:700;color:#166534;text-decoration:none;padding:7px 10px;background:#fff;border:1px solid #bbf7d0;border-radius:7px;" x-text="revisionDesignLinkLabel('replacement')"></a>
                                 </template>
                             </div>
-                            <template x-if="revisionReplacementIsImage()">
+                            <template x-if="revisionReplacementIsImage() && !revisionCompareShowsGallery()">
                                 <div style="margin-top:12px;">
                                     <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;margin-bottom:6px;">Customer's Updated Design — Awaiting Staff Review</div>
                                     <img :src="revisionReplacementDesignUrl()" alt="Customer updated design awaiting review" @click="previewFile = revisionReplacementDesignUrl()" style="display:block;max-width:min(100%,320px);max-height:220px;object-fit:contain;cursor:zoom-in;border-radius:10px;border:1px solid #bae6fd;background:#fff;box-shadow:0 2px 8px rgba(2,132,199,.12);">
+                                </div>
+                            </template>
+                            <template x-if="revisionCompareShowsGallery()">
+                                <div class="pf-rev-design-compare">
+                                    <div class="pf-rev-design-compare__all-toolbar" x-show="revisionUnifiedDesignFiles().length > 1">
+                                        <a class="pf-design-files__zip" :href="revisionUnifiedDesignZipUrl()">Download all unique files (ZIP)</a>
+                                    </div>
+                                    <div class="pf-rev-design-compare__columns">
+                                        <section class="pf-rev-design-compare__column pf-rev-design-compare__column--original">
+                                            <div class="pf-rev-design-compare__head">
+                                                <div class="pf-rev-design-compare__title">Original Design</div>
+                                                <div style="font-size:10px;font-weight:700;color:#64748b;" x-text="revisionOriginalDesignFiles().length + ' file' + (revisionOriginalDesignFiles().length === 1 ? '' : 's')"></div>
+                                            </div>
+                                            <div class="pf-design-files__toolbar" x-show="revisionOriginalDesignFiles().length > 1">
+                                                <a class="pf-design-files__zip" :href="revisionOriginalDesignZipUrl()">Download originals (ZIP)</a>
+                                            </div>
+                                            <div x-show="!revisionOriginalDesignFiles().length" class="pf-rev-design-compare__empty">No original design file</div>
+                                            <div class="pf-design-files" :class="{ 'is-expanded': revisionOriginalDesignExpanded() }" x-show="revisionOriginalDesignFiles().length">
+                                                <div class="pf-design-files__grid">
+                                                    <template x-for="designFile in revisionOriginalDesignFiles()" :key="'rev-orig-' + designFile.file_id">
+                                                        <article class="pf-design-file-card" x-show="revisionOriginalDesignFileVisible(designFile)">
+                                                            <p class="pf-design-file-card__name" :title="designFile.display_name || 'Design file'" x-text="designFile.display_name || 'Design file'"></p>
+                                                            <div class="pf-design-file-card__meta" style="display:flex;flex-wrap:wrap;gap:4px;">
+                                                                <span class="pf-design-file-card__badge pf-design-file-card__badge--original" x-text="designFile.source_label || 'Original design'"></span>
+                                                                <span class="pf-design-file-card__badge pf-design-file-card__badge--same" x-show="designFile.same_as_original">Same as original</span>
+                                                            </div>
+                                                            <div class="pf-design-file-card__meta" x-text="revisionDesignFileMetaLine(designFile)"></div>
+                                                            <template x-if="staffDesignFileUnavailable(designFile)">
+                                                                <div class="pf-design-file-card__unavailable" role="status">File unavailable</div>
+                                                            </template>
+                                                            <template x-if="!staffDesignFileUnavailable(designFile) && designFile.is_previewable_image && (designFile.preview_url || designFile.download_url)">
+                                                                <div class="pf-design-file-card__preview">
+                                                                    <img class="pf-design-file-card__img" :src="designFile.preview_url || designFile.download_url" :alt="'Preview of ' + (designFile.display_name || 'design')" @click="previewFile = designFile.preview_url || designFile.download_url" loading="lazy" decoding="async">
+                                                                </div>
+                                                            </template>
+                                                            <div class="pf-design-file-card__actions" x-show="!staffDesignFileUnavailable(designFile)">
+                                                                <a class="pf-modal-design-action-btn" :href="designFile.download_url || designFile.preview_url" download target="_blank" rel="noopener noreferrer">Download</a>
+                                                            </div>
+                                                        </article>
+                                                    </template>
+                                                </div>
+                                                <button type="button" class="pf-design-files__toggle" @click="revisionExpandOriginalDesignFiles()" x-show="!revisionOriginalDesignExpanded() && revisionOriginalDesignFiles().length > 3" x-text="staffDesignFilesShowMoreLabel({ design_files: revisionOriginalDesignFiles() })"></button>
+                                                <button type="button" class="pf-design-files__toggle" @click="revisionCollapseOriginalDesignFiles()" x-show="revisionOriginalDesignExpanded() && revisionOriginalDesignFiles().length > 3">Show less</button>
+                                            </div>
+                                        </section>
+                                        <section class="pf-rev-design-compare__column pf-rev-design-compare__column--new">
+                                            <div class="pf-rev-design-compare__head">
+                                                <div class="pf-rev-design-compare__title">Customer's New Upload</div>
+                                                <div style="font-size:10px;font-weight:700;color:#64748b;" x-text="revisionCurrentResponseDesignFiles().length + ' file' + (revisionCurrentResponseDesignFiles().length === 1 ? '' : 's')"></div>
+                                            </div>
+                                            <div class="pf-design-files__toolbar" x-show="revisionCurrentResponseDesignFiles().length > 1">
+                                                <a class="pf-design-files__zip" :href="revisionCurrentResponseDesignZipUrl()">Download new uploads (ZIP)</a>
+                                            </div>
+                                            <div x-show="!revisionCurrentResponseDesignFiles().length" class="pf-rev-design-compare__empty">No new files submitted</div>
+                                            <div class="pf-design-files" :class="{ 'is-expanded': revisionCurrentResponseDesignExpanded() }" x-show="revisionCurrentResponseDesignFiles().length">
+                                                <div class="pf-design-files__grid">
+                                                    <template x-for="designFile in revisionCurrentResponseDesignFiles()" :key="'rev-new-' + designFile.file_id">
+                                                        <article class="pf-design-file-card" x-show="revisionCurrentResponseDesignFileVisible(designFile)">
+                                                            <p class="pf-design-file-card__name" :title="designFile.display_name || 'Design file'" x-text="designFile.display_name || 'Design file'"></p>
+                                                            <div class="pf-design-file-card__meta">
+                                                                <span class="pf-design-file-card__badge pf-design-file-card__badge--new" x-text="revisionCurrentResponseSourceLabel(designFile)"></span>
+                                                            </div>
+                                                            <div class="pf-design-file-card__meta" x-text="revisionDesignFileMetaLine(designFile)"></div>
+                                                            <template x-if="staffDesignFileUnavailable(designFile)">
+                                                                <div class="pf-design-file-card__unavailable" role="status">File unavailable</div>
+                                                            </template>
+                                                            <template x-if="!staffDesignFileUnavailable(designFile) && designFile.is_previewable_image && (designFile.preview_url || designFile.download_url)">
+                                                                <div class="pf-design-file-card__preview">
+                                                                    <img class="pf-design-file-card__img" :src="designFile.preview_url || designFile.download_url" :alt="'Preview of ' + (designFile.display_name || 'design')" @click="previewFile = designFile.preview_url || designFile.download_url" loading="lazy" decoding="async">
+                                                                </div>
+                                                            </template>
+                                                            <div class="pf-design-file-card__actions" x-show="!staffDesignFileUnavailable(designFile)">
+                                                                <a class="pf-modal-design-action-btn" :href="designFile.download_url || designFile.preview_url" download target="_blank" rel="noopener noreferrer">Download</a>
+                                                            </div>
+                                                        </article>
+                                                    </template>
+                                                </div>
+                                                <button type="button" class="pf-design-files__toggle" @click="revisionExpandCurrentResponseDesignFiles()" x-show="!revisionCurrentResponseDesignExpanded() && revisionCurrentResponseDesignFiles().length > 3" x-text="staffDesignFilesShowMoreLabel({ design_files: revisionCurrentResponseDesignFiles() })"></button>
+                                                <button type="button" class="pf-design-files__toggle" @click="revisionCollapseCurrentResponseDesignFiles()" x-show="revisionCurrentResponseDesignExpanded() && revisionCurrentResponseDesignFiles().length > 3">Show less</button>
+                                            </div>
+                                        </section>
+                                    </div>
+                                    <div class="pf-rev-design-compare__history" x-show="revisionPreviousResponseGroups().length">
+                                        <template x-for="group in revisionPreviousResponseGroups()" :key="'rev-hist-' + group.revision_request_id">
+                                            <div class="pf-rev-design-compare__column" style="border-color:#e2e8f0;background:#f8fafc;">
+                                                <div class="pf-rev-design-compare__head">
+                                                    <div class="pf-rev-design-compare__title" x-text="group.label"></div>
+                                                    <div style="font-size:10px;font-weight:700;color:#64748b;" x-text="(group.files || []).length + ' file' + ((group.files || []).length === 1 ? '' : 's')"></div>
+                                                </div>
+                                                <div class="pf-design-files is-expanded">
+                                                    <div class="pf-design-files__grid">
+                                                        <template x-for="designFile in (group.files || [])" :key="'rev-hist-file-' + group.revision_request_id + '-' + designFile.file_id">
+                                                            <article class="pf-design-file-card">
+                                                                <p class="pf-design-file-card__name" x-text="designFile.display_name || 'Design file'"></p>
+                                                                <div class="pf-design-file-card__meta" x-text="revisionDesignFileMetaLine(designFile)"></div>
+                                                                <div class="pf-design-file-card__preview" x-show="designFile.is_previewable_image && (designFile.preview_url || designFile.download_url)">
+                                                                    <img class="pf-design-file-card__img" :src="designFile.preview_url || designFile.download_url" alt="" loading="lazy">
+                                                                </div>
+                                                                <div class="pf-design-file-card__actions" x-show="designFile.download_url || designFile.preview_url">
+                                                                    <a class="pf-modal-design-action-btn" :href="designFile.download_url || designFile.preview_url" target="_blank" rel="noopener noreferrer">Download</a>
+                                                                </div>
+                                                            </article>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
                                 </div>
                             </template>
                         </div>
@@ -3565,7 +3716,7 @@ $online_closed_count = 0;
                                  <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 11l5 5m0 0l-5 5m5-5H6"/></svg>
                              </div>
                             <div style="flex:1; min-width:0;">
-                                <div style="font-size:13px; font-weight:700; color:#0369a1;">Revision Re-submitted</div>
+                                <div style="font-size:13px; font-weight:700; color:#0369a1;">Request Add Details Submitted</div>
                                 <div style="font-size:12px; color:#075985;">The customer submitted the requested updates. Compare the previous and revised values before continuing.</div>
                             </div>
                             <template x-for="(revItem, revIdx) in (currentJo.items || [])" :key="revItem.order_item_id || revIdx">
@@ -3699,7 +3850,7 @@ $online_closed_count = 0;
             </div>
             <div style="padding:16px 20px; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:10px;">
                 <button type="button" @click="closePosCompleteConfirm()" class="btn-secondary">Cancel</button>
-                <button type="button" @click="confirmPosComplete()" class="pf-entry-btn pf-entry-in" style="background:#10b981; color:#fff;">Mark as Completed</button>
+                <button type="button" @click="confirmPosComplete()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="(actionBusy ? 'opacity:.6;cursor:not-allowed;' : '') + 'background:#10b981; color:#fff;'" x-text="actionBusy ? 'Completing…' : 'Mark as Completed'"></button>
             </div>
         </div>
     </div>
@@ -3790,6 +3941,30 @@ $online_closed_count = 0;
                             </template>
                         </div>
                         <div x-show="revisionReasonSelect && revisionFieldOptions.length && !revisionEditableFields.length" x-cloak style="margin-top:10px; font-size:12px; font-weight:600; color:#dc2626;">Select at least one detail the customer needs to update.</div>
+                    </div>
+
+                    <div x-show="revisionReasonSelect && revisionRequiresDesignSelection() && revisionDesignPickerFiles().length" x-cloak style="margin-bottom:16px; padding:14px; border:1px solid #dbeafe; border-radius:10px; background:#fff;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                            <div style="font-size:13px; font-weight:700; color:#0f172a;">Select design images for this request</div>
+                            <div style="font-size:11px; font-weight:700; color:#0369a1;" x-text="revisionDesignSelectionLabel()"></div>
+                        </div>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+                            <button type="button" class="pf-entry-btn pf-entry-out" style="height:32px;padding:0 10px;font-size:11px;" @click="revisionSelectAllDesignFiles()">Select all</button>
+                            <button type="button" class="pf-entry-btn pf-entry-out" style="height:32px;padding:0 10px;font-size:11px;" @click="revisionClearDesignSelection()">Clear selection</button>
+                        </div>
+                        <div class="pf-design-files__grid" style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px;">
+                            <template x-for="designFile in revisionDesignPickerFiles()" :key="'rev-pick-' + designFile.file_id">
+                                <label class="pf-design-file-card" style="cursor:pointer; margin:0; display:block;">
+                                    <input type="checkbox" style="margin:0 0 6px;" :checked="revisionDesignFileSelected(designFile)" @change="revisionToggleDesignFile(designFile)">
+                                    <div class="pf-design-file-card__name" x-text="designFile.display_name || 'Design file'" :title="designFile.display_name || ''"></div>
+                                    <div class="pf-design-file-card__meta" x-text="(designFile.mime_type || 'File') + ' · ' + (window.PrintflowOrderItemDesignFiles ? window.PrintflowOrderItemDesignFiles.formatFileSize(designFile.file_size) : '')"></div>
+                                    <div class="pf-design-file-card__preview" x-show="designFile.preview_url && designFile.is_previewable_image">
+                                        <img class="pf-design-file-card__img" :src="designFile.preview_url" alt="" loading="lazy" style="object-fit:contain;">
+                                    </div>
+                                </label>
+                            </template>
+                        </div>
+                        <div x-show="revisionRequiresDesignSelection() && !(revisionSelectedDesignFileIds || []).length" style="margin-top:8px;font-size:12px;font-weight:600;color:#dc2626;">Select at least one image unless this is a text-only request.</div>
                     </div>
 
                     <div x-show="revisionReasonSelect" x-cloak style="margin-bottom:0;">
@@ -3955,6 +4130,7 @@ $online_closed_count = 0;
     </div><!-- /.main-content -->
 </div><!-- /.dashboard-container -->
 
+<script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/pf-order-item-design-files.js?v=' . (int) @filemtime(__DIR__ . '/../public/assets/js/pf-order-item-design-files.js')); ?>"></script>
 <script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/staff_service_order_modal.js'); ?>"></script>
 <script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/production_material_picker.js?v=' . (int) @filemtime(__DIR__ . '/../public/assets/js/production_material_picker.js')); ?>"></script>
 <?php
@@ -4118,6 +4294,10 @@ window.pfServiceFieldCatalog = (() => {
             revisionFieldOptions: [],
             revisionSubmitting: false,
             revisionModalError: '',
+            revisionSelectedDesignFileIds: [],
+            revisionIdempotencyKey: '',
+            deepLinkRevisionRequestId: 0,
+            addDetailsHighlight: false,
             showChangeItemModal: false,
             showChangeItemRejectModal: false,
             changeItemReasonCode: '',
@@ -4134,6 +4314,7 @@ window.pfServiceFieldCatalog = (() => {
             rejectPaymentReasonText: '',
             rejectPaymentModalError: '',
             previewFile: null,
+            designFilesExpandedKeys: {},
             currentJo: {},
             paymongoPayment: null,
             paymongoPollTimer: null,
@@ -4172,6 +4353,7 @@ window.pfServiceFieldCatalog = (() => {
             priceOverrideDiff: 0,
             priceOverrideResolve: null,
             lastPriceOverrideConfirmed: false,
+            _priceSaveInFlight: false,
             
             // ── Profile Image Fallback ───────────────────────────────────
             getProfileImage(image) {
@@ -4504,7 +4686,8 @@ window.pfServiceFieldCatalog = (() => {
                     const url = new URL(window.location.href);
                     [
                         'order_id', 'status', 'job_type', 'source_order_id', 'return_to_pos', 'mode',
-                        'open_changed_item', 'change_item_id', 'job_order_id', 'order_item_id'
+                        'open_changed_item', 'change_item_id', 'job_order_id', 'order_item_id',
+                        'revision_request_id', 'customization_id', 'focus_add_details'
                     ].forEach(key => url.searchParams.delete(key));
                     window.history.replaceState({}, document.title, url.toString());
                 } catch (e) {
@@ -4721,13 +4904,15 @@ window.pfServiceFieldCatalog = (() => {
                         return;
                     }
                     const previousJo = this.currentJo || {};
-                    const merged = this.normalizeStaffOrderDetail({
-                        ...previousJo,
-                        ...res.data,
-                        order_type: previousJo.order_type || 'ORDER',
-                        id: previousJo.id || res.data.id || orderId,
-                        order_id: previousJo.order_id || res.data.order_id || orderId
-                    });
+                    const merged = this.applyStaffOrderDetailMerge(
+                        {
+                            ...previousJo,
+                            order_type: previousJo.order_type || 'ORDER',
+                            id: previousJo.id || res.data.id || orderId,
+                            order_id: previousJo.order_id || res.data.order_id || orderId,
+                        },
+                        res.data
+                    );
                     merged.customer_type = this.normalizeCustomerType(merged.customer_type, merged.transaction_count);
                     merged.customer_profile_picture = merged.customer_profile_picture || merged.profile_picture || merged.customer_picture || '';
                     this.currentJo = merged;
@@ -4759,6 +4944,10 @@ window.pfServiceFieldCatalog = (() => {
                 this.detailError = '';
                 this.loadingDetailKey = '';
                 this.loadingModalAssignments = false;
+                this.loadingDetails = false;
+                this.previewFile = '';
+                this.designFilesExpandedKeys = {};
+                this.currentJo = {};
                 this.clearDeepLinkParams();
                 if (wasPosPricing) {
                     window.location.href = this.staffApiUrl('pos.php?from_customizations=1');
@@ -5371,14 +5560,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (display) return display;
                 const raw = String(row.needed_date || '').trim();
                 if (!raw) {
-                    const business = String(row.order_business_date || row.order_date || row.created_at || '').trim();
-                    if (business && /^\d{4}-\d{2}-\d{2}/.test(business)) {
-                        const stamp = Date.parse(business.slice(0, 10));
-                        if (!Number.isNaN(stamp)) {
-                            return new Date(stamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-                        }
-                    }
-                    return forTitle ? '' : '—';
+                    return forTitle ? '' : 'Not provided';
                 }
                 if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
                     const stamp = Date.parse(raw.slice(0, 10));
@@ -5557,64 +5739,8 @@ window.pfServiceFieldCatalog = (() => {
                 return false;
             },
             getDynamicProductName(item) {
-                const fallbackCustom = this.currentJo && this.currentJo.customization_details && typeof this.currentJo.customization_details === 'object'
-                    ? this.currentJo.customization_details
-                    : {};
-                const itemCustom = (item && item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization))
-                    ? item.customization
-                    : {};
-                // Also try raw customization_data for service_type in case processing pipeline stripped it
-                const rawCustom = this.parseSpecsObject(item && item.customization_data);
-                const custom = Object.keys(itemCustom).length > 0 ? itemCustom : (Object.keys(rawCustom).length > 0 ? rawCustom : fallbackCustom);
-                const fromCustomLine = String((custom && custom.service_type) || (custom && custom.product_type) || (rawCustom && rawCustom.service_type) || '').trim();
-                if (fromCustomLine && !this.isGenericServiceLabel(fromCustomLine)) {
-                    return fromCustomLine;
-                }
                 const productName = String((item && item.product_name) || '').trim();
-                if (productName && !this.isGenericServiceLabel(productName)) {
-                    return productName;
-                }
-                const explicitService = String((custom && custom.service_type) || (custom && custom.product_type) || (item && item.product_name) || (rawCustom && rawCustom.service_type) || '').trim();
-                if (explicitService) {
-                    return explicitService;
-                }
-                
-                // Helper to safely find a key value case-insensitively
-                const findKey = (searchKeys) => {
-                    for (const [k, v] of Object.entries(custom)) {
-                        const lowerK = k.toLowerCase().replace(/_/g, ' ');
-                        const lowerS = searchKeys.map(s => s.toLowerCase().replace(/_/g, ' '));
-                        if (lowerS.includes(lowerK) && v) return v;
-                    }
-                    return null;
-                };
-
-                const sintraVal = findKey(['sintra_type', 'sintra type', 'type']);
-                if (sintraVal || findKey(['is_standee', 'thickness', 'sintraboard_thickness'])) {
-                    return 'Sintra Board - ' + (sintraVal || 'Standee');
-                }
-
-                const tarpVal = findKey(['tarp_size', 'tarp size']);
-                if (tarpVal) {
-                    return 'Tarpaulin Printing - ' + tarpVal;
-                }
-
-                const width = findKey(['width']);
-                const height = findKey(['height']);
-                if (width && height && findKey(['finish', 'with_eyelets'])) {
-                    return 'Tarpaulin Printing (' + width + 'x' + height + ' ft)';
-                }
-
-                if (findKey(['vinyl_type', 'print_placement', 'tshirt_color', 'shirt_color', 'tshirt_size', 'shirt_source'])) {
-                    return 'T-Shirt Printing';
-                }
-
-                const stickerVal = findKey(['sticker_type', 'sticker type', 'shape', 'cut_type']);
-                if (stickerVal) {
-                    return 'Decals/Stickers (Print/Cut) - ' + stickerVal;
-                }
-
-                return item.product_name || 'Standard Product';
+                return productName && !this.isGenericServiceLabel(productName) ? productName : '';
             },
             getCorrectServiceType(jo) {
                 if (!jo) return '';
@@ -5623,41 +5749,16 @@ window.pfServiceFieldCatalog = (() => {
                     return head;
                 }
                 if (jo.items && jo.items.length > 0) {
-                    for (const item of jo.items) {
-                        const pn = String((item && item.product_name) || '').trim();
-                        if (pn && !this.isGenericServiceLabel(pn)) {
-                            return pn;
-                        }
-                    }
-                    const fallbackCustom = jo.customization_details && typeof jo.customization_details === 'object'
-                        ? jo.customization_details
-                        : {};
-                    for (const item of jo.items) {
-                        const itemCustom = (item && item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization))
-                            ? item.customization
-                            : {};
-                        const custom = Object.keys(itemCustom).length > 0 ? itemCustom : fallbackCustom;
-                        const explicit = String((custom && custom.service_type) || (custom && custom.product_type) || (item && item.product_name) || '').trim();
-                        if (explicit) return explicit;
-                        const findKey = (searchKeys) => {
-                            for (const [k, v] of Object.entries(custom)) {
-                                const lowerK = k.toLowerCase().replace(/_/g, ' ');
-                                const lowerS = searchKeys.map(s => s.toLowerCase().replace(/_/g, ' '));
-                                if (lowerS.includes(lowerK) && v) return true;
-                            }
-                            return false;
-                        };
-
-                        // User Priority Logic
-                        if (findKey(['sintra_type', 'sintra type', 'is_standee', 'type', 'thickness', 'sintraboard_thickness'])) return 'SINTRA BOARD';
-                        if (findKey(['tarp_size', 'tarp size', 'with_eyelets', 'finish'])) return 'TARPAULIN PRINTING';
-                        if (findKey(['width']) && findKey(['height']) && findKey(['finish', 'with_eyelets'])) return 'TARPAULIN PRINTING';
-                        if (findKey(['vinyl_type', 'print_placement', 'tshirt_color', 'shirt_color', 'shirt_source'])) return 'T-SHIRT PRINTING';
-                        if (findKey(['sticker_type', 'sticker type', 'shape', 'cut_type', 'lamination'])) return 'DECALS/STICKERS (PRINT/CUT)';
+                    const linkedItemId = Number(jo.linked_order_item_id || jo.order_item_id || 0);
+                    const lineItem = linkedItemId > 0
+                        ? jo.items.find((item) => Number(item && item.order_item_id || 0) === linkedItemId)
+                        : (jo.items.length === 1 ? jo.items[0] : null);
+                    const productName = String((lineItem && lineItem.product_name) || '').trim();
+                    if (productName && !this.isGenericServiceLabel(productName)) {
+                        return productName;
                     }
                 }
-                const raw = String(jo.service_type || jo.job_title || '').trim();
-                return raw || 'Custom Service';
+                return '';
             },
 
             customFieldLabels: {
@@ -5737,7 +5838,12 @@ window.pfServiceFieldCatalog = (() => {
                     'has_priority_field',
                     'calculated_unit_price',
                     'calculated_estimated_price',
-                ].includes(token);
+                    'price_unconfigured',
+                    'design_input_mode',
+                    'dimensions_design_input_mode',
+                    'upload_design_design_input_mode',
+                    'material_name',
+                ].includes(token) || token.includes('design_input_mode');
             },
             staffCustomizationIsInternalLabel(label) {
                 const raw = String(label || '').trim();
@@ -5795,6 +5901,91 @@ window.pfServiceFieldCatalog = (() => {
                     fingerprint = String(parseFloat(fingerprint)).replace(/\.?0+$/, '');
                 }
                 return fingerprint;
+            },
+            staffCanonicalSpecBucket(label, metaGroup) {
+                const group = String(metaGroup || '').trim().toLowerCase();
+                if (group !== '') {
+                    if (group === 'dimensions' || group === 'dimension' || group === 'size' || group === 'custom_size') {
+                        return 'dimensions';
+                    }
+                    if (group === 'material') {
+                        return 'material';
+                    }
+                }
+                const key = String(label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                if (key === '' || key === 'material' || key === 'material_type' || key === 'materials') {
+                    return key === 'material' || key === 'material_type' || key === 'materials' ? 'material' : '';
+                }
+                const dimensionKeys = [
+                    'dimensions', 'dimension', 'size', 'custom_size', 'width_height', 'width_x_height',
+                    'dimensions_and_finish_other', 'dimension_and_finish_other', 'dimensions_finish_other',
+                    'size_other', 'custom_dimensions', 'custom_dimension',
+                ];
+                if (dimensionKeys.indexOf(key) !== -1) {
+                    return 'dimensions';
+                }
+                if (key.indexOf('dimension') !== -1 && (key.indexOf('finish') !== -1 || key.indexOf('other') !== -1 || key.indexOf('size') !== -1)) {
+                    return 'dimensions';
+                }
+                if (key === 'width' || key === 'height' || key === 'width_ft' || key === 'height_ft') {
+                    return 'dimensions_part';
+                }
+                return key;
+            },
+            staffDisplaySpecValueFingerprint(bucket, value) {
+                let fp = this.staffCustomizationValueFingerprint(value);
+                if (bucket === 'dimensions' || bucket === 'dimensions_part') {
+                    fp = fp.replace(/[×*]/g, 'x');
+                    fp = fp.replace(/\s*x\s*/gi, 'x');
+                    fp = fp.replace(/\s+/g, '');
+                    fp = fp.replace(/ft\.?/gi, 'ft');
+                }
+                if (/^-?\d+(?:\.\d+)?$/.test(fp)) {
+                    fp = String(parseFloat(fp)).replace(/\.?0+$/, '');
+                }
+                return fp;
+            },
+            staffDeduplicateDisplaySpecRows(rows) {
+                if (!rows || typeof rows !== 'object') {
+                    return {};
+                }
+                const out = {};
+                const seenBucketValue = {};
+                const dimensionLabels = ['Dimensions', 'Dimension', 'Size', 'Custom Size', 'Width × Height'];
+                Object.keys(rows).forEach((label) => {
+                    const text = this.staffCustomizationValueText(rows[label]);
+                    if (text === '') {
+                        return;
+                    }
+                    const meta = this.staffCustomizationFieldMeta(label);
+                    const bucket = this.staffCanonicalSpecBucket(label, meta.group);
+                    if (bucket === 'material') {
+                        return;
+                    }
+                    if (bucket === 'dimensions_part') {
+                        return;
+                    }
+                    const fp = this.staffDisplaySpecValueFingerprint(bucket, text);
+                    const dedupeKey = (bucket !== '' ? bucket : label.toLowerCase()) + '|' + fp;
+                    if (seenBucketValue[dedupeKey]) {
+                        return;
+                    }
+                    if (bucket === 'dimensions') {
+                        const hasCanonical = dimensionLabels.some((dimLabel) => out[dimLabel] !== undefined);
+                        if (hasCanonical && dimensionLabels.indexOf(label) === -1) {
+                            const existingFp = dimensionLabels
+                                .filter((dimLabel) => out[dimLabel] !== undefined)
+                                .map((dimLabel) => this.staffDisplaySpecValueFingerprint('dimensions', out[dimLabel]))
+                                .find((existing) => existing === fp);
+                            if (existingFp !== undefined) {
+                                return;
+                            }
+                        }
+                    }
+                    seenBucketValue[dedupeKey] = true;
+                    out[label] = rows[label];
+                });
+                return out;
             },
             staffValueLooksLikeUploadFilename(value) {
                 const text = this.staffCustomizationValueText(value);
@@ -5856,8 +6047,8 @@ window.pfServiceFieldCatalog = (() => {
                     height: ['height', 'Height', 31],
                     height_ft: ['height', 'Height', 31],
                     heightft: ['height', 'Height', 31],
-                    size: ['dimensions', 'Dimensions', 32],
-                    sizes: ['dimensions', 'Dimensions', 32],
+                    size: ['size', 'Size', 32],
+                    sizes: ['size', 'Size', 32],
                     dimension: ['dimensions', 'Dimensions', 32],
                     dimensions: ['dimensions', 'Dimensions', 32],
                     dimensions_ft: ['dimensions', 'Dimensions', 32],
@@ -5920,7 +6111,8 @@ window.pfServiceFieldCatalog = (() => {
                 };
                 if (map[token]) {
                     const [group, label, priority] = map[token];
-                    return { group, label, priority, hidden: false, design: group === 'uploaded_design' || group === 'design_external_link' };
+                    const hidden = group === 'material';
+                    return { group, label, priority, hidden, design: group === 'uploaded_design' || group === 'design_external_link' };
                 }
                 if (token.endsWith('_link') && (token.includes('design') || token.includes('upload'))) {
                     return { group: 'design_external_link', label: 'Design Link', priority: 61, hidden: false, design: true };
@@ -6119,9 +6311,6 @@ window.pfServiceFieldCatalog = (() => {
                     if (match) {
                         return { width: match[1], height: match[2], combined: combined };
                     }
-                    if (this.staffMeaningfulSpecValue(combined)) {
-                        return { width: '', height: '', combined };
-                    }
                 }
                 const width = read(widthKey) || read('width') || read('width_ft') || read('Width')
                     || read('dimensions_width') || read('dimension_width') || read('size_width');
@@ -6210,11 +6399,12 @@ window.pfServiceFieldCatalog = (() => {
                         delete out[key];
                         return;
                     }
-                    if (meta.group === 'dimensions' || stripKeys.has(key)) {
+                    const bucket = this.staffCanonicalSpecBucket(key, meta.group);
+                    if (bucket === 'dimensions' || bucket === 'dimensions_part' || meta.group === 'dimensions' || stripKeys.has(key)) {
                         delete out[key];
                     }
                 });
-                return out;
+                return this.staffDeduplicateDisplaySpecRows(out);
             },
             staffMeaningfulSpecValue(value) {
                 const text = this.staffCustomizationValueText(value);
@@ -6266,12 +6456,29 @@ window.pfServiceFieldCatalog = (() => {
                 });
                 return out;
             },
+            revisionReviewActiveForItem(item) {
+                const rev = this.currentJo?.revision_review;
+                if (!rev || !item) return false;
+                if (!['Resubmitted for Review', 'Staff Reviewing'].includes(String(rev.status || ''))) {
+                    return false;
+                }
+                const itemId = Number(item.order_item_id || 0);
+                const revItemId = Number(rev.order_item_id || 0);
+                if (revItemId > 0 && itemId > 0) {
+                    return revItemId === itemId;
+                }
+                const items = Array.isArray(this.currentJo?.items) ? this.currentJo.items : [];
+                return items.length === 1 && itemId > 0;
+            },
             staffShouldRenderDesignSection(item) {
+                if (this.revisionReviewActiveForItem(item)) {
+                    return false;
+                }
                 return !!(this.staffItemHasUploadedDesignFile(item) || this.staffGetDesignExternalLink(item));
             },
             staffGetDesignExternalLink(item) {
                 if (!item) return '';
-                if (item.design_external_link && /^https?:\/\//i.test(String(item.design_external_link).trim())) {
+                if (item.design_external_link && /^https:\/\//i.test(String(item.design_external_link).trim())) {
                     return String(item.design_external_link).trim();
                 }
                 const custom = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
@@ -6282,21 +6489,19 @@ window.pfServiceFieldCatalog = (() => {
                 if (profile && profile.designField && profile.designField.label) {
                     candidates.push(String(profile.designField.label).trim() + ' Link');
                 }
-                candidates.push('design_link', 'design_file_link', 'Upload Design Link', 'Design Link');
+                candidates.push('design_link', 'design_file_link', 'upload_design_link', 'design_external_link', 'Upload Design Link', 'Design Link');
                 for (const candidate of candidates) {
                     if (!Object.prototype.hasOwnProperty.call(custom, candidate)) continue;
                     const value = this.staffCustomizationValueText(custom[candidate]);
-                    if (value && /^https?:\/\//i.test(value)) return value;
+                    if (value && /^https:\/\//i.test(value)) return value;
                 }
                 for (const [key, value] of Object.entries(custom)) {
                     if (typeof key !== 'string' || !this.staffMeaningfulSpecValue(value)) continue;
-                    if (!/ link$/i.test(key.trim())) continue;
                     const text = this.staffCustomizationValueText(value);
-                    if (text && /^https?:\/\//i.test(text)) return text;
                     const token = this.staffCustomizationKeyToken(key);
-                    if (token.endsWith('_link') && (token.includes('design') || token.includes('upload'))) {
-                        if (text && /^https?:\/\//i.test(text)) return text;
-                    }
+                    const isDesignLinkKey = / link$/i.test(key.trim())
+                        || (token.endsWith('_link') && (token.includes('design') || token.includes('upload')));
+                    if (isDesignLinkKey && text && /^https:\/\//i.test(text)) return text;
                 }
                 return '';
             },
@@ -6309,6 +6514,8 @@ window.pfServiceFieldCatalog = (() => {
             },
             staffItemHasActualUploadedDesignFile(item) {
                 if (!item) return false;
+                const listed = Array.isArray(item.design_files) ? item.design_files : (Array.isArray(item.files) ? item.files : []);
+                if (listed.length > 0) return true;
                 if ((item.design_image_bytes || 0) > 0) return true;
                 if (item.design_exists === true) {
                     const openUrl = String(item.design_open_url || item.design_serve_url || '').trim();
@@ -6438,6 +6645,9 @@ window.pfServiceFieldCatalog = (() => {
                             .replace(/\b\w/g, (char) => char.toUpperCase());
                         if (rows[label]) label += ' 2';
                     }
+                    if (/^order\s+priority$/i.test(label)) {
+                        text = this.formatCustomerPriorityDisplay(text);
+                    }
 
                     rows[label] = { value: text, priority: meta.priority, position: position++ };
                     seen[fingerprint] = label;
@@ -6454,7 +6664,24 @@ window.pfServiceFieldCatalog = (() => {
                 for (const [label, row] of sorted) {
                     out[label] = row.value;
                 }
-                return out;
+                if (out['Material'] && out['Material Name'] && String(out['Material Name']).trim() === String(out['Material']).trim()) {
+                    delete out['Material Name'];
+                }
+                if (Object.prototype.hasOwnProperty.call(out, 'Material Name')) {
+                    delete out['Material Name'];
+                }
+                delete out['Material'];
+                delete out['Design Input Mode'];
+                delete out['Calculated Unit Price'];
+                delete out['Calculated Estimated Price'];
+                return this.staffDeduplicateDisplaySpecRows(out);
+            },
+            formatCustomerPriorityDisplay(value) {
+                const text = String(value || '').trim();
+                if (!text) return 'Not specified';
+                if (/^regular(\s+order)?$/i.test(text)) return 'Regular';
+                if (/^urgent(\s+order)?$/i.test(text)) return 'Urgent';
+                return text;
             },
             /**
              * Collapse aliased customization keys into canonical display labels.
@@ -6519,6 +6746,136 @@ window.pfServiceFieldCatalog = (() => {
 
                 return normalized;
             },
+            staffOrderItemId(item) {
+                return Number(item && item.order_item_id != null ? item.order_item_id : 0) || 0;
+            },
+            mergeDesignFilesLists(incoming, previous) {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                const inc = PF ? PF.dedupe(Array.isArray(incoming) ? incoming : []) : (Array.isArray(incoming) ? incoming : []);
+                const prev = PF ? PF.dedupe(Array.isArray(previous) ? previous : []) : (Array.isArray(previous) ? previous : []);
+                if (inc.length === 0) {
+                    return prev;
+                }
+                if (prev.length === 0) {
+                    return inc;
+                }
+                const incDbIds = inc.filter((row) => Number(row && row.file_id) > 0).length;
+                const prevDbIds = prev.filter((row) => Number(row && row.file_id) > 0).length;
+                if (incDbIds >= prevDbIds && inc.length >= prev.length) {
+                    return inc;
+                }
+                if (prevDbIds > incDbIds || prev.length > inc.length) {
+                    return prev;
+                }
+                const byId = new Map();
+                const addRow = (row) => {
+                    const PFLocal = window.PrintflowOrderItemDesignFiles;
+                    const key = PFLocal ? PFLocal.designFileIdentity(row) : '';
+                    if (key === '') {
+                        return;
+                    }
+                    byId.set(key, row);
+                };
+                prev.forEach(addRow);
+                inc.forEach(addRow);
+                const merged = Array.from(byId.values());
+                if (PF && PF.dedupePhysical) {
+                    return PF.dedupePhysical(merged);
+                }
+                return PF ? PF.dedupe(merged) : merged;
+            },
+            mergeStaffOrderItemsByOrderItemId(previousItems, incomingItems) {
+                const prev = Array.isArray(previousItems) ? previousItems : [];
+                const next = Array.isArray(incomingItems) ? incomingItems : [];
+                if (next.length === 0) {
+                    return prev;
+                }
+                const prevById = new Map();
+                prev.forEach((item) => {
+                    const id = this.staffOrderItemId(item);
+                    if (id > 0) {
+                        prevById.set(id, item);
+                    }
+                });
+                return next.map((incoming) => {
+                    const id = this.staffOrderItemId(incoming);
+                    const prior = id > 0 ? prevById.get(id) : null;
+                    if (!prior) {
+                        return { ...incoming };
+                    }
+                    const PF = window.PrintflowOrderItemDesignFiles;
+                    const designFiles = this.mergeDesignFilesLists(
+                        incoming.design_files,
+                        prior.design_files
+                    );
+                    const priorCustom = prior.customization && typeof prior.customization === 'object' && !Array.isArray(prior.customization)
+                        ? prior.customization
+                        : {};
+                    const incomingCustom = incoming.customization && typeof incoming.customization === 'object' && !Array.isArray(incoming.customization)
+                        ? incoming.customization
+                        : {};
+                    return {
+                        ...prior,
+                        ...incoming,
+                        design_files: designFiles,
+                        files: designFiles,
+                        customization: { ...priorCustom, ...incomingCustom },
+                    };
+                });
+            },
+            applyStaffOrderDetailMerge(previousJo, incomingData) {
+                const prev = previousJo && typeof previousJo === 'object' ? previousJo : {};
+                const inc = incomingData && typeof incomingData === 'object' ? incomingData : {};
+                const merged = { ...prev, ...inc };
+                if (Array.isArray(inc.items)) {
+                    merged.items = this.mergeStaffOrderItemsByOrderItemId(prev.items, inc.items);
+                } else if (Array.isArray(prev.items)) {
+                    merged.items = prev.items;
+                }
+                return this.normalizeStaffOrderDetail(merged);
+            },
+            async applyStaffOrderItemsRefresh(items) {
+                if (!Array.isArray(items) || items.length === 0 || !this.currentJo) {
+                    return;
+                }
+                const previousJo = this.currentJo;
+                const merged = this.applyStaffOrderDetailMerge(previousJo, { items });
+                merged.order_type = previousJo.order_type || merged.order_type;
+                merged.final_price = previousJo.final_price ?? merged.final_price;
+                merged.total_amount = previousJo.total_amount ?? merged.total_amount;
+                merged.status = previousJo.status || merged.status;
+                this.currentJo = merged;
+            },
+            async reloadStaffOrderItemsAfterMutation() {
+                if (!this.showDetailsModal || !this.currentJo || !this.currentJo.order_id) {
+                    return;
+                }
+                const orderId = Number(this.currentJo.order_id);
+                if (!orderId) {
+                    return;
+                }
+                const requestToken = this.detailRequestToken;
+                const hintItemId = Number(
+                    this.currentJo.linked_order_item_id
+                    || this.currentJo.order_item_id
+                    || 0
+                );
+                const res = await this.fetchOrderModalSummary(orderId, {
+                    includeAssignments: false,
+                    ensureJob: false,
+                    orderItemId: hintItemId,
+                });
+                if (!res.success || !res.data || requestToken !== this.detailRequestToken) {
+                    return;
+                }
+                const previousJo = this.currentJo;
+                const merged = this.applyStaffOrderDetailMerge(previousJo, res.data);
+                merged.order_type = previousJo.order_type || merged.order_type;
+                merged.final_price = previousJo.final_price ?? merged.final_price;
+                merged.total_amount = previousJo.total_amount ?? merged.total_amount;
+                merged.status = previousJo.status || merged.status;
+                this.currentJo = merged;
+            },
             staffResolveItemCustomizationSource(custom, item = null) {
                 const rawDecoded = item ? this.parseSpecsObject(item.customization_data) : {};
                 let fromCustom = this.parseSpecsObject(custom);
@@ -6561,6 +6918,25 @@ window.pfServiceFieldCatalog = (() => {
                 }
 
                 const isDetail = options.isDetail === true || !!this.showDetailsModal;
+                if (isDetail && item) {
+                    // A root/order-wide fallback must not introduce a staff assigned
+                    // material into customer specifications. Keep a material only when
+                    // the same order item persisted that field in its own submitted data.
+                    const submittedSpecs = {
+                        ...this.parseSpecsObject(item.customization_data),
+                        ...this.parseSpecsObject(item.specifications),
+                        ...(item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
+                            ? item.customization
+                            : {})
+                    };
+                    const submittedTokens = new Set(Object.keys(submittedSpecs).map((key) => this.staffCustomizationKeyToken(key)));
+                    Object.keys(sourceCustom).forEach((key) => {
+                        if (this.staffCustomizationFieldMeta(key).group === 'material'
+                            && !submittedTokens.has(this.staffCustomizationKeyToken(key))) {
+                            delete sourceCustom[key];
+                        }
+                    });
+                }
                 const enrichedCustom = this.staffEnrichDimensionSpecs({ ...sourceCustom }, item);
                 const normalized = this.staffCustomizationDisplaySpecs(enrichedCustom, {
                     includeService: options.includeService !== undefined ? options.includeService : !isDetail,
@@ -6568,9 +6944,10 @@ window.pfServiceFieldCatalog = (() => {
                     includeNotes: options.includeNotes !== undefined ? options.includeNotes : isDetail,
                     includeQuantity: options.includeQuantity !== undefined ? options.includeQuantity : true
                 });
-                const specs = isDetail || options.skipServiceFilter === true
+                let specs = isDetail || options.skipServiceFilter === true
                     ? normalized
                     : this.staffFilterSpecsByServiceForm(normalized, item);
+                specs = this.staffDeduplicateDisplaySpecRows(specs);
 
                 const entries = Object.entries(specs).filter(([k, v]) => {
                     if (this.staffCustomizationIsInternalKey(k)) return false;
@@ -6663,15 +7040,22 @@ window.pfServiceFieldCatalog = (() => {
                     || token.includes('design');
             },
             staffSpecIsRedundantDimensionPart(key, specs, item) {
-                if (key === 'Dimensions' || key === 'Size / Dimensions') return false;
+                if (key === 'Dimensions' || key === 'Size / Dimensions' || key === 'Size') return false;
                 if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return false;
-                const hasCanonicalDimensions = this.staffMeaningfulSpecValue(specs.Dimensions)
-                    || this.staffMeaningfulSpecValue(specs['Size / Dimensions']);
+                const canonicalDim = specs.Dimensions ?? specs['Size / Dimensions'] ?? specs.Size;
+                const hasCanonicalDimensions = this.staffMeaningfulSpecValue(canonicalDim);
                 if (!hasCanonicalDimensions) return false;
 
                 const meta = this.staffCustomizationFieldMeta(key);
                 const token = this.staffCustomizationKeyToken(key);
-                if (meta.group === 'dimensions') return false;
+                const bucket = this.staffCanonicalSpecBucket(key, meta.group);
+                if (bucket === 'dimensions') {
+                    const fpCanon = this.staffDisplaySpecValueFingerprint('dimensions', canonicalDim);
+                    const fpHere = this.staffDisplaySpecValueFingerprint('dimensions', specs[key]);
+                    if (fpCanon !== '' && fpCanon === fpHere) {
+                        return true;
+                    }
+                }
                 if (meta.group === 'width' || meta.group === 'height') return true;
                 if (token.endsWith('_width') || token.endsWith('_height')) return true;
                 if (['width', 'height', 'width_ft', 'height_ft', 'widthft', 'heightft'].includes(token)) return true;
@@ -6686,15 +7070,230 @@ window.pfServiceFieldCatalog = (() => {
             formatRevisionAuditValue(value) {
                 if (value === null || value === undefined || value === '') return '—';
                 if (typeof value === 'object') {
-                    try { return JSON.stringify(value); } catch (e) { return String(value); }
+                    return '—';
                 }
-                return String(value);
+                const text = String(value);
+                if (text.length > 140 && (text.includes(',') || text.includes('/uploads/'))) {
+                    return 'Design file list (see galleries below)';
+                }
+                if (text.length > 140) {
+                    return text.slice(0, 137) + '…';
+                }
+                return text;
             },
             revisionPreviousDesignUrl() {
                 return String(this.currentJo?.revision_review?.previous_design?.url || '');
             },
             revisionReplacementDesignUrl() {
                 return String(this.currentJo?.revision_review?.replacement_design?.url || '');
+            },
+            revisionMergeDesignFileRecords(existing, incoming) {
+                if (!existing || !incoming) return existing || incoming;
+                const uniq = (values) => {
+                    const out = [];
+                    (Array.isArray(values) ? values : []).forEach((value) => {
+                        const text = String(value || '').trim();
+                        if (text !== '' && !out.includes(text)) out.push(text);
+                    });
+                    return out;
+                };
+                existing.source_labels = uniq([...(existing.source_labels || []), ...(incoming.source_labels || [])]);
+                existing.source_types = uniq([...(existing.source_types || []), ...(incoming.source_types || [])]);
+                return existing;
+            },
+            revisionDedupeDesignFilesById(list) {
+                const byId = new Map();
+                (Array.isArray(list) ? list : []).forEach((file) => {
+                    const fileId = Number(file && file.file_id);
+                    if (fileId <= 0) return;
+                    if (byId.has(fileId)) {
+                        byId.set(fileId, this.revisionMergeDesignFileRecords(byId.get(fileId), file));
+                    } else {
+                        byId.set(fileId, { ...file });
+                    }
+                });
+                const out = Array.from(byId.values());
+                out.sort((a, b) => {
+                    const sortDelta = (Number(a.upload_sort) || 0) - (Number(b.upload_sort) || 0);
+                    if (sortDelta !== 0) return sortDelta;
+                    return (Number(a.file_id) || 0) - (Number(b.file_id) || 0);
+                });
+                return out;
+            },
+            revisionDesignFileIdentityKey(file) {
+                if (!file) return '';
+                const fingerprint = String(file.content_fingerprint || '').trim();
+                if (fingerprint) return 'hash:' + fingerprint;
+                const path = String(file.storage_path || '').trim().toLowerCase().replace(/\\/g, '/');
+                if (path) return 'path:' + path;
+                const fileId = Number(file.file_id || 0);
+                return fileId > 0 ? ('id:' + fileId) : '';
+            },
+            revisionDedupeDesignFilesPhysical(list) {
+                const byId = this.revisionDedupeDesignFilesById(list);
+                const seen = new Set();
+                const out = [];
+                byId.forEach((file) => {
+                    const key = this.revisionDesignFileIdentityKey(file);
+                    if (key && seen.has(key)) return;
+                    if (key) seen.add(key);
+                    out.push(file);
+                });
+                return out;
+            },
+            revisionOriginalDesignFiles() {
+                const raw = this.currentJo?.revision_review?.original_files;
+                if (Array.isArray(raw)) {
+                    return this.revisionDedupeDesignFilesPhysical(raw);
+                }
+                return [];
+            },
+            revisionCurrentResponseDesignFiles() {
+                const raw = this.currentJo?.revision_review?.current_response_files;
+                if (Array.isArray(raw)) {
+                    return this.revisionDedupeDesignFilesPhysical(raw);
+                }
+                return this.revisionReplacementDesignFiles();
+            },
+            revisionPreviousResponseGroups() {
+                const raw = this.currentJo?.revision_review?.previous_response_files;
+                return Array.isArray(raw) ? raw : [];
+            },
+            revisionCompareShowsGallery() {
+                return this.revisionOriginalDesignFiles().length > 0
+                    || this.revisionCurrentResponseDesignFiles().length > 0;
+            },
+            revisionDesignFileMetaLine(designFile) {
+                if (!designFile) return '';
+                const parts = [];
+                const typeLabel = this.staffDesignFileTypeLabel(designFile);
+                if (typeLabel) parts.push(typeLabel);
+                if (designFile.file_size) parts.push(this.staffFormatDesignFileSize(designFile.file_size));
+                const uploadedAt = String(designFile.uploaded_at || '').trim();
+                if (uploadedAt) parts.push('Uploaded ' + uploadedAt);
+                const seq = Number(designFile.request_sequence || 0);
+                if (seq > 0) parts.push('Request #' + seq);
+                return parts.join(' · ');
+            },
+            revisionCurrentResponseSourceLabel(designFile) {
+                const label = String(designFile?.source_label || '').trim();
+                if (label) return label;
+                const seq = Number(this.currentJo?.revision_review?.request_sequence || 0);
+                return seq > 0 ? ('Response to Request Add Details #' + seq) : 'Customer\'s new upload';
+            },
+            revisionDesignFilesZipUrl(scope) {
+                const revId = Number(this.currentJo?.revision_review?.id || 0);
+                if (revId <= 0) return '#';
+                const itemId = Number(this.currentJo?.revision_review?.order_item_id || 0);
+                const base = document.body.getAttribute('data-base-url') || '';
+                let url = base + '/public/download_revision_design_files_zip.php?revision_request_id=' + revId + '&scope=' + encodeURIComponent(scope);
+                if (itemId > 0) url += '&order_item_id=' + itemId;
+                return url;
+            },
+            revisionOriginalDesignZipUrl() {
+                return this.revisionDesignFilesZipUrl('original');
+            },
+            revisionCurrentResponseDesignZipUrl() {
+                return this.revisionDesignFilesZipUrl('response');
+            },
+            revisionUnifiedDesignFiles() {
+                const raw = this.currentJo?.revision_review?.unified_design_files;
+                const list = Array.isArray(raw) ? raw : [];
+                if (list.length > 0) {
+                    return this.revisionDedupeDesignFilesPhysical(list);
+                }
+                return this.revisionDedupeDesignFilesPhysical(
+                    this.revisionOriginalDesignFiles().concat(this.revisionCurrentResponseDesignFiles())
+                );
+            },
+            revisionUnifiedDesignFileCounts() {
+                const counts = this.currentJo?.revision_review?.design_file_counts;
+                if (counts && typeof counts === 'object' && !Array.isArray(counts)) {
+                    return counts;
+                }
+                const files = this.revisionUnifiedDesignFiles();
+                return { unique_total: files.length };
+            },
+            revisionUnifiedDesignFileCountLabel() {
+                const counts = this.revisionUnifiedDesignFileCounts();
+                const total = Number(counts.unique_total ?? this.revisionUnifiedDesignFiles().length);
+                const suffix = total === 1 ? '' : 's';
+                return total + ' unique file' + suffix;
+            },
+            revisionReplacementDesignFiles() {
+                const raw = this.currentJo?.revision_review?.replacement_design_files;
+                const list = Array.isArray(raw) ? raw : [];
+                return this.revisionDedupeDesignFilesById(list);
+            },
+            revisionUnifiedDesignZipUrl() {
+                return this.revisionDesignFilesZipUrl('unified');
+            },
+            revisionReplacementDesignZipUrl() {
+                return this.revisionCurrentResponseDesignZipUrl();
+            },
+            revisionCompareExpandKey(suffix) {
+                const revId = Number(this.currentJo?.revision_review?.id || 0);
+                return (revId > 0 ? ('revision-' + suffix + '-' + revId) : ('revision-' + suffix + '-0'));
+            },
+            revisionOriginalDesignExpanded() {
+                return !!this.designFilesExpandedKeys[this.revisionCompareExpandKey('original')];
+            },
+            revisionExpandOriginalDesignFiles() {
+                this.designFilesExpandedKeys[this.revisionCompareExpandKey('original')] = true;
+            },
+            revisionCollapseOriginalDesignFiles() {
+                delete this.designFilesExpandedKeys[this.revisionCompareExpandKey('original')];
+            },
+            revisionOriginalDesignFileVisible(designFile) {
+                if (this.revisionOriginalDesignExpanded()) return true;
+                const PF = window.PrintflowOrderItemDesignFiles;
+                return PF ? PF.isInPreviewList(designFile, this.revisionOriginalDesignFiles()) : false;
+            },
+            revisionCurrentResponseDesignExpanded() {
+                return !!this.designFilesExpandedKeys[this.revisionCompareExpandKey('response')];
+            },
+            revisionExpandCurrentResponseDesignFiles() {
+                this.designFilesExpandedKeys[this.revisionCompareExpandKey('response')] = true;
+            },
+            revisionCollapseCurrentResponseDesignFiles() {
+                delete this.designFilesExpandedKeys[this.revisionCompareExpandKey('response')];
+            },
+            revisionCurrentResponseDesignFileVisible(designFile) {
+                if (this.revisionCurrentResponseDesignExpanded()) return true;
+                const PF = window.PrintflowOrderItemDesignFiles;
+                return PF ? PF.isInPreviewList(designFile, this.revisionCurrentResponseDesignFiles()) : false;
+            },
+            revisionUnifiedDesignExpandKey() {
+                return this.revisionCompareExpandKey('unified');
+            },
+            revisionUnifiedDesignExpanded() {
+                return this.revisionOriginalDesignExpanded() && this.revisionCurrentResponseDesignExpanded();
+            },
+            revisionExpandUnifiedDesignFiles() {
+                this.revisionExpandOriginalDesignFiles();
+                this.revisionExpandCurrentResponseDesignFiles();
+            },
+            revisionCollapseUnifiedDesignFiles() {
+                this.revisionCollapseOriginalDesignFiles();
+                this.revisionCollapseCurrentResponseDesignFiles();
+            },
+            revisionUnifiedDesignFileVisible(designFile) {
+                return this.revisionOriginalDesignFileVisible(designFile) || this.revisionCurrentResponseDesignFileVisible(designFile);
+            },
+            revisionReplacementDesignExpandKey() {
+                return this.revisionCompareExpandKey('response');
+            },
+            revisionReplacementDesignExpanded() {
+                return this.revisionCurrentResponseDesignExpanded();
+            },
+            revisionExpandReplacementDesignFiles() {
+                this.revisionExpandCurrentResponseDesignFiles();
+            },
+            revisionCollapseReplacementDesignFiles() {
+                this.revisionCollapseCurrentResponseDesignFiles();
+            },
+            revisionReplacementDesignFileVisible(designFile) {
+                return this.revisionCurrentResponseDesignFileVisible(designFile);
             },
             revisionReplacementIsImage() {
                 const design = this.currentJo?.revision_review?.replacement_design || {};
@@ -6718,18 +7317,20 @@ window.pfServiceFieldCatalog = (() => {
                 if (v == null || typeof v === 'object') return false;
                 const s = String(v).trim();
                 if (s.length < 2) return false;
-                if (/^https?:\/\//i.test(s)) return true;
+                if (/^(javascript|data|file|vbscript):/i.test(s)) return false;
+                if (/^https:\/\//i.test(s)) return true;
                 return s.startsWith('/');
             },
             sanitizeStaffLink(v) {
                 const s = String(v).trim();
-                if (/^https?:\/\//i.test(s)) return s;
+                if (/^(javascript|data|file|vbscript):/i.test(s)) return '#';
+                if (/^https:\/\//i.test(s)) return s;
                 if (s.startsWith('/')) return s;
                 return '#';
             },
             async staffCopyDesignLink(url, event) {
                 const text = String(url || '').trim();
-                if (!text || !/^https?:\/\//i.test(text)) return false;
+                if (!text || !/^https:\/\//i.test(text)) return false;
                 const btn = event && event.currentTarget ? event.currentTarget : null;
                 let copied = false;
                 try {
@@ -6793,9 +7394,9 @@ window.pfServiceFieldCatalog = (() => {
             handlePaymentProofImageError(image) {
                 if (!image || image.dataset.proofFallbackApplied === '1') return;
                 image.dataset.proofFallbackApplied = '1';
-                image.src = (document.body.getAttribute('data-base-url') || '') + '/public/assets/images/payment-proof-placeholder.svg';
-                image.style.opacity = '1';
-                image.style.cursor = 'default';
+                image.style.display = 'none';
+                const wrap = image.closest('.payment-proof-preview');
+                if (wrap) wrap.style.display = 'none';
             },
             staffFilenameLooksLikeImage(name) {
                 if (!name) return false;
@@ -6889,6 +7490,151 @@ window.pfServiceFieldCatalog = (() => {
             },
             staffItemHasStoredDesign(item) {
                 return this.staffItemHasActualUploadedDesignFile(item);
+            },
+            staffItemEvidenceOfMultipleDesignFiles(item) {
+                if (!item) return false;
+                const fromItem = Array.isArray(item.design_files) ? item.design_files.length : (Array.isArray(item.files) ? item.files.length : 0);
+                if (fromItem > 1) return true;
+                const custom = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
+                    ? item.customization
+                    : {};
+                return Array.isArray(custom.design_upload_files) && custom.design_upload_files.length > 1;
+            },
+            staffDesignFilesFromCustomization(item) {
+                const custom = item && item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
+                    ? item.customization
+                    : {};
+                const list = Array.isArray(custom.design_upload_files) ? custom.design_upload_files : [];
+                if (list.length === 0) {
+                    return [];
+                }
+                const oid = this.staffOrderItemId(item);
+                const base = document.body.getAttribute('data-base-url') || '';
+                const out = [];
+                list.forEach((entry, idx) => {
+                    if (!entry || typeof entry !== 'object') {
+                        return;
+                    }
+                    const fileId = Number(entry.file_id || 0);
+                    let preview = '';
+                    if (fileId > 0 && oid > 0) {
+                        preview = base + '/public/serve_design.php?type=order_item_file&id=' + fileId + '&item_id=' + oid;
+                    } else {
+                        const path = String(entry.path || entry.storage_path || '').trim();
+                        if (path) {
+                            preview = this.staffResolveOrderUploadUrl(path);
+                        }
+                    }
+                    if (!preview) {
+                        return;
+                    }
+                    out.push({
+                        file_id: fileId > 0 ? fileId : ('cust-' + oid + '-' + idx),
+                        display_name: String(entry.name || entry.display_name || entry.label || 'design'),
+                        preview_url: preview,
+                        download_url: preview,
+                        mime_type: String(entry.mime || entry.mime_type || ''),
+                        upload_sort: Number(entry.upload_sort != null ? entry.upload_sort : idx),
+                        is_previewable_image: true,
+                        exists: true,
+                        idempotency_key: String(entry.idempotency_key || ''),
+                    });
+                });
+                const PF = window.PrintflowOrderItemDesignFiles;
+                return PF ? PF.dedupe(out) : out;
+            },
+            staffDesignFilesMaxPerItem(item) {
+                const meta = item && item.design_files_meta ? item.design_files_meta : null;
+                return Number(meta && meta.max_files ? meta.max_files : 10) || 10;
+            },
+            staffDesignFilesCountLabel(item) {
+                const count = this.staffItemDesignFiles(item).length;
+                const max = this.staffDesignFilesMaxPerItem(item);
+                return count + '/' + max + ' files';
+            },
+            staffItemDesignFiles(item) {
+                if (!item || typeof item !== 'object') return [];
+                const raw = Array.isArray(item.design_files)
+                    ? item.design_files
+                    : (Array.isArray(item.files) ? item.files : []);
+                const PF = window.PrintflowOrderItemDesignFiles;
+                let out = PF ? (PF.dedupePhysical ? PF.dedupePhysical(raw) : PF.dedupe(raw)) : raw;
+                const meta = item.design_files_meta && typeof item.design_files_meta === 'object'
+                    ? item.design_files_meta
+                    : null;
+                const hasDbBackedFiles = out.some((row) => Number(row && row.file_id) > 0)
+                    || Number(meta && meta.database_file_count) > 0
+                    || Number(meta && meta.unique_file_count) > 0;
+                if (hasDbBackedFiles) {
+                    out = out.filter((row) => Number(row && row.file_id) > 0);
+                    out = PF ? (PF.dedupePhysical ? PF.dedupePhysical(out) : PF.dedupe(out)) : out;
+                }
+                if (out.length === 0 && !hasDbBackedFiles) {
+                    out = this.staffDesignFilesFromCustomization(item);
+                    out = PF ? (PF.dedupePhysical ? PF.dedupePhysical(out) : PF.dedupe(out)) : out;
+                }
+                if (out.length === 0 && this.staffItemHasUploadedDesignFile(item) && !this.staffItemEvidenceOfMultipleDesignFiles(item)) {
+                    const previewUrl = this.staffEffectiveDesignOpenUrl(item) || this.staffOrderItemDesignServeUrl(item);
+                    if (previewUrl) {
+                        out = [{
+                            file_id: 'legacy-' + String(item.order_item_id || '0'),
+                            display_name: this.staffDesignDisplayFilename(item),
+                            preview_url: previewUrl,
+                            download_url: previewUrl,
+                            is_previewable_image: this.staffDesignShowsAsImage(item),
+                            upload_sort: 0,
+                            exists: true,
+                        }];
+                    }
+                }
+                return out;
+            },
+            staffDesignFilesExpandKey(item) {
+                const oid = Number(item?.order_item_id || 0);
+                if (oid > 0) {
+                    return 'oi-' + oid;
+                }
+                return 'line-' + String(item?.product_name || 'item');
+            },
+            staffDesignFilesExpanded(item) {
+                return !!this.designFilesExpandedKeys[this.staffDesignFilesExpandKey(item)];
+            },
+            staffExpandDesignFiles(item) {
+                this.designFilesExpandedKeys[this.staffDesignFilesExpandKey(item)] = true;
+            },
+            staffCollapseDesignFiles(item) {
+                delete this.designFilesExpandedKeys[this.staffDesignFilesExpandKey(item)];
+            },
+            staffDesignFilesShowMoreLabel(item) {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                return PF ? PF.showMoreLabel(this.staffItemDesignFiles(item)) : '';
+            },
+            staffDesignFileCardVisible(item, designFile) {
+                if (this.staffDesignFilesExpanded(item)) {
+                    return true;
+                }
+                const PF = window.PrintflowOrderItemDesignFiles;
+                const all = this.staffItemDesignFiles(item);
+                return PF ? PF.isInPreviewList(designFile, all) : false;
+            },
+            staffDesignFileZipUrl(item) {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                const id = Number(item?.order_item_id || 0);
+                if (!PF || id <= 0) return '#';
+                const base = document.body.getAttribute('data-base-url') || '';
+                return PF.zipDownloadUrl(id, base);
+            },
+            staffFormatDesignFileSize(bytes) {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                return PF ? PF.formatFileSize(bytes) : String(bytes || '');
+            },
+            staffDesignFileTypeLabel(file) {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                return PF ? PF.fileTypeLabel(file) : 'File';
+            },
+            staffDesignFileUnavailable(file) {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                return PF ? PF.fileUnavailable(file) : false;
             },
             /** Fallback when API omitted design_open_url but line item has stored artwork + filename */
             staffOrderItemDesignServeUrl(item) {
@@ -7423,6 +8169,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.deepLinkJobOrderId = parseInt(params.get('job_order_id') || '0', 10) || 0;
                 this.deepLinkOrderItemId = parseInt(params.get('order_item_id') || '0', 10) || 0;
                 this.deepLinkChangeItemId = parseInt(params.get('change_item_id') || '0', 10) || 0;
+                this.deepLinkRevisionRequestId = parseInt(params.get('revision_request_id') || '0', 10) || 0;
                 const deepLinkHints = this.resolveOrderDetailHints(
                     orderId ? { order_id: parseInt(orderId, 10) || 0 } : {}
                 );
@@ -7512,6 +8259,8 @@ window.pfServiceFieldCatalog = (() => {
                     }
                     if (openChangedItem) {
                         await this.focusOpenChangeItemDeepLink(expectedChangeItemId);
+                    } else if (params.get('focus_add_details') === '1') {
+                        await this.focusAddDetailsDeepLink(this.deepLinkRevisionRequestId, this.deepLinkOrderItemId);
                     } else if (this.detailError) {
                         this.showStaffAlert('Order Not Found', this.detailError);
                     }
@@ -7550,8 +8299,8 @@ window.pfServiceFieldCatalog = (() => {
                     per_page: String(this.ordersSummaryPageSize),
                     _: String(Date.now())
                 });
-                const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&include_pagination=1&debug=1&query_version=demo_seed_visibility_fix_20261001_live&${query.toString()}`;
-                const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&debug=1&query_version=demo_seed_visibility_fix_20261001_live&${query.toString()}`;
+                const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&include_pagination=1&debug=1&query_version=staff_customizations_query_live_20261001&${query.toString()}`;
+                const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&debug=1&query_version=staff_customizations_query_live_20261001&${query.toString()}`;
                 const requestOptions = {
                     cache: 'no-store',
                     signal,
@@ -7587,7 +8336,7 @@ window.pfServiceFieldCatalog = (() => {
                 const sourceFilter = <?php echo json_encode(
                     $staffCustomizationRole === 'pos' ? 'pos' : ($staffCustomizationRole === 'online' ? 'online' : 'all')
                 ); ?>;
-                const endpoint = `../admin/job_orders_api.php?action=customization_counts&source=${encodeURIComponent(sourceFilter)}&debug=1&query_version=demo_seed_visibility_fix_20261001_live`;
+                const endpoint = `../admin/job_orders_api.php?action=customization_counts&source=${encodeURIComponent(sourceFilter)}&debug=1&query_version=staff_customizations_query_live_20261001`;
                 const controller = new AbortController();
                 countsAbortController = controller;
                 const timeoutId = window.setTimeout(() => controller.abort(), 10000);
@@ -8336,6 +9085,13 @@ window.pfServiceFieldCatalog = (() => {
                 this.loadingDetails = true;
                 this.loadingDetailKey = detailKey;
                 this.detailError = '';
+                this.previewFile = '';
+                this.currentJo = {};
+                if (this._lastDetailCacheKey && this._lastDetailCacheKey !== cacheKey) {
+                    delete this.modalCache[this._lastDetailCacheKey];
+                    delete this.modalCacheLoadedAt[this._lastDetailCacheKey];
+                }
+                this._lastDetailCacheKey = cacheKey;
                 this.detailRetryPayload = { id, orderType };
                 this.loadingModalAssignments = false;
                 this.footerActionError = '';
@@ -8348,7 +9104,9 @@ window.pfServiceFieldCatalog = (() => {
                 const cachedDetail = this.modalCache[cacheKey] || null;
                 const cachedAt = Number(this.modalCacheLoadedAt[cacheKey] || 0);
                 if (cachedDetail && cachedAt > 0 && (Date.now() - cachedAt) < this.modalCacheTtlMs) {
-                    this.finishDetailLoadWith(cachedDetail, cachedDetail.order_type || orderType, cacheKey);
+                    if (requestToken === this.detailRequestToken) {
+                        this.finishDetailLoadWith(cachedDetail, cachedDetail.order_type || orderType, cacheKey);
+                    }
                     this.loadingDetails = false;
                     this.loadingDetailKey = '';
                     return;
@@ -8360,7 +9118,9 @@ window.pfServiceFieldCatalog = (() => {
                         let detailRes = null;
 
                         if (fallbackOrderId) {
-                            detailRes = await this.fetchOrderModalSummary(fallbackOrderId);
+                            detailRes = await this.fetchOrderModalSummary(fallbackOrderId, {
+                                orderItemId: order && order.order_item_id ? order.order_item_id : 0
+                            });
                         }
 
                         if ((!detailRes || !detailRes.success || !detailRes.data) && requestToken === this.detailRequestToken) {
@@ -8373,7 +9133,7 @@ window.pfServiceFieldCatalog = (() => {
                             const normalized = this.applyPosSetPriceDeepLinkOverride({
                                 ...detailRes.data,
                                 order_type: detailRes.data.order_type || (fallbackOrderId ? 'ORDER' : 'CUSTOMIZATION'),
-                                status: (order && order.status) || detailRes.data.status
+                                status: detailRes.data.status || (order && order.status)
                             });
                             this.finishDetailLoadWith(normalized, normalized.order_type || 'ORDER', cacheKey);
                             this.loadingDetails = false;
@@ -8557,6 +9317,12 @@ window.pfServiceFieldCatalog = (() => {
                     fd.append('revision_reason_label', revisionMeta.reasonLabel || revisionMeta.reasonCode || 'Others');
                     fd.append('revision_instruction', revisionMeta.instruction || '');
                     (revisionMeta.permittedFields || []).forEach((field) => fd.append('revision_permitted_fields[]', field));
+                    if (revisionMeta.orderItemId) {
+                        fd.append('revision_order_item_id', String(revisionMeta.orderItemId));
+                    }
+                    (revisionMeta.selectedDesignFileIds || []).forEach((fileId) => {
+                        fd.append('revision_selected_design_file_ids[]', String(fileId));
+                    });
                 }
                 
                 const endpoint = this.adminApiUrl('job_orders_api.php');
@@ -8609,6 +9375,7 @@ window.pfServiceFieldCatalog = (() => {
                     const backendMessage = payload && (payload.message || payload.error);
                     return {
                         ...(payload || {}),
+                        httpStatus: r.status,
                         success: false,
                         error: backendMessage || `${label} failed: HTTP ${r.status}`
                     };
@@ -8620,7 +9387,7 @@ window.pfServiceFieldCatalog = (() => {
                             contentType
                         });
                     }
-                    return payload;
+                    return { ...payload, httpStatus: r.status };
                 }
                 if (!contentType.includes('application/json')) {
                     console.error(`[Customizations] ${label} returned non-JSON`, {
@@ -9217,6 +9984,11 @@ window.pfServiceFieldCatalog = (() => {
                         if (this.lastPriceOverrideConfirmed) fd.append('price_override_confirmed', '1');
                         const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
                         if (res.success) {
+                            if (Array.isArray(res.items) && res.items.length) {
+                                await this.applyStaffOrderItemsRefresh(res.items);
+                            } else {
+                                await this.reloadStaffOrderItemsAfterMutation();
+                            }
                             const hasPaymentProof = this.currentJo.payment_proof_path || this.currentJo.payment_proof;
                             const paymentAmount = parseFloat(this.currentJo.payment_submitted_amount || 0);
                             const targetTab = (hasPaymentProof && paymentAmount > 0) ? 'TO_VERIFY' : 'TO_PAY';
@@ -9431,6 +10203,9 @@ window.pfServiceFieldCatalog = (() => {
                 }
             },
             async updatePrice() {
+                if (this._priceSaveInFlight) {
+                    return false;
+                }
                 const jid = this.effectiveJobId();
                 const oid = this.currentJo.order_id || this.currentJo.id;
                 const price = parseFloat(this.jobPriceInput);
@@ -9442,43 +10217,59 @@ window.pfServiceFieldCatalog = (() => {
                 if (!await this.confirmFinalPriceIfBelowEstimate(price)) return false;
                 const priceOverrideFlag = this.lastPriceOverrideConfirmed;
 
-                if (this.currentJo.order_type === 'ORDER') {
-                   const fd = new FormData();
-                   fd.append('action', 'update_order_price');
-                   fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
-                   fd.append('order_id', oid);
-                   fd.append('price', price);
-                   if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
-                   const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
-                   if (!res.success) {
-                       this.showStaffAlert('Error', 'Failed to update price: ' + res.error);
-                       return false;
-                   }
-                   this.currentJo.total_amount = price;
-                   this.currentJo.final_price = price;
-                   return true;
-                } else if (this.currentJo.order_type === 'CUSTOMIZATION') {
-                   const fd = new FormData();
-                   fd.append('action', 'update_customization');
-                   fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
-                   fd.append('id', oid);
-                   fd.append('status', 'APPROVED');
-                   fd.append('price', price);
-                   if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
-                   const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
-                   if (!res.success) {
-                       this.showStaffAlert('Error', 'Failed to update customization price: ' + res.error);
-                       return false;
-                   }
-                   this.currentJo.final_price = price;
-                   return true;
-                } else {
-                    const success = await this.setJobPrice(jid);
-                    if (success !== false) {
-                        this.currentJo.final_price = price;
-                        return true;
+                this._priceSaveInFlight = true;
+                try {
+                    if (this.currentJo.order_type === 'ORDER') {
+                       const fd = new FormData();
+                       fd.append('action', 'update_order_price');
+                       fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                       fd.append('order_id', oid);
+                       fd.append('price', price);
+                       if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
+                       const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
+                       if (!res.success) {
+                           this.showStaffAlert('Error', 'Failed to update price: ' + res.error);
+                           return false;
+                       }
+                       this.currentJo.total_amount = price;
+                       this.currentJo.final_price = price;
+                       if (Array.isArray(res.items) && res.items.length) {
+                           await this.applyStaffOrderItemsRefresh(res.items);
+                       } else {
+                           await this.reloadStaffOrderItemsAfterMutation();
+                       }
+                       return true;
+                    } else if (this.currentJo.order_type === 'CUSTOMIZATION') {
+                       const fd = new FormData();
+                       fd.append('action', 'update_customization');
+                       fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                       fd.append('id', oid);
+                       fd.append('status', 'APPROVED');
+                       fd.append('price', price);
+                       if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
+                       const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
+                       if (!res.success) {
+                           this.showStaffAlert('Error', 'Failed to update customization price: ' + res.error);
+                           return false;
+                       }
+                       this.currentJo.final_price = price;
+                       if (Array.isArray(res.items) && res.items.length) {
+                           await this.applyStaffOrderItemsRefresh(res.items);
+                       } else {
+                           await this.reloadStaffOrderItemsAfterMutation();
+                       }
+                       return true;
+                    } else {
+                        const success = await this.setJobPrice(jid);
+                        if (success !== false) {
+                            this.currentJo.final_price = price;
+                            await this.reloadStaffOrderItemsAfterMutation();
+                            return true;
+                        }
+                        return false;
                     }
-                    return false;
+                } finally {
+                    this._priceSaveInFlight = false;
                 }
             },
 
@@ -9507,10 +10298,79 @@ window.pfServiceFieldCatalog = (() => {
                 this.revisionReasonText = '';
                 this.revisionInstruction = '';
                 this.revisionEditableFields = [];
+                this.revisionSelectedDesignFileIds = [];
+                this.revisionIdempotencyKey = 'staff-add-details-' + String(this.currentJo?.order_id || this.currentJo?.id || '0') + '-' + Date.now();
                 this.revisionFieldOptions = this.buildRevisionFieldOptions();
                 this.revisionModalError = '';
                 this.revisionSubmitting = false;
                 this.showRevisionModal = true;
+            },
+            revisionPrimaryDesignItem() {
+                const items = Array.isArray(this.currentJo && this.currentJo.items) ? this.currentJo.items : [];
+                for (const item of items) {
+                    if (this.staffItemDesignFiles(item).length > 0) {
+                        return item;
+                    }
+                }
+                return items.length ? items[0] : null;
+            },
+            revisionRequiresDesignSelection() {
+                return (this.revisionEditableFields || []).some((value) => {
+                    if (String(value) === 'uploaded_design') return true;
+                    const option = (this.revisionFieldOptions || []).find((entry) => entry.value === value);
+                    return this.staffRevisionOptionIsDesignUpload(option);
+                });
+            },
+            revisionDesignPickerFiles() {
+                const item = this.revisionPrimaryDesignItem();
+                return item ? this.staffItemDesignFiles(item) : [];
+            },
+            revisionDesignFileSelected(file) {
+                const id = Number(file && file.file_id);
+                if (!id) return false;
+                return (this.revisionSelectedDesignFileIds || []).some((entry) => Number(entry) === id);
+            },
+            revisionToggleDesignFile(file) {
+                const id = Number(file && file.file_id);
+                if (!id) return;
+                const current = Array.isArray(this.revisionSelectedDesignFileIds) ? [...this.revisionSelectedDesignFileIds] : [];
+                const idx = current.findIndex((entry) => Number(entry) === id);
+                if (idx >= 0) {
+                    current.splice(idx, 1);
+                } else {
+                    current.push(id);
+                }
+                this.revisionSelectedDesignFileIds = current;
+            },
+            revisionSelectAllDesignFiles() {
+                this.revisionSelectedDesignFileIds = this.revisionDesignPickerFiles()
+                    .map((file) => Number(file.file_id))
+                    .filter((id) => id > 0);
+            },
+            revisionClearDesignSelection() {
+                this.revisionSelectedDesignFileIds = [];
+            },
+            revisionDesignSelectionLabel() {
+                const count = (this.revisionSelectedDesignFileIds || []).length;
+                return count + ' image' + (count === 1 ? '' : 's') + ' selected';
+            },
+            revisionReviewFileSections() {
+                return [];
+            },
+            async focusAddDetailsDeepLink(revisionRequestId, orderItemId) {
+                this.addDetailsHighlight = true;
+                await this.$nextTick();
+                const target = document.querySelector('[data-pf-add-details-review]');
+                if (target && typeof target.scrollIntoView === 'function') {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                if (orderItemId > 0) {
+                    const itemBlock = document.querySelector('[data-order-item-id="' + orderItemId + '"]');
+                    if (itemBlock && typeof itemBlock.scrollIntoView === 'function') {
+                        itemBlock.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                }
+                window.setTimeout(() => { this.addDetailsHighlight = false; }, 6000);
             },
 
             onSvcEscape() {
@@ -9657,12 +10517,12 @@ window.pfServiceFieldCatalog = (() => {
 
             staffRevisionDesignCurrentValue(item) {
                 if (!item) return 'No value submitted';
+                const files = this.staffItemDesignFiles(item);
+                if (files.length > 0) {
+                    return files.length + ' design file' + (files.length === 1 ? '' : 's') + ' on file';
+                }
                 if (this.staffEffectiveDesignOpenUrl(item) || this.staffItemHasStoredDesign(item)) {
-                    const filename = this.staffDesignDisplayFilename(item);
-                    if (filename && filename !== 'Open uploaded design') {
-                        return filename;
-                    }
-                    return 'File uploaded';
+                    return '1 design file on file';
                 }
                 const resolved = this.staffRevisionResolveDesignUploadField(item);
                 if (resolved && resolved.key) {
@@ -9875,6 +10735,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (!this.revisionReasonSelect) return false;
                 if (this.revisionReasonSelect === 'others' && !String(this.revisionReasonText || '').trim()) return false;
                 if (!Array.isArray(this.revisionEditableFields) || !this.revisionEditableFields.length) return false;
+                if (this.revisionRequiresDesignSelection() && !(this.revisionSelectedDesignFileIds || []).length) return false;
                 if (!String(this.revisionInstruction || '').trim()) return false;
                 return true;
             },
@@ -9908,8 +10769,11 @@ window.pfServiceFieldCatalog = (() => {
                 this.showRevisionModal = false;
             },
             async submitRevision() {
-                const oid = await this.resolveEffectiveJobId();
-                if (!oid) return;
+                const orderId = Number(this.currentJo?.order_id || 0);
+                if (orderId <= 0) {
+                    this.revisionModalError = 'This order could not be identified. Close the modal and open the order again.';
+                    return;
+                }
                 if (!this.revisionReasonSelect) {
                     this.revisionModalError = 'Please select a revision reason.';
                     return;
@@ -9924,6 +10788,10 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 if (!this.revisionEditableFields.length) {
                     this.revisionModalError = 'Select at least one detail the customer needs to update.';
+                    return;
+                }
+                if (this.revisionRequiresDesignSelection() && !(this.revisionSelectedDesignFileIds || []).length) {
+                    this.revisionModalError = 'Select at least one design image that needs replacement or additional details.';
                     return;
                 }
                 if (!this.revisionInstruction.trim()) {
@@ -9942,15 +10810,58 @@ window.pfServiceFieldCatalog = (() => {
                 if (!this.beginModalAction()) return;
                 this.revisionSubmitting = true;
                 try {
-                    const ok = await this.updateStatus(oid, 'For Revision', null, legacyReason, {
-                        reasonCode: this.revisionReasonSelect,
-                        reasonLabel: legacyReason,
-                        instruction: this.revisionInstruction.trim(),
-                        permittedFields: [...this.revisionEditableFields]
+                    const designItem = this.revisionPrimaryDesignItem();
+                    const customizationId = this.currentJo?.order_type === 'CUSTOMIZATION'
+                        ? Number(this.currentJo.id || this.currentJo.customization_id || 0)
+                        : Number(this.currentJo.customization_id || 0);
+                    const fd = new FormData();
+                    fd.append('action', 'request_add_details');
+                    fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                    fd.append('order_id', String(orderId));
+                    if (customizationId > 0) {
+                        fd.append('customization_id', String(customizationId));
+                    }
+                    fd.append('revision_reason_code', this.revisionReasonSelect);
+                    fd.append('revision_reason_label', legacyReason);
+                    fd.append('revision_instruction', this.revisionInstruction.trim());
+                    fd.append('reason', legacyReason);
+                    if (this.revisionIdempotencyKey) {
+                        fd.append('revision_idempotency_key', this.revisionIdempotencyKey);
+                    }
+                    (this.revisionEditableFields || []).forEach((field) => fd.append('revision_permitted_fields[]', field));
+                    const orderItemId = designItem ? Number(designItem.order_item_id || 0) : 0;
+                    if (orderItemId > 0) {
+                        fd.append('revision_order_item_id', String(orderItemId));
+                    }
+                    (this.revisionSelectedDesignFileIds || []).forEach((fileId) => {
+                        fd.append('revision_selected_design_file_ids[]', String(fileId));
                     });
-                    if (ok) {
+                    const endpoint = this.adminApiUrl('job_orders_api.php');
+                    const res = await this.parseJsonResponse(
+                        await fetch(endpoint, {
+                            method: 'POST',
+                            headers: { 'Accept': 'application/json' },
+                            body: fd,
+                        }),
+                        'Request Add Details',
+                        endpoint
+                    );
+                    if (res.success) {
+                        const detailId = this.currentJo?.id;
+                        const detailType = this.currentJo?.order_type || 'JOB';
+                        await this.loadOrders({ force: true });
+                        if (this.showDetailsModal && detailId != null) {
+                            await this.viewDetails(detailId, detailType);
+                        }
                         this.showRevisionModal = false;
-                        this.showStaffAlert('Success', 'Additional details request sent successfully.');
+                        const successText = res.repaired
+                            ? (res.warning || 'The existing Request Add Details was updated and the customer was notified.')
+                            : (res.duplicate
+                                ? 'This request was already submitted.'
+                                : (res.warning || 'Request Add Details sent successfully.'));
+                        this.showStaffAlert('Success', successText);
+                    } else {
+                        this.revisionModalError = res.error || res.message || 'Unable to send Request Add Details. Please try again.';
                     }
                 } finally {
                     this.revisionSubmitting = false;
@@ -10234,13 +11145,15 @@ window.pfServiceFieldCatalog = (() => {
                     : await (await fetch(`../admin/job_orders_api.php?action=get_order&id=${jid}`)).json();
                 if(res.success) {
                     const previousJo = this.currentJo || {};
-                    const merged = {
-                        ...previousJo,
-                        ...res.data,
-                        order_type: previousJo.order_type || 'JOB',
-                        order_id: previousJo.order_id || res.data.order_id,
-                        job_order_id: jid
-                    };
+                    const merged = this.applyStaffOrderDetailMerge(
+                        {
+                            ...previousJo,
+                            order_type: previousJo.order_type || 'JOB',
+                            order_id: previousJo.order_id || res.data.order_id,
+                            job_order_id: jid,
+                        },
+                        res.data
+                    );
                     if ((previousJo.order_type || '').toUpperCase() === 'CUSTOMIZATION') {
                         merged.status = previousJo.status || merged.status;
                         merged.payment_proof_status = previousJo.payment_proof_status || merged.payment_proof_status;
@@ -10265,7 +11178,13 @@ window.pfServiceFieldCatalog = (() => {
                 }
             },
             openPosCompleteConfirm(jo = null) {
-                this.posCompleteConfirmTarget = jo || this.currentJo || null;
+                const target = jo || this.currentJo || null;
+                if (target && this.getPosWalkInBucket(target) === 'COMPLETED') {
+                    this.showStaffAlert('Completed', 'This order is already completed.');
+                    return;
+                }
+                if (this.actionBusy) return;
+                this.posCompleteConfirmTarget = target;
                 this.showPosCompleteConfirmModal = true;
             },
             closePosCompleteConfirm() {
@@ -10281,13 +11200,45 @@ window.pfServiceFieldCatalog = (() => {
                 this.posCancelConfirmTarget = null;
             },
             async confirmPosComplete() {
+                if (this.actionBusy) return;
                 const target = this.posCompleteConfirmTarget || this.currentJo || null;
                 this.closePosCompleteConfirm();
                 if (!target) return;
+                if (this.getPosWalkInBucket(target) === 'COMPLETED') {
+                    this.showStaffAlert('Completed', 'This order is already completed.');
+                    return;
+                }
                 if (!this.showDetailsModal) {
                     this.currentJo = { ...target };
                 }
                 await this.completeOrder();
+            },
+            canonicalWorkflowStatusKey(status) {
+                return String(status || '').trim().toUpperCase().replace(/\s+/g, '_');
+            },
+            isAlreadyCompletedOrderConflict(res) {
+                if (!res || res.success) return false;
+                if (Number(res.httpStatus) !== 409) return false;
+                return this.canonicalWorkflowStatusKey(res.current_status) === 'COMPLETED';
+            },
+            async applyStoreOrderCompletedUi(res, orderId) {
+                if (this.currentJo) {
+                    this.currentJo.status = 'COMPLETED';
+                }
+                this.activeStatus = 'COMPLETED';
+                this.modalCache = {};
+                this.modalCacheLoadedAt = {};
+                await this.loadOrders({ force: true });
+                if (this.showDetailsModal && orderId) {
+                    await this.viewDetails(orderId, 'ORDER', this.resolveOrderDetailHints({ order_id: orderId }));
+                }
+                const already = !!(res && (res.already_completed || this.isAlreadyCompletedOrderConflict(res)));
+                this.showStaffAlert(
+                    already ? 'Completed' : 'Success',
+                    already
+                        ? (res.message || 'This order is already completed.')
+                        : (res.message || 'Order marked as completed.')
+                );
             },
             async cancelPosWalkInOrder() {
                 this.openPosCancelConfirm();
@@ -10430,18 +11381,8 @@ window.pfServiceFieldCatalog = (() => {
                             endpoint
                         );
 
-                        if (res.success) {
-                            if (this.currentJo) {
-                                this.currentJo.status = 'COMPLETED';
-                            }
-                            this.activeStatus = 'COMPLETED';
-                            this.modalCache = {};
-                            this.modalCacheLoadedAt = {};
-                            await this.loadOrders({ force: true });
-                            this.showStaffAlert(
-                                res.already_completed ? 'Completed' : 'Success',
-                                res.message || 'Order marked as completed.'
-                            );
+                        if (res.success || this.isAlreadyCompletedOrderConflict(res)) {
+                            await this.applyStoreOrderCompletedUi(res, orderId);
                         } else {
                             this.showStaffAlert('Error', res.error || 'Failed to mark order as completed.');
                         }

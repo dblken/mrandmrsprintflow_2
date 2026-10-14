@@ -208,11 +208,12 @@ try {
 
             $orderRow = db_query(
                 'SELECT order_id, customer_id, branch_id, order_type, order_source, status, payment_status, order_date, total_amount
-                 FROM orders WHERE order_id = ? LIMIT 1',
+                 FROM orders WHERE order_id = ? AND ' . printflow_order_archive_scope_sql('orders') . ' LIMIT 1',
                 'i',
                 [$orderId]
             );
             $orderRow = $orderRow[0] ?? null;
+            if (!$orderRow) cv2_json(['success' => false, 'message' => 'Order not found.'], 404);
 
             $itemRows = db_query(
                 'SELECT order_item_id, product_id, quantity, design_file,

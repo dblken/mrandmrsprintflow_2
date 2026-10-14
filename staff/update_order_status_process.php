@@ -68,7 +68,7 @@ try {
     }
 
     $rows = db_query(
-        'SELECT status, payment_status, branch_id, customer_id, order_type, order_source, reference_id FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE',
+        'SELECT status, payment_status, total_amount, branch_id, customer_id, order_type, order_source, reference_id FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE',
         'i',
         [$orderId]
     ) ?: [];
@@ -134,12 +134,18 @@ try {
     }
 
     if ($canonicalStatus($oldStatus) !== $canonicalStatus($expectedStatus)) {
-        if ($transactionStarted) $conn->rollback();
-        printflow_json_response([
-            'success' => false,
-            'error' => 'This order was updated by another staff member. Please refresh and review the latest status.',
-            'current_status' => $oldStatus,
-        ], 409);
+        $requestingCompleted = strcasecmp($newStatus, 'Completed') === 0;
+        $alreadyCompleted = $canonicalStatus($oldStatus) === 'COMPLETED';
+        // Stale expected_status from the UI must not block idempotent completion when the
+        // order is already Completed in the database (no duplicate status write or deduction).
+        if (!($requestingCompleted && $alreadyCompleted)) {
+            if ($transactionStarted) $conn->rollback();
+            printflow_json_response([
+                'success' => false,
+                'error' => 'This order was updated by another staff member. Please refresh and review the latest status.',
+                'current_status' => $oldStatus,
+            ], 409);
+        }
     }
     $customerId = (int)($order['customer_id'] ?? 0);
     $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
@@ -170,6 +176,13 @@ try {
     }
 
     if ($newStatus === 'Completed') {
+        if ((float)($order['total_amount'] ?? 0) <= 0) {
+            if ($transactionStarted) $conn->rollback();
+            printflow_json_response([
+                'success' => false,
+                'error' => 'Set a valid price before completing this order.',
+            ], 409);
+        }
         $paymentStatus = strtolower(trim((string)($order['payment_status'] ?? '')));
         if (!in_array($paymentStatus, ['paid', 'fully paid'], true)) {
             if ($transactionStarted) $conn->rollback();

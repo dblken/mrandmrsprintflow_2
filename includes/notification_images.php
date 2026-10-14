@@ -20,6 +20,7 @@ function printflow_notification_sender_image(array $notification): string {
          WHERE order_id = ? AND sender = ? AND sender_id > 0
            AND message_type IN ('text', 'image', 'file', 'voice', 'video', 'audio')
            AND created_at <= ? AND created_at >= DATE_SUB(?, INTERVAL 1 MINUTE)
+           AND " . printflow_order_archive_exclusion_sql('order_messages.order_id') . "
          ORDER BY created_at DESC, message_id DESC LIMIT 2",
         'isss', [$orderId, $sender, $timestamp, $timestamp]
     ) ?: [];
@@ -120,7 +121,8 @@ function printflow_notification_catalog_context(array $notification, string $fal
     $identityFields = (in_array('service_id', $lineColumns, true) ? 'oi.service_id' : '0 AS service_id')
         . ', ' . (in_array('item_type', $lineColumns, true) ? 'oi.item_type' : "'' AS item_type");
     if ($orderId > 0 && !isset($orderData[$orderId])) {
-        $orderData[$orderId]['order'] = (db_query('SELECT order_type, reference_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]) ?: [])[0] ?? [];
+        $orderData[$orderId]['order'] = (db_query('SELECT order_type, reference_id FROM orders WHERE order_id = ? AND ' . printflow_order_archive_scope_sql('orders') . ' LIMIT 1', 'i', [$orderId]) ?: [])[0] ?? [];
+        if (empty($orderData[$orderId]['order'])) return $result;
         $orderData[$orderId]['lines'] = db_query(
         'SELECT oi.order_item_id, oi.product_id, oi.customization_data, ' . $identityFields . ', p.sku AS product_sku, p.name AS product_name
          FROM order_items oi LEFT JOIN products p ON p.product_id = oi.product_id

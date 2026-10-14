@@ -173,7 +173,7 @@ if ($action === 'list_orders') {
     $sql = "SELECT o.*, CONCAT(c.first_name, ' ', c.last_name) as customer_name,
             (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id) as order_sku,
             (SELECT GROUP_CONCAT(COALESCE(p.name, 'Custom Product') SEPARATOR ', ') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id) as item_names
-            FROM orders o LEFT JOIN customers c ON o.customer_id = c.customer_id WHERE 1=1 AND {$staffOrderScopeSql}";
+            FROM orders o LEFT JOIN customers c ON o.customer_id = c.customer_id WHERE 1=1 AND {$staffOrderScopeSql} AND " . printflow_order_archive_scope_sql('o');
     $params = [];
     $types = '';
 
@@ -225,7 +225,7 @@ if ($branchFilter !== null) {
                {$customer_select}
         FROM orders o
         LEFT JOIN customers c ON o.customer_id = c.customer_id
-        WHERE o.order_id = ? AND o.branch_id = ? AND {$staffOrderScopeSql}
+        WHERE o.order_id = ? AND o.branch_id = ? AND {$staffOrderScopeSql} AND " . printflow_order_archive_scope_sql('o') . "
     ", 'ii', [$order_id, $branchFilter]);
 } else {
     $order_result = db_query("
@@ -234,7 +234,7 @@ if ($branchFilter !== null) {
                {$customer_select}
         FROM orders o
         LEFT JOIN customers c ON o.customer_id = c.customer_id
-        WHERE o.order_id = ? AND {$staffOrderScopeSql}
+        WHERE o.order_id = ? AND {$staffOrderScopeSql} AND " . printflow_order_archive_scope_sql('o') . "
     ", 'i', [$order_id]);
 }
 

@@ -2902,6 +2902,8 @@ function get_preview_image_for_order_ui($order, $display_name) {
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<link rel="stylesheet" href="<?php echo htmlspecialchars(rtrim((defined('BASE_URL') ? BASE_URL : '/printflow'), '/') . '/public/assets/css/pf-order-item-design-files.css?v=' . (int) @filemtime(__DIR__ . '/../public/assets/css/pf-order-item-design-files.css')); ?>">
+<script src="<?php echo htmlspecialchars(rtrim((defined('BASE_URL') ? BASE_URL : '/printflow'), '/') . '/public/assets/js/pf-order-item-design-files.js?v=' . (int) @filemtime(__DIR__ . '/../public/assets/js/pf-order-item-design-files.js')); ?>"></script>
 
 <script>
 document.body.classList.add('orders-page');
@@ -3085,6 +3087,87 @@ window.addEventListener('DOMContentLoaded', () => {
 </div>
 
 <script>
+function imShouldSkipCustomizationKey(k, v) {
+    const nk = String(k || '').toLowerCase().replace(/\s+/g, '_').trim();
+    if (!nk || String(k).startsWith('_')) {
+        return true;
+    }
+    if ([
+        'uploaded_files',
+        'design_upload_files',
+        '_uploaded_files',
+        'design_upload',
+        'design_upload_name',
+        'design_upload_data',
+        'upload_design_data',
+        'design_data',
+        'design_upload_path',
+        'design_upload_mime',
+        'design_file',
+        'design_external_link',
+        'design_link',
+        'design_file_link',
+        'upload_design_link',
+        'job_notes',
+        'reference_upload',
+        'idempotency_key',
+    ].includes(nk)) {
+        return true;
+    }
+    if (v && typeof v === 'object') {
+        if (Array.isArray(v)) {
+            if (v.length && v[0] && typeof v[0] === 'object' && ('tmp_path' in v[0] || 'idempotency_key' in v[0])) {
+                return true;
+            }
+        } else if ('tmp_path' in v || 'idempotency_key' in v || 'storage_path' in v) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function imDedupeDesignFilesForDisplay(list) {
+    const PF = window.PrintflowOrderItemDesignFiles;
+    let out = PF ? PF.dedupe(Array.isArray(list) ? list : []) : (Array.isArray(list) ? list : []);
+    const hasDbIds = out.some((row) => Number(row && row.file_id) > 0);
+    if (hasDbIds) {
+        out = out.filter((row) => Number(row && row.file_id) > 0);
+        out = PF ? PF.dedupe(out) : out;
+    }
+    return out;
+}
+
+function imRenderLongFormSection(parts) {
+    if (!Array.isArray(parts) || !parts.length) {
+        return '';
+    }
+    const body = parts.map((part) => {
+        const label = String(part.label || '').trim();
+        const text = String(part.text || '').trim();
+        if (!text) {
+            return '';
+        }
+        if (label) {
+            return label + ':\n' + text;
+        }
+        return text;
+    }).filter(Boolean).join('\n\n');
+    if (!body) {
+        return '';
+    }
+    const needsToggle = body.length > 420 || body.split('\n').length >= 6;
+    const clampClass = needsToggle ? ' pf-customer-notes-text--clamped' : '';
+    const toggles = needsToggle
+        ? `<button type="button" class="pf-customer-notes-toggle" data-pf-notes-more style="margin-top:8px;padding:0;border:none;background:none;color:#0369a1;font-size:0.82rem;font-weight:700;cursor:pointer;">See more</button>
+           <button type="button" class="pf-customer-notes-toggle" data-pf-notes-less hidden style="margin-top:8px;padding:0;border:none;background:none;color:#0369a1;font-size:0.82rem;font-weight:700;cursor:pointer;">See less</button>`
+        : '';
+    return `<div class="im-longform-section">
+        <div class="im-longform-label">Customization details</div>
+        <div class="im-longform-text pf-customer-notes-text${clampClass}">${escIM(body)}</div>
+        ${toggles}
+    </div>`;
+}
+
 function imIsLongFormSpecKey(k) {
     const s = String(k || '').toLowerCase().replace(/\s+/g, ' ').trim();
     if (!s) {
@@ -3812,45 +3895,27 @@ function openItemsModal(orderId, event, options = {}) {
             if (item.customization) {
                 const entries = Object.entries(item.customization).filter(([k, v]) => {
                     if (v === null || v === undefined || v === '') return false;
+                    if (imShouldSkipCustomizationKey(k, v)) return false;
                     const nk = String(k).toLowerCase().replace(/\s+/g, '_');
                     if (imIsDesignLinkKey(k)) return false;
                     if ((v === 'No' || v === 'None') && nk !== 'custom_print') return false;
-                    if ([
-                        'design_upload',
-                        'design_upload_name',
-                        'design_upload_data',
-                        'upload_design_data',
-                        'design_data',
-                        'design_upload_path',
-                        'design_upload_mime',
-                        'design_file',
-                        'design_external_link',
-                        'design_link',
-                        'design_file_link',
-                        'upload_design_link',
-                        'job_notes',
-                        'reference_upload'
-                    ].includes(nk) || String(k).startsWith('_')) return false;
                     return true;
                 });
                 const specParts = [];
+                const longFormParts = [];
                 for (const [k, v] of entries) {
-                    let disp = v;
                     if (typeof v === 'object' && v !== null) {
-                        try { disp = JSON.stringify(v); } catch (e) { disp = String(v); }
+                        continue;
                     }
-                    const dispStr = String(disp);
-                    const kl = String(k).toLowerCase();
+                    const dispStr = String(v);
                     if (imIsLongFormSpecKey(k)) {
                         if (dispStr.trim() !== '' && dispStr.trim() === String(data.notes || '').trim()) {
                             continue;
                         }
-                        const label = String(k).replace(/_/g, ' ');
-                        longFormHtml += `
-                        <div class="im-longform-block">
-                            <div class="im-longform-label">${escIM(label)}</div>
-                            <div class="im-longform-text">${escIM(dispStr)}</div>
-                        </div>`;
+                        longFormParts.push({
+                            label: String(k).replace(/_/g, ' '),
+                            text: dispStr,
+                        });
                         continue;
                     }
                     specParts.push(`
@@ -3863,9 +3928,63 @@ function openItemsModal(orderId, event, options = {}) {
                 if (specParts.length) {
                     specs = `<div class="im-spec-grid">${specParts.join('')}</div>`;
                 }
+                longFormHtml = imRenderLongFormSection(longFormParts);
             }
 
-            const design = item.has_design_file || item.has_design ? `<a class="im-asset-trigger" href="${item.design_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.design_url}" class="im-thumb hover:scale-105 transition-transform" alt="Design"></span></a>` : '';
+            const imDesignFileThumbs = (() => {
+                const PF = window.PrintflowOrderItemDesignFiles;
+                const raw = Array.isArray(item.design_files) ? item.design_files : (Array.isArray(item.files) ? item.files : []);
+                let list = imDedupeDesignFilesForDisplay(raw);
+                if (!list.length && (item.has_design_file || item.has_design) && item.design_url) {
+                    list = [{
+                        file_id: 'legacy-' + String(item.order_item_id || '0'),
+                        display_name: 'Design',
+                        preview_url: item.design_url,
+                        download_url: item.design_url,
+                        is_previewable_image: true,
+                        exists: true,
+                    }];
+                }
+                if (!list.length) return '';
+                const orderItemId = Number(item.order_item_id || 0);
+                const moreLabel = PF ? PF.showMoreLabel(list) : '';
+                const parts = [`<div class="pf-design-files" data-pf-design-files data-order-item-id="${orderItemId}">`];
+                if (list.length > 1 && orderItemId > 0 && PF) {
+                    parts.push(`<div class="pf-design-files__toolbar"><a class="pf-design-files__zip" href="${escIM(PF.zipDownloadUrl(orderItemId, CUSTOMER_BASE_URL))}">Download all (ZIP)</a></div>`);
+                }
+                parts.push('<div class="pf-design-files__grid">');
+                list.forEach((file, index) => {
+                    if (!file || typeof file !== 'object') return;
+                    const fileId = escIM(String(file.file_id ?? ''));
+                    const nameRaw = String(file.display_name || 'Uploaded design');
+                    const name = escIM(nameRaw);
+                    const meta = PF ? escIM(PF.fileTypeLabel(file) + (file.file_size ? ' · ' + PF.formatFileSize(file.file_size) : '')) : '';
+                    const collapsible = index >= 3 ? ' data-pf-design-collapsible hidden' : '';
+                    parts.push(`<article class="pf-design-file-card" data-file-id="${fileId}"${collapsible}>`);
+                    parts.push(`<p class="pf-design-file-card__name">${name}</p>`);
+                    parts.push(`<div class="pf-design-file-card__meta">${meta}</div>`);
+                    if (PF && PF.fileUnavailable(file)) {
+                        parts.push('<div class="pf-design-file-card__unavailable" role="status">File unavailable</div>');
+                    } else {
+                        const url = String(file.preview_url || file.download_url || '').trim();
+                        if (file.is_previewable_image && url) {
+                            parts.push(`<div class="pf-design-file-card__preview"><img class="pf-design-file-card__img" src="${escIM(url)}" alt="${escIM('Preview of ' + nameRaw)}" loading="lazy" decoding="async"></div>`);
+                        }
+                        if (url) {
+                            parts.push(`<div class="pf-design-file-card__actions"><a href="${escIM(url)}" download target="_blank" rel="noopener noreferrer" class="pf-modal-design-action-btn" aria-label="${escIM('Download ' + nameRaw)}">Download</a></div>`);
+                        }
+                    }
+                    parts.push('</article>');
+                });
+                parts.push('</div>');
+                if (moreLabel) {
+                    parts.push(`<button type="button" class="pf-design-files__toggle" data-pf-design-more aria-label="${escIM(moreLabel)}">${escIM(moreLabel)}</button>`);
+                    parts.push('<button type="button" class="pf-design-files__toggle" data-pf-design-less hidden aria-label="Show less">Show less</button>');
+                }
+                parts.push('</div>');
+                return parts.join('');
+            })();
+            const design = imDesignFileThumbs;
             const designLink = imRenderDesignLinkBlock(item);
             const reference = item.has_reference ? `<a class="im-asset-trigger" href="${item.reference_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.reference_url}" class="im-thumb hover:scale-105 transition-transform" alt="Reference"></span></a>` : '';
             const descLabel = data.is_service_order ? 'Service Description' : 'Item Description';
@@ -3903,7 +4022,7 @@ function openItemsModal(orderId, event, options = {}) {
 
         const estimatedCompLabel = data.estimated_comp_label || 'Estimated completion';
         const revisionActionUrl = data.revision_request?.revise_url || (CUSTOMER_BASE_URL + '/customer/edit_order.php?order_id=' + data.order_id);
-        const revisionActionLabel = data.revision_request?.action_label || 'Update Requested Details';
+        const revisionActionLabel = data.revision_request?.action_label || 'Respond to Request Add Details';
         const revisionFieldLabels = Array.isArray(data.revision_request?.permitted_field_labels)
             ? data.revision_request.permitted_field_labels
             : [];
@@ -4002,7 +4121,7 @@ function openItemsModal(orderId, event, options = {}) {
                     <div class="mt-auto pt-4 im-order-actions">
                         ${data.design_status === 'Revision Requested' && data.revision_request ? `
                             <div class="im-reject-card">
-                                <div class="im-reject-title">Revision Requested</div>
+                                <div class="im-reject-title">Request Add Details</div>
                                 <p class="im-reject-copy"><strong>Reason:</strong> ${escIM(data.revision_request?.reason || 'Additional details required')}</p>
                                 <p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Staff instruction:</strong> ${escIM(data.revision_request?.instruction || data.revision_reason || 'Please review and correct the fields requested by staff.')}</p>
                                 ${data.revision_request?.requested_at ? `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Requested:</strong> ${escIM(formatRevisionRequestedAt(data.revision_request.requested_at))}</p>` : ''}
@@ -4013,7 +4132,7 @@ function openItemsModal(orderId, event, options = {}) {
                             </div>
                         ` : data.design_status === 'Revision Requested' ? `
                             <div class="im-reject-card">
-                                <div class="im-reject-title">Revision Request Unavailable</div>
+                                <div class="im-reject-title">Request Add Details Unavailable</div>
                                 <p class="im-reject-copy">${escIM(data.revision_request_error || 'We could not load the requested updates. Please refresh the order or contact the shop.')}</p>
                             </div>
                         ` : ''}
@@ -4080,6 +4199,15 @@ function openItemsModal(orderId, event, options = {}) {
                 reviewAction.querySelector('span').textContent = isViewReview
                     ? 'View Your Review'
                     : 'Rate This Order';
+            }
+        }
+        if (window.PrintflowOrderItemDesignFiles && typeof window.PrintflowOrderItemDesignFiles.bindDesignFilesBlocks === 'function') {
+            const imBody = document.getElementById('imBody');
+            if (imBody) {
+                window.PrintflowOrderItemDesignFiles.bindDesignFilesBlocks(imBody);
+                if (typeof window.PrintflowOrderItemDesignFiles.bindCustomerNotesBlocks === 'function') {
+                    window.PrintflowOrderItemDesignFiles.bindCustomerNotesBlocks(imBody);
+                }
             }
         }
     })
@@ -4637,7 +4765,7 @@ function imIsDesignLinkKey(key) {
 function imDesignLinkPlatform(url) {
     try {
         const host = new URL(String(url || '')).hostname.toLowerCase();
-        if (host.includes('canva.com')) return 'Canva Design';
+        if (host.includes('canva.com') || host === 'canva.link' || host.endsWith('.canva.link')) return 'Canva Design';
         if (host.includes('drive.google.com') || host.includes('docs.google.com')) return 'Google Drive';
         if (host.includes('dropbox.com')) return 'Dropbox';
         if (host.includes('onedrive.live.com') || host.includes('1drv.ms')) return 'OneDrive';
@@ -4648,11 +4776,11 @@ function imDesignLinkPlatform(url) {
 
 function imIsDirectImageUrl(url) {
     const text = String(url || '').trim();
-    if (!/^https?:\/\//i.test(text)) return false;
+    if (!/^https:\/\//i.test(text)) return false;
     try {
         const parsed = new URL(text);
         const host = parsed.hostname.toLowerCase();
-        if (/canva\.com|drive\.google\.com|docs\.google\.com|dropbox\.com|onedrive\.live\.com|1drv\.ms|photos\.google\.com/.test(host)) {
+        if (/canva\.com|canva\.link|drive\.google\.com|docs\.google\.com|dropbox\.com|onedrive\.live\.com|1drv\.ms|photos\.google\.com/.test(host)) {
             return false;
         }
         return /\.(?:jpe?g|png|gif|webp|svg|bmp|avif)(?:$|[?#])/i.test(parsed.pathname);
@@ -4702,7 +4830,7 @@ async function imCopyExternalLink(url, btn) {
 
 function imRenderDesignLinkBlock(item) {
     const url = String(item.design_external_link || '').trim();
-    if (!url || !/^https?:\/\//i.test(url)) return '';
+    if (!url || !/^https:\/\//i.test(url)) return '';
     const isDirect = item.design_link_is_direct_image || imIsDirectImageUrl(url);
     const safeUrl = escIM(url);
     const preview = isDirect

@@ -188,7 +188,7 @@ function printflow_serve_payment_proof(): void {
                 $params_o[] = $basename;
             }
 
-            $orderSql = 'SELECT order_id FROM orders WHERE customer_id = ? AND (' . $orderInner . ') LIMIT 1';
+            $orderSql = 'SELECT order_id FROM orders WHERE customer_id = ? AND ' . printflow_order_archive_scope_sql('orders') . ' AND (' . $orderInner . ') LIMIT 1';
             $check_o = db_query($orderSql, $types_o, $params_o);
             if (!empty($check_o)) {
                 $is_owner = true;
@@ -198,7 +198,7 @@ function printflow_serve_payment_proof(): void {
         // Fallback: awaiting resubmit — compare basename against rows this customer owns
         if (!$is_owner && $has_needs_reset) {
             $check_need = db_query(
-                'SELECT order_id, payment_proof FROM orders WHERE customer_id = ? AND payment_proof_needs_resubmit = 1 '
+                'SELECT order_id, payment_proof FROM orders WHERE customer_id = ? AND ' . printflow_order_archive_scope_sql('orders') . ' AND payment_proof_needs_resubmit = 1 '
                 . 'ORDER BY order_date DESC LIMIT 30',
                 'i',
                 [$customer_id]

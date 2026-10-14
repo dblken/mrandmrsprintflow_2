@@ -56,6 +56,20 @@ function printflow_pos_ensure_orders_guest_display_name_column(): void
     );
 }
 
+function printflow_pos_ensure_orders_guest_email_column(): void
+{
+    static $done = false;
+    if ($done) return;
+    $done = true;
+
+    printflow_pos_ensure_orders_guest_display_name_column();
+
+    if (db_query("SHOW COLUMNS FROM orders LIKE 'pos_guest_email'")) return;
+    global $conn;
+    if (!($conn instanceof mysqli)) return;
+    @$conn->query('ALTER TABLE orders ADD COLUMN pos_guest_email VARCHAR(254) NULL DEFAULT NULL AFTER pos_guest_display_name');
+}
+
 function printflow_pos_sanitize_guest_display_name(?string $raw): string
 {
     $name = preg_replace('/\s+/u', ' ', trim((string)$raw)) ?? trim((string)$raw);
@@ -162,7 +176,7 @@ function printflow_pos_find_or_create_customer_by_email(string $email, string $d
 }
 
 /**
- * @return array{customer_id:int,pos_guest_display_name:?string}
+ * @return array{customer_id:int,pos_guest_display_name:?string,pos_guest_email:?string}
  */
 function printflow_pos_resolve_checkout_customer_context(array $data): array
 {
@@ -185,11 +199,23 @@ function printflow_pos_resolve_checkout_customer_context(array $data): array
             throw new RuntimeException('Please select a valid customer.', 400);
         }
 
-        return ['customer_id' => $customerId, 'pos_guest_display_name' => null];
+        return ['customer_id' => $customerId, 'pos_guest_display_name' => null, 'pos_guest_email' => null];
     }
 
     $guestName = printflow_pos_sanitize_guest_display_name($data['guest_display_name'] ?? '');
     $checkoutEmail = printflow_pos_normalize_customer_email($data['customer_email'] ?? '');
+
+    if ($rawCustomer === 'guest') {
+        if ($checkoutEmail !== '' && (!filter_var($checkoutEmail, FILTER_VALIDATE_EMAIL) || printflow_pos_is_placeholder_customer_email($checkoutEmail))) {
+            throw new RuntimeException('Please enter a valid walk-in customer email address.', 400);
+        }
+        printflow_pos_ensure_orders_guest_email_column();
+        return [
+            'customer_id' => pos_get_walkin_customer_id(),
+            'pos_guest_display_name' => $guestName !== '' ? $guestName : null,
+            'pos_guest_email' => $checkoutEmail !== '' ? $checkoutEmail : null,
+        ];
+    }
 
     if ($checkoutEmail !== '') {
         if (!filter_var($checkoutEmail, FILTER_VALIDATE_EMAIL) || printflow_pos_is_placeholder_customer_email($checkoutEmail)) {
@@ -200,7 +226,7 @@ function printflow_pos_resolve_checkout_customer_context(array $data): array
     if ($checkoutEmail !== '') {
         $customerId = printflow_pos_find_or_create_customer_by_email($checkoutEmail, $guestName);
 
-        return ['customer_id' => $customerId, 'pos_guest_display_name' => null];
+        return ['customer_id' => $customerId, 'pos_guest_display_name' => null, 'pos_guest_email' => null];
     }
 
     if ($guestName === '') {
@@ -209,7 +235,8 @@ function printflow_pos_resolve_checkout_customer_context(array $data): array
 
     return [
         'customer_id' => pos_get_walkin_customer_id(),
-        'pos_guest_display_name' => $guestName,
+        'pos_guest_display_name' => $guestName !== '' ? $guestName : null,
+        'pos_guest_email' => null,
     ];
 }
 

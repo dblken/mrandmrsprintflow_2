@@ -34,12 +34,22 @@ revision_test_assert(strpos($jobService, "'FOR_REVISION'  => 'For Revision'") !=
 revision_test_assert(strpos($orders, '<a href="${escIM(revisionActionUrl)}" data-revision-action="1"') !== false, 'revision action is a direct internal-order link');
 revision_test_assert(strpos($orders, "closest('a[data-revision-action=\"1\"]')") !== false && strpos($orders, 'event.stopPropagation();') !== false, 'direct revision link is protected from the surrounding modal click handler');
 revision_test_assert(strpos($orders, 'function openRevisionForm(') === false, 'obsolete preventDefault revision navigation handler is removed');
-revision_test_assert(strpos($orders, 'Revision Request Unavailable') !== false, 'missing active requests show a visible failure instead of a dead action');
+revision_test_assert(
+    strpos($orders, 'Revision Request Unavailable') !== false
+        || strpos($orders, 'Request Add Details Unavailable') !== false
+        || strpos($editOrder, 'Request Add Details Unavailable') !== false,
+    'missing active requests show a visible failure instead of a dead action'
+);
 revision_test_assert(strpos($orderApi, "'order_item_ids'") !== false && strpos($orderApi, "'customer_id'") !== false && strpos($orderApi, "'status'") !== false, 'revision API returns ownership, item, and active-status metadata');
 revision_test_assert(strpos($workflow, 'An unauthorized specification change was rejected.') !== false, 'server rejects unauthorized specification changes');
 revision_test_assert(strpos($workflow, 'WHERE order_item_id = ? AND order_id = ?') !== false && strpos($editOrder, 'name="design_order_item_id"') !== false, 'replacement upload is bound to the exact authorized order item');
 revision_test_assert(strpos($workflow, "request_status = 'Resubmitted for Review'") !== false, 'successful submission records Resubmitted for Review');
-revision_test_assert(strpos($editOrder, 'Submit Updated Details') !== false || strpos($editOrder, 'Submit Updates') !== false, 'revision form exposes an explicit update submission action');
+revision_test_assert(
+    strpos($editOrder, 'Submit Updated Details') !== false
+        || strpos($editOrder, 'Submit Updates') !== false
+        || strpos($editOrder, 'Submit Request Add Details') !== false,
+    'revision form exposes an explicit update submission action'
+);
 revision_test_assert(strpos($editOrder, 'LEFT JOIN branches b ON b.id = o.branch_id') !== false && strpos($editOrder, 'b.branch_id = o.branch_id') === false, 'revision form uses the production branches.id schema');
 revision_test_assert(strpos($editOrder, '<input type="hidden" name="resubmit_order" value="1">') !== false, 'disabled submit button cannot remove the revision POST action');
 revision_test_assert(strpos($editOrder, "'date'") !== false && strpos($editOrder, 'needed_date') !== false, 'Needed Date uses a date control');
@@ -56,7 +66,11 @@ revision_test_assert(strpos($staffCustomizations, 'staffRevisionPermissionToken'
 revision_test_assert(strpos($staffCustomizations, '<option value="invalid_format">') === false, 'invalid format is removed from new staff revision reason choices');
 revision_test_assert(strpos($staffCustomizations, 'Other: ${this.getCustomLabel(key)}') === false, 'staff revision checklist no longer appends generic Other: metadata labels');
 revision_test_assert(strpos($staffCustomizations, 'Details customer needs to update') !== false && strpos($staffCustomizations, 'Select at least one detail the customer needs to update.') !== false, 'staff revision modal requires at least one editable field');
-revision_test_assert(strpos($editOrder, 'Revision Request Unavailable') !== false && strpos($editOrder, 'Reference ID:') !== false, 'invalid revision requests show a visible reference instead of redirecting');
+revision_test_assert(
+    (strpos($editOrder, 'Revision Request Unavailable') !== false || strpos($editOrder, 'Request Add Details Unavailable') !== false)
+        && strpos($editOrder, 'Reference ID:') !== false,
+    'invalid revision requests show a visible reference instead of redirecting'
+);
 revision_test_assert(strpos($adminApi, "?: ['uploaded_design']") === false && strpos($v2Api, "?: ['uploaded_design']") === false && strpos($customizationService, ": ['uploaded_design']") === false, 'staff endpoints do not silently default detail revisions to design upload');
 revision_test_assert(strpos($repairMigration, "JSON_ARRAY('needed_date')") !== false && strpos($repairMigration, 'order_revision_permission_repairs') !== false, 'idempotent repair migration preserves before/after authorization audit');
 

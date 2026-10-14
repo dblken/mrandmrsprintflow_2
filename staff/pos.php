@@ -45,7 +45,7 @@ try {
 // Fetch Customers
 $customers = [];
 try {
-    $customers = db_query("SELECT customer_id, first_name, last_name, email, contact_number FROM customers ORDER BY first_name ASC, last_name ASC");
+    $customers = db_query("SELECT customer_id, first_name, last_name, email, contact_number FROM customers WHERE " . printflow_customer_exclusion_customer_scope_sql('customers.customer_id') . " ORDER BY first_name ASC, last_name ASC");
     $customers = array_values(array_filter($customers ?: [], static function (array $row): bool {
         $email = strtolower(trim((string)($row['email'] ?? '')));
         if ($email === 'walkin@pos.local') {
@@ -89,18 +89,11 @@ try {
             $pos_default_catalog_img
         );
         $image_url = pf_normalize_service_image_path($img, $pos_base_path, $pos_default_catalog_img);
-        $price_label = trim((string) ($pricing['price_label'] ?? ''));
-        if ($price_label === '') {
-            $price_label = 'Custom Pricing';
-        }
-        $display_price = $pricing['display_price'] ?? null;
         $pos_services[] = [
             'service_id' => $sid,
             'name' => $row['name'],
             'category' => $row['category'] ?? '',
             'image_url' => $image_url,
-            'price_label' => $price_label,
-            'display_price' => $display_price,
             'pricing_type' => (string) ($pricing['pricing_type'] ?? 'custom'),
         ];
         if (printflow_service_requires_pos_set_price($sid, (string) ($row['name'] ?? ''), (string) ($row['category'] ?? ''))) {
@@ -3117,10 +3110,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                     <?php foreach ($pos_services as $svc):
                                         $svc_img = htmlspecialchars($svc['image_url'] ?? $pos_default_catalog_img, ENT_QUOTES);
                                         $svc_name = htmlspecialchars($svc['name'] ?? '', ENT_QUOTES);
-                                        $svc_price = $svc['display_price'] ?? null;
-                                        $price_text = ($svc_price !== null && $svc_price !== '')
-                                            ? '₱' . number_format((float) $svc_price, 2)
-                                            : htmlspecialchars($svc['price_label'] ?? 'Custom Pricing', ENT_QUOTES);
                                     ?>
                                         <button type="button" class="pos-catalog-card"
                                             data-service-id="<?php echo (int) $svc['service_id']; ?>"
@@ -3136,7 +3125,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                                     <span class="pos-catalog-card__meta"><?php echo htmlspecialchars($svc['category']); ?></span>
                                                 <?php endif; ?>
                                                 <p class="pos-catalog-card__name" title="<?php echo $svc_name; ?>"><?php echo $svc_name; ?></p>
-                                                <div class="pos-catalog-card__price"><?php echo $price_text; ?></div>
                                             </div>
                                         </button>
                                     <?php endforeach; ?>
@@ -3177,7 +3165,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             </select>
                             </div>
                             <div class="pos-guest-name-wrap" id="pos-guest-name-wrap">
-                                <label for="pos-guest-name">Customer name *</label>
+                                <label for="pos-guest-name">Customer name</label>
                                 <input type="text" id="pos-guest-name" class="pos-guest-name-input" maxlength="120"
                                     placeholder="Enter name for receipt (no account required)" autocomplete="name">
                             </div>
@@ -3697,7 +3685,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 is_service: item.is_service || false,
                 price_set: item.price_set === true,
                 pending_order_id: item.pending_order_id || 0,
-                pending_customization_id: item.pending_customization_id || 0
+                pending_customization_id: item.pending_customization_id || 0,
+                pending_order_item_id: item.pending_order_item_id || 0
             };
         }
 
@@ -4538,14 +4527,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (!wrap) return;
             const show = isPosGuestCustomerSelected();
             wrap.style.display = show ? 'block' : 'none';
-            const nameInput = document.getElementById('pos-guest-name');
-            if (nameInput) {
-                if (show) {
-                    nameInput.setAttribute('required', 'required');
-                } else {
-                    nameInput.removeAttribute('required');
-                }
-            }
         }
 
         function posCheckoutCustomerPayload() {
@@ -4648,6 +4629,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 document.getElementById('services-view').style.display = 'flex';
             }
         }
+        window.showPOSMode = showPOSMode;
 
         function backToSelection() {
             currentMode = null;
@@ -4655,6 +4637,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             document.getElementById('products-view').style.display = 'none';
             document.getElementById('services-view').style.display = 'none';
         }
+        window.backToSelection = backToSelection;
 
         document.addEventListener('DOMContentLoaded', async () => {
             updatePosTransactionDateTimeSummaryUI();
@@ -4862,12 +4845,23 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return { unitPrice, quantity };
         }
 
+        const POS_MISSING_ESTIMATE_MESSAGE = 'This specification does not have an estimated price yet. The final price will be set by Staff before payment or order completion. Do you want to continue?';
+
+        async function confirmMissingEstimatedPrice() {
+            return showPOSConfirm('Estimated Price', POS_MISSING_ESTIMATE_MESSAGE, 'Continue', 'warning');
+        }
+
         function applyServicePricingToCustomization(customization, unitPrice, quantity) {
             const safeUnit = Math.round(unitPrice * 100) / 100;
             const safeQty = Math.max(1, parseInt(String(quantity), 10) || 1);
             customization.calculated_unit_price = safeUnit.toFixed(2);
             customization.calculated_estimated_price = (safeUnit * safeQty).toFixed(2);
             customization.quantity = String(safeQty);
+            if (safeUnit > 0) {
+                delete customization.price_unconfigured;
+            } else {
+                customization.price_unconfigured = '1';
+            }
             return { unitPrice: safeUnit, quantity: safeQty };
         }
 
@@ -4940,7 +4934,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     });
                 });
                 bindServiceValidationClearers(body);
-                if (typeof initPfDesignUploadGroups === 'function') initPfDesignUploadGroups(body);
+                if (typeof initServiceFieldRenderer === 'function') initServiceFieldRenderer(body);
+                else if (typeof initPfDesignUploadGroups === 'function') initPfDesignUploadGroups(body);
                 initPosEstimatedPrice(body, parseFloat(data.base_price) || 0);
             } catch (e) {
                 body.innerHTML = '<p style="color:#ef4444;text-align:center;padding:1rem;">Network error. Please try again.</p>';
@@ -4953,7 +4948,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             destroyPosEstimatedPrice();
             const body = document.getElementById('sm-fields-body');
             if (body) body.innerHTML = '';
-            document.getElementById('service-modal-overlay').style.display = 'none';
+            const overlay = document.getElementById('service-modal-overlay');
+            if (overlay) {
+                delete overlay.dataset.serviceId;
+                delete overlay.dataset.serviceName;
+                overlay.style.display = 'none';
+            }
         }
 
         async function posReadFilePayload(file) {
@@ -4969,10 +4969,26 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
         }
 
-        async function posStageMediaUpload(file, field = 'design') {
+        function posNewUploadIdempotencyKey() {
+            if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+                return crypto.randomUUID();
+            }
+            return 'pf-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+        }
+
+        async function posStageMediaUpload(file, field = 'design', options = {}) {
             const fd = new FormData();
             fd.append('field', field);
             fd.append('csrf_token', POS_CSRF_TOKEN);
+            if (options.idempotency_key) {
+                fd.append('idempotency_key', String(options.idempotency_key));
+            }
+            if (options.upload_sort !== undefined && options.upload_sort !== null) {
+                fd.append('upload_sort', String(options.upload_sort));
+            }
+            if (options.order_item_id) {
+                fd.append('order_item_id', String(options.order_item_id));
+            }
             fd.append(field === 'reference' ? 'reference_file' : 'design_file', file);
             const res = await fetch(staffUrl('staff/api/pos_upload_design.php'), {
                 method: 'POST',
@@ -4985,8 +5001,46 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return data;
         }
 
+        function posEnsureDesignUploadFiles(customization) {
+            if (!Array.isArray(customization.design_upload_files)) {
+                customization.design_upload_files = [];
+            }
+            return customization.design_upload_files;
+        }
+
+        function posUpsertDesignUploadFile(customization, staged, idempotencyKey) {
+            const list = posEnsureDesignUploadFiles(customization);
+            const key = String(staged.idempotency_key || idempotencyKey || '');
+            if (key && list.some((entry) => String(entry.idempotency_key || '') === key)) {
+                return staged;
+            }
+            const entry = {
+                path: staged.path,
+                name: staged.name,
+                mime: staged.mime,
+                size: staged.size || 0,
+                upload_sort: typeof staged.upload_sort === 'number' ? staged.upload_sort : list.length,
+                idempotency_key: key || posNewUploadIdempotencyKey(),
+                file_id: staged.file_id || 0,
+            };
+            list.push(entry);
+            list.sort((a, b) => (Number(a.upload_sort || 0) - Number(b.upload_sort || 0)) || (Number(a.file_id || 0) - Number(b.file_id || 0)));
+            customization.design_upload = entry.name;
+            customization.design_upload_name = entry.name;
+            customization.design_upload_mime = entry.mime;
+            customization.design_upload_path = entry.path;
+            customization.design_upload_idempotency_key = entry.idempotency_key;
+            delete customization.design_upload_data;
+            return staged;
+        }
+
         async function posApplyStagedUpload(customization, file, field = 'design') {
-            const staged = await posStageMediaUpload(file, field);
+            const idempotencyKey = posNewUploadIdempotencyKey();
+            const uploadSort = field === 'design' ? posEnsureDesignUploadFiles(customization).length : 0;
+            const staged = await posStageMediaUpload(file, field, {
+                idempotency_key: idempotencyKey,
+                upload_sort: uploadSort,
+            });
             if (field === 'reference') {
                 customization.reference_upload = staged.name;
                 customization.reference_upload_name = staged.name;
@@ -4994,13 +5048,181 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 customization.reference_upload_path = staged.path;
                 delete customization.reference_upload_data;
             } else {
-                customization.design_upload = staged.name;
-                customization.design_upload_name = staged.name;
-                customization.design_upload_mime = staged.mime;
-                customization.design_upload_path = staged.path;
-                delete customization.design_upload_data;
+                posUpsertDesignUploadFile(customization, staged, idempotencyKey);
             }
             return staged;
+        }
+
+        const PF_MAX_DESIGN_FILES_PER_ITEM = 10;
+        let posDesignUploadInFlight = false;
+
+        function posCountUniqueDesignFiles(customization) {
+            const list = posEnsureDesignUploadFiles(customization);
+            const seen = new Set();
+            let count = 0;
+            list.forEach((entry) => {
+                const fileId = Number(entry && entry.file_id ? entry.file_id : 0);
+                if (fileId > 0) {
+                    if (seen.has(fileId)) {
+                        return;
+                    }
+                    seen.add(fileId);
+                }
+                count++;
+            });
+            return count;
+        }
+
+        function posApplyAuthoritativeDesignFiles(customization, apiFiles) {
+            if (!Array.isArray(apiFiles)) {
+                return;
+            }
+            const PF = window.PrintflowOrderItemDesignFiles;
+            const normalized = PF ? PF.dedupe(apiFiles) : apiFiles;
+            customization.design_upload_files = normalized.map((row) => ({
+                file_id: row.file_id || 0,
+                path: row.storage_path || row.path || '',
+                name: row.display_name || row.name || '',
+                mime: row.mime_type || row.mime || '',
+                size: row.file_size || row.size || 0,
+                upload_sort: row.upload_sort || 0,
+                idempotency_key: row.idempotency_key || '',
+            }));
+            const first = customization.design_upload_files[0];
+            if (first) {
+                customization.design_upload = first.name;
+                customization.design_upload_name = first.name;
+                customization.design_upload_mime = first.mime;
+                customization.design_upload_path = first.path;
+                customization.design_upload_idempotency_key = first.idempotency_key || '';
+            }
+        }
+
+        async function posApplyStagedUploadMany(customization, fileList, field = 'design') {
+            if (field === 'design' && posDesignUploadInFlight) {
+                throw new Error('An upload is already in progress. Please wait.');
+            }
+            const files = Array.from(fileList || []).filter(Boolean);
+            if (files.length === 0) return;
+            const existing = field === 'design' ? posCountUniqueDesignFiles(customization) : 0;
+            const remaining = PF_MAX_DESIGN_FILES_PER_ITEM - existing;
+            if (field === 'design' && remaining <= 0) {
+                throw new Error('Maximum ' + PF_MAX_DESIGN_FILES_PER_ITEM + ' design files allowed for this order item.');
+            }
+            let batch = files;
+            if (field === 'design' && files.length > remaining) {
+                batch = files.slice(0, remaining);
+                if (batch.length === 0) {
+                    throw new Error('Maximum ' + PF_MAX_DESIGN_FILES_PER_ITEM + ' design files allowed for this order item.');
+                }
+                await showPOSAlert(
+                    'Upload limit',
+                    'Only ' + remaining + ' more design file(s) can be added (maximum ' + PF_MAX_DESIGN_FILES_PER_ITEM + '). Extra selected files were not uploaded.',
+                    'warning'
+                );
+            }
+            const fd = new FormData();
+            fd.append('field', field);
+            fd.append('csrf_token', POS_CSRF_TOKEN);
+            fd.append('upload_sort', String(existing));
+            fd.append('existing_design_file_count', String(existing));
+            const pendingOrderItemId = Number(customization.pending_order_item_id || customization.order_item_id || 0);
+            if (pendingOrderItemId > 0) {
+                fd.append('order_item_id', String(pendingOrderItemId));
+            }
+            batch.forEach((file) => {
+                fd.append(field === 'reference' ? 'reference_file[]' : 'design_file[]', file);
+            });
+            if (field === 'design') {
+                posDesignUploadInFlight = true;
+            }
+            try {
+                const res = await fetch(staffUrl('staff/api/pos_upload_design.php'), { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!data || !data.success) {
+                    const detail = (data && data.errors && data.errors.length)
+                        ? data.errors.map((row) => row.message || row.name).join(' ')
+                        : ((data && data.message) ? data.message : 'Failed to stage uploads.');
+                    throw new Error(detail);
+                }
+                if (field === 'reference') {
+                    const stagedList = Array.isArray(data.staged) ? data.staged : (data.path ? [data] : []);
+                    stagedList.forEach((staged) => {
+                        customization.reference_upload = staged.name;
+                        customization.reference_upload_name = staged.name;
+                        customization.reference_upload_mime = staged.mime;
+                        customization.reference_upload_path = staged.path;
+                        delete customization.reference_upload_data;
+                    });
+                    return;
+                }
+                if (Array.isArray(data.files)) {
+                    posApplyAuthoritativeDesignFiles(customization, data.files);
+                }
+            } finally {
+                if (field === 'design') {
+                    posDesignUploadInFlight = false;
+                }
+            }
+        }
+
+        function posClearDesignCustomizationKeys(customization) {
+            if (!customization || typeof customization !== 'object') return;
+            delete customization.design_upload_files;
+            delete customization.design_upload_path;
+            delete customization.design_upload_name;
+            delete customization.design_upload_mime;
+            delete customization.design_upload;
+            delete customization.design_upload_idempotency_key;
+            delete customization.design_upload_data;
+            delete customization.design_file;
+            delete customization.design_tmp_path;
+            delete customization.design_external_link;
+            delete customization.design_link;
+            delete customization.design_file_link;
+            delete customization.design_input_mode;
+            delete customization.uploaded_files;
+            delete customization._uploaded_files;
+            Object.keys(customization).forEach((key) => {
+                if (/design.*link$/i.test(String(key))) {
+                    delete customization[key];
+                }
+            });
+        }
+
+        function posStripInactiveDesignUploads(body, customization) {
+            if (!body) return;
+            let shouldStrip = false;
+            body.querySelectorAll('.pf-file-upload-group').forEach((group) => {
+                const row = group.closest('.shopee-form-row');
+                if (row && row.dataset.pfFieldInactive === '1') {
+                    shouldStrip = true;
+                }
+            });
+            if (shouldStrip) {
+                posClearDesignCustomizationKeys(customization);
+            }
+        }
+
+        async function posStageDesignUploadsFromModal(body, customization) {
+            const groups = body.querySelectorAll('.pf-file-upload-group');
+            for (const group of groups) {
+                const row = group.closest('.shopee-form-row');
+                if (row && row.dataset.pfFieldInactive === '1') {
+                    continue;
+                }
+                const modeSelect = group.querySelector('.pf-design-mode-select');
+                const designMode = String((modeSelect && modeSelect.value) || group.dataset.pfDesignMode || '').trim();
+                if (designMode !== 'file') continue;
+                const files = typeof window.pfDesignQueueValidFiles === 'function'
+                    ? window.pfDesignQueueValidFiles(group)
+                    : Array.from((group.querySelector('.pf-design-file-input') || {}).files || []);
+                if (!files.length) continue;
+                await posApplyStagedUploadMany(customization, files, 'design');
+                if (row) {
+                    setCustomizationValue(customization, row, group.querySelector('.pf-design-file-input'), customization.design_upload_name);
+                }
+            }
         }
 
         async function confirmServiceModalLegacy() {
@@ -5081,7 +5303,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const textInput = row.querySelector('input[type="text"], input[type="number"]:not(#quantity-input), input[type="url"].pf-design-link-input');
                 if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
                     if (textInput.classList.contains('pf-design-link-input')) {
-                        customization[labelText + ' Link'] = textInput.value.trim();
+                        posStoreDesignLink(customization, row, textInput);
                     } else {
                         customization[labelText] = textInput.value.trim();
                     }
@@ -5091,64 +5313,78 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (uploadGroup && isRequired && isServiceUploadGroupRequired(uploadGroup)) {
                     const fileInput = uploadGroup.querySelector('.pf-design-file-input');
                     const linkInput = uploadGroup.querySelector('.pf-design-link-input');
-                    const hasFile = !!(fileInput && fileInput.files && fileInput.files.length > 0);
+                    const queueFiles = (typeof window.pfDesignQueueValidFiles === 'function')
+                        ? window.pfDesignQueueValidFiles(uploadGroup)
+                        : [];
+                    const hasFile = queueFiles.length > 0 || !!(fileInput && fileInput.files && fileInput.files.length > 0);
                     const hasLink = !!(linkInput && linkInput.value.trim());
                     if (!hasFile && !hasLink) {
                         showPOSAlert('Required Field', 'Please upload a design or paste a design link.', 'warning');
                         valid = false;
                     } else if (hasLink && !isValidDesignLink(linkInput.value.trim())) {
-                        showPOSAlert('Invalid Link', 'Please enter a valid HTTP or HTTPS design link.', 'warning');
+                        showPOSAlert('Invalid Link', 'Please enter a valid HTTPS design link.', 'warning');
                         valid = false;
                     }
                 }
             });
 
-            const serviceFileInputs = Array.from(body.querySelectorAll('input[type="file"]'));
-            for (const fileInput of serviceFileInputs) {
-                if (!(fileInput.files && fileInput.files.length > 0)) {
-                    continue;
-                }
-                const file = fileInput.files[0];
-                const row = fileInput.closest('.shopee-form-row');
-                const label = row ? row.querySelector('.shopee-form-label') : null;
-                const labelText = label ? label.innerText.replace('*', '').trim() : (fileInput.name || 'File');
-
-                const nameLc = String(fileInput.name || '').toLowerCase();
-                const labelLc = String(labelText || '').toLowerCase();
-                const isDesignField = nameLc === 'design_file'
-                    || nameLc.includes('design')
-                    || (labelLc.includes('upload') && labelLc.includes('design'));
-                const isReferenceField = nameLc === 'reference_file'
-                    || nameLc.includes('reference')
-                    || (labelLc.includes('upload') && labelLc.includes('reference'));
-
-                try {
-                    if (isDesignField) {
-                        await posApplyStagedUpload(customization, file, 'design');
-                        customization[labelText] = customization.design_upload_name;
-                    } else if (isReferenceField) {
-                        await posApplyStagedUpload(customization, file, 'reference');
-                        customization[labelText] = customization.reference_upload_name;
-                    } else {
-                        const payload = await posReadFilePayload(file);
-                        customization[labelText] = payload.name;
-                    }
-                } catch (uploadErr) {
-                    await showPOSAlert('Upload Failed', uploadErr.message || 'Could not save the design file.', 'error');
+            if (typeof window.pfValidateDesignUploadGroups === 'function') {
+                const designValidation = window.pfValidateDesignUploadGroups(body);
+                if (!designValidation.ok) {
+                    await showPOSAlert('Upload Design', designValidation.errors[0] || 'Please fix your design uploads.', 'warning');
                     return;
                 }
+            }
+            body.querySelectorAll('.pf-file-upload-group').forEach((group) => {
+                const row = group.closest('.shopee-form-row');
+                if (row && row.dataset.pfFieldInactive === '1') {
+                    if (typeof window.pfClearDesignUploadGroup === 'function') {
+                        window.pfClearDesignUploadGroup(group);
+                    }
+                    return;
+                }
+                if (typeof window.pfSyncDesignQueueToFileInput === 'function') {
+                    window.pfSyncDesignQueueToFileInput(group);
+                }
+            });
+
+            try {
+                posStripInactiveDesignUploads(body, customization);
+                await posStageDesignUploadsFromModal(body, customization);
+                posStripInactiveDesignUploads(body, customization);
+                const serviceFileInputs = Array.from(body.querySelectorAll('input[type="file"]'));
+                for (const fileInput of serviceFileInputs) {
+                    if (fileInput.classList.contains('pf-design-file-input')) continue;
+                    if (!(fileInput.files && fileInput.files.length > 0)) continue;
+                    const row = fileInput.closest('.shopee-form-row');
+                    if (row && row.dataset.pfFieldInactive === '1') continue;
+                    const label = row ? row.querySelector('.shopee-form-label') : null;
+                    const labelText = label ? label.innerText.replace('*', '').trim() : (fileInput.name || 'File');
+                    const nameLc = String(fileInput.name || '').toLowerCase();
+                    const labelLc = String(labelText || '').toLowerCase();
+                    const isReferenceField = nameLc === 'reference_file'
+                        || nameLc.includes('reference')
+                        || (labelLc.includes('upload') && labelLc.includes('reference'));
+                    if (isReferenceField) {
+                        await posApplyStagedUploadMany(customization, fileInput.files, 'reference');
+                        customization[labelText] = customization.reference_upload_name;
+                    } else {
+                        const payload = await posReadFilePayload(fileInput.files[0]);
+                        customization[labelText] = payload.name;
+                    }
+                }
+                posStripInactiveDesignUploads(body, customization);
+            } catch (uploadErr) {
+                await showPOSAlert('Upload Failed', uploadErr.message || 'Could not save the design file.', 'error');
+                return;
             }
 
             // Add service to cart with calculated unit price from the modal estimator
             const pricing = resolveServiceModalPricing();
             const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization['quantity'] || pricing.quantity);
             if (priced.unitPrice <= 0) {
-                await showPOSAlert(
-                    'Price Required',
-                    'Could not calculate a valid price from your selections. Review the specifications or contact a manager.',
-                    'warning'
-                );
-                return;
+                const proceed = await confirmMissingEstimatedPrice();
+                if (!proceed) return;
             }
 
             const result = await syncedCartAction('add', {
@@ -5330,15 +5566,44 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
         }
 
+        function isPublicDesignLinkHost(hostname) {
+            const host = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
+            if (!host || host === 'localhost' || host === '0.0.0.0' || host === '::1') return false;
+            if (host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return false;
+            if (host.startsWith('127.') || host.startsWith('10.') || host.startsWith('192.168.') || host.startsWith('169.254.')) return false;
+            if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return false;
+            return true;
+        }
+
         function isValidDesignLink(value) {
             const text = String(value || '').trim();
             if (!text) return true;
-            if (/^\s*(javascript|data|file|vbscript):/i.test(text)) return false;
+            if (/^(javascript|data|file|vbscript):/i.test(text)) return false;
             try {
                 const parsed = new URL(text);
-                return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+                return parsed.protocol === 'https:' && isPublicDesignLinkHost(parsed.hostname);
             } catch (err) {
                 return false;
+            }
+        }
+
+        function posStoreDesignLink(customization, row, linkInput) {
+            const linkValue = String(linkInput && linkInput.value || '').trim();
+            if (!linkValue) return;
+            const fieldKey = serviceFieldKey(row, '');
+            const linkName = String(linkInput && linkInput.name || '').trim() || (fieldKey ? fieldKey + '_link' : 'design_link');
+            customization[linkName] = linkValue;
+            if (fieldKey) {
+                customization[fieldKey + '_link'] = linkValue;
+                if (customization[fieldKey] === 'link' || customization[fieldKey] === 'file' || customization[fieldKey] === linkValue) {
+                    delete customization[fieldKey];
+                }
+            }
+            customization.design_external_link = linkValue;
+            const labelEl = row ? row.querySelector('.pf-field-label-text') : null;
+            const cleanLabel = String(labelEl ? labelEl.textContent : '').replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+            if (cleanLabel) {
+                customization[cleanLabel + ' Link'] = linkValue;
             }
         }
 
@@ -5349,10 +5614,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const body = document.getElementById('sm-fields-body');
             const errors = {};
             if (!body) return { valid: false, errors };
+            if (typeof pfPrepareServiceFormDimensions === 'function') {
+                pfPrepareServiceFormDimensions(body);
+            }
 
-            const addError = (row, input, keyOverride) => {
+            const addError = (row, input, keyOverride, messageOverride) => {
                 const key = keyOverride || serviceFieldKey(row, input ? input.name : '');
-                if (!errors[key]) errors[key] = { row, field: key, message: serviceValidationMessage(row, input) };
+                if (!errors[key]) errors[key] = { row, field: key, message: messageOverride || serviceValidationMessage(row, input) };
             };
 
             body.querySelectorAll('.shopee-form-row').forEach(row => {
@@ -5386,8 +5654,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 });
 
                 const dimensionInputs = requiredInputs.filter(input => input.type === 'hidden' && input.dataset.dimensionRole);
-                if (dimensionInputs.length && dimensionInputs.some(input => !String(input.value || '').trim())) {
-                    addError(row, dimensionInputs[0]);
+                if (dimensionInputs.length) {
+                    const widthHidden = dimensionInputs.find(input => input.dataset.dimensionRole === 'width') || dimensionInputs[0];
+                    const heightHidden = dimensionInputs.find(input => input.dataset.dimensionRole === 'height') || dimensionInputs[1] || dimensionInputs[0];
+                    const customPanel = row.querySelector('.pf-custom-size-panel');
+                    const usesCustomPanel = customPanel
+                        && typeof pfIsCustomSizePanelVisible === 'function'
+                        && pfIsCustomSizePanelVisible(customPanel);
+                    if (usesCustomPanel && typeof pfValidateCustomSizePanel === 'function') {
+                        const dimCheck = pfValidateCustomSizePanel(customPanel, false);
+                        if (!dimCheck.ok) {
+                            addError(row, customPanel.querySelector('.custom-dim-width') || widthHidden, row.dataset.fieldKey || widthHidden.name, dimCheck.message || 'Please enter dimensions.');
+                        }
+                    } else if (!pfDimensionPairIsValid(widthHidden ? widthHidden.value : '', heightHidden ? heightHidden.value : '')) {
+                        addError(row, widthHidden || heightHidden, row.dataset.fieldKey || (widthHidden && widthHidden.name) || 'dimensions', 'Please enter dimensions.');
+                    }
                 }
 
                 requiredInputs.forEach(input => {
@@ -5397,9 +5678,26 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         : String(input.value || '').trim();
                     if (input.tagName === 'SELECT') {
                         const otherValue = input.getAttribute('data-other-option') || 'Others';
-                        const rowOtherInput = row.querySelector('input[name="' + input.name + '_other"]');
-                        if (value === otherValue && rowOtherInput && !String(rowOtherInput.value || '').trim()) {
-                            addError(row, rowOtherInput, input.name + '_other');
+                        if (value === otherValue) {
+                            const othersWrap = document.getElementById('select-others-' + input.name)
+                                || row.querySelector('#select-others-' + input.name);
+                            const customPanel = othersWrap ? othersWrap.querySelector('.pf-custom-size-panel') : null;
+                            if (customPanel) {
+                                if (typeof pfSyncSelectCustomSizeHidden === 'function') {
+                                    pfSyncSelectCustomSizeHidden(input);
+                                }
+                                const dimCheck = typeof pfValidateCustomSizePanel === 'function'
+                                    ? pfValidateCustomSizePanel(customPanel, false)
+                                    : { ok: true };
+                                if (!dimCheck.ok) {
+                                    addError(row, customPanel.querySelector('.custom-dim-width') || input, input.name + '_dimensions', dimCheck.message || 'Please enter dimensions.');
+                                }
+                            } else {
+                                const rowOtherInput = row.querySelector('input[name="' + input.name + '_other"]');
+                                if (rowOtherInput && !String(rowOtherInput.value || '').trim()) {
+                                    addError(row, rowOtherInput, input.name + '_other');
+                                }
+                            }
                         }
                     }
                     if (input.name === 'quantity' || input.classList.contains('pf-service-quantity-input')) {
@@ -5420,7 +5718,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 ).trim();
                 const fileInput = group.querySelector('.pf-design-file-input');
                 const linkInput = group.querySelector('.pf-design-link-input');
-                const hasFile = !!(fileInput && fileInput.files && fileInput.files.length > 0);
+                const queueFiles = (typeof window.pfDesignQueueValidFiles === 'function')
+                    ? window.pfDesignQueueValidFiles(group)
+                    : [];
+                const hasFile = queueFiles.length > 0 || !!(fileInput && fileInput.files && fileInput.files.length > 0);
+                const hasInvalid = (typeof window.pfGetDesignUploadQueue === 'function')
+                    ? window.pfGetDesignUploadQueue(group).some(entry => !entry.valid)
+                    : false;
+                if (hasInvalid) {
+                    addError(row, fileInput || group, null, 'Fix invalid design files before continuing.');
+                    return;
+                }
                 const linkValue = linkInput ? String(linkInput.value || '').trim() : '';
                 const linkFieldKey = (linkInput && linkInput.name) ? linkInput.name : 'design_link';
 
@@ -5436,7 +5744,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         return;
                     }
                     if (!isValidDesignLink(linkValue)) {
-                        addError(row, linkInput || group, linkFieldKey);
+                        addError(row, linkInput || group, linkFieldKey, 'Please enter a valid HTTPS design link.');
                     }
                     return;
                 }
@@ -5446,7 +5754,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     return;
                 }
                 if (linkValue && !hasFile && !isValidDesignLink(linkValue)) {
-                    addError(row, linkInput || group, linkFieldKey);
+                    addError(row, linkInput || group, linkFieldKey, 'Please enter a valid HTTPS design link.');
                 }
             });
 
@@ -5470,6 +5778,28 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 showValidationErrors(validationResult.errors);
                 focusFirstInvalidField(validationResult.errors);
                 return;
+            }
+            if (typeof window.pfValidateDesignUploadGroups === 'function') {
+                const designValidation = window.pfValidateDesignUploadGroups(body);
+                if (!designValidation.ok) {
+                    await showPOSAlert('Upload Design', designValidation.errors[0] || 'Please fix your design uploads.', 'warning');
+                    return;
+                }
+            }
+            body.querySelectorAll('.pf-file-upload-group').forEach((group) => {
+                const row = group.closest('.shopee-form-row');
+                if (row && row.dataset.pfFieldInactive === '1') {
+                    if (typeof window.pfClearDesignUploadGroup === 'function') {
+                        window.pfClearDesignUploadGroup(group);
+                    }
+                    return;
+                }
+                if (typeof window.pfSyncDesignQueueToFileInput === 'function') {
+                    window.pfSyncDesignQueueToFileInput(group);
+                }
+            });
+            if (typeof pfPrepareServiceFormDimensions === 'function') {
+                pfPrepareServiceFormDimensions(body);
             }
 
             isAddingToOrder = true;
@@ -5511,10 +5841,36 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     let selectValue = normalizeLayoutCustomizationValue(row, sel.value);
                     const otherValue = sel.getAttribute('data-other-option') || 'Others';
                     if (selectValue === otherValue) {
-                        const selectOther = row.querySelector('input[name="' + sel.name + '_other"]');
-                        if (selectOther && selectOther.value.trim()) {
-                            selectValue = selectOther.value.trim();
-                            customization[serviceFieldLabel(row) + ' (Other)'] = selectValue;
+                        const othersWrap = document.getElementById('select-others-' + sel.name)
+                            || row.querySelector('#select-others-' + sel.name);
+                        const customPanel = othersWrap ? othersWrap.querySelector('.pf-custom-size-panel') : null;
+                        if (customPanel && typeof pfSyncSelectCustomSizeHidden === 'function') {
+                            pfSyncSelectCustomSizeHidden(sel);
+                            const widthHidden = othersWrap.querySelector('[data-dimension-role="width"]');
+                            const heightHidden = othersWrap.querySelector('[data-dimension-role="height"]');
+                            const widthVal = String(widthHidden ? widthHidden.value : '').trim();
+                            const heightVal = String(heightHidden ? heightHidden.value : '').trim();
+                            if (pfDimensionPairIsValid(widthVal, heightVal)) {
+                                const fieldKey = serviceFieldKey(row, sel.name);
+                                const combined = widthVal + 'x' + heightVal;
+                                selectValue = combined;
+                                customization.width = widthVal;
+                                customization.height = heightVal;
+                                if (fieldKey) {
+                                    customization[fieldKey + '_width'] = widthVal;
+                                    customization[fieldKey + '_height'] = heightVal;
+                                }
+                                const selectOther = othersWrap.querySelector('.pf-custom-size-other-hidden, input[name="' + sel.name + '_other"]');
+                                if (selectOther && selectOther.value.trim()) {
+                                    customization[serviceFieldLabel(row) + ' (Other)'] = selectOther.value.trim();
+                                }
+                            }
+                        } else {
+                            const selectOther = row.querySelector('input[name="' + sel.name + '_other"]');
+                            if (selectOther && selectOther.value.trim()) {
+                                selectValue = selectOther.value.trim();
+                                customization[serviceFieldLabel(row) + ' (Other)'] = selectValue;
+                            }
                         }
                     }
                     setCustomizationValue(customization, row, sel, selectValue);
@@ -5564,15 +5920,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const textInput = row.querySelector('input[type="text"]:not(.pf-service-quantity-input):not(.select-others-input):not(.radio-others-input), input[type="number"]:not(#quantity-input):not(.pf-service-quantity-input), input[type="url"].pf-design-link-input');
                 if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
                     if (textInput.classList.contains('pf-design-link-input')) {
-                        const uploadGroup = row.querySelector('.pf-file-upload-group');
-                        const modeSelect = uploadGroup ? uploadGroup.querySelector('.pf-design-mode-select') : null;
+                        const linkUploadGroup = row.querySelector('.pf-file-upload-group');
+                        const modeSelect = linkUploadGroup ? linkUploadGroup.querySelector('.pf-design-mode-select') : null;
                         const designMode = String(
-                            (modeSelect && modeSelect.value) || (uploadGroup && uploadGroup.dataset.pfDesignMode) || ''
+                            (modeSelect && modeSelect.value) || (linkUploadGroup && linkUploadGroup.dataset.pfDesignMode) || ''
                         ).trim();
                         if (designMode === 'link') {
-                            const labelText = serviceFieldLabel(row);
-                            customization[labelText + ' Link'] = textInput.value.trim();
-                            setCustomizationValue(customization, row, textInput, textInput.value.trim());
+                            posStoreDesignLink(customization, row, textInput);
                         }
                     } else {
                         setCustomizationValue(customization, row, textInput, textInput.value.trim());
@@ -5581,28 +5935,28 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
 
             try {
+                posStripInactiveDesignUploads(body, customization);
+                await posStageDesignUploadsFromModal(body, customization);
+                posStripInactiveDesignUploads(body, customization);
                 const serviceFileInputs = Array.from(body.querySelectorAll('input[type="file"]'));
                 for (const fileInput of serviceFileInputs) {
+                    if (fileInput.classList.contains('pf-design-file-input')) continue;
                     if (!(fileInput.files && fileInput.files.length > 0)) continue;
-                    const file = fileInput.files[0];
                     const row = fileInput.closest('.shopee-form-row');
+                    if (row && row.dataset.pfFieldInactive === '1') continue;
                     const labelText = row ? serviceFieldLabel(row) : (fileInput.name || 'File');
                     const nameLc = String(fileInput.name || '').toLowerCase();
                     const labelLc = String(labelText || '').toLowerCase();
-                    const isDesignField = nameLc === 'design_file' || nameLc.includes('design') || (labelLc.includes('upload') && labelLc.includes('design'));
                     const isReferenceField = nameLc === 'reference_file' || nameLc.includes('reference') || (labelLc.includes('upload') && labelLc.includes('reference'));
-
-                    if (isDesignField) {
-                        await posApplyStagedUpload(customization, file, 'design');
-                        setCustomizationValue(customization, row, fileInput, customization.design_upload_name);
-                    } else if (isReferenceField) {
-                        await posApplyStagedUpload(customization, file, 'reference');
+                    if (isReferenceField) {
+                        await posApplyStagedUploadMany(customization, fileInput.files, 'reference');
                         setCustomizationValue(customization, row, fileInput, customization.reference_upload_name);
                     } else {
-                        const payload = await posReadFilePayload(file);
+                        const payload = await posReadFilePayload(fileInput.files[0]);
                         setCustomizationValue(customization, row, fileInput, payload.name);
                     }
                 }
+                posStripInactiveDesignUploads(body, customization);
             } catch (uploadErr) {
                 await showPOSAlert('Upload Failed', uploadErr.message || 'Could not save the design file.', 'error');
                 isAddingToOrder = false;
@@ -5612,16 +5966,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             const pricing = resolveServiceModalPricing();
             const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization.quantity || pricing.quantity);
-            if (priced.unitPrice <= 0) {
-                await showPOSAlert(
-                    'Price Required',
-                    'Could not calculate a valid price from your selections. Review the specifications or contact a manager.',
-                    'warning'
-                );
-                isAddingToOrder = false;
-                setServiceAddButtonBusy(false);
-                return;
-            }
 
             body.querySelectorAll('input[type="radio"]:checked').forEach(radio => {
                 const row = radio.closest('.shopee-form-row');
@@ -5629,6 +5973,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const radioValue = normalizeLayoutCustomizationValue(row, radio.value);
                 setCustomizationValue(customization, row, radio, radioValue);
             });
+
+            if (priced.unitPrice <= 0) {
+                setServiceAddButtonBusy(false);
+                const addBtn = document.getElementById('sm-add-to-order-btn');
+                if (addBtn) addBtn.disabled = true;
+                const proceed = await confirmMissingEstimatedPrice();
+                if (!proceed) {
+                    isAddingToOrder = false;
+                    if (addBtn) addBtn.disabled = false;
+                    return;
+                }
+                isAddingToOrder = true;
+                setServiceAddButtonBusy(true);
+            }
 
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
@@ -6209,9 +6567,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return true;
         }
         async function addToCart(p, overridePrice = null, overrideName = null, options = {}) {
-            if (p.price == 0 && overridePrice === null) {
-                openPriceModal(p);
-                return;
+            if ((parseFloat(p.price) || 0) <= 0 && overridePrice === null) {
+                const proceed = await confirmMissingEstimatedPrice();
+                if (!proceed) return { success: false, cancelled: true };
+                overridePrice = 0;
             }
 
             const variantPlan = posResolveVariantBeforeAdd(p);
@@ -6297,7 +6656,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 inputHtml += `</select>`;
                 div.innerHTML = label + inputHtml;
             } else if (req.type === 'file') {
-                inputHtml = `<input type="file" id="custom_field_${idx}" name="${reqName}" accept="${(req.accept || '').replace(/"/g, '&quot;')}" style="${baseStyle}" data-field-name="${reqName}">`;
+                const reqNameLc = String(reqName || '').toLowerCase();
+                const allowMultiple = reqNameLc === 'design_file' || reqNameLc.includes('design');
+                const multipleAttr = allowMultiple ? ' multiple' : '';
+                inputHtml = `<input type="file" id="custom_field_${idx}" name="${reqName}"${multipleAttr} accept="${(req.accept || '').replace(/"/g, '&quot;')}" style="${baseStyle}" data-field-name="${reqName}">`;
                 div.innerHTML = label + inputHtml;
             } else if (req.type === 'date') {
                 const isNeededDate = (reqName && reqName.includes('needed_date'))
@@ -6531,10 +6893,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
                 try {
                     if (name === 'design_file') {
-                        await posApplyStagedUpload(customization, el.files[0], 'design');
+                        await posApplyStagedUploadMany(customization, el.files, 'design');
                         customization[name] = customization.design_upload_name;
                     } else if (name === 'reference_file') {
-                        await posApplyStagedUpload(customization, el.files[0], 'reference');
+                        await posApplyStagedUploadMany(customization, el.files, 'reference');
                         customization[name] = customization.reference_upload_name;
                     } else {
                         const payload = await posReadFilePayload(el.files[0]);
@@ -6573,20 +6935,23 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             let price = parseFloat(pendingCustomProduct.price) || 0;
             if (price === 0) {
                 const pInput = document.getElementById('cm-price-input');
-                if (pInput) {
-                    price = parseFloat(pInput.value.replace(/,/g, ''));
-                    if (isNaN(price) || price <= 0) {
-                        await showPOSAlert('Invalid Price', 'Please enter a valid negotiated price.', 'warning');
+                const typedPrice = pInput ? String(pInput.value || '').trim() : '';
+                if (typedPrice !== '') {
+                    price = parseFloat(typedPrice.replace(/,/g, ''));
+                    if (isNaN(price) || price < 0) {
+                        await showPOSAlert('Invalid Price', 'Please enter a valid price.', 'warning');
                         pInput.focus();
                         return;
                     }
-                } else {
-                    // Fallback if input somehow didn't render
-                    const p = pendingCustomProduct;
-                    closeCustomModal();
-                    openPriceModal(p, false, customization);
-                    return;
                 }
+            }
+            if (price <= 0) {
+                customization.price_unconfigured = '1';
+                price = 0;
+                const proceed = await confirmMissingEstimatedPrice();
+                if (!proceed) return;
+            } else {
+                delete customization.price_unconfigured;
             }
 
             const result = await syncedCartAction('add', {
@@ -6723,7 +7088,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const showEditPrice = posCartItemShowsEditPriceButton(item);
                     const isServiceLine = posCartItemRequiresSetPrice(item);
                     const materialLabel = posCartItemMaterialLabel(item);
-                    const showEstimateBesideRemove = showSetPrice && isServiceLine && unitPrice > 0 && item.price_set !== true;
+                    const showEstimateBesideRemove = showSetPrice && item.price_set !== true;
                     const estimateBesideRemoveHtml = showEstimateBesideRemove
                         ? `<span class="pos-item-estimate-label" style="font-size:12px;font-weight:600;color:#64748b;white-space:nowrap;">Estimated Price: ${formatMoney(unitPrice)}</span>`
                         : '';
@@ -7065,9 +7430,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (!customer) {
                 canCheckout = false;
                 message = 'Select Customer';
-            } else if (customer === 'guest' && !getPosGuestDisplayName()) {
-                canCheckout = false;
-                message = 'Enter Customer Name';
             }
 
             const needsSetPrice = cart.some(i => posCartItemShowsSetPriceButton(i));
@@ -7130,12 +7492,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const customer = $('#pos-customer').val();
             if (!customer) {
                 await showPOSAlert('Select Customer', 'Please select a customer before checkout.', 'warning');
-                return;
-            }
-            if (customer === 'guest' && !getPosGuestDisplayName()) {
-                await showPOSAlert('Customer Name Required', 'Enter the walk-in customer\'s name for the receipt.', 'warning');
-                const guestField = document.getElementById('pos-guest-name');
-                if (guestField) guestField.focus();
                 return;
             }
 
@@ -7731,12 +8087,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 await showPOSAlert('Customer Required', 'Please select a customer first.', 'warning');
                 return;
             }
-            if (customer === 'guest' && !getPosGuestDisplayName()) {
-                await showPOSAlert('Customer Name Required', 'Enter the walk-in customer\'s name before continuing.', 'warning');
-                const guestField = document.getElementById('pos-guest-name');
-                if (guestField) guestField.focus();
-                return;
-            }
 
             // Store cart state in session storage
             sessionStorage.setItem('pos_cart_state', JSON.stringify({
@@ -7771,8 +8121,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     await syncedCartAction('update_service_link', {
                         index,
                         pending_order_id: parseInt(data.order_id, 10) || 0,
-                        customization_id: parseInt(data.customization_id, 10) || 0
+                        customization_id: parseInt(data.customization_id, 10) || 0,
+                        pending_order_item_id: parseInt(data.order_item_id, 10) || 0
                     }, { silentErrors: true });
+                    if (cart[index] && cart[index].customization && parseInt(data.order_item_id, 10) > 0) {
+                        cart[index].customization.pending_order_item_id = parseInt(data.order_item_id, 10);
+                        cart[index].pending_order_item_id = parseInt(data.order_item_id, 10);
+                    }
 
                     // Deep-link into the pricing/material flow using a POS-specific context.
                     const redirectUrl = new URL(<?php echo json_encode(BASE_PATH . '/staff/customizations.php'); ?>, window.location.origin);
@@ -7861,7 +8216,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 confirmBtn.style.background = variant === 'danger'
                     ? '#ef4444'
                     : 'var(--staff-pos-button-bg)';
-                applyPOSModalIcon(variant === 'danger' ? 'danger' : 'confirm');
+                applyPOSModalIcon(variant === 'danger' ? 'danger' : (variant === 'warning' ? 'warning' : 'confirm'));
 
                 overlay.style.display = 'flex';
                 setTimeout(() => {
@@ -7898,6 +8253,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         window.posOpenServiceFromCard = posOpenServiceFromCard;
         window.openServiceModal = openServiceModal;
         window.confirmServiceModal = confirmServiceModal;
+        window.showPOSMode = showPOSMode;
+        window.backToSelection = backToSelection;
     </script>
 
     <script>window.PFConfig = Object.assign({}, window.PFConfig || {}, { basePath: <?php echo json_encode(rtrim(defined('BASE_PATH') ? (string)BASE_PATH : '', '/')); ?> });</script>

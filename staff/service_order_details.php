@@ -26,7 +26,7 @@ $branchWhere = '(branch_id = ? OR branch_id IS NULL)';
 
 // Legacy POST targets (forms posting here) — mirror staff/api/service_order_api.php behaviour
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_token'] ?? '')) {
-    $row = db_query("SELECT * FROM service_orders WHERE id = ? AND {$branchWhere}", 'ii', [$order_id, $staffBranchId]);
+    $row = db_query("SELECT * FROM service_orders WHERE id = ? AND {$branchWhere} AND " . printflow_customer_exclusion_customer_scope_sql('service_orders.customer_id'), 'ii', [$order_id, $staffBranchId]);
     if (!empty($row)) {
         $row = $row[0];
         if (isset($_POST['approve'])) {

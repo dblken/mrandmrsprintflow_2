@@ -57,7 +57,7 @@ try {
          FROM orders o
          LEFT JOIN job_orders jo ON jo.order_id = o.order_id
          LEFT JOIN customizations cust ON cust.order_id = o.order_id
-         WHERE o.order_id = ?
+         WHERE o.order_id = ? AND " . printflow_order_archive_scope_sql('o') . "
          GROUP BY o.order_id, o.branch_id, o.order_source, o.order_type, o.status
          LIMIT 1",
         'i',

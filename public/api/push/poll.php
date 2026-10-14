@@ -40,8 +40,9 @@ if ($user_type === 'Customer') {
     $rows = db_query(
         "SELECT notification_id AS id, message, type, data_id, is_read,
                 UNIX_TIMESTAMP(created_at) AS ts
-         FROM notifications
+         FROM notifications n
          WHERE user_id = ? AND UNIX_TIMESTAMP(created_at) > ?
+           AND " . printflow_order_archive_notification_exclusion_sql('n') . "
          ORDER BY created_at ASC
          LIMIT 20",
         'ii',

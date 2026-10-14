@@ -65,7 +65,7 @@ $joApiStartedAt = microtime(true);
 $joStaffBranch = null;
 // Keep the page-query contract visible while the staff/admin deployment is
 // being verified.  This is deliberately a response marker, not a cache key.
-const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'demo_seed_visibility_fix_20261001_live';
+const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'staff_customizations_query_live_20261001';
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -989,9 +989,12 @@ function jo_api_hydrate_items_raw(int $orderId, array &$items): void {
             }
         }
 
-        // 4. Fix design_open_url / design_url when missing
+        // 4. Fix design_open_url / design_url when missing (never use legacy order_item serve URL
+        // when this line already has multiple registered design files — that URL is not per-file).
+        $existingDesignFiles = is_array($item['design_files'] ?? null) ? $item['design_files'] : [];
+        $hasMultiDesignFiles = count($existingDesignFiles) > 1;
         $hasDesignUrl = !empty($item['design_open_url']) || !empty($item['design_url']);
-        if (!$hasDesignUrl) {
+        if (!$hasDesignUrl && !$hasMultiDesignFiles) {
             $designFile = (string)($raw['design_file'] ?? '');
             if ($designFile !== '') {
                 $item['design_open_url'] = $bp . '/public/serve_design.php?type=order_item&id=' . (int)$raw['order_item_id'];
@@ -1020,6 +1023,38 @@ function jo_api_hydrate_items_raw(int $orderId, array &$items): void {
         }
     }
     unset($item);
+
+    if (!function_exists('printflow_order_item_design_files_attach_to_item_views')) {
+        require_once __DIR__ . '/../includes/order_item_design_files.php';
+    }
+    printflow_order_item_design_files_attach_to_item_views($items);
+}
+
+/**
+ * Authoritative store-order line items with design_files[] for staff modal refresh after pricing.
+ *
+ * @return list<array<string,mixed>>
+ */
+function jo_api_order_items_with_design_files(int $orderId): array
+{
+    if ($orderId <= 0) {
+        return [];
+    }
+    $payload = JobOrderService::getStoreOrderItemsPayload($orderId, false, true);
+    $items = array_values($payload['items'] ?? []);
+    jo_api_hydrate_items_raw($orderId, $items);
+    if (function_exists('printflow_order_item_design_files_reconcile_order_item')) {
+        foreach ($items as &$item) {
+            $orderItemId = (int)($item['order_item_id'] ?? 0);
+            if ($orderItemId <= 0) {
+                continue;
+            }
+            printflow_order_item_design_files_reconcile_order_item($orderItemId);
+        }
+        unset($item);
+        jo_api_hydrate_items_raw($orderId, $items);
+    }
+    return $items;
 }
 
 function jo_api_material_context_for_assignment(int $orderId, ?string $orderType): array {
@@ -1127,180 +1162,11 @@ try {
     switch ($action) {
         case 'page_query_trace':
         case 'page_query_row_trace':
-            if (!in_array(get_user_type() ?? '', ['Admin', 'Staff', 'Manager'], true)) {
-                jo_api_json_response(['success' => false, 'error' => 'Forbidden'], 403);
-            }
-            $seedKey = trim((string)($_GET['seed_row_key'] ?? $_POST['seed_row_key'] ?? ''));
-            $traceOrderId = (int)($_GET['order_id'] ?? $_POST['order_id'] ?? 0);
-            if ($seedKey === '' && $traceOrderId <= 0) {
-                jo_api_json_response(['success' => false, 'error' => 'seed_row_key or order_id is required'], 400);
-            }
-            $seedRows = db_query(
-                'SELECT dsr.seed_row_key, dsr.order_id, dsr.customization_id, dsr.job_order_id,
-                        o.order_source, o.order_type, o.status AS order_status, o.order_date,
-                        o.branch_id, cust.status AS customization_status,
-                        jo.status AS job_status,
-                        c.first_name, c.last_name, c.email, c.contact_number
-                 FROM demo_seed_rows dsr
-                 LEFT JOIN orders o ON o.order_id = dsr.order_id
-                 LEFT JOIN customizations cust ON cust.customization_id = dsr.customization_id
-                 LEFT JOIN job_orders jo ON jo.id = dsr.job_order_id
-                 LEFT JOIN customers c ON c.customer_id = COALESCE(cust.customer_id, o.customer_id)
-                 WHERE ' . ($seedKey !== '' ? 'dsr.seed_row_key = ?' : 'dsr.order_id = ?') . ' LIMIT 1',
-                $seedKey !== '' ? 's' : 'i', [$seedKey !== '' ? $seedKey : $traceOrderId]
-            ) ?: [];
-            $seed = $seedRows[0] ?? null;
-            if (!$seed) {
-                jo_api_json_response(['success' => false, 'error' => 'Seed row not found'], 404);
-            }
-            $oid = (int)($seed['order_id'] ?? 0);
-            $branchOk = $joStaffBranch === null || (int)($seed['branch_id'] ?? 0) === $joStaffBranch;
-            $sourceOk = in_array(strtolower(trim((string)($seed['order_source'] ?? ''))), ['pos', 'walk-in'], true);
-            $typeOk = strtolower(trim((string)($seed['order_type'] ?? ''))) === 'custom';
-            $statusOk = in_array(strtolower(trim((string)($seed['order_status'] ?? ''))), [
-                'pending', 'pending review', 'pending approval', 'for revision', 'approved',
-                'to pay', 'payment confirmed', 'pending verification', 'downpayment submitted',
-                'to verify', 'processing', 'in production', 'printing', 'paid – in process',
-                'paid - in process', 'ready for pickup', 'completed', 'rejected', 'cancelled'
-            ], true);
-            $linksOk = $oid > 0 && (int)($seed['customization_id'] ?? 0) > 0 && (int)($seed['job_order_id'] ?? 0) > 0;
-            $eligible = $branchOk && $sourceOk && $typeOk && $statusOk && $linksOk;
-            $exclusions = [];
-            foreach ([
-                'branch' => $branchOk, 'source_pos' => $sourceOk, 'order_type_custom' => $typeOk,
-                'status' => $statusOk, 'linked_customization_and_job' => $linksOk
-            ] as $name => $ok) {
-                if (!$ok) $exclusions[] = $name;
-            }
-            $listRows = $oid > 0 ? (db_query(
-                "SELECT jo.id, jo.order_id, o.order_date, o.branch_id,
-                        o.status AS page_status, c.first_name, c.last_name,
-                        c.email AS customer_email, c.contact_number AS customer_phone,
-                        COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), '')) AS page_service_name
-                 FROM job_orders jo LEFT JOIN orders o ON o.order_id = jo.order_id
-                 LEFT JOIN customers c ON c.customer_id = o.customer_id
-                 WHERE jo.order_id = ?
-                   AND COALESCE(jo.branch_id, o.branch_id) = ?
-                   AND o.order_type = 'custom'
-                   AND LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
-                   AND LOWER(TRIM(COALESCE(o.status, ''))) NOT IN ('draft', 'cancelled')
-                   AND (
-                       EXISTS (SELECT 1 FROM customizations c_trace WHERE c_trace.order_id = o.order_id)
-                       OR EXISTS (SELECT 1 FROM order_items oi_trace WHERE oi_trace.order_id = o.order_id)
-                   )
-                 LIMIT 1", 'ii', [$oid, $joStaffBranch ?? (int)($seed['branch_id'] ?? 0)]
-            ) ?: []) : [];
-            $listIncludes = !empty($listRows);
-            $pageRow = $listRows[0] ?? [];
-            $requestedStatus = trim((string)($_GET['status'] ?? 'ALL'));
-            $dateFrom = trim((string)($_GET['date_from'] ?? ''));
-            $dateTo = trim((string)($_GET['date_to'] ?? ''));
-            $dateMatches = true;
-            if ($dateFrom !== '') $dateMatches = $dateMatches && substr((string)($pageRow['order_date'] ?? ''), 0, 10) >= $dateFrom;
-            if ($dateTo !== '') $dateMatches = $dateMatches && substr((string)($pageRow['order_date'] ?? ''), 0, 10) <= $dateTo;
-            $statusMatches = $requestedStatus === '' || strtoupper($requestedStatus) === 'ALL'
-                || strtoupper((string)($pageRow['page_status'] ?? '')) === strtoupper($requestedStatus);
-            $displayName = trim((string)($seed['first_name'] ?? '') . ' ' . (string)($seed['last_name'] ?? ''));
-            jo_api_json_response(['success' => true, 'data' => [
-                'seed_row_key' => $seedKey,
-                'order_id' => $oid,
-                'trace_eligible' => $eligible,
-                'actual_list_query_includes' => $listIncludes,
-                'actual_all_tab_count_includes' => $listIncludes,
-                'actual_completed_tab_count_includes' => $listIncludes && strtolower((string)($seed['order_status'] ?? '')) === 'completed',
-                'actual_sept_7_filter_includes' => $listIncludes && str_starts_with((string)($seed['order_date'] ?? ''), '2026-09-07'),
-                'actual_query_row' => $pageRow ?: null,
-                'customer_name_returned_by_query' => trim((string)($pageRow['first_name'] ?? '') . ' ' . (string)($pageRow['last_name'] ?? '')),
-                'customer_email_returned_by_query' => (string)($pageRow['customer_email'] ?? ''),
-                'service_name_returned_by_query' => (string)($pageRow['page_service_name'] ?? ''),
-                'order_date_returned_by_query' => (string)($pageRow['order_date'] ?? ''),
-                'branch_result' => (int)($pageRow['branch_id'] ?? 0),
-                'active_tab' => $requestedStatus,
-                'status_matches' => $statusMatches,
-                'applied_date_from' => $dateFrom,
-                'applied_date_to' => $dateTo,
-                'date_matches' => $dateMatches,
-                'customer_display_name' => $displayName !== '' ? $displayName : 'Walk-In Guest',
-                'customer_email' => (string)($seed['email'] ?? ''),
-                'customer_phone' => (string)($seed['contact_number'] ?? ''),
-                'exclusion_reasons' => array_values(array_merge($exclusions, $listIncludes ? [] : ['actual_staff_list_query'])),
-                'branch_context' => $joStaffBranch,
-            ]]);
-
         case 'page_query_batch_trace':
-            if (!in_array(get_user_type() ?? '', ['Admin', 'Staff', 'Manager'], true)) {
-                jo_api_json_response(['success' => false, 'error' => 'Forbidden'], 403);
-            }
-            $batchId = trim((string)($_GET['batch_id'] ?? $_GET['seed_batch_id'] ?? $_POST['batch_id'] ?? $_POST['seed_batch_id'] ?? ''));
-            if ($batchId === '') {
-                jo_api_json_response(['success' => false, 'error' => 'batch_id is required'], 400);
-            }
-            $batchRows = db_query(
-                "SELECT r.seed_row_key, r.batch_id, r.order_id, r.order_item_id,
-                        r.customization_id, r.job_order_id, r.customer_id,
-                        o.order_date, o.status AS order_status, o.order_source,
-                        o.order_type, o.branch_id,
-                        cust.status AS customization_status,
-                        COALESCE(NULLIF(TRIM(o_customer.first_name), ''), NULLIF(TRIM(cust_customer.first_name), '')) AS first_name,
-                        COALESCE(NULLIF(TRIM(o_customer.last_name), ''), NULLIF(TRIM(cust_customer.last_name), '')) AS last_name,
-                        COALESCE(NULLIF(TRIM(o_customer.email), ''), NULLIF(TRIM(cust_customer.email), '')) AS email,
-                        COALESCE(NULLIF(TRIM(o_customer.contact_number), ''), NULLIF(TRIM(cust_customer.contact_number), '')) AS phone,
-                        COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), NULLIF(TRIM(cust.service_type), '')) AS service_name
-                 FROM demo_seed_rows r
-                 LEFT JOIN orders o ON o.order_id = r.order_id
-                 LEFT JOIN customers o_customer ON o_customer.customer_id = o.customer_id
-                 LEFT JOIN customizations cust ON cust.customization_id = r.customization_id
-                 LEFT JOIN customers cust_customer ON cust_customer.customer_id = cust.customer_id
-                 LEFT JOIN job_orders jo ON jo.id = r.job_order_id
-                 WHERE r.batch_id = ? ORDER BY r.id ASC",
-                's', [$batchId]
-            ) ?: [];
-            $resultRows = [];
-            foreach ($batchRows as $row) {
-                $rowOrderId = (int)($row['order_id'] ?? 0);
-                $branchId = (int)($row['branch_id'] ?? 0);
-                $branchOk = $joStaffBranch === null || $branchId === $joStaffBranch;
-                $eligible = $rowOrderId > 0
-                    && strtolower(trim((string)($row['order_source'] ?? ''))) === 'pos'
-                    && strtolower(trim((string)($row['order_type'] ?? ''))) === 'custom'
-                    && $branchOk
-                    && (int)($row['customization_id'] ?? 0) > 0
-                    && (int)($row['job_order_id'] ?? 0) > 0
-                    && strtolower(trim((string)($row['order_status'] ?? ''))) !== 'draft';
-                $reasons = [];
-                if (!$branchOk) $reasons[] = 'branch_mismatch';
-                if (strtolower(trim((string)($row['order_source'] ?? ''))) !== 'pos') $reasons[] = 'order_source_not_pos';
-                if (strtolower(trim((string)($row['order_type'] ?? ''))) !== 'custom') $reasons[] = 'order_type_not_custom';
-                if ((int)($row['customization_id'] ?? 0) <= 0) $reasons[] = 'missing_customization';
-                if ((int)($row['job_order_id'] ?? 0) <= 0) $reasons[] = 'missing_job_order';
-                if (strtolower(trim((string)($row['order_status'] ?? ''))) === 'draft') $reasons[] = 'draft_order';
-                $resultRows[] = [
-                    'seed_row_key' => (string)($row['seed_row_key'] ?? ''),
-                    'batch_id' => (string)($row['batch_id'] ?? ''),
-                    'order_id' => $rowOrderId,
-                    'order_item_id' => (int)($row['order_item_id'] ?? 0),
-                    'customization_id' => (int)($row['customization_id'] ?? 0),
-                    'job_order_id' => (int)($row['job_order_id'] ?? 0),
-                    'customer_id' => (int)($row['customer_id'] ?? 0),
-                    'customer_name' => trim((string)($row['first_name'] ?? '') . ' ' . (string)($row['last_name'] ?? '')),
-                    'customer_email' => (string)($row['email'] ?? ''),
-                    'customer_phone' => (string)($row['phone'] ?? ''),
-                    'service_name' => (string)($row['service_name'] ?? ''),
-                    'order_date' => (string)($row['order_date'] ?? ''),
-                    'order_status' => (string)($row['order_status'] ?? ''),
-                    'customization_status' => (string)($row['customization_status'] ?? ''),
-                    'branch_id' => $branchId,
-                    'staff_list_query_eligible' => $eligible,
-                    'exclusion_reasons' => $reasons,
-                ];
-            }
-            jo_api_json_response(['success' => true, 'data' => [
-                'batch_id' => $batchId,
-                'registry_row_count' => count($resultRows),
-                'linked_order_ids' => array_values(array_unique(array_column($resultRows, 'order_id'))),
-                'eligible_row_count' => count(array_filter($resultRows, static fn(array $row): bool => !empty($row['staff_list_query_eligible']))),
-                'rows' => $resultRows,
-            ]]);
+            jo_api_json_response([
+                'success' => false,
+                'error' => 'This temporary demo trace endpoint has been retired.',
+            ], 403);
 
         case 'customization_counts':
             if (!in_array(get_user_type() ?? '', ['Admin', 'Staff', 'Manager'], true)) {
@@ -1354,6 +1220,7 @@ try {
                                    LEFT JOIN orders o ON o.order_id = cust.order_id
                                    WHERE cust.order_id IS NOT NULL
                                      AND (o.order_id IS NULL OR " . printflow_order_archive_scope_sql('o') . ")
+                                     AND " . printflow_customer_exclusion_customer_scope_sql('cust.customer_id') . "
                                      AND cust.status IN (
                                          'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
                                          'Approved', 'To Pay', 'Payment Confirmed', 'Pending Verification',
@@ -1384,7 +1251,7 @@ try {
 
             // Standalone production jobs have no store order to represent them.
             $jobCountSql = "SELECT id, NULL AS order_id, status, updated_at, 'JOB' AS order_type
-                            FROM job_orders WHERE order_id IS NULL";
+                            FROM job_orders WHERE order_id IS NULL AND " . printflow_customer_exclusion_customer_scope_sql('job_orders.customer_id');
             $jobCountTypes = '';
             $jobCountParams = [];
             if ($joStaffBranch !== null) {
@@ -1402,7 +1269,8 @@ try {
             if ($listSource !== 'pos') {
                 service_order_ensure_tables();
                 $serviceCountSql = "SELECT id, id AS order_id, status, updated_at, 'SERVICE' AS order_type FROM service_orders
-                                    WHERE status IN (
+                                    WHERE " . printflow_customer_exclusion_customer_scope_sql('service_orders.customer_id') . "
+                                      AND status IN (
                                         'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
                                         'Approved', 'Processing', 'Ready for Pickup', 'Ready For Pickup',
                                         'Completed', 'Rejected', 'Cancelled'
@@ -1537,7 +1405,8 @@ try {
                     FROM job_orders jo 
                     LEFT JOIN orders o ON o.order_id = jo.order_id
                     LEFT JOIN customers c ON c.customer_id = COALESCE(NULLIF(o.customer_id, 0), NULLIF(jo.customer_id, 0))
-                    WHERE 1=1 AND " . printflow_order_archive_exclusion_sql('jo.order_id');
+                    WHERE 1=1 AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
+                      AND " . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
             $params = []; $types = '';
             if ($status) {
                 $sql .= " AND jo.status = ?";
@@ -1970,9 +1839,21 @@ try {
             // Online service orders also create rows in customizations, but the complete
             // customer specs live on the regular order payload. Returning those rows here
             // lets a sparse CUSTOMIZATION row win the client-side merge and hides specs.
+            $listHasOrderItemServiceId = function_exists('db_table_has_column')
+                && db_table_has_column('order_items', 'service_id');
+            $listServiceIdExpr = $listHasOrderItemServiceId
+                ? "COALESCE(oi_label.service_id, CASE WHEN JSON_VALID(oi_label.customization_data) THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(oi_label.customization_data, '$.service_id')) AS UNSIGNED) END)"
+                : "CASE WHEN JSON_VALID(oi_label.customization_data) THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(oi_label.customization_data, '$.service_id')) AS UNSIGNED) END";
+            $listSavedServiceNameSelect = "(SELECT COALESCE(NULLIF(TRIM(svc_label.name), ''), NULLIF(TRIM(CASE WHEN JSON_VALID(oi_label.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi_label.customization_data, '$.service_type')) END), ''), prod_label.name)
+                    FROM order_items oi_label
+                    LEFT JOIN products prod_label ON prod_label.product_id = oi_label.product_id
+                    LEFT JOIN services svc_label ON svc_label.service_id = " . $listServiceIdExpr . "
+                    WHERE oi_label.order_item_id = cust.order_item_id LIMIT 1) AS saved_service_name,";
             $custom_sql = "SELECT 
                     cust.customization_id AS id,
                     cust.order_id,
+                    cust.order_item_id,
+                    " . $listSavedServiceNameSelect . "
                     (SELECT MIN(jo.id) FROM job_orders jo WHERE jo.order_id = cust.order_id) AS job_order_id,
                     cust.customization_details,
                     cust.customer_id,
@@ -2018,6 +1899,8 @@ try {
                 LEFT JOIN customers c ON c.customer_id = COALESCE(NULLIF(o.customer_id, 0), NULLIF(cust.customer_id, 0))
                 WHERE cust.status IN ('Pending Review', 'Pending', 'Pending Approval', 'For Revision', 'Approved', 'To Pay', 'Payment Confirmed', 'Pending Verification', 'Downpayment Submitted', 'To Verify', 'Processing', 'In Production', 'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled')
                 AND cust.order_id IS NOT NULL
+                AND (o.order_id IS NULL OR " . printflow_order_archive_scope_sql('o') . ")
+                AND " . printflow_customer_exclusion_customer_scope_sql('cust.customer_id') . "
                 AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
                 AND (
                     LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
@@ -2040,6 +1923,11 @@ try {
             $customOrderCodes = jo_api_order_codes(array_column($custom_orders, 'order_id'));
             foreach ($custom_orders as &$co) {
                 $summary = printflow_customization_summary($co['customization_details'] ?? [], $co['service_type'] ?? 'Custom Service');
+                $savedServiceName = trim((string)($co['saved_service_name'] ?? ''));
+                if ($savedServiceName !== '') {
+                    $summary['service_type'] = $savedServiceName;
+                    $summary['job_title'] = $savedServiceName;
+                }
                 $co['service_type'] = $summary['service_type'];
                 $co['job_title'] = $summary['job_title'];
                 $co['width_ft'] = $summary['width_ft'];
@@ -2097,7 +1985,8 @@ try {
                     so.total_price AS estimated_total
                 FROM service_orders so
                 LEFT JOIN customers c ON so.customer_id = c.customer_id
-                WHERE so.status IN (
+                WHERE " . printflow_customer_exclusion_customer_scope_sql('so.customer_id') . "
+                  AND so.status IN (
                     'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
                     'Approved', 'Processing', 'Ready for Pickup', 'Ready For Pickup',
                     'Completed', 'Rejected', 'Cancelled'
@@ -2173,7 +2062,20 @@ try {
             jo_api_require_staff_branch($joStaffBranch, $id);
             $order = JobOrderService::getOrder($id);
             if (!$order) throw new Exception("Order not found.");
+            if (printflow_customer_exclusion_customer_is_active((int)($order['customer_id'] ?? 0))) {
+                throw new Exception("Order not found.");
+            }
             $storeOid = (int)($order['order_id'] ?? 0);
+            if ($storeOid > 0) {
+                $storeStillVisible = db_query(
+                    'SELECT o.order_id FROM orders o WHERE o.order_id = ? AND ' . printflow_order_archive_scope_sql('o') . ' LIMIT 1',
+                    'i',
+                    [$storeOid]
+                ) ?: [];
+                if ($storeStillVisible === []) {
+                    throw new Exception("Order not found.");
+                }
+            }
             if ($storeOid > 0) {
                 $storePayRows = db_query(
                     'SELECT payment_status FROM orders WHERE order_id = ? LIMIT 1',
@@ -2277,13 +2179,22 @@ try {
             }
 
             if ($new_status === 'For Revision' && $linked_order_id) {
+                $revisionSelectedDesignIds = $_POST['revision_selected_design_file_ids'] ?? [];
+                if (!is_array($revisionSelectedDesignIds)) {
+                    $revisionSelectedDesignIds = [$revisionSelectedDesignIds];
+                }
                 $revision_request = printflow_revision_create_request(
                     $linked_order_id,
                     (int) get_user_id(),
                     $revision_reason_code !== '' ? $revision_reason_code : $rejection_reason,
                     $revision_instruction !== '' ? $revision_instruction : $rejection_reason,
                     $revision_permitted_fields,
-                    $revision_reason_label !== '' ? $revision_reason_label : $rejection_reason
+                    $revision_reason_label !== '' ? $revision_reason_label : $rejection_reason,
+                    [
+                        'order_item_id' => (int)($_POST['revision_order_item_id'] ?? 0),
+                        'customization_id' => $cust_id,
+                        'selected_design_file_ids' => array_map('intval', $revisionSelectedDesignIds),
+                    ]
                 );
                 $rejection_reason = (string) $revision_request['legacy_reason'];
             } elseif ($linked_order_id) {
@@ -2400,7 +2311,11 @@ try {
                 throw new JoApiPersistenceException('Unable to commit the customization update.');
             }
 
-            jo_api_json_response(['success' => true]);
+            $responsePayload = ['success' => true];
+            if ($linked_order_id > 0) {
+                $responsePayload['items'] = jo_api_order_items_with_design_files($linked_order_id);
+            }
+            jo_api_json_response($responsePayload);
             break;
 
         case 'get_customization':
@@ -2414,6 +2329,14 @@ try {
             $revisionCountSelect = (function_exists('db_table_has_column') && db_table_has_column('orders', 'revision_count'))
                 ? 'o.revision_count AS store_revision_count'
                 : '0 AS store_revision_count';
+            $hasOrderItemServiceId = function_exists('db_table_has_column')
+                && db_table_has_column('order_items', 'service_id');
+            $savedServiceIdExpr = $hasOrderItemServiceId
+                ? "COALESCE(oi.service_id, CASE WHEN JSON_VALID(oi.customization_data) THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_id')) AS UNSIGNED) END)"
+                : "CASE WHEN JSON_VALID(oi.customization_data) THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_id')) AS UNSIGNED) END";
+            $savedServiceIdSelect = $savedServiceIdExpr . ' AS saved_service_id,';
+            $savedServiceJoin = 'LEFT JOIN services saved_service ON saved_service.service_id = ' . $savedServiceIdExpr;
+            $savedServiceNameSelect = "COALESCE(NULLIF(TRIM(saved_service.name), ''), NULLIF(TRIM(CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_type')) END), ''), p.name) AS saved_product_name,";
 
             $cust_row = db_query(
                 "SELECT cust.*,
@@ -2426,6 +2349,9 @@ try {
                        COALESCE(NULLIF(o.payment_proof_path,''), NULLIF(o.payment_proof,''), NULLIF(jo.payment_proof_path,'')) AS payment_proof_path,
                        COALESCE(jo.payment_submitted_amount, o.downpayment_amount, 0) AS downpayment_amount,
                        o.order_source,
+                       oi.product_id AS saved_product_id,
+                       " . $savedServiceIdSelect . "
+                       " . $savedServiceNameSelect . "
                        o.status AS store_order_status,
                        o.design_status AS store_design_status,
                        o.revision_reason AS store_revision_reason,
@@ -2433,8 +2359,13 @@ try {
                 FROM customizations cust
                 LEFT JOIN customers c ON cust.customer_id = c.customer_id
                 LEFT JOIN orders o ON cust.order_id = o.order_id
+                LEFT JOIN order_items oi ON oi.order_item_id = cust.order_item_id
+                LEFT JOIN products p ON p.product_id = oi.product_id
+                " . $savedServiceJoin . "
                 LEFT JOIN job_orders jo ON jo.order_id = o.order_id AND jo.status NOT IN ('CANCELLED')
                 WHERE cust.customization_id = ?
+                  AND " . printflow_customer_exclusion_customer_scope_sql('cust.customer_id') . "
+                  AND (o.order_id IS NULL OR " . printflow_order_archive_scope_sql('o') . ")
                 ORDER BY jo.id ASC
                 LIMIT 1",
                 'i',
@@ -2586,7 +2517,7 @@ try {
                 // item's own data when the order has more than one line item.
                 $ownOrderItemIdForService = (int)($cust['order_item_id'] ?? 0);
                 $ownServiceItem = null;
-                if ($ownOrderItemIdForService > 0 && count($items) > 1) {
+                if ($ownOrderItemIdForService > 0) {
                     foreach ($items as $candidateItem) {
                         if ((int)($candidateItem['order_item_id'] ?? 0) === $ownOrderItemIdForService) {
                             $ownServiceItem = $candidateItem;
@@ -2594,9 +2525,13 @@ try {
                         }
                     }
                 }
-                $resolvedServiceType = $ownServiceItem !== null
-                    ? trim((string)($ownServiceItem['product_name'] ?? ''))
-                    : (string)($storeLinePayload['service_type'] ?? '');
+                $resolvedServiceType = trim((string)($cust['saved_product_name'] ?? ''));
+                if ($resolvedServiceType === '' && $ownServiceItem !== null) {
+                    $resolvedServiceType = trim((string)($ownServiceItem['product_name'] ?? ''));
+                }
+                if ($resolvedServiceType === '') {
+                    $resolvedServiceType = trim((string)($cust['service_type'] ?? ''));
+                }
                 if ($resolvedServiceType !== '') {
                     $summary['service_type'] = $resolvedServiceType;
                     $summary['job_title'] = $resolvedServiceType;
@@ -2659,6 +2594,10 @@ try {
                     if (!is_array($itemRow)) {
                         continue;
                     }
+                    $posLineFiles = is_array($itemRow['design_files'] ?? null) ? $itemRow['design_files'] : [];
+                    if (count($posLineFiles) > 1) {
+                        continue;
+                    }
                     if (!empty($posDesignMedia)) {
                         $itemRow['design_name'] = $posDesignMedia['name'] ?: ($itemRow['design_name'] ?? null);
                         $itemRow['design_open_url'] = $posDesignMedia['url'];
@@ -2682,7 +2621,8 @@ try {
                         continue;
                     }
                     $lineOrderItemId = (int)($itemRow['order_item_id'] ?? 0);
-                    if ($lineOrderItemId > 0) {
+                    $lineDesignFiles = is_array($itemRow['design_files'] ?? null) ? $itemRow['design_files'] : [];
+                    if ($lineOrderItemId > 0 && count($lineDesignFiles) <= 1 && empty($itemRow['design_open_url'])) {
                         $itemRow['design_open_url'] = (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId;
                     }
                     $itemRow['debug_order_item_id'] = $lineOrderItemId > 0 ? $lineOrderItemId : null;
@@ -2937,7 +2877,7 @@ try {
                        TRIM(CONCAT_WS(', ', NULLIF(TRIM(c.street_address), ''), NULLIF(TRIM(c.barangay), ''), NULLIF(TRIM(c.city), ''))) AS customer_address
                 FROM orders o
                 LEFT JOIN customers c ON o.customer_id = c.customer_id
-                WHERE o.order_id = ?
+                WHERE o.order_id = ? AND " . printflow_order_archive_scope_sql('o') . "
             ", 'i', [$order_id]);
             if (empty($order_row)) throw new Exception("Order not found.");
             $o = $order_row[0];
@@ -3140,7 +3080,64 @@ try {
             jo_api_json_response(['success' => true, 'data' => $data]);
             break;
 
+        case 'request_add_details':
+            jo_api_require_staff_mutation();
+            require_once __DIR__ . '/../includes/revision_workflow.php';
+            require_once __DIR__ . '/../includes/add_details_labels.php';
+            $orderId = (int)($_POST['order_id'] ?? 0);
+            if ($orderId <= 0) {
+                throw new InvalidArgumentException('order_id is required.');
+            }
+            jo_api_require_staff_order_branch($joStaffBranch, $orderId);
+            $revisionPermittedFields = $_POST['revision_permitted_fields'] ?? [];
+            if (!is_array($revisionPermittedFields)) {
+                $revisionPermittedFields = [$revisionPermittedFields];
+            }
+            $selectedDesignIds = $_POST['revision_selected_design_file_ids'] ?? [];
+            if (!is_array($selectedDesignIds)) {
+                $selectedDesignIds = [$selectedDesignIds];
+            }
+            try {
+                $result = printflow_revision_submit_staff_request([
+                    'order_id' => $orderId,
+                    'staff_id' => (int)get_user_id(),
+                    'customization_id' => (int)($_POST['customization_id'] ?? 0),
+                    'order_item_id' => (int)($_POST['revision_order_item_id'] ?? 0),
+                    'reason_code' => sanitize($_POST['revision_reason_code'] ?? ''),
+                    'reason_label' => sanitize($_POST['revision_reason_label'] ?? ''),
+                    'instruction' => trim((string)($_POST['revision_instruction'] ?? '')),
+                    'permitted_fields' => $revisionPermittedFields,
+                    'selected_design_file_ids' => array_map('intval', $selectedDesignIds),
+                    'idempotency_key' => sanitize($_POST['revision_idempotency_key'] ?? ''),
+                ]);
+            } catch (InvalidArgumentException $e) {
+                $msg = printflow_add_details_replace_phrases($e->getMessage());
+                jo_api_json_response([
+                    'success' => false,
+                    'error' => $msg,
+                    'message' => $msg,
+                ], 422);
+            } catch (RuntimeException $e) {
+                $msg = printflow_add_details_replace_phrases($e->getMessage());
+                jo_api_json_response([
+                    'success' => false,
+                    'error' => $msg,
+                    'message' => $msg,
+                ], 409);
+            }
+            if (!empty($result['repaired'])) {
+                $result['warning'] = 'The existing Request Add Details was updated and the customer was notified again.';
+            } elseif (($result['job_status_sync'] ?? '') === 'skipped' && empty($result['duplicate'])) {
+                $result['warning'] = 'The request was saved. No linked production job required a status change.';
+            }
+            if ($orderId > 0) {
+                $result['items'] = jo_api_order_items_with_design_files($orderId);
+            }
+            jo_api_json_response($result);
+            break;
+
         case 'update_status':
+            jo_api_require_staff_mutation();
             $id = (int)($_POST['id'] ?? 0);
             $status = sanitize($_POST['status'] ?? '');
             $machineId = isset($_POST['machine_id']) ? (int)$_POST['machine_id'] : null;
@@ -3151,6 +3148,10 @@ try {
             $revisionPermittedFields = $_POST['revision_permitted_fields'] ?? [];
             if (!is_array($revisionPermittedFields)) {
                 $revisionPermittedFields = [$revisionPermittedFields];
+            }
+            $revisionSelectedDesignIds = $_POST['revision_selected_design_file_ids'] ?? [];
+            if (!is_array($revisionSelectedDesignIds)) {
+                $revisionSelectedDesignIds = [$revisionSelectedDesignIds];
             }
             if ($status === 'For Revision' && $revisionInstruction !== '') {
                 $reason = trim($reason . ': ' . $revisionInstruction, ': ');
@@ -3165,6 +3166,9 @@ try {
                     'reason_label' => $revisionReasonLabel !== '' ? $revisionReasonLabel : $reason,
                     'instruction' => $revisionInstruction !== '' ? $revisionInstruction : $reason,
                     'permitted_fields' => $revisionPermittedFields,
+                    'order_item_id' => (int)($_POST['revision_order_item_id'] ?? 0),
+                    'customization_id' => (int)($_POST['customization_id'] ?? 0),
+                    'selected_design_file_ids' => array_map('intval', $revisionSelectedDesignIds),
                 ];
             }
             $res = JobOrderService::updateStatus($id, $status, $machineId, $reason, false, $revisionMeta);
@@ -3286,7 +3290,9 @@ try {
             if ($priceTransactionStarted && !$conn->commit()) {
                 throw new JoApiPersistenceException('Unable to commit the price update.');
             }
-            jo_api_json_response(['success' => true, 'price' => $price]);
+            $priceResponse = ['success' => true, 'price' => $price];
+            $priceResponse['items'] = jo_api_order_items_with_design_files($order_id);
+            jo_api_json_response($priceResponse);
             break;
 
         case 'create_order':
@@ -3395,7 +3401,11 @@ try {
             if ($jobPriceTransactionStarted && !$conn->commit()) {
                 throw new JoApiPersistenceException('Unable to commit the price update.');
             }
-            jo_api_json_response(['success' => true, 'price' => $price]);
+            $setPriceResponse = ['success' => true, 'price' => $price];
+            if ($linkedOrderId > 0) {
+                $setPriceResponse['items'] = jo_api_order_items_with_design_files($linkedOrderId);
+            }
+            jo_api_json_response($setPriceResponse);
             break;
 
         case 'add_material':

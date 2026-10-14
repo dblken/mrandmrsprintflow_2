@@ -59,7 +59,7 @@ if (!$order_id || !in_array($new_status, $allowed)) {
 
 printflow_assert_order_branch_access($order_id);
 
-$order = db_query("SELECT order_id, status, customer_id FROM orders WHERE order_id = ?", 'i', [$order_id]);
+$order = db_query("SELECT order_id, status, customer_id FROM orders WHERE order_id = ? AND " . printflow_order_archive_scope_sql('orders'), 'i', [$order_id]);
 if (empty($order)) {
     echo json_encode(['success' => false, 'error' => 'Order not found']);
     exit;
@@ -75,7 +75,7 @@ if ($current_status === $new_status) {
     exit;
 }
 
-$ok = db_execute("UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?", 'si', [$new_status, $order_id]);
+$ok = db_execute("UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ? AND " . printflow_order_archive_scope_sql('orders'), 'si', [$new_status, $order_id]);
 if (!$ok) {
     echo json_encode(['success' => false, 'error' => 'Database update failed']);
     exit;

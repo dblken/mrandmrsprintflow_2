@@ -618,6 +618,7 @@ class CustomizationService
         foreach ($items as $item) {
             $itemViews[] = $this->buildItemView($item, $order);
         }
+        $this->attachDesignFilesToItemViews($itemViews);
         $this->consolidateItemNotes($order, $itemViews);
 
         $address = $this->composeAddress($order);
@@ -2383,6 +2384,16 @@ class CustomizationService
             } catch (Throwable $e) {
                 error_log('CustomizationService::syncJobs status failed for job #' . $jobId . ': ' . $e->getMessage());
             }
+        }
+    }
+
+    /**
+     * @param list<array<string,mixed>> $itemViews
+     */
+    private function attachDesignFilesToItemViews(array &$itemViews): void
+    {
+        if (function_exists('printflow_order_item_design_files_attach_to_item_views')) {
+            printflow_order_item_design_files_attach_to_item_views($itemViews);
         }
     }
 

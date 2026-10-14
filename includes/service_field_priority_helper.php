@@ -250,6 +250,60 @@ if (!function_exists('printflow_collect_priority_related_fields')) {
     }
 }
 
+if (!function_exists('printflow_resolve_customer_priority_from_customization')) {
+    /**
+     * Same priority resolution staff spec tiles use, including Regular when service_id is missing from payload.
+     *
+     * @param array<string,mixed> $customization
+     * @return array<string,mixed>
+     */
+    function printflow_resolve_customer_priority_from_customization(array $customization): array
+    {
+        $serviceId = (int)($customization['service_id'] ?? 0);
+        $priority = printflow_resolve_dynamic_order_priority($serviceId, $customization);
+        $selected = trim((string)($priority['selected_value'] ?? ''));
+        if ($selected !== '') {
+            return $priority;
+        }
+
+        if (!function_exists('printflow_customization_key_token')) {
+            require_once __DIR__ . '/customization_normalizer.php';
+        }
+
+        foreach ($customization as $key => $value) {
+            if (!is_string($key) || !is_scalar($value)) {
+                continue;
+            }
+            $token = printflow_customization_key_token($key);
+            $isPriorityField = ($token === 'order_priority')
+                || strcasecmp(trim($key), 'Order Priority') === 0
+                || (str_contains($token, 'priority') && !str_contains($token, 'priority_request'));
+            if (!$isPriorityField) {
+                continue;
+            }
+            $submitted = trim((string)$value);
+            if ($submitted === '') {
+                continue;
+            }
+            $isUrgent = (bool)preg_match('/\burgent\b/i', $submitted);
+
+            return array_merge(printflow_priority_request_default(), [
+                'is_urgent_request' => $isUrgent,
+                'is_regular' => !$isUrgent,
+                'has_priority_field' => true,
+                'field_key' => $token !== '' ? $token : 'order_priority',
+                'field_label' => trim($key),
+                'selected_value' => $submitted,
+                'related_fields' => [],
+                'job_priority' => $isUrgent ? 'HIGH' : 'NORMAL',
+                'source' => 'customization_label',
+            ]);
+        }
+
+        return $priority;
+    }
+}
+
 if (!function_exists('printflow_resolve_dynamic_order_priority')) {
     /**
      * Resolve customer priority/urgent request from service field config + submitted customization.
@@ -410,9 +464,24 @@ if (!function_exists('printflow_is_internal_customization_key')) {
             'is_urgent_request',
             'is_regular_priority',
             'has_priority_field',
+            'design_input_mode',
+            'dimensions_design_input_mode',
+            'upload_design_design_input_mode',
+            'calculated_unit_price',
+            'calculated_estimated_price',
+            'price_unconfigured',
+            'material_name',
         ];
 
-        return in_array($token, $hiddenTokens, true);
+        if (in_array($token, $hiddenTokens, true)) {
+            return true;
+        }
+
+        if (str_contains($token, 'design_input_mode')) {
+            return true;
+        }
+
+        return false;
     }
 }
 
@@ -434,6 +503,23 @@ if (!function_exists('printflow_is_internal_customization_value')) {
 
         if (array_key_exists('field_label', $value) && array_key_exists('selected_value', $value)) {
             return true;
+        }
+
+        if (array_key_exists('tmp_path', $value) || array_key_exists('idempotency_key', $value)) {
+            return true;
+        }
+
+        if (array_key_exists('storage_path', $value) && (array_key_exists('display_name', $value) || array_key_exists('mime_type', $value))) {
+            return true;
+        }
+
+        $keys = array_keys($value);
+        $isList = $keys === range(0, count($value) - 1);
+        if ($isList && isset($value[0]) && is_array($value[0])) {
+            $first = $value[0];
+            if (array_key_exists('tmp_path', $first) || array_key_exists('idempotency_key', $first)) {
+                return true;
+            }
         }
 
         return false;

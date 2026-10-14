@@ -10,7 +10,7 @@ require_role('Customer');
 $order_id = (int)($_GET['id'] ?? 0);
 $customer_id = get_user_id();
 
-$order = db_query("SELECT * FROM service_orders WHERE id = ? AND customer_id = ?", 'ii', [$order_id, $customer_id]);
+$order = db_query("SELECT * FROM service_orders so WHERE so.id = ? AND so.customer_id = ? AND " . printflow_customer_exclusion_customer_scope_sql('so.customer_id'), 'ii', [$order_id, $customer_id]);
 if (empty($order)) redirect(BASE_URL . '/customer/service_orders.php');
 $order = $order[0];
 

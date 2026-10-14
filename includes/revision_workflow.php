@@ -10,6 +10,61 @@ require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/order_ui_helper.php';
 require_once __DIR__ . '/service_field_config_helper.php';
 require_once __DIR__ . '/product_field_config_helper.php';
+require_once __DIR__ . '/order_item_design_files.php';
+require_once __DIR__ . '/service_order_helper.php';
+require_once __DIR__ . '/add_details_labels.php';
+
+/**
+ * Normalize multi-file design uploads from the current request.
+ *
+ * @return list<array<string,mixed>>
+ */
+function printflow_revision_collect_design_uploads(array $files): array
+{
+    if (function_exists('printflow_normalize_php_file_uploads')) {
+        $uploads = printflow_normalize_php_file_uploads('design_file');
+        if ($uploads !== []) {
+            return $uploads;
+        }
+        $uploads = printflow_normalize_php_file_uploads('design_file[]');
+        if ($uploads !== []) {
+            return $uploads;
+        }
+    }
+
+    $candidates = ['design_file', 'design_file[]'];
+    foreach ($candidates as $field) {
+        if (!isset($files[$field]) || !is_array($files[$field])) {
+            continue;
+        }
+        $upload = $files[$field];
+        if (!is_array($upload['name'] ?? null)) {
+            if (($upload['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                continue;
+            }
+            return [$upload];
+        }
+        $out = [];
+        $count = count($upload['name']);
+        for ($i = 0; $i < $count; $i++) {
+            if (($upload['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                continue;
+            }
+            $out[] = [
+                'name' => $upload['name'][$i] ?? '',
+                'type' => $upload['type'][$i] ?? '',
+                'tmp_name' => $upload['tmp_name'][$i] ?? '',
+                'error' => $upload['error'][$i] ?? UPLOAD_ERR_NO_FILE,
+                'size' => $upload['size'][$i] ?? 0,
+            ];
+        }
+        if ($out !== []) {
+            return $out;
+        }
+    }
+
+    return [];
+}
 
 function printflow_revision_ensure_schema(): bool
 {
@@ -92,6 +147,11 @@ function printflow_revision_ensure_schema(): bool
         'active_flag' => 'TINYINT NULL DEFAULT 1',
         'requested_at' => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
         'resubmitted_at' => 'DATETIME NULL',
+        'order_item_id' => 'INT NULL DEFAULT 0',
+        'customization_id' => 'INT NULL DEFAULT 0',
+        'selected_design_file_ids' => 'LONGTEXT NULL',
+        'request_sequence' => 'INT NULL DEFAULT 1',
+        'staff_idempotency_key' => 'VARCHAR(64) NULL DEFAULT NULL',
     ]);
     $historyColumnsReady = $ensureColumns('order_item_revisions', [
         'design_image' => 'LONGBLOB NULL',
@@ -161,14 +221,934 @@ function printflow_revision_has_detail_permission(array $permissions): bool
     return false;
 }
 
+function printflow_revision_design_files_zip_url(int $revisionRequestId, int $orderItemId = 0): string
+{
+    if ($revisionRequestId <= 0) {
+        return '';
+    }
+    $base = function_exists('pf_app_base_path') ? rtrim((string)pf_app_base_path(), '/') : '';
+    $qs = 'revision_request_id=' . $revisionRequestId;
+    if ($orderItemId > 0) {
+        $qs .= '&order_item_id=' . $orderItemId;
+    }
+    return $base . '/public/download_revision_design_files_zip.php?' . $qs;
+}
+
+/**
+ * @return list<int>
+ */
+function printflow_revision_decode_selected_design_file_ids($raw): array
+{
+    if (is_array($raw)) {
+        $ids = $raw;
+    } else {
+        $decoded = printflow_revision_decode_json((string)$raw);
+        $ids = is_array($decoded) ? $decoded : [];
+    }
+    $out = [];
+    foreach ($ids as $id) {
+        $id = (int)$id;
+        if ($id > 0) {
+            $out[$id] = $id;
+        }
+    }
+    return array_values($out);
+}
+
+function printflow_revision_hydrate_request_row(array $row): array
+{
+    $row['selected_design_file_ids_array'] = printflow_revision_decode_selected_design_file_ids($row['selected_design_file_ids'] ?? '[]');
+    $row['request_sequence'] = max(1, (int)($row['request_sequence'] ?? 1));
+    return $row;
+}
+
+/**
+ * @param list<int> $fileIds
+ * @return list<array<string,mixed>>
+ */
+function printflow_revision_resolve_selected_design_files(int $orderId, int $orderItemId, array $fileIds): array
+{
+    if ($orderId <= 0 || $orderItemId <= 0 || $fileIds === []) {
+        return [];
+    }
+    $fileIds = printflow_revision_decode_selected_design_file_ids($fileIds);
+    if ($fileIds === []) {
+        return [];
+    }
+    printflow_ensure_order_item_design_files_schema();
+    $placeholders = implode(',', array_fill(0, count($fileIds), '?'));
+    $types = str_repeat('i', count($fileIds)) . 'ii';
+    $params = array_merge($fileIds, [$orderItemId, $orderId]);
+    $rows = db_query(
+        "SELECT * FROM order_item_design_files
+         WHERE file_id IN ({$placeholders})
+           AND order_item_id = ?
+           AND order_id = ?
+           AND (revision_request_id IS NULL OR revision_request_id = 0)",
+        $types,
+        $params
+    ) ?: [];
+    $byId = [];
+    foreach ($rows as $row) {
+        $byId[(int)($row['file_id'] ?? 0)] = $row;
+    }
+    $ordered = [];
+    foreach ($fileIds as $fileId) {
+        if (isset($byId[$fileId])) {
+            $ordered[] = $byId[$fileId];
+        }
+    }
+    return printflow_order_item_design_files_to_api($ordered);
+}
+
+/**
+ * @return list<array{key:string,label:string,files:list<array<string,mixed>>,revision_request_id:int,request_sequence:int}>
+ */
+function printflow_revision_file_sections_for_request(array $revisionRow): array
+{
+    $revisionRequestId = (int)($revisionRow['revision_request_id'] ?? 0);
+    $orderId = (int)($revisionRow['order_id'] ?? 0);
+    $orderItemId = (int)($revisionRow['order_item_id'] ?? 0);
+    if ($revisionRequestId <= 0 || $orderId <= 0) {
+        return [];
+    }
+    if ($orderItemId <= 0) {
+        $items = is_array($revisionRow['previous_values_array']['items'] ?? null)
+            ? $revisionRow['previous_values_array']['items']
+            : [];
+        if (count($items) === 1) {
+            $orderItemId = (int)($items[0]['order_item_id'] ?? 0);
+        }
+    }
+    $sections = [];
+    if ($orderItemId > 0 && function_exists('printflow_order_item_design_files_list_for_item')) {
+        $original = printflow_order_item_design_files_list_for_item($orderItemId, false);
+        if ($original !== []) {
+            $sections[] = [
+                'key' => 'original',
+                'label' => 'Original design',
+                'files' => $original,
+                'revision_request_id' => 0,
+                'request_sequence' => 0,
+            ];
+        }
+    }
+    $selected = printflow_revision_resolve_selected_design_files(
+        $orderId,
+        $orderItemId,
+        $revisionRow['selected_design_file_ids_array'] ?? []
+    );
+    if ($selected !== []) {
+        $sections[] = [
+            'key' => 'selected',
+            'label' => 'Requested replacement',
+            'files' => $selected,
+            'revision_request_id' => $revisionRequestId,
+            'request_sequence' => (int)($revisionRow['request_sequence'] ?? 1),
+        ];
+    }
+    $currentResponse = printflow_revision_design_files_list_for_request($revisionRequestId, $orderItemId);
+    if ($currentResponse !== []) {
+        $seq = max(1, (int)($revisionRow['request_sequence'] ?? 1));
+        $sections[] = [
+            'key' => 'response_current',
+            'label' => 'Response to Request Add Details #' . $seq,
+            'files' => $currentResponse,
+            'revision_request_id' => $revisionRequestId,
+            'request_sequence' => $seq,
+        ];
+    }
+    $historyRows = db_query(
+        'SELECT revision_request_id, request_sequence, resubmitted_at
+         FROM order_revision_requests
+         WHERE order_id = ? AND revision_request_id <> ? AND resubmitted_at IS NOT NULL
+         ORDER BY request_sequence ASC, revision_request_id ASC',
+        'ii',
+        [$orderId, $revisionRequestId]
+    ) ?: [];
+    foreach ($historyRows as $historyRow) {
+        $histId = (int)($historyRow['revision_request_id'] ?? 0);
+        $histSeq = max(1, (int)($historyRow['request_sequence'] ?? 1));
+        $histFiles = printflow_revision_design_files_list_for_request($histId, $orderItemId);
+        if ($histFiles === []) {
+            continue;
+        }
+        $sections[] = [
+            'key' => 'response_history_' . $histId,
+            'label' => 'Response to Request Add Details #' . $histSeq,
+            'files' => $histFiles,
+            'revision_request_id' => $histId,
+            'request_sequence' => $histSeq,
+        ];
+    }
+    return $sections;
+}
+
+/**
+ * @param array<string,mixed> $file
+ */
+function printflow_revision_design_file_display_title(array $file): string
+{
+    if (function_exists('printflow_order_item_design_file_display_title')) {
+        return printflow_order_item_design_file_display_title($file);
+    }
+    $name = trim((string)($file['display_name'] ?? ''));
+    return $name !== '' ? $name : 'Design file';
+}
+
+/**
+ * @param array<string,mixed> $file
+ */
+function printflow_revision_design_file_storage_key(array $file): string
+{
+    $path = strtolower(str_replace('\\', '/', trim((string)($file['storage_path'] ?? ''))));
+    if ($path !== '') {
+        return 'path:' . $path;
+    }
+    return 'id:' . (int)($file['file_id'] ?? 0);
+}
+
+/**
+ * @param array<string,mixed> $file
+ */
+function printflow_revision_design_file_content_fingerprint(array $file): string
+{
+    $cached = trim((string)($file['content_fingerprint'] ?? ''));
+    if ($cached !== '') {
+        return $cached;
+    }
+    $path = trim((string)($file['storage_path'] ?? ''));
+    if ($path === '' || !function_exists('printflow_resolve_order_upload_disk_path')) {
+        return '';
+    }
+    $disk = printflow_resolve_order_upload_disk_path($path);
+    if ($disk === null || !is_file($disk) || !is_readable($disk)) {
+        return '';
+    }
+    $hash = hash_file('sha256', $disk);
+    return is_string($hash) ? $hash : '';
+}
+
+/**
+ * @param array<string,mixed> $file
+ */
+function printflow_revision_design_file_identity_key(array $file): string
+{
+    $fingerprint = printflow_revision_design_file_content_fingerprint($file);
+    if ($fingerprint !== '') {
+        return 'hash:' . $fingerprint;
+    }
+    return printflow_revision_design_file_storage_key($file);
+}
+
+/**
+ * Deduplicate by file_id, then by physical identity (hash or normalized storage path).
+ *
+ * @param list<array<string,mixed>> $files
+ * @return list<array<string,mixed>>
+ */
+function printflow_revision_dedupe_design_files_physical(array $files): array
+{
+    $byId = [];
+    foreach ($files as $file) {
+        if (!is_array($file)) {
+            continue;
+        }
+        $fileId = (int)($file['file_id'] ?? 0);
+        if ($fileId <= 0) {
+            continue;
+        }
+        $byId[$fileId] = $file;
+    }
+    $deduped = [];
+    $seenPhysical = [];
+    foreach (array_values($byId) as $file) {
+        $identity = printflow_revision_design_file_identity_key($file);
+        if (isset($seenPhysical[$identity])) {
+            continue;
+        }
+        $seenPhysical[$identity] = true;
+        $file['display_name'] = printflow_revision_design_file_display_title($file);
+        $fingerprint = printflow_revision_design_file_content_fingerprint($file);
+        if ($fingerprint !== '') {
+            $file['content_fingerprint'] = $fingerprint;
+        }
+        $deduped[] = $file;
+    }
+    usort($deduped, static function (array $a, array $b): int {
+        $sortDelta = ((int)($a['upload_sort'] ?? 0)) <=> ((int)($b['upload_sort'] ?? 0));
+        if ($sortDelta !== 0) {
+            return $sortDelta;
+        }
+        return ((int)($a['file_id'] ?? 0)) <=> ((int)($b['file_id'] ?? 0));
+    });
+    return $deduped;
+}
+
+/**
+ * @param list<array<string,mixed>> $files
+ * @param array<string,mixed> $meta
+ * @return list<array<string,mixed>>
+ */
+function printflow_revision_tag_design_files(array $files, array $meta): array
+{
+    $out = [];
+    foreach ($files as $file) {
+        if (!is_array($file)) {
+            continue;
+        }
+        $tagged = array_merge($file, $meta);
+        $tagged['display_name'] = printflow_revision_design_file_display_title($tagged);
+        $label = trim((string)($meta['source_label'] ?? ''));
+        $tagged['source_labels'] = $label !== '' ? [$label] : [];
+        $out[] = $tagged;
+    }
+    return $out;
+}
+
+/**
+ * Original vs current response comparison groups for staff review (no cross-column duplicates).
+ *
+ * @return array{
+ *   original_files:list<array<string,mixed>>,
+ *   current_response_files:list<array<string,mixed>>,
+ *   previous_response_files:list<array{revision_request_id:int,request_sequence:int,label:string,files:list<array<string,mixed>>}>,
+ *   unified_design_files:list<array<string,mixed>>,
+ *   counts:array<string,int>
+ * }
+ */
+function printflow_revision_comparison_design_files_for_request(array $revisionRow): array
+{
+    $revisionRequestId = (int)($revisionRow['revision_request_id'] ?? 0);
+    $orderId = (int)($revisionRow['order_id'] ?? 0);
+    $orderItemId = (int)($revisionRow['order_item_id'] ?? 0);
+    if ($orderItemId <= 0) {
+        $items = is_array($revisionRow['previous_values_array']['items'] ?? null)
+            ? $revisionRow['previous_values_array']['items']
+            : [];
+        if (count($items) === 1) {
+            $orderItemId = (int)($items[0]['order_item_id'] ?? 0);
+        }
+    }
+    $requestSequence = max(1, (int)($revisionRow['request_sequence'] ?? 1));
+    $responseLabel = 'Customer\'s new upload';
+
+    $originalRaw = ($orderItemId > 0 && function_exists('printflow_order_item_design_files_list_for_item'))
+        ? printflow_order_item_design_files_list_for_item($orderItemId, false)
+        : [];
+    $originalFiles = printflow_revision_dedupe_design_files_physical(
+        printflow_revision_tag_design_files($originalRaw, [
+            'source_type' => 'original',
+            'source_label' => 'Original design',
+            'request_sequence' => 0,
+            'revision_request_id' => 0,
+        ])
+    );
+
+    $currentResponseRaw = ($revisionRequestId > 0)
+        ? printflow_revision_design_files_list_for_request($revisionRequestId, $orderItemId)
+        : [];
+    $currentResponseTagged = printflow_revision_tag_design_files(
+        printflow_revision_dedupe_design_files_physical($currentResponseRaw),
+        [
+            'source_type' => 'response_current',
+            'source_label' => $responseLabel,
+            'request_sequence' => $requestSequence,
+            'revision_request_id' => $revisionRequestId,
+        ]
+    );
+
+    $originalIdentity = [];
+    foreach ($originalFiles as $index => $file) {
+        $originalIdentity[printflow_revision_design_file_identity_key($file)] = $index;
+    }
+
+    $currentResponseFiles = [];
+    foreach ($currentResponseTagged as $responseFile) {
+        $identity = printflow_revision_design_file_identity_key($responseFile);
+        if (isset($originalIdentity[$identity])) {
+            $origIndex = $originalIdentity[$identity];
+            $originalFiles[$origIndex]['same_as_original'] = true;
+            if (!in_array('Same as original', $originalFiles[$origIndex]['source_labels'] ?? [], true)) {
+                $originalFiles[$origIndex]['source_labels'] = array_values(array_unique(array_merge(
+                    is_array($originalFiles[$origIndex]['source_labels'] ?? null) ? $originalFiles[$origIndex]['source_labels'] : [],
+                    ['Same as original']
+                )));
+            }
+            continue;
+        }
+        $responseFileId = (int)($responseFile['file_id'] ?? 0);
+        if ($responseFileId > 0) {
+            $skip = false;
+            foreach ($originalFiles as $orig) {
+                if ((int)($orig['file_id'] ?? 0) === $responseFileId) {
+                    $skip = true;
+                    break;
+                }
+            }
+            if ($skip) {
+                continue;
+            }
+        }
+        $currentResponseFiles[] = $responseFile;
+    }
+
+    $previousResponseFiles = [];
+    if ($orderId > 0 && $revisionRequestId > 0) {
+        $historyRows = db_query(
+            'SELECT revision_request_id, request_sequence, resubmitted_at
+             FROM order_revision_requests
+             WHERE order_id = ? AND revision_request_id <> ? AND resubmitted_at IS NOT NULL
+             ORDER BY request_sequence ASC, revision_request_id ASC',
+            'ii',
+            [$orderId, $revisionRequestId]
+        ) ?: [];
+        foreach ($historyRows as $historyRow) {
+            $histId = (int)($historyRow['revision_request_id'] ?? 0);
+            $histSeq = max(1, (int)($historyRow['request_sequence'] ?? 1));
+            if ($histId <= 0) {
+                continue;
+            }
+            $histFiles = printflow_revision_design_files_list_for_request($histId, $orderItemId);
+            $histFiles = printflow_revision_dedupe_design_files_physical($histFiles);
+            if ($histFiles === []) {
+                continue;
+            }
+            $previousResponseFiles[] = [
+                'revision_request_id' => $histId,
+                'request_sequence' => $histSeq,
+                'label' => 'Previous response — Request Add Details #' . $histSeq,
+                'files' => printflow_revision_tag_design_files($histFiles, [
+                    'source_type' => 'response_history',
+                    'source_label' => 'Previous response #' . $histSeq,
+                    'request_sequence' => $histSeq,
+                    'revision_request_id' => $histId,
+                ]),
+            ];
+        }
+    }
+
+    $unifiedById = [];
+    foreach (array_merge($originalFiles, $currentResponseFiles) as $file) {
+        $fileId = (int)($file['file_id'] ?? 0);
+        if ($fileId <= 0) {
+            continue;
+        }
+        $unifiedById[$fileId] = $file;
+    }
+    foreach ($previousResponseFiles as $group) {
+        foreach ($group['files'] as $file) {
+            $fileId = (int)($file['file_id'] ?? 0);
+            if ($fileId <= 0) {
+                continue;
+            }
+            if (!isset($unifiedById[$fileId])) {
+                $unifiedById[$fileId] = $file;
+            }
+        }
+    }
+    $unifiedDesignFiles = array_values($unifiedById);
+    usort($unifiedDesignFiles, static function (array $a, array $b): int {
+        $sortDelta = ((int)($a['upload_sort'] ?? 0)) <=> ((int)($b['upload_sort'] ?? 0));
+        if ($sortDelta !== 0) {
+            return $sortDelta;
+        }
+        return ((int)($a['file_id'] ?? 0)) <=> ((int)($b['file_id'] ?? 0));
+    });
+
+    $historyFileCount = 0;
+    foreach ($previousResponseFiles as $group) {
+        $historyFileCount += count($group['files']);
+    }
+
+    return [
+        'original_files' => $originalFiles,
+        'current_response_files' => $currentResponseFiles,
+        'previous_response_files' => $previousResponseFiles,
+        'unified_design_files' => $unifiedDesignFiles,
+        'counts' => [
+            'unique_total' => count($unifiedDesignFiles),
+            'original' => count($originalFiles),
+            'response_current' => count($currentResponseFiles),
+            'response_history' => $historyFileCount,
+        ],
+    ];
+}
+
+/**
+ * Merge all design file sources for one request into one deduplicated list (key: file_id).
+ *
+ * @return array{files:list<array<string,mixed>>,counts:array<string,int>}
+ */
+function printflow_revision_unified_design_files_for_request(array $revisionRow): array
+{
+    $comparison = printflow_revision_comparison_design_files_for_request($revisionRow);
+    return [
+        'files' => $comparison['unified_design_files'],
+        'counts' => $comparison['counts'],
+    ];
+}
+
+function printflow_staff_add_details_notification_url(int $orderId, int $revisionRequestId = 0, int $orderItemId = 0, int $customizationId = 0, int $jobOrderId = 0): string
+{
+    $base = function_exists('printflow_notification_base_path')
+        ? printflow_notification_base_path()
+        : (function_exists('pf_app_base_path') ? rtrim((string)pf_app_base_path(), '/') : '');
+    if ($orderId <= 0) {
+        return $base . '/staff/customizations.php';
+    }
+    if ($revisionRequestId > 0 && printflow_revision_ensure_schema()) {
+        $rows = db_query(
+            'SELECT revision_request_id, order_item_id, customization_id FROM order_revision_requests WHERE revision_request_id = ? AND order_id = ? LIMIT 1',
+            'ii',
+            [$revisionRequestId, $orderId]
+        ) ?: [];
+        if (!empty($rows[0])) {
+            if ($orderItemId <= 0) {
+                $orderItemId = (int)($rows[0]['order_item_id'] ?? 0);
+            }
+            if ($customizationId <= 0) {
+                $customizationId = (int)($rows[0]['customization_id'] ?? 0);
+            }
+        }
+    }
+    if ($customizationId <= 0) {
+        $custRows = db_query(
+            'SELECT customization_id FROM customizations WHERE order_id = ? ORDER BY customization_id DESC LIMIT 1',
+            'i',
+            [$orderId]
+        ) ?: [];
+        $customizationId = (int)($custRows[0]['customization_id'] ?? 0);
+    }
+    if ($jobOrderId <= 0) {
+        $jobRows = db_query('SELECT id FROM job_orders WHERE order_id = ? ORDER BY id DESC LIMIT 1', 'i', [$orderId]) ?: [];
+        $jobOrderId = (int)($jobRows[0]['id'] ?? 0);
+    }
+    $params = [
+        'order_id' => $orderId,
+        'job_type' => 'ORDER',
+        'status' => 'PENDING',
+        'focus_add_details' => '1',
+    ];
+    if ($revisionRequestId > 0) {
+        $params['revision_request_id'] = $revisionRequestId;
+    }
+    if ($orderItemId > 0) {
+        $params['order_item_id'] = $orderItemId;
+    }
+    if ($customizationId > 0) {
+        $params['customization_id'] = $customizationId;
+    }
+    if ($jobOrderId > 0) {
+        $params['job_order_id'] = $jobOrderId;
+    }
+    return $base . '/staff/customizations.php?' . http_build_query($params);
+}
+
+function printflow_order_status_is_for_revision(string $status): bool
+{
+    $normalized = strtoupper(str_replace([' ', '-', '–'], '_', trim($status)));
+    $normalized = preg_replace('/_+/', '_', $normalized) ?? $normalized;
+    return $normalized === 'FOR_REVISION';
+}
+
+function printflow_revision_request_is_customer_pending(array $revision): bool
+{
+    return in_array((string)($revision['request_status'] ?? ''), ['Requested', 'Customer Updating Details'], true);
+}
+
+/**
+ * Pending Request Add Details the customer may respond to (active request is authoritative).
+ */
+function printflow_revision_get_customer_pending_request(
+    int $orderId,
+    int $customerId,
+    ?int $revisionRequestId = null
+): ?array {
+    if ($orderId <= 0 || $customerId <= 0 || !printflow_revision_ensure_schema()) {
+        return null;
+    }
+    if ($revisionRequestId !== null && $revisionRequestId > 0) {
+        $rows = db_query(
+            'SELECT * FROM order_revision_requests
+             WHERE revision_request_id = ? AND order_id = ? AND customer_id = ? AND active_flag = 1
+             LIMIT 1',
+            'iii',
+            [$revisionRequestId, $orderId, $customerId]
+        ) ?: [];
+        if (!empty($rows[0])) {
+            $row = $rows[0];
+            $row['permitted_fields_array'] = printflow_revision_decode_json($row['permitted_fields'] ?? '[]');
+            $row['previous_values_array'] = printflow_revision_decode_json($row['previous_values'] ?? '{}');
+            $revision = printflow_revision_hydrate_request_row($row);
+            return printflow_revision_request_is_customer_pending($revision) ? $revision : null;
+        }
+    }
+    $revision = printflow_revision_get_active_or_legacy($orderId, $customerId);
+    if ($revision === null || !printflow_revision_request_is_customer_pending($revision)) {
+        return null;
+    }
+    return $revision;
+}
+
+/**
+ * When a pending request exists but order rows were not synced, restore customer access.
+ *
+ * @param array<string,mixed> $revision
+ */
+function printflow_revision_repair_customer_order_access(int $orderId, int $customerId, array $revision): bool
+{
+    if ($orderId <= 0 || $customerId <= 0) {
+        return false;
+    }
+    $requestStatus = (string)($revision['request_status'] ?? '');
+    if (!in_array($requestStatus, ['Requested', 'Customer Updating Details'], true)) {
+        return false;
+    }
+    $orderRows = db_query(
+        'SELECT status, design_status FROM orders WHERE order_id = ? AND customer_id = ? LIMIT 1',
+        'ii',
+        [$orderId, $customerId]
+    ) ?: [];
+    if (empty($orderRows[0])) {
+        return false;
+    }
+    $orderStatus = (string)($orderRows[0]['status'] ?? '');
+    $designStatus = strtolower(trim((string)($orderRows[0]['design_status'] ?? '')));
+    if (printflow_order_status_is_for_revision($orderStatus)
+        && $designStatus === strtolower('Revision Requested')) {
+        return false;
+    }
+    $reasonLabel = trim((string)($revision['revision_reason'] ?? ''));
+    $instruction = trim((string)($revision['staff_instruction'] ?? ''));
+    $legacyReason = $reasonLabel !== '' && $instruction !== ''
+        ? $reasonLabel . ': ' . $instruction
+        : ($instruction !== '' ? $instruction : $reasonLabel);
+    if ($legacyReason === '') {
+        $legacyReason = 'Request Add Details';
+    }
+    $targetCustomizationId = (int)($revision['customization_id'] ?? 0);
+    $revisionRequest = [
+        'permitted_fields' => is_array($revision['permitted_fields_array'] ?? null)
+            ? $revision['permitted_fields_array']
+            : [],
+    ];
+    printflow_revision_sync_entities_after_staff_request(
+        $orderId,
+        $targetCustomizationId,
+        $legacyReason,
+        $revisionRequest,
+        false
+    );
+    return true;
+}
+
+function printflow_customer_add_details_notification_url(int $orderId, int $revisionRequestId = 0): string
+{
+    $base = function_exists('printflow_notification_base_path')
+        ? printflow_notification_base_path()
+        : (function_exists('pf_app_base_path') ? rtrim((string)pf_app_base_path(), '/') : '');
+    if ($orderId <= 0) {
+        return $base . '/customer/orders.php';
+    }
+    $params = ['order_id' => $orderId];
+    if ($revisionRequestId > 0) {
+        $params['revision_request_id'] = $revisionRequestId;
+    }
+    return $base . '/customer/edit_order.php?' . http_build_query($params);
+}
+
+/**
+ * Bell notification when staff opens Request Add Details for the customer.
+ */
+function printflow_revision_notify_customer_add_details_request(
+    int $orderId,
+    int $customerId,
+    int $revisionRequestId,
+    string $instruction
+): int {
+    if ($orderId <= 0 || $customerId <= 0 || $revisionRequestId <= 0 || !function_exists('create_notification')) {
+        return 0;
+    }
+    $instruction = trim($instruction);
+    $snippet = $instruction;
+    if (function_exists('mb_strlen') && function_exists('mb_substr') && mb_strlen($instruction) > 140) {
+        $snippet = mb_substr($instruction, 0, 137) . '...';
+    } elseif (strlen($instruction) > 140) {
+        $snippet = substr($instruction, 0, 137) . '...';
+    }
+    $message = 'Staff requested additional details for Order #' . $orderId . '.';
+    if ($snippet !== '') {
+        $message .= ' ' . $snippet;
+    }
+    $message = printflow_add_details_replace_phrases($message);
+    return (int) create_notification(
+        $customerId,
+        'Customer',
+        $message,
+        'Design',
+        false,
+        false,
+        $orderId,
+        $revisionRequestId
+    );
+}
+
+/**
+ * Create a customer notification when missing (repair path / idempotent resync).
+ *
+ * @return 'sent'|'existing'|'failed'
+ */
+function printflow_revision_ensure_customer_add_details_notification(
+    int $orderId,
+    int $customerId,
+    int $revisionRequestId,
+    string $instruction
+): string {
+    if ($orderId <= 0 || $customerId <= 0 || $revisionRequestId <= 0) {
+        return 'failed';
+    }
+    $existing = db_query(
+        "SELECT notification_id
+         FROM notifications
+         WHERE customer_id = ?
+           AND type = 'Design'
+           AND COALESCE(data_id, 0) = ?
+           AND COALESCE(review_id, 0) = ?
+         ORDER BY notification_id DESC
+         LIMIT 1",
+        'iii',
+        [$customerId, $orderId, $revisionRequestId]
+    ) ?: [];
+    if (!empty($existing[0]['notification_id'])) {
+        return 'existing';
+    }
+    $created = printflow_revision_notify_customer_add_details_request(
+        $orderId,
+        $customerId,
+        $revisionRequestId,
+        $instruction
+    );
+    return $created > 0 ? 'sent' : 'failed';
+}
+
+/**
+ * Sync order, customization, job, and chat card after staff Request Add Details.
+ *
+ * @param array<string,mixed> $revisionRequest
+ * @return array{job_status_sync:string}
+ */
+function printflow_revision_sync_entities_after_staff_request(
+    int $orderId,
+    int $targetCustomizationId,
+    string $legacyReason,
+    array $revisionRequest,
+    bool $requireOrderUpdate = true
+): array {
+    if (!function_exists('printflow_ensure_orders_status_schema')) {
+        require_once __DIR__ . '/ensure_orders_status_schema.php';
+    }
+    printflow_ensure_orders_status_schema();
+
+    if ($targetCustomizationId > 0) {
+        db_execute(
+            'UPDATE customizations SET status = ?, rejection_reason = ?, updated_at = NOW() WHERE customization_id = ? AND order_id = ?',
+            'ssii',
+            ['For Revision', $legacyReason, $targetCustomizationId, $orderId]
+        );
+    } else {
+        db_execute(
+            "UPDATE customizations SET status = ?, rejection_reason = ?, updated_at = NOW()
+             WHERE order_id = ?
+               AND status NOT IN ('Processing', 'In Production', 'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled')",
+            'ssi',
+            ['For Revision', $legacyReason, $orderId]
+        );
+    }
+
+    $orderUpdated = db_execute(
+        'UPDATE orders SET status = ?, rejection_reason = ?, design_status = ? WHERE order_id = ?',
+        'sssi',
+        ['For Revision', $legacyReason, 'Revision Requested', $orderId]
+    );
+    if ($orderUpdated === false) {
+        error_log("Request Add Details: unable to update orders.status for order #{$orderId}.");
+        if ($requireOrderUpdate) {
+            throw new RuntimeException(
+                'Unable to update the order for Request Add Details. The order status column may need a schema update—contact support.'
+            );
+        }
+    }
+
+    $jobStatusSync = 'skipped';
+    $jobRows = db_query(
+        "SELECT id, status FROM job_orders WHERE order_id = ? AND status NOT IN ('COMPLETED', 'CANCELLED') ORDER BY id ASC",
+        'i',
+        [$orderId]
+    ) ?: [];
+    foreach ($jobRows as $jobRow) {
+        $jobId = (int)($jobRow['id'] ?? 0);
+        if ($jobId <= 0) {
+            continue;
+        }
+        $normalized = strtoupper(str_replace([' ', '-'], '_', trim((string)($jobRow['status'] ?? ''))));
+        if ($normalized === 'FOR_REVISION') {
+            $jobStatusSync = $jobStatusSync === 'updated' ? 'updated' : 'already_for_revision';
+            continue;
+        }
+        db_execute('UPDATE job_orders SET status = ? WHERE id = ?', 'si', ['For Revision', $jobId]);
+        $jobStatusSync = 'updated';
+    }
+
+    if (function_exists('printflow_send_order_update')) {
+        $chatMeta = ['reason' => $legacyReason];
+        if (!empty($revisionRequest['permitted_fields']) && is_array($revisionRequest['permitted_fields'])) {
+            $chatMeta['button_label'] = printflow_revision_action_label($revisionRequest['permitted_fields']);
+        }
+        printflow_send_order_update($orderId, 'for_revision', 'view_status', '', '', $chatMeta);
+    }
+
+    return ['job_status_sync' => $jobStatusSync];
+}
+
+/**
+ * Update a pending active request instead of creating a duplicate (staff retry / repair).
+ *
+ * @param array<string,mixed> $active
+ * @param array<string,mixed> $input
+ * @return array<string,mixed>
+ */
+function printflow_revision_resync_active_pending_staff_request(array $active, array $input): array
+{
+    $orderId = (int)($input['order_id'] ?? 0);
+    $staffId = (int)($input['staff_id'] ?? 0);
+    $customizationId = (int)($input['customization_id'] ?? 0);
+    $orderItemId = (int)($input['order_item_id'] ?? 0);
+    $reasonCode = (string)($input['reason_code'] ?? '');
+    $reasonLabel = (string)($input['reason_label'] ?? '');
+    $instruction = trim((string)($input['instruction'] ?? ''));
+    $permittedFields = is_array($input['permitted_fields'] ?? null) ? $input['permitted_fields'] : [];
+    $selectedDesignFileIds = printflow_revision_decode_selected_design_file_ids($input['selected_design_file_ids'] ?? []);
+    $idempotencyKey = substr(trim((string)($input['idempotency_key'] ?? '')), 0, 64);
+
+    $revisionRequestId = (int)($active['revision_request_id'] ?? 0);
+    if ($revisionRequestId <= 0 || $orderId <= 0) {
+        throw new RuntimeException('Unable to repair the existing Request Add Details record.');
+    }
+
+    $instruction = sanitize($instruction);
+    if ($instruction === '') {
+        throw new InvalidArgumentException('Instructions for the customer are required.');
+    }
+    $reasonCode = printflow_revision_reason_code($reasonCode);
+    $labels = printflow_revision_reason_labels();
+    $reasonLabel = sanitize(trim($reasonLabel));
+    if ($reasonLabel === '') {
+        $reasonLabel = $labels[$reasonCode] ?? $labels['others'];
+    }
+    if (in_array($reasonCode, ['low_image_quality', 'wrong_design', 'invalid_format'], true)) {
+        $permittedFields = ['uploaded_design'];
+    }
+    $permittedFields = printflow_revision_normalize_permissions($permittedFields, $orderId);
+    if ($permittedFields === []) {
+        throw new InvalidArgumentException('Select at least one field the customer may edit.');
+    }
+    $requiresDesignSelection = printflow_revision_has_design_permission($permittedFields);
+    if ($requiresDesignSelection && $selectedDesignFileIds === []) {
+        throw new InvalidArgumentException('Select at least one design image that needs replacement or additional details.');
+    }
+    if ($orderItemId <= 0) {
+        $orderItemId = (int)($active['order_item_id'] ?? 0);
+    }
+    if ($customizationId <= 0) {
+        $customizationId = (int)($active['customization_id'] ?? 0);
+    }
+    if ($requiresDesignSelection && $orderItemId > 0) {
+        $resolvedSelected = printflow_revision_resolve_selected_design_files($orderId, $orderItemId, $selectedDesignFileIds);
+        if ($resolvedSelected === []) {
+            throw new InvalidArgumentException('The selected design files could not be verified for this order item.');
+        }
+        $selectedDesignFileIds = array_map(
+            static fn(array $file): int => (int)($file['file_id'] ?? 0),
+            $resolvedSelected
+        );
+    }
+
+    $customerId = (int)($active['customer_id'] ?? 0);
+    $legacyReason = $reasonLabel . ': ' . $instruction;
+    $currentStatus = (string)($active['request_status'] ?? 'Requested');
+    $nextStatus = in_array($currentStatus, ['Customer Updating Details'], true) ? $currentStatus : 'Requested';
+
+    db_execute(
+        'UPDATE order_revision_requests
+         SET staff_id = ?, reason_code = ?, revision_reason = ?, staff_instruction = ?, permitted_fields = ?,
+             order_item_id = ?, customization_id = ?, selected_design_file_ids = ?, request_status = ?
+         WHERE revision_request_id = ? AND order_id = ? AND active_flag = 1',
+        'issssissii',
+        [
+            $staffId,
+            $reasonCode,
+            $reasonLabel,
+            $instruction,
+            printflow_revision_encode_json($permittedFields),
+            $orderItemId,
+            $customizationId,
+            printflow_revision_encode_json($selectedDesignFileIds),
+            $nextStatus,
+            $revisionRequestId,
+            $orderId,
+        ]
+    );
+
+    if ($idempotencyKey !== ''
+        && function_exists('db_table_has_column')
+        && db_table_has_column('order_revision_requests', 'staff_idempotency_key')) {
+        db_execute(
+            'UPDATE order_revision_requests SET staff_idempotency_key = ? WHERE revision_request_id = ? AND order_id = ?',
+            'sii',
+            [$idempotencyKey, $revisionRequestId, $orderId]
+        );
+    }
+
+    $revisionRequest = [
+        'revision_request_id' => $revisionRequestId,
+        'reason_code' => $reasonCode,
+        'reason_label' => $reasonLabel,
+        'instruction' => $instruction,
+        'permitted_fields' => $permittedFields,
+        'customer_id' => $customerId,
+        'legacy_reason' => $legacyReason,
+        'order_item_id' => $orderItemId,
+        'customization_id' => $customizationId,
+        'selected_design_file_ids' => $selectedDesignFileIds,
+    ];
+
+    $targetCustomizationId = $customizationId > 0 ? $customizationId : (int)($active['customization_id'] ?? 0);
+    $sync = printflow_revision_sync_entities_after_staff_request($orderId, $targetCustomizationId, $legacyReason, $revisionRequest);
+    $notificationStatus = printflow_revision_ensure_customer_add_details_notification(
+        $orderId,
+        $customerId,
+        $revisionRequestId,
+        $instruction
+    );
+
+    return [
+        'revision_request' => $revisionRequest,
+        'target_customization_id' => $targetCustomizationId,
+        'job_status_sync' => $sync['job_status_sync'],
+        'notification_status' => $notificationStatus,
+        'repaired' => true,
+    ];
+}
+
 function printflow_revision_action_label(array $permissions): string
 {
     if (empty($permissions)) return '';
     $hasDesign = printflow_revision_has_design_permission($permissions);
     $hasDetails = printflow_revision_has_detail_permission($permissions);
-    if ($hasDesign && !$hasDetails) return 'Upload New Design';
-    if (!$hasDesign && $hasDetails) return 'Edit Requested Details';
-    return 'Update Requested Details';
+    if ($hasDesign && !$hasDetails) return 'Respond to Request Add Details';
+    if (!$hasDesign && $hasDetails) return 'Respond to Request Add Details';
+    return 'Respond to Request Add Details';
 }
 
 function printflow_revision_price_impacting(array $permissions): bool
@@ -384,8 +1364,12 @@ function printflow_revision_is_protected_spec(string $key): bool
         'price', 'unit_price', 'subtotal', 'total', 'total_amount', 'estimated_price', 'final_price',
         'payment_status', 'payment_method', 'order_status', 'status', 'order_id', 'order_item_id',
         'design_file', 'design_image', 'design_upload', 'design_upload_path', 'design_upload_name',
-        'design_upload_data', 'design_upload_mime', 'reference_file', 'reference_image', 'csrf_token',
+        'design_upload_data', 'design_upload_mime', 'design_upload_files', 'uploaded_files',
+        'reference_file', 'reference_image', 'csrf_token',
     ];
+    if (function_exists('pf_order_ui_should_skip_spec_key') && pf_order_ui_should_skip_spec_key($key)) {
+        return true;
+    }
     if (in_array($key, $exact, true)) {
         return true;
     }
@@ -536,7 +1520,7 @@ function printflow_revision_get_active(int $orderId, ?int $customerId = null, bo
     $row = $rows[0];
     $row['permitted_fields_array'] = printflow_revision_decode_json($row['permitted_fields'] ?? '[]');
     $row['previous_values_array'] = printflow_revision_decode_json($row['previous_values'] ?? '{}');
-    return $row;
+    return printflow_revision_hydrate_request_row($row);
 }
 
 function printflow_revision_get_latest(int $orderId): ?array
@@ -553,7 +1537,7 @@ function printflow_revision_get_latest(int $orderId): ?array
     $row['previous_values_array'] = printflow_revision_decode_json($row['previous_values'] ?? '{}');
     $row['revised_values_array'] = printflow_revision_decode_json($row['revised_values'] ?? '{}');
     $row['permitted_field_labels'] = printflow_revision_permission_labels($row['permitted_fields_array'], $row['previous_values_array']);
-    return $row;
+    return printflow_revision_hydrate_request_row($row);
 }
 
 function printflow_revision_mark_customer_updating(int $requestId, int $orderId, int $customerId): void
@@ -610,10 +1594,19 @@ function printflow_revision_changes(array $previous, array $revised): array
             $label = 'Quantity';
         } elseif (preg_match('/^items\.\d+\.(?:customization_data|specifications)\.(.+)$/', $path, $matches)) {
             $key = rawurldecode((string)$matches[1]);
-            if (preg_match('/(?:^|_)(?:path|file|filename|mime|blob|url|id|status)(?:_|$)/i', $key)) {
+            if (preg_match('/(?:^|_)(?:path|file|filename|mime|blob|url|id|status|size|sort)(?:_|$)/i', $key)) {
+                continue;
+            }
+            if (preg_match('/design_upload_files|uploaded_files|design_upload|upload_design/i', $key)) {
+                continue;
+            }
+            if (preg_match('/\.(\d+)\./', $path)) {
                 continue;
             }
             if (printflow_revision_key_group($key) === 'order_notes') {
+                continue;
+            }
+            if (printflow_revision_is_protected_spec($key)) {
                 continue;
             }
             $label = ucwords(trim(str_replace(['_', '-'], ' ', $key)));
@@ -700,6 +1693,19 @@ function printflow_revision_review_payload(int $orderId, bool $markReviewing = f
         break;
     }
 
+    $revision = printflow_revision_hydrate_request_row($revision);
+    $designItemId = $designItemId > 0 ? $designItemId : (int)($revision['order_item_id'] ?? 0);
+    $replacementFiles = printflow_revision_design_files_list_for_request(
+        (int)$revision['revision_request_id'],
+        $designItemId > 0 ? $designItemId : 0
+    );
+    $selectedSourceFiles = printflow_revision_resolve_selected_design_files(
+        $orderId,
+        $designItemId,
+        $revision['selected_design_file_ids_array'] ?? []
+    );
+    $comparisonDesign = printflow_revision_comparison_design_files_for_request($revision);
+
     return [
         'id' => (int)$revision['revision_request_id'],
         'reason' => (string)$revision['revision_reason'],
@@ -707,11 +1713,22 @@ function printflow_revision_review_payload(int $orderId, bool $markReviewing = f
         'status' => (string)$revision['request_status'],
         'requested_at' => (string)$revision['requested_at'],
         'resubmitted_at' => (string)($revision['resubmitted_at'] ?? ''),
+        'request_sequence' => (int)($revision['request_sequence'] ?? 1),
+        'order_item_id' => $designItemId,
+        'customization_id' => (int)($revision['customization_id'] ?? 0),
         'permitted_fields' => $revision['permitted_fields_array'] ?? [],
         'permitted_field_labels' => $revision['permitted_field_labels'] ?? [],
         'changes' => !empty($revised) ? printflow_revision_changes($previous, $revised) : [],
         'previous_design' => $previousDesign,
         'replacement_design' => $replacementDesign,
+        'replacement_design_files' => $replacementFiles,
+        'selected_source_files' => $selectedSourceFiles,
+        'file_sections' => [],
+        'original_files' => $comparisonDesign['original_files'],
+        'current_response_files' => $comparisonDesign['current_response_files'],
+        'previous_response_files' => $comparisonDesign['previous_response_files'],
+        'unified_design_files' => $comparisonDesign['unified_design_files'],
+        'design_file_counts' => $comparisonDesign['counts'],
         'price_review_required' => !empty($revised['_revision']['price_review_required']),
     ];
 }
@@ -790,8 +1807,8 @@ function printflow_revision_get_active_or_legacy(int $orderId, int $customerId):
     ) ?: [];
     $order = $rows[0] ?? null;
     if ($order === null
-        || (string)($order['status'] ?? '') !== 'For Revision'
-        || (string)($order['design_status'] ?? '') !== 'Revision Requested') {
+        || !printflow_order_status_is_for_revision((string)($order['status'] ?? ''))
+        || strtolower(trim((string)($order['design_status'] ?? ''))) !== strtolower('Revision Requested')) {
         return null;
     }
     $legacyReason = trim((string)($order['revision_reason'] ?? ''));
@@ -881,7 +1898,8 @@ function printflow_revision_create_request(
     string $reasonCode,
     string $instruction,
     array $permittedFields,
-    ?string $reasonLabelOverride = null
+    ?string $reasonLabelOverride = null,
+    ?array $context = null
 ): array {
     if (!printflow_revision_ensure_schema()) {
         throw new RuntimeException('Revision request storage is unavailable.');
@@ -904,12 +1922,35 @@ function printflow_revision_create_request(
         throw new InvalidArgumentException('Select at least one field the customer may edit.');
     }
 
+    $context = is_array($context) ? $context : [];
+    $targetOrderItemId = (int)($context['order_item_id'] ?? 0);
+    $targetCustomizationId = (int)($context['customization_id'] ?? 0);
+    $selectedDesignFileIds = printflow_revision_decode_selected_design_file_ids($context['selected_design_file_ids'] ?? []);
+    $requiresDesignSelection = printflow_revision_has_design_permission($permittedFields);
+    if ($requiresDesignSelection && $selectedDesignFileIds === []) {
+        throw new InvalidArgumentException('Select at least one design image that needs replacement or additional details.');
+    }
+    if ($targetOrderItemId <= 0) {
+        $itemRows = db_query('SELECT order_item_id FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC LIMIT 1', 'i', [$orderId]) ?: [];
+        $targetOrderItemId = (int)($itemRows[0]['order_item_id'] ?? 0);
+    }
+    if ($requiresDesignSelection && $targetOrderItemId > 0) {
+        $resolvedSelected = printflow_revision_resolve_selected_design_files($orderId, $targetOrderItemId, $selectedDesignFileIds);
+        if ($resolvedSelected === []) {
+            throw new InvalidArgumentException('The selected design files could not be verified for this order item.');
+        }
+        $selectedDesignFileIds = array_map(
+            static fn(array $file): int => (int)($file['file_id'] ?? 0),
+            $resolvedSelected
+        );
+    }
+
     $orderRows = db_query('SELECT customer_id, payment_status FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE', 'i', [$orderId]) ?: [];
     if (empty($orderRows)) {
         throw new RuntimeException('Order not found.');
     }
     if (printflow_revision_get_active($orderId, null, true) !== null) {
-        throw new RuntimeException('This order already has an active revision request.');
+        throw new RuntimeException('This order already has an active Request Add Details.');
     }
     if (strtoupper(trim((string)($orderRows[0]['payment_status'] ?? ''))) === 'PAID'
         && printflow_revision_price_impacting($permittedFields)) {
@@ -967,15 +2008,231 @@ function printflow_revision_create_request(
         throw new RuntimeException('Unable to save the revision request. The order may already have an active request.');
     }
     global $conn;
+    $revisionRequestId = (int) ($conn->insert_id ?? 0);
+    $sequenceRows = db_query(
+        'SELECT COALESCE(MAX(request_sequence), 0) + 1 AS next_seq FROM order_revision_requests WHERE order_id = ?',
+        'i',
+        [$orderId]
+    ) ?: [];
+    $requestSequence = max(1, (int)($sequenceRows[0]['next_seq'] ?? 1));
+    if ($revisionRequestId > 0) {
+        db_execute(
+            'UPDATE order_revision_requests
+             SET order_item_id = ?, customization_id = ?, selected_design_file_ids = ?, request_sequence = ?
+             WHERE revision_request_id = ? AND order_id = ?',
+            'iisiii',
+            [
+                $targetOrderItemId,
+                $targetCustomizationId,
+                printflow_revision_encode_json($selectedDesignFileIds),
+                $requestSequence,
+                $revisionRequestId,
+                $orderId,
+            ]
+        );
+    }
     return [
-        'revision_request_id' => (int) ($conn->insert_id ?? 0),
+        'revision_request_id' => $revisionRequestId,
         'reason_code' => $reasonCode,
         'reason_label' => $reasonLabel,
         'instruction' => $instruction,
         'permitted_fields' => $permittedFields,
         'customer_id' => $customerId,
         'legacy_reason' => $reasonLabel . ': ' . $instruction,
+        'order_item_id' => $targetOrderItemId,
+        'customization_id' => $targetCustomizationId,
+        'selected_design_file_ids' => $selectedDesignFileIds,
     ];
+}
+
+/**
+ * Staff Request Add Details: create revision request and sync order/customization/job state.
+ *
+ * @param array<string,mixed> $input
+ * @return array<string,mixed>
+ */
+function printflow_revision_submit_staff_request(array $input): array
+{
+    global $conn;
+
+    $orderId = (int)($input['order_id'] ?? 0);
+    $staffId = (int)($input['staff_id'] ?? (function_exists('get_user_id') ? get_user_id() : 0));
+    $customizationId = (int)($input['customization_id'] ?? 0);
+    $orderItemId = (int)($input['order_item_id'] ?? 0);
+    $idempotencyKey = substr(trim((string)($input['idempotency_key'] ?? '')), 0, 64);
+    $reasonCode = (string)($input['reason_code'] ?? '');
+    $reasonLabel = (string)($input['reason_label'] ?? '');
+    $instruction = trim((string)($input['instruction'] ?? ''));
+    $permittedFields = is_array($input['permitted_fields'] ?? null) ? $input['permitted_fields'] : [];
+    $selectedDesignFileIds = printflow_revision_decode_selected_design_file_ids($input['selected_design_file_ids'] ?? []);
+
+    if ($orderId <= 0) {
+        throw new InvalidArgumentException('A valid order is required.');
+    }
+    if ($staffId <= 0) {
+        throw new RuntimeException('Staff authorization is required.');
+    }
+
+    if ($idempotencyKey !== ''
+        && function_exists('db_table_has_column')
+        && db_table_has_column('order_revision_requests', 'staff_idempotency_key')) {
+        $existingRows = db_query(
+            'SELECT revision_request_id, order_item_id, customization_id, selected_design_file_ids
+             FROM order_revision_requests
+             WHERE order_id = ? AND staff_idempotency_key = ?
+             LIMIT 1',
+            'is',
+            [$orderId, $idempotencyKey]
+        ) ?: [];
+        if (!empty($existingRows[0])) {
+            $existing = $existingRows[0];
+            $existingRequestId = (int)($existing['revision_request_id'] ?? 0);
+            $selectedIds = printflow_revision_decode_selected_design_file_ids($existing['selected_design_file_ids'] ?? '[]');
+            $existingFull = printflow_revision_get_active($orderId, null, false);
+            $notificationStatus = 'skipped_duplicate';
+            $jobStatusSync = 'skipped_duplicate';
+            $duplicateRepaired = false;
+            if ($existingFull !== null && $existingRequestId > 0) {
+                $existingStatus = (string)($existingFull['request_status'] ?? '');
+                if (in_array($existingStatus, ['Requested', 'Customer Updating Details'], true)) {
+                    $duplicateResync = printflow_revision_resync_active_pending_staff_request($existingFull, $input);
+                    $notificationStatus = (string)($duplicateResync['notification_status'] ?? 'existing');
+                    $jobStatusSync = (string)($duplicateResync['job_status_sync'] ?? 'skipped_duplicate');
+                    $duplicateRepaired = !empty($duplicateResync['repaired']);
+                }
+            }
+            return [
+                'success' => true,
+                'duplicate' => true,
+                'repaired' => $duplicateRepaired,
+                'revision_request_id' => $existingRequestId,
+                'order_id' => $orderId,
+                'customization_id' => (int)($existing['customization_id'] ?? $customizationId),
+                'order_item_id' => (int)($existing['order_item_id'] ?? $orderItemId),
+                'selected_file_count' => count($selectedIds),
+                'notification_status' => $notificationStatus,
+                'job_status_sync' => $jobStatusSync,
+            ];
+        }
+    }
+
+    $transactionStarted = !($conn->in_transaction ?? false);
+    if ($transactionStarted && !$conn->begin_transaction()) {
+        throw new RuntimeException('Unable to start the request transaction.');
+    }
+
+    try {
+        $repaired = false;
+        $activePending = printflow_revision_get_active($orderId, null, true);
+        if ($activePending !== null) {
+            $activeStatus = (string)($activePending['request_status'] ?? '');
+            if (in_array($activeStatus, ['Requested', 'Customer Updating Details'], true)) {
+                $resync = printflow_revision_resync_active_pending_staff_request($activePending, $input);
+                $revisionRequest = $resync['revision_request'];
+                $repaired = true;
+            } elseif (in_array($activeStatus, ['Resubmitted for Review', 'Staff Reviewing'], true)) {
+                throw new RuntimeException(
+                    'The customer already submitted a response for this Request Add Details. Review the uploaded files before sending a new request.'
+                );
+            } else {
+                throw new RuntimeException(
+                    'This order has an active Request Add Details that cannot be updated automatically. Contact support if the customer cannot respond.'
+                );
+            }
+        } else {
+            $revisionRequest = printflow_revision_create_request(
+                $orderId,
+                $staffId,
+                $reasonCode,
+                $instruction,
+                $permittedFields,
+                $reasonLabel !== '' ? $reasonLabel : null,
+                [
+                    'order_item_id' => $orderItemId,
+                    'customization_id' => $customizationId,
+                    'selected_design_file_ids' => $selectedDesignFileIds,
+                ]
+            );
+
+            $revisionRequestId = (int)($revisionRequest['revision_request_id'] ?? 0);
+            if ($revisionRequestId > 0 && $idempotencyKey !== ''
+                && function_exists('db_table_has_column')
+                && db_table_has_column('order_revision_requests', 'staff_idempotency_key')) {
+                db_execute(
+                    'UPDATE order_revision_requests SET staff_idempotency_key = ? WHERE revision_request_id = ? AND order_id = ?',
+                    'sii',
+                    [$idempotencyKey, $revisionRequestId, $orderId]
+                );
+            }
+
+            $legacyReason = (string)($revisionRequest['legacy_reason'] ?? '');
+            $targetCustomizationId = $customizationId > 0
+                ? $customizationId
+                : (int)($revisionRequest['customization_id'] ?? 0);
+            $sync = printflow_revision_sync_entities_after_staff_request(
+                $orderId,
+                $targetCustomizationId,
+                $legacyReason,
+                $revisionRequest
+            );
+            $customerId = (int)($revisionRequest['customer_id'] ?? 0);
+            $notificationStatus = printflow_revision_ensure_customer_add_details_notification(
+                $orderId,
+                $customerId,
+                $revisionRequestId,
+                (string)($revisionRequest['instruction'] ?? $instruction)
+            );
+            $jobStatusSync = (string)($sync['job_status_sync'] ?? 'skipped');
+
+            if ($transactionStarted && !$conn->commit()) {
+                throw new RuntimeException('Unable to commit the request transaction.');
+            }
+
+            $selectedCount = count($revisionRequest['selected_design_file_ids'] ?? $selectedDesignFileIds);
+
+            return [
+                'success' => true,
+                'duplicate' => false,
+                'repaired' => false,
+                'revision_request_id' => $revisionRequestId,
+                'order_id' => $orderId,
+                'customization_id' => $targetCustomizationId,
+                'order_item_id' => (int)($revisionRequest['order_item_id'] ?? $orderItemId),
+                'selected_file_count' => $selectedCount,
+                'notification_status' => $notificationStatus,
+                'job_status_sync' => $jobStatusSync,
+            ];
+        }
+
+        $revisionRequestId = (int)($revisionRequest['revision_request_id'] ?? 0);
+        $targetCustomizationId = (int)($resync['target_customization_id'] ?? $customizationId);
+        $jobStatusSync = (string)($resync['job_status_sync'] ?? 'skipped');
+        $notificationStatus = (string)($resync['notification_status'] ?? 'sent');
+
+        if ($transactionStarted && !$conn->commit()) {
+            throw new RuntimeException('Unable to commit the request transaction.');
+        }
+
+        $selectedCount = count($revisionRequest['selected_design_file_ids'] ?? $selectedDesignFileIds);
+
+        return [
+            'success' => true,
+            'duplicate' => false,
+            'repaired' => $repaired,
+            'revision_request_id' => $revisionRequestId,
+            'order_id' => $orderId,
+            'customization_id' => $targetCustomizationId,
+            'order_item_id' => (int)($revisionRequest['order_item_id'] ?? $orderItemId),
+            'selected_file_count' => $selectedCount,
+            'notification_status' => $notificationStatus,
+            'job_status_sync' => $jobStatusSync,
+        ];
+    } catch (Throwable $e) {
+        if ($transactionStarted && ($conn->in_transaction ?? false)) {
+            $conn->rollback();
+        }
+        throw $e;
+    }
 }
 
 function printflow_revision_permission_allows(
@@ -1134,6 +2391,7 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
     }
 
     $newRevisionUploadDiskPath = null;
+    $stagedRevisionDiskPaths = [];
     try {
         $orderRows = db_query(
             'SELECT * FROM orders WHERE order_id = ? AND customer_id = ? LIMIT 1 FOR UPDATE',
@@ -1144,29 +2402,50 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             throw new RuntimeException('Order not found.');
         }
         $order = $orderRows[0];
-        if ((string) ($order['status'] ?? '') !== 'For Revision') {
-            throw new RuntimeException('This order is not currently open for revision.');
+        if (!printflow_order_status_is_for_revision((string)($order['status'] ?? ''))) {
+            $request = printflow_revision_get_active($orderId, $customerId, false);
+            if (is_array($request)
+                && in_array((string)($request['request_status'] ?? ''), ['Requested', 'Customer Updating Details'], true)
+                && printflow_revision_repair_customer_order_access($orderId, $customerId, $request)) {
+                $orderRows = db_query(
+                    'SELECT * FROM orders WHERE order_id = ? AND customer_id = ? LIMIT 1 FOR UPDATE',
+                    'ii',
+                    [$orderId, $customerId]
+                ) ?: [];
+                if (!empty($orderRows[0])) {
+                    $order = $orderRows[0];
+                }
+            }
         }
         $request = printflow_revision_get_active($orderId, $customerId, true);
-        if ($request === null) {
-            throw new RuntimeException('No active revision request was found.');
+        if ($request === null || !printflow_revision_request_is_customer_pending($request)) {
+            throw new RuntimeException('No active Request Add Details was found for this order.');
         }
-        if (!in_array((string)($request['request_status'] ?? ''), ['Requested', 'Customer Updating Details'], true)) {
-            throw new RuntimeException('This revision request has already been resolved or submitted.');
+        if (!printflow_order_status_is_for_revision((string)($order['status'] ?? ''))) {
+            printflow_revision_repair_customer_order_access($orderId, $customerId, $request);
+            $orderRows = db_query(
+                'SELECT * FROM orders WHERE order_id = ? AND customer_id = ? LIMIT 1 FOR UPDATE',
+                'ii',
+                [$orderId, $customerId]
+            ) ?: [];
+            if (!empty($orderRows[0])) {
+                $order = $orderRows[0];
+            }
         }
         $permissions = $request['permitted_fields_array'];
         if (strtoupper(trim((string)($order['payment_status'] ?? ''))) === 'PAID'
             && printflow_revision_price_impacting($permissions)) {
             throw new RuntimeException('This paid order contains price-impacting changes and must be handled by staff. No order values were changed.');
         }
-        $allowedPostKeys = ['csrf_token', 'order_id', 'resubmit_order', 'spec', 'quantity', 'order_notes', 'design_order_item_id'];
+        $allowedPostKeys = ['csrf_token', 'order_id', 'resubmit_order', 'spec', 'quantity', 'order_notes', 'design_order_item_id', 'design_upload_idempotency'];
         foreach (array_keys($post) as $postKey) {
             if (!in_array((string)$postKey, $allowedPostKeys, true)) {
                 throw new RuntimeException('An unauthorized order field change was rejected.');
             }
         }
         foreach (array_keys($files) as $fileKey) {
-            if ((string)$fileKey !== 'design_file') {
+            $normalizedFileKey = preg_replace('/\[\]$/', '', (string)$fileKey) ?? (string)$fileKey;
+            if ($normalizedFileKey !== 'design_file') {
                 throw new RuntimeException('An unauthorized file field was rejected.');
             }
         }
@@ -1304,10 +2583,12 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
 
         $designRequired = in_array('uploaded_design', $permissions, true);
         $designTargetItemId = 0;
-        $designFile = $files['design_file'] ?? null;
+        $designUploads = printflow_revision_collect_design_uploads($files);
+        $revisionRequestId = (int)$request['revision_request_id'];
+        $registeredRevisionFiles = [];
         if ($designRequired) {
-            if (!is_array($designFile) || (int) ($designFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-                throw new RuntimeException('Please upload the revised design requested by staff.');
+            if ($designUploads === []) {
+                throw new RuntimeException('Please upload the design file(s) requested by staff for this Request Add Details.');
             }
             $designTargetItemId = (int)($post['design_order_item_id'] ?? 0);
             if ($designTargetItemId <= 0 && count($itemMap) === 1) {
@@ -1316,17 +2597,71 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             if ($designTargetItemId <= 0 || !isset($itemMap[$designTargetItemId])) {
                 throw new RuntimeException('The replacement design was not linked to a valid order item. No design was changed.');
             }
-            $storedDesign = printflow_revision_store_uploaded_design(
-                $designFile,
-                $orderId,
-                (int)$request['revision_request_id'],
-                $designTargetItemId
-            );
-            $newRevisionUploadDiskPath = (string)$storedDesign['disk_path'];
-            $storedBinary = file_get_contents((string)$storedDesign['disk_path']);
-            if ($storedBinary === false || strlen($storedBinary) !== (int)$storedDesign['size']) {
+            $limitCheck = printflow_revision_design_files_assert_can_add($revisionRequestId, count($designUploads));
+            if (!$limitCheck['ok']) {
+                throw new RuntimeException($limitCheck['message']);
+            }
+            $clientIdempotency = trim((string)($post['design_upload_idempotency'] ?? ''));
+            if ($clientIdempotency === '') {
+                $clientIdempotency = 'rev-client-' . hash('sha256', $revisionRequestId . '|' . $designTargetItemId . '|' . count($designUploads));
+            }
+            foreach ($designUploads as $uploadIndex => $designFile) {
+                if (!is_array($designFile) || (int)($designFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                    throw new RuntimeException('One or more replacement design uploads did not complete. Please try again.');
+                }
+                if (printflow_revision_design_files_active_count($revisionRequestId) >= printflow_order_item_design_files_max_per_item()) {
+                    throw new RuntimeException(printflow_order_item_design_files_limit_error_message(0));
+                }
+                $storedDesign = printflow_revision_store_uploaded_design(
+                    $designFile,
+                    $orderId,
+                    $revisionRequestId,
+                    $designTargetItemId
+                );
+                $stagedRevisionDiskPaths[] = (string)$storedDesign['disk_path'];
+                $idempotencyKey = substr(
+                    hash('sha256', 'rev-' . $revisionRequestId . '|' . $clientIdempotency . '|' . $uploadIndex . '|' . (string)$storedDesign['path']),
+                    0,
+                    64
+                );
+                $registered = printflow_order_item_design_file_register([
+                    'order_item_id' => $designTargetItemId,
+                    'order_id' => $orderId,
+                    'customer_id' => $customerId,
+                    'revision_request_id' => $revisionRequestId,
+                    'display_name' => (string)$storedDesign['name'],
+                    'mime_type' => (string)$storedDesign['mime'],
+                    'storage_path' => (string)$storedDesign['path'],
+                    'file_size' => (int)$storedDesign['size'],
+                    'upload_sort' => $uploadIndex,
+                    'idempotency_key' => $idempotencyKey,
+                    'file_role' => 'revision_replacement',
+                ]);
+                if (!empty($registered['limit_reached']) || (int)($registered['file_id'] ?? 0) <= 0) {
+                    throw new RuntimeException(printflow_order_item_design_files_limit_error_message(0));
+                }
+                $registeredRevisionFiles[] = (int)$registered['file_id'];
+            }
+            if ($registeredRevisionFiles === []) {
+                throw new RuntimeException('Please upload the design file(s) requested by staff for this Request Add Details.');
+            }
+            $primaryFileRows = db_query(
+                'SELECT storage_path, mime_type, display_name, file_size FROM order_item_design_files WHERE file_id = ? LIMIT 1',
+                'i',
+                [$registeredRevisionFiles[0]]
+            ) ?: [];
+            $primaryRow = $primaryFileRows[0] ?? [];
+            $storedWebPath = trim((string)($primaryRow['storage_path'] ?? ''));
+            $storedMime = trim((string)($primaryRow['mime_type'] ?? ''));
+            $storedOriginalName = trim((string)($primaryRow['display_name'] ?? 'Uploaded design'));
+            $primaryDisk = $storedWebPath !== '' && function_exists('printflow_resolve_order_upload_disk_path')
+                ? printflow_resolve_order_upload_disk_path($storedWebPath)
+                : null;
+            $storedBinary = ($primaryDisk !== null && is_file($primaryDisk)) ? file_get_contents($primaryDisk) : false;
+            if ($storedBinary === false || $storedBinary === '') {
                 throw new RuntimeException('The revised design could not be verified before database storage.');
             }
+            $newRevisionUploadDiskPath = is_string($primaryDisk) ? $primaryDisk : null;
             $designStmt = $conn->prepare(
                 'UPDATE order_items
                  SET design_image = ?, design_image_mime = ?, design_image_name = ?, design_file = ?
@@ -1336,9 +2671,6 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
                 throw new RuntimeException('The revised design could not be prepared for database storage.');
             }
             $blobPlaceholder = null;
-            $storedMime = (string)$storedDesign['mime'];
-            $storedOriginalName = (string)$storedDesign['name'];
-            $storedWebPath = (string)$storedDesign['path'];
             $designStmt->bind_param(
                 'bsssii',
                 $blobPlaceholder,
@@ -1352,10 +2684,10 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             $designSaved = $designStmt->execute();
             $designStmt->close();
             if (!$designSaved) {
-                error_log('[REV-UP-' . $orderId . '-' . (int)$request['revision_request_id'] . '-' . $designTargetItemId . '] Order-item media metadata update failed after upload storage.');
+                error_log('[REV-UP-' . $orderId . '-' . $revisionRequestId . '-' . $designTargetItemId . '] Order-item media metadata update failed after upload storage.');
                 throw new RuntimeException('The revised design could not be saved.');
             }
-        } elseif (isset($designFile) && is_array($designFile) && (int) ($designFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+        } elseif ($designUploads !== []) {
             throw new RuntimeException('A design upload was not authorized for this revision.');
         }
 
@@ -1364,6 +2696,7 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             'price_review_required' => printflow_revision_price_impacting($permissions),
             'submitted_permissions' => $permissions,
             'design_order_item_id' => $designTargetItemId,
+            'design_file_ids' => $registeredRevisionFiles,
         ];
         if (!db_execute(
             "UPDATE order_revision_requests
@@ -1403,6 +2736,11 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
     } catch (Throwable $e) {
         if ($started) {
             $conn->rollback();
+        }
+        foreach ($stagedRevisionDiskPaths as $stagedPath) {
+            if (is_string($stagedPath) && $stagedPath !== '' && is_file($stagedPath) && !@unlink($stagedPath)) {
+                error_log('[REV-UP-' . $orderId . '] Failed to remove an uncommitted replacement upload after transaction rollback.');
+            }
         }
         if (is_string($newRevisionUploadDiskPath) && $newRevisionUploadDiskPath !== '' && is_file($newRevisionUploadDiskPath)) {
             if (!@unlink($newRevisionUploadDiskPath)) {

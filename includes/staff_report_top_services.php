@@ -132,6 +132,7 @@ function printflow_staff_report_top_selling_services(array $opts): array {
          WHERE {$jobDateCondition}
            AND jo.branch_id = ?
            AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
+           AND " . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . "
            {$jobStatusSql}",
         'i',
         [$branchId]
@@ -172,6 +173,7 @@ function printflow_staff_report_top_selling_services(array $opts): array {
          FROM service_orders so
          WHERE {$serviceDateCondition}
            AND (so.branch_id = ? OR so.branch_id IS NULL)
+           AND " . printflow_customer_exclusion_customer_scope_sql('so.customer_id') . "
            {$serviceStatusSql}
          GROUP BY so.service_name",
         'i',

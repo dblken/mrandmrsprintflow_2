@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/customer_profile_completion.php';
 require_once __DIR__ . '/../includes/service_field_renderer.php';
+require_once __DIR__ . '/../includes/pos_set_price_helpers.php';
 
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
@@ -405,8 +406,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 $link_post_name = service_order_design_link_post_name($key);
                 $design_link_raw = trim((string)($_POST[$link_post_name] ?? ''));
                 $design_mode = trim((string)($_POST['design_input_mode'] ?? ''));
-                $file_input_name = 'design_file';
-                $has_uploaded_file = isset($_FILES[$file_input_name]) && $_FILES[$file_input_name]['error'] === UPLOAD_ERR_OK;
+                $upload_candidates = printflow_normalize_php_file_uploads('design_file');
+                if ($upload_candidates === []) {
+                    $upload_candidates = printflow_normalize_php_file_uploads('design_file[]');
+                }
+                $has_uploaded_file = $upload_candidates !== [];
                 $has_design_link = $design_link_raw !== '';
 
                 if ($design_mode !== '' && !in_array($design_mode, ['file', 'link'], true)) {
@@ -514,6 +518,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $design_name = null;
         $design_mime = null;
         $design_link_url = null;
+        $uploaded_design_files = [];
+        $max_design_files = defined('PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM') ? (int)PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM : 10;
         
         $field_values = printflow_service_field_values_from_post($_POST);
         $active_file_field_key = null;
@@ -524,25 +530,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             }
         }
 
-        if ($active_file_field_key !== null && isset($_FILES['design_file']) && $_FILES['design_file']['error'] === UPLOAD_ERR_OK) {
-            $has_design_field = true;
-            $valid = service_order_validate_file($_FILES['design_file']);
-            if (!$valid['ok']) {
-                $error = $valid['error'];
-            } else {
-                $item_key = 'service_' . $service_id . '_' . time() . '_' . rand(100, 999);
-                $original_name = $_FILES['design_file']['name'];
-                $mime = $valid['mime'];
-                $ext = pathinfo($original_name, PATHINFO_EXTENSION);
-                $new_name = uniqid('tmp_') . '.' . $ext;
-                $tmp_dest = service_order_temp_dir() . DIRECTORY_SEPARATOR . $new_name;
-
-                if (move_uploaded_file($_FILES['design_file']['tmp_name'], $tmp_dest)) {
-                    $design_tmp_path = $tmp_dest;
-                    $design_name = $original_name;
-                    $design_mime = $mime;
+        if ($active_file_field_key !== null) {
+            $upload_candidates = printflow_normalize_php_file_uploads('design_file');
+            if ($upload_candidates === []) {
+                $upload_candidates = printflow_normalize_php_file_uploads('design_file[]');
+            }
+            if ($upload_candidates !== []) {
+                $has_design_field = true;
+                if (count($upload_candidates) > $max_design_files) {
+                    $error = 'You can upload up to ' . $max_design_files . ' design files per item.';
                 } else {
-                    $error = 'Failed to process uploaded file.';
+                    $stored_names = [];
+                    foreach ($upload_candidates as $file_index => $file) {
+                        $valid = service_order_validate_file($file);
+                        if (!$valid['ok']) {
+                            $error = $valid['error'];
+                            break;
+                        }
+                        if (!isset($item_key)) {
+                            $item_key = 'service_' . $service_id . '_' . time() . '_' . rand(100, 999);
+                        }
+                        $original_name = (string)($file['name'] ?? 'design');
+                        $mime = (string)($valid['mime'] ?? '');
+                        $ext = pathinfo($original_name, PATHINFO_EXTENSION);
+                        $new_name = uniqid('tmp_') . '.' . $ext;
+                        $tmp_dest = service_order_temp_dir() . DIRECTORY_SEPARATOR . $new_name;
+                        if (!move_uploaded_file((string)($file['tmp_name'] ?? ''), $tmp_dest)) {
+                            $error = 'Failed to process uploaded file.';
+                            break;
+                        }
+                        $stored_names[] = $original_name;
+                        $uploaded_design_files[] = [
+                            'label' => 'Upload Design',
+                            'tmp_path' => $tmp_dest,
+                            'name' => $original_name,
+                            'mime' => $mime,
+                            'upload_sort' => count($uploaded_design_files),
+                            'idempotency_key' => hash('sha256', 'service-' . $service_id . '|' . $tmp_dest . '|' . $file_index),
+                        ];
+                        if ($design_tmp_path === null) {
+                            $design_tmp_path = $tmp_dest;
+                            $design_name = $original_name;
+                            $design_mime = $mime;
+                        }
+                    }
+                    if ($error === '' && $stored_names !== []) {
+                        $design_name = implode(', ', $stored_names);
+                    }
                 }
             }
         }
@@ -756,6 +790,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 $estimated_price = $posted_estimated_price;
             }
             
+            printflow_apply_layout_canonical_to_customization($customization, $field_configs);
+            $field_values_for_design = printflow_service_field_values_from_post($_POST);
+            if (!printflow_service_design_upload_is_active($field_configs, $field_values_for_design)) {
+                $customization = printflow_customization_clear_ephemeral_design_media($customization);
+                $uploaded_design_files = [];
+                $design_tmp_path = null;
+                $design_name = null;
+                $design_mime = null;
+            }
+
+            if ($uploaded_design_files !== []) {
+                $customization['design_upload_files'] = array_map(static function (array $row): array {
+                    return [
+                        'path' => '',
+                        'name' => (string)($row['name'] ?? ''),
+                        'mime' => (string)($row['mime'] ?? ''),
+                        'tmp_path' => (string)($row['tmp_path'] ?? ''),
+                        'upload_sort' => (int)($row['upload_sort'] ?? 0),
+                        'idempotency_key' => (string)($row['idempotency_key'] ?? ''),
+                    ];
+                }, $uploaded_design_files);
+                $customization['uploaded_files'] = $uploaded_design_files;
+            }
+
             $_SESSION['cart'][$item_key] = [
                 'type' => 'Service',
                 'item_type' => 'service',
@@ -771,6 +829,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 'design_tmp_path' => $design_tmp_path,
                 'design_name' => $design_name,
                 'design_mime' => $design_mime,
+                'uploaded_files' => $uploaded_design_files,
                 'customization' => $customization
             ];
             
@@ -1139,6 +1198,9 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                         <div style="margin-top:0.5rem;font-size:0.875rem;color:#64748b;text-align:right;font-weight:500;">
                             Quantity: <span id="qty-display">1</span> | Final price will be confirmed by staff
                         </div>
+                        <p id="pf-customer-zero-price-note" hidden style="margin:0.85rem 0 0;padding:0.75rem 0.9rem;border-radius:10px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a5f;font-size:0.875rem;line-height:1.55;text-align:left;font-weight:500;">
+                            <?php echo htmlspecialchars(printflow_customer_zero_estimated_price_message(), ENT_QUOTES, 'UTF-8'); ?>
+                        </p>
                     </div>
                     
                     <?php echo render_service_fields($service_id, $branches, $existing_data); ?>
@@ -1358,12 +1420,7 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
         }
         ?>
         <div style="margin-top:24px;padding:1.5rem 2rem;background:#fff;border:1px solid #e5e7eb;border-radius:4px;">
-            <div class="pf-review-cleanup-head">
-                <h2 class="poc-section-title">Product Ratings</h2>
-                <?php if ($current_customer_id > 0 && $customer_review_counts['reviews'] > 0): ?>
-                    <button type="button" id="pfDeleteAllMyReviews" class="pf-review-delete-button pf-review-delete-all">Delete All My Reviews</button>
-                <?php endif; ?>
-            </div>
+            <h2 class="poc-section-title">Product Ratings</h2>
 
             <?php if ($total_reviews > 0): ?>
             <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;">
@@ -1501,9 +1558,6 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                                     <svg width="15" height="15" fill="currentColor" viewBox="0 0 20 20"><path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z"/></svg>
                                     <span class="helpful-label"><?php echo $review['user_voted'] ? (int)$review['helpful_count'] : 'Helpful'; ?></span>
                                 </button>
-                                <?php if ($current_customer_id > 0 && (int)($review['user_id'] ?? 0) === $current_customer_id): ?>
-                                    <button type="button" class="pf-review-delete-button pfDeleteOwnedReview" data-review-id="<?php echo (int)$review['id']; ?>" data-review-count="1" data-image-count="<?php echo count($rev_imgs); ?>" data-video-count="<?php echo $has_video ? 1 : 0; ?>">Delete Review</button>
-                                <?php endif; ?>
                             </div>
                         </div>
                     </div>
@@ -1521,89 +1575,6 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
         </div>
     </div>
 </div>
-
-<?php if ($current_customer_id > 0): ?>
-<div id="pfReviewDeleteModal" class="pf-review-delete-modal" aria-hidden="true" style="display:none;">
-    <div class="pf-review-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="pfReviewDeleteTitle">
-        <h2 id="pfReviewDeleteTitle">Permanently delete review data?</h2>
-        <p id="pfReviewDeleteDetails">This deletion is permanent. Only reviews and media owned by your customer account are eligible.</p>
-        <div class="pf-review-delete-actions"><button type="button" id="pfReviewDeleteCancel" class="pf-review-delete-cancel">Cancel</button><button type="button" id="pfReviewDeleteConfirm" class="pf-review-delete-confirm">Delete permanently</button></div>
-    </div>
-</div>
-<div id="pfReviewDeleteStatus" class="pf-review-delete-status" role="status" aria-live="polite"></div>
-<input type="hidden" id="pfReviewDeleteCsrf" value="<?php echo htmlspecialchars(generate_csrf_token(), ENT_QUOTES, 'UTF-8'); ?>">
-<script>
-(function () {
-    'use strict';
-    const apiUrl = <?php echo json_encode(rtrim((string)$base_path, '/') . '/customer/api_delete_reviews.php'); ?>;
-    const modal = document.getElementById('pfReviewDeleteModal');
-    const details = document.getElementById('pfReviewDeleteDetails');
-    const status = document.getElementById('pfReviewDeleteStatus');
-    const csrf = document.getElementById('pfReviewDeleteCsrf').value;
-    const confirmButton = document.getElementById('pfReviewDeleteConfirm');
-    let pending = null;
-    let busy = false;
-    async function fetchCounts() {
-        const response = await fetch(apiUrl, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || !data.success) throw new Error(data.error || 'Could not load your review counts.');
-        return data.counts;
-    }
-    async function openConfirmation(action, reviewButton) {
-        pending = { action: action, review_id: reviewButton ? Number(reviewButton.dataset.reviewId) : 0, reviewButton: reviewButton };
-        try {
-            const counts = action === 'delete_all' ? await fetchCounts() : {
-                reviews: Number(reviewButton.dataset.reviewCount || 1),
-                images: Number(reviewButton.dataset.imageCount || 0),
-                videos: Number(reviewButton.dataset.videoCount || 0)
-            };
-            details.textContent = 'This will permanently delete ' + counts.reviews + ' review(s), ' + counts.images + ' image(s), and ' + counts.videos + ' video(s) attached to your review(s). Orders, payments, messages, customer account data, and catalog images are not affected.';
-        } catch (error) {
-            pending = null;
-            status.textContent = error.message || 'Could not load your review counts.';
-            return;
-        }
-        modal.style.display = 'flex';
-        modal.setAttribute('aria-hidden', 'false');
-        confirmButton.focus();
-    }
-    function closeModal() {
-        modal.style.display = 'none';
-        modal.setAttribute('aria-hidden', 'true');
-        pending = null;
-    }
-    document.querySelectorAll('.pfDeleteOwnedReview').forEach(button => button.addEventListener('click', () => openConfirmation('delete_one', button)));
-    const deleteAll = document.getElementById('pfDeleteAllMyReviews');
-    if (deleteAll) deleteAll.addEventListener('click', () => openConfirmation('delete_all', null));
-    document.getElementById('pfReviewDeleteCancel').addEventListener('click', closeModal);
-    modal.addEventListener('click', event => { if (event.target === modal) closeModal(); });
-    confirmButton.addEventListener('click', async () => {
-        if (busy || !pending) return;
-        busy = true;
-        confirmButton.disabled = true;
-        try {
-            const payload = { action: pending.action, csrf_token: csrf };
-            if (pending.action === 'delete_one') payload.review_id = pending.review_id;
-            const response = await fetch(apiUrl, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(payload) });
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok || !data.success) throw new Error(data.error || 'Review deletion failed.');
-            status.textContent = data.message + ' Deleted ' + data.counts.reviews + ' review(s), ' + data.counts.images + ' image(s), and ' + data.counts.videos + ' video(s).' + (data.missing_media_files ? ' ' + data.missing_media_files + ' media file(s) were already missing.' : '');
-            if (pending.action === 'delete_one' && pending.reviewButton) pending.reviewButton.closest('.poc-review-item')?.remove();
-            if (pending.action === 'delete_all') {
-                document.querySelectorAll('.pfDeleteOwnedReview').forEach(button => button.closest('.poc-review-item')?.remove());
-                deleteAll?.remove();
-            }
-            closeModal();
-        } catch (error) {
-            details.textContent = error.message || 'Review deletion failed.';
-        } finally {
-            busy = false;
-            confirmButton.disabled = false;
-        }
-    });
-})();
-</script>
-<?php endif; ?>
 
 <div id="pocMediaModal" class="poc-media-modal" aria-hidden="true">
     <div class="poc-media-modal-inner" role="dialog" aria-modal="true" aria-label="Media viewer">
@@ -1623,19 +1594,6 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
 
 <style>
 .poc-section-title { font-size:1.1rem;font-weight:700;color:#111827;margin:0 0 0.75rem; }
-.pf-review-cleanup-head { display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap; }
-.pf-review-delete-button { display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:.5rem .8rem;border:1px solid #fecaca;border-radius:8px;background:#fff;color:#b91c1c;font-size:.85rem;font-weight:700;cursor:pointer; }
-.pf-review-delete-button:hover { background:#fef2f2; }
-.pf-review-delete-modal { position:fixed;inset:0;z-index:10050;align-items:center;justify-content:center;padding:1rem;background:rgba(15,23,42,.62); }
-.pf-review-delete-dialog { width:min(100%,480px);padding:1.35rem;border-radius:14px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.28); }
-.pf-review-delete-dialog h2 { margin:0 0 .6rem;color:#0f172a;font-size:1.15rem;font-weight:800; }
-.pf-review-delete-dialog p { margin:0 0 1.1rem;color:#475569;line-height:1.55;overflow-wrap:anywhere; }
-.pf-review-delete-actions { display:flex;justify-content:flex-end;gap:.65rem;flex-wrap:wrap; }
-.pf-review-delete-cancel,.pf-review-delete-confirm { min-height:40px;padding:.55rem .85rem;border-radius:8px;font-weight:700;cursor:pointer; }
-.pf-review-delete-cancel { border:1px solid #cbd5e1;background:#fff;color:#334155; }
-.pf-review-delete-confirm { border:1px solid #b91c1c;background:#b91c1c;color:#fff; }
-.pf-review-delete-status { position:fixed;right:1rem;bottom:1rem;z-index:10051;max-width:min(92vw,440px);padding:.75rem 1rem;border:1px solid #99f6e4;border-radius:10px;background:#f0fdfa;color:#115e59;box-shadow:0 8px 25px rgba(15,23,42,.15); }
-@media (max-width:640px) { .pf-review-delete-status { left:1rem;right:1rem;bottom:1rem;max-width:none; } .pf-review-delete-actions>* { flex:1 1 auto; } }
 .poc-filter-btn.active { background:#0a2530 !important;color:white !important;border-color:#0a2530 !important; }
 .poc-filter-btn:hover { border-color:#0a2530;background:#f0f4f5; }
 .poc-review-item { border-bottom:1px solid #f3f4f6;padding:1.25rem 0; color: #1f2937; }
@@ -2129,18 +2087,6 @@ document.addEventListener('keydown', function(e) {
 
 <script src="<?php echo htmlspecialchars($base_path . '/public/assets/js/service_estimated_price.js'); ?>"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const form = document.getElementById('serviceForm');
-    if (!form || typeof window.printflowInitServiceEstimatedPrice !== 'function') return;
-
-    window.printflowInitServiceEstimatedPrice(form, {
-        basePrice: <?php echo (float)($service['base_price'] ?? 0); ?>,
-        form: form
-    });
-});
-</script>
-
-<script>
 // Final Validation Script Update - v4.0.0
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('serviceForm');
@@ -2231,6 +2177,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 hasControls = true;
                 if (file.files && file.files.length > 0) rowHasValue = true;
             });
+            const uploadGroup = row.querySelector('.pf-file-upload-group');
+            if (uploadGroup && typeof window.pfDesignQueueValidFiles === 'function') {
+                hasControls = true;
+                if (window.pfDesignQueueValidFiles(uploadGroup).length > 0) rowHasValue = true;
+            }
 
             row.querySelectorAll('.pf-design-link-input').forEach(linkInput => {
                 hasControls = true;
@@ -2263,19 +2214,73 @@ document.addEventListener('DOMContentLoaded', function() {
             if (getRowValueState(row).rowHasValue) removeRowErrors(row);
         };
 
+        const zeroPriceNote = document.getElementById('pf-customer-zero-price-note');
+
+        const currentEstimatedPrice = () => {
+            if (typeof window.calculateEstimatedPrice === 'function') {
+                const result = window.calculateEstimatedPrice();
+                const estimated = Number(result && result.estimatedTotal);
+                if (Number.isFinite(estimated)) return estimated;
+            }
+            const input = document.getElementById('calculated-estimated-price');
+            if (!input || String(input.value).trim() === '') return 0;
+            const estimated = parseFloat(input.value);
+            return Number.isFinite(estimated) ? estimated : 0;
+        };
+
+        const specificationHasEstimatedPrice = (estimatedPrice) => Number.isFinite(estimatedPrice) && estimatedPrice > 0;
+
+        const syncCustomerZeroPriceNote = () => {
+            if (!zeroPriceNote) return;
+            zeroPriceNote.hidden = specificationHasEstimatedPrice(currentEstimatedPrice());
+        };
+
+        const isPublicDesignLinkHost = (hostname) => {
+            const host = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
+            if (!host || host === 'localhost' || host === '0.0.0.0' || host === '::1') return false;
+            if (host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return false;
+            if (host.startsWith('127.') || host.startsWith('10.') || host.startsWith('192.168.') || host.startsWith('169.254.')) return false;
+            if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return false;
+            return true;
+        };
+
         const isValidDesignLink = (value) => {
             const text = String(value || '').trim();
             if (!text) return true;
-            if (/^\s*(javascript|data|file|vbscript):/i.test(text)) return false;
+            if (/^(javascript|data|file|vbscript):/i.test(text)) return false;
             try {
                 const parsed = new URL(text);
-                return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+                return parsed.protocol === 'https:' && isPublicDesignLinkHost(parsed.hostname);
             } catch (err) {
                 return false;
             }
         };
 
         form.addEventListener('submit', function(e) {
+            document.querySelectorAll('.pf-file-upload-group').forEach(function(group) {
+                const row = group.closest('.shopee-form-row');
+                if (row && row.dataset.pfFieldInactive === '1') {
+                    if (typeof window.pfClearDesignUploadGroup === 'function') {
+                        window.pfClearDesignUploadGroup(group);
+                    }
+                    return;
+                }
+                if (typeof window.pfSyncDesignQueueToFileInput === 'function') {
+                    window.pfSyncDesignQueueToFileInput(group);
+                }
+            });
+            if (typeof window.pfValidateDesignUploadGroups === 'function') {
+                const designValidation = window.pfValidateDesignUploadGroups(form);
+                if (!designValidation.ok) {
+                    e.preventDefault();
+                    const topError = document.getElementById('error-message');
+                    if (topError) {
+                        topError.textContent = designValidation.errors[0] || 'Please fix your design uploads.';
+                        topError.style.display = 'block';
+                    }
+                    return;
+                }
+            }
             if (typeof updateConditionalFields === 'function') {
                 updateConditionalFields();
             }
@@ -2338,7 +2343,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 row.querySelectorAll('.pf-design-link-input').forEach(linkInput => {
                     const linkValue = String(linkInput.value || '').trim();
                     if (linkValue !== '' && !isValidDesignLink(linkValue)) {
-                        setError(linkInput, 'Please enter a valid HTTP or HTTPS design link.');
+                        setError(linkInput, 'Please enter a valid HTTPS design link.');
                     }
                 });
             });
@@ -2353,8 +2358,30 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Hide top error message if exists
                 const topError = document.getElementById('error-message');
                 if (topError) topError.style.display = 'none';
+                return;
             }
+
         });
+
+        if (typeof window.printflowInitServiceEstimatedPrice === 'function') {
+            const priceWidget = window.printflowInitServiceEstimatedPrice(form, {
+                basePrice: <?php echo (float)($service['base_price'] ?? 0); ?>,
+                form: form
+            });
+            if (priceWidget && typeof priceWidget.recalculate === 'function') {
+                const baseRecalculate = priceWidget.recalculate.bind(priceWidget);
+                priceWidget.recalculate = function () {
+                    const result = baseRecalculate();
+                    syncCustomerZeroPriceNote();
+                    return result;
+                };
+                priceWidget.recalculate();
+            } else {
+                syncCustomerZeroPriceNote();
+            }
+            form.addEventListener('change', syncCustomerZeroPriceNote);
+            form.addEventListener('input', syncCustomerZeroPriceNote);
+        }
 
         ['input', 'change', 'click'].forEach(eventName => {
             form.addEventListener(eventName, function(e) {

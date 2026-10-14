@@ -73,6 +73,8 @@ function printflow_customization_field_meta(string $key): array {
     $hidden = [
         'branch', 'branch_id', 'branch_name', 'branchname', 'pickup_branch', 'pickupbranch', 'service_id', 'customization_id', 'order_id', 'order_item_id',
         'product_id', 'config_id', 'source', 'source_page', 'form_type', 'cart_key',
+        'design_input_mode', 'dimensions_design_input_mode', 'calculated_unit_price', 'calculated_estimated_price',
+        'price_unconfigured', 'material_name',
         'design_upload_path', 'design_file', 'design_mime', 'design_upload_mime',
         'design_image', 'design_image_path',
         'reference_upload', 'reference_upload_name', 'upload_reference',
@@ -85,7 +87,7 @@ function printflow_customization_field_meta(string $key): array {
         || str_contains($token, '_blob')
         || str_contains($token, '_tmp_path')
         || str_ends_with($token, '_path');
-    if ($token === '' || $token[0] === '_' || $looksInternal || in_array($token, $hidden, true)) {
+    if ($token === '' || $token[0] === '_' || $looksInternal || in_array($token, $hidden, true) || str_contains($token, 'design_input_mode')) {
         return ['group' => $token, 'label' => '', 'priority' => 999, 'hidden' => true, 'design' => false];
     }
 
@@ -161,7 +163,8 @@ function printflow_customization_field_meta(string $key): array {
     ];
     if (isset($map[$token])) {
         [$group, $label, $priority] = $map[$token];
-        return ['group' => $group, 'label' => $label, 'priority' => $priority, 'hidden' => false, 'design' => in_array($group, ['uploaded_design', 'design_external_link'], true)];
+        $hidden = $group === 'material';
+        return ['group' => $group, 'label' => $label, 'priority' => $priority, 'hidden' => $hidden, 'design' => in_array($group, ['uploaded_design', 'design_external_link'], true)];
     }
     if (str_ends_with($token, '_link') && (str_contains($token, 'design') || str_contains($token, 'upload'))) {
         return ['group' => 'design_external_link', 'label' => 'Design Link', 'priority' => 61, 'hidden' => false, 'design' => true];
@@ -261,7 +264,156 @@ function printflow_customization_display_specs(array $customization, array $opti
     }
 
     uasort($rows, static fn($a, $b) => [$a['priority'], $a['position']] <=> [$b['priority'], $b['position']]);
-    return array_map(static fn($row) => $row['value'], $rows);
+    $mapped = array_map(static fn($row) => $row['value'], $rows);
+
+    return printflow_deduplicate_display_specifications($mapped);
+}
+
+/**
+ * Canonical bucket for display deduplication (dimensions, layout, material, …).
+ */
+function printflow_customization_canonical_spec_bucket(string $labelOrKey): string
+{
+    $meta = printflow_customization_field_meta($labelOrKey);
+    if ($meta['group'] === 'material') {
+        return 'material';
+    }
+    if (in_array($meta['group'], ['dimensions', 'width', 'height', 'total_area'], true)) {
+        return 'dimensions';
+    }
+
+    $token = printflow_customization_key_token($labelOrKey);
+    $compact = str_replace('_', '', $token);
+    if (
+        str_contains($compact, 'dimension')
+        || str_contains($compact, 'customsize')
+        || str_contains($compact, 'widthxheight')
+        || in_array($token, ['size', 'sizes', 'custom_size', 'width_x_height'], true)
+    ) {
+        return 'dimensions';
+    }
+
+    $labelNorm = strtolower(preg_replace('/[^a-z0-9]+/', '', $labelOrKey) ?? '');
+    if (
+        in_array($labelNorm, ['dimensions', 'dimension', 'size', 'customsize', 'widthheight'], true)
+        || str_contains($labelNorm, 'customsize')
+    ) {
+        return 'dimensions';
+    }
+
+    return $meta['group'] !== '' ? $meta['group'] : ($token !== '' ? $token : 'other');
+}
+
+/**
+ * Normalized value fingerprint for duplicate detection (dimensions: compare WxH, not label text).
+ */
+function printflow_normalize_display_spec_value_fingerprint(string $bucket, string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+    if ($bucket === 'dimensions') {
+        $v = strtolower(str_replace(['×', '*'], 'x', $value));
+        $v = (string)preg_replace('/\s*(?:ft|feet|foot|in|inch|inches|cm|mm|m)\.?\b/i', '', $v);
+        $v = (string)preg_replace('/\s+/', '', $v);
+        if (preg_match('/(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/', $v, $m)) {
+            return 'dim:' . ((float)$m[1]) . 'x' . ((float)$m[2]);
+        }
+
+        return 'dimtext:' . $v;
+    }
+
+    return $bucket . ':' . printflow_customization_value_fingerprint($value);
+}
+
+/**
+ * Remove redundant specification tiles (same dimension twice, material in UI, exact duplicates).
+ *
+ * @param array<string,string> $specs
+ * @return array<string,string>
+ */
+function printflow_deduplicate_display_specifications(array $specs): array
+{
+    if ($specs === []) {
+        return [];
+    }
+
+    $clean = [];
+    foreach ($specs as $label => $value) {
+        if (!is_string($label)) {
+            continue;
+        }
+        $text = trim((string)$value);
+        if ($text === '') {
+            continue;
+        }
+        if (printflow_customization_canonical_spec_bucket($label) === 'material') {
+            continue;
+        }
+        $clean[$label] = $text;
+    }
+
+    $dimensionRows = [];
+    $other = [];
+    foreach ($clean as $label => $text) {
+        if (printflow_customization_canonical_spec_bucket($label) === 'dimensions') {
+            $dimensionRows[] = [
+                'label' => $label,
+                'text' => $text,
+                'fp' => printflow_normalize_display_spec_value_fingerprint('dimensions', $text),
+            ];
+            continue;
+        }
+        $other[$label] = $text;
+    }
+
+    $out = $other;
+    if ($dimensionRows !== []) {
+        $preferred = null;
+        foreach (['Dimensions', 'Size / Dimensions', 'Size', 'Custom Size', 'Width × Height'] as $want) {
+            foreach ($dimensionRows as $row) {
+                if ($row['label'] === $want) {
+                    $preferred = $row;
+                    break 2;
+                }
+            }
+        }
+        if ($preferred === null) {
+            $preferred = $dimensionRows[0];
+        }
+
+        $primaryFp = $preferred['fp'];
+        $out['Dimensions'] = $preferred['text'];
+
+        foreach ($dimensionRows as $row) {
+            if ($row['fp'] === $primaryFp) {
+                continue;
+            }
+            $out[$row['label']] = $row['text'];
+        }
+    }
+
+    $seen = [];
+    $final = [];
+    foreach ($out as $label => $text) {
+        $bucket = printflow_customization_canonical_spec_bucket($label);
+        $fp = printflow_normalize_display_spec_value_fingerprint($bucket, $text);
+        $key = $bucket . '|' . $fp;
+        if ($bucket === 'dimensions' && $label !== 'Dimensions' && isset($final['Dimensions'])) {
+            $primaryFp = printflow_normalize_display_spec_value_fingerprint('dimensions', (string)$final['Dimensions']);
+            if ($fp === $primaryFp) {
+                continue;
+            }
+        }
+        if (isset($seen[$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+        $final[$label] = $text;
+    }
+
+    return $final;
 }
 
 /**

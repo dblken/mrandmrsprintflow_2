@@ -122,13 +122,10 @@ if (!function_exists('pf_order_ui_is_safe_external_url')) {
             return false;
         }
         $url = trim((string)$value);
-        if ($url === '' || !preg_match('/^https?:\/\//i', $url)) {
-            return false;
+        if (!function_exists('service_order_validate_design_link')) {
+            require_once __DIR__ . '/service_order_helper.php';
         }
-        if (preg_match('/^\s*(javascript|data|file|vbscript):/i', $url)) {
-            return false;
-        }
-        return filter_var($url, FILTER_VALIDATE_URL) !== false;
+        return service_order_validate_design_link($url)['ok'];
     }
 }
 
@@ -139,7 +136,7 @@ if (!function_exists('pf_order_ui_design_link_platform_label')) {
         if ($host === '') {
             return 'Design Link';
         }
-        if (str_contains($host, 'canva.com')) {
+        if (str_contains($host, 'canva.com') || $host === 'canva.link' || str_ends_with($host, '.canva.link')) {
             return 'Canva Design';
         }
         if (str_contains($host, 'drive.google.com') || str_contains($host, 'docs.google.com')) {
@@ -165,7 +162,7 @@ if (!function_exists('pf_order_ui_is_direct_renderable_image_url')) {
             return false;
         }
         $host = strtolower((string)(parse_url($url, PHP_URL_HOST) ?? ''));
-        if (preg_match('/(?:^|\.)canva\.com$|drive\.google\.com|docs\.google\.com|dropbox\.com|onedrive\.live\.com|1drv\.ms|photos\.google\.com/', $host)) {
+        if (preg_match('/(?:^|\.)canva\.com$|(?:^|\.)canva\.link$|drive\.google\.com|docs\.google\.com|dropbox\.com|onedrive\.live\.com|1drv\.ms|photos\.google\.com/', $host)) {
             return false;
         }
         $path = strtolower((string)(parse_url($url, PHP_URL_PATH) ?? ''));
@@ -358,6 +355,428 @@ if (!function_exists('pf_order_ui_resolve_design_source')) {
     }
 }
 
+if (!function_exists('pf_order_ui_cart_design_upload_entries')) {
+    /**
+     * Staged design uploads on a cart line (multi-file aware).
+     *
+     * @return list<array{path:string,mime:string,name:string,sort:int,index:int}>
+     */
+    function pf_order_ui_cart_design_upload_entries(array $item): array
+    {
+        $entries = [];
+        $sort = 0;
+        if (!empty($item['uploaded_files']) && is_array($item['uploaded_files'])) {
+            foreach ($item['uploaded_files'] as $index => $upload) {
+                if (!is_array($upload)) {
+                    continue;
+                }
+                $uploadField = strtolower(trim((string)($upload['field'] ?? ($upload['field_key'] ?? ''))));
+                if ($uploadField !== '' && !str_contains($uploadField, 'design')) {
+                    continue;
+                }
+                $tmp = trim((string)($upload['tmp_path'] ?? ($upload['path'] ?? '')));
+                if ($tmp === '' || !is_file($tmp)) {
+                    continue;
+                }
+                $entries[] = [
+                    'path' => $tmp,
+                    'mime' => trim((string)($upload['mime'] ?? ($upload['type'] ?? ''))),
+                    'name' => pf_order_ui_safe_upload_name($upload['name'] ?? ($upload['label'] ?? '')),
+                    'sort' => array_key_exists('upload_sort', $upload) ? (int)$upload['upload_sort'] : $sort,
+                    'index' => (int)$index,
+                ];
+                $sort++;
+            }
+        }
+        if ($entries === []) {
+            $path = trim((string)($item['design_tmp_path'] ?? ''));
+            if ($path !== '' && is_file($path)) {
+                $entries[] = [
+                    'path' => $path,
+                    'mime' => trim((string)($item['design_mime'] ?? '')),
+                    'name' => pf_order_ui_safe_upload_name($item['design_name'] ?? ''),
+                    'sort' => 0,
+                    'index' => 0,
+                ];
+            }
+        }
+        usort($entries, static function (array $a, array $b): int {
+            $sortDelta = ($a['sort'] ?? 0) <=> ($b['sort'] ?? 0);
+            if ($sortDelta !== 0) {
+                return $sortDelta;
+            }
+            return ($a['index'] ?? 0) <=> ($b['index'] ?? 0);
+        });
+        return $entries;
+    }
+}
+
+if (!function_exists('pf_order_ui_expand_composite_design_file_rows')) {
+    /**
+     * Split legacy rows where many filenames were stored in one display_name (comma-separated).
+     *
+     * @param list<array<string,mixed>> $files
+     * @return list<array<string,mixed>>
+     */
+    function pf_order_ui_expand_composite_design_file_rows(array $files): array
+    {
+        $expanded = [];
+        foreach ($files as $file) {
+            if (!is_array($file)) {
+                continue;
+            }
+            $name = trim((string)($file['display_name'] ?? ''));
+            if ($name === '' || !str_contains($name, ',')) {
+                $expanded[] = $file;
+                continue;
+            }
+            $parts = preg_split('/\s*,\s*/', $name) ?: [];
+            $valid = [];
+            foreach ($parts as $part) {
+                $part = trim((string)$part);
+                if ($part === '') {
+                    continue;
+                }
+                if (preg_match('/\.(jpe?g|png|gif|webp|pdf|ai|psd|bmp|svg)$/i', $part) !== 1) {
+                    continue;
+                }
+                $valid[] = $part;
+            }
+            if (count($valid) < 2) {
+                $expanded[] = $file;
+                continue;
+            }
+            $baseId = (string)($file['file_id'] ?? '0');
+            $sort = (int)($file['upload_sort'] ?? 0);
+            foreach ($valid as $index => $part) {
+                $clone = $file;
+                $clone['display_name'] = $part;
+                $clone['file_id'] = $baseId . '-part-' . $index;
+                $clone['upload_sort'] = $sort + $index;
+                if ($index > 0) {
+                    unset($clone['preview_url'], $clone['download_url']);
+                }
+                $clone['is_previewable_image'] = preg_match('/\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i', $part) === 1;
+                $expanded[] = $clone;
+            }
+        }
+        return $expanded;
+    }
+}
+
+if (!function_exists('pf_order_ui_dedupe_design_file_rows')) {
+    /**
+     * @param list<array<string,mixed>> $files
+     * @return list<array<string,mixed>>
+     */
+    function pf_order_ui_dedupe_design_file_rows(array $files): array
+    {
+        if ($files === []) {
+            return [];
+        }
+        if (function_exists('printflow_order_item_design_files_stats')) {
+            $stats = printflow_order_item_design_files_stats($files);
+            $allowed = array_fill_keys($stats['file_ids'] ?? [], true);
+            $hasDbIds = ($stats['unique_file_count'] ?? 0) > 0;
+            if ($hasDbIds) {
+                $out = [];
+                foreach ($files as $file) {
+                    if (!is_array($file)) {
+                        continue;
+                    }
+                    $fileId = (int)($file['file_id'] ?? 0);
+                    if ($fileId <= 0 || !isset($allowed[$fileId])) {
+                        continue;
+                    }
+                    $out[] = $file;
+                }
+                return $out;
+            }
+        }
+        $seen = [];
+        $out = [];
+        foreach ($files as $file) {
+            if (!is_array($file)) {
+                continue;
+            }
+            $fileId = (string)($file['file_id'] ?? '');
+            if ($fileId !== '' && $fileId !== '0') {
+                if (isset($seen[$fileId])) {
+                    continue;
+                }
+                $seen[$fileId] = true;
+            }
+            $out[] = $file;
+        }
+        return $out;
+    }
+}
+
+if (!function_exists('pf_order_ui_item_design_files_list')) {
+    /**
+     * Authoritative design file rows for display (DB, API payload, or cart staging).
+     *
+     * @return list<array<string,mixed>>
+     */
+    function pf_order_ui_item_design_files_list(array $item, bool $is_cart_item, array $custom = []): array
+    {
+        if (!is_array($custom)) {
+            $custom = [];
+        }
+
+        if ($is_cart_item) {
+            $cartKey = trim((string)($item['_cart_key'] ?? ''));
+            $base = defined('BASE_URL') ? rtrim((string)BASE_URL, '/') : (function_exists('pf_app_base_path') ? rtrim((string)pf_app_base_path(), '/') : '');
+            $staged = pf_order_ui_cart_design_upload_entries($item);
+            if ($staged !== [] && $cartKey !== '') {
+                $pseudo = [];
+                foreach ($staged as $entry) {
+                    $mime = (string)($entry['mime'] ?? '');
+                    $name = (string)($entry['name'] ?? 'Uploaded design');
+                    if ($name === '') {
+                        $name = 'Uploaded design';
+                    }
+                    $isImage = $mime !== '' ? str_starts_with(strtolower($mime), 'image/') : preg_match('/\.(jpe?g|png|gif|webp|avif|bmp|svg)$/i', $name) === 1;
+                    $previewUrl = $base . '/customer/temp_upload_preview.php?item=' . rawurlencode($cartKey)
+                        . '&field=design&index=' . (int)($entry['index'] ?? 0);
+                    $pseudo[] = [
+                        'file_id' => 'cart-' . hash('sha256', (string)$entry['path']),
+                        'order_item_id' => 0,
+                        'display_name' => $name,
+                        'mime_type' => $mime !== '' ? $mime : 'application/octet-stream',
+                        'file_size' => is_file((string)$entry['path']) ? (int)filesize((string)$entry['path']) : 0,
+                        'upload_sort' => (int)($entry['sort'] ?? 0),
+                        'preview_url' => $previewUrl,
+                        'download_url' => $previewUrl,
+                        'is_previewable_image' => $isImage,
+                        'exists' => true,
+                    ];
+                }
+                return pf_order_ui_dedupe_design_file_rows($pseudo);
+            }
+        }
+
+        $fromItem = [];
+        if (!empty($item['design_files']) && is_array($item['design_files'])) {
+            $fromItem = $item['design_files'];
+        } elseif (!empty($item['files']) && is_array($item['files'])) {
+            $fromItem = $item['files'];
+        }
+
+        $orderItemId = (int)($item['order_item_id'] ?? 0);
+        if (!$is_cart_item && $orderItemId > 0 && function_exists('printflow_order_item_design_files_list_for_item')) {
+            $dbFiles = printflow_order_item_design_files_list_for_item($orderItemId, true);
+            if ($dbFiles !== []) {
+                return pf_order_ui_dedupe_design_file_rows($dbFiles);
+            }
+        }
+
+        if ($fromItem !== []) {
+            $first = $fromItem[0] ?? [];
+            if (is_array($first) && (!empty($first['preview_url']) || !empty($first['download_url']))) {
+                return $fromItem;
+            }
+            return function_exists('printflow_order_item_design_files_to_api')
+                ? printflow_order_item_design_files_to_api($fromItem)
+                : $fromItem;
+        }
+
+        $pseudo = [];
+        $sort = 0;
+        foreach (['design_upload_files', '_uploaded_files'] as $listKey) {
+            if (empty($custom[$listKey]) || !is_array($custom[$listKey])) {
+                continue;
+            }
+            foreach ($custom[$listKey] as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $name = trim((string)($entry['display_name'] ?? ($entry['name'] ?? ($entry['label'] ?? 'Uploaded design'))));
+                $mime = trim((string)($entry['mime_type'] ?? ($entry['mime'] ?? '')));
+                $size = (int)($entry['file_size'] ?? ($entry['size'] ?? 0));
+                $fileId = (int)($entry['file_id'] ?? 0);
+                $preview = trim((string)($entry['preview_url'] ?? ($entry['download_url'] ?? '')));
+                if ($preview === '' && $fileId > 0 && function_exists('printflow_order_item_design_file_serve_urls')) {
+                    $urls = printflow_order_item_design_file_serve_urls($fileId, $orderItemId);
+                    $preview = (string)($urls['preview_url'] ?? '');
+                }
+                $pseudo[] = [
+                    'file_id' => $fileId > 0 ? $fileId : ('cart-' . $sort),
+                    'order_item_id' => $orderItemId,
+                    'display_name' => $name !== '' ? $name : 'Uploaded design',
+                    'mime_type' => $mime !== '' ? $mime : 'application/octet-stream',
+                    'file_size' => $size,
+                    'upload_sort' => array_key_exists('upload_sort', $entry) ? (int)$entry['upload_sort'] : $sort,
+                    'preview_url' => $preview,
+                    'download_url' => trim((string)($entry['download_url'] ?? $preview)),
+                    'is_previewable_image' => !empty($entry['is_previewable_image']),
+                    'exists' => !isset($entry['exists']) || !empty($entry['exists']),
+                ];
+                $sort++;
+            }
+        }
+
+        if ($pseudo !== []) {
+            usort($pseudo, static function ($a, $b) {
+                $sortDelta = ((int)($a['upload_sort'] ?? 0)) <=> ((int)($b['upload_sort'] ?? 0));
+                if ($sortDelta !== 0) {
+                    return $sortDelta;
+                }
+                return strcmp((string)($a['file_id'] ?? ''), (string)($b['file_id'] ?? ''));
+            });
+            return pf_order_ui_dedupe_design_file_rows($pseudo);
+        }
+
+        if ($is_cart_item && pf_order_ui_item_has_actual_uploaded_design_file($item, true, $custom)) {
+            $url = pf_order_ui_resolve_customer_upload_url($item, true);
+            if ($url) {
+                $meta = pf_order_ui_resolve_design_upload_meta($item, true, $url);
+                return [[
+                    'file_id' => 'cart-legacy-' . md5((string)($item['_cart_key'] ?? $url)),
+                    'order_item_id' => 0,
+                    'display_name' => (string)($meta['name'] ?? 'Uploaded design'),
+                    'mime_type' => (string)($meta['mime'] ?? 'application/octet-stream'),
+                    'file_size' => 0,
+                    'upload_sort' => 0,
+                    'preview_url' => $url,
+                    'download_url' => $url,
+                    'is_previewable_image' => !empty($meta['is_previewable_image']),
+                    'exists' => true,
+                ]];
+            }
+        }
+
+        return [];
+    }
+}
+
+if (!function_exists('pf_order_ui_render_design_files_html')) {
+    /**
+     * @param list<array<string,mixed>> $files
+     */
+    function pf_order_ui_render_design_files_html(array $files, int $orderItemId = 0, string $galleryTitle = 'Uploaded designs'): string
+    {
+        unset($galleryTitle);
+        if ($files === []) {
+            return '';
+        }
+        $files = pf_order_ui_expand_composite_design_file_rows($files);
+        $files = pf_order_ui_dedupe_design_file_rows($files);
+        if ($files === []) {
+            return '';
+        }
+        $limit = 3;
+        $hidden = max(0, count($files) - $limit);
+        $zipUrl = ($orderItemId > 0 && function_exists('printflow_order_item_design_files_zip_url'))
+            ? printflow_order_item_design_files_zip_url($orderItemId)
+            : '';
+
+        $html = '<div class="pf-design-files" data-pf-design-files data-order-item-id="' . (int)$orderItemId . '" style="grid-column:1/-1;">';
+        $html .= '<div class="pf-spec-label" style="font-size:0.65rem;color:#9fc4d4;font-weight:700;text-transform:uppercase;margin-bottom:8px;">Design / Image</div>';
+        if (count($files) > 1 && $zipUrl !== '') {
+            $html .= '<div class="pf-design-files__toolbar"><a class="pf-design-files__zip" href="' . pf_order_ui_escape($zipUrl) . '">Download all (ZIP)</a></div>';
+        }
+        $html .= '<div class="pf-design-files__grid">';
+        foreach ($files as $index => $file) {
+            $html .= pf_order_ui_render_one_design_file_card($file, $index >= $limit);
+        }
+        $html .= '</div>';
+        if ($hidden > 0) {
+            $moreLabel = 'Show all images (' . $hidden . ' more)';
+            $html .= '<button type="button" class="pf-design-files__toggle" data-pf-design-more aria-label="' . pf_order_ui_escape($moreLabel) . '">'
+                . pf_order_ui_escape($moreLabel)
+                . '</button>';
+            $html .= '<button type="button" class="pf-design-files__toggle" data-pf-design-less hidden aria-label="Show less">Show less</button>';
+        }
+        $html .= '</div>';
+        return $html;
+    }
+}
+
+if (!function_exists('pf_order_ui_render_one_design_file_card')) {
+    /**
+     * @param array<string,mixed> $file
+     */
+    function pf_order_ui_render_one_design_file_card(array $file, bool $isCollapsible = false): string
+    {
+        $fileId = pf_order_ui_escape((string)($file['file_id'] ?? ''));
+        $nameRaw = (string)($file['display_name'] ?? 'Uploaded design');
+        $name = pf_order_ui_escape($nameRaw);
+        $mime = pf_order_ui_escape((string)($file['mime_type'] ?? 'File'));
+        $sizeBytes = (int)($file['file_size'] ?? 0);
+        $sizeLabel = $sizeBytes > 0 ? pf_order_ui_escape(pf_order_ui_format_bytes($sizeBytes)) : '—';
+        $unavailable = array_key_exists('exists', $file) && empty($file['exists']);
+        $url = trim((string)($file['preview_url'] ?? ($file['download_url'] ?? '')));
+        $isImage = !empty($file['is_previewable_image']);
+        $collapsibleAttr = $isCollapsible ? ' data-pf-design-collapsible hidden' : '';
+
+        $html = '<article class="pf-design-file-card" data-file-id="' . $fileId . '"' . $collapsibleAttr . '>';
+        if ($unavailable) {
+            $html .= '<p class="pf-design-file-card__name">' . $name . '</p>';
+            $html .= '<div class="pf-design-file-card__meta">' . $mime . ' · ' . $sizeLabel . '</div>';
+            $html .= '<div class="pf-design-file-card__unavailable" role="status">File unavailable</div>';
+        } else {
+            $html .= '<p class="pf-design-file-card__name">' . $name . '</p>';
+            $html .= '<div class="pf-design-file-card__meta">' . $mime . ' · ' . $sizeLabel . '</div>';
+            if ($isImage && $url !== '') {
+                $alt = pf_order_ui_escape('Preview of ' . $nameRaw);
+                $html .= '<div class="pf-design-file-card__preview"><img class="pf-design-file-card__img" src="' . pf_order_ui_escape($url) . '" alt="' . $alt . '" loading="lazy" decoding="async"></div>';
+            }
+            if ($url !== '') {
+                $html .= '<div class="pf-design-file-card__actions">';
+                $html .= '<a href="' . pf_order_ui_escape($url) . '" download target="_blank" rel="noopener noreferrer" class="pf-modal-design-action-btn" aria-label="' . pf_order_ui_escape('Download ' . $nameRaw) . '">Download</a>';
+                $html .= '</div>';
+            }
+        }
+        $html .= '</article>';
+        return $html;
+    }
+}
+
+if (!function_exists('pf_order_ui_format_bytes')) {
+    function pf_order_ui_format_bytes(int $bytes): string
+    {
+        if ($bytes <= 0) {
+            return '—';
+        }
+        if ($bytes < 1024) {
+            return $bytes . ' B';
+        }
+        if ($bytes < 1024 * 1024) {
+            return round($bytes / 1024, $bytes >= 10240 ? 0 : 1) . ' KB';
+        }
+        return round($bytes / (1024 * 1024), 1) . ' MB';
+    }
+}
+
+if (!function_exists('pf_order_ui_print_design_files_script_once')) {
+    function pf_order_ui_print_design_files_script_once(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        $base = defined('BASE_URL') ? rtrim((string)BASE_URL, '/') : (function_exists('pf_app_base_path') ? rtrim((string)pf_app_base_path(), '/') : '');
+        $vJs = (int)@filemtime(__DIR__ . '/../public/assets/js/pf-order-item-design-files.js');
+        $vCss = (int)@filemtime(__DIR__ . '/../public/assets/css/pf-order-item-design-files.css');
+        echo '<link rel="stylesheet" href="' . pf_order_ui_escape($base . '/public/assets/css/pf-order-item-design-files.css?v=' . $vCss) . '">';
+        echo '<script src="' . pf_order_ui_escape($base . '/public/assets/js/pf-order-item-design-files.js?v=' . $vJs) . '"></script>';
+        echo <<<'HTML'
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (window.PrintflowOrderItemDesignFiles && typeof window.PrintflowOrderItemDesignFiles.bindDesignFilesBlocks === 'function') {
+        window.PrintflowOrderItemDesignFiles.bindDesignFilesBlocks(document);
+    }
+    if (window.PrintflowOrderItemDesignFiles && typeof window.PrintflowOrderItemDesignFiles.bindCustomerNotesBlocks === 'function') {
+        window.PrintflowOrderItemDesignFiles.bindCustomerNotesBlocks(document);
+    }
+});
+</script>
+HTML;
+    }
+}
+
 if (!function_exists('pf_order_ui_print_copy_link_script_once')) {
     function pf_order_ui_print_copy_link_script_once(): void
     {
@@ -430,6 +849,7 @@ if (!function_exists('pf_order_ui_should_skip_spec_key')) {
         }
 
         static $skipExact = [
+            'uploaded_files', 'design_upload_files', '_uploaded_files',
             'design_upload', 'reference_upload', 'notes', 'order_notes', 'job_notes',
             'special_instructions', 'additional_notes', 'other_instructions',
             'design_notes', 'Branch_ID', 'service_type', 'product_type', 'unit',
@@ -437,7 +857,7 @@ if (!function_exists('pf_order_ui_should_skip_spec_key')) {
             'source_page', 'source', 'service_id', 'quantity', 'Quantity', 'Notes', 'Note',
             'design_upload_data', 'upload_design_data', 'design_data',
             'reference_upload_data', 'upload_reference_data', 'reference_data',
-            'design_upload_path', 'design_file', 'reference_file', 'layout_file',
+            'design_upload_path', 'design_file', 'reference_file', 'layout_file', 'design_upload_files',
             'design_upload_name', 'design_upload_mime', 'reference_upload_name', 'reference_upload_mime',
             'design_external_link', 'design_link', 'design_file_link',
         ];
@@ -469,6 +889,9 @@ if (!function_exists('pf_order_ui_should_skip_spec_key')) {
             return true;
         }
         if (preg_match('/^(notes?|order\s*notes?|job\s*notes?|special\s*instructions?|other\s*instructions?|additional\s*notes?|design\s*notes?|source\s*page|service\s*id)$/iu', $key)) {
+            return true;
+        }
+        if (preg_match('/uploaded\s*files?/iu', $key)) {
             return true;
         }
 
@@ -599,45 +1022,31 @@ if (!function_exists('pf_order_ui_cart_temp_disk_path')) {
      *
      * @return array{path:string,mime:string,name:string}|null
      */
-    function pf_order_ui_cart_temp_disk_path(array $item, string $field): ?array
+    function pf_order_ui_cart_temp_disk_path(array $item, string $field, int $fileIndex = 0): ?array
     {
-        $path_key = $field === 'reference' ? 'reference_tmp_path' : 'design_tmp_path';
-        $mime_key = $field === 'reference' ? 'reference_mime' : 'design_mime';
-        $name_key = $field === 'reference' ? 'reference_name' : 'design_name';
-
-        $path = trim((string)($item[$path_key] ?? ''));
-        if ($path !== '' && is_file($path)) {
-            return [
-                'path' => $path,
-                'mime' => trim((string)($item[$mime_key] ?? '')),
-                'name' => pf_order_ui_safe_upload_name($item[$name_key] ?? ''),
-            ];
-        }
-
-        if ($field !== 'design' || empty($item['uploaded_files']) || !is_array($item['uploaded_files'])) {
+        if ($field === 'reference') {
+            $path = trim((string)($item['reference_tmp_path'] ?? ''));
+            if ($path !== '' && is_file($path)) {
+                return [
+                    'path' => $path,
+                    'mime' => trim((string)($item['reference_mime'] ?? '')),
+                    'name' => pf_order_ui_safe_upload_name($item['reference_name'] ?? ''),
+                ];
+            }
             return null;
         }
 
-        foreach ($item['uploaded_files'] as $upload) {
-            if (!is_array($upload)) {
-                continue;
-            }
-            $upload_field = strtolower(trim((string)($upload['field'] ?? ($upload['field_key'] ?? ''))));
-            if ($upload_field !== '' && !str_contains($upload_field, 'design')) {
-                continue;
-            }
-            $tmp = trim((string)($upload['tmp_path'] ?? ($upload['path'] ?? '')));
-            if ($tmp === '' || !is_file($tmp)) {
-                continue;
-            }
-            return [
-                'path' => $tmp,
-                'mime' => trim((string)($upload['mime'] ?? ($upload['type'] ?? ''))),
-                'name' => pf_order_ui_safe_upload_name($upload['name'] ?? ''),
-            ];
+        $entries = pf_order_ui_cart_design_upload_entries($item);
+        if ($entries === []) {
+            return null;
         }
-
-        return null;
+        $fileIndex = max(0, $fileIndex);
+        $picked = $entries[$fileIndex] ?? $entries[0];
+        return [
+            'path' => (string)$picked['path'],
+            'mime' => (string)($picked['mime'] ?? ''),
+            'name' => pf_order_ui_safe_upload_name($picked['name'] ?? ''),
+        ];
     }
 }
 
@@ -1336,24 +1745,32 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
                     </div>
                 <?php endforeach; ?>
 
-                <?php if ($hasDesignFile && $upload_url): ?>
-                    <div class="review-spec-tile order-item-spec-tile order-item-upload-design" style="grid-column: 1 / -1; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(83, 197, 224, 0.18); padding: 0.85rem; border-radius: 10px;">
-                        <div class="pf-spec-label" style="font-size: 0.65rem; color: #9fc4d4; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.02em;">Design / Image</div>
-                        <div style="font-size: 0.72rem; color: #53c5e0; font-weight: 700; text-transform: uppercase; margin-bottom: 8px;">📁 Uploaded File</div>
-                        <?php if ($upload_is_previewable_image): ?>
-                        <img src="<?php echo htmlspecialchars($upload_url); ?>" alt="Uploaded design preview" class="review-order-item" style="width: 100%; max-width: 320px; max-height: 280px; object-fit: contain; border-radius: 8px; border: 1px solid rgba(83, 197, 224, 0.22); background: rgba(0,0,0,0.25); display: block; cursor: zoom-in;">
-                        <?php else: ?>
-                        <div class="order-item-upload-attachment" style="display: flex; align-items: center; gap: 0.75rem; min-width: 0; width: 100%; max-width: 100%; box-sizing: border-box; padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(83, 197, 224, 0.22); background: rgba(0,0,0,0.25); color: #eaf6fb;">
-                            <svg aria-hidden="true" style="width: 22px; height: 22px; color: #53c5e0; flex: 0 0 auto;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828L18 9.828a4 4 0 10-5.657-5.657L5.757 10.757a6 6 0 108.486 8.486L20.5 13"/></svg>
-                            <div style="min-width: 0; flex: 1 1 auto;">
-                                <div style="font-size: 0.68rem; color: #9fc4d4; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 2px;">Uploaded file</div>
-                                <div class="order-item-upload-filename" title="<?php echo pf_order_ui_escape($upload_name); ?>" style="font-size: 0.9rem; line-height: 1.35; font-weight: 700; color: #eaf6fb; max-width: 100%; overflow-wrap: anywhere; word-break: break-word;"><?php echo pf_order_ui_escape($upload_name); ?></div>
-                            </div>
-                        </div>
-                        <?php endif; ?>
-                    </div>
-                    <?php $has_specs = true; ?>
-                <?php endif; ?>
+                <?php
+                $designFilesForDisplay = pf_order_ui_item_design_files_list($item, $is_cart_item, is_array($rawCustom) ? $rawCustom : []);
+                $designFilesForDisplay = pf_order_ui_dedupe_design_file_rows($designFilesForDisplay);
+                if ($designFilesForDisplay === [] && $hasDesignFile && $upload_url) {
+                    $designFilesForDisplay = [[
+                        'file_id' => (int)($item['order_item_id'] ?? 0),
+                        'order_item_id' => (int)($item['order_item_id'] ?? 0),
+                        'display_name' => $upload_name,
+                        'mime_type' => (string)($item['design_image_mime'] ?? 'application/octet-stream'),
+                        'file_size' => 0,
+                        'upload_sort' => 0,
+                        'preview_url' => $upload_url,
+                        'download_url' => $upload_url,
+                        'is_previewable_image' => $upload_is_previewable_image,
+                        'exists' => true,
+                    ]];
+                }
+                if ($designFilesForDisplay !== []) {
+                    echo pf_order_ui_render_design_files_html(
+                        $designFilesForDisplay,
+                        (int)($item['order_item_id'] ?? 0),
+                        $name . ' — uploaded designs'
+                    );
+                    $has_specs = true;
+                }
+                ?>
 
                 <?php if ($hasDesignLink && $designLinkUrl !== ''): ?>
                     <div class="review-spec-tile order-item-design-link" style="grid-column: 1 / -1; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(83, 197, 224, 0.18); padding: 0.85rem; border-radius: 10px;">
@@ -1377,11 +1794,19 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
 
             <!-- Notes -->
             <?php if ($notesCombined !== ''): ?>
+                <?php
+                $notesPlain = $notesCombined;
+                $notesNeedsToggle = mb_strlen($notesPlain) > 420 || substr_count($notesPlain, "\n") >= 6;
+                ?>
                 <div style="margin-top: 1.5rem; padding: 1.25rem; background: rgba(83, 197, 224, 0.08); border: 1px solid rgba(83, 197, 224, 0.22); border-left: 4px solid #53c5e0; border-radius: 12px;">
                     <div style="font-size: 0.75rem; font-weight: 800; color: #53c5e0; text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
                         Special Instructions & Notes
                     </div>
-                    <div style="font-size: 0.95rem; color: #eaf6fb; line-height: 1.6; font-weight: 600; overflow-wrap: break-word; word-break: break-word; white-space: pre-wrap; transition: color 0.2s;"><?php echo nl2br(pf_order_ui_escape($notesCombined)); ?></div>
+                    <div class="pf-customer-notes-text<?php echo $notesNeedsToggle ? ' pf-customer-notes-text--clamped' : ''; ?>" style="font-size: 0.95rem; color: #eaf6fb; line-height: 1.6; font-weight: 600; overflow-wrap: break-word; word-break: break-word; white-space: pre-wrap;"><?php echo nl2br(pf_order_ui_escape($notesPlain)); ?></div>
+                    <?php if ($notesNeedsToggle): ?>
+                        <button type="button" class="pf-customer-notes-toggle" data-pf-notes-more style="margin-top:10px;padding:0;border:none;background:none;color:#53c5e0;font-size:0.82rem;font-weight:700;cursor:pointer;">See more</button>
+                        <button type="button" class="pf-customer-notes-toggle" data-pf-notes-less hidden style="margin-top:10px;padding:0;border:none;background:none;color:#53c5e0;font-size:0.82rem;font-weight:700;cursor:pointer;">See less</button>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
         </div>
@@ -1399,6 +1824,7 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
         <?php endif; ?>
     </div>
     <?php
+    pf_order_ui_print_design_files_script_once();
     pf_order_ui_print_copy_link_script_once();
 }
 

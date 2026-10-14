@@ -113,7 +113,7 @@ try {
     [$bSqlFrag, $bT, $bP] = branch_where_parts('o', $branchId);
     $bSqlFrag .= ' AND ' . printflow_order_archive_scope_sql('o');
     [$jSqlFrag, $jT, $jP] = branch_where_parts('jo', $branchId);
-    $jSqlFrag .= ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id');
+    $jSqlFrag .= ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
     $customerTypes = 'ss' . ($bT ?: '') . 'ss' . ($jT ?: '');
     $customerParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP ?: []);
     $total_customers = db_query(
@@ -145,13 +145,17 @@ try {
     [$bSqlFrag, $bT3, $bP3] = branch_where_parts('o', $branchId);
     $bSqlFrag .= ' AND ' . printflow_order_archive_scope_sql('o');
     [$jSqlFrag, $jT3, $jP3] = branch_where_parts('j', $branchId);
-    $jSqlFrag .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id');
+    $jSqlFrag .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id');
     $orderTypes = 'ss' . ($bT3 ?: '') . 'ss' . ($jT3 ?: '');
     $orderParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP3 ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP3 ?: []);
+    require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
+    $jobDateExpr = pf_reports_job_order_sales_date_expr('j');
+    $jobExcludeOrders = pf_reports_job_exclude_linked_custom_store_sale_sql('j');
     $total_orders = db_query(
         "SELECT (
              (SELECT COUNT(*) FROM orders o WHERE o.order_date BETWEEN ? AND ? {$bSqlFrag}) +
-             (SELECT COUNT(*) FROM job_orders j WHERE j.created_at BETWEEN ? AND ? {$jSqlFrag})
+             (SELECT COUNT(*) FROM job_orders j
+              WHERE {$jobDateExpr} BETWEEN ? AND ? {$jSqlFrag}{$jobExcludeOrders})
          ) AS cnt",
         $orderTypes,
         $orderParams
@@ -447,7 +451,7 @@ try {
     [$bSqlFrag_c, $bT_c, $bP_c] = branch_where_parts('o', $branchId);
     $bSqlFrag_c .= ' AND ' . printflow_order_archive_scope_sql('o');
     [$bSqlFrag_j, $bT_j, $bP_j] = branch_where_parts('j', $branchId);
-    $bSqlFrag_j .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id');
+    $bSqlFrag_j .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id');
     $types = ($bT_c ?: '') . ($bT_j ?: '');
     $params = array_merge($bP_c ?: [], $bP_j ?: []);
     $top_customers = db_query(
@@ -486,6 +490,13 @@ $dashboard_branch_period_label = date('M j, Y', strtotime($branchRevenueFrom)) .
 $dashboard_branch_total_revenue = array_reduce($dashboard_branch_perf, static function ($carry, $branch) {
     return $carry + (float)($branch['revenue'] ?? 0);
 }, 0.0);
+// KPI and branch chart must match the same official sales breakdown rules.
+if ((float)$total_revenue >= 0 && !printflow_branch_value_is_all($branchId)) {
+    $dashboard_branch_total_revenue = (float)$total_revenue;
+    if (!empty($dashboard_branch_perf[0])) {
+        $dashboard_branch_perf[0]['revenue'] = (float)$total_revenue;
+    }
+}
 $dashboard_branch_count = count($dashboard_branch_perf);
 $dashboard_sales_revenue_footnote = ($branchId === 'all')
     ? ('Showing combined sales revenue across ' . (int)$dashboard_branch_count . ' branch' . ($dashboard_branch_count === 1 ? '' : 'es') . '.')

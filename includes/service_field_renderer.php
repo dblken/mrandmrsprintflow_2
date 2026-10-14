@@ -667,7 +667,16 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $initial_mode = $saved_link !== '' ? 'link' : '';
 
             $conditional_required_data = $config['required'] ? ' data-pf-conditionally-required="1"' : '';
+<<<<<<< HEAD
             $html .= '<div class="pf-file-upload-group" data-pf-file-upload="1" data-pf-design-initial="' . htmlspecialchars($initial_mode, ENT_QUOTES, 'UTF-8') . '"' . $required_data . $conditional_required_data . ' style="max-width:100%;width:100%;">';
+=======
+            $max_design_files = defined('PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM')
+                ? (int)PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM
+                : 10;
+            $max_file_bytes = (int)(defined('SERVICE_ORDER_MAX_SIZE') ? SERVICE_ORDER_MAX_SIZE : 5242880);
+            $html .= '<div class="pf-file-upload-group" data-pf-file-upload="1" data-pf-design-initial="' . htmlspecialchars($initial_mode, ENT_QUOTES, 'UTF-8') . '" data-pf-max-design-files="' . $max_design_files . '" data-pf-max-file-bytes="' . $max_file_bytes . '"' . $required_data . $conditional_required_data . ' style="max-width:100%;width:100%;">';
+            $html .= '<label class="pf-design-mode-label" for="' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '_mode">Select Upload Design Option' . ($config['required'] ? ' *' : '') . '</label>';
+>>>>>>> 323917f6486072cf7dabd565ac93ed1ab929d7b8
             $html .= '<select name="design_input_mode" id="' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '_mode" class="input-field pf-design-mode-select"' . ($config['required'] ? ' required' : '') . '>';
             $html .= '<option value="" disabled' . ($initial_mode === '' ? ' selected' : '') . '>Choose an option</option>';
             $html .= '<option value="file"' . ($initial_mode === 'file' ? ' selected' : '') . '>Upload File</option>';
@@ -676,8 +685,13 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
 
             $html .= '<div class="pf-design-mode-panel" data-pf-design-panel="file"' . ($initial_mode !== 'file' ? ' hidden' : '') . '>';
             $html .= '<div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Upload your design</div>';
-            $html .= '<input type="file" name="design_file" id="design_file" accept="' . htmlspecialchars($accept_attr, ENT_QUOTES, 'UTF-8') . '" class="input-field pf-design-file-input" style="max-width:100%;width:100%;margin-bottom:8px;">';
-            $html .= '<p class="pf-supported-formats" style="margin:0;font-size:12px;color:#6b7280;line-height:1.5;">Supported: ' . htmlspecialchars($formats_label, ENT_QUOTES, 'UTF-8') . '<br>Maximum file size: 5 MB</p>';
+            $html .= '<input type="file" name="design_file[]" id="design_file" accept="' . htmlspecialchars($accept_attr, ENT_QUOTES, 'UTF-8') . '" multiple class="input-field pf-design-file-input" style="max-width:100%;width:100%;margin-bottom:8px;">';
+            $html .= '<div class="pf-design-selected-files-wrap">';
+            $html .= '<div class="pf-design-file-count" aria-live="polite">0 / ' . $max_design_files . ' selected</div>';
+            $html .= '<ul class="pf-design-file-list"></ul>';
+            $html .= '<div class="pf-design-file-errors" role="alert"></div>';
+            $html .= '</div>';
+            $html .= '<p class="pf-supported-formats" style="margin:0;font-size:12px;color:#6b7280;line-height:1.5;">Supported: ' . htmlspecialchars($formats_label, ENT_QUOTES, 'UTF-8') . '<br>Maximum file size: 5 MB each. Up to ' . $max_design_files . ' files.</p>';
             $html .= '</div>';
 
             $html .= '<div class="pf-design-mode-panel" data-pf-design-panel="link"' . ($initial_mode !== 'link' ? ' hidden' : '') . '>';
@@ -932,6 +946,78 @@ function get_service_field_scripts() {
     padding: 14px 16px;
     background: #fafafa;
     box-sizing: border-box;
+}
+.pf-design-file-count {
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+    margin: 0 0 8px;
+}
+.pf-design-file-list {
+    list-style: none;
+    margin: 0 0 8px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.pf-design-file-item {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 8px 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+}
+.pf-design-file-item.is-invalid {
+    border-color: #fca5a5;
+    background: #fef2f2;
+}
+.pf-design-file-thumb {
+    width: 52px;
+    height: 52px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+    background: #f8fafc;
+    flex: 0 0 auto;
+}
+.pf-design-file-meta {
+    flex: 1;
+    min-width: 0;
+}
+.pf-design-file-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #111827;
+    word-break: break-word;
+}
+.pf-design-file-size {
+    font-size: 11px;
+    color: #6b7280;
+    margin-top: 2px;
+}
+.pf-design-file-item-error {
+    font-size: 11px;
+    color: #b91c1c;
+    margin-top: 4px;
+}
+.pf-design-file-remove {
+    border: none;
+    background: #fee2e2;
+    color: #b91c1c;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 6px 8px;
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+.pf-design-file-errors {
+    font-size: 12px;
+    color: #b91c1c;
+    line-height: 1.4;
 }
 .pf-design-mode-question {
     margin: 0 0 10px;
@@ -1342,6 +1428,43 @@ function updateDimensionUnit(unit, row) {
     if (heightInput) heightInput.placeholder = unit;
 }
 
+function pfSelectUsesCustomSizePanel(scope) {
+    if (!scope || !scope.querySelector) return null;
+    const select = scope.querySelector('select.pf-select-custom-size, select.pf-select-with-others');
+    if (!select) return null;
+    const otherValue = select.getAttribute('data-other-option') || 'Others';
+    if (String(select.value || '') !== otherValue) return null;
+    const row = select.closest('.shopee-form-row');
+    const wrap = document.getElementById('select-others-' + select.name)
+        || scope.querySelector('#select-others-' + select.name)
+        || (row ? row.querySelector('.select-others-wrap') : null);
+    if (!wrap || !wrap.querySelector('.pf-custom-size-panel')) return null;
+    return select;
+}
+
+function pfDimensionPairIsValid(widthRaw, heightRaw) {
+    const w = String(widthRaw ?? '').trim();
+    const h = String(heightRaw ?? '').trim();
+    if (!w || !h) return false;
+    const wn = parseFloat(w);
+    const hn = parseFloat(h);
+    return Number.isFinite(wn) && Number.isFinite(hn) && wn > 0 && hn > 0;
+}
+
+function pfPrepareServiceFormDimensions(root) {
+    const scope = (root && typeof root.querySelectorAll === 'function') ? root : document;
+    scope.querySelectorAll('select.pf-select-with-others, select.pf-select-custom-size').forEach(function(sel) {
+        if (typeof pfSyncSelectCustomSizeHidden === 'function') {
+            pfSyncSelectCustomSizeHidden(sel);
+        }
+    });
+    scope.querySelectorAll('.shopee-form-row').forEach(function(row) {
+        if (typeof syncDimensionToHidden === 'function') {
+            syncDimensionToHidden(row);
+        }
+    });
+}
+
 function syncDimensionToHidden(row) {
     const scope = row || document;
     const wh = scope.querySelector('input[data-dimension-role="width"]') || scope.querySelector('input[name="width"]');
@@ -1349,7 +1472,12 @@ function syncDimensionToHidden(row) {
     if (!wh || !hh) return;
     const legacyWidth = scope.querySelector('input[name="width"]');
     const legacyHeight = scope.querySelector('input[name="height"]');
-    
+    const customSelect = pfSelectUsesCustomSizePanel(scope);
+    if (customSelect && typeof pfSyncSelectCustomSizeHidden === 'function') {
+        pfSyncSelectCustomSizeHidden(customSelect);
+        return;
+    }
+
     if (pfRowUsesCustomSize(scope)) {
         const panel = scope.querySelector('.dim-others-inputs.pf-custom-size-panel, .pf-custom-size-panel.dim-others-inputs, .pf-custom-size-panel');
         const cw = panel ? panel.querySelector('.custom-dim-width') : scope.querySelector('.custom-dim-width');
@@ -1808,20 +1936,30 @@ function updateConditionalFields() {
     const allRows = document.querySelectorAll('.shopee-form-row[data-pf-conditional-rules], .shopee-form-row[data-parent-field]');
     
     allRows.forEach(row => {
+        const uploadGroup = row.querySelector('.pf-file-upload-group');
+        const wasInactive = row.dataset.pfFieldInactive === '1';
         const uiState = pfRowConditionalUIState(row);
+        const isInactive = uiState.shouldHide || uiState.shouldDisable;
+
         if (uiState.shouldHide) {
             hideFieldRow(row);
             pfApplyConditionalDisabledUI(row, false, '');
             pfSyncConditionalRowRequiredState(row, false);
-            return;
-        }
-        showFieldRow(row);
-        if (uiState.shouldDisable) {
-            pfApplyConditionalDisabledUI(row, true, uiState.customerNote);
-            pfSyncConditionalRowRequiredState(row, false);
         } else {
-            pfApplyConditionalDisabledUI(row, false, '');
-            pfSyncConditionalRowRequiredState(row, true);
+            showFieldRow(row);
+            if (uiState.shouldDisable) {
+                pfApplyConditionalDisabledUI(row, true, uiState.customerNote);
+                pfSyncConditionalRowRequiredState(row, false);
+            } else {
+                pfApplyConditionalDisabledUI(row, false, '');
+                pfSyncConditionalRowRequiredState(row, true);
+            }
+        }
+
+        if (uploadGroup && typeof pfClearDesignUploadGroup === 'function') {
+            if (isInactive || (!isInactive && wasInactive)) {
+                pfClearDesignUploadGroup(uploadGroup);
+            }
         }
     });
 }
@@ -1897,10 +2035,249 @@ function clearFieldRowValues(row) {
     });
 }
 
+window.PF_DESIGN_ALLOWED_EXT = window.PF_DESIGN_ALLOWED_EXT || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'pdf', 'ai', 'psd'];
+
+function pfDesignMaxFilesForGroup(group) {
+    const max = parseInt(group && group.dataset ? group.dataset.pfMaxDesignFiles : '10', 10);
+    return Number.isFinite(max) && max > 0 ? max : 10;
+}
+
+function pfDesignMaxBytesForGroup(group) {
+    const max = parseInt(group && group.dataset ? group.dataset.pfMaxFileBytes : '5242880', 10);
+    return Number.isFinite(max) && max > 0 ? max : 5242880;
+}
+
+function pfFormatFileSize(bytes) {
+    const n = Number(bytes || 0);
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+function pfNewDesignQueueId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    return 'pfq-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+}
+
+function pfValidateDesignFileClient(file, group) {
+    if (!file) return { valid: false, error: 'Missing file.' };
+    const maxBytes = pfDesignMaxBytesForGroup(group);
+    if (file.size > maxBytes) {
+        return { valid: false, error: 'File size exceeds the 5MB limit.' };
+    }
+    const name = String(file.name || '');
+    const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+    if (!ext || !window.PF_DESIGN_ALLOWED_EXT.includes(ext)) {
+        return { valid: false, error: 'Invalid file type for this design upload.' };
+    }
+    return { valid: true, error: '' };
+}
+
+function pfClearDesignUploadGroup(group) {
+    if (!group) return;
+    pfGetDesignUploadQueue(group).forEach(function(entry) {
+        if (entry && entry.previewUrl) {
+            URL.revokeObjectURL(entry.previewUrl);
+        }
+    });
+    group.pfDesignQueue = [];
+    const fileInput = group.querySelector('.pf-design-file-input, input[type="file"][name="design_file"], input[type="file"][name="design_file[]"]');
+    const linkInput = group.querySelector('.pf-design-link-input');
+    const modeSelect = group.querySelector('.pf-design-mode-select');
+    const errorsEl = group.querySelector('.pf-design-file-errors');
+    if (fileInput) {
+        fileInput.value = '';
+        if (typeof DataTransfer !== 'undefined') {
+            try {
+                fileInput.files = new DataTransfer().files;
+            } catch (ignore) {}
+        }
+    }
+    if (linkInput) {
+        linkInput.value = '';
+        linkInput.classList.remove('field-invalid');
+        linkInput.removeAttribute('aria-invalid');
+    }
+    if (modeSelect) {
+        modeSelect.value = '';
+    }
+    group.dataset.pfDesignMode = '';
+    group.querySelectorAll('.pf-design-mode-panel').forEach(function(panel) {
+        panel.setAttribute('hidden', '');
+        panel.querySelectorAll('input,select,textarea,button').forEach(function(control) {
+            control.disabled = true;
+        });
+    });
+    if (errorsEl) {
+        errorsEl.textContent = '';
+    }
+    const row = group.closest('.shopee-form-row');
+    if (row) {
+        row.querySelectorAll('.field-error, .field-error-message').forEach(function(el) { el.remove(); });
+        row.querySelectorAll('.field-invalid').forEach(function(el) { el.classList.remove('field-invalid'); });
+    }
+    pfRenderDesignUploadQueue(group);
+    if (typeof document !== 'undefined' && typeof CustomEvent !== 'undefined') {
+        document.dispatchEvent(new CustomEvent('pf:design-upload-cleared', { bubbles: true, detail: { group: group } }));
+    }
+}
+
+function pfGetDesignUploadQueue(group) {
+    if (!group) return [];
+    if (!Array.isArray(group.pfDesignQueue)) {
+        group.pfDesignQueue = [];
+    }
+    return group.pfDesignQueue;
+}
+
+function pfRenderDesignUploadQueue(group) {
+    const listEl = group.querySelector('.pf-design-file-list');
+    const countEl = group.querySelector('.pf-design-file-count');
+    const errorsEl = group.querySelector('.pf-design-file-errors');
+    const maxFiles = pfDesignMaxFilesForGroup(group);
+    const queue = pfGetDesignUploadQueue(group);
+    const validCount = queue.filter(entry => entry.valid).length;
+    if (countEl) {
+        countEl.textContent = validCount + ' / ' + maxFiles + ' selected';
+    }
+    if (listEl) {
+        listEl.innerHTML = '';
+        queue.forEach(entry => {
+            const li = document.createElement('li');
+            li.className = 'pf-design-file-item' + (entry.valid ? '' : ' is-invalid');
+            li.dataset.pfQueueId = entry.id;
+            let thumbHtml = '';
+            if (entry.previewUrl && entry.valid) {
+                thumbHtml = '<img class="pf-design-file-thumb" src="' + entry.previewUrl + '" alt="">';
+            } else {
+                thumbHtml = '<div class="pf-design-file-thumb" aria-hidden="true"></div>';
+            }
+            li.innerHTML = thumbHtml
+                + '<div class="pf-design-file-meta"><div class="pf-design-file-name">' + (entry.file ? entry.file.name : 'File') + '</div>'
+                + '<div class="pf-design-file-size">' + pfFormatFileSize(entry.file ? entry.file.size : 0) + '</div>'
+                + (entry.error ? '<div class="pf-design-file-item-error">' + entry.error + '</div>' : '')
+                + '</div>'
+                + '<button type="button" class="pf-design-file-remove">Remove</button>';
+            li.querySelector('.pf-design-file-remove').addEventListener('click', function() {
+                pfRemoveDesignQueueEntry(group, entry.id);
+            });
+            listEl.appendChild(li);
+        });
+    }
+    if (errorsEl) {
+        const messages = queue.filter(entry => !entry.valid && entry.error).map(entry => entry.error);
+        errorsEl.textContent = messages.length ? messages.join(' ') : '';
+    }
+}
+
+function pfRemoveDesignQueueEntry(group, entryId) {
+    const queue = pfGetDesignUploadQueue(group);
+    const next = [];
+    queue.forEach(entry => {
+        if (entry.id === entryId) {
+            if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+            return;
+        }
+        next.push(entry);
+    });
+    group.pfDesignQueue = next;
+    pfRenderDesignUploadQueue(group);
+    pfSyncDesignQueueToFileInput(group);
+}
+
+function pfAppendDesignFilesToQueue(group, fileList) {
+    const maxFiles = pfDesignMaxFilesForGroup(group);
+    const queue = pfGetDesignUploadQueue(group);
+    const files = Array.from(fileList || []);
+    const batchErrors = [];
+    files.forEach(file => {
+        if (!file) return;
+        const duplicate = queue.some(entry => entry.file
+            && entry.file.name === file.name
+            && entry.file.size === file.size
+            && entry.file.lastModified === file.lastModified);
+        if (duplicate) return;
+        if (queue.length >= maxFiles) {
+            batchErrors.push('You can upload up to ' + maxFiles + ' design files per item.');
+            return;
+        }
+        const validation = pfValidateDesignFileClient(file, group);
+        const entry = {
+            id: pfNewDesignQueueId(),
+            file: file,
+            valid: validation.valid,
+            error: validation.error || '',
+            previewUrl: null,
+        };
+        if (validation.valid && String(file.type || '').startsWith('image/')) {
+            entry.previewUrl = URL.createObjectURL(file);
+        }
+        queue.push(entry);
+    });
+    group.pfDesignQueue = queue;
+    pfRenderDesignUploadQueue(group);
+    pfSyncDesignQueueToFileInput(group);
+    return batchErrors;
+}
+
+function pfSyncDesignQueueToFileInput(group) {
+    const fileInput = group.querySelector('.pf-design-file-input');
+    if (!fileInput || typeof DataTransfer === 'undefined') return;
+    const dt = new DataTransfer();
+    pfGetDesignUploadQueue(group).filter(entry => entry.valid && entry.file).forEach(entry => {
+        dt.items.add(entry.file);
+    });
+    fileInput.files = dt.files;
+}
+
+function pfDesignQueueValidFiles(group) {
+    return pfGetDesignUploadQueue(group).filter(entry => entry.valid && entry.file).map(entry => entry.file);
+}
+
+function pfValidateDesignUploadGroups(root) {
+    const scope = root || document;
+    const errors = [];
+    scope.querySelectorAll('.pf-file-upload-group').forEach(group => {
+        const row = group.closest('.shopee-form-row');
+        if (row && row.dataset.pfFieldInactive === '1') {
+            return;
+        }
+        if (row && row.offsetParent === null) {
+            return;
+        }
+        const mode = String(group.dataset.pfDesignMode || '').trim();
+        if (mode !== 'file') return;
+        const required = group.dataset.pfRequired === '1';
+        const queue = pfGetDesignUploadQueue(group);
+        const valids = queue.filter(entry => entry.valid);
+        const invalids = queue.filter(entry => !entry.valid);
+        if (invalids.length) {
+            errors.push('Fix invalid design files before continuing.');
+        }
+        if (required && valids.length === 0) {
+            errors.push('Please upload at least one design file.');
+        }
+        if (valids.length > pfDesignMaxFilesForGroup(group)) {
+            errors.push('Too many design files selected.');
+        }
+    });
+    return { ok: errors.length === 0, errors: errors };
+}
+
+window.pfGetDesignUploadQueue = pfGetDesignUploadQueue;
+window.pfSyncDesignQueueToFileInput = pfSyncDesignQueueToFileInput;
+window.pfDesignQueueValidFiles = pfDesignQueueValidFiles;
+window.pfValidateDesignUploadGroups = pfValidateDesignUploadGroups;
+window.pfAppendDesignFilesToQueue = pfAppendDesignFilesToQueue;
+window.pfClearDesignUploadGroup = pfClearDesignUploadGroup;
+
 function initPfDesignUploadGroups(root) {
     const scope = root || document;
     scope.querySelectorAll('.pf-file-upload-group:not([data-pf-design-init])').forEach(group => {
         group.dataset.pfDesignInit = '1';
+        group.pfDesignQueue = [];
         const tabs = Array.from(group.querySelectorAll('.pf-design-mode-tab'));
         const modeSelect = group.querySelector('.pf-design-mode-select');
         const panels = Array.from(group.querySelectorAll('.pf-design-mode-panel'));
@@ -1949,6 +2326,11 @@ function initPfDesignUploadGroups(root) {
         };
         const clearFileInput = () => {
             if (!fileInput) return;
+            pfGetDesignUploadQueue(group).forEach(entry => {
+                if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+            });
+            group.pfDesignQueue = [];
+            pfRenderDesignUploadQueue(group);
             fileInput.value = '';
             fileInput.dispatchEvent(new Event('change', { bubbles: true }));
         };
@@ -1957,9 +2339,12 @@ function initPfDesignUploadGroups(root) {
                 if (this.files && this.files.length > 0) {
                     clearLinkInput();
                     setMode('file');
+                    pfAppendDesignFilesToQueue(group, this.files);
+                    this.value = '';
                 }
             });
         }
+        pfRenderDesignUploadQueue(group);
         if (linkInput) {
             linkInput.addEventListener('input', function() {
                 if (String(this.value || '').trim() !== '') {
@@ -1972,14 +2357,17 @@ function initPfDesignUploadGroups(root) {
     });
 }
 
-function initServiceFieldRenderer() {
+function initServiceFieldRenderer(root) {
+    const scope = (root && typeof root.querySelectorAll === 'function') ? root : document;
+    const q = (selector) => scope.querySelectorAll(selector);
+
     // Ensure all nested fields are hidden initially
-    document.querySelectorAll('.nested-fields-container').forEach(container => {
+    q('.nested-fields-container').forEach(container => {
         container.style.display = 'none';
     });
     
     // Initialize radio buttons visual state
-    document.querySelectorAll('.shopee-opt-btn input[type="radio"]').forEach(radio => {
+    q('.shopee-opt-btn input[type="radio"]').forEach(radio => {
         if (radio.checked) {
             updateOptVisual(radio);
             if (radio.classList.contains('pricing-field')) {
@@ -2006,7 +2394,7 @@ function initServiceFieldRenderer() {
     });
     
     // Initialize select listeners
-    document.querySelectorAll('select').forEach(select => {
+    q('select').forEach(select => {
         if (select.classList && select.classList.contains('pf-select-with-others')) {
             pfSyncSelectOthersWrap(select);
         }
@@ -2020,7 +2408,7 @@ function initServiceFieldRenderer() {
         });
     });
     
-    document.querySelectorAll('.custom-dim-width, .custom-dim-height').forEach(input => {
+    q('.custom-dim-width, .custom-dim-height').forEach(input => {
         if (input.dataset.pfServiceFieldBound === '1') return;
         input.dataset.pfServiceFieldBound = '1';
         input.addEventListener('input', function() {
@@ -2043,10 +2431,10 @@ function initServiceFieldRenderer() {
         });
     });
 
-    document.querySelectorAll('.pf-custom-size-panel').forEach(function(panel) {
+    q('.pf-custom-size-panel').forEach(function(panel) {
         pfRefreshCustomSizePanelUnit(panel);
     });
-    document.querySelectorAll('.pf-custom-size-unit-select').forEach(function(sel) {
+    q('.pf-custom-size-unit-select').forEach(function(sel) {
         if (sel.dataset.pfServiceFieldBound === '1') return;
         sel.dataset.pfServiceFieldBound = '1';
         sel.addEventListener('change', function() {
@@ -2065,15 +2453,20 @@ function initServiceFieldRenderer() {
     });
     
     // Run once on load to show initial state
-    updateConditionalFields();
-    document.querySelectorAll('.shopee-form-row[data-pf-initial-disabled="1"]').forEach(function(row) {
+    if (typeof updateConditionalFields === 'function') updateConditionalFields();
+    q('.shopee-form-row[data-pf-initial-disabled="1"]').forEach(function(row) {
         const uiState = pfRowConditionalUIState(row);
         showFieldRow(row);
         pfApplyConditionalDisabledUI(row, true, uiState.customerNote);
         pfSyncConditionalRowRequiredState(row, false);
     });
-    initPfDesignUploadGroups();
-    initPfFieldHelpTooltips(document);
+    if (typeof initPfDesignUploadGroups === 'function') {
+        initPfDesignUploadGroups(scope === document ? undefined : scope);
+    }
+    if (scope === document && typeof initPfFieldHelpTooltips === 'function') {
+        initPfFieldHelpTooltips(document);
+    }
+    pfPrepareServiceFormDimensions(scope);
 }
 
 if (document.readyState === 'loading') {

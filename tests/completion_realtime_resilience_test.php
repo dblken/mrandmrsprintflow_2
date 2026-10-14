@@ -29,6 +29,8 @@ $expect(strpos($json, "header('Content-Type: application/json; charset=utf-8')")
 $expect(strpos($endpoint, 'LIMIT 1 FOR UPDATE') !== false, 'Completion must serialize transitions with a row lock.');
 $expect(strpos($db, 'SELECT @@session.in_transaction AS active_transaction') !== false, 'Nested status services must detect the real mysqli transaction state.');
 $expect(strpos($endpoint, "'changed' => false") !== false && strpos($endpoint, "'already_completed'") !== false, 'Repeated completion must return an idempotent success contract.');
+$expect(strpos($endpoint, '$requestingCompleted && $alreadyCompleted') !== false, 'Stale expected_status must not block idempotent completion when the order is already Completed.');
+$expect(strpos($customizations, 'isAlreadyCompletedOrderConflict') !== false && strpos($customizations, 'applyStoreOrderCompletedUi') !== false, 'Frontend must treat HTTP 409 with current_status Completed as a successful completion refresh.');
 $expect(strpos($endpoint, "['paid', 'fully paid']") !== false, 'Store-order completion must require a canonical paid state.');
 $expect(strpos($jobs, "['PAID', 'FULLY PAID']") !== false, 'Job completion must accept canonical paid states.');
 $expect(strpos($jobs, 'LIMIT 1 FOR UPDATE') !== false && strpos($jobs, '$currentNormalizedStatus === $normalizedNewStatus') !== false, 'Job transitions must lock and short-circuit repeated statuses.');

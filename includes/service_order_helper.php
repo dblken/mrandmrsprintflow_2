@@ -18,6 +18,50 @@ define('SERVICE_ORDER_ALLOWED_MIME', [
 define('SERVICE_ORDER_ALLOWED_EXT', ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'pdf', 'ai', 'psd']);
 define('SERVICE_ORDER_MAX_SIZE', 5 * 1024 * 1024); // 5MB limit requested by user
 define('SERVICE_ORDER_SUPPORTED_FORMATS_LABEL', 'PNG, JPG, JPEG, WEBP, GIF, SVG, PDF, AI, PSD');
+if (!defined('PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM')) {
+    define('PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM', 10);
+}
+
+/**
+ * Normalize a single or multi PHP upload field into a list of file arrays.
+ *
+ * @return list<array<string,mixed>>
+ */
+function printflow_normalize_php_file_uploads(string $field): array
+{
+    $candidates = [$field, $field . '[]', rtrim($field, '[]')];
+    $upload = null;
+    foreach ($candidates as $candidate) {
+        if (isset($_FILES[$candidate]) && is_array($_FILES[$candidate])) {
+            $upload = $_FILES[$candidate];
+            break;
+        }
+    }
+    if ($upload === null) {
+        return [];
+    }
+    if (!is_array($upload['name'] ?? null)) {
+        if (($upload['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            return [];
+        }
+        return [$upload];
+    }
+    $out = [];
+    $count = count($upload['name']);
+    for ($i = 0; $i < $count; $i++) {
+        if (($upload['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            continue;
+        }
+        $out[] = [
+            'name' => $upload['name'][$i] ?? '',
+            'type' => $upload['type'][$i] ?? '',
+            'tmp_name' => $upload['tmp_name'][$i] ?? '',
+            'error' => $upload['error'][$i] ?? UPLOAD_ERR_NO_FILE,
+            'size' => $upload['size'][$i] ?? 0,
+        ];
+    }
+    return $out;
+}
 
 /**
  * POST field name for the optional design/image link paired with a file field.
@@ -43,7 +87,8 @@ function service_order_design_file_accept_attr(): string {
 }
 
 /**
- * Validate an external design/image link (HTTP/HTTPS only).
+ * Validate an external design link without fetching it.
+ * The returned url is the trimmed customer value, not a rewritten address.
  *
  * @return array{ok:bool,error:string,url:string}
  */
@@ -53,12 +98,12 @@ function service_order_validate_design_link(string $url): array {
         return ['ok' => false, 'error' => 'Please enter a design link.', 'url' => ''];
     }
 
-    if (preg_match('/^\s*(javascript|data|file|vbscript):/i', $url)) {
-        return ['ok' => false, 'error' => 'Invalid link. Only HTTP/HTTPS URLs are allowed.', 'url' => ''];
+    if (preg_match('/^(javascript|data|file|vbscript):/i', $url) || preg_match('/[\x00-\x1F\x7F]/', $url)) {
+        return ['ok' => false, 'error' => 'Invalid link. Only HTTPS URLs are allowed.', 'url' => ''];
     }
 
-    if (!preg_match('/^https?:\/\//i', $url)) {
-        return ['ok' => false, 'error' => 'Please enter a valid HTTP or HTTPS link.', 'url' => ''];
+    if (!preg_match('/^https:\/\//i', $url)) {
+        return ['ok' => false, 'error' => 'Please enter a valid HTTPS link.', 'url' => ''];
     }
 
     if (filter_var($url, FILTER_VALIDATE_URL) === false) {
@@ -66,14 +111,29 @@ function service_order_validate_design_link(string $url): array {
     }
 
     $parts = parse_url($url);
+    $scheme = strtolower((string)($parts['scheme'] ?? ''));
     $host = strtolower((string)($parts['host'] ?? ''));
-    if ($host === 'localhost' || $host === '0.0.0.0' || str_ends_with($host, '.local')) {
+    if ($scheme !== 'https' || $host === '') {
+        return ['ok' => false, 'error' => 'Please enter a valid HTTPS link.', 'url' => ''];
+    }
+    if (
+        $host === 'localhost'
+        || $host === '0.0.0.0'
+        || $host === '::1'
+        || str_ends_with($host, '.localhost')
+        || str_ends_with($host, '.local')
+        || str_ends_with($host, '.internal')
+    ) {
         return ['ok' => false, 'error' => 'Please enter a publicly accessible design link.', 'url' => ''];
     }
 
-    if (filter_var($host, FILTER_VALIDATE_IP)) {
+    $ip = $host;
+    if (str_starts_with($ip, '[') && str_ends_with($ip, ']')) {
+        $ip = substr($ip, 1, -1);
+    }
+    if (filter_var($ip, FILTER_VALIDATE_IP)) {
         $flags = FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE;
-        if (filter_var($host, FILTER_VALIDATE_IP, $flags) === false) {
+        if (filter_var($ip, FILTER_VALIDATE_IP, $flags) === false) {
             return ['ok' => false, 'error' => 'Please enter a publicly accessible design link.', 'url' => ''];
         }
     }
@@ -94,22 +154,111 @@ function service_order_extract_design_link_from_customization(array $customizati
     $candidates[] = 'design_external_link';
     $candidates[] = 'Upload Design Link';
     $candidates[] = 'Design Link';
+    if ($field_key !== '') {
+        $candidates[] = $field_key;
+    }
 
     foreach ($candidates as $candidate) {
-        if (!array_key_exists($candidate, $customization)) {
+        $found = service_order_customization_https_value($customization, $candidate);
+        if ($found !== '') {
+            return $found;
+        }
+    }
+
+    foreach ($customization as $key => $value) {
+        if (!is_string($key)) {
             continue;
         }
-        $value = $customization[$candidate];
-        if (!is_scalar($value)) {
+        $token = strtolower(trim($key));
+        $isDesignLinkKey = str_ends_with($token, ' link')
+            || str_ends_with($token, '_link')
+            || $token === 'design link';
+        if (!$isDesignLinkKey) {
             continue;
         }
-        $text = trim((string)$value);
-        if ($text !== '' && preg_match('/^https?:\/\//i', $text)) {
-            return $text;
+        $found = service_order_customization_https_value($customization, $key);
+        if ($found !== '') {
+            return $found;
         }
     }
 
     return '';
+}
+
+/**
+ * Trimmed HTTPS value stored under one customization key.
+ */
+function service_order_customization_https_value(array $customization, string $key): string {
+    if ($key === '' || !array_key_exists($key, $customization) || !is_scalar($customization[$key])) {
+        return '';
+    }
+    $text = trim((string)$customization[$key]);
+    if ($text === '' || !preg_match('/^https:\/\//i', $text)) {
+        return '';
+    }
+    $check = service_order_validate_design_link($text);
+    return $check['ok'] ? (string)$check['url'] : '';
+}
+
+/**
+ * A mode token or an HTTPS address is not an uploaded design file.
+ */
+function service_order_value_is_design_link_or_mode(string $value): bool
+{
+    $value = trim($value);
+    if (in_array(strtolower($value), ['link', 'file'], true)) {
+        return true;
+    }
+    return (bool)preg_match('/^https:\/\//i', $value);
+}
+
+/**
+ * Copy a validated design link onto the keys staff and customer views read.
+ * The stored value is the trimmed customer URL. The link is not fetched.
+ */
+function service_order_persist_validated_design_links(array &$customization, array $fieldConfigs): void
+{
+    foreach ($customization as $key => $value) {
+        if (!is_string($key) || !is_scalar($value)) {
+            continue;
+        }
+        $token = strtolower(trim($key));
+        $isDesignLinkKey = $token === 'design_external_link'
+            || $token === 'design_link'
+            || $token === 'design link'
+            || str_ends_with($token, ' link')
+            || (str_ends_with($token, '_link') && (str_contains($token, 'design') || str_contains($token, 'upload')));
+        if (!$isDesignLinkKey) {
+            continue;
+        }
+        $check = service_order_validate_design_link(trim((string)$value));
+        if (!$check['ok']) {
+            unset($customization[$key]);
+            continue;
+        }
+        $customization[$key] = $check['url'];
+    }
+
+    foreach ($fieldConfigs as $fieldKey => $config) {
+        if (!is_array($config) || trim((string)($config['type'] ?? '')) !== 'file') {
+            continue;
+        }
+        $fieldKey = (string)$fieldKey;
+        $label = trim((string)($config['label'] ?? $fieldKey));
+        $url = service_order_extract_design_link_from_customization($customization, $label, $fieldKey);
+        if ($url === '') {
+            continue;
+        }
+        $customization[service_order_design_link_post_name($fieldKey)] = $url;
+        if ($label !== '') {
+            $customization[service_order_design_link_storage_key($label)] = $url;
+        }
+        $customization['design_external_link'] = $url;
+        $fieldValue = trim((string)($customization[$fieldKey] ?? ''));
+        if ($fieldValue === $url || in_array(strtolower($fieldValue), ['link', 'file'], true)) {
+            unset($customization[$fieldKey]);
+        }
+    }
 }
 
 /**
@@ -156,14 +305,14 @@ function service_order_customization_has_design_file(array $customization, strin
 
     if ($fieldKey !== '') {
         $raw = trim((string)($customization[$fieldKey] ?? ''));
-        if ($raw !== '' && !preg_match('/^https?:\/\//i', $raw)) {
+        if ($raw !== '' && !service_order_value_is_design_link_or_mode($raw)) {
             return true;
         }
     }
 
     if ($fieldLabel !== '') {
         $labelValue = trim((string)($customization[$fieldLabel] ?? ''));
-        if ($labelValue !== '' && !preg_match('/^https?:\/\//i', $labelValue)) {
+        if ($labelValue !== '' && !service_order_value_is_design_link_or_mode($labelValue)) {
             return true;
         }
     }
@@ -702,7 +851,10 @@ function printflow_calculate_service_unit_price(int $serviceId, array $customiza
             return [
                 'ok' => false,
                 'unit_price' => 0.0,
-                'message' => 'Price could not be calculated for this service.',
+                'reason' => 'unconfigured',
+                'message' => function_exists('printflow_unconfigured_price_note')
+                    ? printflow_unconfigured_price_note()
+                    : 'This specification has no configured price yet. The final price will be set by Staff before payment or completion.',
             ];
         }
 
@@ -772,7 +924,10 @@ function printflow_calculate_service_unit_price(int $serviceId, array $customiza
         return [
             'ok' => false,
             'unit_price' => 0.0,
-            'message' => 'Price could not be calculated. Check your specifications and try again.',
+            'reason' => 'unconfigured',
+            'message' => function_exists('printflow_unconfigured_price_note')
+                ? printflow_unconfigured_price_note()
+                : 'This specification has no configured price yet. The final price will be set by Staff before payment or completion.',
         ];
     }
 

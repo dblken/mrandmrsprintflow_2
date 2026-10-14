@@ -207,7 +207,7 @@ try {
     [$bSqlFrag_c, $bT_c, $bP_c] = branch_where_parts('o', $branchId);
     $bSqlFrag_c .= ' AND ' . printflow_order_archive_scope_sql('o');
     [$bSqlFrag_j, $bT_j, $bP_j] = branch_where_parts('j', $branchId);
-    $bSqlFrag_j .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id');
+    $bSqlFrag_j .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id');
     $types = 'ss' . ($bT_c ?: '') . 'ss' . ($bT_j ?: '');
     $params = array_merge([$dashFromStart, $dashToEnd], $bP_c ?: [], [$dashFromStart, $dashToEnd], $bP_j ?: []);
     $top_customers = db_query(

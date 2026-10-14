@@ -331,8 +331,25 @@ function review_checkout_existing_order(int $customerId, string $token): int {
 
 function review_checkout_redirect_existing(int $orderId, bool $ajax): void {
     if ($orderId <= 0) return;
-    $rows = db_query('SELECT order_type FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]) ?: [];
-    $redirect = strtolower(trim((string)($rows[0]['order_type'] ?? ''))) === 'custom'
+    $rows = db_query('SELECT order_type, customer_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]) ?: [];
+    $orderType = strtolower(trim((string)($rows[0]['order_type'] ?? '')));
+    if ($orderType === 'custom' && function_exists('printflow_ensure_staff_new_order_notification')) {
+        $customerId = (int)($rows[0]['customer_id'] ?? 0);
+        $customerName = 'Customer';
+        if ($customerId > 0) {
+            $customerRow = db_query(
+                'SELECT first_name, last_name FROM customers WHERE customer_id = ? LIMIT 1',
+                'i',
+                [$customerId]
+            ) ?: [];
+            $customerName = trim((string)($customerRow[0]['first_name'] ?? '') . ' ' . (string)($customerRow[0]['last_name'] ?? ''));
+            if ($customerName === '') {
+                $customerName = 'Customer';
+            }
+        }
+        printflow_ensure_staff_new_order_notification($orderId, $customerName, $customerId);
+    }
+    $redirect = $orderType === 'custom'
         ? 'orders.php'
         : 'payment.php?order_id=' . $orderId;
     if ($ajax) {
@@ -786,10 +803,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             $fallbackSourcePage = review_item_is_service($item) ? 'services' : 'products';
                             $custom['source_page'] = trim((string)($item['source_page'] ?? $fallbackSourcePage)) ?: $fallbackSourcePage;
                         }
+                        $reviewDesignUploadActive = true;
+                        if (review_item_is_service($item)) {
+                            require_once __DIR__ . '/../includes/service_field_config_helper.php';
+                            $reviewServiceId = (int)($custom['service_id'] ?? 0);
+                            $stripDesignMedia = function_exists('printflow_customization_layout_is_without')
+                                && printflow_customization_layout_is_without($custom);
+                            if ($reviewServiceId > 0 && function_exists('get_service_field_config')) {
+                                $reviewFieldConfigs = get_service_field_config($reviewServiceId) ?: [];
+                                if ($reviewFieldConfigs !== []) {
+                                    printflow_apply_layout_canonical_to_customization($custom, $reviewFieldConfigs);
+                                    $stripDesignMedia = !printflow_service_design_upload_is_active($reviewFieldConfigs, $custom);
+                                }
+                            }
+                            $reviewDesignUploadActive = !$stripDesignMedia;
+                            if ($stripDesignMedia && function_exists('printflow_customization_clear_ephemeral_design_media')) {
+                                $custom = printflow_customization_clear_ephemeral_design_media($custom);
+                            }
+                        }
                         $uploadedFilesMeta = [];
                         $design_binary = null;
-                        $design_mime   = $item['design_mime']   ?? null;
-                        $design_name   = $item['design_name']   ?? null;
+                        $design_mime   = $reviewDesignUploadActive ? ($item['design_mime'] ?? null) : null;
+                        $design_name   = $reviewDesignUploadActive ? ($item['design_name'] ?? null) : null;
                         
                         $upload_dir = __DIR__ . '/../uploads/orders';
                         if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
@@ -797,7 +832,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                         $design_file_path = null;
                         $reference_file_path = null;
 
-                        if (!empty($item['design_tmp_path']) && file_exists($item['design_tmp_path'])) {
+                        if ($reviewDesignUploadActive && !empty($item['design_tmp_path']) && file_exists($item['design_tmp_path'])) {
                             $design_binary = file_get_contents($item['design_tmp_path']);
                             $design_file_path = printflow_copy_cart_design_to_orders_dir(
                                 (string)$item['design_tmp_path'],
@@ -820,7 +855,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             }
                         }
 
-                        if (!empty($item['uploaded_files']) && is_array($item['uploaded_files'])) {
+                        if ($reviewDesignUploadActive && !empty($item['uploaded_files']) && is_array($item['uploaded_files'])) {
                             foreach ($item['uploaded_files'] as $upload) {
                                 $tmpPath = trim((string)($upload['tmp_path'] ?? ''));
                                 $origName = trim((string)($upload['name'] ?? 'upload'));
@@ -931,6 +966,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                 }
                             }
                             printflow_sync_job_orders_artwork_for_order_item((int)$order_item_id);
+                            if (function_exists('printflow_order_item_design_files_sync_from_customization')) {
+                                $syncedDesignFiles = printflow_order_item_design_files_sync_from_customization(
+                                    (int)$order_item_id,
+                                    (int)$order_id,
+                                    (int)$customer_id,
+                                    0,
+                                    is_array($custom) ? $custom : []
+                                );
+                                if (
+                                    $syncedDesignFiles !== []
+                                    && function_exists('printflow_customization_apply_synced_design_files')
+                                ) {
+                                    $custom = printflow_customization_apply_synced_design_files($custom, $syncedDesignFiles);
+                                    $custom_data = printflow_encode_customization_payload($custom);
+                                    $items_to_review[$key]['customization'] = $custom;
+                                    db_execute(
+                                        'UPDATE order_items SET customization_data = ? WHERE order_item_id = ?',
+                                        'si',
+                                        [$custom_data, $order_item_id]
+                                    );
+                                }
+                            }
                             error_log('ORDER ITEM ID: ' . $order_item_id);
                             error_log('DESIGN FILE: ' . (string)($design_file_path ?? ''));
                             error_log('FULL PATH: ' . (string)(printflow_resolve_order_upload_disk_path((string)($design_file_path ?? '')) ?? 'null'));
@@ -1143,7 +1200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                 }
                             }
                         }
-                        notify_staff_new_order($order_id, $customer_name, $customer_id);
+                        printflow_ensure_staff_new_order_notification($order_id, $customer_name, $customer_id);
                         printflow_send_order_update($order_id, 'inquiry');
                     }
                     

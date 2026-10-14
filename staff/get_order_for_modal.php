@@ -8,11 +8,13 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
+require_once __DIR__ . '/../includes/job_order_summary.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/change_item_workflow.php';
 require_once __DIR__ . '/../includes/pos_customer_helpers.php';
+require_once __DIR__ . '/../includes/staff_access.php';
 
 header('Content-Type: application/json');
 
@@ -39,7 +41,7 @@ $order_row = db_query(
             COALESCE(c.contact_number, c.email, '') AS customer_contact
      FROM orders o
      LEFT JOIN customers c ON o.customer_id = c.customer_id
-     WHERE o.order_id = ?",
+     WHERE o.order_id = ? AND " . printflow_order_archive_scope_sql('o'),
     'i',
     [$order_id]
 );
@@ -51,8 +53,8 @@ if (empty($order_row)) {
 
 $o = $order_row[0];
 $o['customer_full_name'] = printflow_pos_order_customer_display_name($o);
-$resolvedOrderSource = strtolower(trim((string)($o['order_source'] ?? 'customer')));
-$isPosSource = in_array($resolvedOrderSource, ['pos', 'walk-in', 'pos_merged'], true);
+$resolvedOrderSource = printflow_resolve_staff_order_source($order_id, (string)($o['order_source'] ?? 'customer'));
+$o['order_source'] = $resolvedOrderSource;
 if (get_user_type() === 'Staff') {
     $staffAccessRole = printflow_get_staff_access_role();
     $allowsCrossChannelRead = false;
@@ -63,7 +65,7 @@ if (get_user_type() === 'Staff') {
     }
     if (
         !$allowsCrossChannelRead
-        && (($staffAccessRole === 'pos' && !$isPosSource) || ($staffAccessRole === 'online' && $isPosSource))
+        && !printflow_staff_role_can_access_order_source($staffAccessRole, $resolvedOrderSource)
     ) {
         if (getenv('PRINTFLOW_NOTIFICATION_DEBUG') === '1') {
             error_log('[get_order_for_modal] access denied order_id=' . $order_id
@@ -147,12 +149,17 @@ if ($linked_job_id <= 0 && $ensureJob && strtolower(trim((string)($o['order_type
     }
 }
 
-// Root-cause fix: getStoreOrderItemsPayload() aggregates the WHOLE store order and
-// derives service_type/width/height from the FIRST line item. Re-anchor the
-// service/dimensions/category to the order_item this job is actually linked to.
+// Prefer the selected customization's saved line over a legacy staged job link.
+// Both references must resolve within this order; a sole line is unambiguous.
+$displayLine = printflow_job_order_find_store_line_from_references(
+    $items_out, $hintOrderItemId, $linked_job_order_item_id
+);
+$displayOrderItemId = is_array($displayLine)
+    ? (int)$displayLine['order_item_id']
+    : ($hintOrderItemId > 0 ? $hintOrderItemId : $linked_job_order_item_id);
 $materialContext = printflow_anchor_material_context_to_order_item(
     $items_out,
-    $linked_job_order_item_id,
+    $displayOrderItemId,
     $service_name,
     $first_custom,
     $width_ft,
@@ -164,17 +171,38 @@ $service_id = (int)($materialContext['serviceId'] ?? 0);
 $first_custom = is_array($materialContext['firstCustom'] ?? null) ? $materialContext['firstCustom'] : $first_custom;
 $width_ft = (string)($materialContext['widthFt'] ?? $width_ft);
 $height_ft = (string)($materialContext['heightFt'] ?? $height_ft);
-$resolvedDimensions = printflow_resolve_customization_dimensions($first_custom);
-if (($resolvedDimensions['width'] ?? '') !== '' && ($resolvedDimensions['height'] ?? '') !== '') {
-    $width_ft = (string)$resolvedDimensions['width'];
-    $height_ft = (string)$resolvedDimensions['height'];
-} elseif ($width_ft === '1' && $height_ft === '1') {
-    if (($resolvedDimensions['width'] ?? '') !== '') {
-        $width_ft = (string)$resolvedDimensions['width'];
+$forceSingleLineView = $hintOrderItemId > 0 || $linked_job_order_item_id > 0;
+if ($forceSingleLineView && $displayOrderItemId > 0) {
+    $primaryItem = is_array($materialContext['primaryItem'] ?? null) ? $materialContext['primaryItem'] : null;
+    if ($primaryItem !== null) {
+        // A customization row represents its linked line. Keep its specifications,
+        // dimensions, and service together instead of rendering neighboring lines.
+        $items_out = [$primaryItem];
+        $first_custom = is_array($primaryItem['customization'] ?? null) ? $primaryItem['customization'] : [];
+        $total_qty = max(1, (int)($primaryItem['quantity'] ?? 1));
+        $canonicalDimensions = printflow_resolve_customization_dimensions($first_custom);
+        $width_ft = (string)($canonicalDimensions['width'] ?? '');
+        $height_ft = (string)($canonicalDimensions['height'] ?? '');
+    } else {
+        // A stale/bad line reference must not borrow another line's display data.
+        $items_out = [];
+        $first_custom = [];
+        $service_name = 'Unknown Service';
+        $width_ft = '';
+        $height_ft = '';
+        $total_qty = 0;
     }
-    if (($resolvedDimensions['height'] ?? '') !== '') {
-        $height_ft = (string)$resolvedDimensions['height'];
+} elseif (count($items_out) > 1) {
+    $service_name = printflow_store_order_service_summary($order_id, ['items' => $items_out]);
+    if ($service_name === '') {
+        $service_name = 'Unknown Service';
     }
+    $first_custom = is_array($items_out[0]['customization'] ?? null) ? $items_out[0]['customization'] : [];
+    $total_qty = array_sum(array_map(static fn(array $i): int => max(1, (int)($i['quantity'] ?? 1)), $items_out));
+} else {
+    $canonicalDimensions = printflow_resolve_customization_dimensions($first_custom);
+    $width_ft = (string)($canonicalDimensions['width'] ?? '');
+    $height_ft = (string)($canonicalDimensions['height'] ?? '');
 }
 $job_item_title = (string)($materialContext['jobItemTitle'] ?? '');
 
@@ -341,7 +369,7 @@ $data = [
     'service_type' => $service_name,
     'service_id' => $service_id > 0 ? $service_id : null,
     'service_category' => $service_category,
-    'linked_order_item_id' => $linked_job_order_item_id > 0 ? $linked_job_order_item_id : null,
+    'linked_order_item_id' => $displayOrderItemId > 0 ? $displayOrderItemId : null,
     'customization_details' => $first_custom,
     'job_title' => $job_item_title !== '' ? $job_item_title : implode(', ', array_map(static function ($i) {
         return (string)($i['product_name'] ?? 'Order Item') . ' - ' . max(1, (int)($i['quantity'] ?? 0)) . 'pcs';
@@ -414,5 +442,7 @@ $data['change_item_request_source'] = (string)($changeItemSummary['active']['req
 $data['change_item_request_source_label'] = (string)($changeItemSummary['active']['request_source_label'] ?? '');
 $data['change_item_verification_status'] = (string)($changeItemSummary['active']['verification_status'] ?? '');
 $data['change_item_change_status'] = (string)($changeItemSummary['active']['change_status'] ?? '');
+
+printflow_enrich_store_order_items_for_display($data['items']);
 
 echo json_encode(['success' => true, 'data' => $data]);

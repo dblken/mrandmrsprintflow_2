@@ -363,6 +363,13 @@ try {
                             'unit_price' => round($fallbackUnit, 2),
                             'message' => '',
                         ];
+                    } elseif (($priceCalc['reason'] ?? '') === 'unconfigured') {
+                        $serviceCustomization['price_unconfigured'] = '1';
+                        $priceCalc = [
+                            'ok' => true,
+                            'unit_price' => 0.0,
+                            'message' => '',
+                        ];
                     } else {
                         throw new PosCartValidationException([
                             'price' => (string)($priceCalc['message'] ?? 'Price could not be calculated.'),
@@ -370,6 +377,7 @@ try {
                     }
                 }
                 $price = (float)$priceCalc['unit_price'];
+                service_order_persist_validated_design_links($serviceCustomization, $serviceFieldConfigs);
                 $preparedCustomization = $serviceCustomization;
                 $preparedCustomization['calculated_unit_price'] = number_format($price, 2, '.', '');
                 $preparedCustomization['calculated_estimated_price'] = number_format($price * $qty, 2, '.', '');
@@ -559,6 +567,10 @@ try {
             $_SESSION['pos_cart'][$index]['pending_order_id'] = $pending_order_id;
             if ($customization_id > 0) {
                 $_SESSION['pos_cart'][$index]['pending_customization_id'] = $customization_id;
+            }
+            $pending_order_item_id = (int)($data['pending_order_item_id'] ?? 0);
+            if ($pending_order_item_id > 0) {
+                $_SESSION['pos_cart'][$index]['pending_order_item_id'] = $pending_order_item_id;
             }
             break;
 

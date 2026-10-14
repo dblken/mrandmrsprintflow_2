@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/customer_exclusion.php';
 /**
  * Record-specific order archive helpers.
  * The archive mapping is intentionally separate from transactional records.
@@ -57,9 +58,13 @@ if (!function_exists('printflow_order_archive_exclusion_sql')) {
         if (!preg_match('/^[A-Za-z0-9_.]+$/', $orderIdExpression)) {
             throw new InvalidArgumentException('Invalid order ID expression.');
         }
-        if (!printflow_order_archive_tables_ready()) return '1=1';
-        return "NOT EXISTS (SELECT 1 FROM printflow_order_archive_map pf_oam
-            WHERE pf_oam.order_id = {$orderIdExpression} AND pf_oam.status = 'archived')";
+        $archivePredicate = printflow_order_archive_tables_ready()
+            ? "NOT EXISTS (SELECT 1 FROM printflow_order_archive_map pf_oam
+                WHERE pf_oam.order_id = {$orderIdExpression} AND pf_oam.status = 'archived')"
+            : '1=1';
+        $customerPredicate = printflow_customer_exclusion_order_scope_sql($orderIdExpression);
+        if ($archivePredicate === '1=1' && $customerPredicate === '1=1') return '1=1';
+        return '(' . $archivePredicate . ' AND ' . $customerPredicate . ')';
     }
 }
 
@@ -79,12 +84,16 @@ if (!function_exists('printflow_order_archive_notification_exclusion_sql')) {
         if (!preg_match('/^[A-Za-z][A-Za-z0-9_]*$/', $alias)) {
             throw new InvalidArgumentException('Invalid notification alias.');
         }
-        if (!printflow_order_archive_tables_ready()) return '1=1';
-        return "(COALESCE({$alias}.type, '') <> 'Order'
+        $archivePredicate = printflow_order_archive_tables_ready()
+            ? "(COALESCE({$alias}.type, '') <> 'Order'
             OR CAST(COALESCE({$alias}.data_id, '0') AS UNSIGNED) = 0
             OR NOT EXISTS (SELECT 1 FROM printflow_order_archive_map pf_oam_n
                 WHERE pf_oam_n.order_id = CAST({$alias}.data_id AS UNSIGNED)
-                  AND pf_oam_n.status = 'archived'))";
+                  AND pf_oam_n.status = 'archived'))"
+            : '1=1';
+        $customerPredicate = printflow_customer_exclusion_notification_scope_sql($alias);
+        if ($archivePredicate === '1=1' && $customerPredicate === '1=1') return '1=1';
+        return '(' . $archivePredicate . ' AND ' . $customerPredicate . ')';
     }
 }
 

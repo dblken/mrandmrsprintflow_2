@@ -532,13 +532,7 @@ $orders = db_query(
             CONCAT(c.first_name, ' ', c.last_name) AS customer_name,
             o.order_date,
             o.total_amount,
-            o.status,
-            (SELECT COALESCE(p.name, s.name, 'General')
-             FROM order_items oi
-             LEFT JOIN products p ON oi.product_id = p.product_id" . ($hasOrderItemType ? " AND COALESCE(NULLIF(oi.item_type, ''), 'product') = 'product'" : "") . "
-             {$serviceJoinSql}
-             WHERE oi.order_id = o.order_id
-             LIMIT 1) AS service_type
+            o.status
      FROM orders o
      LEFT JOIN customers c ON o.customer_id = c.customer_id
      {$sqlCond}
@@ -547,6 +541,16 @@ $orders = db_query(
     $types,
     $params
 ) ?: [];
+if ($orders !== [] && function_exists('printflow_dashboard_order_service_labels')) {
+    $dashboardServiceLabels = printflow_dashboard_order_service_labels(array_map(static function (array $row): int {
+        return (int)($row['order_id'] ?? 0);
+    }, $orders));
+    foreach ($orders as &$dashboardOrderRow) {
+        $oid = (int)($dashboardOrderRow['order_id'] ?? 0);
+        $dashboardOrderRow['service_type'] = $dashboardServiceLabels[$oid] ?? 'General';
+    }
+    unset($dashboardOrderRow);
+}
 
 $peso = '₱';
 foreach ($orders as &$order) {

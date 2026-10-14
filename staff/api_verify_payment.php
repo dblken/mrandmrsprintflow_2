@@ -110,7 +110,7 @@ if (!$order_id || !in_array($action, ['Approve', 'Reject'])) {
 }
 
 // Get order details then validate branch with the same rules used by the staff listing.
-$order_result = db_query("SELECT * FROM orders WHERE order_id = ?", 'i', [$order_id]);
+$order_result = db_query("SELECT * FROM orders WHERE order_id = ? AND " . printflow_order_archive_scope_sql('orders'), 'i', [$order_id]);
 if (empty($order_result)) {
     echo json_encode(['success' => false, 'error' => 'Order not found']);
     exit;
@@ -192,7 +192,7 @@ $lock_submission_for_decision = static function () use ($submission_id, $order_i
 };
 
 $lock_order_for_decision = static function () use ($order_id, $staffBranchId): array {
-    $rows = db_query('SELECT * FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE', 'i', [$order_id]) ?: [];
+    $rows = db_query('SELECT * FROM orders WHERE order_id = ? AND ' . printflow_order_archive_scope_sql('orders') . ' LIMIT 1 FOR UPDATE', 'i', [$order_id]) ?: [];
     if (empty($rows)) {
         throw new RuntimeException('The order no longer exists.');
     }

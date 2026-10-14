@@ -125,7 +125,11 @@ class InventoryManager {
         // $date is an optional final parameter on all public inventory calls.
         // Preserve a supplied POS transaction timestamp; legacy callers still
         // receive the current server timestamp by default.
-        $date = $date ?: date('Y-m-d H:i:s');
+        if (is_string($date) && trim($date) !== '' && function_exists('printflow_normalize_business_datetime')) {
+            $date = printflow_normalize_business_datetime($date) ?: trim($date);
+        } else {
+            $date = $date ?: date('Y-m-d H:i:s');
+        }
         $quantity = abs((float)$quantity);
         $userId = $userId ?: ($_SESSION['user_id'] ?? null);
         $branchId = $branchId ?: self::getCurrentBranchId();
@@ -315,8 +319,11 @@ class InventoryManager {
         require_once __DIR__ . '/RollService.php';
         // We use orderItemId as the jobOrderId for now, or we might need to look up the order_id
         $item = db_query("SELECT order_id FROM order_items WHERE order_item_id = ?", 'i', [$orderItemId]);
-        $orderId = $item[0]['order_id'] ?? 0;
-        
-        return RollService::deductFromRoll($rollId, $requiredLength, $orderId, null);
+        $orderId = (int)($item[0]['order_id'] ?? 0);
+        $transactionDate = ($orderId > 0 && function_exists('printflow_store_order_ledger_date'))
+            ? printflow_store_order_ledger_date($orderId)
+            : null;
+
+        return RollService::deductFromRoll($rollId, $requiredLength, $orderId, null, $transactionDate);
     }
 }

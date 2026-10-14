@@ -502,6 +502,98 @@ function printflow_service_field_normalize_layout_values(array $values, array $f
  * @param array<string, mixed> $customization
  * @param array<string, array> $fieldConfigs
  */
+/**
+ * Whether customization payload indicates Without Layout.
+ *
+ * @param array<string, mixed> $customization
+ */
+function printflow_customization_layout_is_without(array $customization): bool
+{
+    foreach ($customization as $key => $value) {
+        if (!is_scalar($value)) {
+            continue;
+        }
+        $keyStr = strtolower(trim((string)$key));
+        if ($keyStr !== 'layout' && !str_contains($keyStr, 'layout')) {
+            continue;
+        }
+        if (printflow_layout_option_canonical((string)$value) === 'without_layout') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * True when at least one visible design/file field is active for current field values.
+ *
+ * @param array<string, array<string, mixed>> $fieldConfigs
+ * @param array<string, mixed> $fieldValues
+ */
+function printflow_service_design_upload_is_active(array $fieldConfigs, array $fieldValues): bool
+{
+    foreach ($fieldConfigs as $fieldKey => $config) {
+        if (!is_array($config)) {
+            continue;
+        }
+        $type = strtolower(trim((string)($config['type'] ?? '')));
+        if ($type !== 'file') {
+            continue;
+        }
+        if (empty($config['visible'])) {
+            continue;
+        }
+        if (printflow_service_field_is_active($config, $fieldValues, (string)$fieldKey, $fieldConfigs)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Remove unsaved / ephemeral design upload keys from a customization payload (not persisted order_item_design_files).
+ *
+ * @param array<string, mixed> $customization
+ * @return array<string, mixed>
+ */
+function printflow_customization_clear_ephemeral_design_media(array $customization): array
+{
+    $dropKeys = [
+        'design_upload_files',
+        'design_upload_path',
+        'design_upload_name',
+        'design_upload_mime',
+        'design_upload',
+        'design_upload_data',
+        'design_upload_idempotency_key',
+        'design_file',
+        'design_tmp_path',
+        'design_data',
+        'design_blob',
+        'design_external_link',
+        'design_link',
+        'design_file_link',
+        'design_input_mode',
+        'uploaded_files',
+        '_uploaded_files',
+        'Upload Design',
+        'Upload Design Link',
+        'Design Link',
+    ];
+    foreach ($dropKeys as $key) {
+        unset($customization[$key]);
+    }
+    foreach (array_keys($customization) as $key) {
+        if (!is_string($key)) {
+            continue;
+        }
+        if (preg_match('/design.*link$/i', $key) === 1) {
+            unset($customization[$key]);
+        }
+    }
+    return $customization;
+}
+
 function printflow_apply_layout_canonical_to_customization(array &$customization, array $fieldConfigs): void
 {
     foreach ($fieldConfigs as $fieldKey => $config) {

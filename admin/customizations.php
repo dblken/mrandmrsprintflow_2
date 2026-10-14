@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
+require_once __DIR__ . '/../includes/job_order_summary.php';
 
 require_role(['Admin', 'Manager']);
 // Ensure $base_path is defined
@@ -96,7 +97,7 @@ $per_page       = 15;
 $branchCtx = init_branch_context(false); // analytics-style — allow All
 $branchId  = $branchCtx['selected_branch_id'];
 // Keep dataset aligned with staff/customizations.php
-$jobCustomizationScopeSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . " AND (
+$jobCustomizationScopeSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . " AND (
     jo.order_id IS NULL
     OR EXISTS (
         SELECT 1
@@ -110,8 +111,11 @@ $jobCustomizationScopeSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.
 )";
 
 // Build query (branch from job row or linked store order)
+$jobSubmittedAtExpr = 'jo_ord.order_date';
 $sql = "SELECT jo.*, CONCAT(c.first_name, ' ', c.last_name) AS customer_name, c.email AS customer_email,
                jo_ord.payment_status AS order_payment_status,
+               jo_ord.order_date AS store_order_date,
+               {$jobSubmittedAtExpr} AS order_business_date,
                COALESCE(jo.branch_id, jo_ord.branch_id) AS branch_display_id,
                b.branch_name AS branch_name
         FROM job_orders jo
@@ -160,19 +164,23 @@ if ($payment_filter === 'PAID') {
 }
 
 if (!empty($date_from)) {
-    $sql .= " AND DATE(jo.created_at) >= ?";
+    $sql .= " AND DATE({$jobSubmittedAtExpr}) >= ?";
     $params[] = $date_from;
     $types .= 's';
 }
 
 if (!empty($date_to)) {
-    $sql .= " AND DATE(jo.created_at) <= ?";
+    $sql .= " AND DATE({$jobSubmittedAtExpr}) <= ?";
     $params[] = $date_to;
     $types .= 's';
 }
 
 // Count
-$count_sql = preg_replace('/SELECT jo\.\*.*?FROM/s', 'SELECT COUNT(*) as total FROM', $sql);
+$count_sql = preg_replace(
+    '/SELECT jo\.\*.*?FROM/s',
+    "SELECT COUNT(DISTINCT CASE WHEN jo.order_id IS NOT NULL AND jo.order_id > 0 THEN CONCAT('o', jo.order_id) ELSE CONCAT('j', jo.id) END) as total FROM",
+    $sql
+);
 $total_filtered = db_query($count_sql, $types ?: null, $params ?: null)[0]['total'] ?? 0;
 $total_pages = max(1, ceil($total_filtered / $per_page));
 $page = min($page, $total_pages);
@@ -180,17 +188,23 @@ $offset = ($page - 1) * $per_page;
 
 // Sorting
 $order_clause = match($sort_by) {
-    'oldest' => "jo.created_at ASC",
+    'oldest' => "{$jobSubmittedAtExpr} ASC",
     'az'     => "c.first_name ASC, c.last_name ASC",
     'za'     => "c.first_name DESC, c.last_name DESC",
-    default  => "jo.created_at DESC"
+    default  => "{$jobSubmittedAtExpr} DESC"
 };
 $sql .= " ORDER BY $order_clause LIMIT $per_page OFFSET $offset";
 $jobs = db_query($sql, $types ?: null, $params ?: null) ?: [];
 foreach ($jobs as &$jobRow) {
     $jobRow['order_code'] = admin_customization_order_code($jobRow);
+    $jobRow['display_service_type'] = printflow_job_order_display_service_type($jobRow);
+    $submittedRaw = trim((string)($jobRow['store_order_date'] ?? $jobRow['order_date'] ?? ''));
+    $jobRow['display_submitted_at'] = $submittedRaw !== ''
+        ? printflow_format_business_date_display($submittedRaw)
+        : '';
 }
 unset($jobRow);
+$jobs = printflow_group_admin_customization_job_rows($jobs);
 
 // AJAX check
 if (isset($_GET['ajax'])) {
@@ -231,14 +245,14 @@ if (isset($_GET['ajax'])) {
                             <div class="text-xs text-gray-400"><?php echo htmlspecialchars($jo['customer_email'] ?: ''); ?></div>
                         </td>
                         <td class="py-3">
-                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($jo['service_type']); ?>">
-                                <?php echo htmlspecialchars($jo['service_type']); ?>
+                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>">
+                                <?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>
                             </div>
                             <?php if ($jo['quantity'] > 1): ?>
                                 <div class="text-xs text-gray-400">Qty: <?php echo $jo['quantity']; ?></div>
                             <?php endif; ?>
                         </td>
-                        <td class="py-3 text-center text-gray-500 text-xs"><?php echo date('M j, Y', strtotime($jo['created_at'])); ?></td>
+                        <td class="py-3 text-center text-gray-500 text-xs"><?php echo htmlspecialchars($jo['display_submitted_at'] ?? ''); ?></td>
                         <?php if ($branchId !== 'all'): ?>
                         <td class="py-3" style="max-width:140px;">
                             <?php
@@ -363,8 +377,32 @@ function custom_payment_badge($status) {
         .btn-action.teal:hover  { background:#14b8a6; color:white; }
 
         .modal-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px; }
-        .modal-panel { background:#fff;border-radius:12px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:640px;max-height:calc(100vh - 32px);display:flex;flex-direction:column;position:relative;overflow:hidden; }
-        .modal-content { overflow-y:auto;flex:1; }
+        .modal-panel { background:#fff;border-radius:12px;box-shadow:0 25px 50px rgba(0,0,0,0.25);width:100%;max-width:560px;max-height:88vh;display:flex;flex-direction:column;position:relative;overflow:hidden;margin:16px; }
+        .modal-content { overflow-y:auto;flex:1;min-height:0; }
+        .customization-modal-header { padding:20px 24px;border-bottom:1px solid #f3f4f6;display:flex;align-items:flex-start;justify-content:space-between;flex-shrink:0;gap:12px; }
+        .customization-modal-header h3 { font-size:18px;font-weight:700;color:#1f2937;margin:0;line-height:1.25; }
+        .customization-modal-subtitle { font-size:12px;color:#6b7280;margin:2px 0 0;line-height:1.35;word-wrap:break-word;overflow-wrap:break-word; }
+        .pf-customization-modal-body { padding:16px 20px 12px; }
+        .customization-modal-footer { padding:12px 20px;border-top:1px solid #f3f4f6;display:flex;justify-content:flex-end;gap:8px;flex-shrink:0; }
+        .pf-customization-spec-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;width:100%;max-width:100%;min-width:0;box-sizing:border-box; }
+        .pf-customization-spec-cell { padding:8px;border:1px solid #e5e7eb;border-radius:6px;background:#fff;min-width:0;overflow-wrap:break-word;box-sizing:border-box; }
+        .pf-customization-spec-cell--full { grid-column:1 / -1; }
+        .pf-customization-spec-label { display:block;font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:2px; }
+        .pf-customization-spec-value { font-size:12px;font-weight:500;color:#1f2937;word-break:break-word;overflow-wrap:anywhere;line-height:1.35; }
+        .pf-customization-order-details { margin-bottom:14px;padding:14px;border-radius:12px;border:1px solid #e5e7eb;background:#f9fafb; }
+        .pf-customization-item-block { margin-bottom:12px;padding:12px;background:#fff;border:1px solid #e5e7eb;border-radius:8px; }
+        .pf-customization-item-block:last-child { margin-bottom:0; }
+        .pf-modal-design-actions { display:flex;flex-wrap:wrap;gap:8px;width:100%;max-width:100%;min-width:0; }
+        .pf-modal-design-action-btn { display:inline-flex;align-items:center;justify-content:center;padding:8px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#334155;text-decoration:none;cursor:pointer;box-sizing:border-box;min-width:88px;text-align:center;line-height:1.25; }
+        a.pf-modal-design-action-btn { text-decoration:none; }
+        .customization-customer-block { margin-bottom:14px; }
+        .customization-customer-block > p { font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 8px; }
+        .customization-customer-row { display:flex;align-items:center;gap:12px; }
+        .customization-customer-row .avatar { width:40px;height:40px;border-radius:50%;flex-shrink:0; }
+        .customization-notes-block { margin-top:8px; }
+        .customization-notes-block .notes-box { background:#fffbeb;border:1px solid #fef3c7;border-radius:8px;padding:10px 12px;font-size:13px;color:#6b7280;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;line-height:1.45; }
+        .customizations-list-card .customs-table thead th { padding-top:8px;padding-bottom:8px; }
+        .customizations-list-card .customs-table tbody td { padding-top:7px;padding-bottom:7px;vertical-align:middle; }
         [x-cloak] { display:none !important; }
         @keyframes spin { to { transform:rotate(360deg); } }
 
@@ -373,7 +411,7 @@ function custom_payment_badge($status) {
         .search-box input:focus { border-color:#3b82f6;outline:none;box-shadow:0 0 0 3px rgba(59,130,246,.1); }
         .search-box .search-icon { position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9ca3af;pointer-events:none; }
 
-        .kpi-row { display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px; }
+        .kpi-row { display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px; }
         @media(max-width:768px){ .kpi-row{grid-template-columns:repeat(2,1fr);} }
         .kpi-card { background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px;position:relative;overflow:hidden; }
         .kpi-card::before { content:'';position:absolute;top:0;left:0;right:0;height:3px; }
@@ -570,10 +608,11 @@ function custom_payment_badge($status) {
             .mobile-header { display:flex;position:fixed;top:0;left:0;right:0;height:60px;background:#fff;z-index:60;padding:0 20px;align-items:center;justify-content:space-between;border-bottom:1px solid #e5e7eb; }
         }
 
-        .detail-row { display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px; }
-        .detail-block { flex:1;min-width:140px;background:#f9fafb;border-radius:8px;padding:12px 14px; }
-        .detail-block label { font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px; }
-        .detail-block span  { font-size:13px;font-weight:400;color:#1f2937; }
+        .detail-row { display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px; }
+        .detail-block { flex:1;min-width:0;background:#f9fafb;border-radius:6px;padding:7px 9px; }
+        .detail-block label { font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.35px;display:block;margin-bottom:2px;line-height:1.2; }
+        .detail-block span  { font-size:12px;font-weight:400;color:#1f2937;line-height:1.35;word-wrap:break-word;overflow-wrap:break-word;display:block; }
+        main[x-data="custModal()"] .modal-panel .detail-block { min-width:0; }
 
         /* Transaction History Tabs */
         .tab-btn { padding: 8px 16px; font-size: 13px; font-weight: 500; border-radius: 8px; transition: all 0.2s; cursor: pointer; border: 1px solid transparent; }
@@ -591,10 +630,13 @@ function custom_payment_badge($status) {
             }
             main[x-data="custModal()"] .modal-panel {
                 width: 100% !important;
-                max-width: calc(100vw - 20px) !important;
-                max-height: calc(100dvh - 76px) !important;
-                margin: 56px auto 16px !important;
+                max-width: calc(100vw - 16px) !important;
+                max-height: calc(100dvh - 72px) !important;
+                margin: 52px auto 12px !important;
                 border-radius: 8px !important;
+            }
+            main[x-data="custModal()"] .pf-customization-spec-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
             }
             main[x-data="custModal()"] .modal-content {
                 overflow-y: auto !important;
@@ -704,6 +746,8 @@ function custom_payment_badge($status) {
             }
         }
     </style>
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(rtrim((string)$base_path, '/') . '/public/assets/css/pf-order-item-design-files.css?v=' . (int) @filemtime(__DIR__ . '/../public/assets/css/pf-order-item-design-files.css')); ?>">
+    <script src="<?php echo htmlspecialchars(rtrim((string)$base_path, '/') . '/public/assets/js/pf-order-item-design-files.js?v=' . (int) @filemtime(__DIR__ . '/../public/assets/js/pf-order-item-design-files.js')); ?>"></script>
 </head>
 <body>
 
@@ -715,6 +759,7 @@ function custom_payment_badge($status) {
         function custModal() {
             return {
                 showModal: false,
+                modalRequestToken: 0,
                 loading: false,
                 errorMsg: '',
                 job: null,
@@ -736,18 +781,276 @@ function custom_payment_badge($status) {
                 // Image Viewer State
                 showImageViewer: false,
                 currentImage: '',
+                designFilesExpandedKeys: {},
 
                 modalOrderCode: '',
+                basePath: '<?php echo rtrim((string)$base_path, '/'); ?>',
+                jobDetailKey() {
+                    const j = this.job;
+                    if (!j || typeof j !== 'object') return 'empty';
+                    return String(j.id ?? j.order_id ?? this.modalOrderCode ?? 'job');
+                },
+                closeCustomizationModal() {
+                    this.modalRequestToken++;
+                    this.showModal = false;
+                    this.loading = false;
+                    this.errorMsg = '';
+                    this.job = null;
+                    this.showImageViewer = false;
+                    this.currentImage = '';
+                    this.designFilesExpandedKeys = {};
+                },
+                resolveMediaUrl(raw) {
+                    const s = String(raw ?? '').trim();
+                    if (!s || s === 'null' || s === 'undefined') return '';
+                    if (/^(data|blob):/i.test(s)) return s;
+                    if (/^https?:\/\//i.test(s)) return s;
+                    const base = String(this.basePath || '').replace(/\/+$/, '');
+                    if (s.startsWith('/')) {
+                        if (base && s.toLowerCase().startsWith(base.toLowerCase() + '/')) return s;
+                        return base ? base + s : s;
+                    }
+                    return base ? base + '/' + s.replace(/^\/+/, '') : s;
+                },
+                isGenericServicePlaceholder(url) {
+                    const text = String(url || '').trim();
+                    if (!text) return true;
+                    return /default\.png$/i.test(text) || /\/assets\/images\/services\/default/i.test(text);
+                },
+                jobPaymentProofUrl(job) {
+                    if (!job || typeof job !== 'object') return '';
+                    const submissionId = parseInt(job.payment_submission_id || 0, 10) || 0;
+                    const base = String(this.basePath || '').replace(/\/+$/, '');
+                    if (submissionId > 0) {
+                        return base + '/staff/api/payment_proof_image.php?id=' + encodeURIComponent(String(submissionId));
+                    }
+                    const raw = String(
+                        job.payment_proof_original_url || job.payment_proof_path || job.payment_proof || ''
+                    ).trim();
+                    if (!raw || /(?:^|\/)uploads\/secure_payments\//i.test(raw)) return '';
+                    return this.resolveMediaUrl(raw);
+                },
+                jobArtworkUrl(job) {
+                    if (!job || typeof job !== 'object') return '';
+                    return this.resolveMediaUrl(job.artwork_path);
+                },
+                handlePaymentProofImageError(el) {
+                    if (!el || el.dataset.proofFallbackApplied === '1') return;
+                    el.dataset.proofFallbackApplied = '1';
+                    el.style.display = 'none';
+                    const wrap = el.closest('[data-payment-proof-preview]');
+                    if (wrap) wrap.style.display = 'none';
+                },
+                handleModalImageError(el) {
+                    if (!el || el.dataset.loadFailed === '1') return;
+                    el.dataset.loadFailed = '1';
+                    el.style.display = 'none';
+                },
+                viewImage(url) {
+                    const resolved = this.resolveMediaUrl(url);
+                    if (!resolved) return;
+                    this.currentImage = resolved;
+                    this.showImageViewer = true;
+                },
+                formatBusinessSubmittedAt(job) {
+                    const value = String(job?.order_business_date || job?.order_date || job?.store_order_date || '').trim();
+                    if (!value) return '—';
+                    const parsed = new Date(value.replace(' ', 'T'));
+                    if (Number.isNaN(parsed.getTime())) return value;
+                    return parsed.toLocaleString('en-US', {
+                        timeZone: 'Asia/Manila',
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                    });
+                },
+                displayServiceType(job) {
+                    const label = String(job?.display_service_type || job?.job_title || job?.service_type || '').trim();
+                    return label || 'Not provided';
+                },
+                displayDimensions(job) {
+                    const fromApi = String(job?.display_dimensions || '').trim();
+                    if (fromApi) return fromApi;
+                    const specs = job?.display_specifications && typeof job.display_specifications === 'object'
+                        ? job.display_specifications
+                        : {};
+                    for (const key of ['Dimensions', 'Size / Dimensions', 'Size']) {
+                        const value = String(specs[key] || '').trim();
+                        if (value && /\d+(?:\.\d+)?\s*[x×*]\s*\d+(?:\.\d+)?/i.test(value)) return value;
+                    }
+                    return 'Not provided';
+                },
+                displaySpecificationEntries(job) {
+                    const specs = job?.display_specifications;
+                    if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return [];
+                    return Object.entries(specs).filter(([label, value]) => {
+                        return String(value ?? '').trim() !== '';
+                    });
+                },
+                formatCustomerPriorityLabel(value) {
+                    const text = String(value || '').trim();
+                    if (!text) return '';
+                    if (/^regular(\s+order)?$/i.test(text)) return 'Regular';
+                    if (/^urgent(\s+order)?$/i.test(text)) return 'Urgent';
+                    return text;
+                },
+                displayNeededDate(job) {
+                    const display = String(job?.needed_date_display || '').trim();
+                    if (display) return display;
+                    const raw = String(job?.needed_date || '').trim();
+                    if (raw) return raw;
+                    return 'Not provided';
+                },
+                resolvePriorityValue(job) {
+                    const tryFormat = (raw) => {
+                        const text = String(raw || '').trim();
+                        return text ? this.formatCustomerPriorityLabel(text) : '';
+                    };
+                    let value = tryFormat(job?.display_priority) || tryFormat(job?.priority_request_value);
+                    if (value) return value;
+                    const specs = job?.display_specifications && typeof job.display_specifications === 'object'
+                        ? job.display_specifications
+                        : {};
+                    value = tryFormat(specs['Order Priority']);
+                    if (value) return value;
+                    const items = Array.isArray(job?.items) ? job.items : [];
+                    for (const item of items) {
+                        const custom = item?.customization && typeof item.customization === 'object' ? item.customization : {};
+                        for (const [key, raw] of Object.entries(custom)) {
+                            if (/order\s*priority/i.test(String(key))) {
+                                value = tryFormat(raw);
+                                if (value) return value;
+                            }
+                        }
+                    }
+                    return '';
+                },
+                displayCustomerPriority(job) {
+                    const value = this.resolvePriorityValue(job);
+                    return value || 'Not specified';
+                },
+                adminModalItems(job) {
+                    if (Array.isArray(job?.items) && job.items.length > 0) {
+                        return job.items;
+                    }
+                    return [{
+                        quantity: job?.quantity ?? 1,
+                        product_name: this.displayServiceType(job),
+                        customization: job?.display_specifications || {},
+                    }];
+                },
+                adminItemTitle(item, job) {
+                    const name = String(item?.product_name || job?.display_service_type || job?.service_type || this.displayServiceType(job)).trim();
+                    const qty = Math.max(1, Number(item?.quantity ?? job?.quantity ?? 1));
+                    return (name || 'Custom Order') + ' × ' + qty;
+                },
+                adminProductServiceImageUrl(item) {
+                    if (!item) return '';
+                    const catalog = String(item.catalog_service_image || item.service_image || '').trim();
+                    if (catalog && !this.isGenericServicePlaceholder(catalog)) {
+                        return this.resolveMediaUrl(catalog);
+                    }
+                    const product = String(item.product_image || '').trim();
+                    if (product && !this.isGenericServicePlaceholder(product)) {
+                        return this.resolveMediaUrl(product);
+                    }
+                    return '';
+                },
+                adminCanonicalSpecBucket(label) {
+                    const key = String(label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                    if (key === '' || key === 'material' || key === 'material_type' || key === 'materials') {
+                        return key === 'material' || key === 'material_type' || key === 'materials' ? 'material' : '';
+                    }
+                    const dimensionKeys = [
+                        'dimensions', 'dimension', 'size', 'custom_size', 'width_height', 'width_x_height',
+                        'dimensions_and_finish_other', 'dimension_and_finish_other', 'dimensions_finish_other',
+                        'size_other', 'custom_dimensions', 'custom_dimension', 'size_dimensions',
+                    ];
+                    if (dimensionKeys.indexOf(key) !== -1) {
+                        return 'dimensions';
+                    }
+                    if (key.indexOf('dimension') !== -1 && (key.indexOf('finish') !== -1 || key.indexOf('other') !== -1 || key.indexOf('size') !== -1)) {
+                        return 'dimensions';
+                    }
+                    if (key === 'width' || key === 'height' || key === 'width_ft' || key === 'height_ft') {
+                        return 'dimensions_part';
+                    }
+                    return key;
+                },
+                adminDisplaySpecValueFingerprint(bucket, value) {
+                    let fp = String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+                    if (bucket === 'dimensions' || bucket === 'dimensions_part') {
+                        fp = fp.replace(/[×*]/g, 'x');
+                        fp = fp.replace(/\s*x\s*/gi, 'x');
+                        fp = fp.replace(/\s+/g, '');
+                        fp = fp.replace(/ft\.?/gi, 'ft');
+                    }
+                    if (/^-?\d+(?:\.\d+)?$/.test(fp)) {
+                        fp = String(parseFloat(fp)).replace(/\.?0+$/, '');
+                    }
+                    return fp;
+                },
+                adminItemSpecEntries(job, item) {
+                    const seen = new Set();
+                    const entries = [];
+                    const push = (label, value) => {
+                        const key = String(label || '').trim();
+                        const text = String(value ?? '').trim();
+                        if (!key || !text) return;
+                        const bucket = this.adminCanonicalSpecBucket(key);
+                        if (bucket === 'material' || bucket === 'dimensions_part') {
+                            return;
+                        }
+                        const fp = (bucket !== '' ? bucket : key.toLowerCase()) + '|' + this.adminDisplaySpecValueFingerprint(bucket, text);
+                        if (seen.has(fp)) return;
+                        seen.add(fp);
+                        entries.push({ label: key, value: text });
+                    };
+                    const specs = item?.display_specifications && typeof item.display_specifications === 'object'
+                        ? item.display_specifications
+                        : {};
+                    const dimensions = String(item?.display_dimensions || '').trim();
+                    const qty = Math.max(1, Number(item?.quantity ?? job?.quantity ?? 1));
+                    push('Quantity', String(qty));
+                    Object.entries(specs).forEach(([label, value]) => {
+                        const bucket = this.adminCanonicalSpecBucket(label);
+                        if (bucket === 'material') return;
+                        if (bucket === 'dimensions') return;
+                        if (bucket === 'dimensions_part') return;
+                        push(label, value);
+                    });
+                    if (dimensions && dimensions !== 'Not specified' && dimensions !== 'Not provided') {
+                        push('Dimensions', dimensions);
+                    }
+                    const needed = String(item?.needed_date_display || item?.needed_date || '').trim()
+                        || this.displayNeededDate(job);
+                    if (needed && needed !== 'Not provided') {
+                        push('Needed Date', needed);
+                    }
+                    const priority = String(item?.display_priority || '').trim() || this.resolvePriorityValue(job);
+                    if (priority) {
+                        push('Order Priority', priority);
+                    }
+                    return entries;
+                },
+                adminSpecCellFullWidth(label, value) {
+                    const text = String(value || '');
+                    return label === 'Notes' || text.length > 120;
+                },
                 openModal(id, orderCode = '') {
+                    const requestToken = this.modalRequestToken = (this.modalRequestToken || 0) + 1;
                     this.showModal = true;
                     this.loading = true;
                     this.errorMsg = '';
                     this.job = null;
+                    this.showImageViewer = false;
+                    this.currentImage = '';
                     this.modalOrderCode = String(orderCode || '').trim();
 
-                    fetch('<?php echo $base_path; ?>/admin/job_orders_api.php?action=get_order&id=' + id)
+                    fetch('<?php echo $base_path; ?>/admin/job_orders_api.php?action=get_order&id=' + encodeURIComponent(id))
                         .then(async (r) => {
                             const text = await r.text();
+                            if (requestToken !== this.modalRequestToken) return;
                             let data;
                             try {
                                 data = JSON.parse(text);
@@ -768,6 +1071,7 @@ function custom_payment_badge($status) {
                             }
                         })
                         .catch(() => {
+                            if (requestToken !== this.modalRequestToken) return;
                             this.loading = false;
                             this.errorMsg = 'Failed to connect to server.';
                         });
@@ -845,11 +1149,6 @@ function custom_payment_badge($status) {
                     return `<span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600;${s}">${label}</span>`;
                 },
 
-                viewImage(url) {
-                    this.currentImage = url;
-                    this.showImageViewer = true;
-                },
-
                 getItemDesignExternalLink(item) {
                     if (item?.design_external_link && /^https?:\/\//i.test(String(item.design_external_link).trim())) {
                         return String(item.design_external_link).trim();
@@ -872,7 +1171,7 @@ function custom_payment_badge($status) {
 
                 getItemDesignFileUrl(item) {
                     if (!this.itemHasUploadedDesignFile(item)) return '';
-                    return String(item?.design_open_url || item?.design_url || '').trim();
+                    return this.resolveMediaUrl(item?.design_open_url || item?.design_url || '');
                 },
 
                 getItemDesignFilename(item) {
@@ -889,6 +1188,125 @@ function custom_payment_badge($status) {
 
                 itemHasDesignDetails(item) {
                     return this.itemHasUploadedDesignFile(item) || !!this.getItemDesignExternalLink(item);
+                },
+
+                adminItemEvidenceOfMultipleDesignFiles(item) {
+                    if (!item) return false;
+                    const fromItem = Array.isArray(item.design_files) ? item.design_files.length : (Array.isArray(item.files) ? item.files.length : 0);
+                    if (fromItem > 1) return true;
+                    const custom = item.customization && typeof item.customization === 'object' ? item.customization : {};
+                    return Array.isArray(custom.design_upload_files) && custom.design_upload_files.length > 1;
+                },
+                adminDesignFilesFromCustomization(item) {
+                    const custom = item && item.customization && typeof item.customization === 'object' ? item.customization : {};
+                    const list = Array.isArray(custom.design_upload_files) ? custom.design_upload_files : [];
+                    if (list.length === 0) return [];
+                    const oid = Number(item?.order_item_id || 0);
+                    const base = this.basePath || '';
+                    const out = [];
+                    list.forEach((entry, idx) => {
+                        if (!entry || typeof entry !== 'object') return;
+                        const fileId = Number(entry.file_id || 0);
+                        let preview = '';
+                        if (fileId > 0 && oid > 0) {
+                            preview = base + '/public/serve_design.php?type=order_item_file&id=' + fileId + '&item_id=' + oid;
+                        } else {
+                            const path = String(entry.path || entry.storage_path || '').trim();
+                            if (path) preview = path.startsWith('http') || path.startsWith('/') ? path : (base + '/uploads/orders/' + path);
+                        }
+                        if (!preview) return;
+                        out.push({
+                            file_id: fileId > 0 ? fileId : ('cust-' + oid + '-' + idx),
+                            display_name: String(entry.name || entry.display_name || 'design'),
+                            preview_url: preview,
+                            download_url: preview,
+                            upload_sort: Number(entry.upload_sort != null ? entry.upload_sort : idx),
+                            is_previewable_image: true,
+                            exists: true,
+                            idempotency_key: String(entry.idempotency_key || ''),
+                        });
+                    });
+                    const PF = window.PrintflowOrderItemDesignFiles;
+                    return PF ? PF.dedupe(out) : out;
+                },
+                adminItemDesignFiles(item) {
+                    if (!item || typeof item !== 'object') return [];
+                    const raw = Array.isArray(item.design_files)
+                        ? item.design_files
+                        : (Array.isArray(item.files) ? item.files : []);
+                    const PF = window.PrintflowOrderItemDesignFiles;
+                    let out = PF ? PF.dedupe(raw) : raw;
+                    if (out.length === 0) {
+                        out = this.adminDesignFilesFromCustomization(item);
+                        out = PF ? PF.dedupe(out) : out;
+                    }
+                    if (out.length === 0 && this.itemHasUploadedDesignFile(item) && !this.adminItemEvidenceOfMultipleDesignFiles(item)) {
+                        const previewUrl = this.getItemDesignFileUrl(item);
+                        if (previewUrl) {
+                            out = [{
+                                file_id: 'legacy-' + String(item.order_item_id || '0'),
+                                display_name: this.getItemDesignFilename(item),
+                                preview_url: previewUrl,
+                                download_url: previewUrl,
+                                is_previewable_image: true,
+                                upload_sort: 0,
+                                exists: true,
+                            }];
+                        }
+                    }
+                    return out;
+                },
+                adminDesignFilesExpandKey(item) {
+                    const oid = Number(item?.order_item_id || 0);
+                    if (oid > 0) {
+                        return 'oi-' + oid;
+                    }
+                    return 'line-' + String(item?.product_name || 'item');
+                },
+                adminDesignFilesExpanded(item) {
+                    return !!this.designFilesExpandedKeys[this.adminDesignFilesExpandKey(item)];
+                },
+                adminExpandDesignFiles(item) {
+                    this.designFilesExpandedKeys[this.adminDesignFilesExpandKey(item)] = true;
+                },
+                adminCollapseDesignFiles(item) {
+                    delete this.designFilesExpandedKeys[this.adminDesignFilesExpandKey(item)];
+                },
+                adminDesignFilesShowMoreLabel(item) {
+                    const PF = window.PrintflowOrderItemDesignFiles;
+                    return PF ? PF.showMoreLabel(this.adminItemDesignFiles(item)) : '';
+                },
+                adminDesignFileCardVisible(item, designFile) {
+                    if (this.adminDesignFilesExpanded(item)) {
+                        return true;
+                    }
+                    const PF = window.PrintflowOrderItemDesignFiles;
+                    const all = this.adminItemDesignFiles(item);
+                    return PF ? PF.isInPreviewList(designFile, all) : false;
+                },
+                adminDesignFileZipUrl(item) {
+                    const PF = window.PrintflowOrderItemDesignFiles;
+                    const id = Number(item?.order_item_id || 0);
+                    if (!PF || id <= 0) return '#';
+                    return PF.zipDownloadUrl(id, this.basePath);
+                },
+                adminFormatDesignFileSize(bytes) {
+                    const PF = window.PrintflowOrderItemDesignFiles;
+                    return PF ? PF.formatFileSize(bytes) : String(bytes || '');
+                },
+                adminDesignFileTypeLabel(file) {
+                    const PF = window.PrintflowOrderItemDesignFiles;
+                    return PF ? PF.fileTypeLabel(file) : 'File';
+                },
+                adminDesignFileUnavailable(file) {
+                    const PF = window.PrintflowOrderItemDesignFiles;
+                    return PF ? PF.fileUnavailable(file) : false;
+                },
+
+                adminDesignFileMediaUrl(designFile, item) {
+                    const direct = String(designFile?.preview_url || designFile?.download_url || '').trim();
+                    if (direct) return this.resolveMediaUrl(direct);
+                    return this.getItemDesignFileUrl(item);
                 },
 
                 sanitizeExternalLink(url) {
@@ -1090,8 +1508,8 @@ function custom_payment_badge($status) {
             </div>
 
             <!-- Table Card -->
-            <div class="card">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+            <div class="card customizations-list-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px;">
                     <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;">
                         Customizations List
                     </h3>
@@ -1260,14 +1678,14 @@ function custom_payment_badge($status) {
                                             </div>
                                         </td>
                                         <td class="py-3">
-                                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($jo['service_type']); ?>">
-                                                <?php echo htmlspecialchars($jo['service_type']); ?>
+                                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>">
+                                                <?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>
                                             </div>
                                             <?php if ($jo['quantity'] > 1): ?>
                                                 <div class="text-xs text-gray-400">Qty: <?php echo $jo['quantity']; ?></div>
                                             <?php endif; ?>
                                         </td>
-                                        <td class="py-3 text-center text-gray-500 text-xs"><?php echo date('M j, Y', strtotime($jo['created_at'])); ?></td>
+                                        <td class="py-3 text-center text-gray-500 text-xs"><?php echo htmlspecialchars($jo['display_submitted_at'] ?? ''); ?></td>
                                         <?php if ($branchId !== 'all'): ?>
                                         <td class="py-3" style="max-width:140px;">
                                             <?php
@@ -1331,8 +1749,8 @@ function custom_payment_badge($status) {
 
 <!-- View Details Modal (inside main x-data so Alpine binds showModal; avoids full-screen overlay blocking clicks) -->
 <div x-show="showModal" x-cloak>
-    <div class="modal-overlay" @click.self="showModal = false">
-        <div class="modal-panel" @click.stop>
+    <div class="modal-overlay" @click.self="closeCustomizationModal()">
+        <div class="modal-panel admin-customization-modal" @click.stop>
             <!-- Loading -->
             <div x-show="loading" style="padding:48px;text-align:center;">
                 <div style="width:40px;height:40px;border:3px solid #e5e7eb;border-top-color:#6366f1;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>
@@ -1341,176 +1759,154 @@ function custom_payment_badge($status) {
             <!-- Error -->
             <div x-show="errorMsg && !loading" style="padding:32px;text-align:center;">
                 <p style="color:#ef4444;font-size:14px;margin-bottom:12px;" x-text="errorMsg"></p>
-                <button @click="showModal = false" class="btn-secondary">Close</button>
+                <button @click="closeCustomizationModal()" class="btn-secondary">Close</button>
             </div>
             <!-- Content -->
-            <div x-show="job && !loading" class="modal-content">
+            <template x-if="job && !loading">
+            <div class="modal-content" :key="jobDetailKey()">
                 <!-- Header -->
-                <div style="padding:18px 24px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
-                    <div>
-                        <h3 style="font-size:18px;font-weight:700;color:#1f2937;margin:0 0 2px;" x-text="(job?.order_code || modalOrderCode || ('Customization #' + (job?.id ?? '')) )"></h3>
-                        <div x-html="statusBadge(job?.status)" style="display:inline-block;"></div>
+                <div class="customization-modal-header">
+                    <div style="min-width:0;flex:1;">
+                        <h3 x-text="(job?.order_code || modalOrderCode || ('Customization #' + (job?.id ?? '')) )"></h3>
+                        <p class="customization-modal-subtitle" x-text="displayServiceType(job)"></p>
+                        <div x-html="statusBadge(job?.status)" style="display:inline-block;margin-top:6px;"></div>
                     </div>
-                    <button @click="showModal = false" style="background:transparent;border:none;cursor:pointer;color:#6b7280;">
+                    <button @click="closeCustomizationModal()" style="background:transparent;border:none;cursor:pointer;color:#6b7280;flex-shrink:0;">
                         <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                 </div>
                 <!-- Body -->
-                <div style="padding:24px;">
-                    <!-- Customer -->
-                    <div style="margin-bottom:18px;">
-                        <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin-bottom:8px;">Customer</p>
-                        <div style="display:flex;align-items:center;gap:12px;">
-                            <template x-if="job?.customer_picture">
-                                <img :src="job.customer_picture" alt="Customer" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0;">
+                <div class="pf-customization-modal-body">
+                    <div class="customization-customer-block">
+                        <p>Customer</p>
+                        <div class="customization-customer-row">
+                            <template x-if="resolveMediaUrl(job?.customer_picture)">
+                                <img class="avatar" :src="resolveMediaUrl(job?.customer_picture)" alt="Customer" style="object-fit:cover;" @error="handleModalImageError($el)">
                             </template>
-                            <template x-if="!job?.customer_picture">
-                                <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:16px;" x-text="job?.customer_name?.charAt(0)?.toUpperCase() || 'W'"></div>
+                            <template x-if="!resolveMediaUrl(job?.customer_picture)">
+                                <div class="avatar" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:16px;" x-text="job?.customer_name?.charAt(0)?.toUpperCase() || 'W'"></div>
                             </template>
                             <div style="flex:1;min-width:0;">
-                                <div style="font-weight:700;color:#1f2937;word-wrap:break-word;overflow-wrap:break-word;" x-text="job?.customer_name || 'Walk-in Customer'"></div>
+                                <div style="font-weight:700;font-size:14px;color:#1f2937;word-wrap:break-word;overflow-wrap:break-word;" x-text="job?.customer_name || 'Walk-in Customer'"></div>
                                 <div style="font-size:12px;color:#6b7280;word-wrap:break-word;overflow-wrap:break-word;" x-text="job?.customer_email || ''"></div>
                             </div>
                         </div>
                     </div>
-                    <!-- Details Grid -->
-                    <div class="detail-row">
-                        <div class="detail-block">
-                            <label>Branch</label>
-                            <span x-text="job?.branch_name || (job?.branch_display_id ? ('Branch #' + job.branch_display_id) : 'Unassigned')"></span>
-                        </div>
-                        <div class="detail-block">
-                            <label>Service Type</label>
-                            <span style="word-wrap:break-word;overflow-wrap:break-word;display:block;" x-text="job?.service_type"></span>
-                        </div>
-                    </div>
-                    <div class="detail-row">
-                        <div class="detail-block">
-                            <label>Quantity</label>
-                            <span x-text="job?.quantity ?? 1"></span>
-                        </div>
-                        <div class="detail-block">
-                            <label>Dimensions</label>
-                            <span x-text="job?.width_ft && job?.height_ft ? job.width_ft + ' ft × ' + job.height_ft + ' ft' : '—'"></span>
-                            <div style="font-size:12px;color:#6b7280;margin-top:4px;" x-text="job?.total_sqft ? (job.total_sqft + ' sqft') : ''"></div>
-                        </div>
-                    </div>
-                    <div class="detail-row">
-                        <div class="detail-block">
-                            <label>Estimated Total</label>
-                            <span x-text="job?.estimated_total ? '₱' + parseFloat(job.estimated_total).toFixed(2) : 'Pending'"></span>
-                        </div>
-                        <div class="detail-block">
-                            <label>Amount Paid</label>
-                            <span x-text="'₱' + parseFloat(job?.amount_paid ?? 0).toFixed(2)"></span>
-                        </div>
-                    </div>
-                    <div class="detail-row">
-                        <div class="detail-block">
-                            <label>Payment Status</label>
-                            <span x-html="paymentBadge(getEffectivePaymentStatus(job))"></span>
-                        </div>
-                        <div class="detail-block">
-                            <label>Priority</label>
-                            <span x-text="job?.priority ?? 'NORMAL'"></span>
-                        </div>
-                    </div>
-                    <div class="detail-row">
-                        <div class="detail-block">
-                            <label>Date Submitted</label>
-                            <span x-text="job?.created_at ? new Date(job.created_at).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : '—'"></span>
-                        </div>
-                        <div class="detail-block">
-                            <label>Due Date</label>
-                            <span x-text="job?.due_date ? new Date(job.due_date).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : 'Not set'"></span>
-                        </div>
-                    </div>
-                    <!-- Notes -->
-                    <div x-show="job?.notes" style="margin-top:4px;">
-                        <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin-bottom:6px;">Notes</p>
-                        <div style="background:#f9fafb;border-radius:8px;padding:12px 14px;font-size:13px;color:#374151;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;" x-text="job?.notes"></div>
-                    </div>
-                    <!-- Design Files & Payment Proof -->
-                    <div x-show="(job?.artwork_path || job?.payment_proof_path || (job?.items && job.items.length > 0 && job.items.some(i => i.design_url || i.reference_url || itemHasDesignDetails(i))))" style="margin-top:18px;">
-                        <div style="display:flex;gap:24px;flex-wrap:wrap;">
-                            <!-- Design Files -->
-                            <div x-show="(job?.artwork_path || (job?.items && job.items.length > 0 && job.items.some(i => i.design_url || i.reference_url || itemHasDesignDetails(i))))" style="flex:1;min-width:200px;">
-                                <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin-bottom:8px;">Design Files</p>
-                                <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                                    <template x-if="job?.artwork_path">
-                                        <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;" @click="viewImage(job.artwork_path)">
-                                            <img :src="job.artwork_path" style="width:100%;height:100%;object-fit:cover;" alt="Artwork">
-                                            <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.6);color:white;font-size:10px;padding:4px;text-align:center;">Artwork</div>
+                    <div class="pf-customization-order-details">
+                        <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;display:block;margin-bottom:10px;">Order Details (Customer Specifications)</label>
+                        <template x-for="(item, idx) in adminModalItems(job)" :key="item.order_item_id || idx">
+                            <div class="pf-customization-item-block">
+                                <div style="font-size:13px;font-weight:700;color:#1f2937;margin-bottom:10px;word-wrap:break-word;overflow-wrap:break-word;" x-text="adminItemTitle(item, job)"></div>
+                                <template x-if="adminProductServiceImageUrl(item)">
+                                    <div style="margin-bottom:10px;">
+                                        <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:6px;">Product/Service Image</div>
+                                        <img :src="adminProductServiceImageUrl(item)" @click="viewImage(adminProductServiceImageUrl(item))" @error="handleModalImageError($el)" loading="lazy" decoding="async" width="120" height="120" style="width:120px;height:120px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0;cursor:zoom-in;background:#f8fafc;" alt="Product">
+                                    </div>
+                                </template>
+                                <div class="pf-customization-spec-grid">
+                                    <template x-for="entry in adminItemSpecEntries(job, item)" :key="entry.label">
+                                        <div class="pf-customization-spec-cell" :class="{ 'pf-customization-spec-cell--full': adminSpecCellFullWidth(entry.label, entry.value) }">
+                                            <span class="pf-customization-spec-label" x-text="entry.label"></span>
+                                            <div class="pf-customization-spec-value" x-text="entry.value"></div>
                                         </div>
                                     </template>
-                                    <template x-if="job?.items && job.items.length > 0">
-                                        <div style="display:flex;flex-direction:column;gap:12px;width:100%;">
-                                            <template x-for="(item, idx) in job.items" :key="idx">
-                                                <div x-show="itemHasDesignDetails(item) || item.reference_url" style="border:1px solid #e5e7eb;border-radius:10px;padding:12px;background:#fff;max-width:100%;box-sizing:border-box;">
-                                                    <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">Upload Design</div>
-                                                    <template x-if="itemHasUploadedDesignFile(item)">
-                                                        <div style="margin-bottom:10px;">
-                                                            <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">📁 Uploaded File</div>
-                                                            <div style="font-size:13px;font-weight:600;color:#1f2937;word-break:break-word;overflow-wrap:anywhere;margin-bottom:8px;" x-text="getItemDesignFilename(item)"></div>
-                                                            <template x-if="getItemDesignFileUrl(item)">
-                                                                <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;margin-bottom:8px;" @click="viewImage(getItemDesignFileUrl(item))">
-                                                                    <img :src="getItemDesignFileUrl(item)" style="width:100%;height:100%;object-fit:cover;" alt="Design">
+                                </div>
+                                <template x-if="itemHasDesignDetails(item) || item.reference_url">
+                                    <div style="margin-top:10px;padding:12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">
+                                        <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">Design / Image</div>
+                                        <template x-if="itemHasUploadedDesignFile(item)">
+                                            <div class="pf-design-files" :class="{ 'is-expanded': adminDesignFilesExpanded(item) }">
+                                                <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:6px;" x-text="adminItemDesignFiles(item).length > 1 ? 'Uploaded Files' : 'Uploaded File'"></div>
+                                                <div class="pf-design-files__toolbar" x-show="adminItemDesignFiles(item).length > 1">
+                                                    <a class="pf-design-files__zip" :href="adminDesignFileZipUrl(item)">Download all (ZIP)</a>
+                                                </div>
+                                                <div class="pf-design-files__grid">
+                                                    <template x-for="designFile in adminItemDesignFiles(item)" :key="'admin-design-file-' + designFile.file_id">
+                                                        <article class="pf-design-file-card" x-show="adminDesignFileCardVisible(item, designFile)">
+                                                            <p class="pf-design-file-card__name" x-text="designFile.display_name || getItemDesignFilename(item)"></p>
+                                                            <div class="pf-design-file-card__meta">
+                                                                <span x-text="adminDesignFileTypeLabel(designFile)"></span>
+                                                                <span x-show="designFile.file_size"> · </span>
+                                                                <span x-text="adminFormatDesignFileSize(designFile.file_size)"></span>
+                                                            </div>
+                                                            <template x-if="adminDesignFileUnavailable(designFile)">
+                                                                <div class="pf-design-file-card__unavailable" role="status">File unavailable</div>
+                                                            </template>
+                                                            <template x-if="!adminDesignFileUnavailable(designFile) && adminDesignFileMediaUrl(designFile, item) && (designFile.is_previewable_image !== false)">
+                                                                <div class="pf-design-file-card__preview">
+                                                                    <img class="pf-design-file-card__img"
+                                                                         :src="adminDesignFileMediaUrl(designFile, item)"
+                                                                         :alt="'Preview of ' + (designFile.display_name || getItemDesignFilename(item))"
+                                                                         @click="viewImage(adminDesignFileMediaUrl(designFile, item))"
+                                                                         @error="handleModalImageError($el)"
+                                                                         loading="lazy"
+                                                                         decoding="async">
                                                                 </div>
                                                             </template>
-                                                            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                                                                <button type="button" @click="viewImage(getItemDesignFileUrl(item))" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#334155;cursor:pointer;">View</button>
-                                                                <a :href="getItemDesignFileUrl(item)" target="_blank" rel="noopener noreferrer" download style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#334155;text-decoration:none;">Download</a>
+                                                            <div class="pf-design-file-card__actions" x-show="!adminDesignFileUnavailable(designFile)">
+                                                                <button type="button" class="pf-modal-design-action-btn" :aria-label="'View ' + (designFile.display_name || 'design file')" @click="viewImage(adminDesignFileMediaUrl(designFile, item))">View</button>
+                                                                <a class="pf-modal-design-action-btn" :href="designFile.download_url || adminDesignFileMediaUrl(designFile, item)" :aria-label="'Download ' + (designFile.display_name || 'design file')" target="_blank" rel="noopener noreferrer" download>Download</a>
                                                             </div>
-                                                        </div>
-                                                    </template>
-                                                    <template x-if="getItemDesignExternalLink(item)">
-                                                        <div style="margin-bottom:10px;">
-                                                            <div style="font-size:13px;font-weight:600;color:#1f2937;word-break:break-all;overflow-wrap:anywhere;margin-bottom:8px;" x-text="'🔗 ' + getItemDesignExternalLink(item)"></div>
-                                                            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-                                                                <button type="button" @click="copyDesignLink(getItemDesignExternalLink(item), $event)" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#334155;cursor:pointer;">Copy Link</button>
-                                                                <a :href="sanitizeExternalLink(getItemDesignExternalLink(item))" target="_blank" rel="noopener noreferrer" style="padding:8px 12px;border:1px solid #dbeafe;border-radius:8px;background:#eff6ff;font-size:12px;font-weight:600;color:#1d4ed8;text-decoration:none;">Open Link</a>
-                                                            </div>
-                                                        </div>
-                                                    </template>
-                                                    <template x-if="item.reference_url">
-                                                        <div>
-                                                            <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Reference</div>
-                                                            <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;" @click="viewImage(item.reference_url)">
-                                                                <img :src="item.reference_url" style="width:100%;height:100%;object-fit:cover;" alt="Reference">
-                                                            </div>
-                                                        </div>
+                                                        </article>
                                                     </template>
                                                 </div>
-                                            </template>
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
-                            <!-- Payment Proof -->
-                            <div x-show="job?.payment_proof_path" style="flex:0 0 auto;min-width:200px;">
-                                <p style="font-size:11px;font-weight:600;color:#10b981;text-transform:uppercase;margin-bottom:8px;">Payment Proof</p>
-                                <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                                    <template x-if="job?.payment_proof_path">
-                                        <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #10b981;cursor:pointer;box-shadow:0 2px 8px rgba(16,185,129,0.15);" @click="viewImage(job.payment_proof_path)">
-                                            <img :src="job.payment_proof_path" style="width:100%;height:100%;object-fit:cover;" alt="Payment Proof">
-                                            <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(16,185,129,0.95);color:white;font-size:10px;padding:4px;text-align:center;font-weight:600;">
-                                                <svg style="width:12px;height:12px;display:inline-block;margin-right:3px;vertical-align:middle;" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                                                </svg>
-                                                Payment Proof
+                                                <button type="button"
+                                                        class="pf-design-files__toggle"
+                                                        x-show="!adminDesignFilesExpanded(item) && adminDesignFilesShowMoreLabel(item)"
+                                                        @click="adminExpandDesignFiles(item)"
+                                                        :aria-label="adminDesignFilesShowMoreLabel(item)"
+                                                        x-text="adminDesignFilesShowMoreLabel(item)"></button>
+                                                <button type="button"
+                                                        class="pf-design-files__toggle"
+                                                        x-show="adminDesignFilesExpanded(item) && adminItemDesignFiles(item).length > 3"
+                                                        @click="adminCollapseDesignFiles(item)"
+                                                        aria-label="Show less">
+                                                    Show less
+                                                </button>
                                             </div>
-                                        </div>
-                                    </template>
-                                </div>
+                                        </template>
+                                        <template x-if="getItemDesignExternalLink(item)">
+                                            <div style="margin-bottom:10px;">
+                                                <div style="font-size:13px;font-weight:600;color:#1f2937;word-break:break-all;overflow-wrap:anywhere;margin-bottom:8px;" x-text="'🔗 ' + getItemDesignExternalLink(item)"></div>
+                                                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                                                    <button type="button" @click="copyDesignLink(getItemDesignExternalLink(item), $event)" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#334155;cursor:pointer;">Copy Link</button>
+                                                    <a :href="sanitizeExternalLink(getItemDesignExternalLink(item))" target="_blank" rel="noopener noreferrer" style="padding:8px 12px;border:1px solid #dbeafe;border-radius:8px;background:#eff6ff;font-size:12px;font-weight:600;color:#1d4ed8;text-decoration:none;">Open Link</a>
+                                                </div>
+                                            </div>
+                                        </template>
+                                        <template x-if="item.reference_url">
+                                            <div>
+                                                <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Reference</div>
+                                                <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;" @click="viewImage(resolveMediaUrl(item.reference_url))">
+                                                    <img :src="resolveMediaUrl(item.reference_url)" @error="handleModalImageError($el)" style="width:100%;height:100%;object-fit:cover;" alt="Reference">
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
                             </div>
-                        </div>
+                        </template>
+                    </div>
+                    <div x-show="job?.notes" class="customization-notes-block" style="margin-top:12px;">
+                        <p class="customization-section-label" style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 8px;">Notes</p>
+                        <div class="notes-box" x-text="job?.notes"></div>
+                    </div>
+                    <div class="customization-payment-proof-block" style="margin-top:12px;">
+                        <p style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin:0 0 8px;">Payment Proof</p>
+                        <template x-if="jobPaymentProofUrl(job)">
+                            <div data-payment-proof-preview style="width:120px;height:120px;border-radius:8px;border:1px solid #e2e8f0;overflow:hidden;cursor:pointer;background:#f8fafc;" @click="viewImage(jobPaymentProofUrl(job))">
+                                <img :src="jobPaymentProofUrl(job)" style="width:100%;height:100%;object-fit:cover;" alt="Payment Proof" @error="handlePaymentProofImageError($el)">
+                            </div>
+                        </template>
+                        <p x-show="!jobPaymentProofUrl(job)" style="font-size:12px;color:#6b7280;font-style:italic;margin:0;">No payment proof uploaded</p>
                     </div>
                 </div>
                 <!-- Footer -->
-                <div style="padding:16px 24px;border-top:1px solid #f3f4f6;display:flex;justify-content:flex-end;gap:8px;flex-shrink:0;">
-                    <button @click="showModal = false" class="btn-secondary">Close</button>
+                <div class="customization-modal-footer">
+                    <button @click="closeCustomizationModal()" class="btn-secondary">Close</button>
                 </div>
             </div>
+            </template>
         </div>
     </div>
 </div>
@@ -1577,7 +1973,7 @@ function custom_payment_badge($status) {
                             <div class="history-item">
                                 <div>
                                     <div style="font-size: 13px; font-weight: 700; color: #1f2937;" x-text="cst.service_type"></div>
-                                    <div style="font-size: 11px; color: #9ca3af;" x-text="new Date(cst.created_at).toLocaleDateString()"></div>
+                                    <div style="font-size: 11px; color: #9ca3af;" x-text="formatBusinessSubmittedAt(cst)"></div>
                                 </div>
                                 <div style="text-align: right;">
                                     <div style="font-size: 13px; font-weight: 700; color: #1f2937;" x-text="cst.estimated_total ? '₱' + parseFloat(cst.estimated_total).toFixed(2) : 'Pending'"></div>

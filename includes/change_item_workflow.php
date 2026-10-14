@@ -1396,6 +1396,9 @@ function printflow_change_item_process_inventory(int $changeItemId): bool
     }
 
     $materials = JobOrderService::getScopedMaterialsPublic($jobOrderId, false, true);
+    $businessTransactionAt = function_exists('printflow_store_order_ledger_date')
+        ? printflow_store_order_ledger_date((int)($change['order_id'] ?? 0))
+        : null;
     $orderRef = printflow_get_order_inventory_reference((int)($change['order_id'] ?? 0));
     $orderLabel = (string)($orderRef['label'] ?? ('Order #' . (int)($change['order_id'] ?? 0)));
     $notePrefix = "Change Item / Rework for {$orderLabel}";
@@ -1423,7 +1426,8 @@ function printflow_change_item_process_inventory(int $changeItemId): bool
                 'CHANGE_ITEM',
                 $changeItemId,
                 $notePrefix,
-                $branchId
+                $branchId,
+                $businessTransactionAt
             );
 
             $metadata = is_string($material['metadata'] ?? null)
@@ -1439,7 +1443,8 @@ function printflow_change_item_process_inventory(int $changeItemId): bool
                             'CHANGE_ITEM',
                             $changeItemId,
                             "{$notePrefix} (lamination)",
-                            $branchId
+                            $branchId,
+                            $businessTransactionAt
                         );
                     } else {
                         InventoryManager::issueStock(
@@ -1451,7 +1456,8 @@ function printflow_change_item_process_inventory(int $changeItemId): bool
                             "{$notePrefix} (lamination)",
                             false,
                             false,
-                            $branchId
+                            $branchId,
+                            $businessTransactionAt
                         );
                     }
                 }
@@ -1468,7 +1474,8 @@ function printflow_change_item_process_inventory(int $changeItemId): bool
             $notePrefix,
             false,
             false,
-            $branchId
+            $branchId,
+            $businessTransactionAt
         );
     }
 

@@ -118,7 +118,7 @@ try {
     if ($isCustomers) {
         $customerStoreSalesSql = pf_reports_store_order_sales_expr('o');
         $customerStoreRevenueSql = pf_reports_store_order_revenue_expr('o');
-        $stats = db_query("SELECT COUNT(*) as tot, SUM(CASE WHEN status='Activated' THEN 1 ELSE 0 END) as act FROM customers") ?: [];
+        $stats = db_query("SELECT COUNT(*) as tot, SUM(CASE WHEN status='Activated' THEN 1 ELSE 0 END) as act FROM customers c WHERE " . printflow_customer_exclusion_customer_scope_sql('c.customer_id')) ?: [];
         $totalCust = (int)($stats[0]['tot'] ?? 0);
         $activeCust = (int)($stats[0]['act'] ?? 0);
         
@@ -126,7 +126,7 @@ try {
             "SELECT c.customer_id, c.first_name, c.last_name, c.email, c.contact_number, c.status, c.created_at,
                     (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.customer_id AND " . printflow_order_archive_scope_sql('o') . ") as order_count,
                     (SELECT SUM({$customerStoreRevenueSql}) FROM orders o WHERE o.customer_id = c.customer_id AND {$customerStoreSalesSql}) as total_spent
-             FROM customers c ORDER BY total_spent DESC"
+             FROM customers c WHERE " . printflow_customer_exclusion_customer_scope_sql('c.customer_id') . " ORDER BY total_spent DESC"
         ) ?: [];
         foreach($cList as $row) {
             $name = trim(($row['first_name']??'') . ' ' . ($row['last_name']??''));

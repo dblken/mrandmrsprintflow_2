@@ -71,7 +71,7 @@ if ($report === 'daily_sales') {
                so.created_at, so.total_price, so.status
         FROM service_orders so
         LEFT JOIN customers c ON so.customer_id = c.customer_id
-        WHERE DATE(so.created_at) = ? AND so.branch_id = ?
+        WHERE DATE(so.created_at) = ? AND so.branch_id = ? AND " . printflow_customer_exclusion_customer_scope_sql('so.customer_id') . "
         ORDER BY so.created_at ASC
     ", 'si', [$date, $staffBranchId]);
 

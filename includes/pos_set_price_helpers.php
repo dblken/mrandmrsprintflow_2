@@ -95,6 +95,44 @@ function pos_cart_item_needs_pos_set_price_completion(array $item): bool
     return empty($item['price_set']);
 }
 
+function printflow_unconfigured_price_note(): string
+{
+    return 'This specification has no configured price yet. The final price will be set by Staff before payment or completion.';
+}
+
+function printflow_price_is_configured(float $price): bool
+{
+    return $price > 0;
+}
+
+/**
+ * Missing prices may stay on the order until Staff sets one.
+ * A negative price is invalid. A positive price is unchanged.
+ *
+ * @param array<int,array<string,mixed>> $items
+ */
+function printflow_checkout_unconfigured_price_message(array $items): ?string
+{
+    foreach ($items as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $price = (float)($item['price'] ?? 0);
+        $label = trim((string)($item['name'] ?? 'Item'));
+        if ($label === '') {
+            $label = 'Item';
+        }
+        if ($price < 0) {
+            return 'A price cannot be negative.';
+        }
+        if (!printflow_price_is_configured($price)) {
+            return 'Set a valid price for "' . $label . '" before completing this sale.';
+        }
+    }
+
+    return null;
+}
+
 function printflow_pos_customization_estimated_total(array $customization, int $qty = 1): float
 {
     $qty = max(1, $qty);
@@ -109,6 +147,14 @@ function printflow_pos_customization_estimated_total(array $customization, int $
     }
 
     return 0.0;
+}
+
+/**
+ * Customer-facing copy when a service estimate is ₱0 or not yet configured (not POS).
+ */
+function printflow_customer_zero_estimated_price_message(): string
+{
+    return 'The price is not zero. Our staff will review the material and specifications needed for your order before confirming the final price.';
 }
 
 function pos_cart_resolve_price_set_on_add(bool $isService, array $data, array $itemSeed): bool

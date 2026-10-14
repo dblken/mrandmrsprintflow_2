@@ -112,6 +112,7 @@ if (!function_exists('printflow_pos_dashboard_kpi_metrics')) {
              FROM orders o
              WHERE o.branch_id = ?
                AND {$staffOrderScopeSql}
+               AND " . printflow_order_archive_scope_sql('o') . "
                AND o.status = 'Completed'
                {$draftSql}
                AND {$timeSql}",
@@ -125,6 +126,7 @@ if (!function_exists('printflow_pos_dashboard_kpi_metrics')) {
              FROM orders o
              WHERE o.branch_id = ?
                AND {$staffOrderScopeSql}
+               AND " . printflow_order_archive_scope_sql('o') . "
                AND o.status NOT IN ('Cancelled', 'Rejected')
                {$draftSql}
                AND {$timeSql}",
@@ -138,6 +140,7 @@ if (!function_exists('printflow_pos_dashboard_kpi_metrics')) {
              FROM orders o
              WHERE o.branch_id = ?
                AND {$staffOrderScopeSql}
+               AND " . printflow_order_archive_scope_sql('o') . "
                AND o.status = 'Completed'
                {$draftSql}
                AND {$timeSql}",
@@ -151,6 +154,7 @@ if (!function_exists('printflow_pos_dashboard_kpi_metrics')) {
              FROM orders o
              WHERE o.branch_id = ?
                AND {$staffOrderScopeSql}
+               AND " . printflow_order_archive_scope_sql('o') . "
                AND o.order_type = 'custom'
                AND o.status NOT IN ('Completed', 'Cancelled', 'Rejected')
                {$draftSql}",

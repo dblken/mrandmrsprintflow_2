@@ -2258,7 +2258,10 @@ if (!function_exists('payment_verification_get_submission')) {
              LEFT JOIN customers c ON c.customer_id = ps.customer_id
              LEFT JOIN users verifier ON verifier.user_id = ps.verified_by
              LEFT JOIN users corrector ON corrector.user_id = ps.corrected_by
-             WHERE ps.id = ? LIMIT 1",
+             WHERE ps.id = ?
+               AND (o.order_id IS NULL OR " . printflow_order_archive_scope_sql('o') . ")
+               AND (jo.id IS NULL OR " . printflow_customer_exclusion_job_scope_sql('jo') . ")
+             LIMIT 1",
             'i',
             [$submissionId]
         );

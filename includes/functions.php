@@ -7,13 +7,16 @@
 // Set Timezone – adjust this based on your location
 date_default_timezone_set('Asia/Manila');
 
+require_once __DIR__ . '/inventory_business_datetime.php';
 require_once __DIR__ . '/customization_normalizer.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/order_archive.php';
+require_once __DIR__ . '/customer_exclusion.php';
 require_once __DIR__ . '/email_sms_config.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/ensure_order_source_column.php'; // Ensure order_source column exists
 require_once __DIR__ . '/order_items_persistence.php';
+require_once __DIR__ . '/order_item_design_files.php';
 require_once __DIR__ . '/image_optimizer.php';
 require_once __DIR__ . '/customer_catalog_perf.php';
 require_once __DIR__ . '/notification_images.php';
@@ -781,6 +784,37 @@ function printflow_notification_target_url_for_user(string $userType, array $not
 }
 
 /**
+ * True when at least one staff/manager shop notification exists for a new-order event.
+ */
+function printflow_staff_new_order_notification_exists(int $order_id): bool {
+    $order_id = (int)$order_id;
+    if ($order_id <= 0) {
+        return false;
+    }
+    $rows = db_query(
+        "SELECT notification_id
+         FROM notifications
+         WHERE type = 'Order'
+           AND data_id = ?
+           AND user_id IS NOT NULL
+         LIMIT 1",
+        'i',
+        [$order_id]
+    );
+    return !empty($rows);
+}
+
+/**
+ * Idempotent wrapper: notify shop staff once per order even on checkout replay.
+ */
+function printflow_ensure_staff_new_order_notification(int $order_id, string $customer_first_name = '', int $customer_id = 0): void {
+    if (printflow_staff_new_order_notification_exists($order_id)) {
+        return;
+    }
+    notify_staff_new_order($order_id, $customer_first_name, $customer_id);
+}
+
+/**
  * Notify all activated shop users (Staff, Admin, Manager) about a new customer order.
  */
 function notify_staff_new_order(int $order_id, string $customer_first_name, int $customer_id = 0): void {
@@ -870,6 +904,28 @@ function printflow_notify_chat_message(int $order_id, string $senderRole, string
 /**
  * Target URL when a staff user opens a notification (dashboard, list, etc.).
  */
+function printflow_notification_is_staff_add_details_request(array $notification): bool
+{
+    $dataId = (int)($notification['data_id'] ?? 0);
+    if ($dataId <= 0) {
+        return false;
+    }
+    $message = strtolower(trim((string)($notification['message'] ?? '')));
+    $markers = [
+        'staff requested additional details',
+        'request add details',
+        'additional details for order',
+    ];
+    foreach ($markers as $marker) {
+        if (str_contains($message, $marker)) {
+            return true;
+        }
+    }
+    $reviewId = (int)($notification['review_id'] ?? 0);
+    $type = strtolower(trim((string)($notification['type'] ?? '')));
+    return $type === 'design' && $reviewId > 0 && str_contains($message, 'order #');
+}
+
 function printflow_notification_is_revision_submission(array $notification): bool {
     $dataId = (int)($notification['data_id'] ?? 0);
     if ($dataId <= 0) {
@@ -879,6 +935,7 @@ function printflow_notification_is_revision_submission(array $notification): boo
     $message = strtolower(trim((string)($notification['message'] ?? '')));
     $revisionMarkers = [
         'submitted revised details',
+        'submitted request add details',
         'submitted the requested updates',
         'resubmitted revised details',
         'resubmitted a revised design',
@@ -886,6 +943,7 @@ function printflow_notification_is_revision_submission(array $notification): boo
         'design re-upload',
         'revision submitted',
         'resubmitted for review',
+        'request add details',
     ];
     foreach ($revisionMarkers as $marker) {
         if (str_contains($message, $marker)) {
@@ -1004,7 +1062,11 @@ function staff_notification_target_url(array $n): string {
     // review work, not customer product ratings, and must win this routing
     // decision before the broad legacy "review" keyword check below.
     if (printflow_notification_is_revision_submission($n)) {
-        return $base . '/staff/customizations.php?order_id=' . $data_id . '&job_type=ORDER&status=PENDING';
+        if (!function_exists('printflow_staff_add_details_notification_url')) {
+            require_once __DIR__ . '/revision_workflow.php';
+        }
+        $revisionRequestId = (int)($n['review_id'] ?? 0);
+        return printflow_staff_add_details_notification_url($data_id, $revisionRequestId);
     }
 
     if ($data_id > 0 && printflow_notification_is_change_item_submission($n)) {
@@ -1225,6 +1287,10 @@ function get_customer_id() {
  */
 function load_customer_cart_into_session($customer_id) {
     if (!$customer_id) return;
+    if (function_exists('printflow_customer_exclusion_customer_is_active') && printflow_customer_exclusion_customer_is_active((int)$customer_id)) {
+        $_SESSION['cart'] = [];
+        return;
+    }
     $rows = db_query("SELECT product_id, variant_id, quantity FROM customer_cart WHERE customer_id = ?", 'i', [$customer_id]);
     if (empty($rows)) return;
     $_SESSION['cart'] = [];
@@ -1267,6 +1333,8 @@ function load_customer_cart_into_session($customer_id) {
  */
 function sync_cart_to_db($customer_id) {
     if (!$customer_id) return;
+    // Excluded customer carts remain stored unchanged and are not loaded or rewritten.
+    if (function_exists('printflow_customer_exclusion_customer_is_active') && printflow_customer_exclusion_customer_is_active((int)$customer_id)) return;
     db_execute("DELETE FROM customer_cart WHERE customer_id = ?", 'i', [$customer_id]);
     if (empty($_SESSION['cart'])) return;
     foreach ($_SESSION['cart'] as $key => $item) {
@@ -1573,7 +1641,7 @@ function get_order_status_notification_payload($order_id, $status) {
         'Pending' => "Your order has been received and is pending confirmation.",
         'Pending Review' => "Your order has been received and is pending confirmation.",
         'Pending Approval' => "Your order has been received and is pending confirmation.",
-        'For Revision' => "Your order needs revision. Please review the request details.",
+        'For Revision' => "Your order needs Request Add Details. Please review the staff message and respond.",
         'Approved' => "Your order has been approved and will proceed to payment.",
         'To Pay' => "Your order is ready. Please proceed to payment of {amount}.",
         'To Verify' => "Your payment is currently being verified.",
@@ -2165,6 +2233,20 @@ function redirect($url) {
 }
 
 /**
+ * SQL fragment for staff/manager unread queries: Counter Staff omit Message (Chats badge).
+ * Online Operations Staff include Message inquiries in the Notifications bell count.
+ */
+function printflow_staff_notifications_unread_type_sql_clause(string $userType): string {
+    if ($userType === 'Staff' && function_exists('printflow_get_staff_access_role') && printflow_get_staff_access_role() === 'online') {
+        return '';
+    }
+    if (in_array($userType, ['Staff', 'Manager'], true)) {
+        return " AND type != 'Message'";
+    }
+    return '';
+}
+
+/**
  * Get unread notification count
  * @param int $user_id
  * @param string $user_type
@@ -2182,10 +2264,11 @@ function get_unread_notification_count($user_id, $user_type) {
         ) ?: [];
         return count(printflow_collapse_duplicate_notifications_latest($rows));
     } else {
+        $typeClause = printflow_staff_notifications_unread_type_sql_clause((string)$user_type);
         $rows = db_query(
             "SELECT notification_id, user_id, message, type, data_id, is_read, created_at
              FROM notifications n
-             WHERE user_id = ? AND is_read = 0 AND type != 'Message' AND " . printflow_order_archive_notification_exclusion_sql('n') . "
+             WHERE user_id = ? AND is_read = 0{$typeClause} AND " . printflow_order_archive_notification_exclusion_sql('n') . "
              ORDER BY created_at DESC, notification_id DESC",
             'i',
             [$user_id]
@@ -2608,7 +2691,19 @@ function customer_notification_target_url(array $notification) {
             }
             return $base . '/customer/orders.php?highlight=' . $data_id;
         }
+        if (printflow_notification_is_staff_add_details_request($notification)) {
+            if (!function_exists('printflow_customer_add_details_notification_url')) {
+                require_once __DIR__ . '/revision_workflow.php';
+            }
+            return printflow_customer_add_details_notification_url($data_id, $review_id);
+        }
         if ($type === 'Design' || strpos($message_l, 'design') !== false || strpos($message_l, 'revision') !== false) {
+            if ($review_id > 0) {
+                if (!function_exists('printflow_customer_add_details_notification_url')) {
+                    require_once __DIR__ . '/revision_workflow.php';
+                }
+                return printflow_customer_add_details_notification_url($data_id, $review_id);
+            }
             return $base . '/customer/chat.php?order_id=' . $data_id;
         }
         if ($type === 'Job Order') {
@@ -3238,13 +3333,6 @@ function printflow_staff_order_management_url(int $orderId, bool $preferPendingS
         }
     }
 
-    // POS / walk-in orders must always stay on the walk-in orders side.
-    // This prevents POS custom transactions from being routed into the
-    // online/customizations page just because they carry service data.
-    if (in_array($orderSource, ['pos', 'walk-in', 'pos_merged'], true)) {
-        return $base . '/staff/orders.php?order_id=' . $orderId;
-    }
-
     $isCustom = ($orderType === 'custom');
 
     if (!$isCustom) {
@@ -3266,13 +3354,16 @@ function printflow_staff_order_management_url(int $orderId, bool $preferPendingS
         }
     }
 
-    if ($isCustom) {
+    if ($isCustom || printflow_order_uses_customizations_page($orderId)) {
         $url = $base . '/staff/customizations.php?order_id=' . $orderId;
-        // For custom orders, we often want to default to PENDING status if they haven't been reviewed
-        if ($preferPendingStatus && $orderSource !== 'pos' && $orderSource !== 'walk-in') {
+        if ($preferPendingStatus && !in_array($orderSource, ['pos', 'walk-in', 'pos_merged'], true)) {
             $url .= '&status=PENDING';
         }
         return $url;
+    }
+
+    if (in_array($orderSource, ['pos', 'walk-in', 'pos_merged'], true)) {
+        return $base . '/staff/orders.php?order_id=' . $orderId;
     }
 
     return $base . '/staff/orders.php?order_id=' . $orderId;
@@ -3602,7 +3693,21 @@ function customer_orders_is_generic_item_name(string $name): bool {
         'pos service',
         'pos-service',
     ];
-    return in_array($normalized, $generic, true);
+    if (in_array($normalized, $generic, true)) {
+        return true;
+    }
+
+    return customer_orders_is_pos_placeholder_product_name($name);
+}
+
+/** POS checkout sometimes attaches every service line to one catalog SKU (e.g. "Tshirt"). */
+function customer_orders_is_pos_placeholder_product_name(string $name): bool {
+    $token = strtolower(preg_replace('/[^a-z0-9]+/', '', trim($name)));
+    if ($token === '') {
+        return false;
+    }
+    $placeholders = ['tshirt', 'tshirts', 'posserviceitem', 'posservice', 'positem'];
+    return in_array($token, $placeholders, true);
 }
 
 function customer_orders_resolve_service_name_by_id(int $service_id): string {
@@ -4407,17 +4512,164 @@ function printflow_merge_dynamic_form_data_into_customization(array $custom, arr
 }
 
 function customer_orders_custom_order_is_catalog_product(array $custom): bool {
+    $serviceId = (int)($custom['service_id'] ?? 0);
+    $serviceType = trim((string)($custom['service_type'] ?? ''));
+    $source = strtolower(trim((string)($custom['source'] ?? '')));
+    if (
+        $serviceId > 0
+        || ($serviceType !== '' && !customer_orders_is_generic_item_name($serviceType))
+        || in_array($source, ['service', 'pos'], true)
+    ) {
+        return false;
+    }
+
     $src = strtolower(trim((string)($custom['source_page'] ?? '')));
-    if (in_array($src, ['products', 'dynamic_form', 'product'], true)) {
+    if (in_array($src, ['products', 'product'], true)) {
         return true;
     }
-    if (isset($custom['form_type']) && strtolower(trim((string)$custom['form_type'])) === 'dynamic') {
+    if ($src === 'dynamic_form' && $serviceId <= 0 && $serviceType === '') {
         return true;
     }
-    if (!empty($custom['config_id'])) {
+    if (isset($custom['form_type']) && strtolower(trim((string)$custom['form_type'])) === 'dynamic' && $serviceId <= 0 && $serviceType === '') {
+        return true;
+    }
+    if (!empty($custom['config_id']) && $serviceId <= 0 && $serviceType === '') {
         return true;
     }
     return false;
+}
+
+/**
+ * Merge order_items JSON with customizations-table rows and catalog service_id.
+ *
+ * @param array<string,mixed> $orderMeta orders row subset (reference_id, order_type, …)
+ * @param array<string,mixed> $tableFallback ['details' => array, 'service_type' => string]
+ * @return array<string,mixed>
+ */
+function printflow_merge_store_line_customization(array $item, array $orderMeta, array $tableFallback = []): array
+{
+    $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+    $savedSpecs = printflow_decode_modal_customization_payload((string)($item['specifications'] ?? ''));
+    if ($savedSpecs !== []) {
+        $custom = printflow_overlay_nonempty_assoc($custom, $savedSpecs);
+    }
+    $tableDetails = is_array($tableFallback['details'] ?? null) ? $tableFallback['details'] : [];
+    if ($tableDetails !== []) {
+        $custom = printflow_overlay_nonempty_assoc($tableDetails, $custom);
+    }
+    $tableServiceType = trim((string)($tableFallback['service_type'] ?? ''));
+    if ($tableServiceType !== '' && trim((string)($custom['service_type'] ?? '')) === '') {
+        $custom['service_type'] = $tableServiceType;
+    }
+    $custom = customer_orders_sanitize_generic_service_labels($custom);
+
+    return customer_orders_enrich_line_customization($custom, $orderMeta);
+}
+
+/**
+ * @param int[] $orderIds
+ * @return array<int, array<int, array{details: array<string,mixed>, service_type: string}>>
+ */
+function printflow_load_customizations_by_order_item_for_orders(array $orderIds): array
+{
+    $orderIds = array_values(array_filter(array_unique(array_map('intval', $orderIds))));
+    if ($orderIds === []) {
+        return [];
+    }
+
+    $idsStr = implode(',', $orderIds);
+    $rows = db_query(
+        "SELECT order_id, order_item_id, service_type, customization_details
+         FROM customizations
+         WHERE order_id IN ({$idsStr})
+         ORDER BY customization_id ASC"
+    ) ?: [];
+
+    $out = [];
+    foreach ($rows as $row) {
+        $orderId = (int)($row['order_id'] ?? 0);
+        $orderItemId = (int)($row['order_item_id'] ?? 0);
+        if ($orderId <= 0) {
+            continue;
+        }
+        $serviceType = trim((string)($row['service_type'] ?? ''));
+        $details = printflow_decode_modal_customization_payload((string)($row['customization_details'] ?? ''));
+        if ($serviceType !== '' && empty($details['service_type'])) {
+            $details['service_type'] = $serviceType;
+        }
+        if ($orderItemId <= 0) {
+            if (!isset($out[$orderId][0])) {
+                $out[$orderId][0] = ['details' => [], 'service_type' => ''];
+            }
+            $out[$orderId][0]['details'] = printflow_overlay_nonempty_assoc($out[$orderId][0]['details'], $details);
+            if ($serviceType !== '' && $out[$orderId][0]['service_type'] === '') {
+                $out[$orderId][0]['service_type'] = $serviceType;
+            }
+            continue;
+        }
+        if (!isset($out[$orderId][$orderItemId])) {
+            $out[$orderId][$orderItemId] = ['details' => [], 'service_type' => ''];
+        }
+        $out[$orderId][$orderItemId]['details'] = printflow_overlay_nonempty_assoc(
+            $out[$orderId][$orderItemId]['details'],
+            $details
+        );
+        if ($serviceType !== '' && $out[$orderId][$orderItemId]['service_type'] === '') {
+            $out[$orderId][$orderItemId]['service_type'] = $serviceType;
+        }
+    }
+
+    return $out;
+}
+
+/**
+ * Pick the primary service label for an order from resolved line summaries.
+ *
+ * @param array<int,array<string,mixed>> $itemsOut
+ * @return array{service_type:string,service_id:int,first_custom:array<string,mixed>}
+ */
+function printflow_pick_primary_service_from_summaries(array $itemsOut, array $firstCustom = []): array
+{
+    $serviceName = '';
+    $serviceId = 0;
+    foreach ($itemsOut as $line) {
+        if (!is_array($line)) {
+            continue;
+        }
+        $isServiceLine = ($line['item_type'] ?? '') === 'service'
+            || (int)($line['service_id'] ?? 0) > 0;
+        if (!$isServiceLine) {
+            continue;
+        }
+        $candidate = trim((string)($line['product_name'] ?? ''));
+        if ($candidate !== '' && !customer_orders_is_generic_item_name($candidate)) {
+            $serviceName = $candidate;
+            $serviceId = (int)($line['service_id'] ?? 0);
+            break;
+        }
+    }
+    if ($serviceName === '' && $itemsOut !== []) {
+        foreach ($itemsOut as $line) {
+            $candidate = trim((string)($line['product_name'] ?? ''));
+            if ($candidate !== '' && !customer_orders_is_generic_item_name($candidate)) {
+                $serviceName = $candidate;
+                $serviceId = (int)($line['service_id'] ?? 0);
+                break;
+            }
+        }
+    }
+    if ($serviceName === '' && $firstCustom !== []) {
+        $serviceName = get_service_name_from_customization($firstCustom, '');
+    }
+    if ($serviceName === '') {
+        $serviceName = 'Custom Service';
+    }
+
+    return [
+        'service_type' => $serviceName,
+        'service_id' => $serviceId,
+        'first_custom' => $firstCustom,
+    ];
 }
 
 /**
@@ -4441,21 +4693,60 @@ function printflow_resolve_order_line_identity(array $order, array $item, array 
     $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
     $catalogProduct = customer_orders_custom_order_is_catalog_product($custom);
 
+    $customServiceType = trim((string)($custom['service_type'] ?? ''));
     $isService = in_array($explicitType, ['service', 'custom_service'], true)
         || (int)($item['service_id'] ?? 0) > 0
-        || in_array($sourcePage, ['service', 'services'], true)
-        || $source === 'service'
+        || (int)($custom['service_id'] ?? 0) > 0
+        || $customServiceType !== ''
+        || in_array($sourcePage, ['service', 'services', 'dynamic_form'], true)
+        || in_array($source, ['service', 'pos'], true)
         || ($orderType === 'custom' && !$catalogProduct);
-    if (in_array($explicitType, ['product', 'catalog_product'], true) || $catalogProduct) {
+    if (in_array($explicitType, ['product', 'catalog_product'], true)) {
         $isService = false;
+    } elseif ($catalogProduct) {
+        $isService = false;
+    }
+    if (
+        !$isService
+        && $source === 'pos'
+        && ($customServiceType !== '' || (int)($custom['service_id'] ?? 0) > 0)
+    ) {
+        $isService = true;
+    }
+    if (
+        !$isService
+        && customer_orders_is_pos_placeholder_product_name(trim((string)($item['product_name'] ?? '')))
+        && ($customServiceType !== '' || (int)($custom['service_id'] ?? 0) > 0)
+    ) {
+        $isService = true;
     }
 
     if (!$isService) {
         $productName = trim((string)($item['product_name'] ?? $item['name'] ?? ''));
+        if (
+            $productName !== ''
+            && $customServiceType !== ''
+            && strcasecmp($productName, $customServiceType) !== 0
+            && function_exists('customer_orders_is_generic_item_name')
+            && customer_orders_is_generic_item_name($productName)
+        ) {
+            $productName = $customServiceType;
+        }
+        if (
+            $productName !== ''
+            && $customServiceType !== ''
+            && strcasecmp($productName, $customServiceType) !== 0
+            && (int)($custom['service_id'] ?? 0) > 0
+        ) {
+            $catalogName = customer_orders_resolve_service_name_by_id((int)$custom['service_id']);
+            if ($catalogName !== '') {
+                $productName = $catalogName;
+            }
+        }
         return [
             'item_type' => 'product',
             'product_id' => max(0, (int)($item['product_id'] ?? 0)),
-            'service_id' => 0,
+            'service_id' => max(0, (int)($custom['service_id'] ?? 0)),
             'display_name' => $productName !== '' ? $productName : 'Order Item',
         ];
     }
@@ -4514,12 +4805,81 @@ function printflow_resolve_order_line_identity(array $order, array $item, array 
         ?? $order['first_job_title']
         ?? ''
     ));
+    $displayName = trim((string)($service['name'] ?? ''));
+    if ($displayName === '' && $customServiceType !== '') {
+        $displayName = $customServiceType;
+    }
+    if ($displayName === '') {
+        $displayName = $fallbackName !== '' ? $fallbackName : 'Service Order';
+    }
+    if ($displayName === '' || $displayName === 'Service Order' || customer_orders_is_generic_item_name($displayName)) {
+        $fromSaved = get_service_name_from_customization($custom, '');
+        if ($fromSaved !== '' && !customer_orders_is_generic_item_name($fromSaved)) {
+            $displayName = $fromSaved;
+        }
+    }
+    if (customer_orders_is_generic_item_name($displayName)) {
+        $displayName = $customServiceType !== '' ? $customServiceType : 'Service Order';
+    }
+
     return [
         'item_type' => 'service',
         'product_id' => 0,
         'service_id' => (int)($service['service_id'] ?? 0),
-        'display_name' => trim((string)($service['name'] ?? '')) ?: ($fallbackName ?: 'Service Order'),
+        'display_name' => $displayName,
     ];
+}
+
+/**
+ * Resolve dashboard/list labels from saved order-item data (not product-table fallbacks).
+ *
+ * @param int[] $orderIds
+ * @return array<int,string>
+ */
+function printflow_dashboard_order_service_labels(array $orderIds): array
+{
+    $orderIds = array_values(array_unique(array_filter(array_map('intval', $orderIds))));
+    if ($orderIds === []) {
+        return [];
+    }
+
+    require_once __DIR__ . '/JobOrderService.php';
+    $batch = JobOrderService::getStoreOrderItemSummariesBatch($orderIds, false);
+    $labels = [];
+    foreach ($orderIds as $orderId) {
+        $summary = $batch[$orderId] ?? null;
+        $label = is_array($summary) ? trim((string)($summary['service_type'] ?? '')) : '';
+        if ($label === '' && is_array($summary) && !empty($summary['items'][0]['product_name'])) {
+            $label = trim((string)$summary['items'][0]['product_name']);
+        }
+        $labels[$orderId] = $label !== '' ? $label : 'Custom Service';
+    }
+
+    return $labels;
+}
+
+/**
+ * Admin/Manager dashboard Manage link for a store order.
+ */
+function printflow_admin_order_management_url(int $orderId, bool $preferPendingStatus = false): string
+{
+    $base = printflow_notification_base_path();
+    $viewerRole = function_exists('get_user_type') ? (string)get_user_type() : '';
+    $panelBase = $viewerRole === 'Manager' ? ($base . '/manager') : ($base . '/admin');
+    $orderId = (int)$orderId;
+    if ($orderId <= 0) {
+        return $panelBase . '/orders_management.php';
+    }
+
+    if (printflow_order_uses_customizations_page($orderId)) {
+        $url = $panelBase . '/customizations.php?order_id=' . $orderId;
+        if ($preferPendingStatus) {
+            $url .= '&status=PENDING';
+        }
+        return $url;
+    }
+
+    return $panelBase . '/orders_management.php?open_order=' . $orderId;
 }
 
 /** A positive order total is final only after an explicit or legacy pricing milestone. */
@@ -6970,42 +7330,12 @@ function get_service_name_from_customization($custom, $fallback = 'Custom Order'
         return $explicit_product_service;
     }
     
-    // User Requested Priority Logic
-    // 1. Sintra Board
-    if (!empty($custom['sintra_type']) || !empty($custom['Sintra Type']) || !empty($custom['is_standee'])) {
-        return 'Sintraboard Standees';
-    }
-    // 2. Tarpaulin Printing
-    if (!empty($custom['tarp_size']) || !empty($custom['Tarp Size']) || (!empty($custom['width']) && !empty($custom['height']) && (!empty($custom['finish']) || !empty($custom['with_eyelets'])))) {
-        return 'Tarpaulin Printing';
-    }
-    // 3. T-Shirt Printing
-    if (!empty($custom['vinyl_type']) || !empty($custom['print_placement']) || !empty($custom['tshirt_color']) || !empty($custom['shirt_source'])) {
-        return 'T-Shirt Printing';
-    }
-    // 3.5 Reflectorized
-    if (
-        !empty($custom['gate_pass_subdivision']) ||
-        !empty($custom['gate_pass_number']) ||
-        !empty($custom['gate_pass_plate']) ||
-        !empty($custom['gate_pass_year']) ||
-        !empty($custom['temp_plate_material']) ||
-        !empty($custom['temp_plate_number']) ||
-        !empty($custom['temp_plate_text']) ||
-        !empty($custom['mv_file_number']) ||
-        !empty($custom['dealer_name']) ||
-        !empty($custom['material_type']) ||
-        !empty($custom['reflective_color']) ||
-        (!empty($custom['product_type']) && stripos((string)$custom['product_type'], 'reflectorized') !== false)
-    ) {
-        return 'Reflectorized';
-    }
-    // 4. Decals/Stickers — require sticker-specific fields; do not use `shape` alone (mug/merch forms reuse "shape").
-    if (!empty($custom['sticker_type']) || !empty($custom['Sticker Type']) || !empty($custom['Cut_Type'])) {
-        return 'Decals/Stickers (Print/Cut)';
+    $fallback = trim((string)$fallback);
+    if ($fallback !== '' && customer_orders_is_generic_item_name($fallback)) {
+        $fallback = '';
     }
 
-    return normalize_service_name($fallback, $fallback);
+    return $fallback !== '' ? normalize_service_name($fallback, $fallback) : '';
 }
 
 function printflow_customization_summary($custom, $fallback = 'Custom Service') {

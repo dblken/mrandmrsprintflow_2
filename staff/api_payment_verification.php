@@ -30,7 +30,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'queue_s
     $where = " FROM payment_submissions ps
                LEFT JOIN orders o ON o.order_id = ps.order_id
                LEFT JOIN job_orders jo ON jo.id = ps.job_order_id
-               WHERE 1=1";
+               WHERE 1=1
+                 AND (o.order_id IS NULL OR " . printflow_order_archive_scope_sql('o') . ")
+                 AND (jo.id IS NULL OR " . printflow_customer_exclusion_job_scope_sql('jo') . ")";
     $types = '';
     $params = [];
     if ($branchId !== null) {

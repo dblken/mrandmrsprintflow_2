@@ -31,7 +31,7 @@ $action = strtolower(trim((string)($input['action'] ?? 'print')));
 $isReprint = $action === 'reprint';
 $rows = $orderId > 0 ? (db_query(
     "SELECT order_id, branch_id, status, payment_status, order_source
-     FROM orders WHERE order_id = ? LIMIT 1",
+     FROM orders WHERE order_id = ? AND " . printflow_order_archive_scope_sql('orders') . " LIMIT 1",
     'i',
     [$orderId]
 ) ?: []) : [];
