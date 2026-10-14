@@ -339,7 +339,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
 
                 $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field pf-select-with-others' . (printflow_service_field_uses_custom_size_panel($field_key, $config) ? ' pf-select-custom-size' : '') . '" data-field-key="' . htmlspecialchars($field_key) . '" data-other-option="Others" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
                 $placeholder = preg_match('/upload\s+design|design\s+upload/i', (string)$config['label'])
-                    ? 'Select Upload Design Option'
+                    ? 'Choose an option'
                     : 'Select ' . $label;
                 $html .= '<option value="" selected disabled>' . $placeholder . '</option>';
                 foreach ($selectOptions as $option) {
@@ -668,13 +668,11 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
 
             $conditional_required_data = $config['required'] ? ' data-pf-conditionally-required="1"' : '';
             $html .= '<div class="pf-file-upload-group" data-pf-file-upload="1" data-pf-design-initial="' . htmlspecialchars($initial_mode, ENT_QUOTES, 'UTF-8') . '"' . $required_data . $conditional_required_data . ' style="max-width:100%;width:100%;">';
-            $html .= '<label class="pf-design-mode-label" for="' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '_mode">Select Upload Design Option' . ($config['required'] ? ' *' : '') . '</label>';
             $html .= '<select name="design_input_mode" id="' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '_mode" class="input-field pf-design-mode-select"' . ($config['required'] ? ' required' : '') . '>';
-            $html .= '<option value="" disabled' . ($initial_mode === '' ? ' selected' : '') . '>Select Upload Design Option</option>';
+            $html .= '<option value="" disabled' . ($initial_mode === '' ? ' selected' : '') . '>Choose an option</option>';
             $html .= '<option value="file"' . ($initial_mode === 'file' ? ' selected' : '') . '>Upload File</option>';
             $html .= '<option value="link"' . ($initial_mode === 'link' ? ' selected' : '') . '>Use a Link</option>';
             $html .= '</select>';
-            $html .= '<p class="pf-design-mode-question">How would you like to provide your design?</p>';
 
             $html .= '<div class="pf-design-mode-panel" data-pf-design-panel="file"' . ($initial_mode !== 'file' ? ' hidden' : '') . '>';
             $html .= '<div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Upload your design</div>';
