@@ -6,6 +6,8 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/product_branch_stock.php';
+require_once __DIR__ . '/../includes/product_option_stock.php';
 
 require_role('Customer');
 
@@ -197,9 +199,21 @@ require_once __DIR__ . '/../includes/header.php';
         font-weight: 700;
         font-size: 0.95rem;
         color: #0f172a;
-        min-width: 26px;
+        width: 52px;
+        min-width: 52px;
+        padding: 0 4px;
+        border: 0;
+        outline: 0;
+        background: transparent;
         text-align: center;
     }
+    .qty-val:focus {
+        border-radius: 6px;
+        background: #fff;
+        box-shadow: 0 0 0 2px rgba(15, 107, 147, 0.2);
+    }
+    .qty-val::-webkit-inner-spin-button,
+    .qty-val::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 
     .cart-item-type-badge {
         position: absolute;
@@ -485,7 +499,8 @@ require_once __DIR__ . '/../includes/header.php';
         
         .qty-val {
             font-size: 0.85rem;
-            min-width: 18px;
+            width: 42px;
+            min-width: 42px;
         }
         
         /* Trash button - compact */
@@ -800,6 +815,10 @@ require_once __DIR__ . '/../includes/header.php';
                                     }
                                     $item_category = (string)($item['category'] ?? '');
                                     $qty_for_edit = max(1, (int)($item['quantity'] ?? 1));
+                                    $available_stock = null;
+                                    if ((int)($item['product_id'] ?? 0) > 0 && (int)($item['branch_id'] ?? 0) > 0) {
+                                        [$available_stock] = printflow_product_effective_stock((int)$item['product_id'], (int)$item['branch_id']);
+                                    }
                                     $modify_link = $base_url . '/customer/products.php';
                                     if (strpos($cat_lower, 't-shirt') !== false || strpos($cat_lower, 'shirt') !== false) {
                                         $modify_link = $base_url . '/customer/order_tshirt.php?qty=' . $qty_for_edit;
@@ -966,7 +985,7 @@ require_once __DIR__ . '/../includes/header.php';
                                         <td style="padding:1rem; text-align:center;" onclick="event.stopPropagation();">
                                             <div class="qty-control">
                                                 <button type="button" class="qty-btn" onclick="updateQty('<?php echo $pid; ?>', -1)" <?php echo $item['quantity'] <= 1 ? 'disabled' : ''; ?>>−</button>
-                                                <span class="qty-val" id="qty-<?php echo $pid; ?>"><?php echo $item['quantity']; ?></span>
+                                                <input type="text" class="qty-val" id="qty-<?php echo $pid; ?>" value="<?php echo $qty_for_edit; ?>" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Quantity" data-saved-qty="<?php echo $qty_for_edit; ?>"<?php echo $available_stock !== null ? ' data-available-stock="' . (int)$available_stock . '"' : ''; ?> oninput="handleQtyInput(this)" onblur="commitQty('<?php echo $pid; ?>')" onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.blur(); }">
                                                 <button type="button" class="qty-btn" onclick="updateQty('<?php echo $pid; ?>', 1)" <?php echo $item['quantity'] >= 99 ? 'disabled' : ''; ?>>+</button>
                                             </div>
                                         </td>
@@ -1151,35 +1170,65 @@ async function handleRemoveItem() {
     }
 }
 
-async function updateQty(pid, delta) {
-    const span = document.getElementById(`qty-${pid}`);
-    if (!span) return;
+function handleQtyInput(input) {
+    const sanitized = input.value.replace(/[^0-9]/g, '');
+    if (input.value !== sanitized) input.value = sanitized;
+    if (sanitized !== '') previewQty(input.closest('.cart-row'), parseInt(sanitized, 10));
+}
 
-    let currentQty = parseInt(span.textContent);
-    let newQty = currentQty + delta;
-    if (newQty < 1) return;
-
-    // Check overall cart total — only block increases
-    if (delta > 0) {
-        const cartTotal = getCartTotal();
-        const newCartTotal = cartTotal - currentQty + newQty;
-        if (newCartTotal > 99) {
-            showCartToast('Your cart is full.', true);
-            return;
-        }
-    }
-
-    // Optimistic UI
-    span.textContent = newQty;
-    const row = document.querySelector(`.cart-row[data-id="${pid}"]`);
+function previewQty(row, quantity) {
+    if (!row || !Number.isInteger(quantity) || quantity < 1) return;
+    const input = row.querySelector('.qty-val');
+    input.value = String(quantity);
     const price = parseFloat(row.dataset.price);
-    const totalCell = document.getElementById(`total-${pid}`);
+    const totalCell = document.getElementById(`total-${row.dataset.id}`);
     const lineTotalText = totalCell ? (totalCell.querySelector('.cart-line-total') || totalCell.querySelector('span')) : null;
-    if (lineTotalText) {
-        if (price > 0) {
-            lineTotalText.textContent = PHP(price * newQty);
-        }
+    if (lineTotalText && price > 0) lineTotalText.textContent = PHP(price * quantity);
+    row.querySelector('.qty-btn:first-child').disabled = quantity <= 1;
+    updateAllPlusBtns();
+    recalculateTotal();
+}
+
+async function updateQty(pid, delta) {
+    const input = document.getElementById(`qty-${pid}`);
+    if (!input) return;
+    const currentQty = parseInt(input.value, 10) || parseInt(input.dataset.savedQty, 10) || 1;
+    const newQty = currentQty + delta;
+    if (newQty < 1) return;
+    input.value = String(newQty);
+    await commitQty(pid);
+}
+
+async function commitQty(pid) {
+    const input = document.getElementById(`qty-${pid}`);
+    const row = document.querySelector(`.cart-row[data-id="${pid}"]`);
+    if (!input || !row || row.dataset.qtySaving === '1') return;
+    const currentQty = parseInt(input.dataset.savedQty, 10) || 1;
+    const raw = input.value.trim();
+    if (!/^\d+$/.test(raw)) {
+        input.value = String(currentQty);
+        previewQty(row, currentQty);
+        showCartToast('Enter a whole number from 1 to 99.', true);
+        return;
     }
+    const newQty = parseInt(raw, 10);
+    const availableStock = input.dataset.availableStock === undefined ? null : parseInt(input.dataset.availableStock, 10);
+    if (newQty < 1 || newQty > 99 || (availableStock !== null && newQty > Math.max(availableStock, currentQty))) {
+        input.value = String(currentQty);
+        previewQty(row, currentQty);
+        showCartToast(availableStock !== null && availableStock < currentQty ? 'Quantity exceeds available stock.' : 'Enter a whole number from 1 to 99.', true);
+        return;
+    }
+    const cartTotal = getCartTotal();
+    if (cartTotal - currentQty + newQty > 99) {
+        input.value = String(currentQty);
+        previewQty(row, currentQty);
+        showCartToast('Your cart is full.', true);
+        return;
+    }
+
+    previewQty(row, newQty);
+    row.dataset.qtySaving = '1';
 
     const minusBtn = row.querySelector('.qty-btn:first-child');
     const plusBtn = row.querySelector('.qty-btn:last-child');
@@ -1198,30 +1247,33 @@ async function updateQty(pid, delta) {
         const data = await res.json();
         if (!data.success) {
             showCartToast(data.message || 'Failed to update quantity.', true);
-            span.textContent = currentQty;
-            if (lineTotalText && price > 0) lineTotalText.textContent = PHP(price * currentQty);
+            input.value = String(currentQty);
+            previewQty(row, currentQty);
             minusBtn.disabled = (currentQty <= 1);
             plusBtn.disabled = false;
             recalculateTotal();
             updateAllPlusBtns();
         } else {
+            input.dataset.savedQty = String(newQty);
             if (window.updateCartBadge) updateCartBadge(data.cart_count);
         }
     } catch (err) {
         console.error(err);
-        span.textContent = currentQty;
-        if (lineTotalText && price > 0) lineTotalText.textContent = PHP(price * currentQty);
+        input.value = String(currentQty);
+        previewQty(row, currentQty);
         minusBtn.disabled = (currentQty <= 1);
         plusBtn.disabled = false;
         recalculateTotal();
         updateAllPlusBtns();
         showCartToast('Failed to save quantity. Please try again.', true);
+    } finally {
+        row.dataset.qtySaving = '0';
     }
 }
 
 function getCartTotal() {
     let total = 0;
-    document.querySelectorAll('.qty-val').forEach(s => { total += parseInt(s.textContent) || 0; });
+    document.querySelectorAll('.qty-val').forEach(s => { total += parseInt(s.value, 10) || 0; });
     return total;
 }
 
@@ -1334,7 +1386,7 @@ function recalculateTotal() {
             if (!isCustom) {
                 const pid = row.dataset.id;
                 const price = parseFloat(row.dataset.price);
-                const qty = parseInt(document.getElementById(`qty-${pid}`).textContent);
+                const qty = parseInt(document.getElementById(`qty-${pid}`).value, 10) || 0;
                 subtotal += price * qty;
             }
         }

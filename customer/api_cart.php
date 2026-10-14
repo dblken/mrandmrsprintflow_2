@@ -325,7 +325,12 @@ if ($action === 'buy_now') {
 // -----------------------------------------------------------------------
 if ($action === 'update') {
     $key      = $input['cart_key'] ?? '';
-    $quantity = (int)($input['quantity'] ?? 0);
+    $quantityRaw = $input['quantity'] ?? null;
+    if (!(is_int($quantityRaw) || (is_string($quantityRaw) && preg_match('/^\d+$/D', $quantityRaw)))) {
+        echo json_encode(['success' => false, 'message' => 'Quantity must be a whole number.']);
+        exit;
+    }
+    $quantity = (int)$quantityRaw;
 
     if (!isset($_SESSION['cart'][$key])) {
         echo json_encode(['success' => false, 'message' => 'Item not found.']);
@@ -345,6 +350,13 @@ if ($action === 'update') {
         if (!empty($stockCheck['uses_option_stock']) && empty($stockCheck['ok'])) {
             echo json_encode(['success' => false, 'message' => $stockCheck['message'] ?? 'Insufficient stock for selected variant.']);
             exit;
+        }
+        if ((int)($item['product_id'] ?? 0) > 0 && empty($stockCheck['uses_option_stock'])) {
+            [$branchStock] = printflow_product_effective_stock((int)$item['product_id'], (int)($item['branch_id'] ?? 0));
+            if ($quantity > (int)$branchStock) {
+                echo json_encode(['success' => false, 'message' => 'Quantity exceeds available stock.']);
+                exit;
+            }
         }
         $current_item_qty  = $_SESSION['cart'][$key]['quantity'] ?? 0;
         $other_total       = cart_count() - $current_item_qty;
