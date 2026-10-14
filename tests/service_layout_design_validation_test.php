@@ -85,6 +85,11 @@ layout_test_assert(
         && printflow_layout_option_canonical((string)($rule['value'] ?? '')) === 'with_layout')) === 1,
     'renderer receives a show-only-with-layout rule for design upload'
 );
+layout_test_assert(
+    count(array_filter($uploadRules, static fn(array $rule): bool => ($rule['mode'] ?? '') === 'disable_when'
+        && ($rule['customer_note'] ?? '') === 'Please coordinate with our staff regarding the layout for your order.')) === 1,
+    'without-layout design rule includes the default staff coordination message'
+);
 
 $designFileField = $uploadField;
 $designFileConfigs = [
@@ -99,6 +104,12 @@ $withoutLayoutValues = ['layout' => 'without_layout'];
 layout_test_assert(
     !printflow_service_field_is_active($designFileField, $withoutLayoutValues, 'design_file', $designFileConfigs),
     'design_file inactive when layout option targets upload_design alias'
+);
+$designFileRules = printflow_service_field_build_conditional_rules('design_file', $designFileField, $designFileConfigs);
+layout_test_assert(
+    count(array_filter($designFileRules, static fn(array $rule): bool => ($rule['mode'] ?? '') === 'disable_when'
+        && ($rule['customer_note'] ?? '') === 'Please coordinate with our staff regarding the layout for your order.')) === 1,
+    'aliased design upload receives the without-layout coordination message'
 );
 
 $layoutWithPrice = [

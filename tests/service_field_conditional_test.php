@@ -57,9 +57,13 @@ expect_true(
 );
 
 $rules = printflow_service_field_build_conditional_rules('upload_design', $uploadField, $allConfigs);
-expect_true(count($rules) === 1 && $rules[0]['mode'] === 'disable_when', 'rules use disable_when mode');
+$disableRules = array_values(array_filter(
+    $rules,
+    static fn(array $rule): bool => ($rule['mode'] ?? '') === 'disable_when'
+));
+expect_true(count($disableRules) === 1, 'rules include one disable_when mode');
 expect_true(
-    ($rules[0]['customer_note'] ?? '') === 'Please coordinate with staff for layout.',
+    ($disableRules[0]['customer_note'] ?? '') === 'Please coordinate with staff for layout.',
     'customer note included in rule payload'
 );
 

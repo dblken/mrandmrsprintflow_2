@@ -904,6 +904,23 @@ function get_service_field_scripts() {
 .pf-conditional-info-callout[hidden] {
     display: none !important;
 }
+.pf-hidden-conditional-note {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    align-items: flex-start;
+}
+.pf-hidden-conditional-note-label {
+    min-width: 130px;
+    flex-shrink: 0;
+}
+.pf-hidden-conditional-note-field {
+    flex: 1;
+    min-width: 0;
+}
+.pf-hidden-conditional-note .pf-conditional-info-callout {
+    margin-top: 0;
+}
 .pf-conditional-info-callout-inner {
     background: #eff6ff;
     border: 1px solid #93c5fd;
@@ -1098,6 +1115,9 @@ function get_service_field_scripts() {
     .pf-design-mode-tab {
         font-size: 12px;
         padding: 10px 8px;
+    }
+    .pf-hidden-conditional-note-label {
+        display: none;
     }
 }
 CSS;
@@ -1900,6 +1920,51 @@ function pfApplyConditionalDisabledUI(row, disabled, customerNote) {
     }
 }
 
+function pfSyncHiddenConditionalNote(row, show, customerNote) {
+    if (!row) {
+        return;
+    }
+    let noteRow = row.__pfHiddenConditionalNote || null;
+    const shouldShow = !!(show && customerNote && pfShouldShowOptionCustomerNotes());
+    if (!shouldShow) {
+        if (noteRow) {
+            noteRow.hidden = true;
+            const body = noteRow.querySelector('.pf-option-customer-note-body');
+            if (body) body.textContent = '';
+        }
+        return;
+    }
+    if (!noteRow) {
+        noteRow = document.createElement('div');
+        noteRow.className = 'pf-hidden-conditional-note';
+        noteRow.setAttribute('aria-live', 'polite');
+
+        const spacer = document.createElement('div');
+        spacer.className = 'pf-hidden-conditional-note-label';
+        spacer.setAttribute('aria-hidden', 'true');
+
+        const field = document.createElement('div');
+        field.className = 'pf-hidden-conditional-note-field';
+
+        const callout = document.createElement('div');
+        callout.className = 'pf-option-customer-note pf-conditional-info-callout';
+        callout.innerHTML = '<div class="pf-conditional-info-callout-inner">'
+            + '<div class="pf-conditional-info-callout-head">'
+            + '<span class="pf-conditional-info-callout-icon" aria-hidden="true">&#9432;</span>'
+            + '<span class="pf-conditional-info-callout-title">Important Information</span>'
+            + '</div><div class="pf-option-customer-note-body"></div></div>';
+
+        field.appendChild(callout);
+        noteRow.appendChild(spacer);
+        noteRow.appendChild(field);
+        row.parentNode.insertBefore(noteRow, row);
+        row.__pfHiddenConditionalNote = noteRow;
+    }
+    const body = noteRow.querySelector('.pf-option-customer-note-body');
+    if (body) body.textContent = customerNote;
+    noteRow.hidden = false;
+}
+
 function pfEvaluateConditionalRules(rules) {
     if (!Array.isArray(rules) || rules.length === 0) {
         return true;
@@ -1969,10 +2034,12 @@ function updateConditionalFields() {
         const isInactive = uiState.shouldHide || uiState.shouldDisable;
 
         if (uiState.shouldHide) {
+            pfSyncHiddenConditionalNote(row, uiState.shouldDisable, uiState.customerNote);
             hideFieldRow(row);
             pfApplyConditionalDisabledUI(row, false, '');
             pfSyncConditionalRowRequiredState(row, false);
         } else {
+            pfSyncHiddenConditionalNote(row, false, '');
             showFieldRow(row);
             if (uiState.shouldDisable) {
                 pfApplyConditionalDisabledUI(row, true, uiState.customerNote);

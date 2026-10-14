@@ -273,7 +273,11 @@ function printflow_service_field_build_conditional_rules(string $targetFieldKey,
                 continue;
             }
             $targetKey = trim((string)($rule['target_field_key'] ?? ''));
-            if ($targetKey === '' || $targetKey !== $targetFieldKey || $targetKey === $sourceKey) {
+            if (
+                $targetKey === ''
+                || $targetKey === $sourceKey
+                || !printflow_service_field_conditional_target_matches_field($targetKey, $targetFieldKey, $allConfigs)
+            ) {
                 continue;
             }
             $optVal = trim((string)($option['value'] ?? ''));
@@ -288,6 +292,14 @@ function printflow_service_field_build_conditional_rules(string $targetFieldKey,
                 'target_field_key' => $targetKey,
             ];
             $note = trim((string)($rule['customer_note'] ?? ''));
+            if (
+                $note === ''
+                && printflow_service_field_is_layout_field($sourceKey, $sourceCfg)
+                && printflow_layout_option_canonical($optVal) === 'without_layout'
+                && printflow_service_field_conditional_target_matches_field($targetKey, $targetFieldKey, $allConfigs)
+            ) {
+                $note = 'Please coordinate with our staff regarding the layout for your order.';
+            }
             if ($note !== '') {
                 $outRule['customer_note'] = $note;
             }
