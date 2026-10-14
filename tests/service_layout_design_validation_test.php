@@ -164,6 +164,10 @@ layout_test_assert(
 
 $rendererJs = (string) file_get_contents(__DIR__ . '/../includes/service_field_renderer.php');
 layout_test_assert(strpos($rendererJs, 'pfClearDesignUploadGroup') !== false, 'renderer exposes design clear on layout switch');
+layout_test_assert(
+    strpos($rendererJs, '.pf-hidden-conditional-note[hidden]') !== false,
+    'hidden layout coordination notice cannot be forced visible by flex styling'
+);
 layout_test_assert(strpos($rendererJs, 'pfClearDesignUploadGroup(uploadGroup)') !== false, 'conditional fields clear uploads when layout disables design');
 layout_test_assert(
     strpos($rendererJs, 'You can upload a maximum of ') !== false

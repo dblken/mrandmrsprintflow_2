@@ -910,6 +910,9 @@ function get_service_field_scripts() {
     margin-bottom: 1.5rem;
     align-items: flex-start;
 }
+.pf-hidden-conditional-note[hidden] {
+    display: none !important;
+}
 .pf-hidden-conditional-note-label {
     min-width: 130px;
     flex-shrink: 0;
