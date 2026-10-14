@@ -174,6 +174,19 @@ require_once __DIR__ . '/../includes/header.php';
         gap: 8px;
         border: 1px solid #dbe4ee;
     }
+    .qty-field-wrap {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+    }
+    .qty-error {
+        max-width: 180px;
+        color: #b91c1c;
+        font-size: 0.72rem;
+        line-height: 1.25;
+        text-align: center;
+    }
     .qty-btn {
         width: 32px;
         height: 32px;
@@ -816,7 +829,7 @@ require_once __DIR__ . '/../includes/header.php';
                                     $item_category = (string)($item['category'] ?? '');
                                     $qty_for_edit = max(1, (int)($item['quantity'] ?? 1));
                                     $available_stock = null;
-                                    if ((int)($item['product_id'] ?? 0) > 0 && (int)($item['branch_id'] ?? 0) > 0) {
+                                    if ($item_origin === 'Product' && (int)($item['product_id'] ?? 0) > 0) {
                                         [$available_stock] = printflow_product_effective_stock((int)$item['product_id'], (int)$item['branch_id']);
                                     }
                                     $modify_link = $base_url . '/customer/products.php';
@@ -983,10 +996,13 @@ require_once __DIR__ . '/../includes/header.php';
                                             <?php endif; ?>
                                         </td>
                                         <td style="padding:1rem; text-align:center;" onclick="event.stopPropagation();">
-                                            <div class="qty-control">
-                                                <button type="button" class="qty-btn" onclick="updateQty('<?php echo $pid; ?>', -1)" <?php echo $item['quantity'] <= 1 ? 'disabled' : ''; ?>>−</button>
-                                                <input type="text" class="qty-val" id="qty-<?php echo $pid; ?>" value="<?php echo $qty_for_edit; ?>" inputmode="numeric" pattern="[0-9]*" minlength="1" maxlength="2" autocomplete="off" aria-label="Quantity" data-saved-qty="<?php echo $qty_for_edit; ?>"<?php echo $available_stock !== null ? ' data-available-stock="' . (int)$available_stock . '" max="' . (int)$available_stock . '"' : ' max="99"'; ?> oninput="handleQtyInput(this)" onblur="commitQty('<?php echo $pid; ?>')" onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.blur(); }">
-                                                <button type="button" class="qty-btn" onclick="updateQty('<?php echo $pid; ?>', 1)" <?php echo $item['quantity'] >= 99 ? 'disabled' : ''; ?>>+</button>
+                                            <div class="qty-field-wrap">
+                                                <div class="qty-control">
+                                                    <button type="button" class="qty-btn" onclick="updateQty('<?php echo $pid; ?>', -1)" <?php echo $item['quantity'] <= 1 ? 'disabled' : ''; ?>>−</button>
+                                                    <input type="text" class="qty-val" id="qty-<?php echo $pid; ?>" value="<?php echo $qty_for_edit; ?>" inputmode="numeric" pattern="[0-9]*" minlength="1" maxlength="2" autocomplete="off" aria-label="Quantity" data-saved-qty="<?php echo $qty_for_edit; ?>"<?php echo $available_stock !== null ? ' data-available-stock="' . (int)$available_stock . '" max="' . (int)$available_stock . '"' : ' max="99"'; ?> oninput="handleQtyInput(this)" onblur="commitQty('<?php echo $pid; ?>')" onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.blur(); }">
+                                                    <button type="button" class="qty-btn" onclick="updateQty('<?php echo $pid; ?>', 1)" <?php echo $item['quantity'] >= 99 ? 'disabled' : ''; ?>>+</button>
+                                                </div>
+                                                <div class="qty-error" id="qty-error-<?php echo $pid; ?>" role="alert" hidden></div>
                                             </div>
                                         </td>
                                         <td style="padding:1rem; text-align:right; font-weight:600;" id="total-<?php echo $pid; ?>" onclick="event.stopPropagation();">
@@ -1171,6 +1187,7 @@ async function handleRemoveItem() {
 }
 
 function handleQtyInput(input) {
+    const row = input.closest('.cart-row');
     const sanitized = input.value.replace(/[^0-9]/g, '');
     const availableStock = input.dataset.availableStock === undefined ? 99 : parseInt(input.dataset.availableStock, 10);
     let nextValue = sanitized.replace(/^0+(?=\d)/, '');
@@ -1185,11 +1202,20 @@ function handleQtyInput(input) {
     }
     if (input.value !== nextValue) input.value = nextValue;
     if (exceededStock) {
-        showCartToast('Only ' + Math.max(availableStock, 0) + ' item(s) available.', true);
+        setQtyError(row, 'Only ' + Math.max(availableStock, 0) + ' item(s) available.');
+    } else {
+        setQtyError(row, '');
     }
     if (nextValue !== '' && parseInt(nextValue, 10) >= 1) {
-        previewQty(input.closest('.cart-row'), parseInt(nextValue, 10));
+        previewQty(row, parseInt(nextValue, 10));
     }
+}
+
+function setQtyError(row, message) {
+    const error = row ? row.querySelector('.qty-error') : null;
+    if (!error) return;
+    error.textContent = message || '';
+    error.hidden = !message;
 }
 
 function previewQty(row, quantity) {
@@ -1224,7 +1250,7 @@ async function commitQty(pid) {
     if (!/^\d+$/.test(raw)) {
         input.value = String(currentQty);
         previewQty(row, currentQty);
-        showCartToast('Enter a whole number from 1 to 99.', true);
+        setQtyError(row, 'Enter a whole number from 1 to 99.');
         return;
     }
     const newQty = parseInt(raw, 10);
@@ -1232,14 +1258,14 @@ async function commitQty(pid) {
     if (newQty < 1 || newQty > 99 || (availableStock !== null && newQty > availableStock)) {
         input.value = String(currentQty);
         previewQty(row, currentQty);
-        showCartToast(availableStock !== null ? 'Quantity cannot exceed available stock.' : 'Enter a whole number from 1 to 99.', true);
+        setQtyError(row, availableStock !== null ? 'Only ' + Math.max(availableStock, 0) + ' item(s) available.' : 'Enter a whole number from 1 to 99.');
         return;
     }
     const cartTotal = getCartTotal();
     if (cartTotal - currentQty + newQty > 99) {
         input.value = String(currentQty);
         previewQty(row, currentQty);
-        showCartToast('Your cart is full.', true);
+        setQtyError(row, 'Your cart cannot exceed 99 items.');
         return;
     }
 
@@ -1262,7 +1288,7 @@ async function commitQty(pid) {
         });
         const data = await res.json();
         if (!data.success) {
-            showCartToast(data.message || 'Failed to update quantity.', true);
+            setQtyError(row, data.message || 'Failed to update quantity.');
             input.value = String(currentQty);
             previewQty(row, currentQty);
             minusBtn.disabled = (currentQty <= 1);
@@ -1271,6 +1297,7 @@ async function commitQty(pid) {
             updateAllPlusBtns();
         } else {
             input.dataset.savedQty = String(newQty);
+            setQtyError(row, '');
             if (window.updateCartBadge) updateCartBadge(data.cart_count);
         }
     } catch (err) {
@@ -1281,7 +1308,7 @@ async function commitQty(pid) {
         plusBtn.disabled = false;
         recalculateTotal();
         updateAllPlusBtns();
-        showCartToast('Failed to save quantity. Please try again.', true);
+        setQtyError(row, 'Failed to save quantity. Please try again.');
     } finally {
         row.dataset.qtySaving = '0';
     }

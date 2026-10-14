@@ -18,6 +18,8 @@ $assert(strpos($cart, "if (nextValue === '0') nextValue = '1';") !== false, 'qua
 $assert(strpos($cart, "max=\"' . (int)\$available_stock . '\"") !== false, 'quantity input exposes the actual available stock as its maximum');
 $assert(strpos($cart, 'newQty > availableStock') !== false, 'quantity input rejects values above available stock');
 $assert(strpos($cart, "Only ' + Math.max(availableStock, 0) + ' item(s) available.") !== false, 'quantity input shows an over-stock error message');
+$assert(strpos($cart, 'class="qty-error"') !== false && strpos($cart, 'setQtyError(row') !== false, 'quantity errors render below the quantity field');
+$assert(strpos($cart, 'Your cart cannot exceed 99 items.') !== false, 'cart-limit error is distinct from stock error');
 $assert(strpos($cart, 'onblur="commitQty(') !== false, 'quantity saves on blur');
 $assert(strpos($cart, 'data-available-stock') !== false, 'cart exposes available product stock');
 $assert(strpos($cart, "printflow_product_effective_stock") !== false, 'cart resolves branch stock');
