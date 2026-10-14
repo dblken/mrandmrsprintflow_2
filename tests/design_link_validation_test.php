@@ -45,7 +45,18 @@ foreach ($existing as $existingUrl) {
 
 $padded = "  {$canvaLink}  ";
 $trimmed = service_order_validate_design_link($padded);
-design_link_test_assert($trimmed['ok'] === true && $trimmed['url'] === $canvaLink, 'trailing and leading spaces are trimmed');
+design_link_test_assert(
+    $trimmed['ok'] === false && $trimmed['error'] === 'Spaces are not allowed in the design link.',
+    'leading and trailing spaces are rejected'
+);
+design_link_test_assert(
+    service_order_validate_design_link('https://example.com/design file.png')['ok'] === false,
+    'spaces inside a design link are rejected'
+);
+design_link_test_assert(
+    service_order_validate_design_link('https://example.com/design%20file.png')['ok'] === true,
+    'percent-encoded spaces remain valid URL characters'
+);
 
 $rejected = [
     'javascript:alert(1)',
@@ -142,5 +153,14 @@ design_link_test_assert(strpos($pos, 'function posStoreDesignLink') !== false, '
 design_link_test_assert(strpos($pos, 'customization.design_external_link = linkValue') !== false, 'POS keeps the original URL for staff display');
 design_link_test_assert(strpos($pos, "parsed.protocol === 'https:'") !== false, 'POS accepts only HTTPS design links');
 design_link_test_assert(strpos($customer, "parsed.protocol === 'https:'") !== false, 'customer page accepts only HTTPS design links');
+design_link_test_assert(strpos($customer, "if (/\\s/.test(rawText)) return false;") !== false, 'customer page rejects design links containing whitespace');
+design_link_test_assert(
+    strpos($customer, "setError(linkInput, 'Spaces are not allowed in the design link.')") !== false,
+    'customer page shows a specific whitespace validation message'
+);
+
+$renderer = (string)file_get_contents(__DIR__ . '/../includes/service_field_renderer.php');
+design_link_test_assert(strpos($renderer, 'pattern="\\S+"') !== false, 'design link input declares a no-whitespace pattern');
+design_link_test_assert(strpos($renderer, "rawValue.replace(/\\s+/g, '')") !== false, 'design link input removes pasted whitespace');
 
 echo "Design link validation tests passed.\n";

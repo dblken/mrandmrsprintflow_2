@@ -93,9 +93,14 @@ function service_order_design_file_accept_attr(): string {
  * @return array{ok:bool,error:string,url:string}
  */
 function service_order_validate_design_link(string $url): array {
+    $rawUrl = $url;
     $url = trim($url);
     if ($url === '') {
         return ['ok' => false, 'error' => 'Please enter a design link.', 'url' => ''];
+    }
+
+    if (preg_match('/\s/', $rawUrl)) {
+        return ['ok' => false, 'error' => 'Spaces are not allowed in the design link.', 'url' => ''];
     }
 
     if (preg_match('/^(javascript|data|file|vbscript):/i', $url) || preg_match('/[\x00-\x1F\x7F]/', $url)) {

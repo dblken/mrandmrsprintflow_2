@@ -404,14 +404,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             } elseif ($config['type'] === 'file') {
                 $has_design_field = true;
                 $link_post_name = service_order_design_link_post_name($key);
-                $design_link_raw = trim((string)($_POST[$link_post_name] ?? ''));
+                $design_link_raw = (string)($_POST[$link_post_name] ?? '');
                 $design_mode = trim((string)($_POST['design_input_mode'] ?? ''));
                 $upload_candidates = printflow_normalize_php_file_uploads('design_file');
                 if ($upload_candidates === []) {
                     $upload_candidates = printflow_normalize_php_file_uploads('design_file[]');
                 }
                 $has_uploaded_file = $upload_candidates !== [];
-                $has_design_link = $design_link_raw !== '';
+                $has_design_link = trim($design_link_raw) !== '';
 
                 if ($design_mode !== '' && !in_array($design_mode, ['file', 'link'], true)) {
                     $error = 'Please select a valid upload design option.';
@@ -590,8 +590,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     continue;
                 }
                 $link_post_name = service_order_design_link_post_name($fileKey);
-                $design_link_raw = trim((string)($_POST[$link_post_name] ?? ''));
-                if ($design_link_raw === '') {
+                $design_link_raw = (string)($_POST[$link_post_name] ?? '');
+                if (trim($design_link_raw) === '') {
                     continue;
                 }
                 $link_check = service_order_validate_design_link($design_link_raw);
@@ -2245,7 +2245,9 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         const isValidDesignLink = (value) => {
-            const text = String(value || '').trim();
+            const rawText = String(value || '');
+            if (/\s/.test(rawText)) return false;
+            const text = rawText.trim();
             if (!text) return true;
             if (/^(javascript|data|file|vbscript):/i.test(text)) return false;
             try {
@@ -2341,8 +2343,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
 
                 row.querySelectorAll('.pf-design-link-input').forEach(linkInput => {
-                    const linkValue = String(linkInput.value || '').trim();
-                    if (linkValue !== '' && !isValidDesignLink(linkValue)) {
+                    const linkValue = String(linkInput.value || '');
+                    if (/\s/.test(linkValue)) {
+                        setError(linkInput, 'Spaces are not allowed in the design link.');
+                    } else if (linkValue.trim() !== '' && !isValidDesignLink(linkValue)) {
                         setError(linkInput, 'Please enter a valid HTTPS design link.');
                     }
                 });

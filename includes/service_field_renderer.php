@@ -692,7 +692,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
 
             $html .= '<div class="pf-design-mode-panel" data-pf-design-panel="link"' . ($initial_mode !== 'link' ? ' hidden' : '') . '>';
             $html .= '<label for="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Design Link</label>';
-            $html .= '<input type="url" name="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" id="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" class="input-field pf-design-link-input" placeholder="https://..." value="' . htmlspecialchars($saved_link, ENT_QUOTES, 'UTF-8') . '" inputmode="url" autocomplete="url" style="max-width:100%;width:100%;">';
+            $html .= '<input type="url" name="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" id="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" class="input-field pf-design-link-input" placeholder="https://..." value="' . htmlspecialchars($saved_link, ENT_QUOTES, 'UTF-8') . '" inputmode="url" autocomplete="url" pattern="\S+" title="Spaces are not allowed in the design link." style="max-width:100%;width:100%;">';
+            $html .= '<div class="pf-design-link-error" role="alert" aria-live="polite"></div>';
             $html .= '<p style="margin:8px 0 0;font-size:12px;color:#9ca3af;line-height:1.5;">Paste a publicly accessible URL for your design file or image.</p>';
             $html .= '</div>';
             $html .= '</div>';
@@ -1034,6 +1035,13 @@ function get_service_field_scripts() {
     flex: 0 0 auto;
 }
 .pf-design-file-errors {
+    font-size: 12px;
+    color: #b91c1c;
+    line-height: 1.4;
+}
+.pf-design-link-error {
+    min-height: 0;
+    margin-top: 6px;
     font-size: 12px;
     color: #b91c1c;
     line-height: 1.4;
@@ -2106,6 +2114,7 @@ function pfClearDesignUploadGroup(group) {
     group.pfDesignListExpanded = false;
     const fileInput = group.querySelector('.pf-design-file-input, input[type="file"][name="design_file"], input[type="file"][name="design_file[]"]');
     const linkInput = group.querySelector('.pf-design-link-input');
+    const linkError = group.querySelector('.pf-design-link-error');
     const modeSelect = group.querySelector('.pf-design-mode-select');
     const errorsEl = group.querySelector('.pf-design-file-errors');
     if (fileInput) {
@@ -2120,6 +2129,9 @@ function pfClearDesignUploadGroup(group) {
         linkInput.value = '';
         linkInput.classList.remove('field-invalid');
         linkInput.removeAttribute('aria-invalid');
+    }
+    if (linkError) {
+        linkError.textContent = '';
     }
     if (modeSelect) {
         modeSelect.value = '';
@@ -2366,6 +2378,7 @@ function initPfDesignUploadGroups(root) {
         }
         const fileInput = group.querySelector('input[type="file"].pf-design-file-input, input[type="file"][name="design_file"]');
         const linkInput = group.querySelector('.pf-design-link-input');
+        const linkError = group.querySelector('.pf-design-link-error');
         const clearLinkInput = () => {
             if (!linkInput) return;
             linkInput.value = '';
@@ -2395,7 +2408,21 @@ function initPfDesignUploadGroups(root) {
         }
         pfRenderDesignUploadQueue(group);
         if (linkInput) {
+            linkInput.addEventListener('beforeinput', function(event) {
+                if (typeof event.data === 'string' && /\s/.test(event.data)) {
+                    event.preventDefault();
+                    if (linkError) linkError.textContent = 'Spaces are not allowed in the design link.';
+                }
+            });
             linkInput.addEventListener('input', function() {
+                const rawValue = String(this.value || '');
+                const withoutWhitespace = rawValue.replace(/\s+/g, '');
+                if (rawValue !== withoutWhitespace) {
+                    this.value = withoutWhitespace;
+                    if (linkError) linkError.textContent = 'Spaces are not allowed in the design link.';
+                } else if (linkError) {
+                    linkError.textContent = '';
+                }
                 if (String(this.value || '').trim() !== '') {
                     clearFileInput();
                     setMode('link');
