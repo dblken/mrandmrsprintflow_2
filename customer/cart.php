@@ -985,7 +985,7 @@ require_once __DIR__ . '/../includes/header.php';
                                         <td style="padding:1rem; text-align:center;" onclick="event.stopPropagation();">
                                             <div class="qty-control">
                                                 <button type="button" class="qty-btn" onclick="updateQty('<?php echo $pid; ?>', -1)" <?php echo $item['quantity'] <= 1 ? 'disabled' : ''; ?>>−</button>
-                                                <input type="text" class="qty-val" id="qty-<?php echo $pid; ?>" value="<?php echo $qty_for_edit; ?>" inputmode="numeric" pattern="[0-9]*" maxlength="2" autocomplete="off" aria-label="Quantity" data-saved-qty="<?php echo $qty_for_edit; ?>"<?php echo $available_stock !== null ? ' data-available-stock="' . (int)$available_stock . '"' : ''; ?> oninput="handleQtyInput(this)" onblur="commitQty('<?php echo $pid; ?>')" onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.blur(); }">
+                                                <input type="text" class="qty-val" id="qty-<?php echo $pid; ?>" value="<?php echo $qty_for_edit; ?>" inputmode="numeric" pattern="[0-9]*" minlength="1" maxlength="2" autocomplete="off" aria-label="Quantity" data-saved-qty="<?php echo $qty_for_edit; ?>"<?php echo $available_stock !== null ? ' data-available-stock="' . (int)$available_stock . '" max="' . (int)$available_stock . '"' : ' max="99"'; ?> oninput="handleQtyInput(this)" onblur="commitQty('<?php echo $pid; ?>')" onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.blur(); }">
                                                 <button type="button" class="qty-btn" onclick="updateQty('<?php echo $pid; ?>', 1)" <?php echo $item['quantity'] >= 99 ? 'disabled' : ''; ?>>+</button>
                                             </div>
                                         </td>
@@ -1172,8 +1172,18 @@ async function handleRemoveItem() {
 
 function handleQtyInput(input) {
     const sanitized = input.value.replace(/[^0-9]/g, '');
-    if (input.value !== sanitized) input.value = sanitized;
-    if (sanitized !== '') previewQty(input.closest('.cart-row'), parseInt(sanitized, 10));
+    const availableStock = input.dataset.availableStock === undefined ? 99 : parseInt(input.dataset.availableStock, 10);
+    let nextValue = sanitized.replace(/^0+(?=\d)/, '');
+    if (nextValue === '0') nextValue = '1';
+    if (nextValue !== '' && availableStock <= 0) {
+        nextValue = String(Math.max(1, parseInt(input.dataset.savedQty, 10) || 1));
+    } else if (nextValue !== '' && parseInt(nextValue, 10) > availableStock) {
+        nextValue = String(availableStock);
+    }
+    if (input.value !== nextValue) input.value = nextValue;
+    if (nextValue !== '' && parseInt(nextValue, 10) >= 1) {
+        previewQty(input.closest('.cart-row'), parseInt(nextValue, 10));
+    }
 }
 
 function previewQty(row, quantity) {
@@ -1213,10 +1223,10 @@ async function commitQty(pid) {
     }
     const newQty = parseInt(raw, 10);
     const availableStock = input.dataset.availableStock === undefined ? null : parseInt(input.dataset.availableStock, 10);
-    if (newQty < 1 || newQty > 99 || (availableStock !== null && newQty > Math.max(availableStock, currentQty))) {
+    if (newQty < 1 || newQty > 99 || (availableStock !== null && newQty > availableStock)) {
         input.value = String(currentQty);
         previewQty(row, currentQty);
-        showCartToast(availableStock !== null && availableStock < currentQty ? 'Quantity exceeds available stock.' : 'Enter a whole number from 1 to 99.', true);
+        showCartToast(availableStock !== null ? 'Quantity cannot exceed available stock.' : 'Enter a whole number from 1 to 99.', true);
         return;
     }
     const cartTotal = getCartTotal();
