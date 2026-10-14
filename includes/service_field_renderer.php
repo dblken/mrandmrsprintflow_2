@@ -671,7 +671,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                 ? (int)PRINTFLOW_MAX_DESIGN_FILES_PER_ITEM
                 : 10;
             $max_file_bytes = (int)(defined('SERVICE_ORDER_MAX_SIZE') ? SERVICE_ORDER_MAX_SIZE : 5242880);
-            $html .= '<div class="pf-file-upload-group" data-pf-file-upload="1" data-pf-design-initial="' . htmlspecialchars($initial_mode, ENT_QUOTES, 'UTF-8') . '" data-pf-max-design-files="' . $max_design_files . '" data-pf-max-file-bytes="' . $max_file_bytes . '"' . $required_data . $conditional_required_data . ' style="max-width:100%;width:100%;">';
+            $html .= '<div class="pf-file-upload-group" data-pf-file-upload="1" data-pf-design-initial="' . htmlspecialchars($initial_mode, ENT_QUOTES, 'UTF-8') . '" data-pf-max-design-files="' . $max_design_files . '" data-pf-max-file-bytes="' . $max_file_bytes . '"' . $required_data . $conditional_required_data . ' style="max-width:420px;width:100%;">';
             $html .= '<select name="design_input_mode" id="' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '_mode" class="input-field pf-design-mode-select"' . ($config['required'] ? ' required' : '') . '>';
             $html .= '<option value="" disabled' . ($initial_mode === '' ? ' selected' : '') . '>Choose an option</option>';
             $html .= '<option value="file"' . ($initial_mode === 'file' ? ' selected' : '') . '>Upload File</option>';
@@ -943,6 +943,10 @@ function get_service_field_scripts() {
     padding: 14px 16px;
     background: #fafafa;
     box-sizing: border-box;
+}
+.pf-design-mode-select {
+    width: 100%;
+    max-width: 280px;
 }
 .pf-design-file-count {
     font-size: 12px;

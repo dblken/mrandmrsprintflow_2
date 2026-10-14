@@ -155,5 +155,10 @@ layout_test_assert(
         && strpos($rendererJs, "'Show less'") !== false,
     'renderer initially shows two design files and provides expand and collapse controls'
 );
+layout_test_assert(
+    strpos($rendererJs, 'max-width:420px;width:100%;') !== false
+        && strpos($rendererJs, 'max-width: 280px;') !== false,
+    'upload design panel and mode selector use compact responsive widths'
+);
 
 echo "All service_layout_design_validation tests passed.\n";
