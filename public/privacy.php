@@ -51,6 +51,8 @@ $effective_date = 'August 30, 2026';
             <section>
                 <h2 class="lp-card-title">OTP and Account Verification</h2>
                 <p class="lp-card-text">For registration and account recovery features, the system may create and store OTP codes, OTP expiration times, last-sent timestamps, verification flags, and password reset tokens. These are used to confirm account access and protect account actions.</p>
+                <p class="lp-card-text">A local registration that remains unverified may be retained for up to 24 hours so the customer can continue verification. After that period, the pending registration data may be removed when it is not associated with a verified account, Google Sign-In, orders, or other protected business activity.</p>
+                <p class="lp-card-text">This cleanup rule applies to pending registration data and does not override records that must be retained for security, legal, accounting, dispute-resolution, or operational purposes.</p>
             </section>
             <section>
                 <h2 class="lp-card-title">Google Sign-In</h2>

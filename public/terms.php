@@ -33,6 +33,12 @@ $effective_date = 'August 30, 2026';
         <article class="lp-card" style="display:flex; flex-direction:column; gap:1.6rem;">
             <p class="lp-card-text" style="margin:0;"><strong style="color:#fff;">Effective date:</strong> <?php echo htmlspecialchars($effective_date, ENT_QUOTES, 'UTF-8'); ?></p>
             <section>
+                <h2 class="lp-card-title">Email Verification and Pending Registrations</h2>
+                <p class="lp-card-text">Customers must verify the email address used for a local account registration before the account can be fully activated and used for customer services.</p>
+                <p class="lp-card-text">If a local registration remains unverified, the pending registration record may be removed after 24 hours. Customers may register again using the same email address and complete email verification.</p>
+                <p class="lp-card-text">This pending-registration cleanup does not apply to verified accounts, Google Sign-In accounts, active accounts, or customer records associated with orders or other protected business activity.</p>
+            </section>
+            <section>
                 <h2 class="lp-card-title">Customer Orders</h2>
                 <p class="lp-card-text">Customers are responsible for carefully reviewing their order details before submitting an order, including selected products or services, quantities, sizes, submitted notes, designs, and uploaded files.</p>
                 <p class="lp-card-text">Once an order has been submitted, customers should review the order information and payment details carefully. Orders may require staff review before production, pricing confirmation, or payment verification.</p>
