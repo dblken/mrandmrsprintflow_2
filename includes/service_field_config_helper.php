@@ -305,6 +305,15 @@ function printflow_service_field_build_conditional_rules(string $targetFieldKey,
         ];
     }
 
+    $layoutGate = printflow_service_field_with_layout_gate($targetFieldKey, $allConfigs);
+    if ($layoutGate !== null) {
+        $rules[] = [
+            'source' => $layoutGate['source'],
+            'value' => $layoutGate['value'],
+            'mode' => 'show_when',
+        ];
+    }
+
     return $rules;
 }
 
@@ -367,6 +376,55 @@ function printflow_service_field_conditional_target_matches_field(string $target
 
     return str_contains($targetNorm, 'design')
         || (str_contains($targetNorm, 'upload') && !str_contains($targetNorm, 'reference'));
+}
+
+/**
+ * Infer the existing Layout -> design upload relationship as a show-only-with-layout gate.
+ *
+ * @return array{source:string,value:string}|null
+ */
+function printflow_service_field_with_layout_gate(string $targetFieldKey, array $allConfigs): ?array
+{
+    foreach ($allConfigs as $sourceKey => $sourceCfg) {
+        if (!is_string($sourceKey) || $sourceKey === '' || !is_array($sourceCfg)) {
+            continue;
+        }
+        if (!printflow_service_field_is_layout_field($sourceKey, $sourceCfg)) {
+            continue;
+        }
+
+        $withLayoutValue = '';
+        $withoutLayoutDisablesTarget = false;
+        foreach (($sourceCfg['options'] ?? []) as $option) {
+            if (!is_array($option)) {
+                continue;
+            }
+            $optionValue = trim((string)($option['value'] ?? ''));
+            $canonical = printflow_layout_option_canonical($optionValue);
+            if ($canonical === 'with_layout') {
+                $withLayoutValue = $optionValue;
+                continue;
+            }
+            if ($canonical !== 'without_layout') {
+                continue;
+            }
+            $rule = printflow_service_field_option_conditional_rule($option);
+            $ruleTarget = is_array($rule) ? trim((string)($rule['target_field_key'] ?? '')) : '';
+            if (
+                is_array($rule)
+                && ($rule['action'] ?? '') === 'disable_field'
+                && printflow_service_field_conditional_target_matches_field($ruleTarget, $targetFieldKey, $allConfigs)
+            ) {
+                $withoutLayoutDisablesTarget = true;
+            }
+        }
+
+        if ($withLayoutValue !== '' && $withoutLayoutDisablesTarget) {
+            return ['source' => $sourceKey, 'value' => $withLayoutValue];
+        }
+    }
+
+    return null;
 }
 
 function printflow_service_field_hidden_by_option_rules(string $targetFieldKey, array $allConfigs, array $values): bool
@@ -773,6 +831,13 @@ function printflow_service_field_is_active(array $config, array $values, string 
         return false;
     }
     if ($fieldKey !== '' && $allConfigs !== []) {
+        $layoutGate = printflow_service_field_with_layout_gate($fieldKey, $allConfigs);
+        if ($layoutGate !== null) {
+            $layoutValue = printflow_service_field_resolve_parent_value($layoutGate['source'], $values);
+            if (printflow_layout_option_canonical($layoutValue) !== 'with_layout') {
+                return false;
+            }
+        }
         if (printflow_service_field_hidden_by_option_rules($fieldKey, $allConfigs, $values)) {
             return false;
         }

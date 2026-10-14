@@ -75,6 +75,16 @@ layout_test_assert(
     printflow_service_field_is_active($uploadField, $withSlug, 'upload_design', $allConfigs),
     'upload required for with_layout slug'
 );
+layout_test_assert(
+    !printflow_service_field_is_active($uploadField, [], 'upload_design', $allConfigs),
+    'upload stays inactive until With Layout is selected'
+);
+$uploadRules = printflow_service_field_build_conditional_rules('upload_design', $uploadField, $allConfigs);
+layout_test_assert(
+    count(array_filter($uploadRules, static fn(array $rule): bool => ($rule['mode'] ?? '') === 'show_when'
+        && printflow_layout_option_canonical((string)($rule['value'] ?? '')) === 'with_layout')) === 1,
+    'renderer receives a show-only-with-layout rule for design upload'
+);
 
 $designFileField = $uploadField;
 $designFileConfigs = [
