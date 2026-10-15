@@ -248,9 +248,6 @@ if (isset($_GET['ajax'])) {
                             <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>">
                                 <?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>
                             </div>
-                            <?php if ($jo['quantity'] > 1): ?>
-                                <div class="text-xs text-gray-400">Qty: <?php echo $jo['quantity']; ?></div>
-                            <?php endif; ?>
                         </td>
                         <td class="py-3 text-center text-gray-500 text-xs"><?php echo htmlspecialchars($jo['display_submitted_at'] ?? ''); ?></td>
                         <?php if ($branchId !== 'all'): ?>
@@ -1707,9 +1704,6 @@ function custom_payment_badge($status) {
                                             <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>">
                                                 <?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>
                                             </div>
-                                            <?php if ($jo['quantity'] > 1): ?>
-                                                <div class="text-xs text-gray-400">Qty: <?php echo $jo['quantity']; ?></div>
-                                            <?php endif; ?>
                                         </td>
                                         <td class="py-3 text-center text-gray-500 text-xs"><?php echo htmlspecialchars($jo['display_submitted_at'] ?? ''); ?></td>
                                         <?php if ($branchId !== 'all'): ?>

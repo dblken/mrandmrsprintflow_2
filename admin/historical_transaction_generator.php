@@ -288,7 +288,10 @@ function htg_insert(array $r, string $token, string $reason): int {
     // Historical generated transactions do not add synthetic customer/order notes.
     $note = '';
     $cols=['customer_id','pos_guest_display_name','pos_guest_email','branch_id','reference_id','total_amount','status','payment_status','payment_method','payment_reference','order_date','notes'];
-    $vals=[(int)$guest['customer_id'],'Historical Walk-in','',(int)$r['branch_id'],$generatorReference,$total,$r['type']==='custom'?'Pending':'Completed','Paid','Cash',$generatorReference,$r['business_at'],$note]; $types='issisdssssss';
+    // Historical generator rows represent already-completed historical sales.
+    // Keep the status consistent across the store order, customization, and job
+    // records while technical timestamps remain real processing time.
+    $vals=[(int)$guest['customer_id'],'Historical Walk-in','',(int)$r['branch_id'],$generatorReference,$total,'Completed','Paid','Cash',$generatorReference,$r['business_at'],$note]; $types='issisdssssss';
     foreach ([['amount_paid','d',$total],['order_type','s',$r['type']],['order_source','s','historical_generator']] as $o) if (db_table_has_column('orders',$o[0])) { $cols[]=$o[0];$vals[]=$o[2];$types.=$o[1]; }
     if (!db_execute('INSERT INTO orders ('.implode(',',$cols).') VALUES ('.implode(',',array_fill(0,count($cols),'?')).')',$types,$vals)) throw new RuntimeException('Generated order creation failed.');
     $oid=(int)$conn->insert_id; if (!db_execute('UPDATE orders SET updated_at=NOW() WHERE order_id=?','i',[$oid])) throw new RuntimeException('Generated order audit timestamp failed.');
@@ -296,7 +299,7 @@ function htg_insert(array $r, string $token, string $reason): int {
     if ($json===false || !db_execute('INSERT INTO order_items (order_id,product_id,quantity,unit_price,customization_data) VALUES (?,?,?,?,?)','iiids',[$oid,(int)$r['product_id'],(int)$r['quantity'],(float)$r['unit_price'],$json])) throw new RuntimeException('Generated item creation failed.');
     $item=(int)$conn->insert_id;
     if ($r['type']==='ready') { printflow_apply_product_order_item_inventory($item,(int)$r['branch_id'],(int)get_user_id(),'Historical generated sale',$r['business_at']); return $oid; }
-    if (!db_execute('INSERT INTO customizations (order_id,order_item_id,customer_id,service_type,customization_details,status,created_at,updated_at) VALUES (?,?,?,?,?,?,NOW(),NOW())','iiisss',[$oid,$item,(int)$guest['customer_id'],$r['service_name'],$json,'In Production'])) throw new RuntimeException('Generated customization creation failed.');
+    if (!db_execute('INSERT INTO customizations (order_id,order_item_id,customer_id,service_type,customization_details,status,created_at,updated_at) VALUES (?,?,?,?,?,?,NOW(),NOW())','iiisss',[$oid,$item,(int)$guest['customer_id'],$r['service_name'],$json,'Completed'])) throw new RuntimeException('Generated customization creation failed.');
     $jobNotes = '';
     $job=JobOrderService::createOrder(['order_id'=>$oid,'order_item_id'=>$item,'customer_id'=>(int)$guest['customer_id'],'branch_id'=>(int)$r['branch_id'],'job_title'=>$r['service_name'],'service_type'=>$r['service_type'],'quantity'=>(int)$r['quantity'],'estimated_total'=>$total,'notes'=>$jobNotes,'priority'=>'NORMAL','created_by'=>(int)get_user_id()],[]);
     if ((int)$job<=0) throw new RuntimeException('Generated production job creation failed.');
@@ -305,6 +308,7 @@ function htg_insert(array $r, string $token, string $reason): int {
         JobOrderService::addMaterial((int)$job, (int)$material['item_id'], (float)$material['quantity'], (string)$material['uom'], null, 'Historical generator assignment', null, 'JOB');
     }
     JobOrderService::processHistoricalProductionDeductions((int)$job, (string)$r['production_at']);
+    if (!db_execute("UPDATE job_orders SET status = 'COMPLETED' WHERE id = ?", 'i', [(int)$job])) throw new RuntimeException('Generated production job completion failed.');
     return $oid;
 }
 function htg_build_preview(string $start,string $end,int $branch,int $count,int $readyPct,int $customPct,array $products,array $services,string $reason,?float $targetSales=null,array $selectedReadyIds=[],array $selectedServiceIds=[]): array {
