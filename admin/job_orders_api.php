@@ -65,7 +65,7 @@ $joApiStartedAt = microtime(true);
 $joStaffBranch = null;
 // Keep the page-query contract visible while the staff/admin deployment is
 // being verified.  This is deliberately a response marker, not a cache key.
-const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'staff_customizations_query_live_20261001';
+const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'staff_customizations_status_authority_20261016';
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -81,6 +81,109 @@ require_once __DIR__ . '/../includes/job_order_summary.php';
 require_once __DIR__ . '/../includes/change_item_workflow.php';
 require_once __DIR__ . '/../includes/service_field_priority_helper.php';
 require_once __DIR__ . '/../includes/pos_set_price_helpers.php';
+
+function jo_api_store_order_status_map(): array
+{
+    return [
+        'Pending Review' => 'PENDING',
+        'Pending' => 'PENDING',
+        'Pending Approval' => 'PENDING',
+        'For Revision' => 'PENDING',
+        'Approved' => 'APPROVED',
+        'Design Approved' => 'APPROVED',
+        'To Pay' => 'TO_PAY',
+        'Payment Confirmed' => 'PAYMENT_CONFIRMED',
+        'Pending Verification' => 'VERIFY_PAY',
+        'Downpayment Submitted' => 'VERIFY_PAY',
+        'To Verify' => 'VERIFY_PAY',
+        'Processing' => 'IN_PRODUCTION',
+        'In Production' => 'IN_PRODUCTION',
+        'Printing' => 'IN_PRODUCTION',
+        'Paid – In Process' => 'IN_PRODUCTION',
+        'Paid - In Process' => 'IN_PRODUCTION',
+        'Ready for Pickup' => 'TO_RECEIVE',
+        'Ready For Pickup' => 'TO_RECEIVE',
+        'Completed' => 'COMPLETED',
+        'Change Item Request' => 'CHANGE_ITEM_REQUEST',
+        'Cancelled' => 'CANCELLED',
+        'Rejected' => 'REJECTED',
+    ];
+}
+
+function jo_api_map_store_order_status_to_list_enum(?string $storeStatus): ?string
+{
+    $storeStatus = trim((string)$storeStatus);
+    if ($storeStatus === '') {
+        return null;
+    }
+    return jo_api_store_order_status_map()[$storeStatus] ?? null;
+}
+
+function jo_api_list_status_rank(?string $status): int
+{
+    $raw = strtoupper(str_replace([' ', '–', '-'], '_', trim((string)$status)));
+    $priorities = [
+        'REJECTED' => 100,
+        'CANCELLED' => 95,
+        'COMPLETED' => 90,
+        'TO_RECEIVE' => 80,
+        'READY_TO_COLLECT' => 80,
+        'READY_FOR_PICKUP' => 80,
+        'IN_PRODUCTION' => 70,
+        'PROCESSING' => 70,
+        'PRINTING' => 70,
+        'TO_VERIFY' => 60,
+        'VERIFY_PAY' => 60,
+        'PENDING_VERIFICATION' => 60,
+        'DOWNPAYMENT_SUBMITTED' => 60,
+        'TO_PAY' => 50,
+        'PAYMENT_CONFIRMED' => 50,
+        'APPROVED' => 40,
+        'PENDING' => 30,
+    ];
+    return $priorities[$raw] ?? 0;
+}
+
+function jo_api_list_row_type_rank(?string $orderType): int
+{
+    $type = strtoupper(trim((string)$orderType));
+    return match ($type) {
+        'ORDER' => 4,
+        'CUSTOMIZATION' => 3,
+        'JOB' => 2,
+        'SERVICE' => 1,
+        default => 0,
+    };
+}
+
+function jo_api_apply_authoritative_store_status(array &$row): void
+{
+    $storeStatus = trim((string)($row['store_order_status'] ?? ''));
+    if ($storeStatus === '') {
+        return;
+    }
+    $mapped = jo_api_map_store_order_status_to_list_enum($storeStatus);
+    if ($mapped !== null) {
+        $row['status'] = $mapped;
+    }
+}
+
+function jo_api_pick_authoritative_list_row(array $existing, array $incoming): array
+{
+    $existingRank = jo_api_list_status_rank((string)($existing['status'] ?? ''));
+    $incomingRank = jo_api_list_status_rank((string)($incoming['status'] ?? ''));
+    if ($incomingRank !== $existingRank) {
+        return $incomingRank > $existingRank ? $incoming : $existing;
+    }
+    $existingTypeRank = jo_api_list_row_type_rank((string)($existing['order_type'] ?? ''));
+    $incomingTypeRank = jo_api_list_row_type_rank((string)($incoming['order_type'] ?? ''));
+    if ($incomingTypeRank !== $existingTypeRank) {
+        return $incomingTypeRank > $existingTypeRank ? $incoming : $existing;
+    }
+    $existingTs = strtotime((string)($existing['updated_at'] ?? $existing['created_at'] ?? '')) ?: 0;
+    $incomingTs = strtotime((string)($incoming['updated_at'] ?? $incoming['created_at'] ?? '')) ?: 0;
+    return $incomingTs >= $existingTs ? $incoming : $existing;
+}
 
 function jo_api_attach_change_item_rows(array &$rows): void
 {
@@ -1185,7 +1288,7 @@ try {
             // Full order items, specifications, designs and payment proofs never
             // participate in this response.
             $countRows = [];
-            $orderCountSql = "SELECT o.order_id AS id, o.order_id, o.status, o.updated_at,
+            $orderCountSql = "SELECT o.order_id AS id, o.order_id, o.status, o.status AS store_order_status, o.updated_at,
                                      'ORDER' AS order_type, COALESCE(o.order_source, 'customer') AS order_source,
                                      LOWER(TRIM(COALESCE(c.email, ''))) AS customer_email
                               FROM orders o
@@ -1224,6 +1327,7 @@ try {
             // projection, then de-duplicate by order below.
             if ($listSource !== 'online') {
                 $customCountSql = "SELECT cust.customization_id AS id, cust.order_id, cust.status, cust.updated_at,
+                                          o.status AS store_order_status,
                                           'CUSTOMIZATION' AS order_type, 'pos' AS order_source
                                    FROM customizations cust
                                    LEFT JOIN orders o ON o.order_id = cust.order_id
@@ -1301,15 +1405,18 @@ try {
             foreach ($countRows as $row) {
                 $key = (string)($row['_count_key'] ?? '');
                 if ($key === '') continue;
-                $incomingTs = strtotime((string)($row['updated_at'] ?? '')) ?: 0;
-                $existingTs = isset($countRowsByKey[$key])
-                    ? (strtotime((string)($countRowsByKey[$key]['updated_at'] ?? '')) ?: 0)
-                    : -1;
-                if (!isset($countRowsByKey[$key]) || $incomingTs >= $existingTs) {
+                jo_api_apply_authoritative_store_status($row);
+                if (!isset($countRowsByKey[$key])) {
                     $countRowsByKey[$key] = $row;
+                    continue;
                 }
+                $countRowsByKey[$key] = jo_api_pick_authoritative_list_row($countRowsByKey[$key], $row);
             }
             $countRows = array_values($countRowsByKey);
+            foreach ($countRows as &$countRow) {
+                jo_api_apply_authoritative_store_status($countRow);
+            }
+            unset($countRow);
             jo_api_attach_provider_payments($countRows);
 
             $counts = [
@@ -1410,6 +1517,7 @@ try {
                            TRIM(CONCAT_WS(', ', NULLIF(TRIM(c.street_address), ''), NULLIF(TRIM(c.barangay), ''), NULLIF(TRIM(c.city), ''))) AS customer_address,
                            COALESCE(NULLIF(TRIM(c.contact_number), ''), NULLIF(TRIM(c.email), '')) AS customer_contact,
                            o.order_source, o.order_date, o.branch_id AS order_branch_id,
+                           o.status AS store_order_status,
                            COALESCE(o.order_date, jo.created_at) AS order_business_date
                     FROM job_orders jo 
                     LEFT JOIN orders o ON o.order_id = jo.order_id
@@ -1496,6 +1604,7 @@ try {
             $orders = db_query($sql, $types ?: null, $params ?: null) ?: [];
             foreach ($orders as &$orderRow) {
                 jo_api_hydrate_staff_list_customer_fields($orderRow);
+                jo_api_apply_authoritative_store_status($orderRow);
             }
             unset($orderRow);
             $fetchedOrderCount = count($orders);
@@ -1768,7 +1877,8 @@ try {
                         (SELECT MIN(jo.id) FROM job_orders jo WHERE jo.order_id = o.order_id) AS job_order_id,
                         " . ($summaryOnly ? "NULL" : "o.payment_proof") . " as payment_proof_path,
                         o.downpayment_amount as payment_submitted_amount,
-                        COALESCE(o.order_source, 'customer') as order_source
+                        COALESCE(o.order_source, 'customer') as order_source,
+                        o.status AS store_order_status
                     FROM orders o
                     LEFT JOIN order_items oi ON o.order_id = oi.order_id
                     LEFT JOIN products p ON oi.product_id = p.product_id
@@ -1838,6 +1948,7 @@ try {
                  $order['estimated_cost'] = 0;
                  $order['order_code'] = $pendingOrderCodes[$pendingOrderId] ?? printflow_format_order_code($pendingOrderId, '');
                  $order['order_source'] = $pendingSourceMap[$pendingOrderId] ?? (string)($order['order_source'] ?? 'customer');
+                 jo_api_apply_authoritative_store_status($order);
                  
                  $payload = $payloads[$pendingOrderId] ?? null;
                  if ($serviceOnly && (empty($payload) || empty($payload['items']))) {
@@ -1959,6 +2070,7 @@ try {
                 $co['readiness'] = 'READY';
                 $co['estimated_cost'] = 0;
                 jo_api_hydrate_staff_list_customer_fields($co);
+                jo_api_apply_authoritative_store_status($co);
                 if (!empty($co['order_id'])) {
                     $customOrderId = (int)$co['order_id'];
                     $co['order_code'] = $customOrderCodes[$customOrderId] ?? printflow_format_order_code($customOrderId, '');
@@ -2051,18 +2163,24 @@ try {
                 return ((int)($b['id'] ?? 0)) <=> ((int)($a['id'] ?? 0));
             });
 
-            // The three sources can mirror the same store order. Keep the newest
-            // representative before applying the combined server-side page.
+            // The three sources can mirror the same store order. Keep the row with
+            // the authoritative store status, not merely the first source.
             $deduped = [];
-            $seenOrderKeys = [];
+            $dedupedByOrder = [];
             foreach ($merged as $row) {
-                $orderKey = (string)($row['order_id'] ?? $row['id'] ?? '');
-                if ($orderKey !== '' && isset($seenOrderKeys[$orderKey])) {
+                $orderKey = (string)($row['order_id'] ?? '');
+                if ($orderKey === '') {
+                    $deduped[] = $row;
                     continue;
                 }
-                if ($orderKey !== '') {
-                    $seenOrderKeys[$orderKey] = true;
+                if (!isset($dedupedByOrder[$orderKey])) {
+                    $dedupedByOrder[$orderKey] = $row;
+                    continue;
                 }
+                $dedupedByOrder[$orderKey] = jo_api_pick_authoritative_list_row($dedupedByOrder[$orderKey], $row);
+            }
+            foreach ($dedupedByOrder as $row) {
+                jo_api_apply_authoritative_store_status($row);
                 $deduped[] = $row;
             }
             $mergedHasMore = count($deduped) > ($dashboardListOffset + $dashboardListLimit)

@@ -103,8 +103,8 @@ $online_closed_count = 0;
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="turbo-visit-control" content="reload">
     <title><?php echo $page_title; ?></title>
-    <!-- customizations_query_version: staff_customizations_query_live_20261001 -->
-    <meta name="customizations-query-version" content="staff_customizations_query_live_20261001">
+    <!-- customizations_query_version: staff_customizations_status_authority_20261016 -->
+    <meta name="customizations-query-version" content="staff_customizations_status_authority_20261016">
     <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/output.css'); ?>">
     <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/pf-order-item-design-files.css?v=' . (int) @filemtime(__DIR__ . '/../public/assets/css/pf-order-item-design-files.css')); ?>">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
@@ -5081,6 +5081,23 @@ window.pfServiceFieldCatalog = (() => {
                     // customer specifications. The customization row is only a workflow mirror.
                     winner = existingType === 'ORDER' ? existing : incoming;
                     loser = existingType === 'ORDER' ? incoming : existing;
+                } else if (
+                    existing && existing.order_id &&
+                    incoming && incoming.order_id &&
+                    String(existing.order_id) === String(incoming.order_id) &&
+                    (existingIsPos || incomingIsPos)
+                ) {
+                    const orderRow = existingType === 'ORDER' ? existing : (incomingType === 'ORDER' ? incoming : null);
+                    if (orderRow) {
+                        winner = orderRow;
+                        loser = winner === existing ? incoming : existing;
+                    } else {
+                        const customRow = existingType === 'CUSTOMIZATION' ? existing : (incomingType === 'CUSTOMIZATION' ? incoming : null);
+                        if (customRow) {
+                            winner = customRow;
+                            loser = winner === existing ? incoming : existing;
+                        }
+                    }
                 } else if (incomingTs > existingTs) {
                     winner = incoming;
                     loser = existing;
@@ -5144,6 +5161,7 @@ window.pfServiceFieldCatalog = (() => {
                 }
 
                 this.mergeChangeItemFields(merged, winner, loser);
+                this.applyAuthoritativeListStatus(merged, winner, loser);
 
                 if ((!merged.first_name || !merged.last_name) && loser) {
                     const loserFull = String(loser.customer_full_name || `${loser.first_name || ''} ${loser.last_name || ''}`).trim();
@@ -8374,8 +8392,8 @@ window.pfServiceFieldCatalog = (() => {
                     per_page: String(this.ordersSummaryPageSize),
                     _: String(Date.now())
                 });
-                const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&include_pagination=1&debug=1&query_version=staff_customizations_query_live_20261001&${query.toString()}`;
-                const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&debug=1&query_version=staff_customizations_query_live_20261001&${query.toString()}`;
+                const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&include_pagination=1&debug=1&query_version=staff_customizations_status_authority_20261016&${query.toString()}`;
+                const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&debug=1&query_version=staff_customizations_status_authority_20261016&${query.toString()}`;
                 const requestOptions = {
                     cache: 'no-store',
                     signal,
@@ -8411,7 +8429,7 @@ window.pfServiceFieldCatalog = (() => {
                 const sourceFilter = <?php echo json_encode(
                     $staffCustomizationRole === 'pos' ? 'pos' : ($staffCustomizationRole === 'online' ? 'online' : 'all')
                 ); ?>;
-                const endpoint = `../admin/job_orders_api.php?action=customization_counts&source=${encodeURIComponent(sourceFilter)}&debug=1&query_version=staff_customizations_query_live_20261001`;
+                const endpoint = `../admin/job_orders_api.php?action=customization_counts&source=${encodeURIComponent(sourceFilter)}&debug=1&query_version=staff_customizations_status_authority_20261016`;
                 const controller = new AbortController();
                 countsAbortController = controller;
                 const timeoutId = window.setTimeout(() => controller.abort(), 10000);
@@ -8784,8 +8802,63 @@ window.pfServiceFieldCatalog = (() => {
                     : {};
                 return details.source === 'POS' || this.deepLinkSourceOrderId === String(jo.order_id || '');
             },
+            mapStoreOrderStatusToListKey(storeStatus) {
+                const map = {
+                    'Pending Review': 'PENDING',
+                    'Pending': 'PENDING',
+                    'Pending Approval': 'PENDING',
+                    'For Revision': 'PENDING',
+                    'Approved': 'APPROVED',
+                    'Design Approved': 'APPROVED',
+                    'To Pay': 'TO_PAY',
+                    'Payment Confirmed': 'PAYMENT_CONFIRMED',
+                    'Pending Verification': 'VERIFY_PAY',
+                    'Downpayment Submitted': 'VERIFY_PAY',
+                    'To Verify': 'VERIFY_PAY',
+                    'Processing': 'IN_PRODUCTION',
+                    'In Production': 'IN_PRODUCTION',
+                    'Printing': 'IN_PRODUCTION',
+                    'Paid – In Process': 'IN_PRODUCTION',
+                    'Paid - In Process': 'IN_PRODUCTION',
+                    'Ready for Pickup': 'TO_RECEIVE',
+                    'Ready For Pickup': 'TO_RECEIVE',
+                    'Completed': 'COMPLETED',
+                    'Change Item Request': 'CHANGE_ITEM_REQUEST',
+                    'Cancelled': 'CANCELLED',
+                    'Rejected': 'REJECTED',
+                };
+                return map[String(storeStatus || '').trim()] || null;
+            },
+            resolveAuthoritativeListStatus(row) {
+                if (!row) return '';
+                const storeStatus = String(row.store_order_status || '').trim();
+                if (storeStatus) {
+                    const mapped = this.mapStoreOrderStatusToListKey(storeStatus);
+                    if (mapped) return mapped;
+                }
+                return String(row.status || '').trim().toUpperCase().replace(/\s+/g, '_');
+            },
+            applyAuthoritativeListStatus(merged, winner, loser) {
+                if (!merged) return merged;
+                const rows = [winner, loser].filter(Boolean);
+                const storeStatus = rows
+                    .map((row) => String(row.store_order_status || '').trim())
+                    .find(Boolean);
+                if (storeStatus) {
+                    merged.store_order_status = storeStatus;
+                    const mapped = this.mapStoreOrderStatusToListKey(storeStatus);
+                    if (mapped) {
+                        merged.status = mapped;
+                    }
+                }
+                const orderRow = rows.find((row) => String(row.order_type || '').toUpperCase() === 'ORDER');
+                if (orderRow && orderRow.status) {
+                    merged.status = String(orderRow.status).trim().toUpperCase().replace(/\s+/g, '_');
+                }
+                return merged;
+            },
             getPosWalkInBucket(jo) {
-                const status = String((jo && jo.status) || '').toUpperCase();
+                const status = this.resolveAuthoritativeListStatus(jo);
                 if (status === 'COMPLETED') return 'COMPLETED';
                 if (status === 'CANCELLED' || status === 'REJECTED') return 'CANCELLED';
                 return 'PENDING';
@@ -11364,7 +11437,10 @@ window.pfServiceFieldCatalog = (() => {
                 this.activeStatus = 'COMPLETED';
                 this.modalCache = {};
                 this.modalCacheLoadedAt = {};
-                await this.loadOrders({ force: true });
+                await Promise.all([
+                    this.loadOrders({ force: true }),
+                    this.loadStatusCounts({ force: true }),
+                ]);
                 if (this.showDetailsModal && orderId) {
                     await this.viewDetails(orderId, 'ORDER', this.resolveOrderDetailHints({ order_id: orderId }));
                 }
