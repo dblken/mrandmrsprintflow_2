@@ -386,43 +386,91 @@ for ($i = 6; $i >= 1; $i--) $fc_hist_labels[] = date('M y', strtotime("-$i month
 for ($i = 1; $i <= 3; $i++)  $fc_fore_labels[] = date('M y', strtotime("+$i months"));
 $fc_all_labels = array_merge($fc_hist_labels, $fc_fore_labels); // 9 labels
 
-$fc_series_data   = [];   // [product => [hist=>[], fore=>[]]]
+$fc_series_data   = [];   // [product_id => [name, hist=>[], fore=>[]]]
 $fc_total_history = 0;
+$fc_debug_rows = [];
+$fc_debug_mode = getenv('PRINTFLOW_REPORTS_DEBUG') === '1';
+$fc_classification_warning = '';
 if (!$gaBranchEmpty) {
     try {
         [$b,$bt,$bp] = branch_where_parts('o', $globalAnalyticsBranchId);
+        $fc_has_product_type = pf_reports_table_has_column('products', 'product_type');
+        $fc_product_type_sql = $fc_has_product_type
+            ? " AND LOWER(TRIM(COALESCE(p.product_type, ''))) = 'fixed'"
+            : '';
+        $fc_product_type_group = $fc_has_product_type ? 'p.product_type' : 'NULL';
+        if (!$fc_has_product_type) {
+            $fc_classification_warning = 'Product Demand Forecast could not apply products.product_type because the classification column is unavailable.';
+        }
+        $fc_sale_scope = pf_reports_store_order_paid_completed_expr('o');
+        $fc_product_scope = pf_reports_store_product_order_scope_sql('o');
         $fcRaw = db_query(
-            "SELECT p.name AS product,
+            "SELECT p.product_id,
+                    p.name AS product,
+                    p.category,
+                    " . ($fc_has_product_type ? "p.product_type" : "NULL AS product_type") . ",
                     DATE_FORMAT(o.order_date,'%Y-%m') as mon,
                     COALESCE(SUM(oi.quantity), 0) as orders
              FROM order_items oi
              JOIN products p ON oi.product_id=p.product_id
              JOIN orders o ON oi.order_id=o.order_id
-             WHERE " . pf_reports_store_product_order_scope_sql('o') . "
+             WHERE {$fc_sale_scope}
+               AND {$fc_product_scope}
+               {$fc_product_type_sql}
                AND o.order_date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 6 MONTH),'%Y-%m-01')
                AND o.order_date <  DATE_FORMAT(CURDATE(),'%Y-%m-01')$b
-             GROUP BY p.product_id, p.name, mon ORDER BY p.name, mon",
+             GROUP BY p.product_id, p.name, p.category, {$fc_product_type_group}, mon ORDER BY p.product_id, mon",
             $bt, $bp
         ) ?: [];
     } catch(Exception $e){ $fcRaw = []; }
 
-    // Group by product
+    // Group by canonical product ID. Names are display labels only.
     $fcByProd = [];
     foreach ($fcRaw as $r) {
-        $fcByProd[$r['product']][$r['mon']] = (int)$r['orders'];
+        $productId = (int)($r['product_id'] ?? 0);
+        if ($productId <= 0) continue;
+        if (!isset($fcByProd[$productId])) {
+            $fcByProd[$productId] = [
+                'name' => (string)($r['product'] ?? ''),
+                'category' => (string)($r['category'] ?? ''),
+                'product_type' => (string)($r['product_type'] ?? ''),
+                'months' => [],
+            ];
+        }
+        $fcByProd[$productId]['months'][(string)$r['mon']] = (int)$r['orders'];
     }
 
-    // Sort by total, take top 6
+    // Sort by six-month total, then take the top six product IDs.
     $fcTotals = [];
-    foreach ($fcByProd as $prod => $data) $fcTotals[$prod] = array_sum($data);
+    foreach ($fcByProd as $productId => $data) $fcTotals[$productId] = array_sum($data['months']);
     arsort($fcTotals);
     $topProdFc = array_slice($fcTotals, 0, 6, true);
 
-    foreach ($topProdFc as $prod => $_) {
+    if ($fc_debug_mode) {
+        $fc_rank = 0;
+        foreach ($fcTotals as $productId => $total) {
+            $fc_rank++;
+            $fc_debug_rows[] = [
+                'product_id' => (int)$productId,
+                'product_name' => $fcByProd[$productId]['name'],
+                'category' => $fcByProd[$productId]['category'],
+                'product_type' => $fcByProd[$productId]['product_type'],
+                'months' => array_map(static function ($month) use ($fcByProd, $productId) {
+                    return (int)($fcByProd[$productId]['months'][$month] ?? 0);
+                }, array_map(static fn($i) => date('Y-m', strtotime("-$i months")), range(6, 1))),
+                'six_month_total' => (int)$total,
+                'rank' => $fc_rank,
+                'selected' => $fc_rank <= 6,
+            ];
+            if ($fc_rank >= 15) break;
+        }
+    }
+
+    foreach ($topProdFc as $productId => $_) {
         $hist = [];
         for ($i = 6; $i >= 1; $i--) {
             $k = date('Y-m', strtotime("-$i months"));
-            $v = $fcByProd[$prod][$k] ?? 0;
+            $v = $fcByProd[$productId]['months'][$k] ?? 0;
             $hist[] = $v;
             $fc_total_history += $v;
         }
@@ -447,7 +495,10 @@ if (!$gaBranchEmpty) {
             $demandLabel = '🔥 High Demand';
         }
         
-        $fc_series_data[$prod] = [
+        $fc_series_data[$productId] = [
+            'product_id' => (int)$productId,
+            'name' => $fcByProd[$productId]['name'],
+            'category' => $fcByProd[$productId]['category'],
             'hist' => $hist,
             'fore' => $fore,
             'demand' => $demand,
@@ -2611,7 +2662,8 @@ $dashData = [
         'series'       => array_map(function($prod) use ($fc_series_data) {
             $pd = $fc_series_data[$prod];
             return [
-                'name' => $prod,
+                'product_id' => (int)$pd['product_id'],
+                'name' => $pd['name'],
                 'hist' => $pd['hist'],
                 'fore' => $pd['fore']
             ];
@@ -2624,6 +2676,14 @@ $dashData = [
     'lastUpdated' => date('M j, Y g:i A'),
     'periodEmpty' => $period_empty
 ];
+if ($fc_debug_mode) {
+    $dashData['forecastDebug'] = [
+        'date_from' => date('Y-m-d', strtotime('-6 months', strtotime(date('Y-m-01')))),
+        'date_to_exclusive' => date('Y-m-d', strtotime(date('Y-m-01'))),
+        'rows' => $fc_debug_rows,
+        'classification_warning' => $fc_classification_warning,
+    ];
+}
 ?>
 
 <?php
@@ -3021,11 +3081,12 @@ $dashData = [
                 $pct = $fc_max_side > 0 ? round(max($pd['fore']) / $fc_max_side * 100) : 0;
                 $col = $fc_colors[$fc_i % count($fc_colors)];
                 $badge = $pd['demandLabel'] ?? $demand_badges[$pd['demand'] ?? 'moderate'] ?? '⚠️ Moderate';
+                $displayProductName = (string)($pd['name'] ?? ('Product #' . (int)$prod));
                 $fc_i++;
                 ?>
                                 <div class="pf-fc-side-row">
                                     <div style="display:grid;grid-template-columns:1fr auto;align-items:center;margin-bottom:4px;gap:8px;">
-                                        <span class="pf-fc-name-truncate" style="font-size:12px;font-weight:600;color:#374151;" title="<?php echo htmlspecialchars($prod); ?>"><?php echo htmlspecialchars($prod); ?></span>
+                                        <span class="pf-fc-name-truncate" style="font-size:12px;font-weight:600;color:#374151;" title="<?php echo htmlspecialchars($displayProductName); ?>"><?php echo htmlspecialchars($displayProductName); ?></span>
                                         <span style="font-size:10px;font-weight:700;color:#6b7280;white-space:nowrap;background:#f3f4f6;padding:2px 6px;border-radius:4px;flex-shrink:0;" title="Demand trend based on 3-month forecast vs. last historical month: High (+15% or more), Moderate (stable), Declining (-15% or less)"><?php echo $badge; ?></span>
                                     </div>
                                     <div style="display:flex;align-items:center;gap:8px;">
