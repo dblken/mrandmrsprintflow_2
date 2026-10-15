@@ -5,6 +5,8 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/pos_customer_helpers.php';
+require_once __DIR__ . '/../includes/service_order_helper.php';
+require_once __DIR__ . '/../includes/service_field_config_helper.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 require_role('Admin');
 global $conn;
@@ -21,6 +23,62 @@ function htg_date(string $v): DateTimeImmutable {
     $e = DateTimeImmutable::getLastErrors();
     if (!$d || ($e !== false && ($e['warning_count'] || $e['error_count']))) throw new RuntimeException('Enter valid calendar dates.');
     return $d;
+}
+function htg_service_price(array $service, ?string $dimensions): array {
+    $serviceId = (int)($service['id'] ?? 0);
+    $customization = [];
+    $configs = $serviceId > 0 ? get_service_field_config($serviceId) : [];
+    foreach ($configs as $key => $config) {
+        if (empty($config['visible']) || !in_array((string)($config['type'] ?? ''), ['radio', 'select', 'dimension'], true)) continue;
+        $options = is_array($config['options'] ?? null) ? $config['options'] : [];
+        $selected = null;
+        if (($config['type'] ?? '') === 'dimension' && $dimensions !== null) {
+            foreach ($options as $option) {
+                $value = is_array($option) ? (string)($option['value'] ?? '') : (string)$option;
+                if ($value !== '' && htg_dimension_matches($value, $dimensions)) { $selected = $value; break; }
+            }
+        }
+        if ($selected === null) {
+            foreach ($options as $option) {
+                $value = is_array($option) ? trim((string)($option['value'] ?? '')) : trim((string)$option);
+                if ($value !== '' && strcasecmp($value, 'Others') !== 0) { $selected = $value; break; }
+            }
+        }
+        if ($selected !== null) {
+            $customization[(string)$key] = $selected;
+            $customization[(string)($config['label'] ?? $key)] = $selected;
+        }
+    }
+    if ($dimensions !== null) $customization['dimensions'] = $dimensions;
+    $pricing = function_exists('printflow_calculate_service_unit_price')
+        ? printflow_calculate_service_unit_price($serviceId, $customization)
+        : ['ok' => false, 'unit_price' => 0.0, 'message' => 'Shared service pricing is unavailable.'];
+    $price = (float)($pricing['unit_price'] ?? 0);
+    if (empty($pricing['ok']) || $price <= 0) {
+        return ['ok' => false, 'price' => 0.0, 'customization' => $customization, 'reason' => (string)($pricing['message'] ?? 'No positive configured service price was found.')];
+    }
+    return ['ok' => true, 'price' => round($price, 2), 'customization' => $customization, 'reason' => ''];
+}
+function htg_dimension_matches(string $left, string $right): bool {
+    $normalize = static fn(string $value): string => strtolower(preg_replace('/[^0-9.]+/', 'x', $value) ?? '');
+    return $normalize($left) === $normalize($right);
+}
+function htg_stage_times(DateTimeImmutable $order, DateTimeImmutable $now): array {
+    $orderTs = $order->getTimestamp();
+    $latest = max($orderTs, $now->getTimestamp() - 60);
+    $productionWindowEnd = min($latest, $order->modify('+3 days')->getTimestamp());
+    $productionStart = min($productionWindowEnd, $orderTs + 3600);
+    $productionTs = $productionStart >= $productionWindowEnd
+        ? $productionWindowEnd
+        : random_int($productionStart, $productionWindowEnd);
+    $production = (new DateTimeImmutable('@' . $productionTs))->setTimezone(htg_business_timezone());
+    $completionWindowEnd = min($latest, $production->modify('+2 days')->getTimestamp());
+    $completionStart = min($completionWindowEnd, $production->getTimestamp() + 3600);
+    $completionTs = $completionStart >= $completionWindowEnd
+        ? $completionWindowEnd
+        : random_int($completionStart, $completionWindowEnd);
+    $completion = (new DateTimeImmutable('@' . $completionTs))->setTimezone(htg_business_timezone());
+    return [$production, $completion];
 }
 function htg_branch(int $id): array {
     $rows = db_query("SELECT id, branch_name FROM branches WHERE id = ? AND status != 'Archived' LIMIT 1", 'i', [$id]) ?: [];
@@ -104,8 +162,15 @@ function htg_preview(string $start,string $end,int $branch,int $count,int $ready
         foreach ($services as $service) {
             $plan = htg_material_plan(JobOrderService::inferServiceTypeFromProduct((string)$service['category'], (string)$service['name']), 1, (int)$service['id']);
             if (!empty($plan['supported'])) {
-                $service['_htg_plan'] = $plan;
-                $eligibleServices[] = $service;
+                $pricing = htg_service_price($service, $plan['dimensions'] ?? null);
+                if (!empty($pricing['ok'])) {
+                    $service['_htg_plan'] = $plan;
+                    $service['_htg_price'] = $pricing['price'];
+                    $service['_htg_customization'] = $pricing['customization'];
+                    $eligibleServices[] = $service;
+                } else {
+                    $skippedServices[] = (string)$service['name'] . ': ' . (string)$pricing['reason'];
+                }
             } else {
                 $skippedServices[] = (string)$service['name'] . ': ' . (string)$plan['warning'];
             }
@@ -116,7 +181,7 @@ function htg_preview(string $start,string $end,int $branch,int $count,int $ready
     $from=htg_date($start);$to=htg_date($end)->setTime(23,59,59);$now=htg_now();if($from>$to)throw new RuntimeException('Start Date cannot be after End Date.');if($to->format('Y-m-d')>$now->format('Y-m-d'))throw new RuntimeException('The date range must end today or earlier.');if($count<1||$count>500)throw new RuntimeException('Transactions must be between 1 and 500.');if($readyPct+$customPct!==100)throw new RuntimeException('Percentages must total 100.');if($readyPct&&!$products)throw new RuntimeException('No active products are available.');if($customPct&&!$services)throw new RuntimeException('No active services are available.');if($customPct&&!db_query("SELECT product_id FROM products WHERE sku='POS-SERVICE' LIMIT 1"))throw new RuntimeException('The existing POS service placeholder product is missing.');
     $stock=[];foreach($products as $p){$pid=(int)$p['id'];$opts=printflow_product_option_stock_map($pid,$branch);if($opts)foreach($opts as $o)$stock[$pid.'|'.$o['option_value']]=(int)$o['stock_quantity'];else{[$n]=printflow_product_effective_stock($pid,$branch);$stock[$pid.'|']=(int)$n;}}
     $times=[];$span=$to->getTimestamp()-$from->getTimestamp();for($i=0;$i<$count;$i++)$times[]=$from->getTimestamp()+($span?random_int(0,$span):0);sort($times);$target=(int)round($count*$readyPct/100);$rows=[];$ready=0;$custom=0;
-    foreach($times as $ts){$isReady=$ready<$target&&($custom>=$count-$target||random_int(0,1));if($isReady){$choices=[];foreach($products as $p){$pid=(int)$p['id'];$opts=printflow_product_option_stock_map($pid,$branch);if($opts)foreach($opts as $o)if(($stock[$pid.'|'.$o['option_value']]??0)>0)$choices[]=['p'=>$p,'o'=>$o];elseif(($stock[$pid.'|']??0)>0)$choices[]=['p'=>$p,'o'=>null];}if(!$choices)throw new RuntimeException('Current branch stock cannot support this preview.');$c=$choices[array_rand($choices)];$key=(int)$c['p']['id'].'|'.($c['o']['option_value']??'');$q=min(random_int(1,3),max(1,(int)$stock[$key]));$stock[$key]-=$q;$customization=[];if($c['o']){$customization[$c['o']['field_key']]=$c['o']['option_value'];$customization[$c['o']['field_label']]=$c['o']['option_value'];}$rows[]=['type'=>'ready','business_at'=>date('Y-m-d H:i:s',$ts),'production_at'=>'-','completion_at'=>'-','branch_id'=>$branch,'branch_name'=>$b['branch_name'],'name'=>$c['p']['name'],'product_id'=>(int)$c['p']['id'],'quantity'=>$q,'unit_price'=>(float)$c['p']['price'],'total'=>(float)$c['p']['price']*$q,'customization'=>$customization,'expected_usage'=>'Ready-made stock: '.$q.' pcs'];$ready++;}else{$s=$services[array_rand($services)];$plan=$s['_htg_plan']??htg_material_plan(JobOrderService::inferServiceTypeFromProduct((string)$s['category'],(string)$s['name']),1,(int)$s['id']);$at=new DateTimeImmutable(date('Y-m-d H:i:s',$ts),htg_business_timezone());$prod=$at->modify('+' . random_int(1,3) . ' days');if($prod>$now)$prod=$now;$done=$prod->modify('+' . random_int(0,2) . ' days');if($done>$now)$done=$now;$ph=db_query("SELECT product_id FROM products WHERE sku='POS-SERVICE' LIMIT 1")?:[];$rows[]=['type'=>'custom','business_at'=>$at->format('Y-m-d H:i:s'),'production_at'=>$prod->format('Y-m-d H:i:s'),'completion_at'=>$done->format('Y-m-d H:i:s'),'branch_id'=>$branch,'branch_name'=>$b['branch_name'],'name'=>$s['name'],'service_name'=>$s['name'],'service_type'=>JobOrderService::inferServiceTypeFromProduct((string)$s['category'],(string)$s['name']),'product_id'=>(int)($ph[0]['product_id']??0),'quantity'=>1,'unit_price'=>(float)$s['price'],'total'=>(float)$s['price'],'customization'=>['source'=>'HISTORICAL_GENERATOR','service_id'=>(int)$s['id'],'service_type'=>$s['name'],'specifications'=>'Historical walk-in service transaction from existing service catalog.','dimensions'=>$plan['dimensions'] ?? null],'service_id'=>(int)$s['id'],'materials'=>$plan['materials'],'expected_usage'=>$plan['label'].($plan['dimensions'] ? ' | Dimensions: '.$plan['dimensions'] : '')];$custom++;}}
+    foreach($times as $ts){$isReady=$ready<$target&&($custom>=$count-$target||random_int(0,1));if($isReady){$choices=[];foreach($products as $p){$pid=(int)$p['id'];$opts=printflow_product_option_stock_map($pid,$branch);if($opts)foreach($opts as $o)if(($stock[$pid.'|'.$o['option_value']]??0)>0)$choices[]=['p'=>$p,'o'=>$o];elseif(($stock[$pid.'|']??0)>0)$choices[]=['p'=>$p,'o'=>null];}if(!$choices)throw new RuntimeException('Current branch stock cannot support this preview.');$c=$choices[array_rand($choices)];$key=(int)$c['p']['id'].'|'.($c['o']['option_value']??'');$q=min(random_int(1,3),max(1,(int)$stock[$key]));$stock[$key]-=$q;$customization=[];if($c['o']){$customization[$c['o']['field_key']]=$c['o']['option_value'];$customization[$c['o']['field_label']]=$c['o']['option_value'];}$rows[]=['type'=>'ready','business_at'=>date('Y-m-d H:i:s',$ts),'production_at'=>'-','completion_at'=>'-','branch_id'=>$branch,'branch_name'=>$b['branch_name'],'name'=>$c['p']['name'],'product_id'=>(int)$c['p']['id'],'quantity'=>$q,'unit_price'=>(float)$c['p']['price'],'total'=>(float)$c['p']['price']*$q,'customization'=>$customization,'expected_usage'=>'Ready-made stock: '.$q.' pcs'];$ready++;}else{$s=$services[array_rand($services)];$plan=$s['_htg_plan']??htg_material_plan(JobOrderService::inferServiceTypeFromProduct((string)$s['category'],(string)$s['name']),1,(int)$s['id']);$at=new DateTimeImmutable(date('Y-m-d H:i:s',$ts),htg_business_timezone());[$prod,$done]=htg_stage_times($at,$now);$ph=db_query("SELECT product_id FROM products WHERE sku='POS-SERVICE' LIMIT 1")?:[];$rows[]=['type'=>'custom','business_at'=>$at->format('Y-m-d H:i:s'),'production_at'=>$prod->format('Y-m-d H:i:s'),'completion_at'=>$done->format('Y-m-d H:i:s'),'branch_id'=>$branch,'branch_name'=>$b['branch_name'],'name'=>$s['name'],'service_name'=>$s['name'],'service_type'=>JobOrderService::inferServiceTypeFromProduct((string)$s['category'],(string)$s['name']),'product_id'=>(int)($ph[0]['product_id']??0),'quantity'=>1,'unit_price'=>(float)($s['_htg_price'] ?? 0),'total'=>(float)($s['_htg_price'] ?? 0),'customization'=>array_merge($s['_htg_customization'] ?? [],['source'=>'HISTORICAL_GENERATOR','service_id'=>(int)$s['id'],'service_type'=>$s['name'],'specifications'=>'Historical walk-in service transaction from existing service catalog.','dimensions'=>$plan['dimensions'] ?? null]),'service_id'=>(int)$s['id'],'materials'=>$plan['materials'],'expected_usage'=>$plan['label'].($plan['dimensions'] ? ' | Dimensions: '.$plan['dimensions'] : '')];$custom++;}}
     if(count($rows)!==$count)throw new RuntimeException('The requested mix cannot be generated from current stock.');usort($rows,static fn($a,$b)=>strcmp($a['business_at'],$b['business_at']));return ['token'=>bin2hex(random_bytes(24)),'expires_at'=>time()+900,'start'=>$start,'end'=>$end,'branch_id'=>$branch,'branch_name'=>$b['branch_name'],'reason'=>$reason,'skipped_services'=>$skippedServices,'rows'=>$rows];
 }
 $csrf=function_exists('generate_csrf_token')?generate_csrf_token():($_SESSION['csrf_token']??'');$today=htg_now()->format('Y-m-d');$branches=db_query("SELECT id,branch_name FROM branches WHERE status!='Archived' ORDER BY branch_name")?:[];$old=$_POST;
