@@ -4,6 +4,8 @@
  * POS / Walk-in dashboard KPI metrics for staff dashboard + API refresh.
  */
 
+require_once __DIR__ . '/staff_dashboard_revenue.php';
+
 if (!function_exists('printflow_pos_dashboard_exclude_draft_sql')) {
     function printflow_pos_dashboard_exclude_draft_sql(string $orderAlias = 'o'): string
     {
@@ -99,9 +101,16 @@ if (!function_exists('printflow_pos_dashboard_kpi_metrics')) {
         array $timeMeta
     ): array {
         $draftSql = printflow_pos_dashboard_exclude_draft_sql('o');
-        $timeSql = (string)($timeMeta['sql'] ?? '1=1');
-        $timeTypes = (string)($timeMeta['types'] ?? '');
-        $timeParams = is_array($timeMeta['params'] ?? null) ? $timeMeta['params'] : [];
+        $timeBounds = printflow_staff_dashboard_time_bounds_meta([
+            'start' => (string)($timeMeta['start'] ?? ''),
+            'end' => (string)($timeMeta['end'] ?? ''),
+            'sql' => (string)($timeMeta['sql'] ?? '1=1'),
+            'types' => (string)($timeMeta['types'] ?? ''),
+            'params' => is_array($timeMeta['params'] ?? null) ? $timeMeta['params'] : [],
+        ]);
+        $timeSql = (string)$timeBounds['sql'];
+        $timeTypes = (string)$timeBounds['types'];
+        $timeParams = is_array($timeBounds['params'] ?? null) ? $timeBounds['params'] : [];
         $timeframeKey = (string)($timeMeta['key'] ?? 'today');
 
         $baseTypes = 'i' . $timeTypes;

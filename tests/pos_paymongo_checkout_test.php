@@ -76,8 +76,13 @@ pos_paymongo_checkout_assert(
 pos_paymongo_checkout_assert(
     strpos($posSource, 'closePayMongoPosModal({ fullReset: true })') !== false
         && strpos($posSource, 'function clearPosCartAfterSuccessfulSale') !== false
-        && strpos($posSource, 'void refreshCart()') !== false,
-    'Closing the QR modal keeps the cart; confirmed sales clear it through the shared helper.'
+        && strpos($posSource, 'function dismissPosQrphFlow') !== false
+        && strpos($posSource, 'posQrphFlowEpoch') !== false,
+    'Dismissed QR PH flows invalidate pending state; confirmed sales clear the cart through the shared helper.'
+);
+pos_paymongo_checkout_assert(
+    strpos($posSource, 'resumePayMongoPosModal') === false,
+    'POS must not auto-resume a PayMongo QR modal from session storage.'
 );
 
 $paymongoApi = (string)file_get_contents(__DIR__ . '/../staff/api/paymongo_payment.php');

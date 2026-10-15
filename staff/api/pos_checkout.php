@@ -2146,6 +2146,10 @@ try {
     $transaction_open = false;
     $checkout_committed = true;
     $checkout_stage = 'committed';
+    if ($checkout_branch_id > 0) {
+        require_once __DIR__ . '/../../includes/staff_dashboard_cache.php';
+        printflow_staff_dashboard_cache_invalidate_branch((int)$checkout_branch_id);
+    }
     pos_checkout_align_pos_order_timestamps($linkedOrderIds, $selectedTransactionAt);
     $sync_warning = '';
     foreach ($post_commit_job_sync as $syncMeta) {

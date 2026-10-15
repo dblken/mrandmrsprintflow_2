@@ -313,6 +313,11 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
             if ($transactionStarted) {
                 $conn->commit();
             }
+            $branchIdForCache = (int)($order['branch_id'] ?? 0);
+            if ($branchIdForCache > 0 && is_file(__DIR__ . '/staff_dashboard_cache.php')) {
+                require_once __DIR__ . '/staff_dashboard_cache.php';
+                printflow_staff_dashboard_cache_invalidate_branch($branchIdForCache);
+            }
             return [
                 'success' => true,
                 'changed' => true,
