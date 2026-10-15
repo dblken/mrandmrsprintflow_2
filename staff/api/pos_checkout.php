@@ -347,67 +347,8 @@ function pos_checkout_verify_csrf(string $token, array $sessionContext): bool {
     return $expected !== '' && hash_equals($expected, (string)$token);
 }
 
-function pos_checkout_user_may_set_custom_transaction_datetime(): bool {
-    return has_role(['Admin', 'Staff']);
-}
-
-function pos_checkout_custom_datetime_enabled(array $data): bool {
-    if (!array_key_exists('use_custom_transaction_datetime', $data)) {
-        return false;
-    }
-    $raw = $data['use_custom_transaction_datetime'];
-    if (is_bool($raw)) {
-        return $raw;
-    }
-    if (is_int($raw) || is_float($raw)) {
-        return (int) $raw === 1;
-    }
-    $normalized = strtolower(trim((string) $raw));
-    return in_array($normalized, ['1', 'true', 'yes', 'on'], true);
-}
-
-function pos_checkout_normalize_transaction_time(string $time): string {
-    $time = trim($time);
-    if (preg_match('/^\d{2}:\d{2}$/', $time)) {
-        return $time . ':00';
-    }
-    if (preg_match('/^\d{2}:\d{2}:\d{2}$/', $time)) {
-        return $time;
-    }
-    throw new RuntimeException('Invalid transaction date/time.', 400);
-}
-
-function pos_checkout_resolve_transaction_datetime(array $data): ?string {
-    if (!pos_checkout_custom_datetime_enabled($data)) {
-        return null;
-    }
-    $date = trim((string)($data['custom_transaction_date'] ?? ''));
-    $time = trim((string)($data['custom_transaction_time'] ?? ''));
-    if (!pos_checkout_user_may_set_custom_transaction_datetime()) {
-        throw new RuntimeException('You are not allowed to set a custom transaction date/time.', 403);
-    }
-    if ($date === '' || $time === '') {
-        throw new RuntimeException('A transaction date and time are required when custom date/time is enabled.', 400);
-    }
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-        throw new RuntimeException('Invalid transaction date/time.', 400);
-    }
-    $time = pos_checkout_normalize_transaction_time($time);
-    $parsed = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $date . ' ' . $time);
-    $errors = DateTimeImmutable::getLastErrors();
-    if (!$parsed || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
-        || $parsed->format('Y-m-d H:i:s') !== $date . ' ' . $time) {
-        throw new RuntimeException('Invalid transaction date/time.', 400);
-    }
-    if ($parsed > new DateTimeImmutable('now')) {
-        throw new RuntimeException('Future transaction dates are not allowed.', 400);
-    }
-    return $parsed->format('Y-m-d H:i:s');
-}
-
 function pos_checkout_selected_transaction_datetime(array $data): string {
-    $custom = pos_checkout_resolve_transaction_datetime($data);
-    return $custom ?? date('Y-m-d H:i:s');
+    return date('Y-m-d H:i:s');
 }
 
 function pos_checkout_align_pos_order_timestamps(array $orderIds, string $selectedTransactionAt): void {
@@ -1402,18 +1343,8 @@ if (!pos_checkout_verify_csrf((string)($data['csrf_token'] ?? ''), $sessionConte
     echo json_encode(['success' => false, 'message' => 'Invalid security token.']);
     exit;
 }
-try {
-    $selectedTransactionAt = pos_checkout_selected_transaction_datetime($data);
-} catch (Throwable $dateError) {
-    http_response_code((int)$dateError->getCode() >= 400 && (int)$dateError->getCode() < 500 ? (int)$dateError->getCode() : 400);
-    echo json_encode(['success' => false, 'message' => $dateError->getMessage()]);
-    exit;
-}
+$selectedTransactionAt = pos_checkout_selected_transaction_datetime($data);
 pos_checkout_log_stage('transaction_datetime', [
-    'custom' => pos_checkout_custom_datetime_enabled($data) ? 1 : 0,
-    'use_custom_transaction_datetime' => (string) ($data['use_custom_transaction_datetime'] ?? ''),
-    'custom_transaction_date' => (string) ($data['custom_transaction_date'] ?? ''),
-    'custom_transaction_time' => (string) ($data['custom_transaction_time'] ?? ''),
     'selected' => $selectedTransactionAt,
     'inventory_transaction_date' => $selectedTransactionAt,
 ]);

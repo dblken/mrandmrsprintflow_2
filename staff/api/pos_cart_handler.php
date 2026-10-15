@@ -146,6 +146,24 @@ function pos_cart_required_message(string $key, string $label, string $type): st
     return 'Please enter ' . strtolower($label) . '.';
 }
 
+function pos_cart_is_needed_date_field(string $key, string $label): bool
+{
+    $needle = strtolower($key . ' ' . $label);
+    return strpos($needle, 'needed_date') !== false || strpos($needle, 'needed date') !== false;
+}
+
+function pos_cart_date_value_not_before_today(string $value): bool
+{
+    $value = trim($value);
+    if ($value === '') {
+        return true;
+    }
+    if (!preg_match('/^(\d{4}-\d{2}-\d{2})/', $value, $matches)) {
+        return false;
+    }
+    return $matches[1] >= date('Y-m-d');
+}
+
 function pos_cart_config_applies(array $config, array $customization, array $fieldConfigs = [], string $fieldKey = ''): bool
 {
     if (!empty($fieldConfigs)) {
@@ -211,6 +229,8 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
                 }
             } elseif ($value === '') {
                 $errors[$key] = pos_cart_required_message($key, $label, $type);
+            } elseif ($type === 'date' && pos_cart_is_needed_date_field($key, $label) && !pos_cart_date_value_not_before_today($value)) {
+                $errors[$key] = 'Needed date cannot be in the past.';
             }
         }
         return $errors;
@@ -241,6 +261,8 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
             if ($value === '' && ($w === '' || $h === '')) {
                 $errors[(string)$fieldKey] = pos_cart_required_message((string)$fieldKey, $label, $type);
             }
+        } elseif ($type === 'date' && $value !== '' && pos_cart_is_needed_date_field((string)$fieldKey, $label) && !pos_cart_date_value_not_before_today($value)) {
+            $errors[(string)$fieldKey] = 'Needed date cannot be in the past.';
         } elseif ($type === 'quantity') {
             $quantity = (int)($value !== '' ? $value : $qty);
             if ($quantity < 1) {
