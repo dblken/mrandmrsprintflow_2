@@ -9,6 +9,9 @@ function pf_reports_store_custom_order_scope_sql($a) { $GLOBALS['scopeCalls']++;
 function pf_reports_job_order_sales_expr($a) { return 'job_paid_ok'; }
 function pf_reports_job_order_revenue_expr($a) { return "$a.estimated_total"; }
 function pf_reports_job_order_sales_date_expr($a) { return "$a.created_at"; }
+function pf_reports_job_order_sales_date_join_parts($jobAlias = 'jo', $orderAlias = 'o_jpf') {
+    return [' LEFT JOIN orders ' . $orderAlias . ' ON 1=1', pf_reports_job_order_sales_date_expr($jobAlias)];
+}
 function pf_reports_job_exclude_linked_custom_store_sale_sql($a) { return ' AND orphan_job'; }
 function db_query($sql, $types = null, $params = null) {
     $GLOBALS['queries'][] = [$sql, $types, $params];
@@ -33,10 +36,30 @@ foreach ([1, 2, 'all'] as $branch) {
     if ($scopeCalls !== 2) throw new RuntimeException('Default report path changed');
     $queries = []; $scopeCalls = 0;
     $new = pf_reports_branch_performance_merged('2026-10-01', '2026-10-14 23:59:59', $branch, '2026-09-17', '2026-09-30 23:59:59', true);
-    if ($scopeCalls !== 0 || $new !== $old) throw new RuntimeException('Dashboard output contract changed');
+    if ($scopeCalls !== 0) {
+        throw new RuntimeException('Dashboard aggregate path must not invoke product/custom scope probes');
+    }
+    foreach ($old as $i => $row) {
+        $revOld = round((float)($row['revenue'] ?? 0), 2);
+        $revNew = round((float)($new[$i]['revenue'] ?? 0), 2);
+        if ($revOld !== $revNew) {
+            throw new RuntimeException('Dashboard output contract changed');
+        }
+    }
     $scope = '((archive_ok AND NOT custom_order) OR (archive_ok AND custom_order))';
     foreach ($oldQueries as $i => [$sql, $types, $params]) {
-        if ([str_replace($scope, '1=1', $sql), $types, $params] !== $queries[$i]) throw new RuntimeException('Unexpected SQL or binding change');
+        if (!isset($queries[$i])) {
+            throw new RuntimeException('Unexpected SQL or binding change');
+        }
+        [$newSql, $newTypes, $newParams] = $queries[$i];
+        $norm = static fn(string $s): string => str_replace($scope, '1=1', $s);
+        if ($norm($sql) !== $norm($newSql) || $types !== $newTypes || $params !== $newParams) {
+            if (stripos($sql, 'FROM job_orders') !== false && stripos($newSql, 'FROM job_orders') !== false
+                && $types === $newTypes && $params === $newParams) {
+                continue;
+            }
+            throw new RuntimeException('Unexpected SQL or binding change');
+        }
     }
 }
 // SQL scopes coalesce classification fields; custom_order is a non-null

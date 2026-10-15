@@ -129,3 +129,32 @@ if (!function_exists('printflow_admin_dashboard_cache_flush_all')) {
         }
     }
 }
+
+if (!function_exists('printflow_admin_dashboard_hydrate_summary_kpis')) {
+    /**
+     * Load KPI totals for secondary/fragment requests without recomputing the full summary block.
+     *
+     * @param callable|null $mark Optional timing callback
+     * @return array<string, mixed>|null Summary KPI map when cache hit; null on miss
+     */
+    function printflow_admin_dashboard_hydrate_summary_kpis($branchId, string $fromDate, string $toDate, ?callable $mark = null): ?array
+    {
+        $vars = ['total_customers', 'total_revenue', 'total_orders', 'pending_orders'];
+        $key = printflow_admin_dashboard_cache_key($branchId, $fromDate, $toDate, 'v3-summary');
+        $cached = printflow_admin_dashboard_cache_get($key);
+        if (!is_array($cached)) {
+            return null;
+        }
+        $out = [];
+        foreach ($vars as $var) {
+            if (!array_key_exists($var, $cached)) {
+                return null;
+            }
+            $out[$var] = $cached[$var];
+        }
+        if ($mark) {
+            $mark('summary_hydrate_cache');
+        }
+        return $out;
+    }
+}

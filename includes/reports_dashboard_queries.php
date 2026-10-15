@@ -187,10 +187,11 @@ function pf_reports_canonical_official_sales_totals(string $from, string $toEnd,
 
     try {
         [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
-        [$dj, $dtj, $dpj] = pf_reports_date_expr_where($jobDate, $from, $toEnd);
+        [$jobJoin, $jobBizDate] = pf_reports_job_order_sales_date_join_parts('jo', 'o_canon');
+        [$dj, $dtj, $dpj] = pf_reports_date_expr_where($jobBizDate, $from, $toEnd);
         $row = db_query(
             "SELECT COUNT(*) AS cnt, COALESCE(SUM({$jobRevenue}), 0) AS rev
-             FROM job_orders jo
+             FROM job_orders jo{$jobJoin}
              WHERE {$jobSales}{$jobExcludeLinkedCustomStore}{$dj}{$bj}",
             $dtj . $btj,
             array_merge($dpj, $bpj)
@@ -242,6 +243,21 @@ function pf_reports_job_order_sales_date_expr(string $alias = 'jo'): string {
         LIMIT 1)";
 
     return "COALESCE({$linkedOrderDate}, {$alias}.payment_verified_at, {$alias}.created_at)";
+}
+
+/**
+ * Join-based business datetime for job_orders (equivalent to pf_reports_job_order_sales_date_expr).
+ *
+ * @return array{0:string,1:string} [LEFT JOIN sql, COALESCE date expression]
+ */
+function pf_reports_job_order_sales_date_join_parts(string $jobAlias = 'jo', string $orderAlias = 'o_jpf'): array
+{
+    $jobAlias = pf_reports_sql_alias($jobAlias, 'jo');
+    $orderAlias = pf_reports_sql_alias($orderAlias, 'o_jpf');
+    $join = " LEFT JOIN orders {$orderAlias} ON {$orderAlias}.order_id = {$jobAlias}.order_id AND {$jobAlias}.order_id > 0";
+    $expr = "COALESCE({$orderAlias}.order_date, {$jobAlias}.payment_verified_at, {$jobAlias}.created_at)";
+
+    return [$join, $expr];
 }
 
 /**
@@ -908,6 +924,187 @@ function pf_reports_sales_by_service_category(string $from, string $toEnd, $bran
     } catch (Throwable $e) {
         return [];
     }
+}
+
+/**
+ * Dashboard All Branches: product + service doughnut slices in two grouped queries.
+ *
+ * @param list<array<string,mixed>> $branchesList
+ * @return array{products:list<array<string,mixed>>,services:list<array<string,mixed>>}
+ */
+function pf_reports_dashboard_all_branches_product_service_slices(string $from, string $toEnd, array $branchesList): array
+{
+    $branchMeta = [];
+    foreach ($branchesList as $branchRow) {
+        $branchId = (int)($branchRow['id'] ?? 0);
+        if ($branchId <= 0) {
+            continue;
+        }
+        $branchName = trim((string)($branchRow['branch_name'] ?? ''));
+        $branchMeta[$branchId] = $branchName !== '' ? $branchName : ('Branch ' . $branchId);
+    }
+    $empty = static function () use ($branchMeta): array {
+        $products = [];
+        $services = [];
+        foreach ($branchMeta as $id => $name) {
+            $products[] = ['branch_id' => $id, 'branch_name' => $name, 'rows' => []];
+            $services[] = ['branch_id' => $id, 'branch_name' => $name, 'rows' => []];
+        }
+        return ['products' => $products, 'services' => $services];
+    };
+    if ($branchMeta === []) {
+        return $empty();
+    }
+
+    $productRowsByBranch = array_fill_keys(array_keys($branchMeta), []);
+    $serviceRowsByBranch = array_fill_keys(array_keys($branchMeta), []);
+
+    try {
+        [$b, $bt, $bp] = branch_where_parts('o', 'all');
+        $storeSales = pf_reports_store_order_sales_expr('o');
+        $storeProductScope = pf_reports_store_product_order_scope_sql('o');
+        $datePart = '';
+        $dTypes = '';
+        $dParams = [];
+        if ($from !== '' && $toEnd !== '') {
+            $datePart = ' AND o.order_date BETWEEN ? AND ?';
+            $dTypes = 'ss';
+            $dParams = [$from, $toEnd];
+        } elseif ($from !== '') {
+            $datePart = ' AND o.order_date >= ?';
+            $dTypes = 's';
+            $dParams = [$from];
+        } elseif ($toEnd !== '') {
+            $datePart = ' AND o.order_date <= ?';
+            $dTypes = 's';
+            $dParams = [$toEnd];
+        }
+        $rows = db_query(
+            "SELECT o.branch_id,
+                    TRIM(p.name) AS category,
+                    SUM(oi.quantity * oi.unit_price) AS total
+             FROM order_items oi
+             JOIN products p
+               ON p.product_id = oi.product_id
+              AND (p.status IS NULL OR p.status != 'Archived')
+             JOIN orders o ON oi.order_id = o.order_id
+             WHERE {$storeSales}
+               AND {$storeProductScope}
+               AND NULLIF(TRIM(p.name), '') IS NOT NULL
+               {$datePart} {$b}
+             GROUP BY o.branch_id, p.product_id, TRIM(p.name)
+             ORDER BY o.branch_id, total DESC",
+            $dTypes . $bt,
+            array_merge($dParams, $bp)
+        ) ?: [];
+        foreach ($rows as $row) {
+            $bid = (int)($row['branch_id'] ?? 0);
+            if (!isset($productRowsByBranch[$bid])) {
+                continue;
+            }
+            $category = trim((string)($row['category'] ?? ''));
+            $total = round((float)($row['total'] ?? 0), 2);
+            if ($total <= 0) {
+                continue;
+            }
+            $productRowsByBranch[$bid][] = [
+                'label' => $category !== '' ? $category : 'Uncategorized product',
+                'value' => $total,
+            ];
+        }
+    } catch (Throwable $e) {
+    }
+
+    try {
+        [$bjsc, $btjsc, $bpjsc] = branch_where_parts('jo', 'all');
+        $jobSales = pf_reports_job_order_sales_expr('jo');
+        [$jobJoin, $jobBizDate] = pf_reports_job_order_sales_date_join_parts('jo', 'o_dashsvc');
+        $jobExcludeLinkedCustomStore = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
+        $jDatePart = '';
+        $jdTypes = '';
+        $jdParams = [];
+        if ($from !== '' && $toEnd !== '') {
+            $jDatePart = " AND {$jobBizDate} BETWEEN ? AND ?";
+            $jdTypes = 'ss';
+            $jdParams = [$from, $toEnd];
+        } elseif ($from !== '') {
+            $jDatePart = " AND {$jobBizDate} >= ?";
+            $jdTypes = 's';
+            $jdParams = [$from];
+        } elseif ($toEnd !== '') {
+            $jDatePart = " AND {$jobBizDate} <= ?";
+            $jdTypes = 's';
+            $jdParams = [$toEnd];
+        }
+        $pfServiceCatBucket = "COALESCE(NULLIF(TRIM(sc.category), ''), NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization')";
+        $rows = db_query(
+            "SELECT jo.branch_id,
+                    {$pfServiceCatBucket} AS category,
+                    SUM(CASE WHEN (LOWER(TRIM(COALESCE(jo.payment_status, ''))) IN ('paid', 'fully paid') OR UPPER(TRIM(COALESCE(jo.status, ''))) = 'COMPLETED')
+                             THEN COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) ELSE 0 END) AS total
+             FROM job_orders jo{$jobJoin}
+             LEFT JOIN (
+                 SELECT LOWER(TRIM(name)) AS name_key,
+                        MAX(NULLIF(TRIM(category), '')) AS category
+                 FROM services
+                 GROUP BY LOWER(TRIM(name))
+             ) sc ON sc.name_key = LOWER(TRIM(COALESCE(jo.service_type, '')))
+             WHERE {$jobSales} {$jobExcludeLinkedCustomStore} {$jDatePart} {$bjsc}
+             GROUP BY jo.branch_id, {$pfServiceCatBucket}
+             HAVING total > 0
+             ORDER BY jo.branch_id, total DESC",
+            $jdTypes . $btjsc,
+            array_merge($jdParams, $bpjsc)
+        ) ?: [];
+        foreach ($rows as $row) {
+            $bid = (int)($row['branch_id'] ?? 0);
+            if (!isset($serviceRowsByBranch[$bid])) {
+                continue;
+            }
+            $category = trim((string)($row['category'] ?? ''));
+            $total = round((float)($row['total'] ?? 0), 2);
+            if ($total <= 0) {
+                continue;
+            }
+            $serviceRowsByBranch[$bid][] = [
+                'label' => $category !== '' ? $category : 'Customization',
+                'value' => $total,
+            ];
+        }
+    } catch (Throwable $e) {
+    }
+
+    $products = [];
+    $services = [];
+    foreach ($branchMeta as $id => $name) {
+        $svcRows = pf_reports_fold_demo_service_categories(
+            array_map(static fn(array $r): array => ['category' => $r['label'], 'total' => $r['value']], $serviceRowsByBranch[$id]),
+            ['Eunsoyaaaaa', 'Ink']
+        );
+        $servicePayload = array_values(array_filter(array_map(static function (array $row) {
+            $category = trim((string)($row['category'] ?? ''));
+            $total = round((float)($row['total'] ?? 0), 2);
+            if ($total <= 0) {
+                return null;
+            }
+            return [
+                'label' => $category !== '' ? $category : 'Customization',
+                'value' => $total,
+            ];
+        }, $svcRows)));
+        $products[] = [
+            'branch_id' => $id,
+            'branch_name' => $name,
+            'rows' => $productRowsByBranch[$id],
+        ];
+        $services[] = [
+            'branch_id' => $id,
+            'branch_name' => $name,
+            'rows' => $servicePayload,
+        ];
+    }
+
+    return ['products' => $products, 'services' => $services];
 }
 
 /**
@@ -1921,19 +2118,24 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
 
     // 3. Merge Customization Jobs data
     try {
+        $jobDateFilterExpr = $jobDate;
+        $jobFromJoin = '';
+        if ($dashboardAggregates) {
+            [$jobFromJoin, $jobDateFilterExpr] = pf_reports_job_order_sales_date_join_parts('jo', 'o_jpf');
+        }
         $jDatePart = "";
         $jdParams = [];
         $jdTypes = "";
         if ($from !== '' && $toEnd !== '') {
-            $jDatePart = " AND {$jobDate} BETWEEN ? AND ?";
+            $jDatePart = " AND {$jobDateFilterExpr} BETWEEN ? AND ?";
             $jdParams = [$from, $toEnd];
             $jdTypes = "ss";
         } elseif ($from !== '') {
-            $jDatePart = " AND {$jobDate} >= ?";
+            $jDatePart = " AND {$jobDateFilterExpr} >= ?";
             $jdParams = [$from];
             $jdTypes = "s";
         } elseif ($toEnd !== '') {
-            $jDatePart = " AND {$jobDate} <= ?";
+            $jDatePart = " AND {$jobDateFilterExpr} <= ?";
             $jdParams = [$toEnd];
             $jdTypes = "s";
         }
@@ -1949,7 +2151,7 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
             "SELECT jo.branch_id,
                     SUM(CASE WHEN {$jobSales} THEN 1 ELSE 0 END) AS ord,
                     SUM(CASE WHEN {$jobSales} THEN {$jobRevenue} ELSE 0 END) AS rev
-             FROM job_orders jo
+             FROM job_orders jo{$jobFromJoin}
              WHERE jo.branch_id IS NOT NULL{$jobExcludeLinkedCustomStore}{$jDatePart}
              GROUP BY jo.branch_id",
             $jdTypes,
@@ -1996,7 +2198,12 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
                 $prevMap[$id] = (float) $r['rev'];
             }
             // Customization jobs
-            $jDatePart = " AND {$jobDate} BETWEEN ? AND ?";
+            $prevJobDateExpr = $jobDate;
+            $prevJobJoin = '';
+            if ($dashboardAggregates) {
+                [$prevJobJoin, $prevJobDateExpr] = pf_reports_job_order_sales_date_join_parts('jo', 'o_jprev');
+            }
+            $jDatePart = " AND {$prevJobDateExpr} BETWEEN ? AND ?";
             $jdParams = [$prevFrom, $prevToEnd];
             $jdTypes = "ss";
             if ($branchId !== 'all' && $branchId !== null) {
@@ -2011,7 +2218,7 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
             }
             $jRows = db_query(
                 "SELECT jo.branch_id, SUM(CASE WHEN {$jobSales} THEN {$jobRevenue} ELSE 0 END) AS rev
-                 FROM job_orders jo
+                 FROM job_orders jo{$prevJobJoin}
                  WHERE jo.branch_id IS NOT NULL{$jobExcludeLinkedCustomStore}{$jDatePart}
                  GROUP BY jo.branch_id",
                 $jdTypes,

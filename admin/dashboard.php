@@ -158,7 +158,8 @@ $dashBranchChartsVars = ['dashboard_branch_chart_payload', 'dashboard_branch_cha
 if ($dashBranchChartsRequest) {
     $dashSections = ['branch_charts'];
 } elseif ($dashSecondaryRequest) {
-    $dashSections = ['summary', 'secondary'];
+    // Secondary AJAX must not cold-run KPI SQL; summary is loaded on the initial HTML request.
+    $dashSections = ['secondary'];
 } else {
     $dashSections = ['summary'];
 }
@@ -178,6 +179,28 @@ printflow_ensure_reports_dashboard_indexes();
 $dashMark('schema_indexes');
 $dashCacheState = 'miss';
 $dashSectionStates = [];
+
+if ($dashSecondaryRequest) {
+    $total_customers = 0;
+    $total_revenue = 0.0;
+    $total_orders = 0;
+    $pending_orders = 0;
+    $dashSummaryHydrated = printflow_admin_dashboard_hydrate_summary_kpis($branchId, $dashFromDate, $dashToDate, $dashMark);
+    if (is_array($dashSummaryHydrated)) {
+        $total_customers = (int)$dashSummaryHydrated['total_customers'];
+        $total_revenue = (float)$dashSummaryHydrated['total_revenue'];
+        $total_orders = (int)$dashSummaryHydrated['total_orders'];
+        $pending_orders = (int)$dashSummaryHydrated['pending_orders'];
+    } elseif (!printflow_branch_value_is_all($branchId)) {
+        try {
+            $dashboard_sales_summary = pf_reports_canonical_official_sales_totals($dashFromDate, $dashToEnd, $branchId);
+            $total_revenue = (float)($dashboard_sales_summary['total_sales'] ?? 0);
+        } catch (Exception $e) {
+            $total_revenue = 0.0;
+        }
+        $dashMark('summary_hydrate_revenue_only');
+    }
+}
 
 foreach ($dashSections as $dashSection) {
 $dashCacheState = 'miss';
@@ -331,52 +354,15 @@ $dashboard_branch_chart_payload = [
     'locations' => [],
 ];
 if ($branchId === 'all') {
-    foreach (($branchCtx['branches_list'] ?? []) as $branchRow) {
-        $chartBranchId = (int)($branchRow['id'] ?? 0);
-        if ($chartBranchId <= 0) {
-            continue;
-        }
-        $chartBranchName = trim((string)($branchRow['branch_name'] ?? ''));
-        if ($chartBranchName === '') {
-            $chartBranchName = 'Branch ' . $chartBranchId;
-        }
-
-        try {
-            $productRows = pf_reports_sales_by_official_product($dashFromStart, $dashToEnd, $chartBranchId);
-        } catch (Exception $e) {
-            $productRows = [];
-        }
-        $productPayloadRows = array_values(array_filter(array_map(static function ($row) use ($dashboard_chart_value) {
-            $category = trim((string)($row['category'] ?? ''));
-            return [
-                'label' => $category !== '' ? $category : 'Uncategorized product',
-                'value' => $dashboard_chart_value($row),
-            ];
-        }, $productRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
-        $dashboard_branch_chart_payload['products'][] = [
-            'branch_id' => $chartBranchId,
-            'branch_name' => $chartBranchName,
-            'rows' => $productPayloadRows,
-        ];
-
-        try {
-            $serviceRows = pf_reports_sales_by_service_category($dashFromStart, $dashToEnd, $chartBranchId);
-            $serviceRows = pf_reports_fold_demo_service_categories($serviceRows, ['Eunsoyaaaaa', 'Ink']);
-        } catch (Exception $e) {
-            $serviceRows = [];
-        }
-        $servicePayloadRows = array_values(array_filter(array_map(static function ($row) use ($dashboard_chart_value) {
-            $category = trim((string)($row['category'] ?? ''));
-            return [
-                'label' => $category !== '' ? $category : 'Customization',
-                'value' => $dashboard_chart_value($row),
-            ];
-        }, $serviceRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
-        $dashboard_branch_chart_payload['services'][] = [
-            'branch_id' => $chartBranchId,
-            'branch_name' => $chartBranchName,
-            'rows' => $servicePayloadRows,
-        ];
+    try {
+        $branchChartSlices = pf_reports_dashboard_all_branches_product_service_slices(
+            $dashFromStart,
+            $dashToEnd,
+            $branchCtx['branches_list'] ?? []
+        );
+        $dashboard_branch_chart_payload['products'] = $branchChartSlices['products'];
+        $dashboard_branch_chart_payload['services'] = $branchChartSlices['services'];
+    } catch (Exception $e) {
     }
 }
 $dashboard_branch_chart_json = json_encode($dashboard_branch_chart_payload, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
@@ -432,6 +418,18 @@ $dashboard_branch_chart_payload = [
 ];
 
 if ($branchId === 'all') {
+    if (!$dashDeferBranchSalesCharts) {
+        try {
+            $branchChartSlices = pf_reports_dashboard_all_branches_product_service_slices(
+                $dashFromStart,
+                $dashToEnd,
+                $branchCtx['branches_list'] ?? []
+            );
+            $dashboard_branch_chart_payload['products'] = $branchChartSlices['products'];
+            $dashboard_branch_chart_payload['services'] = $branchChartSlices['services'];
+        } catch (Exception $e) {
+        }
+    }
     foreach (($branchCtx['branches_list'] ?? []) as $branchRow) {
         $chartBranchId = (int)($branchRow['id'] ?? 0);
         if ($chartBranchId <= 0) {
@@ -440,45 +438,6 @@ if ($branchId === 'all') {
         $chartBranchName = trim((string)($branchRow['branch_name'] ?? ''));
         if ($chartBranchName === '') {
             $chartBranchName = 'Branch ' . $chartBranchId;
-        }
-
-        if (!$dashDeferBranchSalesCharts) {
-            try {
-                $productRows = pf_reports_sales_by_official_product($dashFromStart, $dashToEnd, $chartBranchId);
-            } catch (Exception $e) {
-                $productRows = [];
-            }
-            $productPayloadRows = array_values(array_filter(array_map(static function ($row) use ($dashboard_chart_value) {
-                $category = trim((string)($row['category'] ?? ''));
-                return [
-                    'label' => $category !== '' ? $category : 'Uncategorized product',
-                    'value' => $dashboard_chart_value($row),
-                ];
-            }, $productRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
-            $dashboard_branch_chart_payload['products'][] = [
-                'branch_id' => $chartBranchId,
-                'branch_name' => $chartBranchName,
-                'rows' => $productPayloadRows,
-            ];
-
-            try {
-                $serviceRows = pf_reports_sales_by_service_category($dashFromStart, $dashToEnd, $chartBranchId);
-                $serviceRows = pf_reports_fold_demo_service_categories($serviceRows, ['Eunsoyaaaaa', 'Ink']);
-            } catch (Exception $e) {
-                $serviceRows = [];
-            }
-            $servicePayloadRows = array_values(array_filter(array_map(static function ($row) use ($dashboard_chart_value) {
-                $category = trim((string)($row['category'] ?? ''));
-                return [
-                    'label' => $category !== '' ? $category : 'Customization',
-                    'value' => $dashboard_chart_value($row),
-                ];
-            }, $serviceRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
-            $dashboard_branch_chart_payload['services'][] = [
-                'branch_id' => $chartBranchId,
-                'branch_name' => $chartBranchName,
-                'rows' => $servicePayloadRows,
-            ];
         }
 
         try {
