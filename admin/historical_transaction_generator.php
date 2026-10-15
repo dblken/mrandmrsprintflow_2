@@ -689,7 +689,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array((string)($_POST['action'] 
             $batchToken = $isLatest ? htg_latest_generator_token() : null;
             if ($isLatest && $batchToken === null) throw new RuntimeException('No generated batch is available to remove.');
             $_SESSION['historical_generator_removal_preview'] = ['mode' => $isLatest ? 'latest' : 'range', 'token' => $batchToken, 'start' => $removeStart, 'end' => $removeEnd, 'data' => htg_removal_preview($removeStart, $removeEnd, $batchToken)];
-            $success = 'Removal preview generated. Nothing has been removed.';
+            $matchedCount = count((array)($_SESSION['historical_generator_removal_preview']['data']['orders'] ?? []));
+            $success = $matchedCount > 0
+                ? 'Removal preview generated. Nothing has been removed.'
+                : 'No generator-created HGEN transactions matched the selected removal scope. Nothing has been removed.';
         } else {
             $storedRemoval = $_SESSION['historical_generator_removal_preview'] ?? null;
             if (!$storedRemoval || (string)($storedRemoval['mode'] ?? '') !== ($isLatest ? 'latest' : 'range') || (string)($storedRemoval['start'] ?? '') !== (string)($_POST['remove_start_date'] ?? '') || (string)($storedRemoval['end'] ?? '') !== (string)($_POST['remove_end_date'] ?? '')) throw new RuntimeException('Removal preview expired. Generate a new preview.');
