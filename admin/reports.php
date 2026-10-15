@@ -1423,6 +1423,9 @@ a.export-dd-link:hover { background: #f9fafb; }
 .heatmap-year-label { font-size:12px; font-weight:600; color:#6b7280; white-space:nowrap; }
 .heatmap-year-select { min-width:7rem; width:7rem; height:38px !important; box-sizing:border-box; padding:0 34px 0 12px; line-height:1.2; text-align:left; white-space:nowrap; }
 .heatmap-type-select { min-width:10rem; width:10rem; }
+.export-dd-link[data-pf-export-report="daily_sales"],
+.export-dd-link[data-pf-export-report="shop_inventory"],
+.export-dd-link[data-pf-export-report="inventory"] { display:none !important; }
 .pf-heatmap-legend { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:14px 20px; margin:0 0 14px; padding:0; font-size:11px; font-weight:600; color:#475569; }
 .pf-heatmap-legend .pf-hm-legend-item { display:inline-flex; align-items:center; gap:8px; cursor:pointer; user-select:none; transition:all 0.2s ease; padding:4px 8px; border-radius:6px; }
 .pf-heatmap-legend .pf-hm-legend-item:hover { background:#f1f5f9; transform:translateY(-1px); }
@@ -2369,9 +2372,6 @@ a.export-dd-link:hover { background: #f9fafb; }
                             $csvSalesUrl = $pfRptUrl('reports_export.php', ['report' => 'sales']);
                             $csvOrdersUrl = $pfRptUrl('reports_export.php', ['report' => 'orders']);
                             $csvCustomersUrl = $pfRptUrl('reports_export.php', ['report' => 'customers']);
-                            $csvDailyUrl = $pfRptUrl('reports_export.php', ['report' => 'daily_sales', 'date' => $to]);
-                            $csvShopInvUrl = $pfRptUrl('reports_export.php', ['report' => 'shop_inventory']);
-                            $csvMaterialsUrl = $pfRptUrl('reports_export.php', ['report' => 'inventory']);
                             $activityLogsPrintUrl = rtrim($base_path, '/') . '/admin/activity_logs.php?' . http_build_query([
                                 'print_all' => '1',
                                 'date_from' => $from,
