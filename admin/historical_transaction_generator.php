@@ -275,13 +275,14 @@ function htg_material_plan(string $serviceType, int $quantity, int $serviceId = 
         }
         $materials[] = [
             'item_id' => (int)$rule['item_id'],
+            'name' => trim((string)($rule['name'] ?? '')) ?: ('Inventory item #' . (int)$rule['item_id']),
             'quantity' => max(1, $quantity),
             'uom' => ((int)($rule['track_by_roll'] ?? 0) === 1) ? 'ft' : (string)($rule['unit_of_measure'] ?? 'pcs'),
             'computed_len' => $rollLength,
             'track_by_roll' => (int)($rule['track_by_roll'] ?? 0),
         ];
     }
-    return ['supported' => true, 'warning' => '', 'materials' => $materials, 'dimensions' => $dimensions[0] ?? null, 'label' => $materials ? implode(', ', array_map(static fn($m) => 'material #' . (int)$m['item_id'] . ' x ' . (float)($m['computed_len'] ?: $m['quantity']), $materials)) : 'No configured material rules'];
+    return ['supported' => true, 'warning' => '', 'materials' => $materials, 'dimensions' => $dimensions[0] ?? null, 'label' => $materials ? implode(', ', array_map(static fn($m) => (string)$m['name'] . ' (item #' . (int)$m['item_id'] . ') x ' . (float)($m['computed_len'] ?: $m['quantity']), $materials)) : 'No configured material rules'];
 }
 function htg_insert(array $r, string $token, string $reason): int {
     global $conn;
@@ -311,7 +312,13 @@ function htg_insert(array $r, string $token, string $reason): int {
     foreach ($materialPlan['materials'] as $material) {
         JobOrderService::addMaterial((int)$job, (int)$material['item_id'], (float)$material['quantity'], (string)$material['uom'], null, 'Historical generator assignment', null, 'JOB');
     }
-    JobOrderService::processHistoricalProductionDeductions((int)$job, (string)$r['production_at']);
+    try {
+        JobOrderService::processHistoricalProductionDeductions((int)$job, (string)$r['production_at']);
+    } catch (Throwable $e) {
+        $materialNames = array_map(static fn(array $material): string => (string)($material['name'] ?? ('Inventory item #' . (int)($material['item_id'] ?? 0))), $materialPlan['materials']);
+        $materialLabel = $materialNames !== [] ? implode(', ', array_unique($materialNames)) : 'the configured service materials';
+        throw new RuntimeException("Unable to generate '{$r['service_name']}': material stock check failed for {$materialLabel}. {$e->getMessage()}", 0, $e);
+    }
     if (!db_execute("UPDATE job_orders SET status = 'COMPLETED' WHERE id = ?", 'i', [(int)$job])) throw new RuntimeException('Generated production job completion failed.');
     return $oid;
 }
