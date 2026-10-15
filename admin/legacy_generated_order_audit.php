@@ -57,10 +57,11 @@ function lgo_orders(string $start, string $end): array {
     ) ?: [];
 }
 function lgo_capacity(): int {
-    $rows = db_query("SHOW COLUMNS FROM orders LIKE 'reference_id'") ?: [];
-    $type = strtolower((string)($rows[0]['Type'] ?? ''));
-    if (preg_match('/^(?:varchar|char)\((\d+)\)/', $type, $match)) return (int)$match[1];
-    if (str_starts_with($type, 'text')) return 65535;
+    $rows = db_query("SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH FROM information_schema.columns WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'reference_id' LIMIT 1") ?: [];
+    $type = strtolower((string)($rows[0]['DATA_TYPE'] ?? $rows[0]['data_type'] ?? ''));
+    $length = $rows[0]['CHARACTER_MAXIMUM_LENGTH'] ?? $rows[0]['character_maximum_length'] ?? null;
+    if (in_array($type, ['varchar', 'char'], true) && is_numeric($length)) return (int)$length;
+    if (in_array($type, ['tinytext', 'text', 'mediumtext', 'longtext'], true)) return $type === 'tinytext' ? 255 : ($type === 'text' ? 65535 : ($type === 'mediumtext' ? 16777215 : 4294967295));
     throw new RuntimeException('Unable to verify reference_id capacity. No marker repair was prepared.');
 }
 function lgo_proven(array $orders): array {
