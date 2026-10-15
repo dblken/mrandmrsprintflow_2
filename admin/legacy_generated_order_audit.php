@@ -159,9 +159,10 @@ try {
 <p><strong><?=count($orders)?></strong> order(s) inspected. <strong>Proven legacy:</strong> <?=$possible?> &nbsp; <strong>Unknown excluded:</strong> <?=$unknown?> &nbsp; <strong>Proven sales:</strong> PHP <?=number_format($provenSales, 2)?></p>
 <?php if (!$orders): ?><p class="muted">No orders found in this date range.</p><?php else: ?>
 <form method="post"><?=csrf_field()?><input type="hidden" name="start_date" value="<?=lgo_h($start)?>"><input type="hidden" name="end_date" value="<?=lgo_h($end)?>">
+<button type="button" id="select-all-proven">Select All Proven</button>
 <div class="table-wrap"><table><thead><tr><th>Repair</th><th>Classification / evidence</th><th>Order / total</th><th>Date</th><th>Customer</th><th>Source / payment</th><th>Jobs</th><th>Customizations</th><th>Ledger</th><th>Activity</th></tr></thead><tbody>
 <?php foreach ($rows as [$order,$class,$evidence,$jobs,$custom,$ledger,$activity,$generator]): $style = $class === 'Confirmed Generator' ? 'confirmed' : ($class === 'Possible Legacy Generator' ? 'possible' : ($class === 'Unknown' ? 'unknown' : 'muted')); ?>
-<tr><td><?php if ($class === 'Possible Legacy Generator'): ?><label><input type="checkbox" name="legacy_order_ids[]" value="<?=lgo_h((string)$order['order_id'])?>"> proven</label><?php else: ?><span class="muted">Excluded</span><?php endif; ?></td>
+<tr><td><?php if ($class === 'Possible Legacy Generator'): ?><label><input class="proven-order" type="checkbox" name="legacy_order_ids[]" value="<?=lgo_h((string)$order['order_id'])?>"> proven</label><?php else: ?><span class="muted">Excluded</span><?php endif; ?></td>
 <td><strong class="<?=$style?>"><?=lgo_h($class)?></strong><br><span class="muted"><?=lgo_h($evidence)?></span></td>
 <td>#<?=lgo_h((string)$order['order_id'])?><br>Ref: <?=lgo_h((string)($order['reference_id'] ?? ''))?><br>PHP <?=number_format((float)$order['total_amount'], 2)?></td>
 <td><?=lgo_h((string)$order['order_date'])?></td><td><?=lgo_h((string)($order['customer_name'] ?? ''))?><br><?=lgo_h((string)($order['customer_email'] ?? ''))?><br>ID <?=lgo_h((string)$order['customer_id'])?></td>
@@ -174,4 +175,13 @@ try {
 <div class="table-wrap"><table><thead><tr><th>Order</th><th>Date</th><th>Current reference</th><th>Activity log</th><th>Proposed reference</th><th>Total</th></tr></thead><tbody>
 <?php foreach ($repair['rows'] as $row): ?><tr><td>#<?=lgo_h((string)$row['order_id'])?></td><td><?=lgo_h((string)$row['order_date'])?></td><td><?=lgo_h((string)$row['reference_id'])?></td><td>#<?=lgo_h((string)$row['activity_id'])?></td><td><?=lgo_h((string)$row['marker'])?></td><td>PHP <?=number_format((float)$row['total'], 2)?></td></tr><?php endforeach; ?></tbody></table></div>
 <form method="post"><fieldset><legend>Explicit confirmation</legend><?=csrf_field()?><input type="hidden" name="action" value="repair"><input type="hidden" name="repair_token" value="<?=lgo_h((string)$repair['token'])?>"><label>Type <?=lgo_h(LGO_CONFIRM)?><input id="repair-confirmation" name="confirmation" autocomplete="off" required></label><button id="repair-button" type="submit" disabled>Repair Proven Legacy Markers</button></fieldset></form></section><script>document.getElementById('repair-confirmation').addEventListener('input',function(){document.getElementById('repair-button').disabled=this.value!==<?=json_encode(LGO_CONFIRM)?>;});</script><?php endif; ?>
-</main></body></html>
+</main><script>
+const selectAllProven = document.getElementById('select-all-proven');
+if (selectAllProven) {
+    selectAllProven.addEventListener('click', function () {
+        document.querySelectorAll('input.proven-order').forEach(function (checkbox) {
+            checkbox.checked = true;
+        });
+    });
+}
+</script></body></html>
