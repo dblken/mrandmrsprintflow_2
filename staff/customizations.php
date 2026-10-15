@@ -11256,6 +11256,12 @@ window.pfServiceFieldCatalog = (() => {
             canonicalWorkflowStatusKey(status) {
                 return String(status || '').trim().toUpperCase().replace(/\s+/g, '_');
             },
+            resolveCompletionExpectedStatus(jo) {
+                if (!jo) return '';
+                const storeStatus = String(jo.store_order_status || '').trim();
+                if (storeStatus) return storeStatus;
+                return String(jo.status || '').trim();
+            },
             isAlreadyCompletedOrderConflict(res) {
                 if (!res || res.success) return false;
                 if (Number(res.httpStatus) !== 409) return false;
@@ -11301,7 +11307,7 @@ window.pfServiceFieldCatalog = (() => {
                 const fd = new FormData();
                 fd.append('order_id', orderId);
                 fd.append('status', 'Cancelled');
-                fd.append('expected_status', target.status || '');
+                fd.append('expected_status', this.resolveCompletionExpectedStatus(target));
                 fd.append('cancel_reason', 'Cancelled in-store after discussion with the customer.');
                 fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                 const res = await this.parseJsonResponse(
@@ -11340,7 +11346,7 @@ window.pfServiceFieldCatalog = (() => {
                 const fd = new FormData();
                 fd.append('order_id', String(orderId));
                 fd.append('status', 'Completed');
-                fd.append('expected_status', this.currentJo?.status || '');
+                fd.append('expected_status', this.resolveCompletionExpectedStatus(this.currentJo));
                 fd.append('complete_change_item', '1');
                 if (changeItemId > 0) {
                     fd.append('change_item_id', String(changeItemId));
@@ -11407,7 +11413,7 @@ window.pfServiceFieldCatalog = (() => {
                         const fd = new FormData();
                         fd.append('order_id', orderId);
                         fd.append('status', 'Completed');
-                        fd.append('expected_status', this.currentJo.status || '');
+                        fd.append('expected_status', this.resolveCompletionExpectedStatus(this.currentJo));
                         fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
 
                         const endpoint = this.staffApiUrl('update_order_status_process.php');

@@ -1454,6 +1454,23 @@ class JobOrderService {
         };
         $processMaterials = $options['materials'] ?? true;
         $processInks = $options['inks'] ?? true;
+        $pendingMaterials = $processMaterials ? self::getScopedMaterials((int)$orderId, true, false) : [];
+        $pendingInkRows = [];
+        if ($processInks && self::tableHasColumn('job_order_ink_usage', 'job_order_id')) {
+            $inkPendingSql = 'SELECT id FROM job_order_ink_usage WHERE job_order_id = ?';
+            if (self::tableHasColumn('job_order_ink_usage', 'deducted_at')) {
+                $inkPendingSql .= " AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')";
+            }
+            $inkPendingSql .= ' LIMIT 1';
+            $pendingInkRows = db_query($inkPendingSql, 'i', [(int)$orderId]) ?: [];
+        }
+        if ($pendingMaterials === [] && $pendingInkRows === []) {
+            if ($startedTransaction && printflow_db_in_transaction($conn)) {
+                $conn->commit();
+            }
+            return;
+        }
+
         $branchId = self::getJobBranchId((int)$orderId);
         if ($branchId === null || $branchId <= 0) {
             throw new RuntimeException("Job #{$orderId} does not identify an inventory branch.");
@@ -1529,7 +1546,7 @@ class JobOrderService {
         if ($processMaterials) {
             self::assertMaterialAssignmentsDeductionIntegrity((int)$orderId, $branchId);
         }
-        $materials = $processMaterials ? self::getScopedMaterials((int)$orderId, true, true) : [];
+        $materials = $processMaterials ? self::getScopedMaterials((int)$orderId, true, true) : $pendingMaterials;
         $debugLog('materials_loaded', [
             'job_order_id' => (int)$orderId,
             'count' => count($materials),
