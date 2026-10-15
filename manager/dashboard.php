@@ -106,27 +106,16 @@ try {
     )[0]['cnt'] ?? 0;
 } catch (Exception $e) { $total_customers = 0; }
 
-// ── KPI: Total Revenue (store + customizations, paid/completed in window) ─
+// ── KPI: Total Revenue (use the same canonical dataset as Reports) ─
 try {
-    [$bSqlO, $bTO, $bPO] = branch_where_parts('o', $branchId);
-    [$bSqlJ, $bTJ, $bPJ] = branch_where_parts('j', $branchId);
-    $store_revenue = db_query(
-        "SELECT COALESCE(SUM(o.total_amount),0) as total
-         FROM orders o
-         WHERE (o.payment_status = 'Paid' OR o.status = 'Completed')
-           AND o.order_date BETWEEN ? AND ? {$bSqlO}",
-        'ss' . ($bTO ?: ''),
-        array_merge([$kpiDateFrom, $kpiDateToEnd], $bPO ?: [])
-    )[0]['total'] ?? 0;
-    $custom_revenue = db_query(
-        "SELECT COALESCE(SUM(COALESCE(NULLIF(j.amount_paid,0), j.estimated_total, 0)),0) as total
-         FROM job_orders j
-         WHERE (j.payment_status = 'PAID' OR j.status = 'COMPLETED')
-           AND j.created_at BETWEEN ? AND ? {$bSqlJ}",
-        'ss' . ($bTJ ?: ''),
-        array_merge([$kpiDateFrom, $kpiDateToEnd], $bPJ ?: [])
-    )[0]['total'] ?? 0;
-    $total_revenue = (float)$store_revenue + (float)$custom_revenue;
+    $canonicalRevenue = pf_reports_canonical_official_sales_totals(
+        $kpiDateFrom,
+        $kpiDateToEnd,
+        $branchId
+    );
+    $store_revenue = (float)($canonicalRevenue['store_revenue'] ?? 0);
+    $custom_revenue = (float)($canonicalRevenue['orphan_job_revenue'] ?? 0);
+    $total_revenue = (float)($canonicalRevenue['total_sales'] ?? 0);
 } catch (Exception $e) { $total_revenue = 0; }
 
 // ── KPI: Total Orders (count in window) ───────────────────────
