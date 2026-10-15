@@ -83,6 +83,43 @@ function htg_stage_times(DateTimeImmutable $order, DateTimeImmutable $now): arra
 function htg_sales_total(array $rows): float {
     return round(array_sum(array_map(static fn(array $row): float => (float)($row['total'] ?? 0), $rows)), 2);
 }
+function htg_target_average(?float $target, array $rows, int $remaining): ?float {
+    if ($target === null || $remaining < 1) return null;
+    return max(0.01, ($target - htg_sales_total($rows)) / $remaining);
+}
+function htg_choose_target_ready_choice(array $choices, array $stock, float $desired): array {
+    $best = null;
+    $bestDistance = INF;
+    foreach ($choices as $choice) {
+        $key = (int)$choice['p']['id'] . '|' . ($choice['o']['option_value'] ?? '');
+        $available = (int)($stock[$key] ?? 0);
+        $unit = (float)($choice['p']['price'] ?? 0);
+        if ($available < 1 || $unit <= 0) continue;
+        $ideal = min($available, max(1, (int)round($desired / $unit)));
+        foreach (array_unique([1, $ideal, max(1, $ideal - 1), min($available, $ideal + 1), $available]) as $quantity) {
+            $distance = abs($desired - ($unit * $quantity));
+            if ($distance < $bestDistance) {
+                $bestDistance = $distance;
+                $best = ['choice' => $choice, 'key' => $key, 'quantity' => (int)$quantity];
+            }
+        }
+    }
+    return $best ?? ['choice' => $choices[array_rand($choices)], 'key' => '', 'quantity' => 1];
+}
+function htg_choose_target_service(array $services, float $desired): array {
+    $best = null;
+    $bestDistance = INF;
+    foreach ($services as $service) {
+        $price = (float)($service['_htg_price'] ?? 0);
+        if ($price <= 0) continue;
+        $distance = abs($desired - $price);
+        if ($distance < $bestDistance) {
+            $bestDistance = $distance;
+            $best = $service;
+        }
+    }
+    return $best ?? $services[array_rand($services)];
+}
 function htg_apply_target_sales(array &$rows, array &$stock, ?float $target): void {
     if ($target === null) return;
     $total = htg_sales_total($rows);
@@ -220,10 +257,12 @@ function htg_preview(string $start,string $end,int $branch,int $count,int $ready
     $times=[];$span=$to->getTimestamp()-$from->getTimestamp();for($i=0;$i<$count;$i++)$times[]=$from->getTimestamp()+($span?random_int(0,$span):0);sort($times);$target=(int)round($count*$readyPct/100);$rows=[];$ready=0;$custom=0;
     foreach ($times as $ts) {
         $isReady = $ready < $target && ($custom >= $count - $target || random_int(0, 1));
+        $desired = htg_target_average($targetSales, $rows, $count - count($rows));
         if ($isReady) {
             $choices = [];
             foreach ($products as $p) {
                 $pid = (int)$p['id'];
+                if ($targetSales !== null && (float)($p['price'] ?? 0) <= 0) continue;
                 $opts = printflow_product_option_stock_map($pid, $branch);
                 if ($opts) {
                     foreach ($opts as $o) {
@@ -234,10 +273,18 @@ function htg_preview(string $start,string $end,int $branch,int $count,int $ready
                 }
             }
             if (!$choices) throw new RuntimeException('Current branch stock cannot support this preview.');
-            $c = $choices[array_rand($choices)];
-            $key = (int)$c['p']['id'] . '|' . ($c['o']['option_value'] ?? '');
-            $available = max(1, (int)$stock[$key]);
-            $q = $targetSales === null ? min(random_int(1, 3), $available) : 1;
+            if ($desired !== null) {
+                $targetChoice = htg_choose_target_ready_choice($choices, $stock, $desired);
+                $c = $targetChoice['choice'];
+                $key = (string)$targetChoice['key'];
+                $available = max(1, (int)$stock[$key]);
+                $q = min((int)$targetChoice['quantity'], $available);
+            } else {
+                $c = $choices[array_rand($choices)];
+                $key = (int)$c['p']['id'] . '|' . ($c['o']['option_value'] ?? '');
+                $available = max(1, (int)$stock[$key]);
+                $q = min(random_int(1, 3), $available);
+            }
             $stock[$key] -= $q;
             $customization = [];
             if ($c['o']) {
@@ -247,7 +294,7 @@ function htg_preview(string $start,string $end,int $branch,int $count,int $ready
             $rows[] = ['type' => 'ready', 'business_at' => date('Y-m-d H:i:s', $ts), 'production_at' => '-', 'completion_at' => '-', 'branch_id' => $branch, 'branch_name' => $b['branch_name'], 'name' => $c['p']['name'], 'product_id' => (int)$c['p']['id'], 'quantity' => $q, 'unit_price' => (float)$c['p']['price'], 'total' => (float)$c['p']['price'] * $q, 'customization' => $customization, 'expected_usage' => 'Ready-made stock: ' . $q . ' pcs', '_stock_key' => $key];
             $ready++;
         } else {
-            $s = $services[array_rand($services)];
+            $s = $desired !== null ? htg_choose_target_service($services, $desired) : $services[array_rand($services)];
             $plan = $s['_htg_plan'] ?? htg_material_plan(JobOrderService::inferServiceTypeFromProduct((string)$s['category'], (string)$s['name']), 1, (int)$s['id']);
             $at = new DateTimeImmutable(date('Y-m-d H:i:s', $ts), htg_business_timezone());
             [$prod, $done] = htg_stage_times($at, $now);
@@ -274,7 +321,11 @@ ob_start(static function (string $html): string {
     );
     $stored = $_SESSION['historical_generator_preview'] ?? [];
     if (($stored['target_sales'] ?? null) !== null) {
-        $summary = '<div class="notice"><strong>Target Sales:</strong> PHP ' . number_format((float)$stored['target_sales'], 2) . ' &nbsp; <strong>Generated Sales:</strong> PHP ' . number_format((float)$stored['generated_sales'], 2) . ' &nbsp; <strong>Difference:</strong> PHP ' . number_format((float)$stored['difference'], 2) . '</div>';
+        $target = (float)$stored['target_sales'];
+        $difference = (float)$stored['difference'];
+        $outsideTolerance = $target > 0 && abs($difference) > ($target * 0.05);
+        $warning = $outsideTolerance ? ' The closest safe configured combination is outside the preferred 5% tolerance; no unsupported prices were used.' : '';
+        $summary = '<div class="notice"><strong>Target Sales:</strong> PHP ' . number_format($target, 2) . ' &nbsp; <strong>Generated Sales:</strong> PHP ' . number_format((float)$stored['generated_sales'], 2) . ' &nbsp; <strong>Difference:</strong> PHP ' . number_format($difference, 2) . htmlspecialchars($warning, ENT_QUOTES, 'UTF-8') . '</div>';
         $html = str_replace('<h2>Preview (nothing has been saved)</h2>', '<h2>Preview (nothing has been saved)</h2>' . $summary, $html);
     }
     if (!empty($stored['skipped_services'])) {
