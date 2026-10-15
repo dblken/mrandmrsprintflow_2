@@ -62,6 +62,8 @@ if ($heatmap_cells === []) {
 
 $series = [];
 foreach ($heatmap_cells as $prod => $mo) {
+    $meta = pf_reports_heatmap_row_meta((string) $prod);
+    $displayName = $meta['label'] . ' - ' . $meta['source'];
     $row = [];
     for ($m = 1; $m <= 12; $m++) {
         $c = $mo[$m] ?? ['qty' => 0, 'kind' => 'empty'];
@@ -71,7 +73,13 @@ foreach ($heatmap_cells as $prod => $mo) {
             'kind' => (string) ($c['kind'] ?? 'empty'),
         ];
     }
-    $series[] = ['name' => $prod, 'data' => $row];
+    $series[] = [
+        'key' => (string) $prod,
+        'name' => $displayName,
+        'source' => $meta['source'],
+        'label' => $meta['label'],
+        'data' => $row,
+    ];
 }
 
 $n = count($heatmap_cells);

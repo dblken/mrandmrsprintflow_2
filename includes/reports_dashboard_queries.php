@@ -1175,6 +1175,7 @@ function pf_reports_fold_demo_service_categories(array $rows, array $exactNames)
 function pf_reports_heatmap_available_years($branchId): array {
     $years = [];
     $storeSales = pf_reports_store_order_sales_expr('o');
+    $storeProductSales = $storeSales . ' AND NOT ' . pf_reports_store_custom_service_exists_sql('o');
     $jobSales = pf_reports_job_order_sales_expr('jo');
     $jobDate = pf_reports_job_order_sales_date_expr('jo');
     try {
@@ -1183,7 +1184,7 @@ function pf_reports_heatmap_available_years($branchId): array {
             "SELECT DISTINCT YEAR(o.order_date) AS y
              FROM orders o
              INNER JOIN order_items oi ON oi.order_id = o.order_id
-             WHERE {$storeSales}
+             WHERE {$storeProductSales}
                AND YEAR(o.order_date) <= YEAR(CURDATE())$b",
             $bt ?: null,
             $bp ?: null
@@ -1199,6 +1200,7 @@ function pf_reports_heatmap_available_years($branchId): array {
             "SELECT DISTINCT YEAR({$jobDate}) AS y
              FROM job_orders jo
              WHERE {$jobSales}
+               " . pf_reports_job_exclude_linked_custom_store_sale_sql('jo') . "
                AND YEAR({$jobDate}) <= YEAR(CURDATE())$bj",
             $btj ?: null,
             $bpj ?: null
@@ -1214,27 +1216,30 @@ function pf_reports_heatmap_available_years($branchId): array {
 }
 
 /**
- * Raw monthly qty sums for heatmap year (paid product lines + all job_orders, same as top-services job side).
+ * Raw monthly qty sums for heatmap year, keeping product and customization rows
+ * distinct even when their display labels are identical.
  * Excludes months after the current month when viewing the current calendar year (DB CURDATE()).
  *
- * @return array<string, array<int,int>> service label => month 1..12 => qty
+ * @return array<string, array<int,int>> internal row key => month 1..12 => qty
  */
 function pf_reports_heatmap_sums_for_year(int $heatmap_year, $branchId): array {
     $heatmap_products = [];
     $storeSales = pf_reports_store_order_sales_expr('o');
+    $storeProductSales = $storeSales . ' AND NOT ' . pf_reports_store_custom_service_exists_sql('o');
     $jobSales = pf_reports_job_order_sales_expr('jo');
+    $jobLinkedStoreSaleExclusion = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
     $jobDate = pf_reports_job_order_sales_date_expr('jo');
     try {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
         $hmTypes = 'i' . $bt;
         $hmParams = array_merge([$heatmap_year], $bp);
         $hmRaw = db_query(
-            "SELECT p.name AS product, MONTH(o.order_date) AS mo, SUM(oi.quantity) AS qty
+            "SELECT p.product_id, p.name AS product, MONTH(o.order_date) AS mo, SUM(oi.quantity) AS qty
              FROM order_items oi
              JOIN products p ON oi.product_id = p.product_id
              JOIN orders o ON oi.order_id = o.order_id
              WHERE YEAR(o.order_date) = ?
-               AND {$storeSales}
+               AND {$storeProductSales}
                AND (
                  YEAR(o.order_date) < YEAR(CURDATE())
                  OR MONTH(o.order_date) <= MONTH(CURDATE())
@@ -1245,11 +1250,13 @@ function pf_reports_heatmap_sums_for_year(int $heatmap_year, $branchId): array {
             $hmParams
         ) ?: [];
         foreach ($hmRaw as $r) {
+            $productId = (int) ($r['product_id'] ?? 0);
             $p = (string) $r['product'];
-            if (!isset($heatmap_products[$p])) {
-                $heatmap_products[$p] = array_fill(1, 12, 0);
+            $key = pf_reports_heatmap_row_key('product', (string) $productId, $p);
+            if (!isset($heatmap_products[$key])) {
+                $heatmap_products[$key] = array_fill(1, 12, 0);
             }
-            $heatmap_products[$p][(int) $r['mo']] += (int) $r['qty'];
+            $heatmap_products[$key][(int) $r['mo']] += (int) $r['qty'];
         }
     } catch (Throwable $e) {
     }
@@ -1264,6 +1271,7 @@ function pf_reports_heatmap_sums_for_year(int $heatmap_year, $branchId): array {
                     SUM(COALESCE(jo.quantity, 1)) AS qty
              FROM job_orders jo
              WHERE {$jobSales}
+               {$jobLinkedStoreSaleExclusion}
                AND YEAR({$jobDate}) = ?
                AND (
                  YEAR({$jobDate}) < YEAR(CURDATE())
@@ -1275,16 +1283,34 @@ function pf_reports_heatmap_sums_for_year(int $heatmap_year, $branchId): array {
             $jParams
         ) ?: [];
         foreach ($jobRaw as $r) {
+            // Missing job quantity remains the existing estimated one-job fallback.
             $p = (string) $r['product'];
-            if (!isset($heatmap_products[$p])) {
-                $heatmap_products[$p] = array_fill(1, 12, 0);
+            $key = pf_reports_heatmap_row_key('service', strtolower($p), $p);
+            if (!isset($heatmap_products[$key])) {
+                $heatmap_products[$key] = array_fill(1, 12, 0);
             }
-            $heatmap_products[$p][(int) $r['mo']] += (int) $r['qty'];
+            $heatmap_products[$key][(int) $r['mo']] += (int) $r['qty'];
         }
     } catch (Throwable $e) {
     }
 
     return $heatmap_products;
+}
+
+/** Build a stable heatmap identity that cannot collide across source types. */
+function pf_reports_heatmap_row_key(string $source, string $identity, string $label): string {
+    return $source . ':' . rawurlencode($identity) . ':' . base64_encode($label);
+}
+
+/** @return array{source:string,label:string} */
+function pf_reports_heatmap_row_meta(string $key): array {
+    $parts = explode(':', $key, 3);
+    $source = ($parts[0] ?? '') === 'product' ? 'Product' : 'Customization';
+    $label = isset($parts[2]) ? base64_decode($parts[2], true) : $key;
+    return [
+        'source' => $source,
+        'label' => $label !== false && $label !== '' ? $label : $key,
+    ];
 }
 
 /**
@@ -1318,7 +1344,7 @@ function pf_reports_heatmap_build_cells(array $sumsByProduct, int $heatmap_year)
 }
 
 /**
- * Top 8 services by total units in year (same sums as heatmap; months excluded by SQL for current year).
+ * Top 8 product/customization rows by total units in year.
  *
  * @return array<string, array<int, array{qty:int, kind:string}>>
  */
@@ -2389,7 +2415,9 @@ function pf_reports_render_heatmap_html(array $cellsByService, int $displayYear)
     }
 
     foreach ($cellsByService as $prod => $mo) {
-        $prodE = htmlspecialchars((string) $prod, ENT_QUOTES, 'UTF-8');
+        $meta = pf_reports_heatmap_row_meta((string) $prod);
+        $displayName = $meta['label'] . ' - ' . $meta['source'];
+        $prodE = htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8');
         $h .= '<div class="pf-hm-label-col"><span class="pf-hm-label-text" title="' . $prodE . '">' . $prodE . '</span></div>';
         $h .= '<div class="pf-hm-tiles" role="row">';
         for ($m = 1; $m <= 12; $m++) {
