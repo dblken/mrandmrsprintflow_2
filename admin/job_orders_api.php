@@ -70,7 +70,6 @@ const PRINTFLOW_CUSTOMIZATIONS_QUERY_VERSION = 'staff_customizations_query_live_
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/order_archive.php';
-require_once __DIR__ . '/../includes/temporary_order_visibility.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
@@ -1193,7 +1192,6 @@ try {
                               LEFT JOIN customers c ON c.customer_id = o.customer_id
                               WHERE LOWER(TRIM(COALESCE(o.order_type, ''))) = 'custom'
                                 AND " . printflow_order_archive_scope_sql('o') . "
-                                AND " . printflow_temporary_hidden_order_exclusion_sql('o.order_id') . "
                                 AND LOWER(TRIM(COALESCE(o.order_source, ''))) NOT IN ('pos_merged', 'pos_draft')
                                 AND o.status IN (
                                     'Pending', 'Pending Review', 'Pending Approval', 'For Revision',
@@ -1231,7 +1229,6 @@ try {
                                    LEFT JOIN orders o ON o.order_id = cust.order_id
                                    WHERE cust.order_id IS NOT NULL
                                      AND (o.order_id IS NULL OR " . printflow_order_archive_scope_sql('o') . ")
-                                     AND (o.order_id IS NULL OR " . printflow_temporary_hidden_order_exclusion_sql('o.order_id') . ")
                                      AND " . printflow_customer_exclusion_customer_scope_sql('cust.customer_id') . "
                                      AND cust.status IN (
                                          'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
@@ -1418,7 +1415,6 @@ try {
                     LEFT JOIN orders o ON o.order_id = jo.order_id
                     LEFT JOIN customers c ON c.customer_id = COALESCE(NULLIF(o.customer_id, 0), NULLIF(jo.customer_id, 0))
                     WHERE 1=1 AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
-                      AND (jo.order_id IS NULL OR " . printflow_temporary_hidden_order_exclusion_sql('jo.order_id') . ")
                       AND " . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
             $params = []; $types = '';
             if ($status) {
@@ -1779,7 +1775,6 @@ try {
                     LEFT JOIN customers c ON o.customer_id = c.customer_id
                     WHERE (o.order_type IS NULL OR o.order_type = 'product' OR o.order_type = 'custom')
                     AND " . printflow_order_archive_scope_sql('o') . "
-                    AND " . printflow_temporary_hidden_order_exclusion_sql('o.order_id') . "
                     AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
                     AND o.status IN (
                         'Pending', 'Pending Review', 'Pending Approval', 'For Revision',

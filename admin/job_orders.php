@@ -8,8 +8,6 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
-require_once __DIR__ . '/../includes/order_archive.php';
-require_once __DIR__ . '/../includes/temporary_order_visibility.php';
 
 require_role(['Admin', 'Manager']);
 // Ensure $base_path is defined
@@ -53,9 +51,7 @@ $sql = "SELECT jo.*, CONCAT(c.first_name, ' ', c.last_name) AS customer_name, c.
         FROM job_orders jo
         LEFT JOIN customers c ON jo.customer_id = c.customer_id
         LEFT JOIN branches b ON jo.branch_id = b.id
-        WHERE 1=1 AND " . printflow_order_archive_exclusion_sql('jo.order_id')
-        . ' AND ' . printflow_temporary_hidden_order_exclusion_sql('jo.order_id')
-        . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
+        WHERE 1=1 AND " . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
 $params = []; $types = '';
 
 // Branch filter
@@ -111,19 +107,19 @@ $sort_icon = fn(string $col): string => $sort === $col ? ($dir === 'ASC' ? ' ▲
 
 // KPIs — branch-aware
 [$bSqlKpi, $bTypesKpi, $bParamsKpi] = branch_where_parts('jo', $branchId);
-$bSqlKpi .= ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_temporary_hidden_order_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
+$bSqlKpi .= ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
 $kpi_total   = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE 1=1$bSqlKpi",  $bTypesKpi ?: null, $bParamsKpi ?: null)[0]['c'] ?? 0;
 
 [$bSqlK2, $bTK2, $bPK2] = branch_where_parts('jo', $branchId);
-$bSqlK2 .= ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_temporary_hidden_order_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
+$bSqlK2 .= ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
 $kpi_pending = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE status IN ('PENDING','APPROVED')$bSqlK2", $bTK2 ?: null, $bPK2 ?: null)[0]['c'] ?? 0;
 
 [$bSqlK3, $bTK3, $bPK3] = branch_where_parts('jo', $branchId);
-$bSqlK3 .= ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_temporary_hidden_order_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
+$bSqlK3 .= ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
 $kpi_active  = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE status = 'IN_PRODUCTION'$bSqlK3", $bTK3 ?: null, $bPK3 ?: null)[0]['c'] ?? 0;
 
 [$bSqlK4, $bTK4, $bPK4] = branch_where_parts('jo', $branchId);
-$bSqlK4 .= ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_temporary_hidden_order_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
+$bSqlK4 .= ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
 $kpi_done    = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE status = 'COMPLETED'$bSqlK4", $bTK4 ?: null, $bPK4 ?: null)[0]['c'] ?? 0;
 
 $page_title = 'Customization - Admin | PrintFlow';
@@ -334,17 +330,6 @@ function jo_payment_badge($status) {
             <div style="display:flex;align-items:center;gap:10px;">
                 <h1 class="page-title">Customization</h1>
             </div>
-            <?php if ((get_user_type() ?? '') === 'Admin'): ?>
-                <form method="POST" action="hide_pending_unpaid_orders_process.php" style="display:flex;align-items:center;gap:12px;">
-                    <?php echo csrf_field(); ?>
-                    <button type="submit" class="btn btn-secondary">Hide Pending Unpaid Orders</button>
-                    <?php if (isset($_GET['hidden_pending_unpaid'])): ?>
-                        <span role="status" aria-live="polite" style="font-size:13px;color:#475569;">
-                            <?php echo (int)$_GET['hidden_pending_unpaid']; ?> order(s) hidden.
-                        </span>
-                    <?php endif; ?>
-                </form>
-            <?php endif; ?>
             <?php render_branch_selector($branchCtx); ?>
         </header>
 

@@ -3,6 +3,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
+require_once __DIR__ . '/../includes/order_archive.php';
 require_role('Admin');
 if (!is_admin()) { http_response_code(403); exit('Admin authorization is required.'); }
 $basePath = defined('BASE_PATH') ? BASE_PATH : '/printflow';
@@ -19,6 +20,7 @@ body{font-family:var(--pf-ui-font-sans,Arial,sans-serif);color:#172b4d;backgroun
 <div class="dashboard-container"><?php include __DIR__ . '/../includes/admin_sidebar.php'; ?><main class="main-content">
 <h1 data-archive-ui-version="<?= htmlspecialchars($archiveUiVersion, ENT_QUOTES, 'UTF-8') ?>">Archived Orders</h1>
 <p class="pf-muted">Search, review, hide, and restore customer order visibility. Hiding is reversible and does not delete business records.</p>
+<section class="pf-archive-card" aria-labelledby="pfPendingUnpaidArchiveHeading"><h2 id="pfPendingUnpaidArchiveHeading">Hide Pending/Unpaid Orders by Date Range</h2><p class="pf-muted">Preview the exact order IDs before hiding eligible Pending and Unpaid orders with no payment submission or provider-payment record.</p><a class="pf-button pf-primary" style="display:inline-block;text-decoration:none" href="<?= htmlspecialchars($basePath, ENT_QUOTES, 'UTF-8') ?>/admin/archived_pending_unpaid.php">Open date-range preview</a></section>
 <?php if (!$archiveReady): ?><div class="pf-box error" role="alert">Customer archive storage is not ready. Verify the customer exclusion migration before using this page; no change was made.</div><?php else: ?>
 <section class="pf-archive-card" aria-labelledby="pfCustomerArchiveHeading">
 <h2 id="pfCustomerArchiveHeading">Customer order archive</h2>

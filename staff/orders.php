@@ -11,8 +11,6 @@ require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/staff_order_status_buckets.php';
 require_once __DIR__ . '/../includes/expired_product_order_archive.php';
 require_once __DIR__ . '/../includes/staff_dashboard_queries.php';
-require_once __DIR__ . '/../includes/order_archive.php';
-require_once __DIR__ . '/../includes/temporary_order_visibility.php';
 
 require_role('Staff');
 printflow_require_staff_module('orders');
@@ -353,7 +351,6 @@ function staff_orders_attach_provider_payments(array &$orders): void {
 
 $sql_conditions = " AND o.order_type = 'product' AND {$staffOrderScopeSql}";
 $sql_conditions .= ' AND ' . printflow_order_archive_scope_sql('o');
-$sql_conditions .= ' AND ' . printflow_temporary_hidden_order_exclusion_sql('o.order_id');
 $params = [];
 $types = '';
 if (!$is_pos_staff) {
@@ -469,7 +466,6 @@ unset($order);
 // Note: o.order_type = 'product' filter from line 108 is preserved in $sql_conditions
 $kpi_conditions = " AND o.order_type = 'product' AND {$staffOrderScopeSql}";
 $kpi_conditions .= ' AND ' . printflow_order_archive_scope_sql('o');
-$kpi_conditions .= ' AND ' . printflow_temporary_hidden_order_exclusion_sql('o.order_id');
 $kpi_types = '';
 $kpi_params = [];
 $kpi_conditions .= branch_where('o', $staffBranchId, $kpi_types, $kpi_params);
