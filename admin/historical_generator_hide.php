@@ -55,7 +55,6 @@ try {
                     if (!in_array($id, $selected, true)) continue;
                     if (db_execute('INSERT INTO historical_generator_hidden_orders (order_id,hidden_by,reason) VALUES (?,?,?) ON DUPLICATE KEY UPDATE order_id=order_id', 'iis', [$id,(int)get_user_id(),'Historical generator data hidden by Admin'])) $hidden[] = $id;
                 }
-                log_activity((int)get_user_id(), 'Historical generated data hidden', json_encode(['orders'=>$hidden,'selected_total'=>array_sum(array_map(static fn(array $row): float => in_array((int)$row['order_id'], $selected, true) ? (float)$row['total_amount'] : 0.0, $eligible)),'start_date'=>$preview['start'],'end_date'=>$preview['end'],'real_processed_at'=>date(DATE_ATOM)], JSON_UNESCAPED_SLASHES));
                 $conn->commit(); unset($_SESSION['hgh_preview']); $preview = null;
                 $success = 'Hidden '.count($hidden).' generator-created transaction(s). Data was retained; inventory was not changed.';
             } catch (Throwable $e) { $conn->rollback(); throw $e; }
