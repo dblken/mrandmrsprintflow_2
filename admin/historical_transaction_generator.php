@@ -252,10 +252,12 @@ function htg_insert(array $r, string $token, string $reason): int {
     global $conn;
     $guest = printflow_pos_resolve_checkout_customer_context(['customer_id'=>'guest','guest_display_name'=>'Historical Walk-in','customer_email'=>'']);
     $total = round((float)$r['unit_price'] * (int)$r['quantity'], 2);
+    $generatorReference = 'HGEN-' . $token;
+    if (!preg_match('/^HGEN-[a-f0-9]{48}-\d+$/i', $generatorReference)) throw new RuntimeException('Historical generator reference marker is invalid.');
     // Historical generated transactions do not add synthetic customer/order notes.
     $note = '';
     $cols=['customer_id','pos_guest_display_name','pos_guest_email','branch_id','reference_id','total_amount','status','payment_status','payment_method','payment_reference','order_date','notes'];
-    $vals=[(int)$guest['customer_id'],'Historical Walk-in','',(int)$r['branch_id'],'HGEN-'.$token,$total,$r['type']==='custom'?'Pending':'Completed','Paid','Cash','HGEN-'.$token,$r['business_at'],$note]; $types='issisdssssss';
+    $vals=[(int)$guest['customer_id'],'Historical Walk-in','',(int)$r['branch_id'],$generatorReference,$total,$r['type']==='custom'?'Pending':'Completed','Paid','Cash',$generatorReference,$r['business_at'],$note]; $types='issisdssssss';
     foreach ([['amount_paid','d',$total],['order_type','s',$r['type']],['order_source','s','historical_generator']] as $o) if (db_table_has_column('orders',$o[0])) { $cols[]=$o[0];$vals[]=$o[2];$types.=$o[1]; }
     if (!db_execute('INSERT INTO orders ('.implode(',',$cols).') VALUES ('.implode(',',array_fill(0,count($cols),'?')).')',$types,$vals)) throw new RuntimeException('Generated order creation failed.');
     $oid=(int)$conn->insert_id; if (!db_execute('UPDATE orders SET updated_at=NOW() WHERE order_id=?','i',[$oid])) throw new RuntimeException('Generated order audit timestamp failed.');

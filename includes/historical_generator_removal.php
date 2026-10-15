@@ -13,15 +13,14 @@ function htg_removal_dates(string $start, string $end): array {
 
 function htg_removal_orders(string $start = '', string $end = '', bool $lock = false, ?string $batchToken = null): array {
     global $conn;
-    if (!db_table_has_column('orders', 'order_source') || !db_table_has_column('orders', 'reference_id')) {
+    if (!db_table_has_column('orders', 'reference_id')) {
         throw new RuntimeException('Generator ownership markers are unavailable; removal is blocked for safety.');
     }
     $params = [];
     $types = '';
     $sql = "SELECT order_id, reference_id, order_date, branch_id, total_amount
             FROM orders
-            WHERE order_source = 'historical_generator'
-              AND reference_id LIKE ?";
+            WHERE reference_id LIKE ?";
     $params[] = $batchToken !== null ? 'HGEN-' . $batchToken . '-%' : 'HGEN-%';
     $types .= 's';
     if ($batchToken === null) {
@@ -37,9 +36,9 @@ function htg_removal_orders(string $start = '', string $end = '', bool $lock = f
 }
 
 function htg_latest_generator_token(): ?string {
-    $rows = db_query("SELECT reference_id FROM orders WHERE order_source = 'historical_generator' AND reference_id LIKE 'HGEN-%' ORDER BY order_id DESC LIMIT 1") ?: [];
+    $rows = db_query("SELECT reference_id FROM orders WHERE reference_id LIKE 'HGEN-%' ORDER BY order_id DESC LIMIT 1") ?: [];
     $reference = (string)($rows[0]['reference_id'] ?? '');
-    if (!preg_match('/^HGEN-(.+)-\d+$/', $reference, $match)) return null;
+    if (!preg_match('/^HGEN-([a-f0-9]{48})-(\d+)$/i', $reference, $match)) return null;
     return $match[1];
 }
 
