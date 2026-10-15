@@ -4,6 +4,25 @@
  * POS walk-in vs registered customer resolution and display helpers.
  */
 
+function pos_get_walkin_customer_id(): int
+{
+    global $conn;
+
+    $rows = db_query("SELECT customer_id FROM customers WHERE email = 'walkin@pos.local' LIMIT 1") ?: [];
+    if ($rows !== []) {
+        return (int)$rows[0]['customer_id'];
+    }
+
+    if (!db_execute(
+        "INSERT INTO customers (first_name, last_name, email, contact_number, password_hash, status)
+         VALUES ('Walk-in', 'Guest', 'walkin@pos.local', NULL, '', 'Active')"
+    )) {
+        throw new RuntimeException('The shared walk-in customer could not be prepared.');
+    }
+
+    return (int)$conn->insert_id;
+}
+
 function printflow_pos_normalize_customer_email(?string $raw): string
 {
     return strtolower(trim((string)$raw));

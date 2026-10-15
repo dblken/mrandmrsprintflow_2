@@ -56,22 +56,6 @@ function pos_table_has_column(string $table, string $column): bool {
     return $cache[$key] = !empty($rows);
 }
 
-function pos_get_walkin_customer_id(): int {
-    global $conn;
-
-    $res = db_query("SELECT customer_id FROM customers WHERE email='walkin@pos.local' LIMIT 1") ?: [];
-    if (!empty($res)) {
-        return (int)$res[0]['customer_id'];
-    }
-
-    db_execute(
-        "INSERT INTO customers (first_name, last_name, email, contact_number, password_hash, status)
-         VALUES ('Walk-in', 'Guest', 'walkin@pos.local', NULL, '', 'Active')"
-    );
-
-    return (int)$conn->insert_id;
-}
-
 function pos_is_shared_walkin_placeholder_email(string $email): bool {
     return strtolower(trim($email)) === 'walkin@pos.local';
 }
