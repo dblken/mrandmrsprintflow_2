@@ -2352,7 +2352,7 @@ window.printflowInitReportsCharts = function () {
         }
         function loadHeatmap() {
             var year = sel.value;
-            var type = typeSel ? typeSel.value : 'all';
+            var type = typeSel ? typeSel.value : 'product';
             if (!year || !mount || !mount.isConnected) return;
             
             var requestKey = year + ':' + type;

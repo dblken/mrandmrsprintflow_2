@@ -28,9 +28,9 @@ $to        = $dateRange['to'];
 $fromStart = $dateRange['fromStart'];
 $toEnd     = $dateRange['toEnd'];
 $autoprint = (bool)($_GET['autoprint'] ?? 0);
-$heatmap_type = isset($_GET['heatmap_type']) ? strtolower(trim((string) $_GET['heatmap_type'])) : 'all';
-if (!in_array($heatmap_type, ['all', 'product', 'service'], true)) {
-    $heatmap_type = 'all';
+$heatmap_type = isset($_GET['heatmap_type']) ? strtolower(trim((string) $_GET['heatmap_type'])) : 'product';
+if (!in_array($heatmap_type, ['product', 'service'], true)) {
+    $heatmap_type = 'product';
 }
 
 $branchCtx  = init_branch_context(false);

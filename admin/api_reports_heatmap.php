@@ -17,9 +17,9 @@ $branchId = $branchCtx['selected_branch_id'];
 
 [$y_cal, $m_cal] = pf_reports_heatmap_db_ym();
 $year = isset($_GET['year']) ? (int) $_GET['year'] : $y_cal;
-$heatmapType = isset($_GET['heatmap_type']) ? strtolower(trim((string) $_GET['heatmap_type'])) : 'all';
-if (!in_array($heatmapType, ['all', 'product', 'service'], true)) {
-    $heatmapType = 'all';
+$heatmapType = isset($_GET['heatmap_type']) ? strtolower(trim((string) $_GET['heatmap_type'])) : 'product';
+if (!in_array($heatmapType, ['product', 'service'], true)) {
+    $heatmapType = 'product';
 }
 
 $emptyPayload = static function (int $y, bool $valid, string $msg = '') use ($y_cal, $m_cal): array {
@@ -67,7 +67,7 @@ if ($heatmap_cells === []) {
 $series = [];
 foreach ($heatmap_cells as $prod => $mo) {
     $meta = pf_reports_heatmap_row_meta((string) $prod);
-    $displayName = $meta['label'] . ' - ' . $meta['source'];
+    $displayName = $meta['label'];
     $row = [];
     for ($m = 1; $m <= 12; $m++) {
         $c = $mo[$m] ?? ['qty' => 0, 'kind' => 'empty'];
