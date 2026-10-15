@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/staff_dashboard_revenue.php';
+require_once __DIR__ . '/staff_customization_counts.php';
 
 if (!function_exists('printflow_pos_dashboard_exclude_draft_sql')) {
     function printflow_pos_dashboard_exclude_draft_sql(string $orderAlias = 'o'): string
@@ -158,19 +159,7 @@ if (!function_exists('printflow_pos_dashboard_kpi_metrics')) {
         ) ?: [];
         $completedTransactions = (int)($completedRow[0]['count'] ?? 0);
 
-        $pendingRow = db_query(
-            "SELECT COUNT(*) AS count
-             FROM orders o
-             WHERE o.branch_id = ?
-               AND {$staffOrderScopeSql}
-               AND " . printflow_order_archive_scope_sql('o') . "
-               AND o.order_type = 'custom'
-               AND o.status NOT IN ('Completed', 'Cancelled', 'Rejected')
-               {$draftSql}",
-            'i',
-            [$branchId]
-        ) ?: [];
-        $pendingCustomizations = (int)($pendingRow[0]['count'] ?? 0);
+        $pendingCustomizations = printflow_staff_customization_pending_count($branchId);
 
         return [
             'revenue' => $revenue,
@@ -182,6 +171,8 @@ if (!function_exists('printflow_pos_dashboard_kpi_metrics')) {
             'revenue_subtitle' => printflow_pos_dashboard_revenue_subtitle($timeframeKey),
             'walk_in_subtitle' => printflow_pos_dashboard_walkin_subtitle($timeframeKey),
             'completed_subtitle' => printflow_pos_dashboard_completed_subtitle($timeframeKey),
+            'pending_subtitle' => 'Active walk-in custom jobs (matches Custom Orders)',
+            'pending_query_version' => PRINTFLOW_CUSTOMIZATION_COUNTS_QUERY_VERSION,
         ];
     }
 }
