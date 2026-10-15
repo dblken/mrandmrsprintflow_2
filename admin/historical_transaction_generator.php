@@ -249,6 +249,18 @@ function htg_dimension_options(int $serviceId): array {
     foreach ($rows as $row) $walk(json_decode((string)($row['field_options'] ?? ''), true));
     return array_values(array_unique(array_filter($values)));
 }
+function htg_material_display_label(array $material): string {
+    $name = trim((string)($material['name'] ?? '')) ?: ('Inventory item #' . (int)($material['item_id'] ?? 0));
+    $category = trim((string)($material['category_name'] ?? '')) ?: 'Uncategorized';
+    $ruleType = trim((string)($material['rule_type'] ?? ''));
+    $tracking = (int)($material['track_by_roll'] ?? 0) === 1
+        ? 'roll'
+        : (trim((string)($material['uom'] ?? '')) ?: 'unit');
+    $details = [$category];
+    if ($ruleType !== '' && strcasecmp($ruleType, $category) !== 0) $details[] = $ruleType;
+    $details[] = $tracking;
+    return $name . ' [' . implode(', ', $details) . '] (item #' . (int)($material['item_id'] ?? 0) . ')';
+}
 function htg_material_plan(string $serviceType, int $quantity, int $serviceId = 0, string $displayName = ''): array {
     if (trim($serviceType) === '') {
         return [
@@ -259,9 +271,10 @@ function htg_material_plan(string $serviceType, int $quantity, int $serviceId = 
             'label' => 'Skipped: unsupported service type',
         ];
     }
-    $rules = db_query("SELECT r.item_id, r.rule_type, i.name, i.track_by_roll, i.unit_of_measure
+    $rules = db_query("SELECT r.item_id, r.rule_type, i.name, c.name AS category_name, i.track_by_roll, i.unit_of_measure
                        FROM service_material_rules r
                        JOIN inv_items i ON i.id = r.item_id
+                       LEFT JOIN inv_categories c ON c.id = i.category_id
                        WHERE r.service_type = ? ORDER BY r.item_id", 's', [$serviceType]) ?: [];
     $materials = [];
     $dimensions = htg_dimension_options($serviceId);
@@ -276,13 +289,15 @@ function htg_material_plan(string $serviceType, int $quantity, int $serviceId = 
         $materials[] = [
             'item_id' => (int)$rule['item_id'],
             'name' => trim((string)($rule['name'] ?? '')) ?: ('Inventory item #' . (int)$rule['item_id']),
+            'category_name' => trim((string)($rule['category_name'] ?? '')) ?: 'Uncategorized',
+            'rule_type' => trim((string)($rule['rule_type'] ?? '')),
             'quantity' => max(1, $quantity),
             'uom' => ((int)($rule['track_by_roll'] ?? 0) === 1) ? 'ft' : (string)($rule['unit_of_measure'] ?? 'pcs'),
             'computed_len' => $rollLength,
             'track_by_roll' => (int)($rule['track_by_roll'] ?? 0),
         ];
     }
-    return ['supported' => true, 'warning' => '', 'materials' => $materials, 'dimensions' => $dimensions[0] ?? null, 'label' => $materials ? implode(', ', array_map(static fn($m) => (string)$m['name'] . ' (item #' . (int)$m['item_id'] . ') x ' . (float)($m['computed_len'] ?: $m['quantity']), $materials)) : 'No configured material rules'];
+    return ['supported' => true, 'warning' => '', 'materials' => $materials, 'dimensions' => $dimensions[0] ?? null, 'label' => $materials ? implode(', ', array_map(static fn($m) => htg_material_display_label($m) . ' x ' . (float)($m['computed_len'] ?: $m['quantity']), $materials)) : 'No configured material rules'];
 }
 function htg_insert(array $r, string $token, string $reason): int {
     global $conn;
@@ -315,7 +330,7 @@ function htg_insert(array $r, string $token, string $reason): int {
     try {
         JobOrderService::processHistoricalProductionDeductions((int)$job, (string)$r['production_at']);
     } catch (Throwable $e) {
-        $materialNames = array_map(static fn(array $material): string => (string)($material['name'] ?? ('Inventory item #' . (int)($material['item_id'] ?? 0))), $materialPlan['materials']);
+        $materialNames = array_map(static fn(array $material): string => htg_material_display_label($material), $materialPlan['materials']);
         $materialLabel = $materialNames !== [] ? implode(', ', array_unique($materialNames)) : 'the configured service materials';
         throw new RuntimeException("Unable to generate '{$r['service_name']}': material stock check failed for {$materialLabel}. {$e->getMessage()}", 0, $e);
     }
