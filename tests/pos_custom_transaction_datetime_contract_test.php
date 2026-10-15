@@ -5,6 +5,8 @@ $root = dirname(__DIR__);
 $read = static fn(string $path): string => (string)file_get_contents($root . '/' . $path);
 $pos = $read('staff/pos.php');
 $checkout = $read('staff/api/pos_checkout.php');
+$serviceFields = $read('staff/api/pos_service_fields.php');
+$renderer = $read('includes/service_field_renderer.php');
 $inventory = $read('includes/product_branch_stock.php');
 $inventoryManager = $read('includes/InventoryManager.php');
 $jobs = $read('includes/JobOrderService.php');
@@ -23,18 +25,30 @@ $assert = static function (bool $condition, string $message) use (&$passed): voi
 };
 
 $assert(
-    str_contains($pos, 'use_custom_transaction_datetime: useCustom')
-        && str_contains($pos, 'custom_transaction_date: useCustom')
-        && str_contains($pos, 'custom_transaction_time: useCustom')
-        && str_contains($pos, "...posCheckoutCustomTransactionPayload()")
-        && str_contains($pos, 'selected_transaction_at:'),
-    'POS checkout sends the saved custom date/time fields in its JSON payload'
+    !str_contains($pos, 'use_custom_transaction_datetime')
+        && !str_contains($pos, 'posCheckoutCustomTransactionPayload')
+        && !str_contains($pos, 'Set Date &amp; Time')
+        && !str_contains($pos, 'printflow_allow_past_needed_date')
+        && str_contains($pos, 'Needed date cannot be in the past.'),
+    'POS no longer exposes backdate controls and validates needed dates client-side'
 );
 $assert(
     str_contains($checkout, 'function pos_checkout_selected_transaction_datetime(array $data): string')
-        && str_contains($checkout, "return \$custom ?? date('Y-m-d H:i:s');")
-        && str_contains($checkout, "\$selectedTransactionAt = pos_checkout_selected_transaction_datetime(\$data);"),
-    'checkout resolves one canonical selected transaction timestamp'
+        && str_contains($checkout, "return date('Y-m-d H:i:s');")
+        && !str_contains($checkout, 'custom_transaction_date')
+        && str_contains($checkout, '$selectedTransactionAt = pos_checkout_selected_transaction_datetime($data);'),
+    'checkout always uses current server time for new transactions'
+);
+$assert(
+    str_contains($serviceFields, 'name="needed_date"')
+        && str_contains($serviceFields, 'min="<?php echo date(\'Y-m-d\'); ?>"')
+        && !str_contains($serviceFields, 'printflow_allow_past_needed_date'),
+    'POS service fields keep needed_date min set to today'
+);
+$assert(
+    str_contains($renderer, 'function printflow_service_field_date_min_attr')
+        && !str_contains($renderer, 'printflow_allow_past_needed_date'),
+    'service field renderer always applies today min on date fields'
 );
 $assert(
     str_contains($checkout, 'order_date, updated_at')

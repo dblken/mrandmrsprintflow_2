@@ -151,14 +151,9 @@ function pf_service_option_label($value) {
 /**
  * Render a single field based on configuration
  */
-/**
- * HTML min attribute for service date fields (Needed Date may allow past dates in POS).
- */
+/** HTML min attribute for service date fields (today or future). */
 function printflow_service_field_date_min_attr(string $fieldKey): string
 {
-    if ($fieldKey === 'needed_date' && !empty($GLOBALS['printflow_allow_past_needed_date'])) {
-        return '';
-    }
     return ' min="' . date('Y-m-d') . '"';
 }
 

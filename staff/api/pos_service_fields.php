@@ -43,9 +43,7 @@ foreach ($branches as $branchRow) {
 
 ob_start();
 if (service_has_field_config($service_id)) {
-    $GLOBALS['printflow_allow_past_needed_date'] = true;
     echo render_service_fields($service_id, $branches, ['branch_id' => $staff_branch_id]);
-    unset($GLOBALS['printflow_allow_past_needed_date']);
 } else {
     // Fallback: simple form for unconfigured services
     $branch_options = '';
@@ -65,7 +63,7 @@ if (service_has_field_config($service_id)) {
     <div class="shopee-form-row">
         <div class="shopee-form-label">Needed Date *</div>
         <div class="shopee-form-field">
-            <input type="date" name="needed_date" class="shopee-opt-btn" required style="width:175px;cursor:pointer;">
+            <input type="date" name="needed_date" class="shopee-opt-btn" required min="<?php echo date('Y-m-d'); ?>" style="width:175px;cursor:pointer;">
         </div>
     </div>
     <div class="shopee-form-row">

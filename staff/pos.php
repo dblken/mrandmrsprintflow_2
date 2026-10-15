@@ -32,8 +32,6 @@ if ($pos_staff_branch_id > 0) {
 $page_title = "Point of Sale (POS)";
 $current_page = "pos";
 $user_name = $_SESSION['user_name'] ?? 'Staff';
-// Same roles as POS checkout (staff/api/pos_checkout.php): Admin + Staff (Counter Staff).
-$pos_can_custom_transaction_datetime = has_role(['Admin', 'Staff']);
 
 // Fetch Categories
 $categories = [];
@@ -1453,245 +1451,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             font-size: 20px;
             font-weight: 800;
             color: var(--staff-primary);
-        }
-
-        .pos-checkout-datetime-bar {
-            margin-bottom: 8px;
-            padding: 0;
-            border: none;
-            background: transparent;
-            box-shadow: none;
-        }
-
-        .pos-transaction-datetime-compact {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            align-items: stretch;
-        }
-
-        .pos-transaction-datetime-open-btn {
-            width: 100%;
-            padding: 8px 12px;
-            border: 1px solid var(--staff-primary);
-            border-radius: 8px;
-            background: #ffffff;
-            color: var(--staff-primary);
-            font-size: 12px;
-            font-weight: 700;
-            cursor: pointer;
-            font-family: inherit;
-            text-align: center;
-            transition: border-color 0.15s, background 0.15s, color 0.15s;
-        }
-
-        .pos-transaction-datetime-open-btn:hover {
-            background: var(--staff-primary);
-            color: #ffffff;
-        }
-
-        .pos-transaction-datetime-open-btn:focus-visible {
-            outline: 2px solid var(--staff-primary);
-            outline-offset: 2px;
-        }
-
-        .pos-transaction-datetime-summary {
-            margin: 0;
-            flex: 1 1 160px;
-            font-size: 11px;
-            font-weight: 600;
-            color: #475569;
-            line-height: 1.35;
-            word-break: break-word;
-        }
-
-        .pos-transaction-datetime-summary.is-custom {
-            color: #0f766e;
-        }
-
-        .pos-tx-datetime-modal-overlay {
-            position: fixed;
-            inset: 0;
-            z-index: 10015;
-            background: rgba(15, 23, 42, 0.72);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 16px;
-        }
-
-        .pos-tx-datetime-modal-overlay[hidden] {
-            display: none !important;
-        }
-
-        .pos-tx-datetime-modal {
-            background: #fff;
-            width: min(420px, 100%);
-            max-height: min(90vh, 640px);
-            border-radius: 16px;
-            border: 1px solid #e2e8f0;
-            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .pos-tx-datetime-modal-head {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 16px 18px;
-            border-bottom: 1px solid #e2e8f0;
-            flex-shrink: 0;
-        }
-
-        .pos-tx-datetime-modal-head h3 {
-            margin: 0;
-            font-size: 16px;
-            font-weight: 800;
-            color: #0f172a;
-        }
-
-        .pos-tx-datetime-modal-close {
-            background: none;
-            border: none;
-            font-size: 22px;
-            line-height: 1;
-            cursor: pointer;
-            color: #94a3b8;
-            padding: 4px;
-        }
-
-        .pos-tx-datetime-modal-body {
-            padding: 16px 18px;
-            overflow-y: auto;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .pos-tx-datetime-modal-body .pos-transaction-datetime-fields .pos-tender-group {
-            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-        }
-
-        .pos-tx-datetime-modal-body .pos-datetime-input {
-            max-width: none;
-            justify-self: stretch;
-        }
-
-        .pos-tx-datetime-modal-foot {
-            display: flex;
-            gap: 10px;
-            padding: 14px 18px;
-            border-top: 1px solid #e2e8f0;
-            flex-shrink: 0;
-        }
-
-        .pos-tx-datetime-btn-secondary,
-        .pos-tx-datetime-btn-primary {
-            flex: 1;
-            padding: 11px 14px;
-            border-radius: 10px;
-            font-size: 14px;
-            font-weight: 700;
-            cursor: pointer;
-            font-family: inherit;
-        }
-
-        .pos-tx-datetime-btn-secondary {
-            border: 1px solid #cbd5e1;
-            background: #fff;
-            color: #475569;
-        }
-
-        .pos-tx-datetime-btn-primary {
-            border: 0;
-            background: var(--staff-primary);
-            color: #fff;
-        }
-
-        .pos-transaction-datetime-toggle {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 13px;
-            font-weight: 600;
-            color: #334155;
-            cursor: pointer;
-            user-select: none;
-        }
-
-        .pos-transaction-datetime-toggle input[type="checkbox"] {
-            width: 16px;
-            height: 16px;
-            accent-color: var(--staff-primary);
-            cursor: pointer;
-            flex-shrink: 0;
-        }
-
-        .pos-transaction-datetime-fields {
-            display: none;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .pos-transaction-datetime-fields.is-visible {
-            display: flex;
-        }
-
-        .pos-transaction-datetime-fields .pos-tender-group {
-            grid-template-columns: minmax(0, 1fr) minmax(148px, 180px);
-        }
-
-        .pos-datetime-input {
-            min-width: 148px;
-            width: 100%;
-            max-width: 180px;
-            height: 44px;
-            padding: 0 12px;
-            border: 1px solid #cbd5e1;
-            border-radius: 10px;
-            background: #ffffff;
-            font-size: 14px;
-            font-weight: 600;
-            color: #1e293b;
-            box-sizing: border-box;
-            outline: none;
-            cursor: pointer;
-            justify-self: end;
-            font-family: inherit;
-        }
-
-        .pos-datetime-input:focus {
-            border-color: var(--staff-primary);
-            box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12);
-        }
-
-        .pos-datetime-input:disabled {
-            opacity: 0.55;
-            cursor: not-allowed;
-            background: #f1f5f9;
-            color: #94a3b8;
-        }
-
-        .pos-transaction-datetime-hint {
-            margin: 0;
-            font-size: 11px;
-            color: #94a3b8;
-            line-height: 1.45;
-        }
-
-        .pos-transaction-datetime-error {
-            margin: 0;
-            color: #b91c1c;
-            font-size: 12px;
-            font-weight: 700;
-        }
-
-        .pos-transaction-datetime-error[hidden] {
-            display: none !important;
         }
 
         .pos-tender-group {
@@ -3268,20 +3027,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             </div>
 
                             <div class="pos-checkout-footer">
-                            <?php if ($pos_can_custom_transaction_datetime): ?>
-                            <div id="pos-checkout-transaction-datetime-compact" class="pos-checkout-datetime-bar">
-                                <div class="pos-transaction-datetime-compact">
-                                    <button type="button" id="pos-open-transaction-datetime-btn" class="pos-transaction-datetime-open-btn" onclick="openPosTransactionDateTimeModal()">
-                                        Set Date &amp; Time
-                                    </button>
-                                    <p id="pos-transaction-datetime-summary" class="pos-transaction-datetime-summary" aria-live="polite">Date/Time: Current server time</p>
-                                </div>
-                                <input type="hidden" id="pos-hidden-use-custom-transaction-datetime" value="0">
-                                <input type="hidden" id="pos-hidden-custom-transaction-date" value="">
-                                <input type="hidden" id="pos-hidden-custom-transaction-time" value="">
-                            </div>
-                            <?php endif; ?>
-
                             <button class="pos-btn-checkout" id="pos-checkout-btn" disabled onclick="processCheckout()">
                                 <i class="fas fa-lock" id="checkout-icon"></i> <span id="checkout-text">Select
                                     Items</span>
@@ -3295,46 +3040,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             </main>
         </div>
     </div>
-
-    <?php if ($pos_can_custom_transaction_datetime): ?>
-    <div id="pos-transaction-datetime-modal" class="pos-tx-datetime-modal-overlay" hidden aria-hidden="true"
-        onclick="if(event.target===this)closePosTransactionDateTimeModal(true)">
-        <div class="pos-tx-datetime-modal" role="dialog" aria-modal="true" aria-labelledby="pos-tx-datetime-modal-title">
-            <div class="pos-tx-datetime-modal-head">
-                <h3 id="pos-tx-datetime-modal-title">Date &amp; Time</h3>
-                <button type="button" class="pos-tx-datetime-modal-close" aria-label="Close" onclick="closePosTransactionDateTimeModal(true)">&times;</button>
-            </div>
-            <div class="pos-tx-datetime-modal-body">
-                <label class="pos-transaction-datetime-toggle" for="pos-confirm-use-custom-date">
-                    <input type="checkbox" id="pos-confirm-use-custom-date" onchange="toggleConfirmTransactionDate()">
-                    Use custom date/time
-                </label>
-                <div id="pos-confirm-transaction-date-fields" class="pos-transaction-datetime-fields">
-                    <div class="pos-tender-group">
-                        <label class="pos-summary-label" for="pos-confirm-transaction-date">
-                            <span class="pos-summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
-                            Date
-                        </label>
-                        <input type="date" id="pos-confirm-transaction-date" disabled class="pos-datetime-input" max="<?php echo date('Y-m-d'); ?>" aria-label="Transaction date">
-                    </div>
-                    <div class="pos-tender-group">
-                        <label class="pos-summary-label" for="pos-confirm-transaction-time">
-                            <span class="pos-summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg></span>
-                            Time
-                        </label>
-                        <input type="time" id="pos-confirm-transaction-time" disabled class="pos-datetime-input" step="60" aria-label="Transaction time">
-                    </div>
-                </div>
-                <p class="pos-transaction-datetime-hint">When enabled, order, receipt, and inventory use this date and time instead of now.</p>
-                <p id="pos-confirm-transaction-date-error" class="pos-transaction-datetime-error" hidden role="alert">Choose both date and time, or turn off custom date/time.</p>
-            </div>
-            <div class="pos-tx-datetime-modal-foot">
-                <button type="button" class="pos-tx-datetime-btn-secondary" onclick="closePosTransactionDateTimeModal(true)">Cancel</button>
-                <button type="button" class="pos-tx-datetime-btn-primary" onclick="savePosTransactionDateTimeModal()">Save</button>
-            </div>
-        </div>
-    </div>
-    <?php endif; ?>
 
     <div id="paymongo-pos-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10020;align-items:center;justify-content:center;padding:16px;">
         <div style="background:#fff;width:min(360px,100%);padding:24px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.28);">
@@ -3623,8 +3328,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         };
         let posLastServiceCardEl = null;
         const POS_CSRF_TOKEN = document.body.dataset.csrf || '';
-        const POS_CAN_CUSTOM_TRANSACTION_DATETIME = <?php echo $pos_can_custom_transaction_datetime ? 'true' : 'false'; ?>;
-        let posCustomTransactionState = { enabled: false, date: '', time: '' };
 
         function posCatalogImageUrl(product) {
             if (!product) return POS_DEFAULT_CATALOG_IMG;
@@ -4685,7 +4388,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         window.backToSelection = backToSelection;
 
         document.addEventListener('DOMContentLoaded', async () => {
-            updatePosTransactionDateTimeSummaryUI();
             initPosPaymentMethodHandlers();
             toggleReferenceField();
             fetchProducts();
@@ -4928,7 +4630,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
                 overlay.dataset.csrfToken = data.csrf_token;
                 body.innerHTML = data.fields_html;
-                posAllowPastNeededDateInputs(body);
                 footerActions.style.display = 'block';
                 isAddingToOrder = false;
                 setServiceAddButtonBusy(false);
@@ -5504,6 +5205,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return named ? named.name : (fallback || serviceFieldLabel(row).toLowerCase().replace(/[^a-z0-9]+/g, '_'));
         }
 
+        function posServiceFieldIsNeededDate(fieldName, row) {
+            const name = String(fieldName || '').toLowerCase();
+            if (name.includes('needed_date')) {
+                return true;
+            }
+            if (row && serviceFieldLabel(row).toLowerCase().includes('needed date')) {
+                return true;
+            }
+            return false;
+        }
+
         function serviceValidationMessage(row, input) {
             const label = serviceFieldLabel(row);
             const name = String((input && input.name) || serviceFieldKey(row) || label).toLowerCase();
@@ -5742,6 +5454,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         const qty = parseInt(value, 10);
                         if (!Number.isFinite(qty) || qty < 1) addError(row, input);
                         return;
+                    }
+                    if (input.type === 'date' && value && posServiceFieldIsNeededDate(input.name, row)) {
+                        const today = new Date().toISOString().split('T')[0];
+                        if (value < today) {
+                            addError(row, input, input.name, 'Needed date cannot be in the past.');
+                            return;
+                        }
                     }
                     if (!value) addError(row, input);
                 });
@@ -6700,9 +6419,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 inputHtml = `<input type="file" id="custom_field_${idx}" name="${reqName}"${multipleAttr} accept="${(req.accept || '').replace(/"/g, '&quot;')}" style="${baseStyle}" data-field-name="${reqName}">`;
                 div.innerHTML = label + inputHtml;
             } else if (req.type === 'date') {
-                const isNeededDate = (reqName && reqName.includes('needed_date'))
-                    || (req.label && String(req.label).toLowerCase().includes('needed date'));
-                const minAttr = isNeededDate ? '' : ` min="${new Date().toISOString().split('T')[0]}"`;
+                const minAttr = ` min="${new Date().toISOString().split('T')[0]}"`;
                 inputHtml = `<input type="date" id="custom_field_${idx}" name="${reqName}"${minAttr} style="${baseStyle}" data-field-name="${reqName}">`;
                 div.innerHTML = label + inputHtml;
             } else {
@@ -7459,212 +7176,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             updateCheckoutState();
         }
 
-        function posAllowPastNeededDateInputs(root) {
-            const scope = root || document;
-            scope.querySelectorAll('input[type="date"]').forEach(function(input) {
-                const name = String(input.name || '').toLowerCase();
-                const id = String(input.id || '').toLowerCase();
-                if (name === 'needed_date' || id === 'needed_date' || name.indexOf('needed_date') !== -1) {
-                    input.removeAttribute('min');
-                }
-            });
-        }
-
-        function toggleConfirmTransactionDate() {
-            const toggle = document.getElementById('pos-confirm-use-custom-date');
-            const fields = document.getElementById('pos-confirm-transaction-date-fields');
-            const err = document.getElementById('pos-confirm-transaction-date-error');
-            const enabled = !!toggle?.checked;
-            if (fields) {
-                fields.classList.toggle('is-visible', enabled);
-                fields.hidden = !enabled;
-            }
-            ['pos-confirm-transaction-date', 'pos-confirm-transaction-time'].forEach(function(id) {
-                const input = document.getElementById(id);
-                if (input) {
-                    input.disabled = !enabled;
-                }
-            });
-            if (err) {
-                err.hidden = true;
-            }
-        }
-
-        function formatPosCustomTransactionDateTimeLabel(dateStr, timeStr) {
-            if (!dateStr || !timeStr) {
-                return '';
-            }
-            const dateParts = dateStr.split('-').map(function(part) { return parseInt(part, 10); });
-            const timeParts = timeStr.split(':');
-            if (dateParts.length !== 3 || timeParts.length < 2) {
-                return '';
-            }
-            const d = new Date(dateParts[0], dateParts[1] - 1, dateParts[2], parseInt(timeParts[0], 10), parseInt(timeParts[1], 10));
-            if (Number.isNaN(d.getTime())) {
-                return '';
-            }
-            return d.toLocaleString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true
-            });
-        }
-
-        function syncPosCustomTransactionHiddenFields() {
-            const useEl = document.getElementById('pos-hidden-use-custom-transaction-datetime');
-            const dateEl = document.getElementById('pos-hidden-custom-transaction-date');
-            const timeEl = document.getElementById('pos-hidden-custom-transaction-time');
-            const useCustom = posCustomTransactionState.enabled ? 1 : 0;
-            if (useEl) {
-                useEl.value = String(useCustom);
-            }
-            if (dateEl) {
-                dateEl.value = useCustom ? (posCustomTransactionState.date || '') : '';
-            }
-            if (timeEl) {
-                timeEl.value = useCustom ? (posCustomTransactionState.time || '') : '';
-            }
-        }
-
-        function updatePosTransactionDateTimeSummaryUI() {
-            const summary = document.getElementById('pos-transaction-datetime-summary');
-            if (!summary) {
-                syncPosCustomTransactionHiddenFields();
-                return;
-            }
-            if (posCustomTransactionState.enabled && posCustomTransactionState.date && posCustomTransactionState.time) {
-                const label = formatPosCustomTransactionDateTimeLabel(posCustomTransactionState.date, posCustomTransactionState.time);
-                summary.textContent = label ? ('Date/Time: ' + label) : 'Date/Time: Current server time';
-                summary.classList.toggle('is-custom', !!label);
-            } else {
-                summary.textContent = 'Date/Time: Current server time';
-                summary.classList.remove('is-custom');
-            }
-            syncPosCustomTransactionHiddenFields();
-        }
-
-        function openPosTransactionDateTimeModal() {
-            if (!POS_CAN_CUSTOM_TRANSACTION_DATETIME) {
-                return;
-            }
-            const modal = document.getElementById('pos-transaction-datetime-modal');
-            if (!modal) {
-                return;
-            }
-            const toggle = document.getElementById('pos-confirm-use-custom-date');
-            const dateInput = document.getElementById('pos-confirm-transaction-date');
-            const timeInput = document.getElementById('pos-confirm-transaction-time');
-            const err = document.getElementById('pos-confirm-transaction-date-error');
-            if (toggle) {
-                toggle.checked = posCustomTransactionState.enabled;
-            }
-            if (dateInput) {
-                dateInput.value = posCustomTransactionState.date;
-            }
-            if (timeInput) {
-                timeInput.value = posCustomTransactionState.time;
-            }
-            if (err) {
-                err.hidden = true;
-            }
-            toggleConfirmTransactionDate();
-            modal.hidden = false;
-            modal.setAttribute('aria-hidden', 'false');
-            document.body.style.overflow = 'hidden';
-        }
-
-        function closePosTransactionDateTimeModal() {
-            const modal = document.getElementById('pos-transaction-datetime-modal');
-            if (!modal) {
-                return;
-            }
-            modal.hidden = true;
-            modal.setAttribute('aria-hidden', 'true');
-            document.body.style.overflow = '';
-        }
-
-        function savePosTransactionDateTimeModal() {
-            const toggle = document.getElementById('pos-confirm-use-custom-date');
-            const enabled = !!toggle?.checked;
-            const date = document.getElementById('pos-confirm-transaction-date')?.value || '';
-            const time = document.getElementById('pos-confirm-transaction-time')?.value || '';
-            const err = document.getElementById('pos-confirm-transaction-date-error');
-            if (enabled && (!date || !time)) {
-                if (err) {
-                    err.hidden = false;
-                }
-                return;
-            }
-            if (err) {
-                err.hidden = true;
-            }
-            posCustomTransactionState = {
-                enabled: enabled,
-                date: enabled ? date : '',
-                time: enabled ? normalizePosCustomTransactionTime(time) : ''
-            };
-            updatePosTransactionDateTimeSummaryUI();
-            closePosTransactionDateTimeModal();
-        }
-
-        function validatePosCheckoutTransactionDateTime() {
-            if (!POS_CAN_CUSTOM_TRANSACTION_DATETIME) {
-                return true;
-            }
-            if (!posCustomTransactionState.enabled) {
-                return true;
-            }
-            if (posCustomTransactionState.date && posCustomTransactionState.time) {
-                return true;
-            }
-            openPosTransactionDateTimeModal();
-            const err = document.getElementById('pos-confirm-transaction-date-error');
-            if (err) {
-                err.hidden = false;
-            }
-            return false;
-        }
-
-        function resetPosCheckoutTransactionDateTime() {
-            if (!POS_CAN_CUSTOM_TRANSACTION_DATETIME) {
-                return;
-            }
-            posCustomTransactionState = { enabled: false, date: '', time: '' };
-            updatePosTransactionDateTimeSummaryUI();
-        }
-
-        function normalizePosCustomTransactionTime(timeStr) {
-            const raw = String(timeStr || '').trim();
-            if (/^\d{2}:\d{2}$/.test(raw)) {
-                return raw;
-            }
-            if (/^\d{2}:\d{2}:\d{2}$/.test(raw)) {
-                return raw.slice(0, 5);
-            }
-            return raw;
-        }
-
-        function posCheckoutCustomTransactionPayload() {
-            if (!POS_CAN_CUSTOM_TRANSACTION_DATETIME) {
-                return {
-                    use_custom_transaction_datetime: 0,
-                    custom_transaction_date: '',
-                    custom_transaction_time: ''
-                };
-            }
-            syncPosCustomTransactionHiddenFields();
-            const useCustom = posCustomTransactionState.enabled ? 1 : 0;
-            const payload = {
-                use_custom_transaction_datetime: useCustom,
-                custom_transaction_date: useCustom ? String(posCustomTransactionState.date || '') : '',
-                custom_transaction_time: useCustom ? normalizePosCustomTransactionTime(posCustomTransactionState.time) : ''
-            };
-            return payload;
-        }
-
         function calculateChange() {
             if (currentTotal === 0) {
                 document.getElementById('pos-change').textContent = formatMoney(0);
@@ -7806,11 +7317,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 ? `Create a Dynamic QR Ph payment for ${formatMoney(currentTotal)}? The sale remains unpaid until PayMongo confirms it.`
                 : `Confirm sale of ${formatMoney(currentTotal)} using ${pm}?\nChange due: ${formatMoney(changeAmount)}`;
 
-            if (!validatePosCheckoutTransactionDateTime()) {
-                await showPOSAlert('Transaction Date & Time', 'Please choose both a date and time, or turn off custom date/time.', 'warning');
-                return;
-            }
-
             posCheckoutConfirmOpen = true;
             const confirmed = await showPOSConfirm('Confirm Transaction', confirmMsg, 'Confirm', 'confirm');
             posCheckoutConfirmOpen = false;
@@ -7839,17 +7345,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 amount_tendered: tendered,
                 csrf_token: POS_CSRF_TOKEN,
                 checkout_token: checkoutToken,
-                items: cart.map(posCheckoutItemPayload),
-                ...posCheckoutCustomTransactionPayload()
+                items: cart.map(posCheckoutItemPayload)
             };
-            console.log('[POS CHECKOUT] custom transaction datetime', {
-                use_custom_transaction_datetime: payload.use_custom_transaction_datetime,
-                custom_transaction_date: payload.custom_transaction_date,
-                custom_transaction_time: payload.custom_transaction_time,
-                selected_transaction_at: payload.use_custom_transaction_datetime
-                    ? `${payload.custom_transaction_date} ${payload.custom_transaction_time}:00`
-                    : null
-            });
 
             let checkoutData = null;
             let checkoutErrorMessage = '';
@@ -7963,7 +7460,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             document.getElementById('pos-tendered').value = '';
             toggleReferenceField();
             calculateChange();
-            resetPosCheckoutTransactionDateTime();
             const clearResult = await syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000});
             if (!clearResult.success) {
                 cart = [];
