@@ -513,8 +513,9 @@ $dashMark('recent_orders');
 // ── Low Stock Alerts ──────────────────────────────────
 $low_stock_by_branch = [];
 try {
-    printflow_ensure_inv_items_threshold_schema();
-
+    // Dashboard reads must not perform inventory schema maintenance. Inventory
+    // management pages own that setup; keeping it out of this request avoids
+    // CREATE/ALTER metadata locks during normal dashboard loads.
     $all_items = db_query(
         "SELECT i.id, i.name as material_name, i.reorder_level, i.critical_level, i.unit_of_measure as unit,
                 ic.name as category_name
@@ -790,8 +791,9 @@ $page_title = 'Dashboard - Admin | PrintFlow';
     <link rel="stylesheet" href="<?php echo pf_url('public/assets/css/output.css'); ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.54.0/dist/apexcharts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.54.0/dist/apexcharts.min.js" defer></script>
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <?php render_branch_css(); ?>
     <style>
