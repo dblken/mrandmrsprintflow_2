@@ -11260,6 +11260,28 @@ window.pfServiceFieldCatalog = (() => {
                 if (!jo) return '';
                 const storeStatus = String(jo.store_order_status || '').trim();
                 if (storeStatus) return storeStatus;
+                const workflow = this.canonicalWorkflowStatusKey(jo.status);
+                const storeFromJob = {
+                    PENDING: 'Pending',
+                    PENDING_APPROVAL: 'Pending Approval',
+                    PENDING_REVIEW: 'Pending Review',
+                    APPROVED: 'Approved',
+                    TO_PAY: 'To Pay',
+                    PAYMENT_CONFIRMED: 'Payment Confirmed',
+                    VERIFY_PAY: 'To Verify',
+                    TO_VERIFY: 'To Verify',
+                    IN_PRODUCTION: 'In Production',
+                    PROCESSING: 'In Production',
+                    PRINTING: 'In Production',
+                    READY_FOR_PICKUP: 'Ready for Pickup',
+                    TO_RECEIVE: 'Ready for Pickup',
+                    COMPLETED: 'Completed',
+                    CANCELLED: 'Cancelled',
+                    REJECTED: 'Rejected',
+                };
+                if (storeFromJob[workflow]) {
+                    return storeFromJob[workflow];
+                }
                 return String(jo.status || '').trim();
             },
             isAlreadyCompletedOrderConflict(res) {

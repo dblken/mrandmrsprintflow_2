@@ -252,13 +252,16 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                     }
                 }
                 if (function_exists('db_table_has_column') && db_table_has_column('customizations', 'customization_id')) {
-                    db_execute(
-                        "UPDATE customizations SET status = 'Completed', updated_at = NOW()
-                         WHERE order_id = ?
-                           AND status NOT IN ('Completed', 'Cancelled', 'Rejected')",
-                        'i',
-                        [$orderId]
-                    );
+                    $customizationSql = db_table_has_column('customizations', 'updated_at')
+                        ? "UPDATE customizations SET status = 'Completed', updated_at = NOW()
+                           WHERE order_id = ?
+                             AND status NOT IN ('Completed', 'Cancelled', 'Rejected')"
+                        : "UPDATE customizations SET status = 'Completed'
+                           WHERE order_id = ?
+                             AND status NOT IN ('Completed', 'Cancelled', 'Rejected')";
+                    if (!db_execute($customizationSql, 'i', [$orderId])) {
+                        throw new RuntimeException('Failed to update linked customization status.');
+                    }
                 }
             } elseif ($isServiceOrder && $newStatus === 'Cancelled') {
                 $updatedJobs = JobOrderService::syncStoreOrderToStatus($orderId, 'CANCELLED', null, $cancelReason);
@@ -398,6 +401,10 @@ if (!function_exists('printflow_staff_mutate_order_status_job_error_response')) 
                 'inventory branch',
                 'assigned inventory',
                 'deduction was not completed',
+                'Failed to persist',
+                'Failed to update linked customization',
+                'updated by another staff member',
+                'Reconcile before completing',
             ];
             foreach ($businessHints as $hint) {
                 if (stripos($message, $hint) !== false) {

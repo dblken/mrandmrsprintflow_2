@@ -1331,8 +1331,26 @@ class JobOrderService {
                 }
             }
 
-            $sql = "UPDATE job_orders SET status = ?, machine_id = ? WHERE id = ?";
-            if (!db_execute($sql, 'sii', [$newStatus, $machineId ?: $order['machine_id'], $orderId])) {
+            $resolvedMachineId = null;
+            if ($machineId !== null && (int)$machineId > 0) {
+                $resolvedMachineId = (int)$machineId;
+            } elseif (!empty($order['machine_id']) && (int)$order['machine_id'] > 0) {
+                $resolvedMachineId = (int)$order['machine_id'];
+            }
+            if ($resolvedMachineId !== null) {
+                $ok = db_execute(
+                    'UPDATE job_orders SET status = ?, machine_id = ? WHERE id = ?',
+                    'sii',
+                    [$newStatus, $resolvedMachineId, $orderId]
+                );
+            } else {
+                $ok = db_execute(
+                    'UPDATE job_orders SET status = ? WHERE id = ?',
+                    'si',
+                    [$newStatus, $orderId]
+                );
+            }
+            if (!$ok) {
                 throw new RuntimeException('Failed to persist job order status.');
             }
 
@@ -1381,42 +1399,43 @@ class JobOrderService {
             require_once __DIR__ . '/change_item_workflow.php';
             printflow_change_item_on_job_status_change((int)$orderId, $normalizedNewStatus);
 
-            // Send real-time notification to customer on every status change
-            if (!$silent && !empty($order['customer_id'])) {
-                NotificationService::sendJobOrderNotification(
-                    (int)$order['customer_id'],
-                    $orderId,
-                    $newStatus,
-                    null,
-                    $reason
-                );
-            }
-
-            // Also send a chat update card if linked to a store order
-            if (!$silent && !empty($order['order_id'])) {
-                $step = strtolower((string)$newStatus);
-                // Map job status to notification steps
-                $step_map = [
-                    'pending'       => 'approved', // Inquiry approved, but maybe not priced
-                    'approved'      => 'approved',
-                    'to_pay'        => 'send_to_payment',
-                    'verify_pay'    => 'view_only',
-                    'in_production' => 'in_production',
-                    'for revision'  => 'for_revision',
-                    'to_receive'    => 'ready_to_pickup',
-                    'completed'     => 'completed',
-                    'cancelled'     => 'cancelled',
-                ];
-                $notif_step = $step_map[$step] ?? 'view_only';
-                $chat_meta = [];
-                if ($notif_step === 'for_revision' && !empty($reason)) {
-                    $chat_meta['reason'] = $reason;
-                    if (!empty($revisionRequest['permitted_fields']) && is_array($revisionRequest['permitted_fields'])) {
-                        $chat_meta['button_label'] = printflow_revision_action_label($revisionRequest['permitted_fields']);
+            if (!$silent) {
+                try {
+                    if (!empty($order['customer_id'])) {
+                        NotificationService::sendJobOrderNotification(
+                            (int)$order['customer_id'],
+                            $orderId,
+                            $newStatus,
+                            null,
+                            $reason
+                        );
                     }
+                    if (!empty($order['order_id'])) {
+                        $step = strtolower((string)$newStatus);
+                        $step_map = [
+                            'pending'       => 'approved',
+                            'approved'      => 'approved',
+                            'to_pay'        => 'send_to_payment',
+                            'verify_pay'    => 'view_only',
+                            'in_production' => 'in_production',
+                            'for revision'  => 'for_revision',
+                            'to_receive'    => 'ready_to_pickup',
+                            'completed'     => 'completed',
+                            'cancelled'     => 'cancelled',
+                        ];
+                        $notif_step = $step_map[$step] ?? 'view_only';
+                        $chat_meta = [];
+                        if ($notif_step === 'for_revision' && !empty($reason)) {
+                            $chat_meta['reason'] = $reason;
+                            if (!empty($revisionRequest['permitted_fields']) && is_array($revisionRequest['permitted_fields'])) {
+                                $chat_meta['button_label'] = printflow_revision_action_label($revisionRequest['permitted_fields']);
+                            }
+                        }
+                        printflow_send_order_update((int)$order['order_id'], $notif_step, 'view_status', '', '', $chat_meta);
+                    }
+                } catch (Throwable $notificationError) {
+                    error_log('[JobOrderService] status notification failed for job #' . $orderId . ': ' . $notificationError->getMessage());
                 }
-                // Signature: printflow_send_order_update($order_id, $message, $action_type, $thumbnail, $action_url, $meta)
-                printflow_send_order_update((int)$order['order_id'], $notif_step, 'view_status', '', '', $chat_meta);
             }
 
             if (!$wasInTransaction) {
