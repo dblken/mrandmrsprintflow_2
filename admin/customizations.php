@@ -344,7 +344,7 @@ if ($branchId !== 'all') {
     $kpiBranchSql = " AND ({$joBranchExpr} IS NULL OR {$joBranchExpr} IN (SELECT id FROM branches WHERE status != 'Archived'))";
 }
 $kpi_total   = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE 1=1" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
-$kpi_pending = db_query("SELECT COUNT(*) as c FROM job_orders jo LEFT JOIN orders jo_ord ON jo_ord.order_id = jo.order_id WHERE {$effectiveJobStatusExpr} IN ('PENDING','APPROVED')" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
+$kpi_pending = db_query("SELECT COUNT(*) as c FROM job_orders jo LEFT JOIN orders jo_ord ON jo_ord.order_id = jo.order_id WHERE {$effectiveJobStatusExpr} = 'PENDING'" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
 $kpi_active  = db_query("SELECT COUNT(*) as c FROM job_orders jo LEFT JOIN orders jo_ord ON jo_ord.order_id = jo.order_id WHERE {$effectiveJobStatusExpr} IN ('IN_PRODUCTION','PROCESSING','PRINTING')" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
 $kpi_done    = db_query("SELECT COUNT(*) as c FROM job_orders jo LEFT JOIN orders jo_ord ON jo_ord.order_id = jo.order_id WHERE {$effectiveJobStatusExpr} = 'COMPLETED'" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
 
@@ -1531,7 +1531,7 @@ function custom_payment_badge($status) {
                     <div class="kpi-sub">All customizations</div>
                 </div>
                 <div class="kpi-card amber">
-                    <div class="kpi-label">Pending / Approved</div>
+                    <div class="kpi-label">Pending</div>
                     <div class="kpi-value"><?php echo number_format($kpi_pending); ?></div>
                     <div class="kpi-sub">Awaiting production</div>
                 </div>
