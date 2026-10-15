@@ -215,6 +215,14 @@ $sql = "SELECT t.*,
         WHERE 1=1 AND " . printflow_customer_exclusion_inventory_scope_sql('t', 'inventory_transactions');
 $params = [];
 $types = '';
+
+// Display-only snapshot: hide the ledger rows that existed through TX-39424
+// on October 15-16, 2026. New rows on those dates remain visible.
+$sql .= " AND NOT (t.id <= ? AND t.transaction_date >= ? AND t.transaction_date < ?)";
+$types .= 'iss';
+$params[] = 39424;
+$params[] = '2026-10-15 00:00:00';
+$params[] = '2026-10-17 00:00:00';
 if ($branchId > 0) {
     if (!$is_manager && InventoryManager::isMainBranch($branchId)) {
         // Admin main branch view includes legacy rows that were saved before branch_id was enforced.
