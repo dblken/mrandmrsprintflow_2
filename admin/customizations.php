@@ -122,8 +122,10 @@ $jobCustomizationScopeSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.
 
 // Build query (branch from job row or linked store order)
 $jobSubmittedAtExpr = 'jo_ord.order_date';
+$effectiveJobStatusExpr = "CASE WHEN jo_ord.reference_id LIKE 'HGEN-%' THEN 'COMPLETED' ELSE jo.status END";
 $sql = "SELECT jo.*, CONCAT(c.first_name, ' ', c.last_name) AS customer_name, c.email AS customer_email,
                jo_ord.payment_status AS order_payment_status,
+               {$effectiveJobStatusExpr} AS display_status,
                jo_ord.order_date AS store_order_date,
                {$jobSubmittedAtExpr} AS order_business_date,
                COALESCE(jo.branch_id, jo_ord.branch_id) AS branch_display_id,
@@ -162,7 +164,7 @@ if (!empty($search)) {
 }
 
 if (!empty($status_filter)) {
-    $sql .= " AND jo.status = ?";
+    $sql .= " AND {$effectiveJobStatusExpr} = ?";
     $params[] = $status_filter;
     $types .= 's';
 }
@@ -287,7 +289,8 @@ if (isset($_GET['ajax'])) {
                         </td>
                         <td class="py-3 text-center">
                             <?php
-                                $sc = match($jo['status']) {
+                                $displayStatus = (string)($jo['display_status'] ?? $jo['status']);
+                                $sc = match($displayStatus) {
                                     'PENDING'       => 'background:#fef9c3;color:#92400e;',
                                     'APPROVED'      => 'background:#dbeafe;color:#1e40af;',
                                     'TO_PAY'        => 'background:#fce7f3;color:#9d174d;',
@@ -300,7 +303,7 @@ if (isset($_GET['ajax'])) {
                                 };
                             ?>
                             <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;<?php echo $sc; ?>">
-                                <?php echo ucwords(strtolower(str_replace('_',' ',$jo['status']))); ?>
+                                <?php echo ucwords(strtolower(str_replace('_',' ',$displayStatus))); ?>
                             </span>
                         </td>
                         <td class="py-3 text-right">
@@ -341,9 +344,9 @@ if ($branchId !== 'all') {
     $kpiBranchSql = " AND ({$joBranchExpr} IS NULL OR {$joBranchExpr} IN (SELECT id FROM branches WHERE status != 'Archived'))";
 }
 $kpi_total   = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE 1=1" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
-$kpi_pending = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE jo.status IN ('PENDING','APPROVED')" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
-$kpi_active  = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE jo.status IN ('IN_PRODUCTION','PROCESSING','PRINTING')" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
-$kpi_done    = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE jo.status = 'COMPLETED'" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
+$kpi_pending = db_query("SELECT COUNT(*) as c FROM job_orders jo LEFT JOIN orders jo_ord ON jo_ord.order_id = jo.order_id WHERE {$effectiveJobStatusExpr} IN ('PENDING','APPROVED')" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
+$kpi_active  = db_query("SELECT COUNT(*) as c FROM job_orders jo LEFT JOIN orders jo_ord ON jo_ord.order_id = jo.order_id WHERE {$effectiveJobStatusExpr} IN ('IN_PRODUCTION','PROCESSING','PRINTING')" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
+$kpi_done    = db_query("SELECT COUNT(*) as c FROM job_orders jo LEFT JOIN orders jo_ord ON jo_ord.order_id = jo.order_id WHERE {$effectiveJobStatusExpr} = 'COMPLETED'" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
 
 $page_title = 'Custom Orders - Admin | PrintFlow';
 
@@ -1743,7 +1746,8 @@ function custom_payment_badge($status) {
                                         </td>
                                         <td class="py-3 text-center">
                                             <?php
-                                                $sc = match($jo['status']) {
+                                                $displayStatus = (string)($jo['display_status'] ?? $jo['status']);
+                                                $sc = match($displayStatus) {
                                                     'PENDING'       => 'background:#fef9c3;color:#92400e;',
                                                     'APPROVED'      => 'background:#dbeafe;color:#1e40af;',
                                                     'TO_PAY'        => 'background:#fef3c7;color:#b45309;',
@@ -1755,7 +1759,7 @@ function custom_payment_badge($status) {
                                                 };
                                             ?>
                                             <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:500;<?php echo $sc; ?>">
-                                                <?php echo ucwords(strtolower(str_replace('_',' ',$jo['status']))); ?>
+                                                <?php echo ucwords(strtolower(str_replace('_',' ',$displayStatus))); ?>
                                             </span>
                                         </td>
                                         <td class="py-3 text-right">

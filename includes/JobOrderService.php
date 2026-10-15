@@ -3701,6 +3701,7 @@ class JobOrderService {
                        COALESCE(jo.branch_id, ord.branch_id) AS branch_display_id,
                        b.branch_name AS branch_name,
                        ord.order_date AS store_order_date,
+                       ord.reference_id AS store_reference_id,
                        oi.order_item_id AS joined_order_item_id,
                        oi.customization_data AS joined_customization_data,
                        oi.design_file AS joined_design_file,
@@ -3719,6 +3720,11 @@ class JobOrderService {
         $order = db_query($sql, 'i', [$id]);
         if (!$order) return null;
         $order = $order[0];
+        if (preg_match('/^HGEN-/i', trim((string)($order['store_reference_id'] ?? '')))) {
+            // Historical generator transactions represent completed historical
+            // sales, even for legacy rows saved before status normalization.
+            $order['status'] = 'COMPLETED';
+        }
         $order['system_created_at'] = $order['created_at'];
         
         // Format customer picture with full path
