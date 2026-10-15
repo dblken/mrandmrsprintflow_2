@@ -617,7 +617,7 @@ function staffDashboardToolbar() {
                                 <span class="kpi-label">Pending Customizations</span>
                             </span>
                             <span class="kpi-value" id="stat-pos-pending"><?php echo number_format((int)$posKpiMetrics['pending_customizations']); ?></span>
-                            <span class="kpi-sub">Jobs requiring staff action</span>
+                            <span class="kpi-sub" id="stat-pos-pending-sub"><?php echo htmlspecialchars((string)($posKpiMetrics['pending_subtitle'] ?? 'Active walk-in custom jobs (matches Custom Orders)'), ENT_QUOTES, 'UTF-8'); ?></span>
                         </span>
                     </a>
 
