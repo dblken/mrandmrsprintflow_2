@@ -1282,14 +1282,33 @@ class JobOrderService {
                 $payment = strtoupper(trim((string)($order['payment_status'] ?? '')));
                 $storePayment = '';
                 if (!empty($order['order_id'])) {
+                    require_once __DIR__ . '/order_completion_payment.php';
+                    $amountPaidSelect = db_table_has_column('orders', 'amount_paid') ? ', amount_paid' : '';
                     $storeRows = db_query(
-                        'SELECT payment_status, total_amount FROM orders WHERE order_id = ? LIMIT 1',
+                        'SELECT payment_status, total_amount, order_source' . $amountPaidSelect
+                        . ' FROM orders WHERE order_id = ? LIMIT 1',
                         'i',
                         [(int)$order['order_id']]
                     ) ?: [];
                     $storePayment = strtoupper(trim((string)($storeRows[0]['payment_status'] ?? '')));
                     if ($storeRows !== [] && (float)($storeRows[0]['total_amount'] ?? 0) <= 0) {
                         throw new Exception('Set a valid price before completing this order.');
+                    }
+                    if ($storeRows !== [] && !in_array($storePayment, ['PAID', 'FULLY PAID'], true)) {
+                        $storeGate = printflow_order_staff_completion_payment_gate(
+                            (int)$order['order_id'],
+                            $storeRows[0]
+                        );
+                        if ($storeGate['allowed']) {
+                            $storePayment = 'PAID';
+                            if (!empty($storeGate['sync_payment_status'])) {
+                                db_execute(
+                                    "UPDATE orders SET payment_status = ?, updated_at = NOW() WHERE order_id = ?",
+                                    'si',
+                                    [(string)$storeGate['sync_payment_status'], (int)$order['order_id']]
+                                );
+                            }
+                        }
                     }
                 }
                 $paidStates = ['PAID', 'FULLY PAID'];
