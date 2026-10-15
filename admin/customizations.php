@@ -1913,7 +1913,7 @@ function custom_payment_badge($status) {
                             </div>
                         </template>
                     </div>
-                    <div x-show="displayAdminNotes(job)" class="customization-notes-block" style="margin-top:12px;">
+                    <div class="customization-notes-block" style="margin-top:12px;">
                         <p class="customization-section-label" style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 8px;">Notes</p>
                         <div class="notes-box" x-text="displayAdminNotes(job)"></div>
                     </div>
