@@ -777,9 +777,21 @@ if (!function_exists('pf_payment_qr_url')) {
     .paymongo-amount-wrap { margin:0.55rem 0;padding:0.6rem 0.75rem;border-radius:10px;background:#f1f8f8; }
     .paymongo-label { color:#64748b;font-size:.68rem;font-weight:750;letter-spacing:.04em;text-transform:uppercase; }
     .paymongo-amount { margin-top:.1rem;color:#082f3a;font-size:1.55rem;font-weight:900;letter-spacing:-.025em; }
-    .paymongo-method-summary { margin-top:0.55rem;padding:0.6rem 0.75rem;border:1px solid #cbdde1;border-radius:10px;background:#f8fcfd;color:#17343d; }
+    .paymongo-method-summary {
+        margin-top:0.55rem;
+        padding:0.6rem 0.75rem;
+        border:1px solid #cbdde1;
+        border-radius:10px;
+        background:#f8fcfd;
+        color:#17343d;
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        justify-content:center;
+        text-align:center;
+    }
     .paymongo-method-summary strong { display:block;color:#082f3a;font-size:.85rem;letter-spacing:.035em; }
-    .paymongo-method-summary span { display:block;margin-top:.25rem;color:#5b6f76;font-size:.76rem;line-height:1.4; }
+    .paymongo-method-summary span { display:block;margin-top:.25rem;color:#5b6f76;font-size:.76rem;line-height:1.4;max-width:100%; }
     .paymongo-qr-card { margin-top:0.55rem;padding:0.65rem 0.75rem;border:1px solid #dbe5e8;border-radius:12px;background:#fbfefe;text-align:center; }
     .paymongo-qr-card img { width:min(220px,100%);padding:6px;border:1px solid #e2e8f0;border-radius:8px; }
     .paymongo-qr-download { display:inline-flex;align-items:center;justify-content:center;gap:.35rem;margin-top:.55rem;padding:.5rem .75rem;border:1px solid #a9c7cc;border-radius:8px;background:#fff;color:#0a5962;font-size:.76rem;font-weight:800;text-decoration:none; }
