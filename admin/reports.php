@@ -1686,6 +1686,7 @@ a.export-dd-link:hover { background: #f9fafb; }
 
 /* ── Customer Locations (Progress Bar Style - Match Customization Usage) ── */
 .pf-loc-card-body { padding:16px 18px; }
+.pf-loc-note { font-size:10px; font-weight:500; color:#64748b; margin-left:4px; white-space:normal; }
 .pf-loc-branch-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
 .pf-loc-branch-card { min-width:0; }
 .pf-loc-branch-title { color:#111827; font-size:12px; font-weight:800; text-align:left; margin:0 0 10px; }
@@ -3237,8 +3238,8 @@ if ($fc_debug_mode) {
             <div class="ana-grid print-hide">
                 <div class="ana-card">
                     <div class="ana-hd">
-                        <h3><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg> Customer Locations<span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span></h3>
-                        <div style="display:flex;align-items:center;gap:12px;" class="no-print"><?php if (!empty($customer_locations)): ?><span class="top-location-pill">Top Location: <?php echo htmlspecialchars(trim($customer_locations[0]['city'])); ?></span><?php endif; ?><button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"locations"]), $je); ?>)' title="Print Customer Locations Report">Print</button></div>
+                        <h3 title="Customer cities are grouped into broader service areas for reporting."><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg> Customer Reach by Area<span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span><span class="pf-loc-note">Customer cities are grouped into broader service areas for reporting.</span></h3>
+                        <div style="display:flex;align-items:center;gap:12px;" class="no-print"><?php if (!empty($customer_locations)): ?><span class="top-location-pill">Top Area: <?php echo htmlspecialchars(trim($customer_locations[0]['city'])); ?></span><?php endif; ?><button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"locations"]), $je); ?>)' title="Print Customer Reach by Area Report">Print</button></div>
                     </div>
                     <div class="ana-bd pf-loc-card-body">
                         <?php if (!empty($customer_locations_by_branch)): ?>

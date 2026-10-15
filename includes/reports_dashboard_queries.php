@@ -1500,14 +1500,34 @@ function pf_reports_customer_city_sql_expr(string $alias = 'c'): string {
 }
 
 /**
- * Normalize locality labels for BI maps (merge distant places into nearest branch catchment).
+ * Group stored customer cities into broad reporting areas without changing the
+ * underlying customer address or city values.
  *
  * @param string $rawCol SQL column reference (e.g. z.city_raw)
  */
 function pf_reports_customer_location_city_map_sql(string $rawCol): string {
+    $city = "LOWER(TRIM(REPLACE({$rawCol}, 'ñ', 'n')))";
     return "CASE
-                WHEN LOWER(TRIM({$rawCol})) IN ('city of cabuyao', 'cabuyao', 'calauan') THEN 'Cabuyao'
-                ELSE TRIM({$rawCol})
+                WHEN {$city} IN (
+                    'cabuyao', 'city of cabuyao', 'calamba', 'calauan', 'binan', 'biñan',
+                    'san pedro', 'santa rosa', 'sta. rosa', 'sta rosa', 'los banos',
+                    'los baños', 'bay', 'pila', 'santa cruz', 'liliw', 'nagcarlan',
+                    'majayjay', 'magdalena', 'paete', 'pakil', 'pangil', 'mabitac',
+                    'siniloan', 'famy', 'cavinti', 'victoria', 'rizal', 'lumban'
+                ) THEN 'Laguna Area'
+                WHEN {$city} IN (
+                    'bacoor', 'imus', 'dasmarinas', 'dasma', 'general trias', 'silang',
+                    'tagaytay', 'trece martires', 'cavite city', 'kawit', 'rosario',
+                    'naic', 'maragondon', 'ternate', 'amadeo', 'alfonso',
+                    'general mariano alvarez', 'gma'
+                ) THEN 'Cavite Area'
+                WHEN {$city} IN (
+                    'las pinas', 'las piñas', 'paranaque', 'parañaque', 'muntinlupa',
+                    'manila', 'quezon city', 'makati', 'pasay', 'pasig', 'taguig',
+                    'caloocan', 'malabon', 'navotas', 'valenzuela', 'marikina',
+                    'mandaluyong', 'san juan', 'pateros', 'ermita', 'malate'
+                ) THEN 'Metro Manila Area'
+                ELSE 'Other Areas'
             END";
 }
 
