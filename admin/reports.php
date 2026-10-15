@@ -585,9 +585,15 @@ if (!$gaBranchEmpty) {
     try {
         [$b,$bt,$bp] = branch_where_parts('o', $globalAnalyticsBranchId);
         [$dw,$dt,$dp] = $getDateWhere('o', 'order_date');
+        // Exclude only unfinalized POS draft shells; preserve legitimate workflow statuses.
+        $statusDraftExclusion = " AND NOT (
+            LOWER(TRIM(COALESCE(o.payment_status, ''))) = 'unpaid'
+            AND LOWER(TRIM(COALESCE(o.status, ''))) = 'draft'
+            AND LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos_draft', '')
+        )";
         $status_data = db_query(
             "SELECT o.status, COUNT(*) as cnt FROM orders o
-             WHERE " . printflow_order_archive_scope_sql('o') . " {$dw} {$b}
+             WHERE " . printflow_order_archive_scope_sql('o') . " {$statusDraftExclusion} {$dw} {$b}
              GROUP BY o.status ORDER BY cnt DESC",
             $dt . $bt, array_merge($dp, $bp)
         ) ?: [];
@@ -602,7 +608,7 @@ if (!$gaBranchEmpty) {
                 [$bdw,$bdt,$bdp] = $getDateWhere('o', 'order_date');
                 $branchStatusRows = db_query(
                     "SELECT o.status, COUNT(*) as cnt FROM orders o
-                     WHERE " . printflow_order_archive_scope_sql('o') . " {$bdw} {$bb}
+                     WHERE " . printflow_order_archive_scope_sql('o') . " {$statusDraftExclusion} {$bdw} {$bb}
                      GROUP BY o.status ORDER BY cnt DESC",
                     $bdt . $bbt,
                     array_merge($bdp, $bbp)
