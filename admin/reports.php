@@ -1295,8 +1295,14 @@ a.export-dd-link:hover { background: #f9fafb; }
     border-radius:4px;
     padding:2px 3px;
 }
+.reports-chart-legend-item > span:first-child {
+    display:block;
+    flex:0 0 10px;
+    width:10px !important;
+    height:10px;
+}
 .reports-chart-legend-item:hover,
-.reports-chart-legend-item:focus-visible { background:#f1f5f9; outline:none; }
+.reports-chart-legend-item:focus-visible { background:#f1f5f9; outline:2px solid #53C5E0; outline-offset:1px; }
 .reports-chart-legend-item.is-muted { opacity:.38; text-decoration:line-through; }
 #reports-product-cat-legend,
 #reports-service-cat-legend {

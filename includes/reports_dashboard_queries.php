@@ -843,7 +843,9 @@ function pf_reports_sales_by_official_product(string $from, string $toEnd, $bran
             array_merge($dParams, $bp)
         ) ?: [];
 
-        return pf_reports_fold_product_category_slices($rows, 8, 'More Products');
+        // Keep every real product row; the UI legend is scrollable, so no products
+        // need to be collapsed into an opaque aggregate label.
+        return $rows;
     } catch (Throwable $e) {
         return [];
     }
