@@ -3898,18 +3898,20 @@ $online_closed_count = 0;
                         </div>
                         <p x-show="bulkCompletePreview.truncated" style="margin:0; padding:8px 12px; font-size:11px; color:#6b7280;">List truncated. All matching orders in range will be processed on confirm.</p>
                     </div>
-                    <div x-show="bulkCompleteResult && bulkCompleteResult.success" style="margin-top:16px; padding:14px; border-radius:12px; background:#ecfdf5; border:1px solid #a7f3d0; font-size:13px; color:#065f46;">
-                        <div style="font-weight:700; margin-bottom:8px;" x-text="bulkCompleteResult.message || 'Bulk completion finished.'"></div>
-                        <div style="margin-top:6px;" x-text="'Completed: ' + (bulkCompleteResult.completed_count || 0) + ' · Skipped: ' + (bulkCompleteResult.skipped_count || 0) + ' · Failed: ' + (bulkCompleteResult.failed_count || 0)"></div>
-                        <div x-show="bulkCompleteResult && Array.isArray(bulkCompleteResult.failed) && bulkCompleteResult.failed.length" style="margin-top:8px;">
-                            <div style="font-weight:600; color:#b45309;">Failed orders</div>
-                            <ul style="margin:6px 0 0; padding-left:18px;">
-                                <template x-for="f in (bulkCompleteResult && bulkCompleteResult.failed ? bulkCompleteResult.failed : [])" :key="'bulk-fail-' + f.order_id">
-                                    <li x-text="(f.order_code || f.order_id) + ': ' + (f.error || 'Error')"></li>
-                                </template>
-                            </ul>
+                    <template x-if="bulkCompleteResult && bulkCompleteResult.success">
+                        <div style="margin-top:16px; padding:14px; border-radius:12px; background:#ecfdf5; border:1px solid #a7f3d0; font-size:13px; color:#065f46;">
+                            <div style="font-weight:700; margin-bottom:8px;" x-text="bulkCompleteResult.message || 'Bulk completion finished.'"></div>
+                            <div style="margin-top:6px;" x-text="'Completed: ' + (Number(bulkCompleteResult.completed_count) || 0) + ' · Skipped: ' + (Number(bulkCompleteResult.skipped_count) || 0) + ' · Failed: ' + (Number(bulkCompleteResult.failed_count) || 0)"></div>
+                            <div x-show="Array.isArray(bulkCompleteResult.failed) && bulkCompleteResult.failed.length" style="margin-top:8px;">
+                                <div style="font-weight:600; color:#b45309;">Failed orders</div>
+                                <ul style="margin:6px 0 0; padding-left:18px;">
+                                    <template x-for="f in bulkCompleteResult.failed" :key="'bulk-fail-' + f.order_id">
+                                        <li x-text="(f.order_code || f.order_id) + ': ' + (f.error || 'Error')"></li>
+                                    </template>
+                                </ul>
+                            </div>
                         </div>
-                    </div>
+                    </template>
                 </div>
                 <div style="padding:16px 20px; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:10px; position:sticky; bottom:0; background:#fff;">
                     <button type="button" @click="closeBulkCompleteModal()" :disabled="bulkCompleteExecuting" class="btn-secondary">Close</button>
@@ -4372,6 +4374,7 @@ window.pfServiceFieldCatalog = (() => {
             bulkCompletePreviewError: '',
             bulkCompleteExecuting: false,
             bulkCompleteIdempotencyKey: '',
+            bulkCompletePreviewOrderIds: [],
             bulkCompleteResult: null,
             showMaterialOverrideModal: false,
             materialOverrideCandidate: null,
@@ -11311,6 +11314,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.bulkCompletePreview = null;
                 this.bulkCompletePreviewError = '';
                 this.bulkCompleteResult = null;
+                this.bulkCompletePreviewOrderIds = [];
                 this.bulkCompleteIdempotencyKey = this.newBulkCompleteIdempotencyKey();
                 this.showBulkCompleteModal = true;
                 this.$nextTick(() => {
@@ -11350,6 +11354,7 @@ window.pfServiceFieldCatalog = (() => {
                     );
                     if (res.success) {
                         this.bulkCompletePreview = res;
+                        this.bulkCompletePreviewOrderIds = (res.orders || []).map((row) => row.order_id).filter(Boolean);
                     } else {
                         this.bulkCompletePreview = null;
                         this.bulkCompletePreviewError = res.error || 'Could not load preview.';
@@ -11380,6 +11385,10 @@ window.pfServiceFieldCatalog = (() => {
                     fd.append('start_datetime', this.bulkCompleteStart);
                     fd.append('end_datetime', this.bulkCompleteEnd);
                     fd.append('idempotency_key', this.bulkCompleteIdempotencyKey || this.newBulkCompleteIdempotencyKey());
+                    const previewOrderIds = (this.bulkCompletePreviewOrderIds && this.bulkCompletePreviewOrderIds.length)
+                        ? this.bulkCompletePreviewOrderIds
+                        : (this.bulkCompletePreview.orders || []).map((row) => row.order_id).filter(Boolean);
+                    previewOrderIds.forEach((orderId) => fd.append('order_ids[]', String(orderId)));
                     fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                     const endpoint = this.staffApiUrl('api/bulk_mark_pos_pending_completed.php');
                     const res = await this.parseJsonResponse(
