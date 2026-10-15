@@ -687,9 +687,10 @@ $gp_profit_leader = !empty($gp_branch_rows) ? $gp_branch_rows[0] : null;
 
 // ── 12c. Operating expenses + Net Operating Profit (Estimated) ───────────────
 $operating_expenses = pf_expense_reports_paid_total($from, $toEnd, $globalAnalyticsBranchId);
-$gp_material_cost = max(0.0, round((float)($gp_summary['costed_revenue'] ?? 0) - (float)($gp_summary['estimated_gross_profit'] ?? 0), 2));
-$net_operating_profit = round((float)$revenue - $gp_material_cost - $operating_expenses, 2);
-$profitability_disclaimer = 'Estimated Gross Profit is material-cost based only. Net Operating Profit (Estimated) subtracts Paid operating expenses from official sales revenue and attributed material costs. Pending and archived expenses are excluded. Salary/Wages entries are manual expenses, not payroll calculations. Results depend on the completeness of recorded material costs and expenses.';
+$gp_material_cost = max(0.0, round((float)($gp_summary['estimated_material_cost'] ?? 0), 2));
+$gp_summary['estimated_gross_profit'] = round((float)$revenue - $gp_material_cost, 2);
+$net_operating_profit = round((float)$gp_summary['estimated_gross_profit'] - $operating_expenses, 2);
+$profitability_disclaimer = 'Estimated from production material assignments and recorded assignment-time costs. Gross Profit = official sales revenue - Estimated Material Cost. Net Operating Profit (Estimated) = Estimated Gross Profit - Paid operating expenses. Pending and archived expenses are excluded. Salary/Wages entries are manual expenses, not payroll calculations.';
 
 // ── 13. Top customers ─────────────────────────────────────────────────────────
 $top_customers = [];
@@ -2651,7 +2652,7 @@ $dashData = [
                         <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;">All-Time</span>
                     </div>
                     <div class="kpi-val empty-kpi">&#8369;0</div>
-                    <div class="kpi-sub">After material costs</div>
+                    <div class="kpi-sub">After estimated material costs</div>
                 </div>
                 <div class="kpi-card kpi-rose">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -2700,7 +2701,7 @@ $dashData = [
                         <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All-Time'; ?></span>
                     </div>
                     <div class="kpi-val">&#8369;<?php echo number_format((float)($gp_summary['estimated_gross_profit'] ?? 0), 0); ?></div>
-                    <div class="kpi-sub">After material costs</div>
+                    <div class="kpi-sub">After estimated material costs</div>
                 </div>
                 <div class="kpi-card kpi-rose" title="Paid operating expenses recorded in Expense Management for the selected period and branch. Pending and archived expenses are excluded.">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
