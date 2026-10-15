@@ -17,6 +17,7 @@ function pf_reports_canonical_official_sales_totals(...$args) {
     $GLOBALS['queries'][] = 'official revenue';
     return ['total_sales' => 123.45];
 }
+function printflow_ensure_reports_dashboard_indexes(): void {}
 function expect_progressive($ok, $message) { if (!$ok) throw new RuntimeException($message); }
 $source = file_get_contents(dirname(__DIR__) . '/admin/dashboard.php');
 $start = strpos($source, '$dashCacheVars = [');
@@ -25,6 +26,7 @@ $computation = substr($source, $start, $end - $start);
 $dashFromDate = $dashToDate = '2026-10-15';
 $dashFromStart = $kpiDateFrom = '2026-10-15 00:00:00';
 $dashToEnd = $kpiDateToEnd = '2026-10-15 23:59:59';
+$dashRangeDays = 1;
 $_GET = [];
 try {
     foreach ([1, 'all'] as $branchId) {
@@ -36,11 +38,11 @@ try {
         $queries = [];
         eval($computation);
         expect_progressive($queries === [], 'Warm summary reuses cache without querying.');
-        $secondaryKey = printflow_admin_dashboard_cache_key($branchId, $dashFromDate, $dashToDate, 'v2-secondary');
-        $summaryKey = printflow_admin_dashboard_cache_key($branchId, $dashFromDate, $dashToDate, 'v2-summary');
+        $secondaryKey = printflow_admin_dashboard_cache_key($branchId, $dashFromDate, $dashToDate, 'v3-secondary');
+        $summaryKey = printflow_admin_dashboard_cache_key($branchId, $dashFromDate, $dashToDate, 'v3-summary');
         expect_progressive($secondaryKey !== $summaryKey, 'Summary and secondary entries are distinct.');
         printflow_admin_dashboard_cache_set($secondaryKey, ['test' => true, '_branch_id' => $branchId]);
-        $otherBranchKey = printflow_admin_dashboard_cache_key(2, $dashFromDate, $dashToDate, 'v2-summary');
+        $otherBranchKey = printflow_admin_dashboard_cache_key(2, $dashFromDate, $dashToDate, 'v3-summary');
         printflow_admin_dashboard_cache_set($otherBranchKey, ['_branch_id' => 2]);
         printflow_staff_dashboard_cache_invalidate_branch(1);
         expect_progressive(printflow_admin_dashboard_cache_get($summaryKey) === null && printflow_admin_dashboard_cache_get($secondaryKey) === null, 'Existing mutation hook invalidates both new cache sections.');
