@@ -41,15 +41,21 @@ try {
         } elseif (($_POST['action'] ?? '') === 'hide') {
             if (!is_array($preview) || !hash_equals((string)($preview['token'] ?? ''), (string)($_POST['preview_token'] ?? ''))) throw new RuntimeException('Hide preview expired. Generate a new preview.');
             if ((string)($_POST['confirmation'] ?? '') !== 'HIDE HISTORICAL DATA') throw new RuntimeException('Type HIDE HISTORICAL DATA to confirm.');
+            $selected = array_values(array_unique(array_filter(array_map('intval', (array)($_POST['order_ids'] ?? [])))));
+            if (!$selected) throw new RuntimeException('Select at least one generated order to hide.');
+            $eligible = hgh_orders((string)$preview['start'], (string)$preview['end']);
+            $eligibleIds = array_map(static fn(array $row): int => (int)$row['order_id'], $eligible);
+            if (count(array_diff($selected, $eligibleIds)) > 0) throw new RuntimeException('A selected order is no longer eligible. Generate a new preview.');
             global $conn;
             if (!$conn->begin_transaction()) throw new RuntimeException('Could not begin hide transaction.');
             try {
                 $hidden = [];
-                foreach (hgh_orders((string)$preview['start'], (string)$preview['end']) as $row) {
+                foreach ($eligible as $row) {
                     $id = (int)$row['order_id'];
+                    if (!in_array($id, $selected, true)) continue;
                     if (db_execute('INSERT INTO historical_generator_hidden_orders (order_id,hidden_by,reason) VALUES (?,?,?) ON DUPLICATE KEY UPDATE order_id=order_id', 'iis', [$id,(int)get_user_id(),'Historical generator data hidden by Admin'])) $hidden[] = $id;
                 }
-                log_activity((int)get_user_id(), 'Historical generated data hidden', json_encode(['orders'=>$hidden,'start_date'=>$preview['start'],'end_date'=>$preview['end'],'real_processed_at'=>date(DATE_ATOM)], JSON_UNESCAPED_SLASHES));
+                log_activity((int)get_user_id(), 'Historical generated data hidden', json_encode(['orders'=>$hidden,'selected_total'=>array_sum(array_map(static fn(array $row): float => in_array((int)$row['order_id'], $selected, true) ? (float)$row['total_amount'] : 0.0, $eligible)),'start_date'=>$preview['start'],'end_date'=>$preview['end'],'real_processed_at'=>date(DATE_ATOM)], JSON_UNESCAPED_SLASHES));
                 $conn->commit(); unset($_SESSION['hgh_preview']); $preview = null;
                 $success = 'Hidden '.count($hidden).' generator-created transaction(s). Data was retained; inventory was not changed.';
             } catch (Throwable $e) { $conn->rollback(); throw $e; }
@@ -68,6 +74,27 @@ $total = array_sum(array_map(static fn(array $row): float => (float)$row['total_
 <?php if ($success): ?><div class="success"><?=hgh($success)?></div><?php endif; ?>
 <section class="panel"><form method="post"><?=csrf_field()?><div class="grid"><label>Start Date<input type="date" name="start_date" value="<?=hgh($start)?>" max="<?=hgh($today)?>" required></label><label>End Date<input type="date" name="end_date" value="<?=hgh($end)?>" max="<?=hgh($today)?>" required></label></div><button name="action" value="preview">Preview Hide</button></form></section>
 <?php if (is_array($preview)): ?><section class="panel"><h2>Preview (nothing changed)</h2><p><strong><?=count($rows)?></strong> generator-created order(s), total PHP <?=number_format($total,2)?></p>
-<table><tr><th>Order</th><th>Date</th><th>Reference</th><th>Source</th><th>Total</th></tr><?php foreach ($rows as $row): ?><tr><td>#<?=hgh((string)$row['order_id'])?></td><td><?=hgh((string)$row['order_date'])?></td><td><?=hgh((string)$row['reference_id'])?></td><td><?=hgh((string)$row['order_source'])?></td><td>PHP <?=number_format((float)$row['total_amount'],2)?></td></tr><?php endforeach; ?></table>
-<?php if ($rows): ?><form method="post"><?=csrf_field()?><input type="hidden" name="action" value="hide"><input type="hidden" name="preview_token" value="<?=hgh((string)$preview['token'])?>"><label>Type HIDE HISTORICAL DATA<input name="confirmation" required></label><button type="submit">Hide These Transactions</button></form><?php else: ?><p class="error">No HGEN-marked transactions were found in this date range. Nothing can be hidden safely by date alone.</p><?php endif; ?></section><?php endif; ?>
-</main></body></html>
+<?php if ($rows): ?><form method="post" id="hide-form"><?=csrf_field()?><input type="hidden" name="action" value="hide"><input type="hidden" name="preview_token" value="<?=hgh((string)$preview['token'])?>"><p><label>Target amount to hide (optional)<input id="target-amount" type="number" min="0.01" step="0.01" placeholder="e.g. 300000"></label></p><button type="button" id="select-to-target">Select Orders Toward Target</button><p><strong>Selected total: PHP <span id="selected-total">0.00</span></strong></p>
+<table><tr><th>Select</th><th>Order</th><th>Date</th><th>Reference</th><th>Source</th><th>Total</th></tr><?php foreach ($rows as $row): ?><tr><td><input class="hide-order" type="checkbox" name="order_ids[]" value="<?=hgh((string)$row['order_id'])?>" data-total="<?=hgh((string)$row['total_amount'])?>"></td><td>#<?=hgh((string)$row['order_id'])?></td><td><?=hgh((string)$row['order_date'])?></td><td><?=hgh((string)$row['reference_id'])?></td><td><?=hgh((string)$row['order_source'])?></td><td>PHP <?=number_format((float)$row['total_amount'],2)?></td></tr><?php endforeach; ?></table>
+<label>Type HIDE HISTORICAL DATA<input name="confirmation" required></label><button type="submit">Hide Selected Transactions</button></form><?php else: ?><p class="error">No HGEN-marked transactions were found in this date range. Nothing can be hidden safely by date alone.</p><?php endif; ?></section><?php endif; ?>
+</main><script>
+const hideChecks = Array.from(document.querySelectorAll('.hide-order'));
+const selectedTotal = document.getElementById('selected-total');
+function refreshSelectedTotal() {
+    const total = hideChecks.filter(function (check) { return check.checked; }).reduce(function (sum, check) { return sum + Number(check.dataset.total || 0); }, 0);
+    if (selectedTotal) selectedTotal.textContent = total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+hideChecks.forEach(function (check) { check.addEventListener('change', refreshSelectedTotal); });
+const selectToTarget = document.getElementById('select-to-target');
+if (selectToTarget) selectToTarget.addEventListener('click', function () {
+    const target = Number((document.getElementById('target-amount') || {}).value || 0);
+    if (!(target > 0)) { alert('Enter the amount you want to hide first.'); return; }
+    let total = 0;
+    hideChecks.forEach(function (check) {
+        check.checked = false;
+        if (total < target) { check.checked = true; total += Number(check.dataset.total || 0); }
+    });
+    refreshSelectedTotal();
+});
+refreshSelectedTotal();
+</script></body></html>
