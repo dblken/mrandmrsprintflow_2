@@ -2,6 +2,7 @@
 // Rendered only after the dashboard's authorization and branch checks.
 if (!isset($dashSecondaryRequest) || !$dashSecondaryRequest) { http_response_code(404); exit; }
 ?>
+<?php if ($dashDiagnostics): ?><script type="application/json" id="pf-dashboard-secondary-timing"><?php echo $dashDiagnosticsJson; ?></script><?php endif; ?>
             <script type="application/json" id="pf-dashboard-branch-chart-data"><?php echo htmlspecialchars($dashboard_branch_chart_json, ENT_NOQUOTES, 'UTF-8'); ?></script>
             <!-- Sales Revenue (Full Width) -->
             <div class="ana-card dash-full dash-sales-revenue-card" style="margin-bottom:28px;">

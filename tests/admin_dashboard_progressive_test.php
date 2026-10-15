@@ -13,9 +13,9 @@ function db_query($sql, $types = null, $params = null) {
     $GLOBALS['queries'][] = $sql;
     return [['cnt' => 7]];
 }
-function pf_reports_official_sales_breakdown(...$args) {
+function pf_reports_canonical_official_sales_totals(...$args) {
     $GLOBALS['queries'][] = 'official revenue';
-    return ['summary' => ['total_sales' => 123.45]];
+    return ['total_sales' => 123.45];
 }
 function expect_progressive($ok, $message) { if (!$ok) throw new RuntimeException($message); }
 $source = file_get_contents(dirname(__DIR__) . '/admin/dashboard.php');

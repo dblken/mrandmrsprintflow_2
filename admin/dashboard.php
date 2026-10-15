@@ -224,8 +224,10 @@ $dashMark('kpi_customers');
 
 // ── KPI: Total Revenue (official sales rules — matches Reports & Sales pages) ─
 try {
-    $dashboard_sales_summary = pf_reports_official_sales_breakdown($dashFromDate, $dashToEnd, $branchId, 1);
-    $total_revenue = (float)($dashboard_sales_summary['summary']['total_sales'] ?? 0);
+    // The full report builds item/branch breakdowns and fetches all transaction
+    // rows before slicing them in PHP. Its total comes from this exact helper.
+    $dashboard_sales_summary = pf_reports_canonical_official_sales_totals($dashFromDate, $dashToEnd, $branchId);
+    $total_revenue = (float)($dashboard_sales_summary['total_sales'] ?? 0);
 } catch (Exception $e) { $total_revenue = 0; }
 $dashMark('kpi_revenue');
 
@@ -310,6 +312,13 @@ $daily_sales = [];
 $order_status = [];
 
 // ── Sales by Product (official product list) ──────────
+$dashUsesBranchCharts = $branchId === 'all' && count(array_filter(
+    $branchCtx['branches_list'] ?? [], static fn($row) => (int)($row['id'] ?? 0) > 0
+)) > 0;
+$category_sales = [];
+$service_category_sales = [];
+// All Branches displays the per-branch datasets below, not combined slices.
+if (!$dashUsesBranchCharts) {
 try {
     $category_sales = pf_reports_sales_by_official_product(
         $dashFromStart,
@@ -317,8 +326,6 @@ try {
         $branchId
     );
 } catch (Exception $e) { $category_sales = []; }
-
-$cat_total_sum = array_sum(array_map(fn($c) => (float)$c['total'], $category_sales));
 
 // ── Sales by Service Category (customization / job orders) ──
 try {
@@ -332,6 +339,8 @@ try {
         ['Eunsoyaaaaa', 'Ink']
     );
 } catch (Exception $e) { $service_category_sales = []; }
+}
+$cat_total_sum = array_sum(array_map(fn($c) => (float)$c['total'], $category_sales));
 $dashMark('sales_by_category');
 
 $dashboard_branch_chart_payload = [
@@ -638,11 +647,13 @@ $dashboard_sales_bar_values = array_map(static function ($r) {
 
 // ── Customer Locations ────────────────────────────────
 $customer_locations = [];
+if (!$dashUsesBranchCharts) {
 try {
     $locFrom = $dashFromDate;
     $locTo = $dashToEnd;
     $customer_locations = pf_reports_customer_locations_merged($locFrom, $locTo, $branchId, 8, false);
 } catch (Exception $e) {}
+}
 $dashMark('customer_locations');
 
 } // end secondary computation
@@ -696,6 +707,15 @@ if (!headers_sent()) {
     header('Server-Timing: ' . implode(', ', $dashServerTiming));
 }
 
+// Opt-in, authenticated diagnostics mirror Server-Timing into inert DOM data.
+// This permits inspection in browsers whose tools cannot expose response headers.
+$dashDiagnostics = ($_GET['dashboard_perf'] ?? '') === '1';
+$dashDiagnosticsJson = $dashDiagnostics ? json_encode([
+    'section' => $dashSecondaryRequest ? 'secondary' : 'summary',
+    'cache' => $dashSectionStates,
+    'phases_ms' => $dashTimings,
+    'server_ms' => round((microtime(true) - ($_SERVER['REQUEST_TIME_FLOAT'] ?? $dashTimingStart)) * 1000, 1),
+], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) : null;
 if ($dashSecondaryRequest) {
     header('Cache-Control: private, no-store');
     header('Content-Type: text/html; charset=UTF-8');
@@ -1321,6 +1341,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             </div>
 
             <div id="pf-dashboard-content">
+            <?php if ($dashDiagnostics): ?><script type="application/json" id="pf-dashboard-summary-timing"><?php echo $dashDiagnosticsJson; ?></script><?php endif; ?>
             <!-- KPI Summary Row (entire card is a link; keyboard + screen-reader friendly) -->
             <div class="kpi-row">
                 <a class="kpi-card indigo kpi-card--link"
@@ -1369,8 +1390,8 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 </a>
             </div>
 
-            <div id="pf-dashboard-secondary" data-url="<?php echo htmlspecialchars(pf_admin_url('dashboard.php', ['branch_id' => $branchId, 'from' => $dashFromDate, 'to' => $dashToDate, 'preset' => $dashPreset, 'dashboard_section' => 'secondary']), ENT_QUOTES, 'UTF-8'); ?>" aria-busy="true">
-                <p role="status">Loading dashboard details…</p>
+            <div id="pf-dashboard-secondary" data-url="<?php echo htmlspecialchars(pf_admin_url('dashboard.php', ['branch_id' => $branchId, 'from' => $dashFromDate, 'to' => $dashToDate, 'preset' => $dashPreset, 'dashboard_section' => 'secondary', 'dashboard_perf' => $dashDiagnostics ? '1' : null]), ENT_QUOTES, 'UTF-8'); ?>" aria-busy="true">
+                <?php require __DIR__ . '/../includes/admin_dashboard_skeleton.php'; ?>
             </div>
             </div>
 
@@ -2182,12 +2203,11 @@ window.pfDashApplyFilterAjax = function() {
     var presetVal = document.getElementById('dash_preset')?.value || '';
     var key = fromVal + '|' + toVal + '|' + presetVal;
     if (window.__pfDashLastSubmittedRange === key && !window.__pfDashFilterQueued) return;
-    window.__pfDashLastSubmittedRange = key;
-
     if (window.__pfDashFilterBusy) {
         window.__pfDashFilterQueued = true;
         return;
     }
+    window.__pfDashLastSubmittedRange = key;
     if (window.pfDashCancelSecondary) window.pfDashCancelSecondary();
     if (window.printflowTeardownDashboardCharts) window.printflowTeardownDashboardCharts();
     window.__pfDashFilterBusy = true;
@@ -2210,8 +2230,16 @@ window.pfDashApplyFilterAjax = function() {
         credentials: 'same-origin',
         signal: window.__pfDashFilterFetchCtrl ? window.__pfDashFilterFetchCtrl.signal : undefined
     })
-    .then(function(resp) { return resp.text(); })
+    .then(function(resp) {
+        if (!resp.ok || resp.redirected) throw new Error('Dashboard filter unavailable');
+        return resp.text();
+    })
     .then(function(html) {
+        var currentKey = fromEl.value.trim() + '|' + toEl.value.trim() + '|' + (document.getElementById('dash_preset')?.value || '');
+        if (currentKey !== key || window.__pfDashFilterQueued) {
+            window.__pfDashFilterQueued = true;
+            return;
+        }
         var parser = new DOMParser();
         var doc = parser.parseFromString(html, 'text/html');
 
@@ -2237,12 +2265,14 @@ window.pfDashApplyFilterAjax = function() {
     })
     .catch(function(err) {
         if (err && err.name === 'AbortError') return;
+        window.__pfDashLastSubmittedRange = null;
         console.error('Dashboard live filter failed:', err);
     })
     .finally(function() {
         window.__pfDashFilterBusy = false;
         if (window.__pfDashFilterQueued) {
             window.__pfDashFilterQueued = false;
+            window.__pfDashLastSubmittedRange = null;
             window.pfDashApplyFilterAjax();
         }
     });
