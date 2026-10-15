@@ -507,7 +507,9 @@ class JobOrderService {
 
         self::processDeductions($jobId, [
             'materials' => true,
-            'inks' => true,
+            // Historical generator entries follow PrintFlow's production
+            // policy: ink is expense-only and is not deducted as inventory.
+            'inks' => false,
             'transaction_date' => $parsed->format('Y-m-d H:i:s'),
         ]);
     }

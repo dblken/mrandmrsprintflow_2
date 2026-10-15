@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/pos_customer_helpers.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/service_field_config_helper.php';
+require_once __DIR__ . '/../includes/production_material_compatibility.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/historical_generator_removal.php';
 require_role('Admin');
@@ -271,7 +272,7 @@ function htg_material_plan(string $serviceType, int $quantity, int $serviceId = 
             'label' => 'Skipped: unsupported service type',
         ];
     }
-    $rules = db_query("SELECT r.item_id, r.rule_type, i.name, c.name AS category_name, i.track_by_roll, i.unit_of_measure
+    $rules = db_query("SELECT r.item_id, r.rule_type, i.*, c.name AS category_name
                        FROM service_material_rules r
                        JOIN inv_items i ON i.id = r.item_id
                        LEFT JOIN inv_categories c ON c.id = i.category_id
@@ -279,6 +280,19 @@ function htg_material_plan(string $serviceType, int $quantity, int $serviceId = 
     $materials = [];
     $dimensions = htg_dimension_options($serviceId);
     foreach ($rules as $rule) {
+        $materialMetadata = [
+            'id' => (int)$rule['item_id'],
+            'name' => (string)($rule['name'] ?? ''),
+            'category_name' => (string)($rule['category_name'] ?? ''),
+            'material_type' => (string)($rule['material_type'] ?? ''),
+            'type' => (string)($rule['type'] ?? ''),
+            'description' => (string)($rule['description'] ?? ''),
+            'sku' => (string)($rule['sku'] ?? ''),
+        ];
+        // Ink is an expense-only production input in PrintFlow. Keep it out
+        // of historical stock limits and job material assignments using the
+        // shared metadata classifier, never color-name matching.
+        if (function_exists('pfpm_material_family') && pfpm_material_family($materialMetadata) === 'ink') continue;
         if ((int)($rule['track_by_roll'] ?? 0) === 1) {
             if (!$dimensions) return ['supported' => false, 'warning' => 'Service "' . ($displayName !== '' ? $displayName : $serviceType) . '" was skipped because no valid configured dimensions were found.', 'materials' => [], 'dimensions' => null, 'label' => 'Skipped: no configured dimensions'];
             [$width, $height] = array_map('floatval', preg_split('/\s*x\s*/i', (string)$dimensions[0]));
@@ -297,7 +311,7 @@ function htg_material_plan(string $serviceType, int $quantity, int $serviceId = 
             'track_by_roll' => (int)($rule['track_by_roll'] ?? 0),
         ];
     }
-    return ['supported' => true, 'warning' => '', 'materials' => $materials, 'dimensions' => $dimensions[0] ?? null, 'label' => $materials ? implode(', ', array_map(static fn($m) => htg_material_display_label($m) . ' x ' . (float)($m['computed_len'] ?: $m['quantity']), $materials)) : 'No configured material rules'];
+    return ['supported' => true, 'warning' => '', 'materials' => $materials, 'dimensions' => $dimensions[0] ?? null, 'label' => $materials ? implode(', ', array_map(static fn($m) => htg_material_display_label($m) . ' x ' . (float)($m['computed_len'] ?: $m['quantity']), $materials)) : 'No physical inventory materials configured'];
 }
 function htg_insert(array $r, string $token, string $reason): int {
     global $conn;
