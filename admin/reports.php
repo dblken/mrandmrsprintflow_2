@@ -125,10 +125,14 @@ $trend_metric = 'both';
 $y_cal = (int) date('Y');
 $heatmap_available_years = [];
 $heatmap_year = $y_cal;
+$heatmap_type = isset($_GET['heatmap_type']) ? strtolower(trim((string) $_GET['heatmap_type'])) : 'all';
+if (!in_array($heatmap_type, ['all', 'product', 'service'], true)) {
+    $heatmap_type = 'all';
+}
 
 /** Stable reports URL query (explicit keys + full path fixes Turbo / relative ? links). */
 function reports_page_query(array $overrides = []): string {
-    $keys = ['from', 'to', 'branch_id', 'chart_sort', 'trend_metric', 'txn_pay', 'txn_page', 'heatmap_year', 'sales_period'];
+    $keys = ['from', 'to', 'branch_id', 'chart_sort', 'trend_metric', 'txn_pay', 'txn_page', 'heatmap_year', 'heatmap_type', 'sales_period'];
     $q = [];
     foreach ($keys as $k) {
         if (array_key_exists($k, $overrides)) {
@@ -2291,6 +2295,8 @@ a.export-dd-link:hover { background: #f9fafb; }
                                 <input type="hidden" name="chart_sort" value="<?php echo htmlspecialchars($chart_sort); ?>">
                                 <input type="hidden" name="trend_metric" value="<?php echo htmlspecialchars($trend_metric); ?>">
                                 <input type="hidden" name="txn_pay" value="<?php echo htmlspecialchars($txn_payment_filter); ?>">
+                                <input type="hidden" name="heatmap_year" value="<?php echo (int) $heatmap_year; ?>">
+                                <input type="hidden" name="heatmap_type" value="<?php echo htmlspecialchars($heatmap_type, ENT_QUOTES, 'UTF-8'); ?>">
                                 <div class="filter-section">
                                     <div class="filter-section-head">
                                         <span class="filter-section-label">Date range</span>
@@ -2342,6 +2348,8 @@ a.export-dd-link:hover { background: #f9fafb; }
                                 'from' => $from,
                                 'to' => $to,
                                 'branch_id' => $branchId === 'all' ? 'all' : (int)$branchId,
+                                'heatmap_year' => $heatmap_year,
+                                'heatmap_type' => $heatmap_type,
                             ];
                             $pfRptUrl = function (string $file, array $extra = []) use ($rptQs, $base_path) {
                                 return rtrim($base_path, '/') . '/admin/' . $file . '?' . http_build_query(array_merge($rptQs, $extra));
@@ -3226,7 +3234,7 @@ if ($fc_debug_mode) {
             <div class="ana-card print-hide">
                 <div class="ana-hd heatmap-card-hd">
                     <h3><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>Seasonal Demand Heatmap <span class="heatmap-year-chip" id="pf-heatmap-year-display"><?php echo (int)$heatmap_year; ?></span><span style="margin-left:8px;padding:3px 8px;background:#F7FAFC;color:#4A5568;border:1px solid #E2E8F0;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">Full Year</span></h3>
-                    <div class="heatmap-header-tools"><div style="display:flex;align-items:center;gap:12px;" class="no-print"><label class="heatmap-year-label" for="pf-heatmap-year">Year</label><select id="pf-heatmap-year" class="chart-select heatmap-year-select" style="height:32px;font-size:12px;" aria-label="Heatmap year" <?php echo empty($heatmap_available_years) ? 'disabled' : ''; ?>><?php if (empty($heatmap_available_years)): ?><option value=""><?php echo (int) $y_cal; ?></option><?php else: ?><?php foreach ($heatmap_available_years as $yy): ?><option value="<?php echo (int) $yy; ?>" <?php echo (int) $yy === (int) $heatmap_year ? 'selected' : ''; ?>><?php echo (int) $yy; ?></option><?php endforeach; ?><?php endif; ?></select><button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"heatmap"]), $je); ?>)' title="Print Seasonal Demand Heatmap Report">Print</button></div></div>
+                    <div class="heatmap-header-tools"><div style="display:flex;align-items:center;gap:12px;" class="no-print"><label class="heatmap-year-label" for="pf-heatmap-year">Year</label><select id="pf-heatmap-year" class="chart-select heatmap-year-select" style="height:32px;font-size:12px;" aria-label="Heatmap year" <?php echo empty($heatmap_available_years) ? 'disabled' : ''; ?>><?php if (empty($heatmap_available_years)): ?><option value=""><?php echo (int) $y_cal; ?></option><?php else: ?><?php foreach ($heatmap_available_years as $yy): ?><option value="<?php echo (int) $yy; ?>" <?php echo (int) $yy === (int) $heatmap_year ? 'selected' : ''; ?>><?php echo (int) $yy; ?></option><?php endforeach; ?><?php endif; ?></select><label class="heatmap-year-label" for="pf-heatmap-type">Type</label><select id="pf-heatmap-type" class="chart-select heatmap-year-select" style="height:32px;font-size:12px;" aria-label="Heatmap type"><option value="all" <?php echo $heatmap_type === 'all' ? 'selected' : ''; ?>>All</option><option value="product" <?php echo $heatmap_type === 'product' ? 'selected' : ''; ?>>Products</option><option value="service" <?php echo $heatmap_type === 'service' ? 'selected' : ''; ?>>Services</option></select><button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"heatmap", "heatmap_type"=>$heatmap_type, "heatmap_year"=>$heatmap_year]), $je); ?>)' title="Print Seasonal Demand Heatmap Report">Print</button></div></div>
                 </div>
                 <div class="ana-bd">
                     <div class="pf-heatmap-legend" aria-label="Heatmap legend" id="pf-heatmap-legend"><span class="pf-hm-legend-item" data-kind="future" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:repeating-linear-gradient(-45deg,#f8fafc,#f8fafc 3px,#e2e8f0 3px,#e2e8f0 6px);border:1px dashed #cbd5e1;"></i> Not yet</span><span class="pf-hm-legend-item" data-kind="nodata" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#f8fafc;border:1px dashed #94a3b8;"></i> No transactions</span><span class="pf-hm-legend-item" data-kind="low" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#a5e3f2;"></i> Low</span><span class="pf-hm-legend-item" data-kind="med" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#53C5E0;"></i> Medium</span><span class="pf-hm-legend-item" data-kind="high" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#00232b;"></i> High</span></div>

@@ -2271,6 +2271,8 @@ window.printflowInitReportsCharts = function () {
         var sel = document.getElementById('pf-heatmap-year');
         if (!sel || sel.dataset.pfReportsBound === '1') return;
         sel.dataset.pfReportsBound = '1';
+        var typeSel = document.getElementById('pf-heatmap-type');
+        var heatmapPrintButton = sel.parentElement ? sel.parentElement.querySelector('button.toolbar-btn') : null;
         var mount = document.getElementById('ch-heatmap-mount');
         var box = document.getElementById('pf-heatmap-chbox');
         var loadEl = document.getElementById('pf-heatmap-ajax-loading');
@@ -2331,16 +2333,36 @@ window.printflowInitReportsCharts = function () {
         }
         var heatmapController = null;
         var heatmapKey = '';
+        function updateHeatmapUrl(year, type) {
+            if (!window.history || !window.history.replaceState) return;
+            var nextUrl = new URL(window.location.href);
+            nextUrl.searchParams.set('heatmap_year', year);
+            nextUrl.searchParams.set('heatmap_type', type);
+            window.history.replaceState({}, '', nextUrl.toString());
+            if (heatmapPrintButton) {
+                heatmapPrintButton.onclick = function () {
+                    var printUrl = new URL(window.location.href);
+                    printUrl.pathname = printUrl.pathname.replace(/reports\.php$/, 'reports_print.php');
+                    printUrl.searchParams.set('report', 'heatmap');
+                    printUrl.searchParams.set('heatmap_year', year);
+                    printUrl.searchParams.set('heatmap_type', type);
+                    reportsPrintInPlace(printUrl.toString());
+                };
+            }
+        }
         function loadHeatmap() {
             var year = sel.value;
+            var type = typeSel ? typeSel.value : 'all';
             if (!year || !mount || !mount.isConnected) return;
             
-            if (heatmapKey === year) return;
+            var requestKey = year + ':' + type;
+            if (heatmapKey === requestKey) return;
             if (heatmapController) heatmapController.abort();
             heatmapController = new AbortController();
             var requestController = heatmapController;
-            heatmapKey = year;
+            heatmapKey = requestKey;
             if (yearChip) yearChip.textContent = year;
+            updateHeatmapUrl(year, type);
             showLoading(true);
             
             // Build URL with current branch context from the form
@@ -2351,6 +2373,7 @@ window.printflowInitReportsCharts = function () {
                 branchId = 'all';
             }
             url += '&branch_id=' + encodeURIComponent(branchId);
+            url += '&heatmap_type=' + encodeURIComponent(type);
             
             fetch(url, {
                 signal: requestController.signal,
@@ -2400,6 +2423,7 @@ window.printflowInitReportsCharts = function () {
                 });
         }
         sel.addEventListener('change', loadHeatmap);
+        if (typeSel) typeSel.addEventListener('change', loadHeatmap);
         if (mount && mount.dataset.pfLazyHeatmap === '1' && !sel.disabled) {
             if ('IntersectionObserver' in window) {
                 var heatmapObserver = new IntersectionObserver(function(entries) {

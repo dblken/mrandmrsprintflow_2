@@ -17,6 +17,10 @@ $branchId = $branchCtx['selected_branch_id'];
 
 [$y_cal, $m_cal] = pf_reports_heatmap_db_ym();
 $year = isset($_GET['year']) ? (int) $_GET['year'] : $y_cal;
+$heatmapType = isset($_GET['heatmap_type']) ? strtolower(trim((string) $_GET['heatmap_type'])) : 'all';
+if (!in_array($heatmapType, ['all', 'product', 'service'], true)) {
+    $heatmapType = 'all';
+}
 
 $emptyPayload = static function (int $y, bool $valid, string $msg = '') use ($y_cal, $m_cal): array {
     return [
@@ -54,7 +58,7 @@ if (!in_array($year, $available, true)) {
     exit;
 }
 
-$heatmap_cells = pf_reports_heatmap_matrix($year, $branchId);
+$heatmap_cells = pf_reports_heatmap_matrix($year, $branchId, $heatmapType);
 if ($heatmap_cells === []) {
     echo json_encode($emptyPayload($year, true, 'No data available for selected year'));
     exit;

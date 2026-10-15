@@ -1348,8 +1348,20 @@ function pf_reports_heatmap_build_cells(array $sumsByProduct, int $heatmap_year)
  *
  * @return array<string, array<int, array{qty:int, kind:string}>>
  */
-function pf_reports_heatmap_matrix(int $heatmap_year, $branchId): array {
+function pf_reports_heatmap_matrix(int $heatmap_year, $branchId, string $heatmapType = 'all'): array {
     $sums = pf_reports_heatmap_sums_for_year($heatmap_year, $branchId);
+    if ($sums === []) {
+        return [];
+    }
+    $heatmapType = in_array($heatmapType, ['all', 'product', 'service'], true) ? $heatmapType : 'all';
+    if ($heatmapType !== 'all') {
+        foreach (array_keys($sums) as $key) {
+            $source = (($parts = explode(':', (string) $key, 2))[0] ?? '') === 'product' ? 'product' : 'service';
+            if ($source !== $heatmapType) {
+                unset($sums[$key]);
+            }
+        }
+    }
     if ($sums === []) {
         return [];
     }

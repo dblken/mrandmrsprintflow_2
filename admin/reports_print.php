@@ -28,6 +28,10 @@ $to        = $dateRange['to'];
 $fromStart = $dateRange['fromStart'];
 $toEnd     = $dateRange['toEnd'];
 $autoprint = (bool)($_GET['autoprint'] ?? 0);
+$heatmap_type = isset($_GET['heatmap_type']) ? strtolower(trim((string) $_GET['heatmap_type'])) : 'all';
+if (!in_array($heatmap_type, ['all', 'product', 'service'], true)) {
+    $heatmap_type = 'all';
+}
 
 $branchCtx  = init_branch_context(false);
 $branchId   = $branchCtx['selected_branch_id'];
@@ -271,7 +275,7 @@ try {
     }
     if ($show_heatmap) {
         $yNow = (int)date('Y');
-        $heatmap_matrix = pf_reports_heatmap_matrix($yNow, $branchId);
+        $heatmap_matrix = pf_reports_heatmap_matrix($yNow, $branchId, $heatmap_type);
         $heatmap_months = pf_reports_heatmap_month_short_labels();
     }
     if ($show_locations) {
@@ -689,6 +693,7 @@ foreach ($seasonal_events as $ev) {
                 <tbody>
                     <?php if (empty($heatmap_matrix)): ?><tr><td colspan="13" class="center">No seasonal data found.</td></tr><?php else: ?>
                     <?php foreach ($heatmap_matrix as $prod => $mo): ?>
+                    <?php $hmMeta = pf_reports_heatmap_row_meta((string) $prod); $hmDisplay = $hmMeta['label'] . ' - ' . $hmMeta['source']; $prod = $hmDisplay; ?>
                     <tr class="zebra"><td><strong><?php echo htmlspecialchars((string)$prod); ?></strong></td><?php for ($i=1; $i<=12; $i++) { $q = (int)($mo[$i]['qty']??0); echo "<td class='num'>".($q>0?pf_fmt_qty($q):'—')."</td>"; } ?></tr>
                     <?php endforeach; ?>
                     <?php endif; ?>
