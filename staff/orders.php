@@ -10,6 +10,7 @@ require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/staff_order_status_buckets.php';
 require_once __DIR__ . '/../includes/expired_product_order_archive.php';
+require_once __DIR__ . '/../includes/staff_dashboard_queries.php';
 
 require_role('Staff');
 printflow_require_staff_module('orders');
@@ -382,6 +383,7 @@ $order_code_search_sql = "CONCAT(
 $sql_conditions .= branch_where('o', $staffBranchId, $types, $params);
 if ($is_pos_staff) {
     $sql_conditions .= " AND o.status = 'Completed'";
+    $sql_conditions .= " AND LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid')";
 }
 if ($date_from_filter !== '') {
     $sql_conditions .= " AND DATE(o.order_date) >= ?";
@@ -426,7 +428,9 @@ $sql = "SELECT o.*, COALESCE(
 $count_sql = "SELECT COUNT(*) as total FROM orders o LEFT JOIN customers c ON o.customer_id = c.customer_id WHERE 1=1" . $sql_conditions;
 
 // Pagination settings
-$items_per_page = 15;
+$items_per_page = function_exists('printflow_staff_list_page_size')
+    ? printflow_staff_list_page_size()
+    : 10;
 $current_page = max(1, (int)($_GET['page'] ?? 1));
 
 $total_result = db_query($count_sql, $types, $params);

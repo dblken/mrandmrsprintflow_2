@@ -4268,7 +4268,7 @@ window.pfServiceFieldCatalog = (() => {
             detailRetryPayload: null,
             detailRequestToken: 0,
             currentPage: 1,
-            itemsPerPage: 15,
+            itemsPerPage: 10,
             orders: [],
             statusOverrides: {},
             isPosSimplifiedView: <?php echo $isPosCustomizationView ? 'true' : 'false'; ?>,
@@ -8756,6 +8756,27 @@ window.pfServiceFieldCatalog = (() => {
             isPosWalkInPending(jo) {
                 return this.isPosSimplifiedView && this.isPosWalkInSource(jo) && this.getPosWalkInBucket(jo) === 'PENDING';
             },
+            posWalkInCompletionPaymentReady(jo = null) {
+                const target = jo || this.currentJo || {};
+                const paymentStatus = String(target.payment_status || '').toLowerCase().trim();
+                if (['paid', 'fully paid'].includes(paymentStatus)) {
+                    return { ok: true };
+                }
+                const total = Number(target.total_amount || target.final_price || target.estimated_total || 0);
+                const amountPaid = Number(target.amount_paid || 0);
+                if (Number.isFinite(total) && total > 0 && Number.isFinite(amountPaid) && amountPaid + 0.0001 >= total) {
+                    return { ok: true };
+                }
+                const provider = this.providerPaymentFor(target);
+                if (provider && String(provider.status || provider.payment_status || '').toLowerCase() === 'paid') {
+                    return { ok: true };
+                }
+                const label = target.payment_status || 'Unpaid';
+                return {
+                    ok: false,
+                    message: 'Payment must be confirmed before completing this order. Current status: ' + label + '.'
+                };
+            },
             getOnlineStageBucket(row) {
                 if (!row) return 'INQUIRY';
                 if (this.changeItemPendingReview(row)) return 'CHANGED_ITEMS';
@@ -9384,6 +9405,17 @@ window.pfServiceFieldCatalog = (() => {
                         console.warn(`[Customizations] ${label} returned JSON with an incorrect Content-Type`, {
                             endpoint: resolvedEndpoint,
                             contentType
+                        });
+                    }
+                    if (payload.success === false) {
+                        console.error(`[Customizations] ${label} rejected`, {
+                            endpoint: resolvedEndpoint,
+                            httpStatus: r.status,
+                            error: payload.error || payload.message || null,
+                            payment_status: payload.payment_status ?? null,
+                            current_status: payload.current_status ?? null,
+                            order_id: payload.order_id ?? null,
+                            body: payload
                         });
                     }
                     return { ...payload, httpStatus: r.status };
@@ -11182,6 +11214,15 @@ window.pfServiceFieldCatalog = (() => {
                     this.showStaffAlert('Completed', 'This order is already completed.');
                     return;
                 }
+                if (target && String(target.order_source || '').toLowerCase() === 'pos_merged') {
+                    this.showStaffAlert('Error', 'This is an archived POS draft. Refresh the list and open the active POS order.');
+                    return;
+                }
+                const paymentReady = target ? this.posWalkInCompletionPaymentReady(target) : { ok: true };
+                if (paymentReady.ok === false) {
+                    this.showStaffAlert('Payment Required', paymentReady.message || 'Payment must be confirmed before completing this order.');
+                    return;
+                }
                 if (this.actionBusy) return;
                 this.posCompleteConfirmTarget = target;
                 this.showPosCompleteConfirmModal = true;
@@ -11383,6 +11424,15 @@ window.pfServiceFieldCatalog = (() => {
                         if (res.success || this.isAlreadyCompletedOrderConflict(res)) {
                             await this.applyStoreOrderCompletedUi(res, orderId);
                         } else {
+                            console.error('[Customizations] Complete order failed', {
+                                httpStatus: res.httpStatus ?? null,
+                                orderId,
+                                expectedStatus: this.currentJo?.status ?? '',
+                                error: res.error || res.message || null,
+                                payment_status: res.payment_status ?? this.currentJo?.payment_status ?? null,
+                                current_status: res.current_status ?? null,
+                                response: res
+                            });
                             this.showStaffAlert('Error', res.error || 'Failed to mark order as completed.');
                         }
                         return;

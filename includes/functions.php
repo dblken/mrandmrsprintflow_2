@@ -3358,6 +3358,8 @@ function printflow_staff_order_management_url(int $orderId, bool $preferPendingS
         $url = $base . '/staff/customizations.php?order_id=' . $orderId;
         if ($preferPendingStatus && !in_array($orderSource, ['pos', 'walk-in', 'pos_merged'], true)) {
             $url .= '&status=PENDING';
+        } elseif (in_array($orderSource, ['pos', 'walk-in'], true)) {
+            $url .= '&source=pos';
         }
         return $url;
     }

@@ -39,7 +39,14 @@ pos_paymongo_checkout_assert(
 );
 pos_paymongo_checkout_assert(
     strpos($posSource, '<option value="Cash">Cash</option>') !== false
-        && strpos($posSource, '<option value="PayMongo QRPh">PayMongo QR Ph</option>') !== false
+        && strpos($posSource, '<option value="PayMongo QRPh">QR PH</option>') !== false
+        && strpos($posSource, 'id="pos-qrph-payment-section"') !== false
+        && strpos($posSource, 'syncPosQrphPaymentSection') !== false
+        && strpos($posSource, 'initPosPaymentMethodHandlers') !== false
+        && strpos($posSource, 'normalizePosPaymentMethod') !== false
+        && strpos($posSource, "launchPosQrphPayment('select')") !== false
+        && strpos($posSource, 'pos_paymongo_checkout_token_total') !== false
+        && strpos($posSource, 'setPosQrphPanelError(checkoutErrorMessage)') !== false
         && strpos($posSource, '<option value="GCash">') === false
         && strpos($posSource, '<option value="PayMongo Checkout">') === false,
     'POS payment selector exposes only Cash and available PayMongo QR Ph.'
@@ -51,7 +58,7 @@ pos_paymongo_checkout_assert(
 pos_paymongo_checkout_assert(
     strpos($posSource, 'posPayMongoCheckoutPending') !== false
         && strpos($posSource, 'resetPayMongoPosCheckoutState(false)') !== false
-        && strpos($posSource, 'getPosPayMongoCheckoutToken()') !== false
+        && strpos($posSource, 'const checkoutToken = getPosPayMongoCheckoutToken(') !== false
         && strpos($checkoutSource, "\$_SESSION['pos_checkout_orders'][\$checkoutToken]") !== false
         && strpos($posSource, "sessionStorage.removeItem('pos_paymongo_checkout_token');") !== false,
     'POS retries reuse one attempt token until the committed order is recovered or shown successfully.'
@@ -61,6 +68,29 @@ pos_paymongo_checkout_assert(
         && strpos($posSource, "action: 'create_qrph'") !== false
         && strpos($posSource, 'Waiting for payment confirmation.') !== false,
     'POS QR Ph image, retry, and polling UI remain intact.'
+);
+pos_paymongo_checkout_assert(
+    preg_match('/checkoutData\.payment_pending[\s\S]{0,1200}syncedCartAction\(\'clear\'/', $posSource) !== 1,
+    'PayMongo QR Ph must not clear the cart before payment is confirmed.'
+);
+pos_paymongo_checkout_assert(
+    strpos($posSource, 'closePayMongoPosModal({ fullReset: true })') !== false
+        && strpos($posSource, 'function clearPosCartAfterSuccessfulSale') !== false
+        && strpos($posSource, 'function dismissPosQrphFlow') !== false
+        && strpos($posSource, 'posQrphFlowEpoch') !== false
+        && strpos($posSource, 'posAbandonPayMongoCheckout') !== false
+        && strpos($posSource, "action: 'abandon_qrph'") !== false,
+    'Dismissed QR PH flows invalidate pending state; confirmed sales clear the cart through the shared helper.'
+);
+$cartHandler = (string)file_get_contents(__DIR__ . '/../staff/api/pos_cart_handler.php');
+pos_paymongo_checkout_assert(
+    strpos($cartHandler, "case 'abandon_qrph':") !== false
+        && strpos($cartHandler, 'pos_void_session_pending_paymongo_checkouts') !== false,
+    'Cart handler cancels abandoned PayMongo checkout orders server-side.'
+);
+pos_paymongo_checkout_assert(
+    strpos($posSource, 'resumePayMongoPosModal') === false,
+    'POS must not auto-resume a PayMongo QR modal from session storage.'
 );
 
 $paymongoApi = (string)file_get_contents(__DIR__ . '/../staff/api/paymongo_payment.php');

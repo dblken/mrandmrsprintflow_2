@@ -111,6 +111,8 @@ require_once __DIR__ . '/../includes/staff_access.php';
 require_once __DIR__ . '/../includes/pos_dashboard_kpi.php';
 require_once __DIR__ . '/../includes/staff_status_filters.php';
 require_once __DIR__ . '/../includes/staff_dashboard_revenue.php';
+require_once __DIR__ . '/../includes/staff_dashboard_queries.php';
+require_once __DIR__ . '/../includes/staff_dashboard_cache.php';
 
 if ($__pf_debug_requested && defined('PRINTFLOW_DEBUG_SESSION_LOG') && PRINTFLOW_DEBUG_SESSION_LOG) {
     $sessionCookieName = session_name();
@@ -310,6 +312,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
     session_write_close();
 }
 
+printflow_staff_dashboard_ensure_indexes();
+
 $hasOrderType = function_exists('db_table_has_column') ? db_table_has_column('orders', 'order_type') : true;
 $hasOrderItemType = function_exists('db_table_has_column') ? db_table_has_column('order_items', 'item_type') : false;
 $hasOrderItemServiceId = function_exists('db_table_has_column') ? db_table_has_column('order_items', 'service_id') : false;
@@ -321,7 +325,7 @@ $serviceJoinSql = $hasOrderItemServiceId
     : 'LEFT JOIN services s ON oi.product_id = s.service_id';
 
 $page = max(1, (int)($_GET['page'] ?? 1));
-$limit = 15;
+$limit = printflow_staff_list_page_size();
 $offset = ($page - 1) * $limit;
 $search_filter = trim((string)($_GET['search'] ?? ''));
 $timeframe = strtolower(trim((string)($_GET['timeframe'] ?? 'today')));
@@ -343,6 +347,26 @@ $chartTimeParams = ($staffRole === 'pos') ? $timeMeta['params'] : $revenueTimeBo
 $statusMeta = printflow_staff_dashboard_status_sql('o', $status_filter, $staffRole);
 $statusLabels = printflow_staff_dashboard_status_labels($staffRole);
 $statusLabel = $status_filter !== '' ? ($statusLabels[$status_filter] ?? $status_filter) : 'All';
+
+$cacheKey = printflow_staff_dashboard_cache_key(
+    $staffBranchId,
+    $staffRole,
+    'bundle',
+    $timeframe,
+    $status_filter,
+    $page
+);
+if (empty($_GET['nocache']) && empty($search_filter)) {
+    $cachedPayload = printflow_staff_dashboard_cache_get($cacheKey, 90);
+    if (is_array($cachedPayload)) {
+        $flags = JSON_UNESCAPED_SLASHES;
+        if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+            $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+        }
+        echo json_encode($cachedPayload, $flags);
+        exit;
+    }
+}
 
 $productLabel = (($status_filter !== '' && $status_filter !== 'COMPLETED') ? $statusLabel : 'Completed') . ' Product Orders';
 $customLabel = (($status_filter !== '' && $status_filter !== 'COMPLETED') ? $statusLabel : 'Completed') . ' Customized Orders';
@@ -489,24 +513,16 @@ if (!$revenueEligible && $staffRole !== 'pos') {
     }
 }
 
-$topServices = db_query(
-    "SELECT
-        TRIM(REPLACE(REPLACE(REPLACE(COALESCE(jo.service_type, s.name, p.name, 'General'), ' Printing', ''), ' (Print/Cut)', ''), ' Print', '')) AS name,
-        COUNT(DISTINCT oi.order_item_id) AS order_count
-     FROM order_items oi
-     JOIN orders o ON oi.order_id = o.order_id
-     LEFT JOIN job_orders jo ON oi.order_item_id = jo.order_item_id
-     LEFT JOIN products p ON oi.product_id = p.product_id" . ($hasOrderItemType ? " AND COALESCE(NULLIF(oi.item_type, ''), 'product') = 'product'" : "") . "
-     {$serviceJoinSql}
-     WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$timeMeta['sql']} AND {$statusMeta['sql']}
-     GROUP BY name
-     ORDER BY order_count DESC, name ASC
-     LIMIT 10",
-    'i' . $timeMeta['types'] . $statusMeta['types'],
-    array_merge([$staffBranchId], $timeMeta['params'], $statusMeta['params'])
-) ?: [];
+$topServices = printflow_staff_dashboard_top_sales(
+    $staffBranchId,
+    $staffOrderScopeSql,
+    $timeMeta,
+    $statusMeta,
+    10
+);
 
-$sqlCond = " WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$timeMeta['sql']} AND {$statusMeta['sql']}";
+$recentVisibilitySql = printflow_staff_recent_orders_visibility_sql('o', $staffRole);
+$sqlCond = " WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$timeMeta['sql']} AND {$statusMeta['sql']} AND {$recentVisibilitySql}";
 $params = array_merge([$staffBranchId], $timeMeta['params'], $statusMeta['params']);
 $types = 'i' . $timeMeta['types'] . $statusMeta['types'];
 
@@ -557,7 +573,12 @@ foreach ($orders as &$order) {
     $order['status_html'] = function_exists('status_badge') ? status_badge($order['status'], 'order') : $order['status'];
     $order['formatted_date'] = date('M d, Y', strtotime((string)$order['order_date']));
     $order['formatted_total'] = $peso . number_format((float)$order['total_amount'], 2);
-    $order['manage_url'] = htmlspecialchars(printflow_staff_order_management_url((int)$order['order_id'], true), ENT_QUOTES, 'UTF-8');
+    $preferPendingLink = $staffRole !== 'pos';
+    $order['manage_url'] = htmlspecialchars(
+        printflow_staff_order_management_url((int)$order['order_id'], $preferPendingLink),
+        ENT_QUOTES,
+        'UTF-8'
+    );
 }
 unset($order);
 
@@ -601,6 +622,7 @@ if ($staffRole === 'pos') {
 
 $payload = [
     'success' => true,
+    '_branch_id' => $staffBranchId,
     'stats' => $stats,
     'chart' => [
         'labels' => $chartLabels,
@@ -616,6 +638,10 @@ $payload = [
         'current_page' => $page,
         'total_pages' => (int)ceil($totalRows / $limit),
         'total_rows' => $totalRows,
+        'html' => printflow_staff_dashboard_ajax_pagination_html(
+            $page,
+            (int)ceil($totalRows / $limit)
+        ),
     ],
 ];
 
@@ -644,9 +670,16 @@ if ($__pf_debug_allowed) {
     }
 }
 
+if (empty($_GET['nocache']) && empty($search_filter)) {
+    printflow_staff_dashboard_cache_set($cacheKey, $payload);
+}
+
+$clientPayload = $payload;
+unset($clientPayload['_branch_id']);
+
 $flags = JSON_UNESCAPED_SLASHES;
 if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
     $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
 }
-echo json_encode($payload, $flags);
+echo json_encode($clientPayload, $flags);
 exit;

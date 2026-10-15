@@ -14,6 +14,7 @@ printflow_require_staff_module('dashboard');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
 require_once __DIR__ . '/../includes/staff_status_filters.php';
 require_once __DIR__ . '/../includes/staff_dashboard_revenue.php';
+require_once __DIR__ . '/../includes/staff_dashboard_queries.php';
 
 $staffCtx = init_branch_context();
 $staffBranchId = $staffCtx['selected_branch_id'] === 'all' ? (int)($_SESSION['branch_id'] ?? 1) : (int)$staffCtx['selected_branch_id'];
@@ -41,7 +42,7 @@ $dashboardServiceJoinSql = $hasOrderItemServiceId
 
 // --- 1. SET DATE RANGE & FILTERS ---
 $page = max(1, (int)($_GET['page'] ?? 1));
-$limit = 15;
+$limit = printflow_staff_list_page_size();
 $offset = ($page - 1) * $limit;
 
 $status_filter = printflow_staff_dashboard_normalize_status_filter((string)($_GET['status'] ?? ''), $staffAccessMeta['key'] ?? null);
@@ -105,7 +106,30 @@ $has_timeframe_range = ($range_start !== null && $range_end !== null);
 $timeframe_sql = "DATE(o.order_date) BETWEEN ? AND ?";
 $timeframe_sql_no_alias = "DATE(order_date) BETWEEN ? AND ?";
 
+// POS walk-in dashboard: KPI cards only on first paint; chart, top sales, and orders load via API.
+$dashboard_deferred_sections = $is_pos_staff;
+
 // Get dashboard statistics (scoped to this staff member's branch)
+if ($dashboard_deferred_sections) {
+    $pending_orders = 0;
+    $processing_orders = 0;
+    $ready_orders = 0;
+    $completed_today = 0;
+    $total_orders_today = 0;
+    $total_sales_today = 0;
+    $completed_products_count = 0;
+    $completed_custom_count = 0;
+    $pending_reviews_count = 0;
+    $trend_labels = [];
+    $trend_values = [];
+    $top_services = [];
+    $recent_orders = [];
+    $total_rows = 0;
+    $total_pages = 0;
+    $low_stock = [];
+    $active_orders_count = 0;
+    $all_products_count = 0;
+} else {
 $pending_orders_result = db_query(
     "SELECT COUNT(*) as count FROM orders WHERE status IN ('Pending', 'Pending Review') AND branch_id = ? AND {$staffOrderScopeSqlNoAlias}",
     'i',
@@ -244,35 +268,25 @@ for ($i = 6; $i >= 0; $i--) {
     $trend_values[] = (float)($res[0]['total'] ?? 0);
 }
 
-// Top Sales (Dynamic Timeframe) (Scoped)
-$top_services_sql = "
-    SELECT COALESCE(p.name, s.name, 'Custom Product') as name, COUNT(*) as order_count
-    FROM order_items oi
-    JOIN orders o ON oi.order_id = o.order_id
-    {$dashboardProductJoinSql}
-    {$dashboardServiceJoinSql}
-    WHERE o.branch_id = ?
-      AND {$staffOrderScopeSql}
-      AND (
-          (p.product_id IS NOT NULL AND p.status = 'Activated')
-          OR (s.service_id IS NOT NULL AND s.status = 'Activated')
-          OR (p.product_id IS NULL AND s.service_id IS NULL)
-      )
-    GROUP BY name
-    ORDER BY order_count DESC
-    LIMIT 5";
-$top_services_types = 'i';
-$top_services_params = [$staffBranchId];
-if ($has_timeframe_range) {
-    $top_services_sql = str_replace('WHERE o.branch_id = ?', 'WHERE o.branch_id = ? AND ' . $timeframe_sql, $top_services_sql);
-    $top_services_types .= 'ss';
-    $top_services_params[] = $range_start;
-    $top_services_params[] = $range_end;
-}
-$top_services = db_query($top_services_sql, $top_services_types, $top_services_params);
+// Top Sales (confirmed paid / completed orders only)
+$dashboardStatusMeta = printflow_staff_dashboard_status_sql('o', $status_filter, $staffAccessMeta['key'] ?? null);
+$top_services = printflow_staff_dashboard_top_sales(
+    $staffBranchId,
+    $staffOrderScopeSql,
+    [
+        'start' => $range_start,
+        'end' => $range_end,
+        'sql' => $has_timeframe_range ? $timeframe_sql : '1=1',
+        'types' => $has_timeframe_range ? 'ss' : '',
+        'params' => $has_timeframe_range ? [$range_start, $range_end] : [],
+    ],
+    $dashboardStatusMeta,
+    5
+);
 
 // Recent Orders with filters (Scoped)
-$sql_cond = " WHERE o.branch_id = ? AND {$staffOrderScopeSql}";
+$recentVisibilitySql = printflow_staff_recent_orders_visibility_sql('o', $staffAccessMeta['key'] ?? null);
+$sql_cond = " WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$recentVisibilitySql}";
 $params = [$staffBranchId];
 $types = "i";
 
@@ -336,6 +350,7 @@ $low_stock = db_query("
 $active_orders_count = $pending_orders + $processing_orders + $ready_orders;
 $all_products_count = db_query("SELECT COUNT(*) as cnt FROM products WHERE status = 'Activated'")[0]['cnt'] ?? 0;
 $pending_reviews_count = db_query("SELECT COUNT(*) as cnt FROM reviews r LEFT JOIN orders o ON o.order_id=r.order_id WHERE r.order_id IS NULL OR r.order_id = 0 OR " . printflow_order_archive_scope_sql('o'))[0]['cnt'] ?? 0;
+} // end non-deferred dashboard queries
 
 $posKpiMetrics = null;
 $posKpiLinks = null;
@@ -674,11 +689,13 @@ function staffDashboardToolbar() {
                     <div class="content-transition">
                         <div id="top-sales-title" class="staff-dashboard-section-title" style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;">Top Sales (<?php echo $short_label; ?>)</div>
                         <div style="margin-top: 10px;" id="top-services-list">
-                            <?php if (!empty($top_services)): ?>
+                            <?php if ($dashboard_deferred_sections): ?>
+                                <p class="dashboard-section-loading" style="color: #64748b; font-size: 14px; text-align: center; padding: 20px;">Loading top sales…</p>
+                            <?php elseif (!empty($top_services)): ?>
                                 <?php foreach ($top_services as $service): ?>
                                     <div class="service-item">
                                         <span class="service-info truncate-ellipsis" title="<?php echo htmlspecialchars($service['name']); ?>"><?php echo htmlspecialchars($service['name']); ?></span>
-                                        <span class="service-count"><?php echo $service['order_count']; ?> Orders</span>
+                                        <span class="service-count"><?php echo (int)$service['order_count']; ?> Orders</span>
                                     </div>
                                 <?php endforeach; ?>
                             <?php else: ?>
@@ -709,7 +726,9 @@ function staffDashboardToolbar() {
                                 </tr>
                             </thead>
                             <tbody id="recent-orders-tbody">
-                                <?php if (!empty($recent_orders)): ?>
+                                <?php if ($dashboard_deferred_sections): ?>
+                                    <tr><td colspan="7" style="text-align:center; padding:40px; color:#64748b;">Loading recent orders…</td></tr>
+                                <?php elseif (!empty($recent_orders)): ?>
                                     <?php foreach ($recent_orders as $order): ?>
                                         <tr>
                                             <td style="font-weight:700;">#<?php echo $order['order_id']; ?></td>
@@ -721,7 +740,7 @@ function staffDashboardToolbar() {
                                                  <?php echo status_badge($order['status'], 'order'); ?>
                                              </td>
                                             <td style="text-align:right;">
-                                                <a href="<?php echo htmlspecialchars(printflow_staff_order_management_url((int)$order['order_id'], true)); ?>" class="btn-staff-action btn-staff-action-blue">Manage</a>
+                                                <a href="<?php echo htmlspecialchars(printflow_staff_order_management_url((int)$order['order_id'], !$is_pos_staff)); ?>" class="btn-staff-action btn-staff-action-blue">Manage</a>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -746,14 +765,12 @@ function staffDashboardToolbar() {
 </div><script>
 var salesChartInstance = null;
 var dashAbortController = null;
+var dashFetchInFlight = false;
+var dashLastFetchKey = '';
 
 async function refreshDashboard(page = 1, status = null, timeframe = null) {
     const main = document.getElementById('dashboard-main');
     if (!main) return;
-
-    // 1. Cancel previous pending request if it exists
-    if (dashAbortController) dashAbortController.abort();
-    dashAbortController = new AbortController();
 
     // Use passed values or fallback to hidden inputs
     if (status === null) {
@@ -764,6 +781,16 @@ async function refreshDashboard(page = 1, status = null, timeframe = null) {
         const tEl = document.getElementById('filter-timeframe');
         timeframe = tEl ? tEl.value : 'today';
     }
+    const fetchKey = `${page}|${status}|${timeframe}`;
+    if (dashFetchInFlight && dashLastFetchKey === fetchKey) {
+        return;
+    }
+    dashLastFetchKey = fetchKey;
+
+    // 1. Cancel previous pending request if it exists
+    if (dashAbortController) dashAbortController.abort();
+    dashAbortController = new AbortController();
+    dashFetchInFlight = true;
 
     // 2. Visual Feedback (Immediate)
     main.classList.add('is-loading');
@@ -886,21 +913,14 @@ async function refreshDashboard(page = 1, status = null, timeframe = null) {
         
         // 5. Update Pagination
         const pagWrapper = document.getElementById('paginationWrapper');
-        if (pagWrapper && data.pagination.total_pages > 1) {
-            let pagHtml = '<div style="display:flex; justify-content:center; gap:4px; margin-top:20px;">';
-            for (let i = 1; i <= data.pagination.total_pages; i++) {
-                const active = i === data.pagination.current_page ? 'background:var(--staff-pagination-active-bg); color:#fff; border-color:var(--staff-pagination-active-border);' : 'background:#fff; color:#64748b; border-color:#e2e8f0;';
-                pagHtml += `<button onclick="refreshDashboard(${i}, null, null)" style="width:32px; height:32px; border:1px solid; border-radius:8px; cursor:pointer; font-weight:700; font-size:12px; transition:all 0.2s; ${active}">${i}</button>`;
-            }
-            pagHtml += '</div>';
-            pagWrapper.innerHTML = pagHtml;
-        } else if (pagWrapper) {
-            pagWrapper.innerHTML = '';
+        if (pagWrapper) {
+            pagWrapper.innerHTML = (data.pagination && data.pagination.html) ? data.pagination.html : '';
         }
 
     } catch (err) {
         if (err.name !== 'AbortError') console.error('Dashboard error:', err);
     } finally {
+        dashFetchInFlight = false;
         setTimeout(() => main.classList.remove('is-loading'), 300);
     }
 }
@@ -989,14 +1009,21 @@ function updateSalesChart(labels, values) {
     });
 }
 
+let dashboardInteractionsBound = false;
+
 function initDashboardInteractions() {
     refreshDashboard(1);
-    
+
+    if (dashboardInteractionsBound) {
+        return;
+    }
+    dashboardInteractionsBound = true;
+
     const sEl = document.getElementById('filter-status');
     const tEl = document.getElementById('filter-timeframe');
     if (sEl) sEl.addEventListener('change', () => refreshDashboard(1));
     if (tEl) tEl.addEventListener('change', () => refreshDashboard(1));
-    
+
     const fForm = document.getElementById('filter-form');
     if (fForm) fForm.addEventListener('submit', (e) => { e.preventDefault(); refreshDashboard(1); });
 }
@@ -1006,7 +1033,10 @@ if (document.readyState === 'complete' || document.readyState === 'interactive')
 } else {
     document.addEventListener('DOMContentLoaded', initDashboardInteractions);
 }
-document.addEventListener('turbo:load', initDashboardInteractions);
+document.addEventListener('turbo:load', () => {
+    dashboardInteractionsBound = false;
+    initDashboardInteractions();
+});
 </script>
 
 </body>

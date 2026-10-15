@@ -1709,6 +1709,42 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             justify-self: end;
         }
 
+        .pos-qrph-payment-section {
+            display: none;
+            margin-top: 12px;
+            padding: 12px 14px;
+            border: 1px solid #99f6e4;
+            border-radius: 12px;
+            background: #ecfdf5;
+            text-align: left;
+        }
+
+        .pos-qrph-payment-section.is-visible {
+            display: block;
+        }
+
+        .pos-qrph-payment-section[hidden] {
+            display: none !important;
+        }
+
+        .pos-qrph-generate-btn {
+            margin-top: 0;
+            width: 100%;
+            padding: 10px 12px;
+            border: 0;
+            border-radius: 10px;
+            background: #0f766e;
+            color: #fff;
+            font-weight: 800;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .pos-qrph-generate-btn:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+        }
+
         .pos-tender-wrap {
             position: relative;
             min-width: 148px;
@@ -3199,11 +3235,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                         Payment Method
                                     </label>
                                     <select id="pos-payment-method" class="pos-category-select pos-payment-field"
-                                        onchange="toggleReferenceField()">
+                                        aria-controls="pos-qrph-payment-section tender-group change-group">
                                         <option value="Cash">Cash</option>
-                                        <?php if ($posPayMongoQrphAvailable): ?><option value="PayMongo QRPh">PayMongo QR Ph</option><?php endif; ?>
+                                        <?php if ($posPayMongoQrphAvailable): ?><option value="PayMongo QRPh">QR PH</option><?php endif; ?>
                                     </select>
                                 </div>
+
+                                <?php if ($posPayMongoQrphAvailable): ?>
+                                <div id="pos-qrph-payment-section" class="pos-qrph-payment-section" hidden>
+                                    <button type="button" id="pos-qrph-generate-btn" class="pos-qrph-generate-btn" onclick="launchPosQrphPayment('button')">Generate QR PH Payment</button>
+                                </div>
+                                <?php endif; ?>
 
                                 <div class="pos-tender-group" id="tender-group">
                                     <label class="pos-summary-label" for="pos-tendered">
@@ -3630,6 +3672,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
         let paymongoPollTimer = null;
         let paymongoCountdownTimer = null;
+        /** Bumped when the cart or staff dismisses QR PH; stale checkout/poll handlers must ignore results. */
+        let posQrphFlowEpoch = 0;
+        let paymongoModalEpoch = null;
         let pendingPayMongoPayment = null;
         let pendingPayMongoReceipt = null;
         let pendingPayMongoOrderId = 0;
@@ -4641,19 +4686,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         document.addEventListener('DOMContentLoaded', async () => {
             updatePosTransactionDateTimeSummaryUI();
+            initPosPaymentMethodHandlers();
+            toggleReferenceField();
             fetchProducts();
-            refreshCart(); // Initialize cart from session
-            const pendingPayMongo = sessionStorage.getItem('pos_paymongo_pending');
-            if (pendingPayMongo) {
-                try {
-                    const savedPayment = JSON.parse(pendingPayMongo);
-                    if (Number(savedPayment.order_id) > 0) {
-                        resumePayMongoPosModal(Number(savedPayment.order_id));
-                    }
-                } catch (error) {
-                    sessionStorage.removeItem('pos_paymongo_pending');
-                }
-            }
+            await refreshCart(); // Initialize cart from session
+            dismissPosQrphFlow({ closeModal: true, clearToken: false, bumpEpoch: false });
+            posSyncQrphStateWithCart();
             const barcodeInputs = Array.from(document.querySelectorAll('.pos-barcode-entry'));
             const searchEl = document.getElementById('pos-search');
             const catEl = document.getElementById('pos-category');
@@ -7153,7 +7191,124 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             document.getElementById('pos-total').textContent = fTotal;
 
             calculateChange();
+            posSyncQrphStateWithCart();
             updateCheckoutState();
+        }
+
+        function posCartTotalCentavos() {
+            return Math.round((Number(currentTotal) || 0) * 100);
+        }
+
+        function posQrphFlowStillValid(expectedEpoch, expectedTotalCentavos = null) {
+            if (expectedEpoch !== posQrphFlowEpoch) {
+                return false;
+            }
+            if (!Array.isArray(cart) || cart.length === 0) {
+                return false;
+            }
+            if (expectedTotalCentavos !== null && posCartTotalCentavos() !== expectedTotalCentavos) {
+                return false;
+            }
+            return true;
+        }
+
+        function clearPayMongoPosModalPresentation() {
+            const modal = document.getElementById('paymongo-pos-modal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+            const qrImage = document.getElementById('paymongo-pos-qr');
+            if (qrImage) {
+                qrImage.style.display = 'none';
+                qrImage.removeAttribute('src');
+            }
+            const reference = document.getElementById('paymongo-pos-reference');
+            if (reference) {
+                reference.textContent = '';
+            }
+            const countdown = document.getElementById('paymongo-pos-countdown');
+            if (countdown) {
+                countdown.textContent = '';
+            }
+        }
+
+        async function posAbandonPayMongoCheckout(options = {}) {
+            const checkoutToken = sessionStorage.getItem('pos_paymongo_checkout_token') || '';
+            const orderId = Number(pendingPayMongoOrderId || 0);
+            if (!checkoutToken && orderId <= 0) {
+                return { success: true, skipped: true };
+            }
+            try {
+                const response = await fetchWithTimeout(staffUrl('staff/api/pos_cart_handler.php'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'abandon_qrph',
+                        checkout_token: checkoutToken,
+                        order_id: orderId,
+                        csrf_token: POS_CSRF_TOKEN
+                    })
+                }, Number(options.timeoutMs || 8000));
+                const data = await response.json().catch(() => ({}));
+                return { success: response.ok && data.success !== false, data };
+            } catch (err) {
+                if (!options.silent) {
+                    console.warn('posAbandonPayMongoCheckout failed:', err);
+                }
+                return { success: false };
+            }
+        }
+
+        async function dismissPosQrphFlow(options = {}) {
+            const closeModal = options.closeModal !== false;
+            const clearToken = options.clearToken !== false;
+            const bumpEpoch = options.bumpEpoch !== false;
+            const abandonCheckout = clearToken && (
+                pendingPayMongoOrderId > 0
+                || !!sessionStorage.getItem('pos_paymongo_checkout_token')
+                || !!sessionStorage.getItem('pos_paymongo_pending')
+            );
+            if (abandonCheckout) {
+                await posAbandonPayMongoCheckout({ silent: true });
+            }
+            if (bumpEpoch) {
+                posQrphFlowEpoch += 1;
+            }
+            paymongoModalEpoch = null;
+            if (closeModal) {
+                clearPayMongoPosModalPresentation();
+            }
+            stopPayMongoPosPolling();
+            pendingPayMongoPayment = null;
+            pendingPayMongoReceipt = null;
+            pendingPayMongoPrintJob = null;
+            pendingPayMongoOrderId = 0;
+            posPayMongoCheckoutPending = false;
+            posQrphLaunchInFlight = false;
+            posQrphPanelError = '';
+            resetPayMongoPosCheckoutState(clearToken);
+            syncPosQrphPaymentSection();
+        }
+
+        function posSyncQrphStateWithCart() {
+            const centavos = posCartTotalCentavos();
+            const tokenTotalCentavos = Number(sessionStorage.getItem('pos_paymongo_checkout_token_total') || -1);
+            const hasPendingQrSession = !!sessionStorage.getItem('pos_paymongo_pending')
+                || pendingPayMongoOrderId > 0
+                || isPayMongoPosModalOpen();
+            if (!Array.isArray(cart) || cart.length === 0) {
+                if (hasPendingQrSession || isPayMongoPosModalOpen()) {
+                    dismissPosQrphFlow({ closeModal: true, clearToken: true });
+                } else {
+                    syncPosQrphPaymentSection();
+                }
+                return;
+            }
+            if (hasPendingQrSession && tokenTotalCentavos >= 0 && tokenTotalCentavos !== centavos) {
+                dismissPosQrphFlow({ closeModal: true, clearToken: true });
+                return;
+            }
+            syncPosQrphPaymentSection();
         }
 
         // Handlers are used above in renderCart via 'index' directly
@@ -7162,11 +7317,145 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         // Handlers are used above in renderCart via 'index' directly
 
 
-        function toggleReferenceField() {
-            const pm = document.getElementById('pos-payment-method').value;
+        const POS_PAYMENT_METHOD_QRPH = 'PayMongo QRPh';
+
+        function normalizePosPaymentMethod(method) {
+            const key = String(method || '').trim().toLowerCase().replace(/\s+/g, ' ');
+            if (key === 'paymongo qrph' || key === 'paymongo qr ph') {
+                return POS_PAYMENT_METHOD_QRPH;
+            }
+            return String(method || '').trim();
+        }
+
+        function isPayMongoPaymentMethod(method) {
+            return normalizePosPaymentMethod(method) === POS_PAYMENT_METHOD_QRPH;
+        }
+
+        let posQrphPanelError = '';
+        let posQrphLaunchInFlight = false;
+
+        function posQrphReadinessMessage() {
+            if (!Array.isArray(cart) || cart.length === 0) {
+                return 'Add items to the cart to generate the QR PH payment.';
+            }
+            if (!$('#pos-customer').val()) {
+                return 'Select a customer to generate the QR PH payment.';
+            }
+            if (cart.some(i => posCartItemShowsSetPriceButton(i))
+                || cart.some(i => !posCartItemCountsInCheckoutTotal(i) || (parseFloat(i.price) || 0) <= 0)) {
+                return 'Set a price for every item before generating the QR PH payment.';
+            }
+            if (!(currentTotal > 0)) {
+                return 'Cart total must be greater than ₱0.00.';
+            }
+            return '';
+        }
+
+        function setPosQrphPanelError(message) {
+            posQrphPanelError = String(message || '');
+            syncPosQrphPaymentSection();
+        }
+
+        function syncPosQrphPaymentSection() {
+            const section = document.getElementById('pos-qrph-payment-section');
+            const generateBtn = document.getElementById('pos-qrph-generate-btn');
+            if (!section) {
+                return;
+            }
+            const pm = document.getElementById('pos-payment-method')?.value || '';
             const isPayMongo = isPayMongoPaymentMethod(pm);
-            document.getElementById('tender-group').style.display = isPayMongo ? 'none' : '';
-            document.getElementById('change-group').style.display = isPayMongo ? 'none' : '';
+            const cartHasItems = Array.isArray(cart) && cart.length > 0;
+            const showSection = isPayMongo && cartHasItems;
+            section.hidden = !showSection;
+            section.classList.toggle('is-visible', showSection);
+            section.style.display = showSection ? '' : 'none';
+            if (!isPayMongo) {
+                posQrphPanelError = '';
+            }
+            const readiness = isPayMongo ? posQrphReadinessMessage() : '';
+            const busy = posQrphLaunchInFlight || posCheckoutRequestInFlight || posCheckoutConfirmOpen;
+            if (generateBtn) {
+                generateBtn.disabled = !isPayMongo || !!readiness || busy;
+                generateBtn.textContent = busy ? 'Generating…' : 'Generate QR PH Payment';
+            }
+        }
+
+        function isPayMongoPosModalOpen() {
+            const modal = document.getElementById('paymongo-pos-modal');
+            return !!modal && modal.style.display !== 'none' && modal.style.display !== '';
+        }
+
+        /**
+         * Reuse the existing POS checkout -> PayMongo Dynamic QR Ph flow.
+         * Guards against duplicate Payment Intent creation when the dropdown
+         * changes or the button is clicked repeatedly.
+         */
+        async function launchPosQrphPayment(source = 'select') {
+            const pm = document.getElementById('pos-payment-method')?.value || '';
+            if (!isPayMongoPaymentMethod(pm)) {
+                return;
+            }
+            if (posQrphLaunchInFlight || posCheckoutRequestInFlight || posCheckoutConfirmOpen || isPayMongoPosModalOpen()) {
+                return;
+            }
+            const readiness = posQrphReadinessMessage();
+            if (readiness) {
+                if (source === 'button') {
+                    showPOSAlert('QR PH Payment', readiness, 'warning');
+                }
+                return;
+            }
+            posQrphLaunchInFlight = true;
+            posQrphPanelError = '';
+            syncPosQrphPaymentSection();
+            try {
+                await processCheckout();
+            } catch (error) {
+                setPosQrphPanelError((error && error.message) ? error.message : 'The QR PH payment could not be created.');
+            } finally {
+                posQrphLaunchInFlight = false;
+                syncPosQrphPaymentSection();
+            }
+        }
+
+        function initPosPaymentMethodHandlers() {
+            const paymentSelect = document.getElementById('pos-payment-method');
+            if (!paymentSelect || paymentSelect.dataset.posPaymentBound === '1') {
+                return;
+            }
+            paymentSelect.dataset.posPaymentBound = '1';
+            paymentSelect.addEventListener('change', function() {
+                if (!isPayMongoPaymentMethod(paymentSelect.value)) {
+                    dismissPosQrphFlow({ closeModal: true, clearToken: true });
+                    toggleReferenceField();
+                    return;
+                }
+                toggleReferenceField();
+                launchPosQrphPayment('select');
+            });
+        }
+
+        function toggleReferenceField() {
+            const paymentSelect = document.getElementById('pos-payment-method');
+            const pm = paymentSelect ? paymentSelect.value : '';
+            const isPayMongo = isPayMongoPaymentMethod(pm);
+            const tenderGroup = document.getElementById('tender-group');
+            const changeGroup = document.getElementById('change-group');
+            if (tenderGroup) {
+                tenderGroup.style.display = isPayMongo ? 'none' : '';
+                tenderGroup.hidden = isPayMongo;
+            }
+            if (changeGroup) {
+                changeGroup.style.display = isPayMongo ? 'none' : '';
+                changeGroup.hidden = isPayMongo;
+            }
+            syncPosQrphPaymentSection();
+            if (isPayMongo) {
+                const section = document.getElementById('pos-qrph-payment-section');
+                if (section && typeof section.scrollIntoView === 'function') {
+                    section.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                }
+            }
             updateCheckoutState();
         }
 
@@ -7376,10 +7665,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return payload;
         }
 
-        function isPayMongoPaymentMethod(method) {
-            return String(method || '').trim() === 'PayMongo QRPh';
-        }
-
         function calculateChange() {
             if (currentTotal === 0) {
                 document.getElementById('pos-change').textContent = formatMoney(0);
@@ -7533,14 +7818,23 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             posCheckoutRequestInFlight = true;
             updateCheckoutState();
+            syncPosQrphPaymentSection();
 
+            const checkoutFlowEpoch = posQrphFlowEpoch;
             resetPayMongoPosCheckoutState(false);
-            const checkoutToken = getPosPayMongoCheckoutToken();
+            // A retry token may only be reused for the same cart total; otherwise the
+            // server would hand back the earlier order's QR with a stale amount.
+            const requestTotalCentavos = Math.round(currentTotal * 100);
+            const tokenTotalCentavos = Number(sessionStorage.getItem('pos_paymongo_checkout_token_total') || -1);
+            const checkoutToken = getPosPayMongoCheckoutToken(
+                isPayMongoPaymentMethod(pm) && tokenTotalCentavos >= 0 && tokenTotalCentavos !== requestTotalCentavos
+            );
+            sessionStorage.setItem('pos_paymongo_checkout_token_total', String(requestTotalCentavos));
             posPayMongoCheckoutPending = true;
             const payload = {
                 action: 'walkin_checkout',
                 ...posCheckoutCustomerPayload(),
-                payment_method: pm,
+                payment_method: normalizePosPaymentMethod(pm),
                 reference_number: '',
                 amount_tendered: tendered,
                 csrf_token: POS_CSRF_TOKEN,
@@ -7606,34 +7900,40 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 posCheckoutConfirmOpen = false;
                 posCheckoutRequestInFlight = false;
                 updateCheckoutState();
+                syncPosQrphPaymentSection();
                 console.log('[POS CHECKOUT] UI unlocked');
             }
 
             if (checkoutErrorMessage) {
+                if (isPayMongoPaymentMethod(pm)) {
+                    setPosQrphPanelError(checkoutErrorMessage);
+                }
                 await showPOSAlert('Checkout Failed', checkoutErrorMessage, 'error');
                 return;
             }
             if (!checkoutData) return;
 
             posPayMongoCheckoutPending = false;
-            resetPayMongoPosCheckoutState();
 
             if (checkoutData.payment_pending && checkoutData.payment) {
-                openPayMongoPosModal(checkoutData.order_id, checkoutData.payment);
-                const clearResult = await syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000});
-                if (!clearResult.success) {
-                    cart = [];
-                    renderCart();
-                    updateCheckoutState();
+                if (!posQrphFlowStillValid(checkoutFlowEpoch, requestTotalCentavos)) {
+                    console.warn('[POS CHECKOUT] Ignoring stale PayMongo QR response after cart or flow change.');
+                    return;
                 }
+                const paymentAmountCentavos = Number(checkoutData.payment.amount || 0);
+                if (paymentAmountCentavos > 0 && paymentAmountCentavos !== requestTotalCentavos) {
+                    console.warn('[POS CHECKOUT] PayMongo amount differs from cart total', {
+                        cart_total_centavos: requestTotalCentavos,
+                        paymongo_amount_centavos: paymentAmountCentavos,
+                        order_id: checkoutData.order_id
+                    });
+                }
+                posQrphPanelError = '';
+                openPayMongoPosModal(checkoutData.order_id, checkoutData.payment, checkoutFlowEpoch);
                 return;
             }
 
-            document.getElementById('pos-payment-method').value = 'Cash';
-            document.getElementById('pos-tendered').value = '';
-            toggleReferenceField();
-            calculateChange();
-            resetPosCheckoutTransactionDateTime();
+            resetPayMongoPosCheckoutState();
 
             if (checkoutData.receipt && checkoutData.order_id) {
                 try {
@@ -7655,6 +7955,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 );
             }
 
+            await clearPosCartAfterSuccessfulSale();
+        }
+
+        async function clearPosCartAfterSuccessfulSale() {
+            document.getElementById('pos-payment-method').value = 'Cash';
+            document.getElementById('pos-tendered').value = '';
+            toggleReferenceField();
+            calculateChange();
+            resetPosCheckoutTransactionDateTime();
             const clearResult = await syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000});
             if (!clearResult.success) {
                 cart = [];
@@ -7690,11 +7999,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return posPayMongoCheckoutAttemptToken;
         }
 
-        function resetPayMongoPosCheckoutState(clearCheckoutToken = true) {
+        function stopPayMongoPosPolling() {
             if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
             if (paymongoCountdownTimer) window.clearInterval(paymongoCountdownTimer);
             paymongoPollTimer = null;
             paymongoCountdownTimer = null;
+        }
+
+        function resetPayMongoPosCheckoutState(clearCheckoutToken = true) {
+            stopPayMongoPosPolling();
             pendingPayMongoPayment = null;
             pendingPayMongoReceipt = null;
             pendingPayMongoPrintJob = null;
@@ -7704,13 +8017,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (clearCheckoutToken) {
                 posPayMongoCheckoutAttemptToken = null;
                 sessionStorage.removeItem('pos_paymongo_checkout_token');
+                sessionStorage.removeItem('pos_paymongo_checkout_token_total');
             }
         }
 
-        function closePayMongoPosModal() {
-            document.getElementById('paymongo-pos-modal').style.display = 'none';
-            document.getElementById('paymongo-pos-reference').textContent = '';
-            resetPayMongoPosCheckoutState();
+        function closePayMongoPosModal(options = {}) {
+            if (options.fullReset === true) {
+                paymongoModalEpoch = null;
+                clearPayMongoPosModalPresentation();
+                stopPayMongoPosPolling();
+                resetPayMongoPosCheckoutState(true);
+                syncPosQrphPaymentSection();
+                return;
+            }
+            dismissPosQrphFlow({ closeModal: true, clearToken: true });
         }
 
         function renderPayMongoPosPayment(payment) {
@@ -7768,22 +8088,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
         }
 
-        async function resumePayMongoPosModal(orderId) {
-            try {
-                const url = staffUrl('staff/api/paymongo_payment.php')
-                    + '?subject_type=order&subject_id=' + encodeURIComponent(orderId)
-                    + '&channel=pos&_=' + Date.now();
-                const response = await fetch(url, {cache: 'no-store'});
-                const data = await response.json();
-                if (response.ok && data.success && data.payment) openPayMongoPosModal(orderId, data.payment);
-                else sessionStorage.removeItem('pos_paymongo_pending');
-            } catch (error) {
-                // Keep the saved order reference so a page refresh can retry safely.
-            }
-        }
-
         async function retryPayMongoPosQr() {
-            if (pendingPayMongoOrderId <= 0) return;
+            if (pendingPayMongoOrderId <= 0 || !Array.isArray(cart) || cart.length === 0) return;
             const retryButton = document.getElementById('paymongo-pos-retry');
             retryButton.disabled = true;
             document.getElementById('paymongo-pos-status').textContent = 'Generating a new QR Ph code...';
@@ -7801,7 +8107,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 });
                 const data = await response.json();
                 if (!response.ok || !data.success || !data.payment) throw new Error(data.message || 'A new QR could not be generated.');
-                openPayMongoPosModal(pendingPayMongoOrderId, data.payment);
+                openPayMongoPosModal(pendingPayMongoOrderId, data.payment, posQrphFlowEpoch);
             } catch (error) {
                 document.getElementById('paymongo-pos-status').textContent = error.message || 'A new QR could not be generated.';
             } finally {
@@ -7809,7 +8115,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
         }
 
-        function openPayMongoPosModal(orderId, payment) {
+        function openPayMongoPosModal(orderId, payment, flowEpoch = posQrphFlowEpoch) {
+            if (!posQrphFlowStillValid(flowEpoch)) {
+                return;
+            }
             const modal = document.getElementById('paymongo-pos-modal');
             const completeButton = document.getElementById('paymongo-pos-complete');
             completeButton.disabled = true;
@@ -7818,18 +8127,22 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             pendingPayMongoReceipt = null;
             pendingPayMongoPrintJob = null;
             pendingPayMongoOrderId = Number(orderId);
+            paymongoModalEpoch = flowEpoch;
             sessionStorage.setItem('pos_paymongo_pending', JSON.stringify({order_id: pendingPayMongoOrderId}));
             renderPayMongoPosPayment(payment);
             modal.style.display = 'flex';
             if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
             const finishPaidPosTransaction = async (data) => {
-                if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
-                paymongoPollTimer = null;
+                stopPayMongoPosPolling();
                 if (data?.receipt_available && data?.receipt) {
                     pendingPayMongoReceipt = data.receipt;
                     pendingPayMongoPrintJob = data.print_job || null;
-                    closePayMongoPosModal();
+                    sessionStorage.removeItem('pos_paymongo_pending');
+                    sessionStorage.removeItem('pos_paymongo_checkout_token');
+                    sessionStorage.removeItem('pos_paymongo_checkout_token_total');
+                    closePayMongoPosModal({ fullReset: true });
                     openReceiptModal(data.receipt);
+                    await clearPosCartAfterSuccessfulSale();
                     pendingPayMongoOrderId = 0;
                     return true;
                 }
@@ -7842,12 +8155,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return false;
             };
             const poll = async () => {
+                if (paymongoModalEpoch !== posQrphFlowEpoch || !Array.isArray(cart) || cart.length === 0) {
+                    stopPayMongoPosPolling();
+                    clearPayMongoPosModalPresentation();
+                    return;
+                }
                 try {
                     const url = staffUrl('staff/api/paymongo_payment.php')
                         + '?subject_type=order&subject_id=' + encodeURIComponent(orderId)
                         + '&channel=pos&_=' + Date.now();
                     const response = await fetch(url, {cache: 'no-store'});
                     const data = await response.json();
+                    if (paymongoModalEpoch !== posQrphFlowEpoch) {
+                        stopPayMongoPosPolling();
+                        return;
+                    }
                     if (data.success && data.payment) {
                         renderPayMongoPosPayment(data.payment);
                         if (['failed', 'expired', 'cancelled'].includes(String(data.payment.status || '').toLowerCase())) {
@@ -7874,8 +8196,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (pendingPayMongoReceipt) {
                 sessionStorage.removeItem('pos_paymongo_pending');
                 sessionStorage.removeItem('pos_paymongo_checkout_token');
-                closePayMongoPosModal();
+                sessionStorage.removeItem('pos_paymongo_checkout_token_total');
+                closePayMongoPosModal({ fullReset: true });
                 openReceiptModal(pendingPayMongoReceipt);
+                await clearPosCartAfterSuccessfulSale();
                 pendingPayMongoOrderId = 0;
                 return;
             }
@@ -7899,14 +8223,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (!response.ok || !data.success || !data.receipt) {
                     throw new Error(data.message || 'The transaction could not be completed.');
                 }
-                if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
-                paymongoPollTimer = null;
+                stopPayMongoPosPolling();
                 pendingPayMongoReceipt = data.receipt;
                 pendingPayMongoPrintJob = data.print_job || null;
                 sessionStorage.removeItem('pos_paymongo_pending');
                 sessionStorage.removeItem('pos_paymongo_checkout_token');
-                closePayMongoPosModal();
+                sessionStorage.removeItem('pos_paymongo_checkout_token_total');
+                closePayMongoPosModal({ fullReset: true });
                 openReceiptModal(data.receipt);
+                await clearPosCartAfterSuccessfulSale();
                 pendingPayMongoOrderId = 0;
             } catch (error) {
                 completeButton.disabled = false;

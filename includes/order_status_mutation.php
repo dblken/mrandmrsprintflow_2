@@ -12,6 +12,7 @@ require_once __DIR__ . '/InventoryManager.php';
 require_once __DIR__ . '/JobOrderService.php';
 require_once __DIR__ . '/provider_payments.php';
 require_once __DIR__ . '/change_item_workflow.php';
+require_once __DIR__ . '/order_completion_payment.php';
 
 if (!function_exists('printflow_staff_mutate_order_status')) {
     /**
@@ -43,8 +44,11 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                 throw new RuntimeException('Unable to start order update transaction.');
             }
 
+            $amountPaidSelect = db_table_has_column('orders', 'amount_paid') ? ', amount_paid' : '';
             $rows = db_query(
-                'SELECT status, payment_status, total_amount, branch_id, customer_id, order_type, order_source, reference_id FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE',
+                'SELECT status, payment_status, total_amount, branch_id, customer_id, order_type, order_source, reference_id'
+                . $amountPaidSelect
+                . ' FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE',
                 'i',
                 [$orderId]
             ) ?: [];
@@ -174,17 +178,36 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                         '_http_status' => 409,
                     ];
                 }
-                $paymentStatus = strtolower(trim((string)($order['payment_status'] ?? '')));
-                if (!in_array($paymentStatus, ['paid', 'fully paid'], true)) {
+                $orderSource = strtolower(trim((string)($order['order_source'] ?? '')));
+                if ($orderSource === 'pos_merged') {
                     if ($transactionStarted) {
                         $conn->rollback();
                     }
                     return [
                         'success' => false,
-                        'error' => 'Cannot mark as Completed: payment must be Paid.',
-                        'payment_status' => (string)($order['payment_status'] ?? 'Unpaid'),
+                        'error' => 'This is an archived POS draft shell. Refresh the list and complete the active POS order instead.',
                         '_http_status' => 409,
                     ];
+                }
+                $paymentGate = printflow_order_staff_completion_payment_gate($orderId, $order);
+                if (!$paymentGate['allowed']) {
+                    if ($transactionStarted) {
+                        $conn->rollback();
+                    }
+                    return [
+                        'success' => false,
+                        'error' => (string)($paymentGate['reason'] ?? 'Cannot mark as Completed: payment must be Paid.'),
+                        'payment_status' => (string)($paymentGate['payment_status'] ?? 'Unpaid'),
+                        '_http_status' => 409,
+                    ];
+                }
+                if (!empty($paymentGate['sync_payment_status'])) {
+                    db_execute(
+                        "UPDATE orders SET payment_status = ?, updated_at = NOW() WHERE order_id = ?",
+                        'si',
+                        [(string)$paymentGate['sync_payment_status'], $orderId]
+                    );
+                    $order['payment_status'] = (string)$paymentGate['sync_payment_status'];
                 }
                 if ($isReadyMadeProductOrder) {
                     $providerPayment = printflow_provider_payment_find('order', $orderId, 'online', printflow_paymongo_mode());
@@ -289,6 +312,11 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
 
             if ($transactionStarted) {
                 $conn->commit();
+            }
+            $branchIdForCache = (int)($order['branch_id'] ?? 0);
+            if ($branchIdForCache > 0 && is_file(__DIR__ . '/staff_dashboard_cache.php')) {
+                require_once __DIR__ . '/staff_dashboard_cache.php';
+                printflow_staff_dashboard_cache_invalidate_branch($branchIdForCache);
             }
             return [
                 'success' => true,

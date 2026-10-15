@@ -583,6 +583,18 @@ try {
             }
             break;
 
+        case 'abandon_qrph':
+            $checkoutToken = strtolower(trim((string)($data['checkout_token'] ?? '')));
+            if ($checkoutToken !== '' && !preg_match('/^[a-f0-9]{32,64}$/', $checkoutToken)) {
+                throw new Exception('Invalid checkout token.');
+            }
+            $explicitOrderId = (int)($data['order_id'] ?? 0);
+            pos_void_session_pending_paymongo_checkouts(
+                $checkoutToken !== '' ? $checkoutToken : null,
+                $explicitOrderId
+            );
+            break;
+
         case 'clear':
             $draftOrderIds = [];
             foreach ($_SESSION['pos_cart'] as $cartItem) {
@@ -595,6 +607,7 @@ try {
             }
             $_SESSION['pos_cart'] = [];
             pos_void_unfinalized_drafts($draftOrderIds);
+            pos_void_session_pending_paymongo_checkouts();
             break;
 
         case 'void_draft':
