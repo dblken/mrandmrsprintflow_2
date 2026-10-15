@@ -22,11 +22,10 @@ $posPayMongoQrphAvailable = $posPayMongoAvailable
 require_role(['Admin', 'Staff']);
 printflow_require_staff_module('pos');
 require_once __DIR__ . '/../includes/pos_custom_transaction_datetime.php';
-$pos_can_custom_transaction_datetime = printflow_pos_can_custom_transaction_datetime();
+// Counter Staff walk-in POS always exposes backdate controls; checkout API enforces authorization.
+$pos_can_custom_transaction_datetime = true;
 $pos_manila_today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
-if ($pos_can_custom_transaction_datetime) {
-    $GLOBALS['printflow_allow_past_needed_date'] = true;
-}
+$GLOBALS['printflow_allow_past_needed_date'] = true;
 
 // Resolve and lock staff branch into session
 $_pos_branch_ctx = init_branch_context(false);
@@ -1023,6 +1022,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-order-datetime-section {
+            display: block !important;
+            visibility: visible !important;
             margin: 0 0 12px;
             padding: 12px 14px;
             border: 1px solid #bfdbfe;
@@ -3162,17 +3163,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             </div>
                         </div>
 
-                        <?php if ($pos_can_custom_transaction_datetime): ?>
-                        <section id="pos-checkout-transaction-datetime-compact" class="pos-order-datetime-section" aria-label="Order date and time">
-                            <div class="pos-transaction-datetime-compact">
-                                <button type="button" id="pos-open-transaction-datetime-btn" class="pos-transaction-datetime-open-btn" onclick="openPosTransactionDateTimeModal()">
-                                    <i class="fas fa-calendar-alt" aria-hidden="true"></i> Set Date &amp; Time
-                                </button>
-                                <p id="pos-transaction-datetime-summary" class="pos-transaction-datetime-summary" aria-live="polite">Date/Time: Current server time</p>
-                            </div>
-                        </section>
-                        <?php endif; ?>
-
                         <div class="pos-cart-list" id="pos-cart-items">
                             <div class="pos-empty-state">
                                 <i class="fas fa-shopping-cart"></i>
@@ -3234,6 +3224,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             </div>
 
                             <div class="pos-checkout-footer">
+                            <!-- pos-datetime-feature: staff-walkin-20261016 -->
+                            <section id="pos-checkout-transaction-datetime-compact" class="pos-order-datetime-section" aria-label="Order date and time">
+                                <div class="pos-transaction-datetime-compact">
+                                    <button type="button" id="pos-open-transaction-datetime-btn" class="pos-transaction-datetime-open-btn" onclick="openPosTransactionDateTimeModal()">
+                                        <i class="fas fa-calendar-alt" aria-hidden="true"></i> Set Date &amp; Time
+                                    </button>
+                                    <p id="pos-transaction-datetime-summary" class="pos-transaction-datetime-summary" aria-live="polite">Date/Time: Current server time (Manila)</p>
+                                </div>
+                            </section>
                             <button class="pos-btn-checkout" id="pos-checkout-btn" disabled onclick="processCheckout()">
                                 <i class="fas fa-lock" id="checkout-icon"></i> <span id="checkout-text">Select
                                     Items</span>
@@ -3248,7 +3247,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         </div>
     </div>
 
-    <?php if ($pos_can_custom_transaction_datetime): ?>
     <div id="pos-transaction-datetime-modal" class="pos-tx-datetime-modal-overlay" hidden aria-hidden="true"
         onclick="if(event.target===this)closePosTransactionDateTimeModal()">
         <div class="pos-tx-datetime-modal" role="dialog" aria-modal="true" aria-labelledby="pos-tx-datetime-modal-title">
@@ -3280,7 +3278,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             </div>
         </div>
     </div>
-    <?php endif; ?>
 
     <div id="paymongo-pos-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10020;align-items:center;justify-content:center;padding:16px;">
         <div style="background:#fff;width:min(360px,100%);padding:24px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.28);">
@@ -7697,6 +7694,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 custom_transaction_time: useCustom ? normalizePosCustomTransactionTime(posCustomTransactionState.time) : ''
             };
         }
+
+        window.openPosTransactionDateTimeModal = openPosTransactionDateTimeModal;
+        window.closePosTransactionDateTimeModal = closePosTransactionDateTimeModal;
+        window.savePosTransactionDateTimeModal = savePosTransactionDateTimeModal;
+        window.toggleConfirmTransactionDate = toggleConfirmTransactionDate;
 
         async function processCheckout() {
             if (cart.length === 0 || posCheckoutRequestInFlight || posCheckoutConfirmOpen) return;
