@@ -225,7 +225,27 @@ function htg_branch(int $id): array {
     if (!$rows) throw new RuntimeException('Select a valid active branch.'); return $rows[0];
 }
 function htg_catalog(string $table): array {
-    if ($table === 'products') return db_query("SELECT product_id AS id, name, price FROM products WHERE LOWER(TRIM(product_type))='fixed' AND LOWER(TRIM(COALESCE(status,''))) NOT IN ('archived','inactive') ORDER BY product_id") ?: [];
+    if ($table === 'products') {
+        $activeStatus = "LOWER(TRIM(COALESCE(status,''))) NOT IN ('archived','inactive')";
+
+        // Newer databases classify catalog rows explicitly. Some existing
+        // installations predate that classification and therefore have no
+        // fixed rows despite having active ready-made products. Keep this
+        // read-only fallback aligned with the legacy service SKU convention.
+        if (db_table_has_column('products', 'product_type')) {
+            $fixedCount = db_query("SELECT COUNT(*) AS c FROM products WHERE LOWER(TRIM(COALESCE(product_type,'')))='fixed' AND {$activeStatus}") ?: [];
+            if ((int)($fixedCount[0]['c'] ?? 0) > 0) {
+                return db_query("SELECT product_id AS id, name, price FROM products WHERE LOWER(TRIM(COALESCE(product_type,'')))='fixed' AND {$activeStatus} ORDER BY product_id") ?: [];
+            }
+        }
+
+        return db_query("SELECT product_id AS id, name, price FROM products
+            WHERE {$activeStatus}
+              AND UPPER(TRIM(COALESCE(sku,''))) <> 'POS-SERVICE'
+              AND UPPER(TRIM(COALESCE(sku,''))) NOT LIKE 'SVC-%'
+              AND LOWER(TRIM(COALESCE(category,''))) NOT LIKE '%service%'
+            ORDER BY product_id") ?: [];
+    }
     // The admin service catalog treats status values case-insensitively. Keep
     // the generator aligned with it while still excluding inactive/archived
     // services from the selectable generation pool.
