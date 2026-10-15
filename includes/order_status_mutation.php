@@ -451,6 +451,9 @@ if (!function_exists('printflow_staff_mutate_order_status_job_error_response')) 
     ): array {
         $reference = printflow_json_error_reference();
         $message = trim($exception->getMessage());
+        if ($message === '') {
+            $message = 'Unexpected ' . get_class($exception) . ' during order status update.';
+        }
         error_log(sprintf(
             '[order-status][%s] order=%d target=%s class=%s message=%s',
             $reference,

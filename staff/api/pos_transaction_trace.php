@@ -84,8 +84,15 @@ $ledger = [];
 if ($jobIds !== []) {
     $placeholders = implode(',', array_fill(0, count($jobIds), '?'));
     $types = str_repeat('i', count($jobIds));
+    $materialColumns = 'id, job_order_id, item_id, quantity, deducted_at';
+    if (function_exists('db_table_has_column') && db_table_has_column('job_order_materials', 'computed_required_length_ft')) {
+        $materialColumns .= ', computed_required_length_ft';
+    }
+    if (function_exists('db_table_has_column') && db_table_has_column('job_order_materials', 'metadata')) {
+        $materialColumns .= ', metadata';
+    }
     $materials = db_query(
-        "SELECT id, job_order_id, item_id, quantity, deducted_at
+        "SELECT {$materialColumns}
          FROM job_order_materials
          WHERE job_order_id IN ({$placeholders})
          ORDER BY id",
@@ -203,6 +210,7 @@ echo json_encode([
     'material_stock_snapshot' => array_values($stock),
     'material_deduction_audit' => $deductionAudit,
     'stock_snapshot_note' => 'Current stock only. Capture before and after completion to prove the change.',
+    'completion_mutation_revision' => '20261016-roll-completion-v3',
 ], JSON_UNESCAPED_SLASHES);
 if ($readOnlySnapshot && function_exists('printflow_db_in_transaction') && printflow_db_in_transaction($conn)) {
     $conn->rollback();

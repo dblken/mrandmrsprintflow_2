@@ -320,11 +320,8 @@ class JobOrderService {
         return 0.0;
     }
 
-    private static function itemIsRollTarpaulin(array $item): bool {
-        if (empty($item['track_by_roll'])) {
-            return false;
-        }
-        return stripos((string)($item['name'] ?? ''), 'tarpaulin') !== false;
+    private static function itemIsRollWithNominalWidth(array $item): bool {
+        return !empty($item['track_by_roll']) && self::parseItemNominalWidthFt($item) > 0;
     }
 
     /**
@@ -380,18 +377,15 @@ class JobOrderService {
         array $itemsById
     ): bool {
         $item = $itemsById[(int)($material['item_id'] ?? 0)] ?? null;
-        if ($item === null || !self::itemIsRollTarpaulin($item)) {
+        if ($item === null || !self::itemIsRollWithNominalWidth($item)) {
             return false;
         }
         $thisWidth = self::parseItemNominalWidthFt($item);
-        if ($thisWidth <= 0) {
-            return false;
-        }
 
         $maxWidth = $thisWidth;
         foreach ($pendingMaterials as $other) {
             $otherItem = $itemsById[(int)($other['item_id'] ?? 0)] ?? null;
-            if ($otherItem === null || !self::itemIsRollTarpaulin($otherItem)) {
+            if ($otherItem === null || !self::itemIsRollWithNominalWidth($otherItem)) {
                 continue;
             }
             $maxWidth = max($maxWidth, self::parseItemNominalWidthFt($otherItem));
