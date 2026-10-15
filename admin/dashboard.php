@@ -585,7 +585,8 @@ $dashboard_branch_perf = pf_reports_branch_performance_merged(
     $branchRevenueToEnd,
     $branchId,
     $branchRevenuePrevFrom,
-    $branchRevenuePrevToEnd
+    $branchRevenuePrevToEnd,
+    true // Dashboard-only aggregate scope simplification; report callers retain their path.
 );
 $dashboard_branch_perf = array_values(array_filter($dashboard_branch_perf, static function ($branch) {
     return (float)($branch['revenue'] ?? 0) > 0;
