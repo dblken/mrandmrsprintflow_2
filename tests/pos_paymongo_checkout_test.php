@@ -69,6 +69,16 @@ pos_paymongo_checkout_assert(
         && strpos($posSource, 'Waiting for payment confirmation.') !== false,
     'POS QR Ph image, retry, and polling UI remain intact.'
 );
+pos_paymongo_checkout_assert(
+    preg_match('/checkoutData\.payment_pending[\s\S]{0,1200}syncedCartAction\(\'clear\'/', $posSource) !== 1,
+    'PayMongo QR Ph must not clear the cart before payment is confirmed.'
+);
+pos_paymongo_checkout_assert(
+    strpos($posSource, 'closePayMongoPosModal({ fullReset: true })') !== false
+        && strpos($posSource, 'function clearPosCartAfterSuccessfulSale') !== false
+        && strpos($posSource, 'void refreshCart()') !== false,
+    'Closing the QR modal keeps the cart; confirmed sales clear it through the shared helper.'
+);
 
 $paymongoApi = (string)file_get_contents(__DIR__ . '/../staff/api/paymongo_payment.php');
 $providerSource = (string)file_get_contents(__DIR__ . '/../includes/provider_payments.php');

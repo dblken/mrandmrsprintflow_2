@@ -7797,7 +7797,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (!checkoutData) return;
 
             posPayMongoCheckoutPending = false;
-            resetPayMongoPosCheckoutState();
 
             if (checkoutData.payment_pending && checkoutData.payment) {
                 const paymentAmountCentavos = Number(checkoutData.payment.amount || 0);
@@ -7810,20 +7809,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
                 posQrphPanelError = '';
                 openPayMongoPosModal(checkoutData.order_id, checkoutData.payment);
-                const clearResult = await syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000});
-                if (!clearResult.success) {
-                    cart = [];
-                    renderCart();
-                    updateCheckoutState();
-                }
                 return;
             }
 
-            document.getElementById('pos-payment-method').value = 'Cash';
-            document.getElementById('pos-tendered').value = '';
-            toggleReferenceField();
-            calculateChange();
-            resetPosCheckoutTransactionDateTime();
+            resetPayMongoPosCheckoutState();
 
             if (checkoutData.receipt && checkoutData.order_id) {
                 try {
@@ -7845,6 +7834,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 );
             }
 
+            await clearPosCartAfterSuccessfulSale();
+        }
+
+        async function clearPosCartAfterSuccessfulSale() {
+            document.getElementById('pos-payment-method').value = 'Cash';
+            document.getElementById('pos-tendered').value = '';
+            toggleReferenceField();
+            calculateChange();
+            resetPosCheckoutTransactionDateTime();
             const clearResult = await syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000});
             if (!clearResult.success) {
                 cart = [];
@@ -7880,11 +7878,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return posPayMongoCheckoutAttemptToken;
         }
 
-        function resetPayMongoPosCheckoutState(clearCheckoutToken = true) {
+        function stopPayMongoPosPolling() {
             if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
             if (paymongoCountdownTimer) window.clearInterval(paymongoCountdownTimer);
             paymongoPollTimer = null;
             paymongoCountdownTimer = null;
+        }
+
+        function resetPayMongoPosCheckoutState(clearCheckoutToken = true) {
+            stopPayMongoPosPolling();
             pendingPayMongoPayment = null;
             pendingPayMongoReceipt = null;
             pendingPayMongoPrintJob = null;
@@ -7898,10 +7900,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
         }
 
-        function closePayMongoPosModal() {
+        function closePayMongoPosModal(options = {}) {
+            const fullReset = options.fullReset === true;
             document.getElementById('paymongo-pos-modal').style.display = 'none';
             document.getElementById('paymongo-pos-reference').textContent = '';
-            resetPayMongoPosCheckoutState();
+            stopPayMongoPosPolling();
+            if (fullReset) {
+                resetPayMongoPosCheckoutState(true);
+                return;
+            }
+            pendingPayMongoPayment = null;
+            pendingPayMongoReceipt = null;
+            pendingPayMongoPrintJob = null;
+            posPayMongoCheckoutPending = false;
+            void refreshCart();
         }
 
         function renderPayMongoPosPayment(payment) {
@@ -8014,13 +8026,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             modal.style.display = 'flex';
             if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
             const finishPaidPosTransaction = async (data) => {
-                if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
-                paymongoPollTimer = null;
+                stopPayMongoPosPolling();
                 if (data?.receipt_available && data?.receipt) {
                     pendingPayMongoReceipt = data.receipt;
                     pendingPayMongoPrintJob = data.print_job || null;
-                    closePayMongoPosModal();
+                    sessionStorage.removeItem('pos_paymongo_pending');
+                    sessionStorage.removeItem('pos_paymongo_checkout_token');
+                    sessionStorage.removeItem('pos_paymongo_checkout_token_total');
+                    closePayMongoPosModal({ fullReset: true });
                     openReceiptModal(data.receipt);
+                    await clearPosCartAfterSuccessfulSale();
                     pendingPayMongoOrderId = 0;
                     return true;
                 }
@@ -8065,8 +8080,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (pendingPayMongoReceipt) {
                 sessionStorage.removeItem('pos_paymongo_pending');
                 sessionStorage.removeItem('pos_paymongo_checkout_token');
-                closePayMongoPosModal();
+                sessionStorage.removeItem('pos_paymongo_checkout_token_total');
+                closePayMongoPosModal({ fullReset: true });
                 openReceiptModal(pendingPayMongoReceipt);
+                await clearPosCartAfterSuccessfulSale();
                 pendingPayMongoOrderId = 0;
                 return;
             }
@@ -8090,14 +8107,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (!response.ok || !data.success || !data.receipt) {
                     throw new Error(data.message || 'The transaction could not be completed.');
                 }
-                if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
-                paymongoPollTimer = null;
+                stopPayMongoPosPolling();
                 pendingPayMongoReceipt = data.receipt;
                 pendingPayMongoPrintJob = data.print_job || null;
                 sessionStorage.removeItem('pos_paymongo_pending');
                 sessionStorage.removeItem('pos_paymongo_checkout_token');
-                closePayMongoPosModal();
+                sessionStorage.removeItem('pos_paymongo_checkout_token_total');
+                closePayMongoPosModal({ fullReset: true });
                 openReceiptModal(data.receipt);
+                await clearPosCartAfterSuccessfulSale();
                 pendingPayMongoOrderId = 0;
             } catch (error) {
                 completeButton.disabled = false;
