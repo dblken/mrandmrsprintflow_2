@@ -77,6 +77,16 @@ function admin_customization_payment_badge_html(?string $status, string $size = 
     return '<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:' . $size . ';font-weight:500;' . $style . '">' . $label . '</span>';
 }
 
+/** Keep quantity in the details modal, not in the compact service label. */
+function admin_customization_table_service_label(?string $label): string {
+    $label = trim((string)$label);
+    if ($label === '') {
+        return $label;
+    }
+    $clean = preg_replace('/\s+-\s+\d+\s*(?:pcs?|pieces?|units?)?\s*$/i', '', $label);
+    return is_string($clean) && trim($clean) !== '' ? trim($clean) : $label;
+}
+
 // Filters
 $search         = ltrim(trim((string)($_GET['search'] ?? '')), '#');
 $status_filter  = $_GET['status'] ?? '';
@@ -205,6 +215,10 @@ foreach ($jobs as &$jobRow) {
 }
 unset($jobRow);
 $jobs = printflow_group_admin_customization_job_rows($jobs);
+foreach ($jobs as &$jobRow) {
+    $jobRow['table_service_type'] = admin_customization_table_service_label($jobRow['display_service_type'] ?? $jobRow['service_type'] ?? '');
+}
+unset($jobRow);
 
 // AJAX check
 if (isset($_GET['ajax'])) {
@@ -245,8 +259,8 @@ if (isset($_GET['ajax'])) {
                             <div class="text-xs text-gray-400"><?php echo htmlspecialchars($jo['customer_email'] ?: ''); ?></div>
                         </td>
                         <td class="py-3">
-                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>">
-                                <?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>
+                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($jo['table_service_type'] ?? $jo['display_service_type'] ?? $jo['service_type']); ?>">
+                                <?php echo htmlspecialchars($jo['table_service_type'] ?? $jo['display_service_type'] ?? $jo['service_type']); ?>
                             </div>
                         </td>
                         <td class="py-3 text-center text-gray-500 text-xs"><?php echo htmlspecialchars($jo['display_submitted_at'] ?? ''); ?></td>
@@ -1701,8 +1715,8 @@ function custom_payment_badge($status) {
                                             </div>
                                         </td>
                                         <td class="py-3">
-                                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>">
-                                                <?php echo htmlspecialchars($jo['display_service_type'] ?? $jo['service_type']); ?>
+                                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($jo['table_service_type'] ?? $jo['display_service_type'] ?? $jo['service_type']); ?>">
+                                                <?php echo htmlspecialchars($jo['table_service_type'] ?? $jo['display_service_type'] ?? $jo['service_type']); ?>
                                             </div>
                                         </td>
                                         <td class="py-3 text-center text-gray-500 text-xs"><?php echo htmlspecialchars($jo['display_submitted_at'] ?? ''); ?></td>

@@ -11,7 +11,11 @@ require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/historical_generator_removal.php';
 require_role('Admin');
 global $conn;
-$error = ''; $success = ''; $preview = $_SESSION['historical_generator_preview'] ?? null;
+$error = (string)($_GET['status_error'] ?? '');
+$success = array_key_exists('status_repaired', $_GET)
+    ? 'Marked ' . (int)$_GET['status_repaired'] . ' generator-created transaction(s) as completed.'
+    : '';
+$preview = $_SESSION['historical_generator_preview'] ?? null;
 function htg_h(string $v): string { return htmlspecialchars($v, ENT_QUOTES, 'UTF-8'); }
 function htg_business_timezone(): DateTimeZone {
     return new DateTimeZone(date_default_timezone_get() ?: 'Asia/Manila');
@@ -311,6 +315,40 @@ function htg_insert(array $r, string $token, string $reason): int {
     if (!db_execute("UPDATE job_orders SET status = 'COMPLETED' WHERE id = ?", 'i', [(int)$job])) throw new RuntimeException('Generated production job completion failed.');
     return $oid;
 }
+
+/**
+ * One-time, explicitly confirmed repair for older generator rows that were
+ * created before historical generated orders were marked completed.
+ */
+function htg_mark_existing_generated_completed(): int {
+    global $conn;
+    $conn->begin_transaction();
+    try {
+        $orders = db_query("SELECT order_id FROM orders WHERE reference_id LIKE 'HGEN-%' FOR UPDATE") ?: [];
+        if ($orders === []) {
+            $conn->commit();
+            return 0;
+        }
+        if (!db_execute("UPDATE orders SET status = 'Completed', updated_at = NOW() WHERE reference_id LIKE 'HGEN-%'")) {
+            throw new RuntimeException('Could not complete generated orders.');
+        }
+        if (db_table_has_column('customizations', 'status') && !db_execute("UPDATE customizations c INNER JOIN orders o ON o.order_id = c.order_id SET c.status = 'Completed', c.updated_at = NOW() WHERE o.reference_id LIKE 'HGEN-%'")) {
+            throw new RuntimeException('Could not complete generated customizations.');
+        }
+        if (!db_execute("UPDATE job_orders j INNER JOIN orders o ON o.order_id = j.order_id SET j.status = 'COMPLETED', j.updated_at = NOW() WHERE o.reference_id LIKE 'HGEN-%'")) {
+            throw new RuntimeException('Could not complete generated job orders.');
+        }
+        if (!$conn->commit()) {
+            throw new RuntimeException('Generated status repair could not be committed.');
+        }
+        return count($orders);
+    } catch (Throwable $e) {
+        if (function_exists('printflow_db_in_transaction') && printflow_db_in_transaction($conn)) {
+            $conn->rollback();
+        }
+        throw $e;
+    }
+}
 function htg_build_preview(string $start,string $end,int $branch,int $count,int $readyPct,int $customPct,array $products,array $services,string $reason,?float $targetSales=null,array $selectedReadyIds=[],array $selectedServiceIds=[]): array {
     $b = htg_branch($branch);
     $skippedServices = [];
@@ -566,7 +604,8 @@ ob_start(static function (string $html) use ($selectionProducts,$selectionServic
         $scopeLabel = ($removal['mode'] ?? 'range') === 'latest' ? 'the latest generated batch' : 'generator-created historical transactions in the selected date range';
         $removalHtml .= '<p><strong>Removal scope:</strong> ' . htg_h($scopeLabel) . '<br><strong>Affected generated orders:</strong> ' . $count . ' &nbsp; <strong>Total sales:</strong> PHP ' . number_format((float)($removalData['total'] ?? 0), 2) . '<br><strong>Order items:</strong> ' . count((array)($removalData['items'] ?? [])) . ' &nbsp; <strong>Customizations:</strong> ' . count((array)($removalData['customizations'] ?? [])) . ' &nbsp; <strong>Job orders:</strong> ' . count((array)($removalData['jobs'] ?? [])) . ' &nbsp; <strong>Inventory ledger entries:</strong> ' . count((array)($removalData['ledger'] ?? [])) . '</p><p><strong>Ready-made stock to restore:</strong> ' . count((array)($removalData['productRestore'] ?? [])) . ' line(s) &nbsp; <strong>Material/roll movements to restore:</strong> ' . count((array)($removalData['materialRestore'] ?? [])) . '</p><form method="post" onsubmit="return confirm(\'This will permanently remove generator-created historical transactions and restore their inventory effects.\');"><input type="hidden" name="csrf_token" value="' . htg_h((string)$csrf) . '"><input type="hidden" name="remove_start_date" value="' . htg_h((string)$removal['start']) . '"><input type="hidden" name="remove_end_date" value="' . htg_h((string)$removal['end']) . '"><label>Type REMOVE HISTORICAL DATA to confirm<input id="historical-remove-confirmation" name="remove_confirmation" autocomplete="off" required pattern="REMOVE HISTORICAL DATA" oninput="document.getElementById(\'historical-remove-submit\').disabled=this.value!==\'REMOVE HISTORICAL DATA\';"></label><button id="historical-remove-submit" name="action" value="' . $removeConfirmAction . '" disabled>Remove Historical Generated Data</button></form>';
     }
-    $removalHtml .= '</section>';
+    $repairHtml = '<section class="panel"><h2>Complete Existing Generated Data</h2><p class="warning">This affects only orders marked with the immutable <code>HGEN-</code> generator reference. It does not change normal POS or manually entered historical transactions.</p><form method="post" onsubmit="return confirm(\'This will mark all generator-created historical transactions as completed. Continue?\');"><input type="hidden" name="csrf_token" value="' . htg_h((string)$csrf) . '"><label>Type COMPLETE HISTORICAL DATA to confirm<input name="complete_confirmation" autocomplete="off" required pattern="COMPLETE HISTORICAL DATA"></label><button name="action" value="complete_existing">Mark Existing Generated Data Completed</button></form></section>';
+    $removalHtml .= '</section>' . $repairHtml;
     $html = str_replace('</main>', $removalHtml . '</main>', $html);
     return $html;
 });
@@ -582,6 +621,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') ==
     }
     http_response_code(204);
     exit;
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'complete_existing') {
+    try {
+        if (!verify_csrf_token($_POST['csrf_token'] ?? '')) throw new RuntimeException('Invalid security token.');
+        if (trim((string)($_POST['complete_confirmation'] ?? '')) !== 'COMPLETE HISTORICAL DATA') {
+            throw new RuntimeException('Type COMPLETE HISTORICAL DATA to confirm the status repair.');
+        }
+        $completedCount = htg_mark_existing_generated_completed();
+        log_activity((int)get_user_id(), 'Historical generated statuses repaired', json_encode([
+            'orders' => $completedCount,
+            'real_processed_at' => date('Y-m-d H:i:s'),
+        ], JSON_UNESCAPED_SLASHES));
+        header('Location: historical_transaction_generator.php?status_repaired=' . $completedCount);
+        exit;
+    } catch (Throwable $e) {
+        header('Location: historical_transaction_generator.php?status_error=' . rawurlencode($e->getMessage()));
+        exit;
+    }
 }
 if($_SERVER['REQUEST_METHOD']==='POST')try{if(!verify_csrf_token($_POST['csrf_token']??''))throw new RuntimeException('Invalid security token.');$action=(string)($_POST['action']??'preview');if($action==='preview'){$reason=trim((string)($_POST['reason']??''));if(strlen($reason)>1000)throw new RuntimeException('Enter a reason of 1,000 characters or fewer.');$targetRaw=trim((string)($_POST['target_total_sales']??''));$targetSales=null;if($targetRaw!==''){$normalizedTarget=preg_replace('/[^0-9.]+/','',$targetRaw);if($normalizedTarget===''||!is_numeric($normalizedTarget))throw new RuntimeException('Enter a valid positive Target Total Sales amount.');$targetSales=(float)$normalizedTarget;if($targetSales<=0)throw new RuntimeException('Target Total Sales must be positive.');}$transactionType=(string)($_POST['transaction_type']??'');if(!in_array($transactionType,['ready','custom','both'],true))throw new RuntimeException('Choose a valid transaction type.');$readyPct=$transactionType==='ready'?100:(int)($_POST['ready_pct']??0);$customPct=$transactionType==='custom'?100:(int)($_POST['custom_pct']??0);$selectedReadyIds=(array)($_POST['selected_ready_ids']??[]);$selectedServiceIds=(array)($_POST['selected_service_ids']??[]);$preview=htg_preview((string)($_POST['start_date']??''),(string)($_POST['end_date']??''),(int)($_POST['branch_id']??0),(int)($_POST['transaction_count']??0),$readyPct,$customPct,htg_catalog('products'),htg_catalog('services'),$reason,$targetSales,$selectedReadyIds,$selectedServiceIds);$preview['transaction_type']=$transactionType;$_SESSION['historical_generator_preview']=$preview;}elseif($action==='confirm'){$token=trim((string)($_POST['preview_token']??''));$preview=$_SESSION['historical_generator_preview']??null;if(!$preview||!hash_equals((string)$preview['token'],$token)||(int)$preview['expires_at']<time())throw new RuntimeException('Preview expired. Generate a new preview.');if(isset($_SESSION['historical_generator_used'][$token]))throw new RuntimeException('This preview was already processed.');$recalculatedSales=htg_sales_total((array)($preview['rows']??[]));if(abs($recalculatedSales-(float)($preview['generated_sales']??0))>0.01)throw new RuntimeException('Preview totals changed. Generate a new preview.');if(!htg_target_within_tolerance(isset($preview['target_sales'])?(float)$preview['target_sales']:null,$recalculatedSales))throw new RuntimeException('Cannot confirm this preview because the generated total is outside the allowed 5% target tolerance. Regenerate the preview.');if(!htg_schema_ready())throw new RuntimeException('Required order or inventory fields are missing.');$conn->begin_transaction();$ids=[];try{foreach($preview['rows'] as $r)$ids[]=htg_insert($r,$token.'-'.count($ids),$preview['reason']);if(!$conn->commit())throw new RuntimeException('Batch commit failed.');}catch(Throwable $e){if(printflow_db_in_transaction($conn))$conn->rollback();throw $e;}$_SESSION['historical_generator_used'][$token]=true;$_SESSION['historical_generator_preview']=null;log_activity((int)get_user_id(),'Historical transaction batch generated',json_encode(['orders'=>$ids,'preview_token'=>$token,'real_processed_at'=>date('Y-m-d H:i:s')],JSON_UNESCAPED_SLASHES));$success='Generated '.count($ids).' historical transaction(s).';$preview=null;}else throw new RuntimeException('Invalid action.');}catch(Throwable $e){$error=$e->getMessage();}
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array((string)($_POST['action'] ?? ''), ['remove_preview', 'remove_confirm', 'remove_latest_preview', 'remove_latest_confirm'], true)) {
