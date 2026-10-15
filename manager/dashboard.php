@@ -128,22 +128,51 @@ try {
     $total_orders = (int)($canonicalOrders['transaction_count'] ?? 0);
 } catch (Exception $e) { $total_orders = 0; }
 
-// ── KPI: Pending store orders (created in window, still Pending) ─
+// ── KPI: Pending custom orders (same PENDING/APPROVED job scope as Custom Orders) ─
 try {
-    [$bSqlFrag, $bT4, $bP4] = branch_where_parts('o', $branchId);
-    $bSqlFrag .= ' AND ' . printflow_order_archive_scope_sql('o');
+    $pendingJobScope = ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id') . " AND (
+        j.order_id IS NULL
+        OR EXISTS (
+            SELECT 1
+            FROM orders pending_scope_order
+            JOIN order_items pending_scope_item ON pending_scope_item.order_id = pending_scope_order.order_id
+            LEFT JOIN products pending_scope_product ON pending_scope_product.product_id = pending_scope_item.product_id
+            WHERE pending_scope_order.order_id = j.order_id
+              AND pending_scope_order.order_type = 'custom'
+              AND COALESCE(LOWER(TRIM(pending_scope_product.product_type)), 'custom') <> 'fixed'
+        )
+    )";
+    $pendingJobStatus = "CASE WHEN j_ord.reference_id LIKE 'HGEN-%' THEN 'COMPLETED' ELSE j.status END";
+    $pendingJobDate = 'COALESCE(j_ord.order_date, j.created_at)';
+    $pendingJobBranch = 'COALESCE(j.branch_id, j_ord.branch_id)';
+    $pendingTypes = 'ss';
+    $pendingParams = [$kpiDateFrom, $kpiDateToEnd];
+    if ($branchId !== 'all') {
+        $pendingJobBranchSql = " AND {$pendingJobBranch} = ?";
+        $pendingTypes .= 'i';
+        $pendingParams[] = (int)$branchId;
+    } else {
+        $pendingJobBranchSql = " AND ({$pendingJobBranch} IS NULL OR {$pendingJobBranch} IN (SELECT id FROM branches WHERE status != 'Archived'))";
+    }
     $pending_orders = db_query(
-        "SELECT COUNT(*) as cnt
-         FROM orders o
-         WHERE (
-             LOWER(TRIM(COALESCE(o.status, ''))) = 'pending'
-             OR LOWER(TRIM(COALESCE(o.payment_status, ''))) = 'pending'
-         )
-           AND o.order_date BETWEEN ? AND ? {$bSqlFrag}",
-        'ss' . ($bT4 ?: ''),
-        array_merge([$kpiDateFrom, $kpiDateToEnd], $bP4 ?: [])
+        "SELECT COUNT(*) AS cnt
+         FROM job_orders j
+         LEFT JOIN orders j_ord ON j_ord.order_id = j.order_id
+         WHERE {$pendingJobStatus} IN ('PENDING','APPROVED')
+           AND {$pendingJobDate} BETWEEN ? AND ?
+           {$pendingJobBranchSql}{$pendingJobScope}",
+        $pendingTypes,
+        $pendingParams
     )[0]['cnt'] ?? 0;
-} catch (Exception $e) { $pending_orders = 0; }
+    $pending_orders_url = $basePath . '/manager/customizations.php?' . http_build_query([
+        'status' => 'PENDING',
+        'date_from' => $dashFromDate,
+        'date_to' => $dashToDate,
+    ]);
+} catch (Exception $e) {
+    $pending_orders = 0;
+    $pending_orders_url = $basePath . '/manager/customizations.php';
+}
 
 // ── Sales Revenue (Last 30 days, branch-filtered) ─────────────
 try {
@@ -732,9 +761,9 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     </span>
                 </a>
                 <a class="kpi-card rose kpi-card--link"
-                   href="<?php echo htmlspecialchars($basePath . '/manager/orders.php?status=Pending'); ?>"
-                   aria-label="View pending branch orders"
-                   title="View pending orders">
+                   href="<?php echo htmlspecialchars($pending_orders_url); ?>"
+                   aria-label="View pending custom orders"
+                   title="View pending custom orders">
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Pending Orders</span>
                         <span class="kpi-value"><?php echo number_format($pending_orders); ?></span>
