@@ -112,17 +112,18 @@ $bSql = branch_where('o', $branchId, $bTypes, $bParams);
 // ── KPI: Total Customers ──────────────────────────────
 try {
     if ($branchId !== 'all') {
-        [$customerWhere, $customerTypes, $customerParams] = branch_customers_belong_where_sql((int)$branchId, 'c');
-        $customerWhere = ' AND COALESCE(c.email_verified, 0) = 1'
-            . printflow_pos_sql_exclude_placeholder_customers('c')
-            . $customerWhere;
+        [$customerBranchWhere, $customerTypes, $customerParams] = branch_customers_belong_where_sql((int)$branchId, 'c');
     } else {
-        $customerWhere = ' AND COALESCE(c.email_verified, 0) = 1'
-            . printflow_pos_sql_exclude_placeholder_customers('c')
-            . ' AND ' . printflow_customer_exclusion_customer_scope_sql('c.customer_id');
+        $customerBranchWhere = ' AND ' . printflow_customer_exclusion_customer_scope_sql('c.customer_id');
         $customerTypes = '';
         $customerParams = [];
     }
+    $customerWhere = ' AND COALESCE(c.email_verified, 0) = 1'
+        . printflow_pos_sql_exclude_placeholder_customers('c')
+        . $customerBranchWhere
+        . ' AND c.created_at BETWEEN ? AND ?';
+    $customerTypes .= 'ss';
+    $customerParams = array_merge($customerParams, [$kpiDateFrom, $kpiDateToEnd]);
     $total_customers = (int)(db_query(
         "SELECT COUNT(*) AS cnt FROM customers c WHERE 1=1 {$customerWhere}",
         $customerTypes ?: null,
@@ -1209,7 +1210,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Total Customers</span>
                         <span class="kpi-value"><?php echo number_format($total_customers); ?></span>
-                        <span class="kpi-sub"><?php echo $branchId === 'all' ? 'Registered customers' : 'Branch customers'; ?></span>
+                        <span class="kpi-sub">Registered in <?php echo htmlspecialchars($dashboard_filter_label); ?></span>
                         <span class="kpi-card-cta" aria-hidden="true">View details →</span>
                     </span>
                 </a>
