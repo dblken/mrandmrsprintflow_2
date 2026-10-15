@@ -20,12 +20,14 @@ function htg_removal_orders(string $start = '', string $end = '', bool $lock = f
     $types = '';
     $sql = "SELECT order_id, reference_id, order_date, branch_id, total_amount
             FROM orders
-            WHERE reference_id LIKE ?";
+            WHERE TRIM(CAST(reference_id AS CHAR)) LIKE ?";
     $params[] = $batchToken !== null ? 'HGEN-' . $batchToken . '-%' : 'HGEN-%';
     $types .= 's';
     if ($batchToken === null) {
         [$from, $until] = htg_removal_dates($start, $end);
-        $sql .= ' AND order_date >= ? AND order_date < ?';
+        // Match the historical business calendar date regardless of whether
+        // order_date is stored with a time component or as a date value.
+        $sql .= ' AND DATE(order_date) >= DATE(?) AND DATE(order_date) < DATE(?)';
         $params[] = $from;
         $params[] = $until;
         $types .= 'ss';
@@ -36,7 +38,7 @@ function htg_removal_orders(string $start = '', string $end = '', bool $lock = f
 }
 
 function htg_latest_generator_token(): ?string {
-    $rows = db_query("SELECT reference_id FROM orders WHERE reference_id LIKE 'HGEN-%' ORDER BY order_id DESC LIMIT 1") ?: [];
+    $rows = db_query("SELECT reference_id FROM orders WHERE TRIM(CAST(reference_id AS CHAR)) LIKE 'HGEN-%' ORDER BY order_id DESC LIMIT 1") ?: [];
     $reference = (string)($rows[0]['reference_id'] ?? '');
     if (!preg_match('/^HGEN-([a-f0-9]{48})-(\d+)$/i', $reference, $match)) return null;
     return $match[1];
