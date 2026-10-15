@@ -188,7 +188,9 @@ if ($heatmap_available_years === []) {
 $reportsMark('heatmap_years');
 // ── 2. KPI — current period (FILTERED BY DATE RANGE) ─────────────────────────
 $current_sales_summary = !$gaBranchEmpty
-    ? pf_admin_reports_cached('sales', $globalAnalyticsBranchId, [$from, $toEnd], static fn() => pf_reports_canonical_official_sales_totals($from, $toEnd, $globalAnalyticsBranchId))
+    // Revenue is an authoritative KPI; keep it fresh so it cannot disagree
+    // with the independently recalculated monthly trend after data changes.
+    ? pf_reports_canonical_official_sales_totals($from, $toEnd, $globalAnalyticsBranchId)
     : [];
 $total_orders = (int)($current_sales_summary['transaction_count'] ?? 0);
 $revenue = (float)($current_sales_summary['total_sales'] ?? 0);
@@ -276,7 +278,7 @@ if ($from !== '' && $to !== '' && !$gaBranchEmpty) {
     $prevToEnd = date('Y-m-d', strtotime($from) - 86400) . ' 23:59:59';
     $prev_orders = $prev_revenue = $prev_paid = 0;
     try {
-        $prevSummary = pf_admin_reports_cached('sales', $globalAnalyticsBranchId, [$prevFrom, $prevToEnd], static fn() => pf_reports_canonical_official_sales_totals($prevFrom, $prevToEnd, $globalAnalyticsBranchId));
+        $prevSummary = pf_reports_canonical_official_sales_totals($prevFrom, $prevToEnd, $globalAnalyticsBranchId);
         $prev_orders = (int)($prevSummary['transaction_count'] ?? 0);
         $prev_revenue = (float)($prevSummary['total_sales'] ?? 0);
         $prev_paid = $prev_orders;
