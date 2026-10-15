@@ -11,6 +11,9 @@ require_once __DIR__ . '/../includes/production_material_compatibility.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/historical_generator_removal.php';
 require_role('Admin');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
 global $conn;
 $error = (string)($_GET['status_error'] ?? '');
 $success = array_key_exists('status_repaired', $_GET)
