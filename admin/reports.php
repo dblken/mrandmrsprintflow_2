@@ -14,6 +14,7 @@ require_once __DIR__ . '/../includes/expense_management.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 
 require_role(['Admin', 'Manager']);
+require_once __DIR__ . '/../includes/admin_reports_cache.php';
 // Ensure $base_path is defined
 if (!isset($base_path)) {
     if (file_exists(__DIR__ . '/../config.php')) {
@@ -151,10 +152,19 @@ $txn_pay_valid = ['all','paid','unpaid','pending'];
 if (!in_array($txn_payment_filter, $txn_pay_valid)) $txn_payment_filter = 'all';
 
 
+$reportsPhaseStart = microtime(true);
+$reportsPhases = [];
+$reportsMark = static function (string $name) use (&$reportsPhaseStart, &$reportsPhases): void {
+    $now = microtime(true);
+    $reportsPhases[$name] = round(($now - $reportsPhaseStart) * 1000, 1);
+    $reportsPhaseStart = $now;
+};
+
 // ── 1. Branch empty check (orders + customization jobs) ───────────────────────
 $branch_empty = !pf_reports_branch_has_activity($branchId);
-$gaBranchEmpty = !pf_reports_branch_has_activity($globalAnalyticsBranchId);
+$gaBranchEmpty = $branch_empty; // Same resolved branch; avoid repeating lifetime counts.
 
+$reportsMark('branch_activity');
 // ── Heatmap year list (only years with real data; never future years) ─────────
 if (!$gaBranchEmpty) {
     // Heatmap follows globalAnalyticsBranchId (usually All Branches for Admins)
@@ -171,17 +181,18 @@ if ($heatmap_available_years === []) {
     $heatmap_year = $heatmap_year_req;
 }
 
+$reportsMark('heatmap_years');
 // ── 2. KPI — current period (FILTERED BY DATE RANGE) ─────────────────────────
-$current_sales_breakdown = !$gaBranchEmpty
-    ? pf_reports_official_sales_breakdown($from, $toEnd, $globalAnalyticsBranchId, 20)
-    : ['summary' => [], 'by_branch' => [], 'by_item' => [], 'transactions' => []];
-$current_sales_summary = $current_sales_breakdown['summary'] ?? [];
+$current_sales_summary = !$gaBranchEmpty
+    ? pf_admin_reports_cached('sales', $globalAnalyticsBranchId, [$from, $toEnd], static fn() => pf_reports_canonical_official_sales_totals($from, $toEnd, $globalAnalyticsBranchId))
+    : [];
 $total_orders = (int)($current_sales_summary['transaction_count'] ?? 0);
 $revenue = (float)($current_sales_summary['total_sales'] ?? 0);
 $paid_orders = $total_orders;
 $avg_val = $paid_orders > 0 ? ($revenue / $paid_orders) : 0;
 $period_has_activity = ($total_orders > 0);
 
+$reportsMark('sales_summary');
 // ── 2b. Sales by product category & service category (report date range + branch) ──
 // Product chart: real catalog SKUs only (inner join products — same grain as revenue from store lines).
 // Paid filter matches KPI/report norms and tolerates casing; no order_type exclusions (they hid valid lines).
@@ -252,6 +263,7 @@ if (!$gaBranchEmpty) {
     }
 }
 
+$reportsMark('categories');
 // Previous period for trend arrows — only if a specific date range is set
 $orders_delta = $revenue_delta = null;
 if ($from !== '' && $to !== '' && !$gaBranchEmpty) {
@@ -260,8 +272,7 @@ if ($from !== '' && $to !== '' && !$gaBranchEmpty) {
     $prevToEnd = date('Y-m-d', strtotime($from) - 86400) . ' 23:59:59';
     $prev_orders = $prev_revenue = $prev_paid = 0;
     try {
-        $prevSalesData = pf_reports_official_sales_breakdown($prevFrom, $prevToEnd, $globalAnalyticsBranchId, 1);
-        $prevSummary = $prevSalesData['summary'] ?? [];
+        $prevSummary = pf_admin_reports_cached('sales', $globalAnalyticsBranchId, [$prevFrom, $prevToEnd], static fn() => pf_reports_canonical_official_sales_totals($prevFrom, $prevToEnd, $globalAnalyticsBranchId));
         $prev_orders = (int)($prevSummary['transaction_count'] ?? 0);
         $prev_revenue = (float)($prevSummary['total_sales'] ?? 0);
         $prev_paid = $prev_orders;
@@ -271,6 +282,7 @@ if ($from !== '' && $to !== '' && !$gaBranchEmpty) {
     } catch(Exception $e){}
 }
 
+$reportsMark('previous_summary');
 // ── 3. Top KPI labels (FILTERED BY DATE RANGE) ─────────────────────────────────────────────────────────
 $top_kpi_product = $top_kpi_location = null;
 if (!$gaBranchEmpty && $total_orders > 0) {
@@ -296,6 +308,7 @@ if (!$gaBranchEmpty && $total_orders > 0) {
     } catch(Exception $e){}
 }
 
+$reportsMark('kpi_labels');
 // ── 4. Overall sales trend (Store vs Customization vs Total Orders) ──
 $trend12_labels = $trend12_revenue_store = $trend12_revenue_custom = $trend12_revenues = $trend12_orders = [];
 if (!$gaBranchEmpty) {
@@ -380,6 +393,7 @@ if ($chart_sort === 'month_desc' && !empty($trend12_labels)) {
     $trend12_orders = array_reverse($trend12_orders);
 }
 
+$reportsMark('sales_trend');
 // ── 5. Per-product forecast (last 6 completed months → next 3 months) ────────
 $fc_hist_labels = $fc_fore_labels = [];
 for ($i = 6; $i >= 1; $i--) $fc_hist_labels[] = date('M y', strtotime("-$i months"));
@@ -508,6 +522,7 @@ if (!$gaBranchEmpty) {
 }
 $can_forecast = $fc_total_history >= 20;
 
+$reportsMark('demand_forecast');
 // ── 6. Best selling services (products + customization jobs) ────────────────
 $top_products = [];
 $top_products_by_branch = [];
@@ -562,6 +577,7 @@ foreach ($rev_donut as $rd) {
     $rev_donut_total += round((float)($rd['revenue'] ?? 0), 2);
 }
 
+$reportsMark('service_distribution');
 // ── 8. Order status ───────────────────────────────────────────────────────────
 $status_data = [];
 $status_data_by_branch = [];
@@ -602,16 +618,18 @@ if (!$gaBranchEmpty) {
     } catch(Exception $e){}
 }
 
+$reportsMark('order_status');
 // ── 9. Seasonal heatmap (year, products + customization jobs) ────────────────
 $heatmap_products = [];
 if (!$gaBranchEmpty) {
     // Heatmap follows globalAnalyticsBranchId
-    $heatmap_products = pf_reports_heatmap_matrix($heatmap_year, $globalAnalyticsBranchId);
+    $heatmap_products = []; // Matrix is fetched only when the heatmap enters view.
     if ($chart_sort === 'value_asc') {
         $heatmap_products = array_reverse($heatmap_products, true);
     }
 }
 
+$reportsMark('heatmap');
 // ── 10. Customer locations (store + job transactions; customer address linked per transaction) ──
 $customer_locations = [];
 $customer_locations_by_branch = [];
@@ -642,6 +660,7 @@ if (!$gaBranchEmpty) {
     }
 }
 
+$reportsMark('locations');
 // ── 11. Customization usage ───────────────────────────────────────────────────
 $custom_usage = [];
 if (!$gaBranchEmpty) {
@@ -676,10 +695,11 @@ if (!$gaBranchEmpty) {
     } catch(Exception $e){}
 }
 
+$reportsMark('custom_usage');
 // ── 12. Branch performance (orders + job_orders, all-time) ─────────────────
 $dash_prev_from = $from && $to ? date('Y-m-d', strtotime($from) - (strtotime($to) - strtotime($from)) - 86400) : '';
 $dash_prev_toEnd = $from && $to ? date('Y-m-d', strtotime($from) - 86400) . ' 23:59:59' : '';
-$dash_branch_perf = pf_reports_branch_performance_merged($from, $toEnd, $globalAnalyticsBranchId, $dash_prev_from, $dash_prev_toEnd);
+$dash_branch_perf = pf_admin_reports_cached('branch-performance', $globalAnalyticsBranchId, [$from, $toEnd, $dash_prev_from, $dash_prev_toEnd], static fn() => pf_reports_branch_performance_merged($from, $toEnd, $globalAnalyticsBranchId, $dash_prev_from, $dash_prev_toEnd, true));
 $dash_branch_perf = array_values(array_filter($dash_branch_perf, static function ($branch) {
     return (float)($branch['revenue'] ?? 0) > 0;
 }));
@@ -721,6 +741,7 @@ if ($dash_single_branch && (float)($dash_single_branch['revenue'] ?? 0) > 0) {
     $dash_single_svc_pct = round(((float)($dash_single_branch['revenue_jobs'] ?? 0) / (float)$dash_single_branch['revenue']) * 100, 1);
 }
 
+$reportsMark('branch_performance');
 // ── 12b. Estimated Gross Profit Summary (material-cost-based only) ─────────
 $gross_profit_analytics = pf_reports_estimated_gross_profit_analytics($from, $toEnd, $globalAnalyticsBranchId);
 $gp_summary = $gross_profit_analytics['summary'] ?? [];
@@ -743,105 +764,12 @@ $gp_summary['estimated_gross_profit'] = round((float)$revenue - $gp_material_cos
 $net_operating_profit = round((float)$gp_summary['estimated_gross_profit'] - $operating_expenses, 2);
 $profitability_disclaimer = 'Estimated from production material assignments and recorded assignment-time costs. Gross Profit = official sales revenue - Estimated Material Cost. Net Operating Profit (Estimated) = Estimated Gross Profit - Paid operating expenses. Pending and archived expenses are excluded. Salary/Wages entries are manual expenses, not payroll calculations.';
 
-// ── 13. Top customers ─────────────────────────────────────────────────────────
+$reportsMark('profit_expenses');
+// The legacy Top Customers panel is hidden; exports load their own data.
 $top_customers = [];
-if (!$gaBranchEmpty) {
-    try {
-        [$b,$bt,$bp] = branch_where_parts('o', $globalAnalyticsBranchId);
-        $storeSalesSql = pf_reports_store_order_sales_expr('o');
-        $storeRevenueSql = pf_reports_store_order_revenue_expr('o');
-        [$dw,$dt,$dp] = ["", "", []]; // Customers All Time
-        $top_customers = db_query(
-            "SELECT CONCAT(c.first_name,' ',c.last_name) as name, c.email,
-                    COUNT(o.order_id) as orders,
-                    SUM({$storeRevenueSql}) as spent
-             FROM customers c JOIN orders o ON c.customer_id=o.customer_id
-             WHERE {$storeSalesSql} {$dw} {$b}
-             GROUP BY c.customer_id ORDER BY spent DESC LIMIT 8",
-            $dt . $bt, array_merge($dp, $bp)
-        ) ?: [];
-        if ($chart_sort === 'value_asc') $top_customers = array_reverse($top_customers);
-    } catch(Exception $e){}
-}
 
-// ── 14. Inventory alerts ──────────────────────────────────────────────────────
-$low_stock = [];
-try {
-    InventoryManager::ensureBranchScopedSchema();
-    $reportInventoryBranchId = ($branchId === 'all') ? null : (int)$branchId;
-    $invItems = db_query(
-        "SELECT i.id, i.name, i.unit_of_measure as unit, i.reorder_level, i.track_by_roll
-         FROM inv_items i
-         WHERE i.status = 'ACTIVE' AND i.reorder_level > 0
-         ORDER BY i.name ASC"
-    ) ?: [];
-    foreach ($invItems as $item) {
-        if ($reportInventoryBranchId === null) {
-            if (!empty($item['track_by_roll'])) {
-                $soh = (float)(db_query(
-                    "SELECT COALESCE(SUM(remaining_length_ft), 0) AS soh
-                     FROM inv_rolls
-                     WHERE item_id = ? AND status = 'OPEN'",
-                    'i',
-                    [(int)$item['id']]
-                )[0]['soh'] ?? 0);
-            } else {
-                $soh = (float)(db_query(
-                    "SELECT COALESCE(SUM(CASE WHEN direction='IN' THEN quantity ELSE -quantity END), 0) AS soh
-                     FROM inventory_transactions
-                     WHERE item_id = ?",
-                    'i',
-                    [(int)$item['id']]
-                )[0]['soh'] ?? 0);
-            }
-        } else {
-            $soh = (float)InventoryManager::getStockOnHand((int)$item['id'], $reportInventoryBranchId);
-        }
-        if ($soh <= (float)$item['reorder_level']) {
-            $item['soh'] = $soh;
-            $low_stock[] = $item;
-        }
-    }
-    usort($low_stock, static fn($a, $b) => ((float)$a['soh'] <=> (float)$b['soh']));
-    $low_stock = array_slice($low_stock, 0, 8);
-} catch(Exception $e){}
-
-// ── 15. Recent transactions ───────────────────────────────────────────────────
-$txn_page = max(1,(int)($_GET['txn_page'] ?? 1));
-$txn_per  = 10;
-$txn_count = $txn_pages = 0;
-$recent_orders = [];
-$txn_pay_sql = '';
-if ($txn_payment_filter === 'paid')     $txn_pay_sql = ' AND ' . pf_reports_store_order_sales_expr('o');
-elseif ($txn_payment_filter === 'unpaid') $txn_pay_sql = " AND (o.payment_status IS NULL OR (o.payment_status != 'Paid' AND o.payment_status != 'Pending'))";
-elseif ($txn_payment_filter === 'pending') $txn_pay_sql = " AND o.payment_status = 'Pending'";
-if (!$gaBranchEmpty) {
-    try {
-        [$b,$bt,$bp] = branch_where_parts('o', $globalAnalyticsBranchId);
-        [$dw,$dt,$dp] = ["", "", []]; // Transactions All Time
-        $txn_count = (int)(db_query(
-            "SELECT COUNT(*) as cnt FROM orders o WHERE " . printflow_order_archive_scope_sql('o') . " {$dw} {$b} {$txn_pay_sql}",
-            $dt . $bt, array_merge($dp, $bp)
-        )[0]['cnt'] ?? 0);
-        $txn_pages  = max(1, ceil($txn_count / $txn_per));
-        $txn_page   = min($txn_page, $txn_pages);
-        $txn_offset = ($txn_page-1) * $txn_per;
-        [$b2,$bt2,$bp2] = branch_where_parts('o', $globalAnalyticsBranchId);
-        [$dw2,$dt2,$dp2] = ["", "", []]; // Transactions All Time
-        $recent_orders = db_query(
-            "SELECT o.order_id, CONCAT(c.first_name,' ',c.last_name) as customer_name,
-                    o.order_date, o.total_amount, o.payment_status, o.status
-             FROM orders o LEFT JOIN customers c ON o.customer_id=c.customer_id
-             WHERE " . printflow_order_archive_scope_sql('o') . " {$dw2} {$b2} {$txn_pay_sql}
-             ORDER BY o.order_date DESC LIMIT $txn_per OFFSET $txn_offset",
-            $dt2 . $bt2, array_merge($dp2, $bp2)
-        ) ?: [];
-    } catch(Exception $e){}
-}
-
-// ── 16. Customer count ────────────────────────────────────────────────────────
-$cust_total = 0;
-try { $cust_total = (int)(db_query("SELECT COUNT(*) as cnt FROM customers c WHERE " . printflow_customer_exclusion_customer_scope_sql('c.customer_id'))[0]['cnt'] ?? 0); } catch(Exception $e){}
+// Inventory alerts, recent transactions and customer count are not rendered.
+// Their exports use dedicated endpoints; do not query them on this page.
 
 // ── Variables required by footer.php ──────────────────────────────────────────
 $base_url = '/printflow';
@@ -917,6 +845,7 @@ if (!$gaBranchEmpty && $from !== '' && $toEnd !== '') {
     }
 }
 
+$reportsMark('demand_signals');
 // ── 18. Auto insights ─────────────────────────────────────────────────────────
 $insights = [];
 if (!$gaBranchEmpty) {
@@ -1009,6 +938,8 @@ function reportsPrintInPlace(url) {
 <?php include __DIR__ . '/../includes/admin_style.php'; ?>
 <?php render_branch_css(); ?>
 <style>
+.pf-reports-loading{position:relative;min-height:240px}.pf-reports-loading::after{content:"";position:absolute;inset:0;z-index:5;background:linear-gradient(90deg,#edf2f5 25%,#f8fafc 50%,#edf2f5 75%);background-size:200% 100%;opacity:.92;animation:pf-report-shimmer 1.4s ease-in-out infinite;border-radius:10px}.pf-report-skeleton {display:grid;gap:16px;padding:24px;min-height:170px;align-content:center}.pf-report-skeleton i{display:block;height:25px;border-radius:6px;background:linear-gradient(90deg,#edf2f5 25%,#f8fafc 50%,#edf2f5 75%);background-size:200% 100%;animation:pf-report-shimmer 1.4s ease-in-out infinite}.pf-report-skeleton i:nth-child(2){width:80%}.pf-report-skeleton i:nth-child(3){width:60%}@keyframes pf-report-shimmer{to{background-position:-200% 0}}@media(prefers-reduced-motion:reduce){.pf-report-skeleton i,.pf-reports-loading::after{animation:none}}
+
 /* ── Layout ─────────────────────────── */
 .ana-wrap { display:flex; flex-direction:column; gap:24px; }
 .ana-grid  { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:stretch; }
@@ -2687,12 +2618,18 @@ if ($fc_debug_mode) {
 ?>
 
 <?php
+            $reportsMark('insights_and_chart_payload');
+            header('Cache-Control: private, no-store');
+            header('Server-Timing: ' . implode(', ', array_map(static fn($name, $ms) => 'reports_' . $name . ';dur=' . $ms, array_keys($reportsPhases), array_values($reportsPhases))));
             if (isset($_GET['ajax'])) {
                 ob_clean(); // Clear any boilerplate buffered before line 1612
                 ob_start();
             }
             ?>
             <div class="ana-wrap" id="pf-reports-dashboard-container">
+            <?php if (($_GET['reports_perf'] ?? '') === '1'): ?>
+            <script type="application/json" id="pf-reports-timing"><?php echo json_encode(['phases_ms' => $reportsPhases, 'aggregates' => $GLOBALS['pf_reports_timings'] ?? [], 'db_errors' => count(printflow_db_errors()), 'server_ms' => round((microtime(true) - ($_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true))) * 1000, 1)], JSON_HEX_TAG | JSON_HEX_AMP); ?></script>
+            <?php endif; ?>
 
             <?php if ($gaBranchEmpty): ?>
             <!-- ══ BRANCH EMPTY STATE ════════════════════════════════════════ -->
@@ -3218,7 +3155,7 @@ if ($fc_debug_mode) {
                 </div>
                 <div class="ana-bd">
                     <div class="pf-heatmap-legend" aria-label="Heatmap legend" id="pf-heatmap-legend"><span class="pf-hm-legend-item" data-kind="future" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:repeating-linear-gradient(-45deg,#f8fafc,#f8fafc 3px,#e2e8f0 3px,#e2e8f0 6px);border:1px dashed #cbd5e1;"></i> Not yet</span><span class="pf-hm-legend-item" data-kind="nodata" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#f8fafc;border:1px dashed #94a3b8;"></i> No transactions</span><span class="pf-hm-legend-item" data-kind="low" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#a5e3f2;"></i> Low</span><span class="pf-hm-legend-item" data-kind="med" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#53C5E0;"></i> Medium</span><span class="pf-hm-legend-item" data-kind="high" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#00232b;"></i> High</span></div>
-                    <div class="ch-box pf-heatmap-chbox" id="pf-heatmap-chbox" style="min-height:<?php echo (int)$hm_box_h; ?>px;"><div id="pf-heatmap-ajax-loading" class="chart-loading hidden" aria-hidden="true"><div class="chart-loading-spinner" role="status" aria-label="Loading heatmap"></div></div><div id="ch-heatmap-mount"><?php if (!empty($heatmap_products)): ?><div class="pf-hm-outer"><?php echo pf_reports_render_heatmap_html($heatmap_products, (int) $heatmap_year); ?></div><?php else: ?><div class="ch-empty pf-heatmap-empty"><?php echo empty($heatmap_available_years) ? 'No historical transaction years for this branch.' : 'No data available for the selected year.'; ?></div><?php endif; ?></div></div>
+                    <div class="ch-box pf-heatmap-chbox" id="pf-heatmap-chbox" style="min-height:<?php echo (int)$hm_box_h; ?>px;"><div id="pf-heatmap-ajax-loading" class="chart-loading hidden" aria-hidden="true"><div class="chart-loading-spinner" role="status" aria-label="Loading heatmap"></div></div><div id="ch-heatmap-mount" data-pf-lazy-heatmap="1" data-pf-reverse="<?php echo $chart_sort === 'value_asc' ? '1' : '0'; ?>"><?php if (!empty($heatmap_products)): ?><div class="pf-hm-outer"><?php echo pf_reports_render_heatmap_html($heatmap_products, (int) $heatmap_year); ?></div><?php else: ?><div class="ch-empty pf-heatmap-empty"><?php if (empty($heatmap_available_years)): ?>No historical transaction years for this branch.<?php else: ?><div class="pf-report-skeleton" role="status" aria-label="Loading heatmap"><i></i><i></i><i></i></div><?php endif; ?></div><?php endif; ?></div></div>
                 </div>
             </div>
 

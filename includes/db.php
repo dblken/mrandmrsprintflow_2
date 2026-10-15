@@ -1,4 +1,6 @@
 <?php
+// Invalidates only derived Reports caches; does not alter queries or records.
+require_once __DIR__ . '/admin_reports_cache_generation.php';
 /**
  * Database Connection
  * PrintFlow - Production Ready (Hostinger + Local Safe)
