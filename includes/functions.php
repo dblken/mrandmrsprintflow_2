@@ -1247,6 +1247,7 @@ function log_activity($user_id, $action, $details = '') {
         'Historical generated data removed',
         'Historical generated statuses repaired',
         'customer_archive_restore_all',
+        'customer_archive_hide_all',
     ], true)) {
         return true;
     }
