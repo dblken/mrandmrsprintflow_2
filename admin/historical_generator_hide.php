@@ -14,17 +14,34 @@ function hgh_ready(): bool {
     $r = db_query("SELECT COUNT(*) n FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='historical_generator_hidden_orders'");
     return (int)($r[0]['n'] ?? 0) === 1;
 }
-function hgh_orders(string $start, string $end): array {
+function hgh_orders(string $start, string $end, string $branchId = 'all'): array {
+    $sql = "SELECT o.order_id,o.order_date,o.reference_id,o.order_source,o.total_amount,
+                    o.branch_id,b.branch_name
+             FROM orders o
+             LEFT JOIN branches b ON b.id=o.branch_id
+             LEFT JOIN historical_generator_hidden_orders h ON h.order_id=o.order_id
+             WHERE o.reference_id LIKE 'HGEN-%' AND h.order_id IS NULL
+               AND o.order_date>=? AND o.order_date<DATE_ADD(?,INTERVAL 1 DAY)";
+    $types = 'ss';
+    $params = [$start.' 00:00:00', $end.' 00:00:00'];
+    if ($branchId !== 'all') {
+        $sql .= ' AND o.branch_id=?';
+        $types .= 'i';
+        $params[] = (int)$branchId;
+    }
+    $sql .= ' ORDER BY o.order_date,o.order_id';
     return db_query(
-        "SELECT o.order_id,o.order_date,o.reference_id,o.order_source,o.total_amount
-         FROM orders o LEFT JOIN historical_generator_hidden_orders h ON h.order_id=o.order_id
-         WHERE o.reference_id LIKE 'HGEN-%' AND h.order_id IS NULL
-           AND o.order_date>=? AND o.order_date<DATE_ADD(?,INTERVAL 1 DAY)
-         ORDER BY o.order_date,o.order_id", 'ss', [$start.' 00:00:00',$end.' 00:00:00']
+        $sql, $types, $params
     ) ?: [];
 }
 
 $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
+$branches = db_query("SELECT id,branch_name FROM branches WHERE status <> 'Archived' ORDER BY branch_name") ?: [];
+$branchNames = ['all' => 'All Branches'];
+foreach ($branches as $branch) $branchNames[(string)$branch['id']] = (string)$branch['branch_name'];
+$requestedBranch = $_REQUEST['branch_id'] ?? (is_array($_SESSION['hgh_preview'] ?? null) ? ($_SESSION['hgh_preview']['branch_id'] ?? 'all') : 'all');
+$branchId = strtolower((string)$requestedBranch) === 'all' ? 'all' : (string)(int)$requestedBranch;
+if ($branchId !== 'all' && !isset($branchNames[$branchId])) $branchId = 'all';
 $start = hgh_date((string)($_REQUEST['start_date'] ?? ''), $today);
 $end = hgh_date((string)($_REQUEST['end_date'] ?? ''), $today);
 $error = ''; $success = ''; $preview = $_SESSION['hgh_preview'] ?? null; $rows = [];
@@ -34,8 +51,8 @@ try {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!verify_csrf_token((string)($_POST['csrf_token'] ?? ''))) throw new RuntimeException('Invalid security token.');
         if (($_POST['action'] ?? '') === 'preview') {
-            $rows = hgh_orders($start, $end);
-            $preview = ['start'=>$start, 'end'=>$end, 'orders'=>$rows, 'token'=>bin2hex(random_bytes(24))];
+            $rows = hgh_orders($start, $end, $branchId);
+            $preview = ['start'=>$start, 'end'=>$end, 'branch_id'=>$branchId, 'orders'=>$rows, 'token'=>bin2hex(random_bytes(24))];
             $_SESSION['hgh_preview'] = $preview;
             $success = 'Hide preview generated. Nothing has been changed.';
         } elseif (($_POST['action'] ?? '') === 'hide') {
@@ -43,7 +60,7 @@ try {
             if ((string)($_POST['confirmation'] ?? '') !== 'HIDE HISTORICAL DATA') throw new RuntimeException('Type HIDE HISTORICAL DATA to confirm.');
             $selected = array_values(array_unique(array_filter(array_map('intval', (array)($_POST['order_ids'] ?? [])))));
             if (!$selected) throw new RuntimeException('Select at least one generated order to hide.');
-            $eligible = hgh_orders((string)$preview['start'], (string)$preview['end']);
+            $eligible = hgh_orders((string)$preview['start'], (string)$preview['end'], (string)($preview['branch_id'] ?? 'all'));
             $eligibleIds = array_map(static fn(array $row): int => (int)$row['order_id'], $eligible);
             if (count(array_diff($selected, $eligibleIds)) > 0) throw new RuntimeException('A selected order is no longer eligible. Generate a new preview.');
             global $conn;
@@ -71,10 +88,10 @@ $total = array_sum(array_map(static fn(array $row): float => (float)$row['total_
 <div class="notice"><strong>Only HGEN-marked generator orders are eligible.</strong> Hidden orders remain stored, retain inventory effects, and are excluded from shared order/report scopes after the hide table is installed.</div>
 <?php if ($error): ?><div class="error"><?=hgh($error)?></div><?php endif; ?>
 <?php if ($success): ?><div class="success"><?=hgh($success)?></div><?php endif; ?>
-<section class="panel"><form method="post"><?=csrf_field()?><div class="grid"><label>Start Date<input type="date" name="start_date" value="<?=hgh($start)?>" max="<?=hgh($today)?>" required></label><label>End Date<input type="date" name="end_date" value="<?=hgh($end)?>" max="<?=hgh($today)?>" required></label></div><button name="action" value="preview">Preview Hide</button></form></section>
-<?php if (is_array($preview)): ?><section class="panel"><h2>Preview (nothing changed)</h2><p><strong><?=count($rows)?></strong> generator-created order(s), total PHP <?=number_format($total,2)?></p>
+<section class="panel"><form method="post"><?=csrf_field()?><div class="grid"><label>Start Date<input type="date" name="start_date" value="<?=hgh($start)?>" max="<?=hgh($today)?>" required></label><label>End Date<input type="date" name="end_date" value="<?=hgh($end)?>" max="<?=hgh($today)?>" required></label><label>Branch<select name="branch_id"><option value="all"<?= $branchId === 'all' ? ' selected' : '' ?>>All Branches</option><?php foreach ($branchNames as $id=>$name): ?><?php if ($id !== 'all'): ?><option value="<?=hgh($id)?>"<?= $branchId === $id ? ' selected' : '' ?>><?=hgh($name)?></option><?php endif; ?><?php endforeach; ?></select></label></div><button name="action" value="preview">Preview Hide</button></form></section>
+<?php if (is_array($preview)): ?><section class="panel"><h2>Preview (nothing changed)</h2><p><strong>Branch:</strong> <?=hgh($branchNames[(string)($preview['branch_id'] ?? 'all')] ?? 'All Branches')?></p><p><strong><?=count($rows)?></strong> generator-created order(s), total PHP <?=number_format($total,2)?></p>
 <?php if ($rows): ?><form method="post" id="hide-form"><?=csrf_field()?><input type="hidden" name="action" value="hide"><input type="hidden" name="preview_token" value="<?=hgh((string)$preview['token'])?>"><p><label>Target amount to hide (optional)<input id="target-amount" type="number" min="0.01" step="0.01" placeholder="e.g. 300000"></label></p><button type="button" id="select-to-target">Select Orders Toward Target</button><p><strong>Selected total: PHP <span id="selected-total">0.00</span></strong></p>
-<table><tr><th>Select</th><th>Order</th><th>Date</th><th>Reference</th><th>Source</th><th>Total</th></tr><?php foreach ($rows as $row): ?><tr><td><input class="hide-order" type="checkbox" name="order_ids[]" value="<?=hgh((string)$row['order_id'])?>" data-total="<?=hgh((string)$row['total_amount'])?>"></td><td>#<?=hgh((string)$row['order_id'])?></td><td><?=hgh((string)$row['order_date'])?></td><td><?=hgh((string)$row['reference_id'])?></td><td><?=hgh((string)$row['order_source'])?></td><td>PHP <?=number_format((float)$row['total_amount'],2)?></td></tr><?php endforeach; ?></table>
+<table><tr><th>Select</th><th>Order</th><th>Date</th><th>Branch</th><th>Reference</th><th>Source</th><th>Total</th></tr><?php foreach ($rows as $row): ?><tr><td><input class="hide-order" type="checkbox" name="order_ids[]" value="<?=hgh((string)$row['order_id'])?>" data-total="<?=hgh((string)$row['total_amount'])?>"></td><td>#<?=hgh((string)$row['order_id'])?></td><td><?=hgh((string)$row['order_date'])?></td><td><?=hgh((string)($row['branch_name'] ?? 'Unassigned'))?></td><td><?=hgh((string)$row['reference_id'])?></td><td><?=hgh((string)$row['order_source'])?></td><td>PHP <?=number_format((float)$row['total_amount'],2)?></td></tr><?php endforeach; ?></table>
 <label>Type HIDE HISTORICAL DATA<input name="confirmation" required></label><button type="submit">Hide Selected Transactions</button></form><?php else: ?><p class="error">No HGEN-marked transactions were found in this date range. Nothing can be hidden safely by date alone.</p><?php endif; ?></section><?php endif; ?>
 </main><script>
 const hideChecks = Array.from(document.querySelectorAll('.hide-order'));
