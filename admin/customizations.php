@@ -929,6 +929,30 @@ function custom_payment_badge($status) {
                     const value = this.resolvePriorityValue(job);
                     return value || 'Not specified';
                 },
+                formatAdminNoteTimestamp(value) {
+                    const raw = String(value || '').trim();
+                    if (!raw) return '';
+                    const parsed = new Date(raw.replace(' ', 'T') + '+08:00');
+                    if (Number.isNaN(parsed.getTime())) return raw;
+                    return parsed.toLocaleString('en-US', {
+                        timeZone: 'Asia/Manila',
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true,
+                    });
+                },
+                displayAdminNotes(job) {
+                    const notes = String(job?.notes || '').trim();
+                    if (!notes) return '';
+                    const match = notes.match(/^(.*?)\s*Planned production:\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2});\s*planned completion:\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*$/i);
+                    if (!match) return notes;
+                    const prefix = match[1].trim();
+                    const schedule = 'Planned Production: ' + this.formatAdminNoteTimestamp(match[2]) + '\nPlanned Completion: ' + this.formatAdminNoteTimestamp(match[3]);
+                    return prefix ? prefix + '\n\n' + schedule : schedule;
+                },
                 adminModalItems(job) {
                     if (Array.isArray(job?.items) && job.items.length > 0) {
                         return job.items;
@@ -1887,9 +1911,9 @@ function custom_payment_badge($status) {
                             </div>
                         </template>
                     </div>
-                    <div x-show="job?.notes" class="customization-notes-block" style="margin-top:12px;">
+                    <div x-show="displayAdminNotes(job)" class="customization-notes-block" style="margin-top:12px;">
                         <p class="customization-section-label" style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 8px;">Notes</p>
-                        <div class="notes-box" x-text="job?.notes"></div>
+                        <div class="notes-box" x-text="displayAdminNotes(job)"></div>
                     </div>
                     <div class="customization-payment-proof-block" style="margin-top:12px;">
                         <p style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin:0 0 8px;">Payment Proof</p>

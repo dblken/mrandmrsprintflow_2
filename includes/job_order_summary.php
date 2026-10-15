@@ -205,6 +205,9 @@ function printflow_job_order_display_dimensions_label(?array $storeLine, array $
         if ($text === '') {
             continue;
         }
+        if (strcasecmp($label, 'Specifications') === 0 && strcasecmp($text, 'Historical walk-in service transaction from existing service catalog.') === 0) {
+            continue;
+        }
         // Keep customer wording such as a sticker cut style with its size, while
         // collapsing the accidental repeated size that older payloads can contain.
         $dimensionPair = '\d+(?:\.\d+)?\s*(?:ft|feet|in|inch|inches|cm|mm|m)?\s*[xX*]\s*\d+(?:\.\d+)?\s*(?:ft|feet|in|inch|inches|cm|mm|m)?';
