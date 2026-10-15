@@ -128,6 +128,9 @@ function htg_service_generator_check(array $service, int $branch = 0): array {
     $serviceId = (int)($service['id'] ?? 0);
     $serviceName = (string)($service['name'] ?? 'Service #' . $serviceId);
     $serviceType = JobOrderService::inferServiceTypeFromProduct((string)($service['category'] ?? ''), $serviceName);
+    if ($serviceType === '') {
+        return ['valid' => false, 'reason' => 'no supported canonical service type was found.', 'plan' => ['supported' => false, 'materials' => [], 'dimensions' => null]];
+    }
     $plan = htg_material_plan($serviceType, 1, $serviceId, $serviceName);
     if (empty($plan['supported'])) {
         $reason = (string)($plan['warning'] ?? 'Unsupported material configuration.');
@@ -243,6 +246,15 @@ function htg_dimension_options(int $serviceId): array {
     return array_values(array_unique(array_filter($values)));
 }
 function htg_material_plan(string $serviceType, int $quantity, int $serviceId = 0, string $displayName = ''): array {
+    if (trim($serviceType) === '') {
+        return [
+            'supported' => false,
+            'warning' => 'Service "' . ($displayName !== '' ? $displayName : 'Unknown service') . '" was skipped because no supported canonical service type was found.',
+            'materials' => [],
+            'dimensions' => null,
+            'label' => 'Skipped: unsupported service type',
+        ];
+    }
     $rules = db_query("SELECT r.item_id, r.rule_type, i.name, i.track_by_roll, i.unit_of_measure
                        FROM service_material_rules r
                        JOIN inv_items i ON i.id = r.item_id

@@ -156,10 +156,14 @@ function historical_services(): array
 
 function historical_service_type(array $service): string
 {
-    return JobOrderService::inferServiceTypeFromProduct(
+    $serviceType = JobOrderService::inferServiceTypeFromProduct(
         (string)($service['category'] ?? ''),
         (string)($service['name'] ?? '')
     );
+    if ($serviceType === '') {
+        throw new RuntimeException('This service has no supported production service type configured.');
+    }
+    return $serviceType;
 }
 
 function historical_service_placeholder_product_id(): int

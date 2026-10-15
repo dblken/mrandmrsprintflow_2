@@ -768,6 +768,20 @@ class JobOrderService {
      */
     public static function inferServiceTypeFromProduct(string $category, string $name): string {
         $cat_lower = strtolower($category . ' ' . $name);
+        // Dynamic service catalog entries must keep their own canonical names.
+        // Falling through to Tarpaulin would incorrectly apply roll-material rules.
+        if (strpos($cat_lower, 'brochure') !== false) {
+            return 'Brochure';
+        }
+        if (strpos($cat_lower, 'mug') !== false) {
+            return 'Mugs';
+        }
+        if (preg_match('/\bplates?\b/', $cat_lower)) {
+            return 'Plates';
+        }
+        if (strpos($cat_lower, 'poster printing') !== false || preg_match('/\bposter\b/', $cat_lower)) {
+            return 'Poster Printing';
+        }
         if (strpos($cat_lower, 'tarpaulin') !== false) {
             return 'Tarpaulin Printing';
         }
@@ -798,7 +812,7 @@ class JobOrderService {
         if (strpos($cat_lower, 'layout') !== false) {
             return 'Layouts';
         }
-        return 'Tarpaulin Printing';
+        return '';
     }
 
     /**
@@ -850,6 +864,15 @@ class JobOrderService {
             $service_type = get_service_name_from_customization($custom, '');
             if ($service_type === '') {
                 $service_type = self::inferServiceTypeFromProduct($pcat, $pname);
+            }
+            if ($service_type === '') {
+                error_log(sprintf(
+                    'PrintFlow job routing: skipped unsupported service type for store order %d, item %d (%s)',
+                    $orderId,
+                    (int)($item['order_item_id'] ?? 0),
+                    $pname !== '' ? $pname : 'unnamed service'
+                ));
+                continue;
             }
 
             $dimensions = $custom['dimensions'] ?? $custom['Size'] ?? '';
