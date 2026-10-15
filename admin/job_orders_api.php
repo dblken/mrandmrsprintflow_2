@@ -1488,7 +1488,10 @@ try {
                 $total_count = db_query($count_sql, $types ?: null, $params ?: null)[0]['total'] ?? 0;
             }
             
-            $sql .= " ORDER BY jo.priority = 'HIGH' DESC, jo.due_date ASC, jo.created_at DESC LIMIT ? OFFSET ?";
+            $sql .= $serviceOnly
+                ? " ORDER BY COALESCE(o.order_date, jo.created_at) DESC,
+                             COALESCE(jo.order_id, jo.id) DESC, jo.id DESC LIMIT ? OFFSET ?"
+                : " ORDER BY jo.priority = 'HIGH' DESC, jo.due_date ASC, jo.created_at DESC LIMIT ? OFFSET ?";
             $params[] = $per_page; $params[] = $offset; $types .= 'ii';
             $orders = db_query($sql, $types ?: null, $params ?: null) ?: [];
             foreach ($orders as &$orderRow) {
@@ -1712,7 +1715,11 @@ try {
             $dashboardListLimit = min(500, max(1, (int)($_GET['per_page'] ?? ($summaryOnly ? 25 : 250))));
             $dashboardListPage = max(1, (int)($_GET['page'] ?? 1));
             $dashboardListOffset = ($dashboardListPage - 1) * $dashboardListLimit;
-            $dashboardFetchLimit = min(500, $dashboardListOffset + $dashboardListLimit + 1);
+            // The combined stream is globally sorted and sliced after merging
+            // its sources, so each page must be able to read the full prefix.
+            $dashboardFetchLimit = $serviceOnly
+                ? $dashboardListOffset + $dashboardListLimit + 1
+                : min(500, $dashboardListOffset + $dashboardListLimit + 1);
             // Fetch regular product orders with pending status for staff customization dashboard
             $sql = "SELECT 
                         o.order_id as id,
@@ -1785,7 +1792,9 @@ try {
                             : ""))
                     . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
                     GROUP BY o.order_id
-                    ORDER BY o.order_date DESC
+                    " . ($serviceOnly
+                        ? "ORDER BY o.order_date DESC, o.order_id DESC"
+                        : "ORDER BY o.order_date DESC") . "
                     LIMIT " . (int)$dashboardFetchLimit;
 
              $pending_orders = $joStaffBranch !== null
@@ -1923,7 +1932,9 @@ try {
                 )"
                 . jo_api_sql_exclude_unfinalized_pos_drafts('o', 'cust')
                 . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
-                ORDER BY cust.created_at DESC
+                " . ($serviceOnly
+                    ? "ORDER BY COALESCE(o.order_date, cust.created_at) DESC, cust.order_id DESC, cust.customization_id DESC"
+                    : "ORDER BY cust.created_at DESC") . "
                 LIMIT " . (int)$dashboardFetchLimit;
 
             $custom_orders = [];
@@ -2023,10 +2034,21 @@ try {
             $merged = array_merge($pending_orders, $custom_orders, $svc_orders);
             $merged = printflow_change_item_merge_pending_dashboard_rows($merged, $joStaffBranch, $listSource);
             jo_api_attach_provider_payments($merged);
-            usort($merged, function ($a, $b) {
-                $ta = strtotime($a['updated_at'] ?? $a['created_at'] ?? $a['order_date'] ?? 'now');
-                $tb = strtotime($b['updated_at'] ?? $b['created_at'] ?? $b['order_date'] ?? 'now');
-                return $tb <=> $ta;
+            usort($merged, function ($a, $b) use ($serviceOnly) {
+                $dateA = $serviceOnly
+                    ? ($a['order_business_date'] ?? $a['order_date'] ?? $a['created_at'] ?? '')
+                    : ($a['updated_at'] ?? $a['created_at'] ?? $a['order_date'] ?? '');
+                $dateB = $serviceOnly
+                    ? ($b['order_business_date'] ?? $b['order_date'] ?? $b['created_at'] ?? '')
+                    : ($b['updated_at'] ?? $b['created_at'] ?? $b['order_date'] ?? '');
+                $ta = strtotime((string)$dateA) ?: 0;
+                $tb = strtotime((string)$dateB) ?: 0;
+                $dateOrder = $tb <=> $ta;
+                if ($dateOrder !== 0) return $dateOrder;
+                if (!$serviceOnly) return 0;
+                $orderOrder = ((int)($b['order_id'] ?? $b['id'] ?? 0)) <=> ((int)($a['order_id'] ?? $a['id'] ?? 0));
+                if ($orderOrder !== 0) return $orderOrder;
+                return ((int)($b['id'] ?? 0)) <=> ((int)($a['id'] ?? 0));
             });
 
             // The three sources can mirror the same store order. Keep the newest

@@ -2621,7 +2621,7 @@ $online_closed_count = 0;
                                     </template>
                                 </tr>
                             </template>
-                            <template x-for="rowIndex in (loadingOrders && orders.length === 0 ? 6 : 0)" :key="'skeleton-' + rowIndex">
+                            <template x-for="rowIndex in ((loadingOrders && orders.length === 0) || dateCoveragePending ? 6 : 0)" :key="'skeleton-' + rowIndex">
                                 <tr aria-hidden="true">
                                     <td class="py-5"><span class="pf-customization-skeleton medium"></span></td>
                                     <td class="py-5"><span class="pf-customization-skeleton medium"></span></td>
@@ -2639,7 +2639,7 @@ $online_closed_count = 0;
                                     <button type="button" @click="retryLoadOrders()" :disabled="loadingOrders" :style="loadingOrders ? 'opacity:.6;cursor:not-allowed' : ''" style="margin-top:12px;padding:9px 16px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#1e3a5f;font-weight:700;cursor:pointer;">Retry</button>
                                 </td>
                             </tr>
-                            <tr x-show="!loadingOrders && !ordersError && filteredOrders.length === 0">
+                            <tr x-show="!loadingOrders && !dateCoveragePending && !ordersError && filteredOrders.length === 0">
                                 <td colspan="7" class="px-6 py-24 text-center">
                                     <span class="table-text-sub uppercase tracking-widest">No matching jobs in this stage</span>
                                 </td>
@@ -2738,7 +2738,7 @@ $online_closed_count = 0;
                         </div>
                     </template>
 
-                    <template x-for="rowIndex in (loadingOrders && orders.length === 0 ? 3 : 0)" :key="'mobile-skeleton-' + rowIndex">
+                    <template x-for="rowIndex in ((loadingOrders && orders.length === 0) || dateCoveragePending ? 3 : 0)" :key="'mobile-skeleton-' + rowIndex">
                         <div class="customizations-mobile-state" aria-hidden="true">
                             <span class="pf-customization-skeleton medium"></span>
                             <span class="pf-customization-skeleton" style="margin-top:10px;"></span>
@@ -2750,7 +2750,7 @@ $online_closed_count = 0;
                         <div style="margin-top:6px;" x-text="ordersError"></div>
                         <button type="button" @click="retryLoadOrders()" class="table-action-btn" style="width:100%;margin-top:12px;">Retry</button>
                     </div>
-                    <div x-show="!loadingOrders && !ordersError && filteredOrders.length === 0" x-cloak class="customizations-mobile-state">
+                    <div x-show="!loadingOrders && !dateCoveragePending && !ordersError && filteredOrders.length === 0" x-cloak class="customizations-mobile-state">
                         No matching jobs in this stage
                     </div>
                 </div>
@@ -5653,11 +5653,85 @@ window.pfServiceFieldCatalog = (() => {
 
                 return base;
             },
+            parseBusinessDateValue(value) {
+                const text = String(value == null ? '' : value).trim();
+                if (!text) return null;
+                const wallClock = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?$/);
+                if (wallClock) {
+                    const millis = Number((wallClock[7] || '').padEnd(3, '0')) || 0;
+                    // MySQL DATETIME values are business wall time in Manila.
+                    const date = new Date(Date.UTC(
+                        Number(wallClock[1]), Number(wallClock[2]) - 1, Number(wallClock[3]),
+                        Number(wallClock[4] || 0), Number(wallClock[5] || 0), Number(wallClock[6] || 0), millis
+                    ) - (8 * 60 * 60 * 1000));
+                    return Number.isNaN(date.getTime()) ? null : date;
+                }
+                const date = new Date(text.includes(' ') ? text.replace(' ', 'T') : text);
+                return Number.isNaN(date.getTime()) ? null : date;
+            },
+            formatBusinessDateKey(date) {
+                if (!date || Number.isNaN(date.getTime())) return '';
+                const parts = new Intl.DateTimeFormat('en', {
+                    timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit'
+                }).formatToParts(date);
+                const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+                return `${values.year}-${values.month}-${values.day}`;
+            },
+            currentBusinessDateKey() {
+                return this.formatBusinessDateKey(new Date());
+            },
+            orderBusinessDateValue(row) {
+                return String((row && (row.order_business_date || row.order_date || row.created_at)) || '').trim();
+            },
+            orderBusinessDateKey(row) {
+                const value = this.orderBusinessDateValue(row);
+                const wallClock = value.match(/^(\d{4}-\d{2}-\d{2})(?:[ T]|$)/);
+                const hasExplicitTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+                if (wallClock && !hasExplicitTimezone) return wallClock[1];
+                return this.formatBusinessDateKey(this.parseBusinessDateValue(value));
+            },
+            orderBusinessTimestamp(row) {
+                const date = this.parseBusinessDateValue(this.orderBusinessDateValue(row));
+                return date ? date.getTime() : 0;
+            },
+            businessDateMatchesRange(row, from, to) {
+                const key = this.orderBusinessDateKey(row);
+                return key !== '' && (!from || key >= from) && (!to || key <= to);
+            },
+            dateFilterStartKey() {
+                const today = this.currentBusinessDateKey();
+                let start = null;
+                if (this.dateFilter === 'CUSTOM') {
+                    start = String(this.customDateFrom || '').trim();
+                } else if (this.dateFilter === 'TODAY') {
+                    start = today;
+                } else if (this.dateFilter === 'WEEK') {
+                    const [year, month, day] = today.split('-').map(Number);
+                    const weekStart = new Date(Date.UTC(year, month - 1, day - 7));
+                    start = `${weekStart.getUTCFullYear()}-${String(weekStart.getUTCMonth() + 1).padStart(2, '0')}-${String(weekStart.getUTCDate()).padStart(2, '0')}`;
+                } else if (this.dateFilter === 'MONTH') {
+                    start = `${today.slice(0, 7)}-01`;
+                }
+                return /^\d{4}-\d{2}-\d{2}$/.test(start || '') ? start : '';
+            },
+            dateFilterCoverageComplete() {
+                if (this.dateFilter === 'ALL' || !this.ordersHasMore) return true;
+                const firstDate = this.dateFilterStartKey();
+                if (!firstDate) return false;
+                return this.orders.some(row => {
+                    const key = this.orderBusinessDateKey(row);
+                    return key !== '' && key < firstDate;
+                });
+            },
+            get dateCoveragePending() {
+                return this.dateFilter !== 'ALL' && !this.dateFilterCoverageComplete();
+            },
             normalizeOrderRow(row) {
                 const normalized = {
                     ...row,
                     customer_type: this.normalizeCustomerType(row && row.customer_type, row && row.transaction_count),
-                    _ts: new Date((row && row.updated_at) || (row && row.created_at) || (row && row.order_date) || 0).getTime()
+                    _ts: new Date((row && row.updated_at) || (row && row.created_at) || (row && row.order_date) || 0).getTime(),
+                    _businessTs: this.orderBusinessTimestamp(row)
                 };
                 const override = this.statusOverrides[this.statusOverrideKey(normalized)] || null;
                 const overrideMaxAgeMs = 15000;
@@ -8089,6 +8163,8 @@ window.pfServiceFieldCatalog = (() => {
                 this.$watch('activeStatus', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
                 this.$watch('serviceFilter', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
                 this.$watch('dateFilter', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
+                this.$watch('customDateFrom', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
+                this.$watch('customDateTo', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
                 this.$watch('sortOrder', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
                 this.$watch('showDetailsModal', (isOpen) => {
                     if (!isOpen) this.clearDeepLinkParams();
@@ -8397,10 +8473,13 @@ window.pfServiceFieldCatalog = (() => {
                     || this.serviceFilter !== 'ALL' || this.dateFilter !== 'ALL'
                     || this.sortOrder !== 'newest';
                 if (!hasFilter) return;
+                const needsDateCoverage = this.dateFilter !== 'ALL';
                 const needsCompleteSet = ['oldest', 'az', 'za'].includes(this.sortOrder);
                 const targetMatches = needsCompleteSet ? Number.POSITIVE_INFINITY : (this.search ? 1 : this.itemsPerPage);
                 let pagesLoaded = 0;
-                while (this.ordersHasMore && this.filteredOrders.length < targetMatches && pagesLoaded < 40) {
+                while (this.ordersHasMore
+                    && (needsDateCoverage ? !this.dateFilterCoverageComplete() : this.filteredOrders.length < targetMatches)
+                    && pagesLoaded < 40) {
                     const loaded = await this.loadNextOrderSummaryPage();
                     pagesLoaded++;
                     if (!loaded) break;
@@ -8829,28 +8908,18 @@ window.pfServiceFieldCatalog = (() => {
                 }
 
                 if (this.dateFilter !== 'ALL') {
-                    const orderDate = new Date(jo.order_business_date || jo.order_date || jo.created_at);
-                    const now = new Date();
+                    const orderDateKey = this.orderBusinessDateKey(jo);
+                    if (!orderDateKey) return false;
+                    const todayKey = this.currentBusinessDateKey();
 
                     if (this.dateFilter === 'TODAY') {
-                        if (orderDate.toDateString() !== now.toDateString()) return false;
+                        if (orderDateKey !== todayKey) return false;
                     } else if (this.dateFilter === 'WEEK') {
-                        const lastWeek = new Date();
-                        lastWeek.setDate(now.getDate() - 7);
-                        if (orderDate < lastWeek) return false;
+                        if (orderDateKey < this.dateFilterStartKey()) return false;
                     } else if (this.dateFilter === 'MONTH') {
-                        if (orderDate.getMonth() !== now.getMonth() || orderDate.getFullYear() !== now.getFullYear()) return false;
+                        if (orderDateKey.slice(0, 7) !== todayKey.slice(0, 7)) return false;
                     } else if (this.dateFilter === 'CUSTOM') {
-                        if (this.customDateFrom) {
-                            const from = new Date(this.customDateFrom);
-                            from.setHours(0,0,0,0);
-                            if (orderDate < from) return false;
-                        }
-                        if (this.customDateTo) {
-                            const to = new Date(this.customDateTo);
-                            to.setHours(23,59,59,999);
-                            if (orderDate > to) return false;
-                        }
+                        if (!this.businessDateMatchesRange(jo, this.customDateFrom, this.customDateTo)) return false;
                     }
                 }
 
@@ -8877,31 +8946,28 @@ window.pfServiceFieldCatalog = (() => {
 
                 const compareRows = (a, b) => {
                     if (this.sortOrder === 'oldest') {
-                        return (a._ts || 0) - (b._ts || 0);
+                        return (a._businessTs || 0) - (b._businessTs || 0)
+                            || (Number(a.order_id || a.id) || 0) - (Number(b.order_id || b.id) || 0);
                     }
                     if (this.sortOrder === 'az') {
                         const nameA = ((a.first_name || '') + ' ' + (a.last_name || '')).toLowerCase();
                         const nameB = ((b.first_name || '') + ' ' + (b.last_name || '')).toLowerCase();
-                        return nameA.localeCompare(nameB);
+                        return nameA.localeCompare(nameB)
+                            || (b._businessTs || 0) - (a._businessTs || 0)
+                            || (Number(b.order_id || b.id) || 0) - (Number(a.order_id || a.id) || 0);
                     }
                     if (this.sortOrder === 'za') {
                         const nameA = ((a.first_name || '') + ' ' + (a.last_name || '')).toLowerCase();
                         const nameB = ((b.first_name || '') + ' ' + (b.last_name || '')).toLowerCase();
-                        return nameB.localeCompare(nameA);
+                        return nameB.localeCompare(nameA)
+                            || (b._businessTs || 0) - (a._businessTs || 0)
+                            || (Number(b.order_id || b.id) || 0) - (Number(a.order_id || a.id) || 0);
                     }
-                    return (b._ts || 0) - (a._ts || 0);
+                    return (b._businessTs || 0) - (a._businessTs || 0)
+                        || (Number(b.order_id || b.id) || 0) - (Number(a.order_id || a.id) || 0);
                 };
 
-                return filtered.sort((a, b) => {
-                    if (this.activeStatus === 'ALL') {
-                        const aUrgent = this.orderIsUrgentRequest(a) ? 1 : 0;
-                        const bUrgent = this.orderIsUrgentRequest(b) ? 1 : 0;
-                        if (aUrgent !== bUrgent) {
-                            return bUrgent - aUrgent;
-                        }
-                    }
-                    return compareRows(a, b);
-                });
+                return filtered.sort(compareRows);
             },
 
             buildOrderListItems(rows, pageStart = 0) {
@@ -8971,6 +9037,7 @@ window.pfServiceFieldCatalog = (() => {
             },
 
             get paginatedListItems() {
+                if (this.dateCoveragePending) return [];
                 const start = (this.currentPage - 1) * this.itemsPerPage;
                 const end = start + this.itemsPerPage;
                 const built = this.buildOrderListItems(this.filteredOrders.slice(start, end), start);
@@ -8992,6 +9059,7 @@ window.pfServiceFieldCatalog = (() => {
             },
 
             get shouldShowPagination() {
+                if (this.dateCoveragePending) return false;
                 return this.getActiveTabMatchingCount() > this.itemsPerPage;
             },
 
@@ -11350,12 +11418,13 @@ window.pfServiceFieldCatalog = (() => {
             },
 
             formatOrderBusinessDate(row) {
-                const value = String(row.order_business_date || row.order_date || row.created_at || '').trim();
+                const value = this.orderBusinessDateValue(row);
                 if (!value) return '';
-                const parsed = new Date(value.replace(' ', 'T'));
-                return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString(undefined, {
-                    month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
-                });
+                const parsed = this.parseBusinessDateValue(value);
+                return !parsed ? value : new Intl.DateTimeFormat(undefined, {
+                    timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric',
+                    hour: 'numeric', minute: '2-digit'
+                }).format(parsed);
             },
             async completeChangeItemRework(machineId = null) {
                 const orderId = this.resolveChangeItemOrderId(this.currentJo);
