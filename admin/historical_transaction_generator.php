@@ -282,13 +282,19 @@ function htg_insert(array $r, string $token, string $reason): int {
 function htg_build_preview(string $start,string $end,int $branch,int $count,int $readyPct,int $customPct,array $products,array $services,string $reason,?float $targetSales=null,array $selectedReadyIds=[],array $selectedServiceIds=[]): array {
     $b = htg_branch($branch);
     $skippedServices = [];
+    $skippedSelectedItems = [];
+    $recordSkipped = static function (string $type, int $id, string $name, string $reason) use (&$skippedSelectedItems): void {
+        $skippedSelectedItems[] = ['type' => $type, 'id' => $id, 'name' => $name !== '' ? $name : ($type === 'custom' ? 'Service #' . $id : 'Product #' . $id), 'reason' => trim($reason)];
+    };
     $selectedReadyIds = array_values(array_unique(array_filter(array_map('intval', $selectedReadyIds), static fn(int $id): bool => $id > 0)));
     $selectedServiceIds = array_values(array_unique(array_filter(array_map('intval', $selectedServiceIds), static fn(int $id): bool => $id > 0)));
     if ($selectedReadyIds === [] && $selectedServiceIds === []) throw new RuntimeException('Select at least one product or service to generate.');
+    $availableServiceNames = [];
+    foreach ($services as $service) $availableServiceNames[(int)$service['id']] = (string)$service['name'];
+    foreach ($selectedServiceIds as $serviceId) if (!array_key_exists($serviceId, $availableServiceNames)) $recordSkipped('custom', $serviceId, 'Service #' . $serviceId, 'not available in the active service catalog.');
     $products = array_values(array_filter($products, static fn(array $product): bool => in_array((int)$product['id'], $selectedReadyIds, true)));
     $services = array_values(array_filter($services, static fn(array $service): bool => in_array((int)$service['id'], $selectedServiceIds, true)));
     if ($readyPct > 0 && $products === []) throw new RuntimeException('Select at least one ready-made product for the selected mix.');
-    if ($customPct > 0 && $services === []) throw new RuntimeException('Select at least one custom/service item for the selected mix.');
     if ($customPct > 0) {
         $eligibleServices = [];
         foreach ($services as $service) {
@@ -298,7 +304,9 @@ function htg_build_preview(string $start,string $end,int $branch,int $count,int 
                 if (!empty($pricing['ok'])) {
                     $maxQuantity = htg_service_quantity_limit($service, $branch);
                     if ($maxQuantity < 1) {
-                        $skippedServices[] = (string)$service['name'] . ': insufficient current material stock.';
+                        $skipReason = 'insufficient current material stock.';
+                        $recordSkipped('custom', (int)$service['id'], (string)$service['name'], $skipReason);
+                        $skippedServices[] = (string)$service['name'] . ': ' . $skipReason;
                         continue;
                     }
                     $service['_htg_plan'] = $plan;
@@ -307,10 +315,16 @@ function htg_build_preview(string $start,string $end,int $branch,int $count,int 
                     $service['_htg_max_quantity'] = $maxQuantity;
                     $eligibleServices[] = $service;
                 } else {
-                    $skippedServices[] = (string)$service['name'] . ': ' . (string)$pricing['reason'];
+                    $skipReason = (string)$pricing['reason'];
+                    $recordSkipped('custom', (int)$service['id'], (string)$service['name'], $skipReason);
+                    $skippedServices[] = (string)$service['name'] . ': ' . $skipReason;
                 }
             } else {
-                $skippedServices[] = (string)$plan['warning'];
+                $skipReason = (string)$plan['warning'];
+                $prefix = (string)$service['name'] . ': ';
+                if (str_starts_with($skipReason, $prefix)) $skipReason = substr($skipReason, strlen($prefix));
+                $recordSkipped('custom', (int)$service['id'], (string)$service['name'], $skipReason);
+                $skippedServices[] = (string)$service['name'] . ': ' . $skipReason;
             }
         }
         $services = $eligibleServices;
@@ -320,7 +334,7 @@ function htg_build_preview(string $start,string $end,int $branch,int $count,int 
     $stock=[];$readyChoicesByProduct=[];$skippedItems=[];
     foreach($products as $p){
         $pid=(int)$p['id'];
-        if($targetSales!==null&&(float)($p['price']??0)<=0){$skippedItems[]=(string)$p['name'].': no positive configured price.';continue;}
+        if($targetSales!==null&&(float)($p['price']??0)<=0){$skipReason='no positive configured price.';$skippedItems[]=(string)$p['name'].': '.$skipReason;$recordSkipped('ready',$pid,(string)$p['name'],$skipReason);continue;}
         $opts=printflow_product_option_stock_map($pid,$branch);
         if($opts){
             foreach($opts as $o){
@@ -331,7 +345,7 @@ function htg_build_preview(string $start,string $end,int $branch,int $count,int 
             [$n]=printflow_product_effective_stock($pid,$branch);$key=$pid.'|';$stock[$key]=(int)$n;
             if($stock[$key]>0)$readyChoicesByProduct[$pid][]= ['p'=>$p,'o'=>null];
         }
-        if(empty($readyChoicesByProduct[$pid]))$skippedItems[]=(string)$p['name'].': insufficient current branch stock.';
+        if(empty($readyChoicesByProduct[$pid])){$skipReason='insufficient current branch stock.';$skippedItems[]=(string)$p['name'].': '.$skipReason;$recordSkipped('ready',$pid,(string)$p['name'],$skipReason);}
     }
     $validReadyProducts=$readyPct>0?array_values(array_filter($products,static fn(array $p):bool=>!empty($readyChoicesByProduct[(int)$p['id']]))):[];
     $validServices=$customPct>0?$services:[];
@@ -406,7 +420,7 @@ function htg_build_preview(string $start,string $end,int $branch,int $count,int 
     $selectedCount=($readyPct>0?count($selectedReadyIds):0)+($customPct>0?count($selectedServiceIds):0);
     $validSelectedCount=($readyPct>0?count($validReadyProducts):0)+($customPct>0?count($validServices):0);
     $usedCount=count($usedReadyIds)+count($usedServiceIds);
-    return ['token' => bin2hex(random_bytes(24)), 'expires_at' => time() + 900, 'start' => $start, 'end' => $end, 'branch_id' => $branch, 'branch_name' => $b['branch_name'], 'reason' => $reason, 'target_sales' => $targetSales, 'generated_sales' => $generatedSales, 'difference' => $targetSales === null ? null : round($generatedSales - $targetSales, 2), 'skipped_services' => array_values(array_merge($skippedItems,$skippedServices)), 'rows' => $rows, 'selected_item_count' => $selectedCount, 'valid_selected_item_count' => $validSelectedCount, 'used_item_count' => $usedCount];
+    return ['token' => bin2hex(random_bytes(24)), 'expires_at' => time() + 900, 'start' => $start, 'end' => $end, 'branch_id' => $branch, 'branch_name' => $b['branch_name'], 'reason' => $reason, 'target_sales' => $targetSales, 'generated_sales' => $generatedSales, 'difference' => $targetSales === null ? null : round($generatedSales - $targetSales, 2), 'skipped_services' => array_values(array_merge($skippedItems,$skippedServices)), 'skipped_items' => $skippedSelectedItems, 'rows' => $rows, 'selected_item_count' => $selectedCount, 'valid_selected_item_count' => $validSelectedCount, 'skipped_item_count' => count($skippedSelectedItems), 'used_item_count' => $usedCount];
 }
 function htg_preview(string $start,string $end,int $branch,int $count,int $readyPct,int $customPct,array $products,array $services,string $reason,?float $targetSales=null,array $selectedReadyIds=[],array $selectedServiceIds=[]): array {
     $attempts = $targetSales === null ? 1 : 8;
@@ -473,7 +487,16 @@ ob_start(static function (string $html) use ($selectionProducts,$selectionServic
         $coverageMessage = $validSelectedCount > 0 && $usedCount >= $validSelectedCount
             ? ' <strong>All selected valid items are represented in this preview.</strong>'
             : '';
-        $coverageSummary = '<div class="notice"><strong>Selected items:</strong> ' . $selectedCount . ' &nbsp; <strong>Valid selected items:</strong> ' . $validSelectedCount . ' &nbsp; <strong>Used in preview:</strong> ' . $usedCount . ' &nbsp; <strong>Skipped:</strong> ' . max(0, $selectedCount - $validSelectedCount) . $coverageMessage . '</div>';
+        $skippedCount = (int)($stored['skipped_item_count'] ?? max(0, $selectedCount - $validSelectedCount));
+        $coverageSummary = '<div class="notice"><strong>Selected items:</strong> ' . $selectedCount . ' &nbsp; <strong>Valid selected items:</strong> ' . $validSelectedCount . ' &nbsp; <strong>Used in preview:</strong> ' . $usedCount . ' &nbsp; <strong>Skipped:</strong> ' . $skippedCount . $coverageMessage . '</div>';
+        $skippedItems = is_array($stored['skipped_items'] ?? null) ? $stored['skipped_items'] : [];
+        if ($skippedItems !== []) {
+            $coverageSummary .= '<div class="error"><strong>Skipped selected items:</strong><ul style="margin:8px 0 0 20px">';
+            foreach ($skippedItems as $item) {
+                $coverageSummary .= '<li>' . htg_h((string)($item['name'] ?? 'Selected item')) . ' - ' . htg_h((string)($item['reason'] ?? 'No safe generation reason was recorded.')) . '</li>';
+            }
+            $coverageSummary .= '</ul></div>';
+        }
         $html = str_replace('<h2>Preview (nothing has been saved)</h2>', '<h2>Preview (nothing has been saved)</h2>' . $coverageSummary, $html);
     }
     if (($stored['target_sales'] ?? null) !== null) {
