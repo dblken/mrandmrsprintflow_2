@@ -41,7 +41,9 @@ $sql_base = "SELECT al.log_id, al.user_id, al.action AS action_type, al.details 
              AND al.action <> 'Historical generated data removed'
              AND al.action <> 'Historical generated statuses repaired'
              AND al.action <> 'customer_archive_restore_all'
-             AND al.action <> 'customer_archive_hide_all'";
+             AND al.action <> 'customer_archive_hide_all'
+             AND al.action <> 'Import Demo Seed Batch'
+             AND al.action <> 'Delete Demo Seed Batch'";
 
 $params = [];
 $types = '';

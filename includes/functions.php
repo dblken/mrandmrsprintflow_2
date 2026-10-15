@@ -1248,6 +1248,8 @@ function log_activity($user_id, $action, $details = '') {
         'Historical generated statuses repaired',
         'customer_archive_restore_all',
         'customer_archive_hide_all',
+        'Import Demo Seed Batch',
+        'Delete Demo Seed Batch',
     ], true)) {
         return true;
     }
