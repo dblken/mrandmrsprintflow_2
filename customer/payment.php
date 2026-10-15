@@ -772,28 +772,38 @@ if (!function_exists('pf_payment_qr_url')) {
         color: #00232b !important;
     }
     .paymongo-card { padding:0.95rem 1rem;margin-bottom:0.65rem;border:1px solid #dbe5e8;border-radius:12px;background:#fff;box-shadow:0 6px 18px rgba(0,35,43,.06);color:#172b32; }
+    .paymongo-card-header { display:flex;flex-direction:column;align-items:center;text-align:center;gap:0.35rem;margin-bottom:0.35rem; }
+    .paymongo-card-heading { width:100%;text-align:center; }
+    .paymongo-card-heading .paymongo-eyebrow,
+    .paymongo-card-heading .paymongo-title { text-align:center; }
+    .paymongo-test-badge { padding:3px 8px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:800;text-transform:uppercase; }
     .paymongo-eyebrow { color:#0f766e;font-size:.68rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase; }
     .paymongo-title { margin:.2rem 0 0;color:#102f38;font-size:1rem;font-weight:850; }
     .paymongo-amount-wrap { margin:0.55rem 0;padding:0.6rem 0.75rem;border-radius:10px;background:#f1f8f8; }
     .paymongo-label { color:#64748b;font-size:.68rem;font-weight:750;letter-spacing:.04em;text-transform:uppercase; }
     .paymongo-amount { margin-top:.1rem;color:#082f3a;font-size:1.55rem;font-weight:900;letter-spacing:-.025em; }
-    .paymongo-method-summary {
-        margin-top:0.55rem;
-        padding:0.6rem 0.75rem;
-        border:1px solid #cbdde1;
-        border-radius:10px;
-        background:#f8fcfd;
-        color:#17343d;
+    .paymongo-qr-card { margin-top:0.55rem;padding:0.65rem 0.75rem;border:1px solid #dbe5e8;border-radius:12px;background:#fbfefe;text-align:center; }
+    .paymongo-qr-image-wrap {
         display:flex;
-        flex-direction:column;
         align-items:center;
         justify-content:center;
-        text-align:center;
+        width:100%;
+        margin:0.25rem 0 0.15rem;
     }
-    .paymongo-method-summary strong { display:block;color:#082f3a;font-size:.85rem;letter-spacing:.035em; }
-    .paymongo-method-summary span { display:block;margin-top:.25rem;color:#5b6f76;font-size:.76rem;line-height:1.4;max-width:100%; }
-    .paymongo-qr-card { margin-top:0.55rem;padding:0.65rem 0.75rem;border:1px solid #dbe5e8;border-radius:12px;background:#fbfefe;text-align:center; }
-    .paymongo-qr-card img { width:min(220px,100%);padding:6px;border:1px solid #e2e8f0;border-radius:8px; }
+    .paymongo-qr-image-wrap:has(#paymongo-qr-image[src]) {
+        min-height:min(240px,72vw);
+    }
+    .paymongo-qr-card img {
+        display:block;
+        margin:0 auto;
+        max-width:min(220px,100%);
+        width:auto;
+        height:auto;
+        object-fit:contain;
+        padding:6px;
+        border:1px solid #e2e8f0;
+        border-radius:8px;
+    }
     .paymongo-qr-download { display:inline-flex;align-items:center;justify-content:center;gap:.35rem;margin-top:.55rem;padding:.5rem .75rem;border:1px solid #a9c7cc;border-radius:8px;background:#fff;color:#0a5962;font-size:.76rem;font-weight:800;text-decoration:none; }
     .paymongo-qr-download:hover { border-color:#53c5e0;color:#063b47;background:#f8fcfd; }
     .paymongo-state { margin-top:0.5rem;padding:0.55rem 0.65rem;border-radius:8px;background:#f1f5f9;color:#43565d;font-size:.76rem;line-height:1.4;text-align:center; }
@@ -1097,13 +1107,12 @@ if (!function_exists('pf_payment_qr_url')) {
                     ?>
                     <?php if ($paymongo_available && $paymongo_qrph_available): ?>
                         <div id="paymongo-test-payment" class="paymongo-card">
-                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;">
-                                <div><div class="paymongo-eyebrow">Payment Method</div><h2 class="paymongo-title">Pay securely with PayMongo</h2></div>
-                                <?php if ($paymongo_show_test_badge): ?><span style="padding:3px 8px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:800;text-transform:uppercase;">Test Mode</span><?php endif; ?>
-                            </div>
-                            <div class="paymongo-method-summary">
-                                <strong>QR PH</strong>
-                                <span><?php echo $paymongo_mode === 'test' ? 'Test payment simulation' : 'Scan the QR using a supported banking or e-wallet app.'; ?></span>
+                            <div class="paymongo-card-header">
+                                <?php if ($paymongo_show_test_badge): ?><span class="paymongo-test-badge">Test Mode</span><?php endif; ?>
+                                <div class="paymongo-card-heading">
+                                    <div class="paymongo-eyebrow">Payment Method</div>
+                                    <h2 class="paymongo-title">Pay securely with PayMongo</h2>
+                                </div>
                             </div>
                             <div id="paymongo-qr-panel" class="paymongo-qr-card" style="display:none;">
                                 <div class="paymongo-eyebrow">QR Ph Payment</div><div class="paymongo-amount" style="font-size:1.35rem;margin:.2rem 0 .35rem;"><?php echo format_currency($total_amount); ?></div>
@@ -1113,7 +1122,9 @@ if (!function_exists('pf_payment_qr_url')) {
                                     <a id="paymongo-test-simulation-link" href="#" target="_blank" rel="noopener noreferrer" class="paymongo-action paymongo-action-primary" style="display:none;width:100%;margin-top:9px;box-sizing:border-box;">Open PayMongo Test Simulator</a>
                                     <span id="paymongo-test-simulation-unavailable" style="display:none;margin-top:8px;">The simulator link is not available for this payment. Generate a new Test QR or contact staff.</span>
                                 </div>
-                                <img id="paymongo-qr-image" alt="PayMongo QR Ph payment code">
+                                <div class="paymongo-qr-image-wrap">
+                                    <img id="paymongo-qr-image" alt="PayMongo QR Ph payment code">
+                                </div>
                                 <a id="paymongo-qr-download" class="paymongo-qr-download" href="#" download style="display:none;">Download QR image</a>
                                 <div style="margin-top:.45rem;font-size:.78rem;font-weight:800;color:#9a6700;">Waiting for payment</div>
                                 <div id="paymongo-qr-countdown" style="font-size:.78rem;font-weight:800;color:#0f766e;margin-top:.15rem;min-height:18px;"></div>

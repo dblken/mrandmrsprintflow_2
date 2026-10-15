@@ -68,7 +68,7 @@ inline_checkout_check(!str_contains($customer, 'SECURE CHECKOUT') && !str_contai
 inline_checkout_check(!str_contains($customer, 'Continue to Secure Checkout') && !str_contains($customer, 'paymongo-create-link'), '2. customer page has no hosted-checkout card or button');
 inline_checkout_check(!str_contains($customer, "createPayMongoPayment('create_link')") && !str_contains($customer, 'continueToSecureCheckout'), '3. customer page does not call create_link');
 inline_checkout_check(!str_contains($customer, 'selectedPayMongoMethod') && !str_contains($customer, 'paymongo-method-actions'), '4. customer page has no payment-method selector state');
-inline_checkout_check(str_contains($customer, 'paymongo-method-summary') && str_contains($customer, '<strong>QR PH</strong>'), '5. QR PH is the only visible PayMongo method');
+inline_checkout_check(str_contains($customer, 'paymongo-card-heading') && str_contains($customer, 'QR Ph Payment') && !str_contains($customer, 'paymongo-method-summary'), '5. QR PH is the only visible PayMongo method without duplicate scan copy');
 inline_checkout_check(str_contains($customer, "return 'create_qrph';") && str_contains($api, 'printflow_provider_payment_create_qrph(') && str_contains($provider, 'printflow_provider_payment_create_intent('), '6. customer QR can create a Payment Intent');
 inline_checkout_check(str_contains($customer, "'retry_qrph'") && str_contains($provider, '$resetExpiredIntentSql'), '7. expired or failed QR can be retried');
 inline_checkout_check(str_contains($provider, '$qrIsUsable') && str_contains($provider, "'reused' => true"), '8. existing valid QR is reused by the backend');
