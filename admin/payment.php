@@ -200,7 +200,10 @@ $sql = "SELECT o.order_id, o.reference_id, o.order_type, o.total_amount, o.order
         FROM orders o
         LEFT JOIN customers c ON c.customer_id = o.customer_id
         LEFT JOIN branches b ON b.id = o.branch_id
-        WHERE LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'pos_merged')
+        WHERE (
+              LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'pos_merged', 'historical_generator')
+              OR o.reference_id LIKE 'HGEN-%'
+          )
           AND LOWER(TRIM(COALESCE(o.payment_method, ''))) = 'cash'
           AND LOWER(TRIM(o.payment_status)) = 'paid'
           AND " . printflow_order_archive_scope_sql('o');
