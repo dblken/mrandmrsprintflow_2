@@ -490,6 +490,28 @@ class JobOrderService {
         }
     }
 
+    /**
+     * Run the normal production deduction engine with an optional historical
+     * business timestamp. Technical fields still use NOW()/the real clock.
+     */
+    public static function processHistoricalProductionDeductions(int $jobId, string $transactionDate): void {
+        $transactionDate = trim($transactionDate);
+        $parsed = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $transactionDate);
+        $errors = DateTimeImmutable::getLastErrors();
+        if (!$parsed || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))) {
+            throw new InvalidArgumentException('Historical production date is invalid.');
+        }
+        if ($parsed > new DateTimeImmutable('now')) {
+            throw new InvalidArgumentException('Historical production date cannot be in the future.');
+        }
+
+        self::processDeductions($jobId, [
+            'materials' => true,
+            'inks' => true,
+            'transaction_date' => $parsed->format('Y-m-d H:i:s'),
+        ]);
+    }
+
     private static function cleanupLegacyAutoAssignedMaterials(int $jobId, int $storeOrderId = 0, string $serviceType = ''): void {
         if ($jobId <= 0 || $storeOrderId <= 0 || $serviceType === '' || !self::tableHasColumn('job_order_materials', 'std_order_id')) {
             return;
