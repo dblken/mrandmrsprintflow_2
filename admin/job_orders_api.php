@@ -655,10 +655,10 @@ function jo_api_normalize_customer_type($customerType, $transactionCount = null)
 
 function jo_api_resolve_order_source(?int $orderId, $currentSource = null): string {
     $source = strtolower(trim((string)$currentSource));
-    if (in_array($source, ['pos', 'walk-in'], true)) {
+    if (in_array($source, ['pos', 'walk-in'], true) && empty($orderId)) {
         return $source;
     }
-    if ($source === 'pos_draft') {
+    if ($source === 'pos_draft' && empty($orderId)) {
         return 'pos_draft';
     }
 
@@ -666,6 +666,7 @@ function jo_api_resolve_order_source(?int $orderId, $currentSource = null): stri
         $sourceCheckRows = db_query(
             "SELECT
                 LOWER(TRIM(COALESCE(o.order_source, ''))) AS db_order_source,
+                o.reference_id,
                 LOWER(TRIM(COALESCE(c.email, ''))) AS customer_email,
                 EXISTS(
                     SELECT 1
@@ -694,6 +695,9 @@ function jo_api_resolve_order_source(?int $orderId, $currentSource = null): stri
         );
         $sourceCheck = $sourceCheckRows[0] ?? [];
         $dbOrderSource = strtolower(trim((string)($sourceCheck['db_order_source'] ?? '')));
+        if (preg_match('/^HGEN-/i', trim((string)($sourceCheck['reference_id'] ?? '')))) {
+            return 'historical_generator';
+        }
         if (in_array($dbOrderSource, ['pos', 'walk-in', 'pos_draft'], true)) {
             return $dbOrderSource;
         }
@@ -747,6 +751,7 @@ function jo_api_resolve_order_sources_batch(array $rows): array {
     $resolvedRows = db_query(
         "SELECT o.order_id,
                 LOWER(TRIM(COALESCE(o.order_source, ''))) AS db_order_source,
+                o.reference_id,
                 LOWER(TRIM(COALESCE(c.email, ''))) AS customer_email,
                 EXISTS(
                     SELECT 1 FROM customizations cust
@@ -773,6 +778,10 @@ function jo_api_resolve_order_sources_batch(array $rows): array {
     foreach ($resolvedRows as $row) {
         $orderId = (int)($row['order_id'] ?? 0);
         $dbSource = strtolower(trim((string)($row['db_order_source'] ?? '')));
+        if (preg_match('/^HGEN-/i', trim((string)($row['reference_id'] ?? '')))) {
+            $sourceMap[$orderId] = 'historical_generator';
+            continue;
+        }
         if (in_array($dbSource, ['pos', 'walk-in', 'pos_draft'], true)) {
             $sourceMap[$orderId] = $dbSource;
             continue;
