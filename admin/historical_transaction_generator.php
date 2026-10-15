@@ -574,12 +574,14 @@ ob_start(static function (string $html) use ($selectionProducts,$selectionServic
     $selectedReady = array_map('intval', (array)($_POST['selected_ready_ids'] ?? []));
     $selectedServices = array_map('intval', (array)($_POST['selected_service_ids'] ?? []));
     $availableServiceCount = count(array_filter($serviceEligibility, static fn(array $check): bool => !empty($check['valid'])));
-    $selection = '<fieldset style="grid-column:1/-1;border:1px solid #d9e2e8;border-radius:6px;padding:14px"><legend><strong>Products / Services to Include</strong></legend><p style="margin:6px 0 12px;color:#526777"><strong>Available for generator:</strong> ' . $availableServiceCount . ' of ' . count($selectionServices) . ' services</p><div style="display:flex;gap:8px;margin-bottom:10px"><button type="button" onclick="document.querySelectorAll(\'input[data-generator-item]:not(:disabled)\').forEach(function(e){e.checked=true});invalidateGeneratorPreview()">Select All</button><button type="button" onclick="document.querySelectorAll(\'input[data-generator-item]:not(:disabled)\').forEach(function(e){e.checked=false});invalidateGeneratorPreview()">Clear All</button></div><div style="display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:8px">';
+    $selection = '<fieldset style="grid-column:1/-1;border:1px solid #d9e2e8;border-radius:6px;padding:14px"><legend><strong>Items to Include</strong></legend><p style="margin:6px 0 12px;color:#526777">Choose products and services independently. The selected checkbox values are used exactly as submitted.</p><div style="display:grid;grid-template-columns:repeat(2,minmax(280px,1fr));gap:16px;align-items:start">';
+    $selection .= '<section data-generator-kind="ready" style="border:1px solid #d9e2e8;border-radius:6px;padding:12px"><h3 style="margin:0 0 8px">Products</h3><p style="margin:0 0 10px;color:#526777"><strong>' . count($selectionProducts) . '</strong> products available</p><div style="display:flex;gap:8px;margin-bottom:10px"><button type="button" onclick="document.querySelectorAll(\'input[name=\"selected_ready_ids[]\"][data-generator-item]:not(:disabled)\').forEach(function(e){e.checked=true});invalidateGeneratorPreview()">Select All Products</button><button type="button" onclick="document.querySelectorAll(\'input[name=\"selected_ready_ids[]\"][data-generator-item]:not(:disabled)\').forEach(function(e){e.checked=false});invalidateGeneratorPreview()">Clear Products</button></div><div style="display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:8px">';
     foreach ($selectionProducts as $product) {
         $id = (int)$product['id'];
         $checked = in_array($id, $selectedReady, true) ? ' checked' : '';
         $selection .= '<label data-generator-kind="ready"><span><input data-generator-item type="checkbox" name="selected_ready_ids[]" value="' . $id . '"' . $checked . '> Ready-made: ' . htg_h((string)$product['name']) . '</span></label>';
     }
+    $selection .= '</div></section><section data-generator-kind="custom" style="border:1px solid #d9e2e8;border-radius:6px;padding:12px"><h3 style="margin:0 0 8px">Services</h3><p style="margin:0 0 10px;color:#526777"><strong>' . $availableServiceCount . '</strong> of <strong>' . count($selectionServices) . '</strong> services available</p><div style="display:flex;gap:8px;margin-bottom:10px"><button type="button" onclick="document.querySelectorAll(\'input[name=\"selected_service_ids[]\"][data-generator-item]:not(:disabled)\').forEach(function(e){e.checked=true});invalidateGeneratorPreview()">Select All Services</button><button type="button" onclick="document.querySelectorAll(\'input[name=\"selected_service_ids[]\"][data-generator-item]:not(:disabled)\').forEach(function(e){e.checked=false});invalidateGeneratorPreview()">Clear Services</button></div><div style="display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:8px">';
     foreach ($selectionServices as $service) {
         $id = (int)$service['id'];
         $check = $serviceEligibility[$id] ?? ['valid' => false, 'reason' => 'Service eligibility could not be determined.'];
@@ -589,7 +591,7 @@ ob_start(static function (string $html) use ($selectionProducts,$selectionServic
         $suffix = $isValid ? '' : ' <small style="color:#a21919">Unavailable: ' . htg_h((string)$check['reason']) . '</small>';
         $selection .= '<label data-generator-kind="custom" title="' . htg_h((string)($check['reason'] ?? '')) . '"><span><input data-generator-item type="checkbox" name="selected_service_ids[]" value="' . $id . '"' . $checked . $disabled . '> Service: ' . htg_h((string)$service['name']) . $suffix . '</span></label>';
     }
-    $selection .= '</div></fieldset>';
+    $selection .= '</div></section></div></fieldset>';
     $html = str_replace('<label>Reason / Note', $selection . '<label>Reason / Note', $html);
     $stored = $_SESSION['historical_generator_preview'] ?? [];
     if (!empty($stored['rows'])) {
