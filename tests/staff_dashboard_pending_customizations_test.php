@@ -28,8 +28,8 @@ $assert(strpos($counts, "listSource !== 'pos'") !== false, 'POS scope excludes s
 $assert(strpos($api, 'printflow_staff_customization_bucket_counts') !== false, 'job_orders_api customization_counts uses shared bucket logic');
 $assert(strpos($cache, 'pending_kpi_customization_counts_20261016') !== false, 'staff dashboard cache key version bumped for pending KPI fix');
 
-$assert(strpos($queries, 'LEFT JOIN job_orders jo ON jo.order_item_id = oi.order_item_id AND jo.order_id = o.order_id') !== false, 'top sales job_orders join scoped to same order (no cross-order duplicate)');
-$assert(strpos($queries, 'printflow_staff_dashboard_confirmed_sale_sql') !== false, 'top sales uses confirmed sale SQL');
+$assert(strpos($queries, 'printflow_dashboard_order_service_labels') !== false, 'top sales labels align with Recent Orders service labels');
+$assert(strpos($queries, 'printflow_staff_dashboard_top_sales_eligible_orders') !== false, 'top sales uses eligible-order scope helper');
 $assert(strpos($queries, 'order_ids') !== false && strpos($queries, 'order_count') !== false, 'top sales buckets unique order IDs per label');
 
 exit($failures > 0 ? 1 : 0);

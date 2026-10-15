@@ -30,6 +30,7 @@ if (!function_exists('printflow_staff_dashboard_cache_key')) {
             strtoupper(trim($statusFilter)),
             (string)max(1, $page),
             'pending_kpi_customization_counts_20261016',
+            'top_sales_order_labels_20261016',
         ]);
 
         return 'staff_dash_' . hash('sha256', $payload);

@@ -136,33 +136,50 @@ if (!function_exists('printflow_staff_dashboard_normalize_top_sale_name')) {
     }
 }
 
-if (!function_exists('printflow_staff_dashboard_top_sale_label_from_row')) {
-    /**
-     * @param array<string, mixed> $row
-     */
-    function printflow_staff_dashboard_top_sale_label_from_row(array $row): string
+if (!function_exists('printflow_staff_dashboard_top_sale_label_from_order_label')) {
+    function printflow_staff_dashboard_top_sale_label_from_order_label(string $label): string
     {
-        foreach (['service_type', 'service_name', 'product_name'] as $key) {
-            $candidate = trim((string)($row[$key] ?? ''));
-            if ($candidate !== '') {
-                return printflow_staff_dashboard_normalize_top_sale_name($candidate);
-            }
+        $label = trim($label);
+        if ($label === '' || strcasecmp($label, 'Custom Service') === 0) {
+            return 'General';
         }
 
-        $custom = (string)($row['customization_data'] ?? '');
-        if ($custom !== '') {
-            $decoded = json_decode($custom, true);
-            if (is_array($decoded)) {
-                foreach (['service_type', 'product_name', 'name'] as $key) {
-                    $candidate = trim((string)($decoded[$key] ?? ''));
-                    if ($candidate !== '') {
-                        return printflow_staff_dashboard_normalize_top_sale_name($candidate);
-                    }
-                }
-            }
-        }
+        return printflow_staff_dashboard_normalize_top_sale_name($label);
+    }
+}
 
-        return 'General';
+if (!function_exists('printflow_staff_dashboard_top_sales_eligible_orders')) {
+    /**
+     * Orders eligible for Top Sales — same branch, date, status, and visibility as Recent Orders.
+     *
+     * @param array{start?:string,end?:string,sql?:string,types?:string,params?:array} $timeMeta
+     * @param array{sql:string,types:string,params:array} $statusMeta
+     * @return list<array{order_id:int,total_amount:float}>
+     */
+    function printflow_staff_dashboard_top_sales_eligible_orders(
+        int $branchId,
+        string $staffOrderScopeSql,
+        array $timeMeta,
+        array $statusMeta,
+        ?string $staffRole = null
+    ): array {
+        $timeBounds = printflow_staff_dashboard_time_bounds_meta($timeMeta);
+        $visibilitySql = printflow_staff_recent_orders_visibility_sql('o', $staffRole);
+        $statusSql = trim((string)($statusMeta['sql'] ?? '1=1'));
+        $statusTypes = (string)($statusMeta['types'] ?? '');
+        $statusParams = is_array($statusMeta['params'] ?? null) ? $statusMeta['params'] : [];
+
+        return db_query(
+            "SELECT o.order_id, COALESCE(o.total_amount, 0) AS total_amount
+             FROM orders o
+             WHERE o.branch_id = ?
+               AND {$staffOrderScopeSql}
+               AND {$timeBounds['sql']}
+               AND {$visibilitySql}
+               AND {$statusSql}",
+            'i' . $timeBounds['types'] . $statusTypes,
+            array_merge([$branchId], $timeBounds['params'], $statusParams)
+        ) ?: [];
     }
 }
 
@@ -177,57 +194,42 @@ if (!function_exists('printflow_staff_dashboard_top_sales')) {
         string $staffOrderScopeSql,
         array $timeMeta,
         array $statusMeta,
-        int $limit = 5
+        int $limit = 5,
+        ?string $staffRole = null
     ): array {
         $limit = max(1, min(20, $limit));
-        $timeBounds = printflow_staff_dashboard_time_bounds_meta($timeMeta);
-        $confirmedSql = printflow_staff_dashboard_confirmed_sale_sql('o');
-        $hasOrderItemType = function_exists('db_table_has_column') && db_table_has_column('order_items', 'item_type');
-        $hasOrderItemServiceId = function_exists('db_table_has_column') && db_table_has_column('order_items', 'service_id');
-        $productJoin = $hasOrderItemType
-            ? 'LEFT JOIN products p ON oi.product_id = p.product_id AND COALESCE(NULLIF(oi.item_type, \'\'), \'product\') = \'product\''
-            : 'LEFT JOIN products p ON oi.product_id = p.product_id';
-        $serviceJoin = $hasOrderItemServiceId
-            ? 'LEFT JOIN services s ON oi.service_id = s.service_id'
-            : 'LEFT JOIN services s ON oi.product_id = s.service_id';
+        $orderRows = printflow_staff_dashboard_top_sales_eligible_orders(
+            $branchId,
+            $staffOrderScopeSql,
+            $timeMeta,
+            $statusMeta,
+            $staffRole
+        );
+        if ($orderRows === []) {
+            return [];
+        }
 
-        $rows = db_query(
-            "SELECT o.order_id,
-                    oi.order_item_id,
-                    oi.customization_data,
-                    jo.service_type,
-                    s.name AS service_name,
-                    p.name AS product_name,
-                    COALESCE(oi.quantity, 1) AS quantity,
-                    COALESCE(oi.unit_price, 0) AS unit_price
-             FROM orders o
-             INNER JOIN order_items oi ON oi.order_id = o.order_id
-             LEFT JOIN job_orders jo ON jo.order_item_id = oi.order_item_id AND jo.order_id = o.order_id
-             {$productJoin}
-             {$serviceJoin}
-             WHERE o.branch_id = ?
-               AND {$staffOrderScopeSql}
-               AND {$timeBounds['sql']}
-               AND {$statusMeta['sql']}
-               AND {$confirmedSql}",
-            'i' . $timeBounds['types'] . $statusMeta['types'],
-            array_merge([$branchId], $timeBounds['params'], $statusMeta['params'])
-        ) ?: [];
+        $orderIds = array_values(array_unique(array_filter(array_map(static function (array $row): int {
+            return (int)($row['order_id'] ?? 0);
+        }, $orderRows))));
+        $labelByOrder = function_exists('printflow_dashboard_order_service_labels')
+            ? printflow_dashboard_order_service_labels($orderIds)
+            : [];
 
         /** @var array<string, array{order_ids:array<int, true>, revenue:float}> $buckets */
         $buckets = [];
-        foreach ($rows as $row) {
-            $label = printflow_staff_dashboard_top_sale_label_from_row($row);
+        foreach ($orderRows as $row) {
+            $orderId = (int)($row['order_id'] ?? 0);
+            if ($orderId <= 0) {
+                continue;
+            }
+            $rawLabel = (string)($labelByOrder[$orderId] ?? 'General');
+            $label = printflow_staff_dashboard_top_sale_label_from_order_label($rawLabel);
             if (!isset($buckets[$label])) {
                 $buckets[$label] = ['order_ids' => [], 'revenue' => 0.0];
             }
-            $orderId = (int)($row['order_id'] ?? 0);
-            if ($orderId > 0) {
-                $buckets[$label]['order_ids'][$orderId] = true;
-            }
-            $qty = max(0, (int)($row['quantity'] ?? 1));
-            $unit = (float)($row['unit_price'] ?? 0);
-            $buckets[$label]['revenue'] += $qty * $unit;
+            $buckets[$label]['order_ids'][$orderId] = true;
+            $buckets[$label]['revenue'] += (float)($row['total_amount'] ?? 0);
         }
 
         $result = [];
@@ -249,6 +251,59 @@ if (!function_exists('printflow_staff_dashboard_top_sales')) {
         });
 
         return array_slice($result, 0, $limit);
+    }
+}
+
+if (!function_exists('printflow_staff_dashboard_top_sales_debug')) {
+    /**
+     * @return array{order_ids:list<int>,labels:array<int,string>,buckets:list<array{name:string,order_ids:list<int>}>}
+     */
+    function printflow_staff_dashboard_top_sales_debug(
+        int $branchId,
+        string $staffOrderScopeSql,
+        array $timeMeta,
+        array $statusMeta,
+        ?string $staffRole = null
+    ): array {
+        $orderRows = printflow_staff_dashboard_top_sales_eligible_orders(
+            $branchId,
+            $staffOrderScopeSql,
+            $timeMeta,
+            $statusMeta,
+            $staffRole
+        );
+        $orderIds = array_values(array_unique(array_filter(array_map(static function (array $row): int {
+            return (int)($row['order_id'] ?? 0);
+        }, $orderRows))));
+        $labels = function_exists('printflow_dashboard_order_service_labels')
+            ? printflow_dashboard_order_service_labels($orderIds)
+            : [];
+        $top = printflow_staff_dashboard_top_sales(
+            $branchId,
+            $staffOrderScopeSql,
+            $timeMeta,
+            $statusMeta,
+            20,
+            $staffRole
+        );
+        $buckets = [];
+        foreach ($top as $row) {
+            $name = (string)($row['name'] ?? '');
+            $matching = [];
+            foreach ($orderIds as $orderId) {
+                $label = printflow_staff_dashboard_top_sale_label_from_order_label((string)($labels[$orderId] ?? ''));
+                if ($label === $name) {
+                    $matching[] = $orderId;
+                }
+            }
+            $buckets[] = ['name' => $name, 'order_ids' => $matching];
+        }
+
+        return [
+            'order_ids' => $orderIds,
+            'labels' => $labels,
+            'buckets' => $buckets,
+        ];
     }
 }
 

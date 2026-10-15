@@ -113,6 +113,7 @@ require_once __DIR__ . '/../includes/staff_status_filters.php';
 require_once __DIR__ . '/../includes/staff_dashboard_revenue.php';
 require_once __DIR__ . '/../includes/staff_dashboard_queries.php';
 require_once __DIR__ . '/../includes/staff_dashboard_cache.php';
+require_once __DIR__ . '/../includes/staff_dashboard_metrics_version.php';
 
 if ($__pf_debug_requested && defined('PRINTFLOW_DEBUG_SESSION_LOG') && PRINTFLOW_DEBUG_SESSION_LOG) {
     $sessionCookieName = session_name();
@@ -513,18 +514,21 @@ if (!$revenueEligible && $staffRole !== 'pos') {
     }
 }
 
+$orderTimeBounds = printflow_staff_dashboard_time_bounds_meta($timeMeta);
+
 $topServices = printflow_staff_dashboard_top_sales(
     $staffBranchId,
     $staffOrderScopeSql,
     $timeMeta,
     $statusMeta,
-    10
+    10,
+    $staffRole
 );
 
 $recentVisibilitySql = printflow_staff_recent_orders_visibility_sql('o', $staffRole);
-$sqlCond = " WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$timeMeta['sql']} AND {$statusMeta['sql']} AND {$recentVisibilitySql}";
-$params = array_merge([$staffBranchId], $timeMeta['params'], $statusMeta['params']);
-$types = 'i' . $timeMeta['types'] . $statusMeta['types'];
+$sqlCond = " WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$orderTimeBounds['sql']} AND {$statusMeta['sql']} AND {$recentVisibilitySql}";
+$params = array_merge([$staffBranchId], $orderTimeBounds['params'], $statusMeta['params']);
+$types = 'i' . $orderTimeBounds['types'] . $statusMeta['types'];
 
 if ($search_filter !== '') {
     $sqlCond .= " AND (CAST(o.order_id AS CHAR) LIKE ? OR CONCAT(c.first_name, ' ', c.last_name) LIKE ?)";
@@ -622,6 +626,7 @@ if ($staffRole === 'pos') {
 
 $payload = [
     'success' => true,
+    'metrics_version' => PRINTFLOW_STAFF_DASHBOARD_METRICS_VERSION,
     '_branch_id' => $staffBranchId,
     'stats' => $stats,
     'chart' => [
@@ -665,6 +670,13 @@ if ($__pf_debug_allowed) {
             $totalRevenue
         );
     }
+    $payload['debug']['top_sales'] = printflow_staff_dashboard_top_sales_debug(
+        $staffBranchId,
+        $staffOrderScopeSql,
+        $timeMeta,
+        $statusMeta,
+        $staffRole
+    );
     if (function_exists('printflow_db_errors')) {
         $payload['debug']['db_errors'] = printflow_db_errors();
     }

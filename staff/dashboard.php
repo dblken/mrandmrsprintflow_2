@@ -270,18 +270,20 @@ for ($i = 6; $i >= 0; $i--) {
 
 // Top Sales (confirmed paid / completed orders only)
 $dashboardStatusMeta = printflow_staff_dashboard_status_sql('o', $status_filter, $staffAccessMeta['key'] ?? null);
+$topTimeMeta = [
+    'start' => $range_start,
+    'end' => $range_end,
+    'sql' => $has_timeframe_range ? $timeframe_sql : '1=1',
+    'types' => $has_timeframe_range ? 'ss' : '',
+    'params' => $has_timeframe_range ? [$range_start, $range_end] : [],
+];
 $top_services = printflow_staff_dashboard_top_sales(
     $staffBranchId,
     $staffOrderScopeSql,
-    [
-        'start' => $range_start,
-        'end' => $range_end,
-        'sql' => $has_timeframe_range ? $timeframe_sql : '1=1',
-        'types' => $has_timeframe_range ? 'ss' : '',
-        'params' => $has_timeframe_range ? [$range_start, $range_end] : [],
-    ],
+    $topTimeMeta,
     $dashboardStatusMeta,
-    5
+    5,
+    $staffAccessMeta['key'] ?? null
 );
 
 // Recent Orders with filters (Scoped)
