@@ -162,7 +162,7 @@ if ($ready && count($orders) === 224) {
 }
 $basePath = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 ?>
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Archived Orders</title><link rel="stylesheet" href="<?php echo htmlspecialchars($basePath, ENT_QUOTES, 'UTF-8'); ?>/public/assets/css/output.css"></head><body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Archived Orders</title><link rel="stylesheet" href="<?php echo htmlspecialchars($basePath, ENT_QUOTES, 'UTF-8'); ?>/public/assets/css/output.css"><?php include __DIR__ . '/../includes/admin_style.php'; ?><style>body{font-family:var(--pf-ui-font-sans,Arial,sans-serif);color:#172b4d;background:#f4f7fb}.dashboard-container{min-height:100vh}.main-content{min-width:0;box-sizing:border-box}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #e2e8f0}</style></head><body>
 <div class="dashboard-container"><?php include __DIR__ . '/../includes/admin_sidebar.php'; ?><main class="main-content" style="padding:24px;max-width:1200px;margin:auto">
 <h1>Archived Orders</h1><p>Record-specific visibility archive. Original orders, payments, inventory ledgers, stock, customers, and notifications are not changed.</p>
 <?php if ($notice !== ''): ?><div role="status" style="padding:12px;background:#ecfdf5;color:#065f46;margin:12px 0"><?php echo htmlspecialchars($notice, ENT_QUOTES, 'UTF-8'); ?></div><?php endif; ?>
