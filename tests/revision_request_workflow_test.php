@@ -73,5 +73,8 @@ revision_test_assert(
 );
 revision_test_assert(strpos($adminApi, "?: ['uploaded_design']") === false && strpos($v2Api, "?: ['uploaded_design']") === false && strpos($customizationService, ": ['uploaded_design']") === false, 'staff endpoints do not silently default detail revisions to design upload');
 revision_test_assert(strpos($repairMigration, "JSON_ARRAY('needed_date')") !== false && strpos($repairMigration, 'order_revision_permission_repairs') !== false, 'idempotent repair migration preserves before/after authorization audit');
+revision_test_assert(strpos($workflow, 'function printflow_revision_ensure_order_mutation_schema') !== false, 'Request Add Details ensures order mutation columns exist');
+revision_test_assert(strpos($workflow, 'function printflow_revision_update_order_after_staff_request') !== false, 'order sync uses schema-safe status updates');
+revision_test_assert(strpos($workflow, "db_table_has_column('orders', 'revision_reason')") !== false, 'legacy revision_reason column is supported when rejection_reason is absent');
 
 echo "Revision request workflow regression test passed.\n";
