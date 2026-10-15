@@ -2003,7 +2003,7 @@ window.printflowInitReportsCharts = function () {
                 var html = '';
                 labels.forEach(function (label, i) {
                     var color = colors[i % colors.length];
-                    html += '<div style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap;">';
+                    html += '<div class="reports-chart-legend-item" data-chart-index="' + i + '" role="button" tabindex="0" aria-pressed="true" title="Toggle ' + pfEscHtml(label) + '">';
                     html += '<span style="width:10px;height:10px;border-radius:50%;background:' + color + ';"></span>';
                     html += '<span style="font-weight:600;color:#374151;">' + pfEscHtml(label) + '</span>';
                     html += '</div>';
@@ -2069,8 +2069,6 @@ window.printflowInitReportsCharts = function () {
                 if (isEmptyDonut) labels = [(rows[0] && rows[0].empty && rows[0].category) ? rows[0].category : 'No sales'];
                 var data = isEmptyDonut ? [1] : rawData;
                 var colors = isEmptyDonut ? ['#E5E7EB'] : labels.map(function (_, i) { return catColors[i % catColors.length]; });
-                fillLegend(legendId, labels, colors);
-
                 window[chartRef] = new Chart(canvas.getContext('2d'), {
                     type: 'doughnut',
                     data: {
@@ -2104,6 +2102,29 @@ window.printflowInitReportsCharts = function () {
                         }
                     }
                 });
+                fillLegend(legendId, labels, colors);
+                var legendEl = document.getElementById(legendId);
+                if (legendEl && window[chartRef]) {
+                    legendEl.querySelectorAll('[data-chart-index]').forEach(function (item) {
+                        var toggle = function () {
+                            var index = Number(item.getAttribute('data-chart-index'));
+                            var chart = window[chartRef];
+                            if (!chart || !Number.isInteger(index)) return;
+                            chart.toggleDataVisibility(index);
+                            chart.update();
+                            var visible = chart.getDataVisibility(index);
+                            item.classList.toggle('is-muted', !visible);
+                            item.setAttribute('aria-pressed', visible ? 'true' : 'false');
+                        };
+                        item.addEventListener('click', toggle);
+                        item.addEventListener('keydown', function (event) {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                toggle();
+                            }
+                        });
+                    });
+                }
                 requestAnimationFrame(function () {
                     var ch = window[chartRef];
                     if (ch && typeof ch.resize === 'function') {

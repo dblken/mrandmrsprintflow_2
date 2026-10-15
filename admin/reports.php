@@ -1285,6 +1285,19 @@ a.export-dd-link:hover { background: #f9fafb; }
 .reports-product-branch-legend,
 .reports-branch-chart-legend { font-size:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); justify-content:stretch; text-align:left; gap:8px 12px; padding:6px 4px 0; max-height:220px; overflow-y:auto; align-content:start; }
 .reports-product-branch-legend > div, .reports-branch-chart-legend > div { justify-content:flex-start; }
+.reports-chart-legend-item {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    min-width:0;
+    cursor:pointer;
+    user-select:none;
+    border-radius:4px;
+    padding:2px 3px;
+}
+.reports-chart-legend-item:hover,
+.reports-chart-legend-item:focus-visible { background:#f1f5f9; outline:none; }
+.reports-chart-legend-item.is-muted { opacity:.38; text-decoration:line-through; }
 #reports-product-cat-legend,
 #reports-service-cat-legend {
     max-height:220px;

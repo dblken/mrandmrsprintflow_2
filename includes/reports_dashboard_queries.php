@@ -804,6 +804,8 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
 function pf_reports_sales_by_official_product(string $from, string $toEnd, $branchId): array {
     try {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
+        $storeSales = pf_reports_store_order_sales_expr('o');
+        $storeProductScope = pf_reports_store_product_order_scope_sql('o');
         $datePart = '';
         $dTypes = '';
         $dParams = [];
@@ -831,10 +833,8 @@ function pf_reports_sales_by_official_product(string $from, string $toEnd, $bran
                ON p.product_id = oi.product_id
               AND (p.status IS NULL OR p.status != 'Archived')
              JOIN orders o ON oi.order_id = o.order_id
-             WHERE (
-                 LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid')
-                 OR o.status = 'Completed'
-               )
+             WHERE {$storeSales}
+               AND {$storeProductScope}
                AND NULLIF(TRIM(p.name), '') IS NOT NULL
                {$datePart} {$b}
              GROUP BY p.product_id, TRIM(p.name)
@@ -858,20 +858,23 @@ function pf_reports_sales_by_official_product(string $from, string $toEnd, $bran
 function pf_reports_sales_by_service_category(string $from, string $toEnd, $branchId): array {
     try {
         [$bjsc, $btjsc, $bpjsc] = branch_where_parts('jo', $branchId);
+        $jobSales = pf_reports_job_order_sales_expr('jo');
+        $jobDate = pf_reports_job_order_sales_date_expr('jo');
+        $jobExcludeLinkedCustomStore = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
 
         $jDatePart = '';
         $jdTypes = '';
         $jdParams = [];
         if ($from !== '' && $toEnd !== '') {
-            $jDatePart = ' AND jo.created_at BETWEEN ? AND ?';
+            $jDatePart = " AND {$jobDate} BETWEEN ? AND ?";
             $jdTypes = 'ss';
             $jdParams = [$from, $toEnd];
         } elseif ($from !== '') {
-            $jDatePart = ' AND jo.created_at >= ?';
+            $jDatePart = " AND {$jobDate} >= ?";
             $jdTypes = 's';
             $jdParams = [$from];
         } elseif ($toEnd !== '') {
-            $jDatePart = ' AND jo.created_at <= ?';
+            $jDatePart = " AND {$jobDate} <= ?";
             $jdTypes = 's';
             $jdParams = [$toEnd];
         }
@@ -890,7 +893,7 @@ function pf_reports_sales_by_service_category(string $from, string $toEnd, $bran
                  FROM services
                  GROUP BY LOWER(TRIM(name))
              ) sc ON sc.name_key = LOWER(TRIM(COALESCE(jo.service_type, '')))
-             WHERE 1=1 {$jDatePart} {$bjsc}
+             WHERE {$jobSales} {$jobExcludeLinkedCustomStore} {$jDatePart} {$bjsc}
              GROUP BY {$pfServiceCatBucket}
              HAVING SUM(CASE WHEN (LOWER(TRIM(COALESCE(jo.payment_status, ''))) IN ('paid', 'fully paid') OR UPPER(TRIM(COALESCE(jo.status, ''))) = 'COMPLETED')
                              THEN COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) ELSE 0 END) > 0
