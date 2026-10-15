@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/historical_admin_tools_guard.php';
 require_role('Admin');
+printflow_block_historical_admin_tool();
 
 const LGO_ACTION = 'Historical transaction batch generated';
 const LGO_CONFIRM = 'REPAIR LEGACY GENERATOR MARKERS';
