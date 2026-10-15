@@ -117,10 +117,21 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                 }
             }
 
-            if ($canonicalStatus($oldStatus) !== $canonicalStatus($expectedStatus)) {
-                $requestingCompleted = strcasecmp($newStatus, 'Completed') === 0;
-                $alreadyCompleted = $canonicalStatus($oldStatus) === 'COMPLETED';
-                if (!($requestingCompleted && $alreadyCompleted)) {
+            $requestingCompletedEarly = strcasecmp($newStatus, 'Completed') === 0;
+            $alreadyCompletedEarly = $canonicalStatus($oldStatus) === 'COMPLETED';
+            $statusCompatible = printflow_workflow_status_compatible($expectedStatus, $oldStatus);
+            if (!$statusCompatible && $requestingCompletedEarly && !$alreadyCompletedEarly) {
+                $orderSourceEarly = strtolower(trim((string)($order['order_source'] ?? '')));
+                $expectedKey = printflow_workflow_status_key($expectedStatus);
+                $actualKey = printflow_workflow_status_key($oldStatus);
+                if (in_array($orderSourceEarly, ['pos', 'walk-in'], true)
+                    && !in_array($actualKey, ['COMPLETED', 'CANCELLED', 'REJECTED'], true)
+                    && ($expectedKey === 'PENDING' || $expectedKey === 'IN_PRODUCTION' || $expectedKey === 'APPROVED')) {
+                    $statusCompatible = true;
+                }
+            }
+            if (!$statusCompatible) {
+                if (!($requestingCompletedEarly && $alreadyCompletedEarly)) {
                     if ($transactionStarted) {
                         $conn->rollback();
                     }
@@ -226,12 +237,28 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
 
             $updatedJobs = [];
             if ($isServiceOrder && $newStatus === 'Completed') {
-                $updatedJobs = JobOrderService::syncStoreOrderToStatus($orderId, 'COMPLETED');
+                try {
+                    $updatedJobs = JobOrderService::syncStoreOrderToStatus($orderId, 'COMPLETED');
+                } catch (Throwable $jobCompletionError) {
+                    if ($transactionStarted) {
+                        $conn->rollback();
+                    }
+                    return printflow_staff_mutate_order_status_job_error_response($jobCompletionError);
+                }
                 if ($updatedJobs === []) {
                     $ok = db_execute("UPDATE orders SET status = 'Completed', updated_at = NOW() WHERE order_id = ?", 'i', [$orderId]);
                     if (!$ok) {
                         throw new RuntimeException('Failed to persist the completed order status.');
                     }
+                }
+                if (function_exists('db_table_has_column') && db_table_has_column('customizations', 'customization_id')) {
+                    db_execute(
+                        "UPDATE customizations SET status = 'Completed', updated_at = NOW()
+                         WHERE order_id = ?
+                           AND status NOT IN ('Completed', 'Cancelled', 'Rejected')",
+                        'i',
+                        [$orderId]
+                    );
                 }
             } elseif ($isServiceOrder && $newStatus === 'Cancelled') {
                 $updatedJobs = JobOrderService::syncStoreOrderToStatus($orderId, 'CANCELLED', null, $cancelReason);
@@ -332,24 +359,64 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
             if ($transactionStarted && printflow_db_in_transaction($conn)) {
                 $conn->rollback();
             }
-            $reference = printflow_json_error_reference();
-            error_log(sprintf(
-                '[order-status][%s] order=%d target=%s class=%s code=%s',
-                $reference,
-                $orderId,
-                preg_replace('/[^A-Za-z ]/', '', $newStatus),
-                get_class($exception),
-                (string)$exception->getCode()
-            ));
-            if (getenv('PRINTFLOW_MATERIAL_DEDUCTION_DEBUG') === '1') {
-                error_log('[order-status][' . $reference . '] rolled back: ' . $exception->getMessage());
-            }
-            return [
-                'success' => false,
-                'error' => 'The order status could not be updated.',
-                'error_reference' => $reference,
-                '_http_status' => 500,
-            ];
+            return printflow_staff_mutate_order_status_job_error_response($exception, $orderId, $newStatus);
         }
+    }
+}
+
+if (!function_exists('printflow_staff_mutate_order_status_job_error_response')) {
+    /**
+     * @return array<string, mixed>
+     */
+    function printflow_staff_mutate_order_status_job_error_response(
+        Throwable $exception,
+        int $orderId = 0,
+        string $newStatus = ''
+    ): array {
+        $reference = printflow_json_error_reference();
+        $message = trim($exception->getMessage());
+        error_log(sprintf(
+            '[order-status][%s] order=%d target=%s class=%s message=%s',
+            $reference,
+            $orderId,
+            preg_replace('/[^A-Za-z ]/', '', $newStatus),
+            get_class($exception),
+            $message
+        ));
+        if (getenv('PRINTFLOW_MATERIAL_DEDUCTION_DEBUG') === '1') {
+            error_log('[order-status][' . $reference . '] rolled back: ' . $message);
+        }
+
+        $httpStatus = 500;
+        $clientMessage = 'The order status could not be updated.';
+        if ($message !== '') {
+            $businessHints = [
+                'Cannot mark as Completed',
+                'payment must be Paid',
+                'Set a valid price',
+                'Order not found',
+                'inventory branch',
+                'assigned inventory',
+                'deduction was not completed',
+            ];
+            foreach ($businessHints as $hint) {
+                if (stripos($message, $hint) !== false) {
+                    $httpStatus = 409;
+                    $clientMessage = $message;
+                    break;
+                }
+            }
+            if ($exception instanceof InvalidArgumentException) {
+                $httpStatus = 422;
+                $clientMessage = $message;
+            }
+        }
+
+        return [
+            'success' => false,
+            'error' => $clientMessage,
+            'error_reference' => $reference,
+            '_http_status' => $httpStatus,
+        ];
     }
 }

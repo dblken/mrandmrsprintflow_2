@@ -1899,6 +1899,9 @@ try {
                     cust.updated_at AS updated_at,
                     COALESCE(o.order_date, cust.created_at) AS order_date,
                     COALESCE(o.order_date, cust.created_at) AS order_business_date,
+                    o.status AS store_order_status,
+                    o.payment_status AS store_payment_status,
+                    o.total_amount AS order_total,
                     NULL AS due_date,
                     NULL AS priority,
                     0 AS estimated_total,
@@ -2362,6 +2365,7 @@ try {
                        " . $savedServiceIdSelect . "
                        " . $savedServiceNameSelect . "
                        o.status AS store_order_status,
+                       o.payment_status AS store_payment_status,
                        o.design_status AS store_design_status,
                        o.revision_reason AS store_revision_reason,
                        " . $revisionCountSelect . "
@@ -2813,11 +2817,14 @@ try {
                 jo_api_hydrate_items_raw((int)$cust['order_id'], $items);
             }
 
+            $storePaymentStatus = trim((string)($cust['store_payment_status'] ?? ''));
+            $storeOrderTotal = (float)($cust['order_total'] ?? 0);
             $data = [
                 'id'                       => $cust['customization_id'],
                 'order_id'                 => $cust['order_id'],
                 'order_item_id'            => (int)($cust['order_item_id'] ?? 0),
                 'order_type'               => 'CUSTOMIZATION',
+                'store_order_status'       => (string)($cust['store_order_status'] ?? ''),
                 'order_code'               => !empty($cust['order_id'])
                     ? (printflow_get_order_inventory_reference((int)$cust['order_id'])['code'] ?? '')
                     : printflow_format_customization_code((int)$cust['customization_id']),
@@ -2843,7 +2850,8 @@ try {
                 'payment_proof_status'     => $payment_proof_status,
                 'payment_proof_path'       => $payment_proof_url,
                 'payment_submitted_amount' => (float)($cust['downpayment_amount'] ?? 0),
-                'payment_status'           => 'NO',
+                'payment_status'           => $storePaymentStatus !== '' ? $storePaymentStatus : 'NO',
+                'total_amount'             => $storeOrderTotal,
                 'readiness'                => $linked_job['readiness'] ?? 'READY',
                 'order_source'             => $resolvedOrderSource,
                 'design_status'            => (string)($cust['store_design_status'] ?? ''),
@@ -2867,6 +2875,15 @@ try {
                 ];
             }
 
+            $detailRows = [$data];
+            jo_api_attach_provider_payments($detailRows);
+            $data = $detailRows[0];
+            if (($data['provider_payment']['status'] ?? '') === 'paid') {
+                $data['payment_status'] = 'Paid';
+                $data['amount_paid'] = ((int)($data['provider_payment']['paid_amount_centavos'] ?? 0)) / 100;
+            } elseif ($storePaymentStatus !== '' && strtolower($storePaymentStatus) === 'paid') {
+                $data['amount_paid'] = $storeOrderTotal > 0 ? $storeOrderTotal : (float)($data['amount_paid'] ?? 0);
+            }
             jo_api_debug_staff_order_items($data, is_array($data['items'] ?? null) ? $data['items'] : []);
             jo_api_json_response(['success' => true, 'data' => $data]);
             break;

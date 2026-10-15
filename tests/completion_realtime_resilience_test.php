@@ -31,7 +31,9 @@ $expect(strpos($json, "header('Content-Type: application/json; charset=utf-8')")
 $expect(strpos($mutation, 'LIMIT 1 FOR UPDATE') !== false, 'Completion must serialize transitions with a row lock.');
 $expect(strpos($db, 'SELECT @@session.in_transaction AS active_transaction') !== false, 'Nested status services must detect the real mysqli transaction state.');
 $expect(strpos($mutation, "'changed' => false") !== false && strpos($mutation, "'already_completed'") !== false, 'Repeated completion must return an idempotent success contract.');
-$expect(strpos($mutation, '$requestingCompleted && $alreadyCompleted') !== false, 'Stale expected_status must not block idempotent completion when the order is already Completed.');
+$expect(strpos($mutation, '$requestingCompleted && $alreadyCompleted') !== false || strpos($mutation, 'printflow_workflow_status_compatible') !== false, 'Stale expected_status must not block idempotent completion when the order is already Completed.');
+$expect(strpos($mutation, 'printflow_staff_mutate_order_status_job_error_response') !== false, 'Job completion failures must return actionable client errors instead of opaque HTTP 500.');
+$expect(strpos($customizations, 'resolveCompletionExpectedStatus') !== false, 'Staff completion sends the store order status for optimistic locking.');
 $expect(strpos($customizations, 'isAlreadyCompletedOrderConflict') !== false && strpos($customizations, 'applyStoreOrderCompletedUi') !== false, 'Frontend must treat HTTP 409 with current_status Completed as a successful completion refresh.');
 $completionPayment = $read('includes/order_completion_payment.php');
 $expect(strpos($mutation, 'printflow_order_staff_completion_payment_gate') !== false, 'Store-order completion must use the shared payment gate.');
