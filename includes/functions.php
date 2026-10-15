@@ -1238,6 +1238,15 @@ function admin_notification_target_url(array $n): string {
  * @return bool|int
  */
 function log_activity($user_id, $action, $details = '') {
+    // These maintenance/generator actions are intentionally excluded from the
+    // user-facing activity log; do not create new entries for them.
+    if (in_array((string)$action, [
+        'Legacy historical generator markers repaired',
+        'Historical generated data hidden',
+        'Historical transaction batch generated',
+    ], true)) {
+        return true;
+    }
     // activity_logs.user_id has FK to users.user_id only.
     // Customer IDs are from customers.customer_id and can violate FK.
     // Logging must never break request flow.
