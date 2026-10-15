@@ -12,6 +12,7 @@ require_once __DIR__ . '/../includes/admin_path_helper.php'; // Dynamic paths
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
+require_once __DIR__ . '/../includes/pos_customer_helpers.php';
 require_role(['Admin', 'Manager']);
 
 // Managers must use their own panel — redirect them away from /admin/
@@ -98,8 +99,8 @@ $dashboard_branch_sidebar_title = ($branchId === 'all') ? 'Multi-Branch Summary'
 // KPI drill-down links (branch preserved via query; uses pf_admin_url — no hardcoded host)
 $kpiBranchQs      = ($branchId === 'all') ? [] : ['branch_id' => (int)$branchId];
 $kpiHrefCustomers = pf_admin_url('customers_management.php', $kpiBranchQs);
-$kpiHrefOrders    = pf_admin_url('orders_management.php', $kpiBranchQs);
-$kpiHrefPending   = pf_admin_url('orders_management.php', array_merge($kpiBranchQs, ['status' => 'Pending']));
+$kpiHrefOrders    = pf_admin_url('customizations.php', array_merge($kpiBranchQs, ['date_from' => $dashFromDate, 'date_to' => $dashToDate]));
+$kpiHrefPending   = pf_admin_url('customizations.php', array_merge($kpiBranchQs, ['status' => 'PENDING', 'date_from' => $dashFromDate, 'date_to' => $dashToDate]));
 $kpiHrefRevenue   = pf_admin_url('reports.php', array_merge($kpiBranchQs, ['trend_metric' => 'revenue']), 'ch-trend');
 $kpiDateFrom      = $dashFromStart;
 $kpiDateToEnd     = $dashToEnd;
@@ -112,22 +113,39 @@ $bSql = branch_where('o', $branchId, $bTypes, $bParams);
 try {
     [$bSqlFrag, $bT, $bP] = branch_where_parts('o', $branchId);
     $bSqlFrag .= ' AND ' . printflow_order_archive_scope_sql('o');
-    [$jSqlFrag, $jT, $jP] = branch_where_parts('jo', $branchId);
-    $jSqlFrag .= ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
-    $customerTypes = 'ss' . ($bT ?: '') . 'ss' . ($jT ?: '');
-    $customerParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP ?: []);
+    $customerJobBranch = 'COALESCE(jo.branch_id, jo_ord.branch_id)';
+    if ($branchId !== 'all') {
+        $jSqlFrag = " AND {$customerJobBranch} = ?";
+        $jT = 'i';
+        $jP = [(int)$branchId];
+    } else {
+        $jSqlFrag = " AND ({$customerJobBranch} IS NULL OR {$customerJobBranch} IN (SELECT id FROM branches WHERE status != 'Archived'))";
+        $jT = '';
+        $jP = [];
+    }
+    $customerTypes = 'ss' . ($bT ?: '') . 'ss' . $jT;
+    $customerParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP);
     $total_customers = db_query(
         "SELECT COUNT(DISTINCT src.customer_id) as cnt
          FROM (
              SELECT o.customer_id
              FROM orders o
+             LEFT JOIN customers o_customer ON o_customer.customer_id = o.customer_id
              WHERE o.customer_id IS NOT NULL
                AND o.order_date BETWEEN ? AND ? {$bSqlFrag}
+               AND " . printflow_customer_exclusion_customer_scope_sql('o.customer_id') . "
+               " . printflow_pos_sql_exclude_placeholder_customers('o_customer') . "
              UNION
              SELECT jo.customer_id
              FROM job_orders jo
+             LEFT JOIN orders jo_ord ON jo_ord.order_id = jo.order_id
+             LEFT JOIN customers jo_customer ON jo_customer.customer_id = jo.customer_id
              WHERE jo.customer_id IS NOT NULL
-               AND jo.created_at BETWEEN ? AND ? {$jSqlFrag}
+               AND COALESCE(jo_ord.order_date, jo.created_at) BETWEEN ? AND ?
+               AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
+               AND " . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . "
+               " . printflow_pos_sql_exclude_placeholder_customers('jo_customer') . "
+               {$jSqlFrag}
          ) src",
         $customerTypes,
         $customerParams
@@ -140,40 +158,76 @@ try {
     $total_revenue = (float)($dashboard_sales_summary['summary']['total_sales'] ?? 0);
 } catch (Exception $e) { $total_revenue = 0; }
 
-// ── KPI: Total Orders (branch-filtered) ───────────────
+// ── KPI: Total Custom Orders (branch-filtered) ────────
 try {
-    [$bSqlFrag, $bT3, $bP3] = branch_where_parts('o', $branchId);
-    $bSqlFrag .= ' AND ' . printflow_order_archive_scope_sql('o');
-    [$jSqlFrag, $jT3, $jP3] = branch_where_parts('j', $branchId);
-    $jSqlFrag .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id');
-    $orderTypes = 'ss' . ($bT3 ?: '') . 'ss' . ($jT3 ?: '');
-    $orderParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP3 ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP3 ?: []);
-    require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
-    $jobDateExpr = pf_reports_job_order_sales_date_expr('j');
-    $jobExcludeOrders = pf_reports_job_exclude_linked_custom_store_sale_sql('j');
-    $total_orders = db_query(
-        "SELECT (
-             (SELECT COUNT(*) FROM orders o WHERE o.order_date BETWEEN ? AND ? {$bSqlFrag}) +
-             (SELECT COUNT(*) FROM job_orders j
-              WHERE {$jobDateExpr} BETWEEN ? AND ? {$jSqlFrag}{$jobExcludeOrders})
-         ) AS cnt",
-        $orderTypes,
-        $orderParams
-    )[0]['cnt'] ?? 0;
+    $customOrderBranch = 'COALESCE(j.branch_id, j_ord.branch_id)';
+    $customOrderTypes = 'ss';
+    $customOrderParams = [$kpiDateFrom, $kpiDateToEnd];
+    if ($branchId !== 'all') {
+        $customOrderBranchSql = " AND {$customOrderBranch} = ?";
+        $customOrderTypes .= 'i';
+        $customOrderParams[] = (int)$branchId;
+    } else {
+        $customOrderBranchSql = " AND ({$customOrderBranch} IS NULL OR {$customOrderBranch} IN (SELECT id FROM branches WHERE status != 'Archived'))";
+    }
+    $customOrderScope = ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id') . " AND (
+        j.order_id IS NULL
+        OR EXISTS (
+            SELECT 1 FROM orders custom_scope_order
+            JOIN order_items custom_scope_item ON custom_scope_item.order_id = custom_scope_order.order_id
+            LEFT JOIN products custom_scope_product ON custom_scope_product.product_id = custom_scope_item.product_id
+            WHERE custom_scope_order.order_id = j.order_id
+              AND custom_scope_order.order_type = 'custom'
+              AND COALESCE(LOWER(TRIM(custom_scope_product.product_type)), 'custom') <> 'fixed'
+        )
+    )";
+    $total_orders = (int)(db_query(
+        "SELECT COUNT(*) AS cnt
+         FROM job_orders j
+         LEFT JOIN orders j_ord ON j_ord.order_id = j.order_id
+         WHERE COALESCE(j_ord.order_date, j.created_at) BETWEEN ? AND ?
+           {$customOrderBranchSql}{$customOrderScope}",
+        $customOrderTypes,
+        $customOrderParams
+    )[0]['cnt'] ?? 0);
 } catch (Exception $e) { $total_orders = 0; }
 
-// ── KPI: Pending Orders (branch-filtered) ────────────
+// ── KPI: Pending Custom Orders (branch-filtered) ─────
 try {
-    [$bSqlFrag, $bT, $bP] = branch_where_parts('o', $branchId);
-    $bSqlFrag .= ' AND ' . printflow_order_archive_scope_sql('o');
-    $pending_orders = db_query(
-        "SELECT COUNT(*) as cnt
-         FROM orders o
-         WHERE o.status = 'Pending'
-           AND o.order_date BETWEEN ? AND ? {$bSqlFrag}",
-        'ss' . ($bT ?: ''),
-        array_merge([$kpiDateFrom, $kpiDateToEnd], $bP ?: [])
-    )[0]['cnt'] ?? 0;
+    $pendingJobScope = ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id') . " AND (
+        j.order_id IS NULL
+        OR EXISTS (
+            SELECT 1
+            FROM orders pending_scope_order
+            JOIN order_items pending_scope_item ON pending_scope_item.order_id = pending_scope_order.order_id
+            LEFT JOIN products pending_scope_product ON pending_scope_product.product_id = pending_scope_item.product_id
+            WHERE pending_scope_order.order_id = j.order_id
+              AND pending_scope_order.order_type = 'custom'
+              AND COALESCE(LOWER(TRIM(pending_scope_product.product_type)), 'custom') <> 'fixed'
+        )
+    )";
+    $pendingJobStatus = "CASE WHEN j_ord.reference_id LIKE 'HGEN-%' THEN 'COMPLETED' ELSE j.status END";
+    $pendingJobDate = 'COALESCE(j_ord.order_date, j.created_at)';
+    $pendingJobBranch = 'COALESCE(j.branch_id, j_ord.branch_id)';
+    $pendingTypes = 'ss';
+    $pendingParams = [$kpiDateFrom, $kpiDateToEnd];
+    if ($branchId !== 'all') {
+        $pendingJobBranchSql = " AND {$pendingJobBranch} = ?";
+        $pendingTypes .= 'i';
+        $pendingParams[] = (int)$branchId;
+    } else {
+        $pendingJobBranchSql = " AND ({$pendingJobBranch} IS NULL OR {$pendingJobBranch} IN (SELECT id FROM branches WHERE status != 'Archived'))";
+    }
+    $pending_orders = (int)(db_query(
+        "SELECT COUNT(*) AS cnt
+         FROM job_orders j
+         LEFT JOIN orders j_ord ON j_ord.order_id = j.order_id
+         WHERE {$pendingJobStatus} = 'PENDING'
+           AND {$pendingJobDate} BETWEEN ? AND ?
+           {$pendingJobBranchSql}{$pendingJobScope}",
+        $pendingTypes,
+        $pendingParams
+    )[0]['cnt'] ?? 0);
 } catch (Exception $e) { $pending_orders = 0; }
 
 // ── Sales Revenue (filtered period, branch-filtered) ─────
@@ -1194,10 +1248,10 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 </a>
                 <a class="kpi-card amber kpi-card--link"
                    href="<?php echo htmlspecialchars($kpiHrefOrders); ?>"
-                   aria-label="View all orders"
-                   title="View all orders">
+                   aria-label="View all custom orders"
+                   title="View all custom orders">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">Total Orders</span>
+      <span class="kpi-label">Total Custom Orders</span>
                         <span class="kpi-value"><?php echo number_format($total_orders); ?></span>
                         <span class="kpi-sub"><?php echo htmlspecialchars($dashboard_filter_label); ?> period</span>
                         <span class="kpi-card-cta" aria-hidden="true">View details →</span>
@@ -1205,10 +1259,10 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 </a>
                 <a class="kpi-card rose kpi-card--link"
                    href="<?php echo htmlspecialchars($kpiHrefPending); ?>"
-                   aria-label="View pending orders"
-                   title="View pending orders">
+                   aria-label="View pending custom orders"
+                   title="View pending custom orders">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">Pending Orders</span>
+      <span class="kpi-label">Pending Custom Orders</span>
                         <span class="kpi-value"><?php echo number_format($pending_orders); ?></span>
                         <span class="kpi-sub">Pending in <?php echo htmlspecialchars($dashboard_filter_label); ?></span>
                         <span class="kpi-card-cta" aria-hidden="true">View details →</span>
