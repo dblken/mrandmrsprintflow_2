@@ -1505,8 +1505,32 @@ function pf_reports_customer_city_sql_expr(string $alias = 'c'): string {
  *
  * @param string $rawCol SQL column reference (e.g. z.city_raw)
  */
-function pf_reports_customer_location_city_map_sql(string $rawCol): string {
-    $city = "LOWER(TRIM(REPLACE({$rawCol}, 'ñ', 'n')))";
+function pf_reports_customer_location_city_map_sql(string $rawCol, string $branchName = ''): string {
+    // Compare branch names without depending on legacy UTF-8/mixed-encoding text.
+    $normalizedBranch = strtolower((string)$branchName);
+    $normalizedBranch = str_replace([
+        chr(0xC3) . chr(0xB1),
+        chr(0xC3) . chr(0x83) . chr(0xC2) . chr(0xB1),
+    ], 'n', $normalizedBranch);
+    $normalizedBranch = preg_replace('/[^a-z0-9]+/i', '', $normalizedBranch) ?: '';
+    $city = "LOWER(TRIM(REPLACE(REPLACE({$rawCol}, CONVERT(0xC383C2B1 USING utf8mb4), 'n'), CONVERT(0xC3B1 USING utf8mb4), 'n')))";
+
+    if ($normalizedBranch === 'cabuyaobranch') {
+        return "CASE WHEN {$city} IN (
+                    'cabuyao', 'city of cabuyao', 'calamba', 'calauan', 'binan',
+                    'san pedro', 'santa rosa', 'sta. rosa', 'sta rosa', 'los banos',
+                    'bay', 'pila', 'santa cruz', 'liliw', 'nagcarlan', 'majayjay',
+                    'magdalena', 'paete', 'pakil', 'pangil', 'mabitac', 'siniloan',
+                    'famy', 'cavinti', 'victoria', 'rizal', 'lumban'
+                ) THEN 'Laguna Area' ELSE 'Other Areas' END";
+    }
+
+    if ($normalizedBranch === 'laspinasbranch') {
+        return "CASE WHEN {$city} IN (
+                    'las pinas', 'paranaque', 'muntinlupa'
+                ) THEN CONCAT('Las Pi', CONVERT(0xC3B1 USING utf8mb4), 'as Area') ELSE 'Other Areas' END";
+    }
+
     return "CASE
                 WHEN {$city} IN (
                     'cabuyao', 'city of cabuyao', 'calamba', 'calauan', 'binan', 'biñan',
@@ -1542,7 +1566,8 @@ function pf_reports_customer_locations_merged(
     string $toEnd,
     $branchId,
     int $limit = 12,
-    bool $includeRevenue = false
+    bool $includeRevenue = false,
+    string $branchName = ''
 ): array {
     $limit = max(1, min(100, $limit));
     $cityExpr = pf_reports_customer_city_sql_expr('c');
@@ -1580,7 +1605,7 @@ function pf_reports_customer_locations_merged(
         ? 'COUNT(*) AS orders, COALESCE(SUM(x.line_rev), 0) AS revenue'
         : 'COUNT(*) AS orders';
 
-    $cityMap = pf_reports_customer_location_city_map_sql('z.city_raw');
+    $cityMap = pf_reports_customer_location_city_map_sql('z.city_raw', $branchName);
 
     $sql = "
 SELECT TRIM(x.mapped_city) AS city, {$outerAgg}

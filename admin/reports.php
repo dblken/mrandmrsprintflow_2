@@ -300,7 +300,7 @@ if (!$gaBranchEmpty && $total_orders > 0) {
     } catch(Exception $e){}
 
     try {
-        $topRows = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 1, false);
+        $topRows = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 1, false, $branchName);
         $top_kpi_location = $topRows[0] ?? null;
         if ($top_kpi_location !== null) {
             $top_kpi_location['cnt'] = (int)($top_kpi_location['orders'] ?? 0);
@@ -641,7 +641,7 @@ $customer_locations = [];
 $customer_locations_by_branch = [];
 if (!$gaBranchEmpty) {
     try {
-        $customer_locations = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 5, false);
+        $customer_locations = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 5, false, $branchName);
         if ($chart_sort === 'value_asc') {
             $customer_locations = array_reverse($customer_locations);
         }
@@ -651,7 +651,7 @@ if (!$gaBranchEmpty) {
                 if ($branchLocationId <= 0) {
                     continue;
                 }
-                $branchLocationRows = pf_reports_customer_locations_merged($from, $toEnd, $branchLocationId, 5, false);
+                $branchLocationRows = pf_reports_customer_locations_merged($from, $toEnd, $branchLocationId, 5, false, (string)($branchRow['branch_name'] ?? ''));
                 if ($chart_sort === 'value_asc') {
                     $branchLocationRows = array_reverse($branchLocationRows);
                 }
@@ -3238,7 +3238,7 @@ if ($fc_debug_mode) {
             <div class="ana-grid print-hide">
                 <div class="ana-card">
                     <div class="ana-hd">
-                        <h3 title="Customer cities are grouped into broader service areas for reporting."><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg> Customer Reach by Area<span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span><span class="pf-loc-note">Customer cities are grouped into broader service areas for reporting.</span></h3>
+                        <h3 title="Customer locations are grouped into branch service areas for reporting."><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg> Customer Reach by Branch Area<span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span><span class="pf-loc-note">Customer locations are grouped into branch service areas for reporting.</span></h3>
                         <div style="display:flex;align-items:center;gap:12px;" class="no-print"><?php if (!empty($customer_locations)): ?><span class="top-location-pill">Top Area: <?php echo htmlspecialchars(trim($customer_locations[0]['city'])); ?></span><?php endif; ?><button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"locations"]), $je); ?>)' title="Print Customer Reach by Area Report">Print</button></div>
                     </div>
                     <div class="ana-bd pf-loc-card-body">
