@@ -89,10 +89,13 @@ if (!function_exists('printflow_admin_dashboard_cache_set')) {
     /**
      * @param array<string, mixed> $payload
      */
-    function printflow_admin_dashboard_cache_set(string $key, array $payload): void
+    /**
+     * @return bool true when the entry was written and is readable
+     */
+    function printflow_admin_dashboard_cache_set(string $key, array $payload): bool
     {
         if (printflow_admin_dashboard_cache_ttl() <= 0) {
-            return;
+            return false;
         }
         $flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION;
         if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
@@ -100,10 +103,21 @@ if (!function_exists('printflow_admin_dashboard_cache_set')) {
         }
         $encoded = json_encode($payload, $flags);
         if ($encoded === false) {
-            return;
+            error_log('[admin_dashboard_cache] encode failed: ' . json_last_error_msg());
+            return false;
         }
-        $path = printflow_staff_dashboard_cache_dir() . '/' . $key . '.json';
-        @file_put_contents($path, $encoded, LOCK_EX);
+        $dir = printflow_staff_dashboard_cache_dir();
+        if (!is_dir($dir) || !is_writable($dir)) {
+            error_log('[admin_dashboard_cache] cache dir not writable: ' . $dir);
+            return false;
+        }
+        $path = $dir . '/' . $key . '.json';
+        $written = @file_put_contents($path, $encoded, LOCK_EX);
+        if ($written === false || $written < strlen($encoded)) {
+            error_log('[admin_dashboard_cache] write failed: ' . $path);
+            return false;
+        }
+        return true;
     }
 }
 

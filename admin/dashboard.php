@@ -146,9 +146,27 @@ $dashCacheVars = [
     'dashboard_sales_bar', 'dashboard_sales_bar_is_category', 'dashboard_sales_bar_labels',
     'dashboard_sales_bar_values', 'customer_locations',
 ];
+// Phase timings are exposed as a Server-Timing header (DevTools / performance API only;
+// nothing is rendered). Used to locate slow sections on the live server.
+$dashTimingStart = microtime(true);
+$dashTimings = [];
+$dashTimingLast = $dashTimingStart;
+$dashMark = static function (string $phase) use (&$dashTimings, &$dashTimingLast): void {
+    $now = microtime(true);
+    $dashTimings[$phase] = ($dashTimings[$phase] ?? 0.0) + (($now - $dashTimingLast) * 1000);
+    $dashTimingLast = $now;
+};
+$dashTimings['bootstrap'] = (microtime(true) - ($_SERVER['REQUEST_TIME_FLOAT'] ?? $dashTimingStart)) * 1000;
+$dashCacheState = 'miss';
+
 $dashCacheKey = printflow_admin_dashboard_cache_key($branchId, $dashFromDate, $dashToDate, 'v1');
 $dashCacheHit = false;
 $dashCached = printflow_admin_dashboard_cache_get($dashCacheKey);
+if (printflow_admin_dashboard_cache_bypass_requested()) {
+    $dashCacheState = 'bypass';
+} elseif (printflow_admin_dashboard_cache_ttl() <= 0) {
+    $dashCacheState = 'disabled';
+}
 if (is_array($dashCached)) {
     $dashCacheHit = true;
     foreach ($dashCacheVars as $dashCacheVar) {
@@ -161,8 +179,12 @@ if (is_array($dashCached)) {
         foreach ($dashCacheVars as $dashCacheVar) {
             $$dashCacheVar = $dashCached[$dashCacheVar];
         }
+        $dashCacheState = 'hit';
+    } else {
+        $dashCacheState = 'stale-shape';
     }
 }
+$dashMark('cache_get');
 $dashDbErrorsBefore = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
 
 if (!$dashCacheHit) {
@@ -188,12 +210,14 @@ try {
         $customerParams ?: null
     )[0]['cnt'] ?? 0);
 } catch (Exception $e) { $total_customers = 0; }
+$dashMark('kpi_customers');
 
 // ── KPI: Total Revenue (official sales rules — matches Reports & Sales pages) ─
 try {
     $dashboard_sales_summary = pf_reports_official_sales_breakdown($dashFromDate, $dashToEnd, $branchId, 1);
     $total_revenue = (float)($dashboard_sales_summary['summary']['total_sales'] ?? 0);
 } catch (Exception $e) { $total_revenue = 0; }
+$dashMark('kpi_revenue');
 
 // ── KPI: Total Custom Orders (branch-filtered) ────────
 try {
@@ -266,6 +290,7 @@ try {
         $pendingParams
     )[0]['cnt'] ?? 0);
 } catch (Exception $e) { $pending_orders = 0; }
+$dashMark('kpi_orders');
 
 // Daily sales series and the server-side status breakdown are not rendered by
 // this page (the status doughnut loads from api_order_status_chart.php), so
@@ -296,6 +321,7 @@ try {
         ['Eunsoyaaaaa', 'Ink']
     );
 } catch (Exception $e) { $service_category_sales = []; }
+$dashMark('sales_by_category');
 
 $dashboard_branch_chart_payload = [
     'products' => [],
@@ -404,6 +430,7 @@ $dashboard_branch_chart_json = json_encode($dashboard_branch_chart_payload, JSON
 if ($dashboard_branch_chart_json === false) {
     $dashboard_branch_chart_json = '{"products":[],"services":[],"statuses":[],"locations":[]}';
 }
+$dashMark('per_branch_charts');
 // ── Recent Orders (last 5, branch-filtered) ──────────
 try {
     [$bSqlFrag3, $bT3, $bP3] = branch_where_parts('o', $branchId);
@@ -419,6 +446,7 @@ try {
         $bT3 ?: null, $bP3 ?: null
     ) ?: [];
 } catch (Exception $e) { $recent_orders = []; }
+$dashMark('recent_orders');
 
 // ── Low Stock Alerts ──────────────────────────────────
 $low_stock_by_branch = [];
@@ -521,6 +549,7 @@ try {
         }
     }
 } catch (Exception $e) { $low_stock = []; $low_stock_by_branch = []; }
+$dashMark('low_stock');
 
 // Top Customers is not rendered on this page; its UNION query is skipped.
 $top_customers = [];
@@ -583,6 +612,7 @@ $dashboard_branch_revenue_json = json_encode($dashboard_branch_revenue_js, JSON_
 if ($dashboard_branch_revenue_json === false) {
     $dashboard_branch_revenue_json = '[]';
 }
+$dashMark('branch_performance');
 
 // Best Selling Services bar chart — customization / job-order revenue by service category.
 $dashboard_sales_bar = pf_reports_category_sales_for_dashboard_bar_chart($service_category_sales, 8);
@@ -602,18 +632,50 @@ try {
     $locTo = $dashToEnd;
     $customer_locations = pf_reports_customer_locations_merged($locFrom, $locTo, $branchId, 8, false);
 } catch (Exception $e) {}
+$dashMark('customer_locations');
 
-// Store the computed summary only when no database errors occurred during this build.
-$dashDbErrorsAfter = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
-if ($dashDbErrorsAfter === $dashDbErrorsBefore) {
+// Store the computed summary unless a transient database failure (lost connection,
+// timeout, deadlock, too many connections) happened during this build. Deterministic
+// query errors reproduce identically on every request, so caching their result is
+// no different from recomputing it, and they must not permanently disable the cache.
+$dashDbErrorsAll = function_exists('printflow_db_errors') ? printflow_db_errors() : [];
+$dashDbErrorsNew = array_slice($dashDbErrorsAll, $dashDbErrorsBefore);
+$dashDbErrorCount = count($dashDbErrorsNew);
+$dashTransientErrnos = [1040, 1053, 1203, 1205, 1213, 1317, 2002, 2003, 2006, 2013, 3024];
+$dashHadTransientDbError = false;
+foreach ($dashDbErrorsNew as $dashDbErr) {
+    $dashErrno = (int)($dashDbErr['errno'] ?? 0);
+    if (($dashDbErr['stage'] ?? '') === 'connect' || in_array($dashErrno, $dashTransientErrnos, true)) {
+        $dashHadTransientDbError = true;
+        break;
+    }
+}
+if (!$dashHadTransientDbError) {
     $dashCachePayload = [];
     foreach ($dashCacheVars as $dashCacheVar) {
         $dashCachePayload[$dashCacheVar] = $$dashCacheVar ?? null;
     }
-    printflow_admin_dashboard_cache_set($dashCacheKey, $dashCachePayload);
+    $dashCacheState = printflow_admin_dashboard_cache_set($dashCacheKey, $dashCachePayload)
+        ? $dashCacheState . '-stored'
+        : $dashCacheState . '-store-failed';
+} else {
+    $dashCacheState .= '-store-skipped';
 }
+$dashMark('cache_set');
+unset($dashDbErrorsAll, $dashDbErrorsNew, $dashDbErr, $dashErrno);
 
 } // end if (!$dashCacheHit)
+
+// Expose phase timings (headers only; never rendered). Example in DevTools: Network → Timing.
+if (!headers_sent()) {
+    $dashServerTiming = ['dash;desc="' . $dashCacheState . '"'];
+    $dashServerTiming[] = 'dberr;dur=' . (int)($dashDbErrorCount ?? 0);
+    foreach ($dashTimings as $dashPhase => $dashMs) {
+        $dashServerTiming[] = preg_replace('/[^a-z0-9_]/', '', (string)$dashPhase) . ';dur=' . round((float)$dashMs, 1);
+    }
+    $dashServerTiming[] = 'total;dur=' . round((microtime(true) - ($_SERVER['REQUEST_TIME_FLOAT'] ?? $dashTimingStart)) * 1000, 1);
+    header('Server-Timing: ' . implode(', ', $dashServerTiming));
+}
 
 $page_title = 'Dashboard - Admin | PrintFlow';
 ?>
