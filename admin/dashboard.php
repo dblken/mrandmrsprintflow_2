@@ -14,6 +14,7 @@ require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
 require_once __DIR__ . '/../includes/pos_customer_helpers.php';
 require_once __DIR__ . '/../includes/admin_dashboard_cache.php';
+require_once __DIR__ . '/../includes/reports_dashboard_indexes.php';
 require_role(['Admin', 'Manager']);
 
 // Managers must use their own panel — redirect them away from /admin/
@@ -78,6 +79,7 @@ if ($dashPresetRaw === 'today') {
 
 $dashFromStart = $dashFromDate . ' 00:00:00';
 $dashToEnd = $dashToDate . ' 23:59:59';
+$dashRangeDays = max(1, (int)floor((strtotime($dashToDate . ' 12:00:00') - strtotime($dashFromDate . ' 12:00:00')) / 86400) + 1);
 
 $dashboard_branch_display = ($branchId === 'all')
     ? 'All Branches'
@@ -147,10 +149,20 @@ $dashCacheVars = [
     'dashboard_sales_bar_values', 'customer_locations',
 ];
 // A cold summary response must never execute secondary widget queries.
-$dashSecondaryRequest = ($_GET['dashboard_section'] ?? '') === 'secondary';
+$dashSectionParam = (string)($_GET['dashboard_section'] ?? '');
+$dashSecondaryRequest = $dashSectionParam === 'secondary';
+$dashBranchChartsRequest = $dashSectionParam === 'branch_charts';
 $dashSummaryVars = ['total_customers', 'total_revenue', 'total_orders', 'pending_orders'];
 $dashSecondaryVars = array_values(array_diff($dashCacheVars, $dashSummaryVars));
-$dashSections = $dashSecondaryRequest ? ['summary', 'secondary'] : ['summary'];
+$dashBranchChartsVars = ['dashboard_branch_chart_payload', 'dashboard_branch_chart_json'];
+if ($dashBranchChartsRequest) {
+    $dashSections = ['branch_charts'];
+} elseif ($dashSecondaryRequest) {
+    $dashSections = ['summary', 'secondary'];
+} else {
+    $dashSections = ['summary'];
+}
+$dashDeferBranchSalesCharts = ($branchId === 'all' && $dashRangeDays > 21);
 // Phase timings are exposed as a Server-Timing header (DevTools / performance API only;
 // nothing is rendered). Used to locate slow sections on the live server.
 $dashTimingStart = microtime(true);
@@ -162,13 +174,20 @@ $dashMark = static function (string $phase) use (&$dashTimings, &$dashTimingLast
     $dashTimingLast = $now;
 };
 $dashTimings['bootstrap'] = (microtime(true) - ($_SERVER['REQUEST_TIME_FLOAT'] ?? $dashTimingStart)) * 1000;
+printflow_ensure_reports_dashboard_indexes();
+$dashMark('schema_indexes');
 $dashCacheState = 'miss';
+$dashSectionStates = [];
 
 foreach ($dashSections as $dashSection) {
 $dashCacheState = 'miss';
 $dashDbErrorCount = 0;
-$dashCacheVars = $dashSection === 'summary' ? $dashSummaryVars : $dashSecondaryVars;
-$dashCacheKey = printflow_admin_dashboard_cache_key($branchId, $dashFromDate, $dashToDate, 'v2-' . $dashSection);
+$dashCacheVars = match ($dashSection) {
+    'summary' => $dashSummaryVars,
+    'branch_charts' => $dashBranchChartsVars,
+    default => $dashSecondaryVars,
+};
+$dashCacheKey = printflow_admin_dashboard_cache_key($branchId, $dashFromDate, $dashToDate, 'v3-' . $dashSection);
 $dashCacheHit = false;
 $dashCached = printflow_admin_dashboard_cache_get($dashCacheKey);
 if (printflow_admin_dashboard_cache_bypass_requested()) {
@@ -304,6 +323,68 @@ try {
 } catch (Exception $e) { $pending_orders = 0; }
 $dashMark('kpi_orders');
 
+} elseif ($dashSection === 'branch_charts') {
+$dashboard_branch_chart_payload = [
+    'products' => [],
+    'services' => [],
+    'statuses' => [],
+    'locations' => [],
+];
+if ($branchId === 'all') {
+    foreach (($branchCtx['branches_list'] ?? []) as $branchRow) {
+        $chartBranchId = (int)($branchRow['id'] ?? 0);
+        if ($chartBranchId <= 0) {
+            continue;
+        }
+        $chartBranchName = trim((string)($branchRow['branch_name'] ?? ''));
+        if ($chartBranchName === '') {
+            $chartBranchName = 'Branch ' . $chartBranchId;
+        }
+
+        try {
+            $productRows = pf_reports_sales_by_official_product($dashFromStart, $dashToEnd, $chartBranchId);
+        } catch (Exception $e) {
+            $productRows = [];
+        }
+        $productPayloadRows = array_values(array_filter(array_map(static function ($row) use ($dashboard_chart_value) {
+            $category = trim((string)($row['category'] ?? ''));
+            return [
+                'label' => $category !== '' ? $category : 'Uncategorized product',
+                'value' => $dashboard_chart_value($row),
+            ];
+        }, $productRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
+        $dashboard_branch_chart_payload['products'][] = [
+            'branch_id' => $chartBranchId,
+            'branch_name' => $chartBranchName,
+            'rows' => $productPayloadRows,
+        ];
+
+        try {
+            $serviceRows = pf_reports_sales_by_service_category($dashFromStart, $dashToEnd, $chartBranchId);
+            $serviceRows = pf_reports_fold_demo_service_categories($serviceRows, ['Eunsoyaaaaa', 'Ink']);
+        } catch (Exception $e) {
+            $serviceRows = [];
+        }
+        $servicePayloadRows = array_values(array_filter(array_map(static function ($row) use ($dashboard_chart_value) {
+            $category = trim((string)($row['category'] ?? ''));
+            return [
+                'label' => $category !== '' ? $category : 'Customization',
+                'value' => $dashboard_chart_value($row),
+            ];
+        }, $serviceRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
+        $dashboard_branch_chart_payload['services'][] = [
+            'branch_id' => $chartBranchId,
+            'branch_name' => $chartBranchName,
+            'rows' => $servicePayloadRows,
+        ];
+    }
+}
+$dashboard_branch_chart_json = json_encode($dashboard_branch_chart_payload, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+if ($dashboard_branch_chart_json === false) {
+    $dashboard_branch_chart_json = '{"products":[],"services":[],"statuses":[],"locations":[]}';
+}
+$dashMark('branch_charts_products_services');
+
 } else {
 // Daily sales series and the server-side status breakdown are not rendered by
 // this page (the status doughnut loads from api_order_status_chart.php), so
@@ -361,42 +442,44 @@ if ($branchId === 'all') {
             $chartBranchName = 'Branch ' . $chartBranchId;
         }
 
-        try {
-            $productRows = pf_reports_sales_by_official_product($dashFromStart, $dashToEnd, $chartBranchId);
-        } catch (Exception $e) {
-            $productRows = [];
-        }
-        $productPayloadRows = array_values(array_filter(array_map(static function ($row) use ($dashboard_chart_value) {
-            $category = trim((string)($row['category'] ?? ''));
-            return [
-                'label' => $category !== '' ? $category : 'Uncategorized product',
-                'value' => $dashboard_chart_value($row),
+        if (!$dashDeferBranchSalesCharts) {
+            try {
+                $productRows = pf_reports_sales_by_official_product($dashFromStart, $dashToEnd, $chartBranchId);
+            } catch (Exception $e) {
+                $productRows = [];
+            }
+            $productPayloadRows = array_values(array_filter(array_map(static function ($row) use ($dashboard_chart_value) {
+                $category = trim((string)($row['category'] ?? ''));
+                return [
+                    'label' => $category !== '' ? $category : 'Uncategorized product',
+                    'value' => $dashboard_chart_value($row),
+                ];
+            }, $productRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
+            $dashboard_branch_chart_payload['products'][] = [
+                'branch_id' => $chartBranchId,
+                'branch_name' => $chartBranchName,
+                'rows' => $productPayloadRows,
             ];
-        }, $productRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
-        $dashboard_branch_chart_payload['products'][] = [
-            'branch_id' => $chartBranchId,
-            'branch_name' => $chartBranchName,
-            'rows' => $productPayloadRows,
-        ];
 
-        try {
-            $serviceRows = pf_reports_sales_by_service_category($dashFromStart, $dashToEnd, $chartBranchId);
-            $serviceRows = pf_reports_fold_demo_service_categories($serviceRows, ['Eunsoyaaaaa', 'Ink']);
-        } catch (Exception $e) {
-            $serviceRows = [];
-        }
-        $servicePayloadRows = array_values(array_filter(array_map(static function ($row) use ($dashboard_chart_value) {
-            $category = trim((string)($row['category'] ?? ''));
-            return [
-                'label' => $category !== '' ? $category : 'Customization',
-                'value' => $dashboard_chart_value($row),
+            try {
+                $serviceRows = pf_reports_sales_by_service_category($dashFromStart, $dashToEnd, $chartBranchId);
+                $serviceRows = pf_reports_fold_demo_service_categories($serviceRows, ['Eunsoyaaaaa', 'Ink']);
+            } catch (Exception $e) {
+                $serviceRows = [];
+            }
+            $servicePayloadRows = array_values(array_filter(array_map(static function ($row) use ($dashboard_chart_value) {
+                $category = trim((string)($row['category'] ?? ''));
+                return [
+                    'label' => $category !== '' ? $category : 'Customization',
+                    'value' => $dashboard_chart_value($row),
+                ];
+            }, $serviceRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
+            $dashboard_branch_chart_payload['services'][] = [
+                'branch_id' => $chartBranchId,
+                'branch_name' => $chartBranchName,
+                'rows' => $servicePayloadRows,
             ];
-        }, $serviceRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
-        $dashboard_branch_chart_payload['services'][] = [
-            'branch_id' => $chartBranchId,
-            'branch_name' => $chartBranchName,
-            'rows' => $servicePayloadRows,
-        ];
+        }
 
         try {
             [$statusBranchSql, $statusBranchTypes, $statusBranchParams] = branch_where_parts('o', $chartBranchId);
@@ -578,8 +661,12 @@ $top_customers = [];
 $branchRevenueFrom = $dashFromDate;
 $branchRevenueTo = $dashToDate;
 $branchRevenueToEnd = $branchRevenueTo . ' 23:59:59';
-$branchRevenuePrevFrom = date('Y-m-d', strtotime($branchRevenueFrom) - (strtotime($branchRevenueTo) - strtotime($branchRevenueFrom)) - 86400);
-$branchRevenuePrevToEnd = date('Y-m-d', strtotime($branchRevenueFrom) - 86400) . ' 23:59:59';
+$branchRevenuePrevFrom = null;
+$branchRevenuePrevToEnd = null;
+if ($dashRangeDays <= 31) {
+    $branchRevenuePrevFrom = date('Y-m-d', strtotime($branchRevenueFrom) - (strtotime($branchRevenueTo) - strtotime($branchRevenueFrom)) - 86400);
+    $branchRevenuePrevToEnd = date('Y-m-d', strtotime($branchRevenueFrom) - 86400) . ' 23:59:59';
+}
 $dashboard_branch_perf = pf_reports_branch_performance_merged(
     $branchRevenueFrom,
     $branchRevenueToEnd,
@@ -711,12 +798,22 @@ if (!headers_sent()) {
 // Opt-in, authenticated diagnostics mirror Server-Timing into inert DOM data.
 // This permits inspection in browsers whose tools cannot expose response headers.
 $dashDiagnostics = ($_GET['dashboard_perf'] ?? '') === '1';
+$dashDiagnosticsSection = $dashBranchChartsRequest ? 'branch_charts' : ($dashSecondaryRequest ? 'secondary' : 'summary');
 $dashDiagnosticsJson = $dashDiagnostics ? json_encode([
-    'section' => $dashSecondaryRequest ? 'secondary' : 'summary',
+    'section' => $dashDiagnosticsSection,
     'cache' => $dashSectionStates,
     'phases_ms' => $dashTimings,
     'server_ms' => round((microtime(true) - ($_SERVER['REQUEST_TIME_FLOAT'] ?? $dashTimingStart)) * 1000, 1),
 ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) : null;
+if ($dashBranchChartsRequest) {
+    header('Cache-Control: private, no-store');
+    header('Content-Type: text/html; charset=UTF-8');
+    if ($dashDiagnostics) {
+        echo '<script type="application/json" id="pf-dashboard-branch-charts-timing">' . htmlspecialchars((string)$dashDiagnosticsJson, ENT_NOQUOTES, 'UTF-8') . '</script>';
+    }
+    echo '<script type="application/json" id="pf-dashboard-branch-chart-data">' . htmlspecialchars($dashboard_branch_chart_json, ENT_NOQUOTES, 'UTF-8') . '</script>';
+    exit;
+}
 if ($dashSecondaryRequest) {
     header('Cache-Control: private, no-store');
     header('Content-Type: text/html; charset=UTF-8');
@@ -1391,7 +1488,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 </a>
             </div>
 
-            <div id="pf-dashboard-secondary" data-url="<?php echo htmlspecialchars(pf_admin_url('dashboard.php', ['branch_id' => $branchId, 'from' => $dashFromDate, 'to' => $dashToDate, 'preset' => $dashPreset, 'dashboard_section' => 'secondary', 'dashboard_perf' => $dashDiagnostics ? '1' : null]), ENT_QUOTES, 'UTF-8'); ?>" aria-busy="true">
+            <div id="pf-dashboard-secondary" data-url="<?php echo htmlspecialchars(pf_admin_url('dashboard.php', ['branch_id' => $branchId, 'from' => $dashFromDate, 'to' => $dashToDate, 'preset' => $dashPreset, 'dashboard_section' => 'secondary', 'dashboard_perf' => $dashDiagnostics ? '1' : null]), ENT_QUOTES, 'UTF-8'); ?>"<?php if ($dashDeferBranchSalesCharts): ?> data-defer-branch-charts-url="<?php echo htmlspecialchars(pf_admin_url('dashboard.php', ['branch_id' => $branchId, 'from' => $dashFromDate, 'to' => $dashToDate, 'preset' => $dashPreset, 'dashboard_section' => 'branch_charts', 'dashboard_perf' => $dashDiagnostics ? '1' : null]), ENT_QUOTES, 'UTF-8'); ?>"<?php endif; ?> aria-busy="true">
                 <?php require __DIR__ . '/../includes/admin_dashboard_skeleton.php'; ?>
             </div>
             </div>
@@ -1491,6 +1588,12 @@ $page_title = 'Dashboard - Admin | PrintFlow';
     pfApplyDashChartFontDefaults();
     document.addEventListener('DOMContentLoaded', pfApplyDashChartFontDefaults);
     window.printflowTeardownDashboardCharts = function () {
+        if (window.pfDashCancelSecondary) {
+            try { window.pfDashCancelSecondary(); } catch (e) {}
+        }
+        if (window.pfDashCancelBranchCharts) {
+            try { window.pfDashCancelBranchCharts(); } catch (e) {}
+        }
         if (window.__pfDashRevealIOs && window.__pfDashRevealIOs.length) {
             window.__pfDashRevealIOs.forEach(function (io) {
                 try { io.disconnect(); } catch (e) {}
@@ -2172,6 +2275,12 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 chart.render();
             });
         })();
+        (function pfDashKickDeferredBranchCharts() {
+            var secondaryEl = document.getElementById('pf-dashboard-secondary');
+            if (secondaryEl && secondaryEl.dataset.deferBranchChartsUrl && typeof window.pfDashLoadDeferredBranchCharts === 'function') {
+                window.pfDashLoadDeferredBranchCharts(secondaryEl);
+            }
+        })();
         });
     };
     if (document.readyState === 'loading') {
@@ -2210,6 +2319,7 @@ window.pfDashApplyFilterAjax = function() {
     }
     window.__pfDashLastSubmittedRange = key;
     if (window.pfDashCancelSecondary) window.pfDashCancelSecondary();
+    if (window.pfDashCancelBranchCharts) window.pfDashCancelBranchCharts();
     if (window.printflowTeardownDashboardCharts) window.printflowTeardownDashboardCharts();
     window.__pfDashFilterBusy = true;
     window.__pfDashFilterQueued = false;
