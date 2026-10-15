@@ -120,19 +120,12 @@ try {
 
 // ── KPI: Total Orders (count in window) ───────────────────────
 try {
-    [$bSqlFrag, $bT3, $bP3] = branch_where_parts('o', $branchId);
-    $bSqlFrag .= ' AND ' . printflow_order_archive_scope_sql('o');
-    [$jSqlFrag, $jT3, $jP3] = branch_where_parts('j', $branchId);
-    $orderTypes = 'ss' . ($bT3 ?: '') . 'ss' . ($jT3 ?: '');
-    $orderParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP3 ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP3 ?: []);
-    $total_orders = db_query(
-        "SELECT (
-             (SELECT COUNT(*) FROM orders o WHERE o.order_date BETWEEN ? AND ? {$bSqlFrag}) +
-             (SELECT COUNT(*) FROM job_orders j WHERE j.created_at BETWEEN ? AND ? {$jSqlFrag})
-         ) AS cnt",
-        $orderTypes,
-        $orderParams
-    )[0]['cnt'] ?? 0;
+    $canonicalOrders = pf_reports_canonical_official_sales_totals(
+        $kpiDateFrom,
+        $kpiDateToEnd,
+        $branchId
+    );
+    $total_orders = (int)($canonicalOrders['transaction_count'] ?? 0);
 } catch (Exception $e) { $total_orders = 0; }
 
 // ── KPI: Pending store orders (created in window, still Pending) ─
@@ -142,7 +135,10 @@ try {
     $pending_orders = db_query(
         "SELECT COUNT(*) as cnt
          FROM orders o
-         WHERE o.status = 'Pending'
+         WHERE (
+             LOWER(TRIM(COALESCE(o.status, ''))) = 'pending'
+             OR LOWER(TRIM(COALESCE(o.payment_status, ''))) = 'pending'
+         )
            AND o.order_date BETWEEN ? AND ? {$bSqlFrag}",
         'ss' . ($bT4 ?: ''),
         array_merge([$kpiDateFrom, $kpiDateToEnd], $bP4 ?: [])
