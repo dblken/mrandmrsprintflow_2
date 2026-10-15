@@ -112,6 +112,14 @@ class RollService {
     }
 }
 function printflow_db_in_transaction($conn): bool { return $conn->active; }
+function printflow_db_transaction_depth_bump($conn): bool { return $conn->begin_transaction(); }
+function printflow_db_transaction_depth_pop($conn, bool $commit = true): void {
+    if ($commit) {
+        $conn->commit();
+    } else {
+        $conn->rollback();
+    }
+}
 function printflow_store_order_ledger_date($id): string { return $GLOBALS['order_date']; }
 function printflow_get_job_inventory_reference($id): array { return ['label' => 'Test job']; }
 function db_query($sql, $types = null, $params = []): array { return [['order_id' => 12149, 'id' => 4571]]; }
@@ -147,6 +155,17 @@ eval('class BackdatedDeduction {
         return $rows;
     }
     private static function convertInkMlToItemUom($ml, $item) { return (float)$ml; }
+    private static function tableHasColumn($table, $column) { return true; }
+    private static function rollMaterialSupersededByWiderAssignment($assignment, $materials, $itemsById) { return false; }
+    private static function resolveRollMaterialLengthFt($assignment, $jobDimensionRow) {
+        $computed = (float)($assignment["computed_required_length_ft"] ?? 0);
+        if ($computed > 0) {
+            return $computed;
+        }
+        return (float)($assignment["quantity"] ?? 0);
+    }
+    private static function decodeMaterialMetadata($raw) { return is_array($raw) ? $raw : []; }
+    private static function markSupersededRollMaterialSkipped($id, array $meta) {}
 ' . $method . '}');
 
 $conn = new BackdatedTestConnection();

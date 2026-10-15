@@ -19,6 +19,7 @@ require_once __DIR__ . '/../../includes/service_order_helper.php';
 require_once __DIR__ . '/../../includes/pos_customer_helpers.php';
 require_once __DIR__ . '/../../includes/pos_set_price_helpers.php';
 require_once __DIR__ . '/../../includes/order_item_design_files.php';
+require_once __DIR__ . '/../../includes/pos_custom_transaction_datetime.php';
 
 function pos_payload_item_is_service(array $item): bool {
     if (!empty($item['is_service'])) {
@@ -348,7 +349,7 @@ function pos_checkout_verify_csrf(string $token, array $sessionContext): bool {
 }
 
 function pos_checkout_selected_transaction_datetime(array $data): string {
-    return date('Y-m-d H:i:s');
+    return printflow_pos_selected_transaction_datetime($data);
 }
 
 function pos_checkout_align_pos_order_timestamps(array $orderIds, string $selectedTransactionAt): void {
@@ -1343,10 +1344,18 @@ if (!pos_checkout_verify_csrf((string)($data['csrf_token'] ?? ''), $sessionConte
     echo json_encode(['success' => false, 'message' => 'Invalid security token.']);
     exit;
 }
-$selectedTransactionAt = pos_checkout_selected_transaction_datetime($data);
+try {
+    $selectedTransactionAt = pos_checkout_selected_transaction_datetime($data);
+} catch (RuntimeException $datetimeError) {
+    $code = (int)$datetimeError->getCode();
+    http_response_code($code >= 400 && $code < 600 ? $code : 400);
+    echo json_encode(['success' => false, 'message' => $datetimeError->getMessage(), 'stage' => 'transaction_datetime']);
+    exit;
+}
 pos_checkout_log_stage('transaction_datetime', [
     'selected' => $selectedTransactionAt,
     'inventory_transaction_date' => $selectedTransactionAt,
+    'use_custom_transaction_datetime' => printflow_pos_custom_datetime_enabled($data) ? 1 : 0,
 ]);
 $payment_method = sanitize($data['payment_method'] ?? 'Cash');
 $reference_number = sanitize($data['reference_number'] ?? '');
@@ -1764,7 +1773,8 @@ try {
             $custom_details['service_type'] = $name;
         }
         $custom_details = printflow_customization_normalize_storage($custom_details);
-        
+        $custom_details['pos_business_datetime'] = $selectedTransactionAt;
+
         $customization_json = json_encode($custom_details ?: new stdClass());
 
         $item_result = db_execute(
@@ -1947,9 +1957,9 @@ try {
             if (!$customization_result) {
                 $customizationStatus = $isPayMongo ? 'Awaiting Payment' : 'In Production';
                 $customization_result = db_execute(
-                    "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())",
-                    'iiisss',
-                    [$order_id, $order_item_id, $customer_id, $name, $details_json, $customizationStatus]
+                    "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    'iiisssss',
+                    [$order_id, $order_item_id, $customer_id, $name, $details_json, $customizationStatus, $selectedTransactionAt, $selectedTransactionAt]
                 );
                 if ($customization_result) {
                     $last_customization_id = $conn->insert_id;

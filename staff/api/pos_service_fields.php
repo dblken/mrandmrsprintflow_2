@@ -5,6 +5,7 @@
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/service_field_renderer.php';
+require_once __DIR__ . '/../../includes/pos_custom_transaction_datetime.php';
 
 if (!is_logged_in() || (!is_staff() && !is_admin())) {
     echo json_encode(['success' => false, 'error' => 'Unauthorized']);
@@ -28,6 +29,10 @@ if (empty($service)) {
     exit;
 }
 $service = $service[0];
+
+if (printflow_pos_can_custom_transaction_datetime()) {
+    $GLOBALS['printflow_allow_past_needed_date'] = true;
+}
 
 $branches = db_query("SELECT id, branch_name FROM branches WHERE status = 'Active' ORDER BY branch_name ASC") ?: [];
 
@@ -53,7 +58,8 @@ try {
             $sel = ($staff_branch_id == $b['id']) ? ' selected' : '';
             $branch_options .= '<option value="' . (int)$b['id'] . '"' . $sel . '>' . htmlspecialchars($b['branch_name']) . '</option>';
         }
-        $needed_date_min = date('Y-m-d');
+        $needed_date_min = !empty($GLOBALS['printflow_allow_past_needed_date']) ? '' : date('Y-m-d');
+        $needed_date_min_attr = $needed_date_min !== '' ? ' min="' . htmlspecialchars($needed_date_min, ENT_QUOTES, 'UTF-8') . '"' : '';
         echo '
     <div class="shopee-form-row">
         <div class="shopee-form-label">Branch *</div>
@@ -66,7 +72,7 @@ try {
     <div class="shopee-form-row">
         <div class="shopee-form-label">Needed Date *</div>
         <div class="shopee-form-field">
-            <input type="date" name="needed_date" class="shopee-opt-btn" required min="' . htmlspecialchars($needed_date_min, ENT_QUOTES, 'UTF-8') . '" style="width:175px;cursor:pointer;">
+            <input type="date" name="needed_date" class="shopee-opt-btn" required' . $needed_date_min_attr . ' style="width:175px;cursor:pointer;">
         </div>
     </div>
     <div class="shopee-form-row">
