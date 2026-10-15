@@ -52,22 +52,24 @@ if ($timeframe === 'year') {
     $timeframe = 'month';
 }
 
-$today = date('Y-m-d');
+$businessNow = new DateTimeImmutable('now', new DateTimeZone('Asia/Manila'));
+$today = $businessNow->format('Y-m-d');
 $range_start = $today;
 $range_end = $today;
-$timeframe_label = "Today (" . date('F j, Y') . ")";
+$timeframe_label = "Today (" . $businessNow->format('F j, Y') . ")";
 $short_label = "Today";
 
 switch ($timeframe) {
     case 'week': 
-        $range_start = date('Y-m-d', strtotime('monday this week'));
-        $range_end = date('Y-m-d', strtotime('sunday this week'));
-        
-        $start_day = date('j', strtotime($range_start));
-        $end_day = date('j', strtotime($range_end));
-        $start_month = date('F', strtotime($range_start));
-        $end_month = date('F', strtotime($range_end));
-        $year = date('Y', strtotime($range_end));
+        $weekStart = $businessNow->modify('monday this week');
+        $weekEnd = $businessNow->modify('sunday this week');
+        $range_start = $weekStart->format('Y-m-d');
+        $range_end = $weekEnd->format('Y-m-d');
+        $start_day = $weekStart->format('j');
+        $end_day = $weekEnd->format('j');
+        $start_month = $weekStart->format('F');
+        $end_month = $weekEnd->format('F');
+        $year = $weekEnd->format('Y');
         
         if ($start_month === $end_month) {
             $timeframe_label = "This Week ($start_month $start_day-$end_day, $year)";
@@ -77,9 +79,9 @@ switch ($timeframe) {
         $short_label = "This Week";
         break;
     case 'month': 
-        $range_start = date('Y-m-01');
-        $range_end = date('Y-m-t');
-        $timeframe_label = "This Month (" . date('F Y') . ")"; 
+        $range_start = $businessNow->modify('first day of this month')->format('Y-m-d');
+        $range_end = $businessNow->modify('last day of this month')->format('Y-m-d');
+        $timeframe_label = "This Month (" . $businessNow->format('F Y') . ")";
         $short_label = "This Month";
         break;
     case 'all':
@@ -697,7 +699,7 @@ function staffDashboardToolbar() {
                                 <?php foreach ($top_services as $service): ?>
                                     <div class="service-item">
                                         <span class="service-info truncate-ellipsis" title="<?php echo htmlspecialchars($service['name']); ?>"><?php echo htmlspecialchars($service['name']); ?></span>
-                                        <span class="service-count"><?php echo (int)$service['order_count']; ?> Orders</span>
+                                        <span class="service-count"><?php echo (int)$service['item_count']; ?> Items</span>
                                     </div>
                                 <?php endforeach; ?>
                             <?php else: ?>
@@ -874,7 +876,7 @@ async function refreshDashboard(page = 1, status = null, timeframe = null) {
                     servicesList.innerHTML = data.top_services.map(s => `
                         <div class="service-item">
                             <span class="service-info truncate-ellipsis" title="${s.name}">${s.name}</span>
-                            <span class="service-count">${s.order_count} Orders</span>
+                            <span class="service-count">${s.item_count} Items</span>
                         </div>
                     `).join('');
                 } else {
