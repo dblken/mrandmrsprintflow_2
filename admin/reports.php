@@ -125,10 +125,14 @@ $trend_metric = 'both';
 $y_cal = (int) date('Y');
 $heatmap_available_years = [];
 $heatmap_year = $y_cal;
+$heatmap_type = isset($_GET['heatmap_type']) ? strtolower(trim((string) $_GET['heatmap_type'])) : 'product';
+if (!in_array($heatmap_type, ['product', 'service'], true)) {
+    $heatmap_type = 'product';
+}
 
 /** Stable reports URL query (explicit keys + full path fixes Turbo / relative ? links). */
 function reports_page_query(array $overrides = []): string {
-    $keys = ['from', 'to', 'branch_id', 'chart_sort', 'trend_metric', 'txn_pay', 'txn_page', 'heatmap_year', 'sales_period'];
+    $keys = ['from', 'to', 'branch_id', 'chart_sort', 'trend_metric', 'txn_pay', 'txn_page', 'heatmap_year', 'heatmap_type', 'sales_period'];
     $q = [];
     foreach ($keys as $k) {
         if (array_key_exists($k, $overrides)) {
@@ -300,7 +304,7 @@ if (!$gaBranchEmpty && $total_orders > 0) {
     } catch(Exception $e){}
 
     try {
-        $topRows = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 1, false);
+        $topRows = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 1, false, $branchName);
         $top_kpi_location = $topRows[0] ?? null;
         if ($top_kpi_location !== null) {
             $top_kpi_location['cnt'] = (int)($top_kpi_location['orders'] ?? 0);
@@ -641,7 +645,7 @@ $customer_locations = [];
 $customer_locations_by_branch = [];
 if (!$gaBranchEmpty) {
     try {
-        $customer_locations = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 5, false);
+        $customer_locations = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 5, false, $branchName);
         if ($chart_sort === 'value_asc') {
             $customer_locations = array_reverse($customer_locations);
         }
@@ -651,7 +655,7 @@ if (!$gaBranchEmpty) {
                 if ($branchLocationId <= 0) {
                     continue;
                 }
-                $branchLocationRows = pf_reports_customer_locations_merged($from, $toEnd, $branchLocationId, 5, false);
+                $branchLocationRows = pf_reports_customer_locations_merged($from, $toEnd, $branchLocationId, 5, false, (string)($branchRow['branch_name'] ?? ''));
                 if ($chart_sort === 'value_asc') {
                     $branchLocationRows = array_reverse($branchLocationRows);
                 }
@@ -1285,6 +1289,25 @@ a.export-dd-link:hover { background: #f9fafb; }
 .reports-product-branch-legend,
 .reports-branch-chart-legend { font-size:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); justify-content:stretch; text-align:left; gap:8px 12px; padding:6px 4px 0; max-height:220px; overflow-y:auto; align-content:start; }
 .reports-product-branch-legend > div, .reports-branch-chart-legend > div { justify-content:flex-start; }
+.reports-chart-legend-item {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    min-width:0;
+    cursor:pointer;
+    user-select:none;
+    border-radius:4px;
+    padding:2px 3px;
+}
+.reports-chart-legend-item > span:first-child {
+    display:block;
+    flex:0 0 10px;
+    width:10px !important;
+    height:10px;
+}
+.reports-chart-legend-item:hover,
+.reports-chart-legend-item:focus-visible { background:#f1f5f9; outline:2px solid #53C5E0; outline-offset:1px; }
+.reports-chart-legend-item.is-muted { opacity:.38; text-decoration:line-through; }
 #reports-product-cat-legend,
 #reports-service-cat-legend {
     max-height:220px;
@@ -1311,26 +1334,27 @@ a.export-dd-link:hover { background: #f9fafb; }
     width:100%;
     max-width:none;
     min-width:0;
-    min-height:330px;
+    min-height:390px;
     display:flex;
     flex-direction:column;
     overflow:hidden;
 }
 #reports-status-branch-charts .reports-branch-chart-title { text-align:left; }
 #reports-status-branch-charts .reports-branch-chart-mount {
-    width:100%;
-    height:270px;
+    width:260px;
+    height:320px;
     max-width:260px;
-    flex:0 0 270px;
+    flex:0 0 320px;
     overflow:visible;
 }
-#reports-status-branch-charts .apexcharts-canvas { max-width:100%; margin:0 auto; }
+#reports-status-branch-charts .apexcharts-canvas,
+#reports-status-branch-charts .apexcharts-svg { width:260px !important; max-width:260px; margin:0 auto; }
 #reports-status-branch-charts .apexcharts-legend {
     display:grid !important;
     grid-template-columns:repeat(2,minmax(0,1fr));
     gap:4px 8px;
     width:100% !important;
-    max-height:106px;
+    max-height:128px;
     overflow-y:auto;
     padding:2px 4px 0;
     box-sizing:border-box;
@@ -1349,6 +1373,9 @@ a.export-dd-link:hover { background: #f9fafb; }
 }
 @media (max-width: 900px) {
     #reports-status-branch-charts { grid-template-columns:1fr; }
+    #reports-status-branch-charts .reports-branch-chart-mount,
+    #reports-status-branch-charts .apexcharts-canvas,
+    #reports-status-branch-charts .apexcharts-svg { width:240px; max-width:240px; }
 }
 #reports-status-single-chart { min-height:255px !important; }
 #ch-status .apexcharts-legend,
@@ -1391,9 +1418,14 @@ a.export-dd-link:hover { background: #f9fafb; }
 .heatmap-card-hd { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; width:100%; }
 .heatmap-card-hd h3 { flex:1 1 auto; min-width:0; margin:0; }
 .heatmap-header-tools { display:flex; align-items:center; gap:10px; flex-shrink:0; margin-left:auto; }
+.heatmap-header-tools > div { min-width:0; }
 .heatmap-year-chip { display:inline-block; margin-left:6px; padding:2px 10px; border-radius:8px; background:#E5EEF2; color:#0F4C5C; font-size:13px; font-weight:800; vertical-align:middle; }
 .heatmap-year-label { font-size:12px; font-weight:600; color:#6b7280; white-space:nowrap; }
-.heatmap-year-select { min-width:7rem; width:7rem; padding-right:34px; text-align:left; }
+.heatmap-year-select { min-width:7rem; width:7rem; height:38px !important; box-sizing:border-box; padding:0 34px 0 12px; line-height:1.2; text-align:left; white-space:nowrap; }
+.heatmap-type-select { min-width:10rem; width:10rem; }
+.export-dd-link[data-pf-export-report="daily_sales"],
+.export-dd-link[data-pf-export-report="shop_inventory"],
+.export-dd-link[data-pf-export-report="inventory"] { display:none !important; }
 .pf-heatmap-legend { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:14px 20px; margin:0 0 14px; padding:0; font-size:11px; font-weight:600; color:#475569; }
 .pf-heatmap-legend .pf-hm-legend-item { display:inline-flex; align-items:center; gap:8px; cursor:pointer; user-select:none; transition:all 0.2s ease; padding:4px 8px; border-radius:6px; }
 .pf-heatmap-legend .pf-hm-legend-item:hover { background:#f1f5f9; transform:translateY(-1px); }
@@ -1504,6 +1536,10 @@ a.export-dd-link:hover { background: #f9fafb; }
 .pf-hm-cell--nodata .pf-hm-val { display:none; }
 .pf-heatmap-note { font-size:11px; color:#64748b; margin:-4px 0 12px; line-height:1.45; max-width:52rem; }
 @media (max-width:520px) {
+    .heatmap-card-hd { align-items:stretch; }
+    .heatmap-header-tools { width:100%; margin-left:0; }
+    .heatmap-header-tools > div { width:100%; justify-content:flex-start; }
+    .heatmap-type-select { flex:1 1 10rem; }
     .pf-hm-label-col { max-width:min(160px,38vw); }
 }
 .pf-heatmap-chbox { min-height:200px; }
@@ -1663,6 +1699,7 @@ a.export-dd-link:hover { background: #f9fafb; }
 
 /* ── Customer Locations (Progress Bar Style - Match Customization Usage) ── */
 .pf-loc-card-body { padding:16px 18px; }
+.pf-loc-note { font-size:10px; font-weight:500; color:#64748b; margin-left:4px; white-space:normal; }
 .pf-loc-branch-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
 .pf-loc-branch-card { min-width:0; }
 .pf-loc-branch-title { color:#111827; font-size:12px; font-weight:800; text-align:left; margin:0 0 10px; }
@@ -2267,6 +2304,8 @@ a.export-dd-link:hover { background: #f9fafb; }
                                 <input type="hidden" name="chart_sort" value="<?php echo htmlspecialchars($chart_sort); ?>">
                                 <input type="hidden" name="trend_metric" value="<?php echo htmlspecialchars($trend_metric); ?>">
                                 <input type="hidden" name="txn_pay" value="<?php echo htmlspecialchars($txn_payment_filter); ?>">
+                                <input type="hidden" name="heatmap_year" value="<?php echo (int) $heatmap_year; ?>">
+                                <input type="hidden" name="heatmap_type" value="<?php echo htmlspecialchars($heatmap_type, ENT_QUOTES, 'UTF-8'); ?>">
                                 <div class="filter-section">
                                     <div class="filter-section-head">
                                         <span class="filter-section-label">Date range</span>
@@ -2318,6 +2357,8 @@ a.export-dd-link:hover { background: #f9fafb; }
                                 'from' => $from,
                                 'to' => $to,
                                 'branch_id' => $branchId === 'all' ? 'all' : (int)$branchId,
+                                'heatmap_year' => $heatmap_year,
+                                'heatmap_type' => $heatmap_type,
                             ];
                             $pfRptUrl = function (string $file, array $extra = []) use ($rptQs, $base_path) {
                                 return rtrim($base_path, '/') . '/admin/' . $file . '?' . http_build_query(array_merge($rptQs, $extra));
@@ -2331,9 +2372,6 @@ a.export-dd-link:hover { background: #f9fafb; }
                             $csvSalesUrl = $pfRptUrl('reports_export.php', ['report' => 'sales']);
                             $csvOrdersUrl = $pfRptUrl('reports_export.php', ['report' => 'orders']);
                             $csvCustomersUrl = $pfRptUrl('reports_export.php', ['report' => 'customers']);
-                            $csvDailyUrl = $pfRptUrl('reports_export.php', ['report' => 'daily_sales', 'date' => $to]);
-                            $csvShopInvUrl = $pfRptUrl('reports_export.php', ['report' => 'shop_inventory']);
-                            $csvMaterialsUrl = $pfRptUrl('reports_export.php', ['report' => 'inventory']);
                             $activityLogsPrintUrl = rtrim($base_path, '/') . '/admin/activity_logs.php?' . http_build_query([
                                 'print_all' => '1',
                                 'date_from' => $from,
@@ -3202,7 +3240,7 @@ if ($fc_debug_mode) {
             <div class="ana-card print-hide">
                 <div class="ana-hd heatmap-card-hd">
                     <h3><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>Seasonal Demand Heatmap <span class="heatmap-year-chip" id="pf-heatmap-year-display"><?php echo (int)$heatmap_year; ?></span><span style="margin-left:8px;padding:3px 8px;background:#F7FAFC;color:#4A5568;border:1px solid #E2E8F0;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">Full Year</span></h3>
-                    <div class="heatmap-header-tools"><div style="display:flex;align-items:center;gap:12px;" class="no-print"><label class="heatmap-year-label" for="pf-heatmap-year">Year</label><select id="pf-heatmap-year" class="chart-select heatmap-year-select" style="height:32px;font-size:12px;" aria-label="Heatmap year" <?php echo empty($heatmap_available_years) ? 'disabled' : ''; ?>><?php if (empty($heatmap_available_years)): ?><option value=""><?php echo (int) $y_cal; ?></option><?php else: ?><?php foreach ($heatmap_available_years as $yy): ?><option value="<?php echo (int) $yy; ?>" <?php echo (int) $yy === (int) $heatmap_year ? 'selected' : ''; ?>><?php echo (int) $yy; ?></option><?php endforeach; ?><?php endif; ?></select><button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"heatmap"]), $je); ?>)' title="Print Seasonal Demand Heatmap Report">Print</button></div></div>
+                    <div class="heatmap-header-tools"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;" class="no-print"><label class="heatmap-year-label" for="pf-heatmap-year">Year</label><select id="pf-heatmap-year" class="chart-select heatmap-year-select" style="height:32px;font-size:12px;" aria-label="Heatmap year" <?php echo empty($heatmap_available_years) ? 'disabled' : ''; ?>><?php if (empty($heatmap_available_years)): ?><option value=""><?php echo (int) $y_cal; ?></option><?php else: ?><?php foreach ($heatmap_available_years as $yy): ?><option value="<?php echo (int) $yy; ?>" <?php echo (int) $yy === (int) $heatmap_year ? 'selected' : ''; ?>><?php echo (int) $yy; ?></option><?php endforeach; ?><?php endif; ?></select><label class="heatmap-year-label" for="pf-heatmap-type">Type</label><select id="pf-heatmap-type" class="chart-select heatmap-year-select heatmap-type-select" style="height:32px;font-size:12px;" aria-label="Heatmap type"><option value="product" <?php echo $heatmap_type === 'product' ? 'selected' : ''; ?>>Products</option><option value="service" <?php echo $heatmap_type === 'service' ? 'selected' : ''; ?>>Services</option></select><button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"heatmap", "heatmap_type"=>$heatmap_type, "heatmap_year"=>$heatmap_year]), $je); ?>)' title="Print Seasonal Demand Heatmap Report">Print</button></div></div>
                 </div>
                 <div class="ana-bd">
                     <div class="pf-heatmap-legend" aria-label="Heatmap legend" id="pf-heatmap-legend"><span class="pf-hm-legend-item" data-kind="future" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:repeating-linear-gradient(-45deg,#f8fafc,#f8fafc 3px,#e2e8f0 3px,#e2e8f0 6px);border:1px dashed #cbd5e1;"></i> Not yet</span><span class="pf-hm-legend-item" data-kind="nodata" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#f8fafc;border:1px dashed #94a3b8;"></i> No transactions</span><span class="pf-hm-legend-item" data-kind="low" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#a5e3f2;"></i> Low</span><span class="pf-hm-legend-item" data-kind="med" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#53C5E0;"></i> Medium</span><span class="pf-hm-legend-item" data-kind="high" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#00232b;"></i> High</span></div>
@@ -3214,8 +3252,8 @@ if ($fc_debug_mode) {
             <div class="ana-grid print-hide">
                 <div class="ana-card">
                     <div class="ana-hd">
-                        <h3><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg> Customer Locations<span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span></h3>
-                        <div style="display:flex;align-items:center;gap:12px;" class="no-print"><?php if (!empty($customer_locations)): ?><span class="top-location-pill">Top Location: <?php echo htmlspecialchars(trim($customer_locations[0]['city'])); ?></span><?php endif; ?><button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"locations"]), $je); ?>)' title="Print Customer Locations Report">Print</button></div>
+                        <h3 title="Customer locations are grouped into branch service areas for reporting."><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg> Customer Reach by Branch Area<span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span><span class="pf-loc-note">Customer locations are grouped into branch service areas for reporting.</span></h3>
+                        <div style="display:flex;align-items:center;gap:12px;" class="no-print"><?php if (!empty($customer_locations)): ?><span class="top-location-pill">Top Area: <?php echo htmlspecialchars(trim($customer_locations[0]['city'])); ?></span><?php endif; ?><button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"locations"]), $je); ?>)' title="Print Customer Reach by Area Report">Print</button></div>
                     </div>
                     <div class="ana-bd pf-loc-card-body">
                         <?php if (!empty($customer_locations_by_branch)): ?>

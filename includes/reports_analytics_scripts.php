@@ -2003,7 +2003,7 @@ window.printflowInitReportsCharts = function () {
                 var html = '';
                 labels.forEach(function (label, i) {
                     var color = colors[i % colors.length];
-                    html += '<div style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap;">';
+                    html += '<div class="reports-chart-legend-item" data-chart-index="' + i + '" role="button" tabindex="0" aria-pressed="true" title="Toggle ' + pfEscHtml(label) + '">';
                     html += '<span style="width:10px;height:10px;border-radius:50%;background:' + color + ';"></span>';
                     html += '<span style="font-weight:600;color:#374151;">' + pfEscHtml(label) + '</span>';
                     html += '</div>';
@@ -2069,8 +2069,6 @@ window.printflowInitReportsCharts = function () {
                 if (isEmptyDonut) labels = [(rows[0] && rows[0].empty && rows[0].category) ? rows[0].category : 'No sales'];
                 var data = isEmptyDonut ? [1] : rawData;
                 var colors = isEmptyDonut ? ['#E5E7EB'] : labels.map(function (_, i) { return catColors[i % catColors.length]; });
-                fillLegend(legendId, labels, colors);
-
                 window[chartRef] = new Chart(canvas.getContext('2d'), {
                     type: 'doughnut',
                     data: {
@@ -2104,6 +2102,29 @@ window.printflowInitReportsCharts = function () {
                         }
                     }
                 });
+                fillLegend(legendId, labels, colors);
+                var legendEl = document.getElementById(legendId);
+                if (legendEl && window[chartRef]) {
+                    legendEl.querySelectorAll('[data-chart-index]').forEach(function (item) {
+                        var toggle = function () {
+                            var index = Number(item.getAttribute('data-chart-index'));
+                            var chart = window[chartRef];
+                            if (!chart || !Number.isInteger(index)) return;
+                            chart.toggleDataVisibility(index);
+                            chart.update();
+                            var visible = chart.getDataVisibility(index);
+                            item.classList.toggle('is-muted', !visible);
+                            item.setAttribute('aria-pressed', visible ? 'true' : 'false');
+                        };
+                        item.addEventListener('click', toggle);
+                        item.addEventListener('keydown', function (event) {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                toggle();
+                            }
+                        });
+                    });
+                }
                 requestAnimationFrame(function () {
                     var ch = window[chartRef];
                     if (ch && typeof ch.resize === 'function') {
@@ -2201,7 +2222,7 @@ window.printflowInitReportsCharts = function () {
                     series:vals,
                     labels:labels,
                     colors:colors,
-                    plotOptions:{ pie:{ donut:{ size:'62%', labels:{ show:true, name:{show:false}, value:{show:false}, total:{ show:true, showAlways:true, label:'Total orders', color:'#64748b', fontSize:'12px', fontWeight:600, formatter:() => total.toLocaleString() } } } } },
+                    plotOptions:{ pie:{ size:180, donut:{ size:'62%', labels:{ show:true, name:{show:false}, value:{show:false}, total:{ show:true, showAlways:true, label:'Total orders', color:'#64748b', fontSize:'12px', fontWeight:600, formatter:() => total.toLocaleString() } } } } },
                     legend:{position:'bottom', horizontalAlign:'left', fontSize:'11px', fontWeight:600, itemMargin:{vertical:3, horizontal:8}},
                     dataLabels:{enabled:false},
                     tooltip:{ theme:'dark', fillSeriesColor:false, style:{fontSize:'12px'}, y:{ formatter:v => v + ' orders' } }
@@ -2231,7 +2252,7 @@ window.printflowInitReportsCharts = function () {
                         pfReportsRenderBranchEmpty(chartMount, 'No order status data');
                         return;
                     }
-                    pfPushApexChart(chartMount, statusOptions(rows, 270));
+                    pfPushApexChart(chartMount, statusOptions(rows, 320));
                 });
                 return;
             }
@@ -2250,6 +2271,8 @@ window.printflowInitReportsCharts = function () {
         var sel = document.getElementById('pf-heatmap-year');
         if (!sel || sel.dataset.pfReportsBound === '1') return;
         sel.dataset.pfReportsBound = '1';
+        var typeSel = document.getElementById('pf-heatmap-type');
+        var heatmapPrintButton = sel.parentElement ? sel.parentElement.querySelector('button.toolbar-btn') : null;
         var mount = document.getElementById('ch-heatmap-mount');
         var box = document.getElementById('pf-heatmap-chbox');
         var loadEl = document.getElementById('pf-heatmap-ajax-loading');
@@ -2310,16 +2333,36 @@ window.printflowInitReportsCharts = function () {
         }
         var heatmapController = null;
         var heatmapKey = '';
+        function updateHeatmapUrl(year, type) {
+            if (!window.history || !window.history.replaceState) return;
+            var nextUrl = new URL(window.location.href);
+            nextUrl.searchParams.set('heatmap_year', year);
+            nextUrl.searchParams.set('heatmap_type', type);
+            window.history.replaceState({}, '', nextUrl.toString());
+            if (heatmapPrintButton) {
+                heatmapPrintButton.onclick = function () {
+                    var printUrl = new URL(window.location.href);
+                    printUrl.pathname = printUrl.pathname.replace(/reports\.php$/, 'reports_print.php');
+                    printUrl.searchParams.set('report', 'heatmap');
+                    printUrl.searchParams.set('heatmap_year', year);
+                    printUrl.searchParams.set('heatmap_type', type);
+                    reportsPrintInPlace(printUrl.toString());
+                };
+            }
+        }
         function loadHeatmap() {
             var year = sel.value;
+            var type = typeSel ? typeSel.value : 'product';
             if (!year || !mount || !mount.isConnected) return;
             
-            if (heatmapKey === year) return;
+            var requestKey = year + ':' + type;
+            if (heatmapKey === requestKey) return;
             if (heatmapController) heatmapController.abort();
             heatmapController = new AbortController();
             var requestController = heatmapController;
-            heatmapKey = year;
+            heatmapKey = requestKey;
             if (yearChip) yearChip.textContent = year;
+            updateHeatmapUrl(year, type);
             showLoading(true);
             
             // Build URL with current branch context from the form
@@ -2330,6 +2373,7 @@ window.printflowInitReportsCharts = function () {
                 branchId = 'all';
             }
             url += '&branch_id=' + encodeURIComponent(branchId);
+            url += '&heatmap_type=' + encodeURIComponent(type);
             
             fetch(url, {
                 signal: requestController.signal,
@@ -2379,6 +2423,7 @@ window.printflowInitReportsCharts = function () {
                 });
         }
         sel.addEventListener('change', loadHeatmap);
+        if (typeSel) typeSel.addEventListener('change', loadHeatmap);
         if (mount && mount.dataset.pfLazyHeatmap === '1' && !sel.disabled) {
             if ('IntersectionObserver' in window) {
                 var heatmapObserver = new IntersectionObserver(function(entries) {

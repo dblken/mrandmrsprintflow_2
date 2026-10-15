@@ -17,6 +17,10 @@ $branchId = $branchCtx['selected_branch_id'];
 
 [$y_cal, $m_cal] = pf_reports_heatmap_db_ym();
 $year = isset($_GET['year']) ? (int) $_GET['year'] : $y_cal;
+$heatmapType = isset($_GET['heatmap_type']) ? strtolower(trim((string) $_GET['heatmap_type'])) : 'product';
+if (!in_array($heatmapType, ['product', 'service'], true)) {
+    $heatmapType = 'product';
+}
 
 $emptyPayload = static function (int $y, bool $valid, string $msg = '') use ($y_cal, $m_cal): array {
     return [
@@ -54,7 +58,7 @@ if (!in_array($year, $available, true)) {
     exit;
 }
 
-$heatmap_cells = pf_reports_heatmap_matrix($year, $branchId);
+$heatmap_cells = pf_reports_heatmap_matrix($year, $branchId, $heatmapType);
 if ($heatmap_cells === []) {
     echo json_encode($emptyPayload($year, true, 'No data available for selected year'));
     exit;
@@ -62,6 +66,8 @@ if ($heatmap_cells === []) {
 
 $series = [];
 foreach ($heatmap_cells as $prod => $mo) {
+    $meta = pf_reports_heatmap_row_meta((string) $prod);
+    $displayName = $meta['label'];
     $row = [];
     for ($m = 1; $m <= 12; $m++) {
         $c = $mo[$m] ?? ['qty' => 0, 'kind' => 'empty'];
@@ -71,7 +77,13 @@ foreach ($heatmap_cells as $prod => $mo) {
             'kind' => (string) ($c['kind'] ?? 'empty'),
         ];
     }
-    $series[] = ['name' => $prod, 'data' => $row];
+    $series[] = [
+        'key' => (string) $prod,
+        'name' => $displayName,
+        'source' => $meta['source'],
+        'label' => $meta['label'],
+        'data' => $row,
+    ];
 }
 
 $n = count($heatmap_cells);

@@ -804,6 +804,8 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
 function pf_reports_sales_by_official_product(string $from, string $toEnd, $branchId): array {
     try {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
+        $storeSales = pf_reports_store_order_sales_expr('o');
+        $storeProductScope = pf_reports_store_product_order_scope_sql('o');
         $datePart = '';
         $dTypes = '';
         $dParams = [];
@@ -831,10 +833,8 @@ function pf_reports_sales_by_official_product(string $from, string $toEnd, $bran
                ON p.product_id = oi.product_id
               AND (p.status IS NULL OR p.status != 'Archived')
              JOIN orders o ON oi.order_id = o.order_id
-             WHERE (
-                 LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid')
-                 OR o.status = 'Completed'
-               )
+             WHERE {$storeSales}
+               AND {$storeProductScope}
                AND NULLIF(TRIM(p.name), '') IS NOT NULL
                {$datePart} {$b}
              GROUP BY p.product_id, TRIM(p.name)
@@ -843,7 +843,9 @@ function pf_reports_sales_by_official_product(string $from, string $toEnd, $bran
             array_merge($dParams, $bp)
         ) ?: [];
 
-        return pf_reports_fold_product_category_slices($rows, 8, 'More Products');
+        // Keep every real product row; the UI legend is scrollable, so no products
+        // need to be collapsed into an opaque aggregate label.
+        return $rows;
     } catch (Throwable $e) {
         return [];
     }
@@ -858,20 +860,23 @@ function pf_reports_sales_by_official_product(string $from, string $toEnd, $bran
 function pf_reports_sales_by_service_category(string $from, string $toEnd, $branchId): array {
     try {
         [$bjsc, $btjsc, $bpjsc] = branch_where_parts('jo', $branchId);
+        $jobSales = pf_reports_job_order_sales_expr('jo');
+        $jobDate = pf_reports_job_order_sales_date_expr('jo');
+        $jobExcludeLinkedCustomStore = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
 
         $jDatePart = '';
         $jdTypes = '';
         $jdParams = [];
         if ($from !== '' && $toEnd !== '') {
-            $jDatePart = ' AND jo.created_at BETWEEN ? AND ?';
+            $jDatePart = " AND {$jobDate} BETWEEN ? AND ?";
             $jdTypes = 'ss';
             $jdParams = [$from, $toEnd];
         } elseif ($from !== '') {
-            $jDatePart = ' AND jo.created_at >= ?';
+            $jDatePart = " AND {$jobDate} >= ?";
             $jdTypes = 's';
             $jdParams = [$from];
         } elseif ($toEnd !== '') {
-            $jDatePart = ' AND jo.created_at <= ?';
+            $jDatePart = " AND {$jobDate} <= ?";
             $jdTypes = 's';
             $jdParams = [$toEnd];
         }
@@ -890,7 +895,7 @@ function pf_reports_sales_by_service_category(string $from, string $toEnd, $bran
                  FROM services
                  GROUP BY LOWER(TRIM(name))
              ) sc ON sc.name_key = LOWER(TRIM(COALESCE(jo.service_type, '')))
-             WHERE 1=1 {$jDatePart} {$bjsc}
+             WHERE {$jobSales} {$jobExcludeLinkedCustomStore} {$jDatePart} {$bjsc}
              GROUP BY {$pfServiceCatBucket}
              HAVING SUM(CASE WHEN (LOWER(TRIM(COALESCE(jo.payment_status, ''))) IN ('paid', 'fully paid') OR UPPER(TRIM(COALESCE(jo.status, ''))) = 'COMPLETED')
                              THEN COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) ELSE 0 END) > 0
@@ -1170,6 +1175,7 @@ function pf_reports_fold_demo_service_categories(array $rows, array $exactNames)
 function pf_reports_heatmap_available_years($branchId): array {
     $years = [];
     $storeSales = pf_reports_store_order_sales_expr('o');
+    $storeProductSales = $storeSales . ' AND NOT ' . pf_reports_store_custom_service_exists_sql('o');
     $jobSales = pf_reports_job_order_sales_expr('jo');
     $jobDate = pf_reports_job_order_sales_date_expr('jo');
     try {
@@ -1178,7 +1184,7 @@ function pf_reports_heatmap_available_years($branchId): array {
             "SELECT DISTINCT YEAR(o.order_date) AS y
              FROM orders o
              INNER JOIN order_items oi ON oi.order_id = o.order_id
-             WHERE {$storeSales}
+             WHERE {$storeProductSales}
                AND YEAR(o.order_date) <= YEAR(CURDATE())$b",
             $bt ?: null,
             $bp ?: null
@@ -1194,6 +1200,7 @@ function pf_reports_heatmap_available_years($branchId): array {
             "SELECT DISTINCT YEAR({$jobDate}) AS y
              FROM job_orders jo
              WHERE {$jobSales}
+               " . pf_reports_job_exclude_linked_custom_store_sale_sql('jo') . "
                AND YEAR({$jobDate}) <= YEAR(CURDATE())$bj",
             $btj ?: null,
             $bpj ?: null
@@ -1209,27 +1216,75 @@ function pf_reports_heatmap_available_years($branchId): array {
 }
 
 /**
- * Raw monthly qty sums for heatmap year (paid product lines + all job_orders, same as top-services job side).
- * Excludes months after the current month when viewing the current calendar year (DB CURDATE()).
+ * Normalize legacy service labels to one reporting identity.
+ * The stored job/order values remain unchanged; this is display/reporting only.
  *
- * @return array<string, array<int,int>> service label => month 1..12 => qty
+ * @return array{key:string,label:string}
+ */
+function pf_reports_heatmap_canonical_service(string $raw): array {
+    $label = trim($raw);
+    if ($label === '') {
+        $label = 'Customization';
+    }
+
+    $normalized = strtolower((string)preg_replace('/[^a-z0-9]+/', '', $label));
+    $aliases = [
+        'tarpaulin' => ['tarpaulin_printing', 'Tarpaulin Printing'],
+        'tarpaulinprinting' => ['tarpaulin_printing', 'Tarpaulin Printing'],
+        'stickersdecals' => ['decals_stickers_print_cut', 'Decals/Stickers (Print/Cut)'],
+        'decalstickersprintcut' => ['decals_stickers_print_cut', 'Decals/Stickers (Print/Cut)'],
+        'decalsstickersprintcut' => ['decals_stickers_print_cut', 'Decals/Stickers (Print/Cut)'],
+        'mugs' => ['souvenirs', 'Souvenirs'],
+        'souvenirs' => ['souvenirs', 'Souvenirs'],
+        'sintraboardstandees' => ['stickers_on_sintraboard', 'Stickers on Sintraboard'],
+        'stickersonsintraboard' => ['stickers_on_sintraboard', 'Stickers on Sintraboard'],
+    ];
+    if (isset($aliases[$normalized])) {
+        return ['key' => $aliases[$normalized][0], 'label' => $aliases[$normalized][1]];
+    }
+
+    $key = $normalized !== '' ? $normalized : 'customization';
+    return ['key' => $key, 'label' => $label];
+}
+
+/** Add a service result while preserving the canonical service identity. */
+function pf_reports_heatmap_add_service_row(array &$rows, string $raw, int $month, int $qty): void {
+    if ($month < 1 || $month > 12 || $qty === 0) {
+        return;
+    }
+    $service = pf_reports_heatmap_canonical_service($raw);
+    $key = pf_reports_heatmap_row_key('service', $service['key'], $service['label']);
+    if (!isset($rows[$key])) {
+        $rows[$key] = array_fill(1, 12, 0);
+    }
+    $rows[$key][$month] += $qty;
+}
+
+/**
+ * Raw monthly quantity sums for a heatmap year.
+ * Products and services use separate internal keys, and service rows are
+ * sourced from canonical custom store sales plus orphan jobs only.
+ *
+ * @return array<string, array<int,int>> internal row key => month 1..12 => qty
  */
 function pf_reports_heatmap_sums_for_year(int $heatmap_year, $branchId): array {
     $heatmap_products = [];
     $storeSales = pf_reports_store_order_sales_expr('o');
+    $storeProductSales = $storeSales . ' AND NOT ' . pf_reports_store_custom_service_exists_sql('o');
     $jobSales = pf_reports_job_order_sales_expr('jo');
+    $jobLinkedStoreSaleExclusion = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
     $jobDate = pf_reports_job_order_sales_date_expr('jo');
     try {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
         $hmTypes = 'i' . $bt;
         $hmParams = array_merge([$heatmap_year], $bp);
         $hmRaw = db_query(
-            "SELECT p.name AS product, MONTH(o.order_date) AS mo, SUM(oi.quantity) AS qty
+            "SELECT p.product_id, p.name AS product, MONTH(o.order_date) AS mo, SUM(oi.quantity) AS qty
              FROM order_items oi
              JOIN products p ON oi.product_id = p.product_id
              JOIN orders o ON oi.order_id = o.order_id
              WHERE YEAR(o.order_date) = ?
-               AND {$storeSales}
+               AND {$storeProductSales}
                AND (
                  YEAR(o.order_date) < YEAR(CURDATE())
                  OR MONTH(o.order_date) <= MONTH(CURDATE())
@@ -1240,17 +1295,77 @@ function pf_reports_heatmap_sums_for_year(int $heatmap_year, $branchId): array {
             $hmParams
         ) ?: [];
         foreach ($hmRaw as $r) {
+            $productId = (int) ($r['product_id'] ?? 0);
             $p = (string) $r['product'];
-            if (!isset($heatmap_products[$p])) {
-                $heatmap_products[$p] = array_fill(1, 12, 0);
+            $key = pf_reports_heatmap_row_key('product', (string) $productId, $p);
+            if (!isset($heatmap_products[$key])) {
+                $heatmap_products[$key] = array_fill(1, 12, 0);
             }
-            $heatmap_products[$p][(int) $r['mo']] += (int) $r['qty'];
+            $heatmap_products[$key][(int) $r['mo']] += (int) $r['qty'];
         }
     } catch (Throwable $e) {
     }
 
     try {
-        [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
+        // Qualifying custom store orders are canonical. Their linked jobs provide
+        // service identity and quantity, but are never counted a second time.
+        [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
+        $storeCustom = pf_reports_store_custom_order_scope_sql('o');
+        $storePayloadServiceExpr = "(
+            SELECT COALESCE(
+                NULLIF(TRIM(CASE WHEN JSON_VALID(oi_service.customization_data)
+                    THEN JSON_UNQUOTE(JSON_EXTRACT(oi_service.customization_data, '$.service_type')) END), ''),
+                NULLIF(TRIM(CASE WHEN JSON_VALID(oi_service.customization_data)
+                    THEN JSON_UNQUOTE(JSON_EXTRACT(oi_service.customization_data, '$.service_name')) END), '')
+            )
+            FROM order_items oi_service
+            WHERE oi_service.order_id = o.order_id
+            ORDER BY oi_service.order_item_id ASC
+            LIMIT 1
+        )";
+        $storeServiceExpr = "COALESCE(NULLIF(TRIM(jo_store.service_type), ''), NULLIF(TRIM({$storePayloadServiceExpr}), ''), 'Customization')";
+        $storeTypes = 'i' . $bto;
+        $storeParams = array_merge([$heatmap_year], $bpo);
+        $storeServiceRaw = db_query(
+            "SELECT {$storeServiceExpr} AS product,
+                    MONTH(o.order_date) AS mo,
+                    SUM(COALESCE(jo_store.quantity, 1)) AS qty
+             FROM orders o
+             LEFT JOIN job_orders jo_store ON jo_store.order_id = o.order_id
+             WHERE {$storeSales}
+               AND {$storeCustom}
+               AND YEAR(o.order_date) = ?
+               AND (
+                 YEAR(o.order_date) < YEAR(CURDATE())
+                 OR MONTH(o.order_date) <= MONTH(CURDATE())
+               )$bo
+             GROUP BY {$storeServiceExpr}, MONTH(o.order_date)
+             ORDER BY product, mo",
+            $storeTypes,
+            $storeParams
+        ) ?: [];
+        foreach ($storeServiceRaw as $r) {
+            // Missing job quantity is intentionally one estimated service unit.
+            pf_reports_heatmap_add_service_row(
+                $heatmap_products,
+                (string)($r['product'] ?? 'Customization'),
+                (int)($r['mo'] ?? 0),
+                (int)($r['qty'] ?? 0)
+            );
+        }
+
+        // Only orphan jobs remain here: linked jobs whose store order is not an
+        // official sale. This is the same ownership rule used by revenue reports.
+        $jobBranchExpr = "COALESCE(jo.branch_id, (SELECT o_branch.branch_id FROM orders o_branch WHERE o_branch.order_id = jo.order_id LIMIT 1))";
+        if (printflow_branch_value_is_all($branchId)) {
+            $bj = " AND ({$jobBranchExpr} IS NULL OR {$jobBranchExpr} IN (SELECT id FROM branches WHERE status != 'Archived')) ";
+            $btj = '';
+            $bpj = [];
+        } else {
+            $bj = " AND {$jobBranchExpr} = ? ";
+            $btj = 'i';
+            $bpj = [(int)$branchId];
+        }
         $jTypes = 'i' . $btj;
         $jParams = array_merge([$heatmap_year], $bpj);
         $jobRaw = db_query(
@@ -1259,27 +1374,46 @@ function pf_reports_heatmap_sums_for_year(int $heatmap_year, $branchId): array {
                     SUM(COALESCE(jo.quantity, 1)) AS qty
              FROM job_orders jo
              WHERE {$jobSales}
+               {$jobLinkedStoreSaleExclusion}
                AND YEAR({$jobDate}) = ?
                AND (
                  YEAR({$jobDate}) < YEAR(CURDATE())
                  OR MONTH({$jobDate}) <= MONTH(CURDATE())
-               )$bj
+               ){$bj}
              GROUP BY COALESCE(NULLIF(TRIM(jo.service_type), ''), 'Customization'), MONTH({$jobDate})
              ORDER BY product, mo",
             $jTypes,
             $jParams
         ) ?: [];
         foreach ($jobRaw as $r) {
-            $p = (string) $r['product'];
-            if (!isset($heatmap_products[$p])) {
-                $heatmap_products[$p] = array_fill(1, 12, 0);
-            }
-            $heatmap_products[$p][(int) $r['mo']] += (int) $r['qty'];
+            // Missing job quantity remains the existing estimated one-job fallback.
+            pf_reports_heatmap_add_service_row(
+                $heatmap_products,
+                (string)($r['product'] ?? 'Customization'),
+                (int)($r['mo'] ?? 0),
+                (int)($r['qty'] ?? 0)
+            );
         }
     } catch (Throwable $e) {
     }
 
     return $heatmap_products;
+}
+
+/** Build a stable heatmap identity that cannot collide across source types. */
+function pf_reports_heatmap_row_key(string $source, string $identity, string $label): string {
+    return $source . ':' . rawurlencode($identity) . ':' . base64_encode($label);
+}
+
+/** @return array{source:string,label:string} */
+function pf_reports_heatmap_row_meta(string $key): array {
+    $parts = explode(':', $key, 3);
+    $source = ($parts[0] ?? '') === 'product' ? 'Product' : 'Service';
+    $label = isset($parts[2]) ? base64_decode($parts[2], true) : $key;
+    return [
+        'source' => $source,
+        'label' => $label !== false && $label !== '' ? $label : $key,
+    ];
 }
 
 /**
@@ -1313,12 +1447,24 @@ function pf_reports_heatmap_build_cells(array $sumsByProduct, int $heatmap_year)
 }
 
 /**
- * Top 8 services by total units in year (same sums as heatmap; months excluded by SQL for current year).
+ * Top 8 product/customization rows by total units in year.
  *
  * @return array<string, array<int, array{qty:int, kind:string}>>
  */
-function pf_reports_heatmap_matrix(int $heatmap_year, $branchId): array {
+function pf_reports_heatmap_matrix(int $heatmap_year, $branchId, string $heatmapType = 'all'): array {
     $sums = pf_reports_heatmap_sums_for_year($heatmap_year, $branchId);
+    if ($sums === []) {
+        return [];
+    }
+    $heatmapType = in_array($heatmapType, ['all', 'product', 'service'], true) ? $heatmapType : 'all';
+    if ($heatmapType !== 'all') {
+        foreach (array_keys($sums) as $key) {
+            $source = (($parts = explode(':', (string) $key, 2))[0] ?? '') === 'product' ? 'product' : 'service';
+            if ($source !== $heatmapType) {
+                unset($sums[$key]);
+            }
+        }
+    }
     if ($sums === []) {
         return [];
     }
@@ -1495,14 +1641,58 @@ function pf_reports_customer_city_sql_expr(string $alias = 'c'): string {
 }
 
 /**
- * Normalize locality labels for BI maps (merge distant places into nearest branch catchment).
+ * Group stored customer cities into broad reporting areas without changing the
+ * underlying customer address or city values.
  *
  * @param string $rawCol SQL column reference (e.g. z.city_raw)
  */
-function pf_reports_customer_location_city_map_sql(string $rawCol): string {
+function pf_reports_customer_location_city_map_sql(string $rawCol, string $branchName = ''): string {
+    // Compare branch names without depending on legacy UTF-8/mixed-encoding text.
+    $normalizedBranch = strtolower((string)$branchName);
+    $normalizedBranch = str_replace([
+        chr(0xC3) . chr(0xB1),
+        chr(0xC3) . chr(0x83) . chr(0xC2) . chr(0xB1),
+    ], 'n', $normalizedBranch);
+    $normalizedBranch = preg_replace('/[^a-z0-9]+/i', '', $normalizedBranch) ?: '';
+    $city = "LOWER(TRIM(REPLACE(REPLACE({$rawCol}, CONVERT(0xC383C2B1 USING utf8mb4), 'n'), CONVERT(0xC3B1 USING utf8mb4), 'n')))";
+
+    if ($normalizedBranch === 'cabuyaobranch') {
+        return "CASE WHEN {$city} IN (
+                    'cabuyao', 'city of cabuyao', 'calamba', 'calauan', 'binan',
+                    'san pedro', 'santa rosa', 'sta. rosa', 'sta rosa', 'los banos',
+                    'bay', 'pila', 'santa cruz', 'liliw', 'nagcarlan', 'majayjay',
+                    'magdalena', 'paete', 'pakil', 'pangil', 'mabitac', 'siniloan',
+                    'famy', 'cavinti', 'victoria', 'rizal', 'lumban'
+                ) THEN 'Laguna Area' ELSE 'Other Areas' END";
+    }
+
+    if ($normalizedBranch === 'laspinasbranch') {
+        return "CASE WHEN {$city} IN (
+                    'las pinas', 'paranaque', 'muntinlupa'
+                ) THEN CONCAT('Las Pi', CONVERT(0xC3B1 USING utf8mb4), 'as Area') ELSE 'Other Areas' END";
+    }
+
     return "CASE
-                WHEN LOWER(TRIM({$rawCol})) IN ('city of cabuyao', 'cabuyao', 'calauan') THEN 'Cabuyao'
-                ELSE TRIM({$rawCol})
+                WHEN {$city} IN (
+                    'cabuyao', 'city of cabuyao', 'calamba', 'calauan', 'binan', 'biñan',
+                    'san pedro', 'santa rosa', 'sta. rosa', 'sta rosa', 'los banos',
+                    'los baños', 'bay', 'pila', 'santa cruz', 'liliw', 'nagcarlan',
+                    'majayjay', 'magdalena', 'paete', 'pakil', 'pangil', 'mabitac',
+                    'siniloan', 'famy', 'cavinti', 'victoria', 'rizal', 'lumban'
+                ) THEN 'Laguna Area'
+                WHEN {$city} IN (
+                    'bacoor', 'imus', 'dasmarinas', 'dasma', 'general trias', 'silang',
+                    'tagaytay', 'trece martires', 'cavite city', 'kawit', 'rosario',
+                    'naic', 'maragondon', 'ternate', 'amadeo', 'alfonso',
+                    'general mariano alvarez', 'gma'
+                ) THEN 'Cavite Area'
+                WHEN {$city} IN (
+                    'las pinas', 'las piñas', 'paranaque', 'parañaque', 'muntinlupa',
+                    'manila', 'quezon city', 'makati', 'pasay', 'pasig', 'taguig',
+                    'caloocan', 'malabon', 'navotas', 'valenzuela', 'marikina',
+                    'mandaluyong', 'san juan', 'pateros', 'ermita', 'malate'
+                ) THEN 'Metro Manila Area'
+                ELSE 'Other Areas'
             END";
 }
 
@@ -1517,7 +1707,8 @@ function pf_reports_customer_locations_merged(
     string $toEnd,
     $branchId,
     int $limit = 12,
-    bool $includeRevenue = false
+    bool $includeRevenue = false,
+    string $branchName = ''
 ): array {
     $limit = max(1, min(100, $limit));
     $cityExpr = pf_reports_customer_city_sql_expr('c');
@@ -1555,7 +1746,7 @@ function pf_reports_customer_locations_merged(
         ? 'COUNT(*) AS orders, COALESCE(SUM(x.line_rev), 0) AS revenue'
         : 'COUNT(*) AS orders';
 
-    $cityMap = pf_reports_customer_location_city_map_sql('z.city_raw');
+    $cityMap = pf_reports_customer_location_city_map_sql('z.city_raw', $branchName);
 
     $sql = "
 SELECT TRIM(x.mapped_city) AS city, {$outerAgg}
@@ -2339,7 +2530,10 @@ function pf_reports_render_heatmap_html(array $cellsByService, int $displayYear)
     }
 
     foreach ($cellsByService as $prod => $mo) {
-        $prodE = htmlspecialchars((string) $prod, ENT_QUOTES, 'UTF-8');
+        $meta = pf_reports_heatmap_row_meta((string) $prod);
+        $displayName = $meta['label'];
+        $prod = $displayName;
+        $prodE = htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8');
         $h .= '<div class="pf-hm-label-col"><span class="pf-hm-label-text" title="' . $prodE . '">' . $prodE . '</span></div>';
         $h .= '<div class="pf-hm-tiles" role="row">';
         for ($m = 1; $m <= 12; $m++) {
