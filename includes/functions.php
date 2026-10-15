@@ -1244,6 +1244,9 @@ function log_activity($user_id, $action, $details = '') {
         'Legacy historical generator markers repaired',
         'Historical generated data hidden',
         'Historical transaction batch generated',
+        'Historical generated data removed',
+        'Historical generated statuses repaired',
+        'customer_archive_restore_all',
     ], true)) {
         return true;
     }
