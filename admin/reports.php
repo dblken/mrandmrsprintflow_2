@@ -1418,9 +1418,10 @@ a.export-dd-link:hover { background: #f9fafb; }
 .heatmap-card-hd { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; width:100%; }
 .heatmap-card-hd h3 { flex:1 1 auto; min-width:0; margin:0; }
 .heatmap-header-tools { display:flex; align-items:center; gap:10px; flex-shrink:0; margin-left:auto; }
+.heatmap-header-tools > div { min-width:0; }
 .heatmap-year-chip { display:inline-block; margin-left:6px; padding:2px 10px; border-radius:8px; background:#E5EEF2; color:#0F4C5C; font-size:13px; font-weight:800; vertical-align:middle; }
 .heatmap-year-label { font-size:12px; font-weight:600; color:#6b7280; white-space:nowrap; }
-.heatmap-year-select { min-width:7rem; width:7rem; padding-right:34px; text-align:left; }
+.heatmap-year-select { min-width:7rem; width:7rem; height:38px !important; box-sizing:border-box; padding:0 34px 0 12px; line-height:1.2; text-align:left; white-space:nowrap; }
 .heatmap-type-select { min-width:10rem; width:10rem; }
 .pf-heatmap-legend { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:14px 20px; margin:0 0 14px; padding:0; font-size:11px; font-weight:600; color:#475569; }
 .pf-heatmap-legend .pf-hm-legend-item { display:inline-flex; align-items:center; gap:8px; cursor:pointer; user-select:none; transition:all 0.2s ease; padding:4px 8px; border-radius:6px; }
@@ -1532,6 +1533,10 @@ a.export-dd-link:hover { background: #f9fafb; }
 .pf-hm-cell--nodata .pf-hm-val { display:none; }
 .pf-heatmap-note { font-size:11px; color:#64748b; margin:-4px 0 12px; line-height:1.45; max-width:52rem; }
 @media (max-width:520px) {
+    .heatmap-card-hd { align-items:stretch; }
+    .heatmap-header-tools { width:100%; margin-left:0; }
+    .heatmap-header-tools > div { width:100%; justify-content:flex-start; }
+    .heatmap-type-select { flex:1 1 10rem; }
     .pf-hm-label-col { max-width:min(160px,38vw); }
 }
 .pf-heatmap-chbox { min-height:200px; }
