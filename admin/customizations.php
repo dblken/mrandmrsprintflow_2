@@ -1021,6 +1021,7 @@ function custom_payment_badge($status) {
                         const key = String(label || '').trim();
                         const text = String(value ?? '').trim();
                         if (!key || !text) return;
+                        if (/^specifications?$/i.test(key) && /^Historical walk-in service transaction from existing service catalog\.$/i.test(text)) return;
                         const bucket = this.adminCanonicalSpecBucket(key);
                         if (bucket === 'material' || bucket === 'dimensions_part') {
                             return;
