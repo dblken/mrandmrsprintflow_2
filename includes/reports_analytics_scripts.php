@@ -369,17 +369,13 @@ window.printflowSyncReportsBranchContext = function (branchId, branchName) {
 };
 
 window.fetchUpdatedDashboard = async function(overrides = {}) {
-    if (isDashboardFetching) return;
-    
     const container = document.getElementById('pf-reports-dashboard-container');
     const summary   = document.getElementById('pf-reports-toolbar-summary');
     const form      = document.getElementById('reportsFilterForm');
     if (!container || !form) return;
 
-    isDashboardFetching = true;
-    // Show loading state
-    container.style.opacity = '0.5';
-    container.style.pointerEvents = 'none';
+    let requestKey = '';
+    let ownsRequest = false;
 
     try {
         const formData = new FormData(form);
@@ -388,6 +384,7 @@ window.fetchUpdatedDashboard = async function(overrides = {}) {
         // Prefer explicit branch_id from URL (e.g. after "All Branches" navigation)
         try {
             const urlBranch = new URLSearchParams(window.location.search).get('branch_id');
+            if (new URLSearchParams(window.location.search).get('reports_perf') === '1') params.set('reports_perf', '1');
             if (urlBranch) {
                 params.set('branch_id', urlBranch);
                 if (form.elements['branch_id']) {
@@ -411,15 +408,30 @@ window.fetchUpdatedDashboard = async function(overrides = {}) {
             }
         }
         
-        // Add cache buster
-        params.set('_', Date.now());
+        requestKey = params.toString();
+        if (isDashboardFetching) {
+            if (window.__pfReportsActiveKey !== requestKey) window.__pfReportsQueued = overrides;
+            return;
+        }
+        ownsRequest = true;
+        isDashboardFetching = true;
+        window.__pfReportsActiveKey = requestKey;
+        window.__pfReportsQueued = null;
+        container.classList.add('pf-reports-loading');
+        container.setAttribute('aria-busy', 'true');
+        container.style.pointerEvents = 'none';
 
         const url = window.location.pathname + '?' + params.toString();
-        console.log('[PrintFlow] Fetching dashboard update:', url);
+
         
         const resp = await fetch(url, { credentials: 'same-origin' });
+        if (!resp.ok || resp.redirected) throw new Error('Unable to retrieve reports');
         const data = await resp.json();
-        console.log('[PrintFlow] Dashboard data received:', data);
+        if (['from', 'to', 'branch_id'].some(k => form.elements[k] && String(form.elements[k].value) !== String(params.get(k) || ''))) {
+            window.__pfReportsQueued = {};
+        }
+        if (!container.isConnected || window.__pfReportsQueued !== null) return;
+        if (!data || !data.success || typeof data.html !== 'string') throw new Error('Invalid report response');
 
         if (data.success) {
             // Teardown old charts
@@ -480,9 +492,15 @@ window.fetchUpdatedDashboard = async function(overrides = {}) {
     } catch (e) {
         console.error('[PrintFlow] Dashboard update failed:', e);
     } finally {
-        container.style.opacity = '1';
-        container.style.pointerEvents = 'auto';
-        isDashboardFetching = false;
+        if (ownsRequest) {
+            container.classList.remove('pf-reports-loading');
+            container.removeAttribute('aria-busy');
+            container.style.pointerEvents = 'auto';
+            isDashboardFetching = false;
+            const queued = window.__pfReportsQueued;
+            window.__pfReportsQueued = null;
+            if (queued !== null && queued !== undefined && container.isConnected) window.fetchUpdatedDashboard(queued);
+        }
     }
 };
 
@@ -2290,10 +2308,17 @@ window.printflowInitReportsCharts = function () {
             var text = msg && String(msg).trim() ? String(msg) : 'No data available for selected year';
             mount.innerHTML = '<div class="ch-empty pf-heatmap-empty" role="status"><svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>' + pfEscHtml(text) + '</div>';
         }
-        sel.addEventListener('change', function () {
-            var year = this.value;
-            if (!year) return;
+        var heatmapController = null;
+        var heatmapKey = '';
+        function loadHeatmap() {
+            var year = sel.value;
+            if (!year || !mount || !mount.isConnected) return;
             
+            if (heatmapKey === year) return;
+            if (heatmapController) heatmapController.abort();
+            heatmapController = new AbortController();
+            var requestController = heatmapController;
+            heatmapKey = year;
             if (yearChip) yearChip.textContent = year;
             showLoading(true);
             
@@ -2307,14 +2332,16 @@ window.printflowInitReportsCharts = function () {
             url += '&branch_id=' + encodeURIComponent(branchId);
             
             fetch(url, {
+                signal: requestController.signal,
                 credentials: 'same-origin',
                 headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
             })
                 .then(function (r) { 
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    if (!r.ok || r.redirected) throw new Error('HTTP ' + r.status);
                     return r.json(); 
                 })
                 .then(function (data) {
+                    if (requestController.signal.aborted || !mount.isConnected || heatmapController !== requestController) return;
                     if (!data || !data.ok) {
                         throw new Error(data && data.message ? data.message : 'Invalid response');
                     }
@@ -2327,6 +2354,7 @@ window.printflowInitReportsCharts = function () {
                         showLoading(false);
                         return;
                     }
+                    if (mount.dataset.pfReverse === '1') data.series.reverse();
                     window.pfReportsMountHeatmapFromApi(mount, data.series, {
                         serverYear: data.serverYear,
                         serverMonth: data.serverMonth,
@@ -2343,11 +2371,25 @@ window.printflowInitReportsCharts = function () {
                     }, 100);
                 })
                 .catch(function (err) {
+                    if (requestController.signal.aborted || !mount.isConnected || heatmapController !== requestController) return;
+                    heatmapKey = '';
                     console.error('Heatmap fetch error:', err);
                     showHeatmapEmpty(year, 'Failed to load heatmap data. Please try again.');
                     showLoading(false);
                 });
-        });
+        }
+        sel.addEventListener('change', loadHeatmap);
+        if (mount && mount.dataset.pfLazyHeatmap === '1' && !sel.disabled) {
+            if ('IntersectionObserver' in window) {
+                var heatmapObserver = new IntersectionObserver(function(entries) {
+                    if (entries.some(function(entry) { return entry.isIntersecting; })) {
+                        heatmapObserver.disconnect();
+                        loadHeatmap();
+                    }
+                }, {rootMargin: '100px'});
+                heatmapObserver.observe(mount);
+            } else loadHeatmap();
+        }
     })();
 
 // Intercept clicks on AJAX-enabled filters/sorts/pagination
