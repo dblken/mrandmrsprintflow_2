@@ -1631,13 +1631,21 @@ LIMIT {$limit}
  * @param string|null $prevToEnd
  * @return array
  */
-function pf_reports_branch_performance_merged(string $from, string $toEnd, $branchId = 'all', string $prevFrom = null, string $prevToEnd = null): array {
+function pf_reports_branch_performance_merged(string $from, string $toEnd, $branchId = 'all', string $prevFrom = null, string $prevToEnd = null, bool $dashboardAggregates = false): array {
     $map = [];
     $storeSales = pf_reports_store_order_sales_expr('o');
     $storeRevenue = pf_reports_store_order_revenue_expr('o');
-    $storeProductScope = pf_reports_store_product_order_scope_sql('o');
-    $storeCustomScope = pf_reports_store_custom_order_scope_sql('o');
-    $storeOrderScope = "({$storeProductScope} OR {$storeCustomScope})";
+    if ($dashboardAggregates) {
+        // Product and custom scopes are (archive AND NOT custom) and
+        // (archive AND custom). Their union is archive, already in storeSales.
+        // Avoid repeating correlated item/customization/job EXISTS probes in
+        // both COUNT and SUM, for both current and previous dashboard periods.
+        $storeOrderScope = '1=1';
+    } else {
+        $storeProductScope = pf_reports_store_product_order_scope_sql('o');
+        $storeCustomScope = pf_reports_store_custom_order_scope_sql('o');
+        $storeOrderScope = "({$storeProductScope} OR {$storeCustomScope})";
+    }
     $jobSales = pf_reports_job_order_sales_expr('jo');
     $jobRevenue = pf_reports_job_order_revenue_expr('jo');
     $jobDate = pf_reports_job_order_sales_date_expr('jo');
