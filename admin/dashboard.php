@@ -13,6 +13,7 @@ require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
 require_once __DIR__ . '/../includes/pos_customer_helpers.php';
+require_once __DIR__ . '/../includes/admin_dashboard_cache.php';
 require_role(['Admin', 'Manager']);
 
 // Managers must use their own panel — redirect them away from /admin/
@@ -108,6 +109,63 @@ $kpiDateToEnd     = $dashToEnd;
 // Build reusable branch SQL parts
 $bTypes = ''; $bParams = [];
 $bSql = branch_where('o', $branchId, $bTypes, $bParams);
+
+// Shared helpers used both while computing and while rendering (never cached).
+require_once __DIR__ . '/../includes/InventoryManager.php';
+require_once __DIR__ . '/../includes/inventory_stock_status.php';
+
+$statusColors = [
+    'Pending' => '#F39C12',
+    'Processing' => '#3498DB',
+    'Ready for Pickup' => '#53C5E0',
+    'Completed' => '#2ECC71',
+    'Cancelled' => '#E74C3C',
+    'Design Approved' => '#6C5CE7',
+];
+
+$dashboard_chart_value = static function (array $row): float {
+    $total = (float)($row['total'] ?? 0);
+    if ($total > 0) {
+        return round($total, 2);
+    }
+    return (float)(($row['items_sold'] ?? null) ?? ($row['qty_sold'] ?? 0));
+};
+
+// ── Short-lived summary cache (read-only derived data; see includes/admin_dashboard_cache.php) ──
+$dashCacheVars = [
+    'total_customers', 'total_revenue', 'total_orders', 'pending_orders',
+    'daily_sales', 'order_status', 'category_sales', 'cat_total_sum', 'service_category_sales',
+    'dashboard_branch_chart_payload', 'dashboard_branch_chart_json',
+    'recent_orders', 'low_stock', 'low_stock_by_branch', 'top_customers',
+    'dashboard_branch_perf', 'dashboard_branch_period_label', 'dashboard_branch_total_revenue',
+    'dashboard_branch_count', 'dashboard_sales_revenue_footnote', 'dashboard_top_branch',
+    'dashboard_low_branch', 'dashboard_avg_branch_revenue', 'dashboard_top_branches',
+    'dashboard_total_product_revenue', 'dashboard_total_service_revenue',
+    'dashboard_product_pct', 'dashboard_service_pct',
+    'dashboard_branch_revenue_js', 'dashboard_branch_revenue_json',
+    'dashboard_sales_bar', 'dashboard_sales_bar_is_category', 'dashboard_sales_bar_labels',
+    'dashboard_sales_bar_values', 'customer_locations',
+];
+$dashCacheKey = printflow_admin_dashboard_cache_key($branchId, $dashFromDate, $dashToDate, 'v1');
+$dashCacheHit = false;
+$dashCached = printflow_admin_dashboard_cache_get($dashCacheKey);
+if (is_array($dashCached)) {
+    $dashCacheHit = true;
+    foreach ($dashCacheVars as $dashCacheVar) {
+        if (!array_key_exists($dashCacheVar, $dashCached)) {
+            $dashCacheHit = false;
+            break;
+        }
+    }
+    if ($dashCacheHit) {
+        foreach ($dashCacheVars as $dashCacheVar) {
+            $$dashCacheVar = $dashCached[$dashCacheVar];
+        }
+    }
+}
+$dashDbErrorsBefore = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+
+if (!$dashCacheHit) {
 
 // ── KPI: Total Customers ──────────────────────────────
 try {
@@ -209,37 +267,11 @@ try {
     )[0]['cnt'] ?? 0);
 } catch (Exception $e) { $pending_orders = 0; }
 
-// ── Sales Revenue (filtered period, branch-filtered) ─────
-try {
-    [$bSqlFrag, $bT2, $bP2] = branch_where_parts('o', $branchId);
-    $bSqlFrag .= ' AND ' . printflow_order_archive_scope_sql('o');
-    $daily_sales = db_query(
-        "SELECT DATE(o.order_date) as day, SUM(o.total_amount) as revenue, COUNT(*) as orders
-         FROM orders o WHERE o.payment_status='Paid' AND o.order_date BETWEEN ? AND ?
-         {$bSqlFrag}
-         GROUP BY DATE(o.order_date) ORDER BY day",
-        'ss' . ($bT2 ?: ''), array_merge([$dashFromStart, $dashToEnd], $bP2 ?: [])
-    ) ?: [];
-} catch (Exception $e) { $daily_sales = []; }
-
-// ── Order Status Breakdown ────────────────────────────
-try {
-    [$bSqlFrag_os, $bT_os, $bP_os] = branch_where_parts('o', $branchId);
-    $bSqlFrag_os .= ' AND ' . printflow_order_archive_scope_sql('o');
-    $order_status = db_query(
-        "SELECT o.status, COUNT(*) as cnt FROM orders o WHERE o.order_date BETWEEN ? AND ? {$bSqlFrag_os} GROUP BY o.status",
-        'ss' . ($bT_os ?: ''), array_merge([$dashFromStart, $dashToEnd], $bP_os ?: [])
-    ) ?: [];
-} catch (Exception $e) { $order_status = []; }
-
-$statusColors = [
-    'Pending' => '#F39C12',
-    'Processing' => '#3498DB',
-    'Ready for Pickup' => '#53C5E0',
-    'Completed' => '#2ECC71',
-    'Cancelled' => '#E74C3C',
-    'Design Approved' => '#6C5CE7',
-];
+// Daily sales series and the server-side status breakdown are not rendered by
+// this page (the status doughnut loads from api_order_status_chart.php), so
+// their queries are skipped. Variables stay defined for template safety.
+$daily_sales = [];
+$order_status = [];
 
 // ── Sales by Product (official product list) ──────────
 try {
@@ -251,14 +283,6 @@ try {
 } catch (Exception $e) { $category_sales = []; }
 
 $cat_total_sum = array_sum(array_map(fn($c) => (float)$c['total'], $category_sales));
-
-$dashboard_chart_value = static function (array $row): float {
-    $total = (float)($row['total'] ?? 0);
-    if ($total > 0) {
-        return round($total, 2);
-    }
-    return (float)(($row['items_sold'] ?? null) ?? ($row['qty_sold'] ?? 0));
-};
 
 // ── Sales by Service Category (customization / job orders) ──
 try {
@@ -399,8 +423,6 @@ try {
 // ── Low Stock Alerts ──────────────────────────────────
 $low_stock_by_branch = [];
 try {
-    require_once __DIR__ . '/../includes/InventoryManager.php';
-    require_once __DIR__ . '/../includes/inventory_stock_status.php';
     printflow_ensure_inv_items_threshold_schema();
 
     $all_items = db_query(
@@ -410,11 +432,31 @@ try {
          LEFT JOIN inv_categories ic ON i.category_id = ic.id
          WHERE i.status = 'ACTIVE'"
     ) ?: [];
+    $allItemIds = array_map(static fn($row) => (int)($row['id'] ?? 0), $all_items);
+
+    // Grouped stock lookup (same rules as getStockOnHand); per-item lookup stays as fallback.
+    $dashStockFor = static function (int $itemId, int $stockBranchId, ?array $bulk): float {
+        if (is_array($bulk) && array_key_exists($itemId, $bulk)) {
+            return (float)$bulk[$itemId];
+        }
+        return (float)InventoryManager::getStockOnHand($itemId, $stockBranchId);
+    };
+    $dashBulkStock = static function (array $ids, int $stockBranchId): ?array {
+        if ($ids === [] || !method_exists('InventoryManager', 'getStockOnHandBulk')) {
+            return null;
+        }
+        try {
+            return InventoryManager::getStockOnHandBulk($ids, $stockBranchId);
+        } catch (Throwable $e) {
+            return null;
+        }
+    };
 
     $low_stock = [];
     $inventoryBranchId = ($branchId === 'all') ? 0 : (int)$branchId;
+    $inventoryBulk = $dashBulkStock($allItemIds, $inventoryBranchId);
     foreach ($all_items as $item) {
-        $soh = InventoryManager::getStockOnHand($item['id'], $inventoryBranchId);
+        $soh = $dashStockFor((int)$item['id'], $inventoryBranchId, $inventoryBulk);
         $reorderLevel = max(1, (float)($item['reorder_level'] ?? 0));
         $criticalLevel = max(1, (float)($item['critical_level'] ?? 0));
         $stockStatus = printflow_resolve_stock_status($soh, $reorderLevel, $criticalLevel);
@@ -445,8 +487,9 @@ try {
                 continue;
             }
             $stockBranchRows = [];
+            $stockBranchBulk = $dashBulkStock($allItemIds, $stockBranchId);
             foreach ($all_items as $item) {
-                $soh = InventoryManager::getStockOnHand($item['id'], $stockBranchId);
+                $soh = $dashStockFor((int)$item['id'], $stockBranchId, $stockBranchBulk);
                 $reorderLevel = max(1, (float)($item['reorder_level'] ?? 0));
                 $criticalLevel = max(1, (float)($item['critical_level'] ?? 0));
                 $stockStatus = printflow_resolve_stock_status($soh, $reorderLevel, $criticalLevel);
@@ -479,29 +522,8 @@ try {
     }
 } catch (Exception $e) { $low_stock = []; $low_stock_by_branch = []; }
 
-// ── Top Customers (by spending) ───────────────────────
-try {
-    [$bSqlFrag_c, $bT_c, $bP_c] = branch_where_parts('o', $branchId);
-    $bSqlFrag_c .= ' AND ' . printflow_order_archive_scope_sql('o');
-    [$bSqlFrag_j, $bT_j, $bP_j] = branch_where_parts('j', $branchId);
-    $bSqlFrag_j .= ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id');
-    $types = ($bT_c ?: '') . ($bT_j ?: '');
-    $params = array_merge($bP_c ?: [], $bP_j ?: []);
-    $top_customers = db_query(
-        "SELECT customer_name as name, COUNT(id) as orders, SUM(spent) as spent
-         FROM (
-             SELECT CONCAT(c.first_name, ' ', c.last_name) COLLATE utf8mb4_unicode_ci as customer_name, o.order_id as id, o.total_amount as spent
-             FROM customers c JOIN orders o ON c.customer_id = o.customer_id
-             WHERE o.payment_status = 'Paid' AND o.order_date BETWEEN ? AND ? {$bSqlFrag_c}
-             UNION ALL
-             SELECT j.customer_name COLLATE utf8mb4_unicode_ci, j.id, j.amount_paid as spent
-             FROM job_orders j
-             WHERE j.payment_status = 'PAID' AND j.customer_name IS NOT NULL AND j.customer_name != '' AND j.created_at BETWEEN ? AND ? {$bSqlFrag_j}
-         ) as all_orders
-         GROUP BY customer_name ORDER BY spent DESC LIMIT 5",
-        'ssss' . ($types ?: ''), array_merge([$dashFromStart, $dashToEnd], [$dashFromStart, $dashToEnd], $params ?: [])
-    ) ?: [];
-} catch (Exception $e) { $top_customers = []; }
+// Top Customers is not rendered on this page; its UNION query is skipped.
+$top_customers = [];
 
 
 $branchRevenueFrom = $dashFromDate;
@@ -580,6 +602,18 @@ try {
     $locTo = $dashToEnd;
     $customer_locations = pf_reports_customer_locations_merged($locFrom, $locTo, $branchId, 8, false);
 } catch (Exception $e) {}
+
+// Store the computed summary only when no database errors occurred during this build.
+$dashDbErrorsAfter = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+if ($dashDbErrorsAfter === $dashDbErrorsBefore) {
+    $dashCachePayload = [];
+    foreach ($dashCacheVars as $dashCacheVar) {
+        $dashCachePayload[$dashCacheVar] = $$dashCacheVar ?? null;
+    }
+    printflow_admin_dashboard_cache_set($dashCacheKey, $dashCachePayload);
+}
+
+} // end if (!$dashCacheHit)
 
 $page_title = 'Dashboard - Admin | PrintFlow';
 ?>
