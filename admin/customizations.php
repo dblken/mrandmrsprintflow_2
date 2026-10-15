@@ -950,6 +950,7 @@ function custom_payment_badge($status) {
                     const match = notes.match(/^(.*?)\s*Planned production:\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2});\s*planned completion:\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*$/i);
                     if (!match) return notes;
                     const prefix = match[1].trim();
+                    if (/^Historical transaction backfill$/i.test(prefix)) return '';
                     const schedule = 'Planned Production: ' + this.formatAdminNoteTimestamp(match[2]) + '\nPlanned Completion: ' + this.formatAdminNoteTimestamp(match[3]);
                     return prefix ? prefix + '\n\n' + schedule : schedule;
                 },

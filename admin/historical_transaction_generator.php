@@ -251,7 +251,8 @@ function htg_insert(array $r, string $token, string $reason): int {
     global $conn;
     $guest = printflow_pos_resolve_checkout_customer_context(['customer_id'=>'guest','guest_display_name'=>'Historical Walk-in','customer_email'=>'']);
     $total = round((float)$r['unit_price'] * (int)$r['quantity'], 2);
-    $note = '[Historical generator] Entered by user #' . (int)get_user_id() . ' at ' . date('Y-m-d H:i:s') . '. Business date: ' . $r['business_at'] . ($reason !== '' ? '. Reason: ' . $reason : '');
+    // Historical generated transactions do not add synthetic customer/order notes.
+    $note = '';
     $cols=['customer_id','pos_guest_display_name','pos_guest_email','branch_id','reference_id','total_amount','status','payment_status','payment_method','payment_reference','order_date','notes'];
     $vals=[(int)$guest['customer_id'],'Historical Walk-in','',(int)$r['branch_id'],'HGEN-'.$token,$total,$r['type']==='custom'?'Pending':'Completed','Paid','Cash','HGEN-'.$token,$r['business_at'],$note]; $types='issisdssssss';
     foreach ([['amount_paid','d',$total],['order_type','s',$r['type']],['order_source','s','historical_generator']] as $o) if (db_table_has_column('orders',$o[0])) { $cols[]=$o[0];$vals[]=$o[2];$types.=$o[1]; }
@@ -262,7 +263,7 @@ function htg_insert(array $r, string $token, string $reason): int {
     $item=(int)$conn->insert_id;
     if ($r['type']==='ready') { printflow_apply_product_order_item_inventory($item,(int)$r['branch_id'],(int)get_user_id(),'Historical generated sale',$r['business_at']); return $oid; }
     if (!db_execute('INSERT INTO customizations (order_id,order_item_id,customer_id,service_type,customization_details,status,created_at,updated_at) VALUES (?,?,?,?,?,?,NOW(),NOW())','iiisss',[$oid,$item,(int)$guest['customer_id'],$r['service_name'],$json,'In Production'])) throw new RuntimeException('Generated customization creation failed.');
-    $jobNotes = ($reason !== '' ? $reason . ' ' : '') . 'Planned production: ' . $r['production_at'] . '; planned completion: ' . $r['completion_at'];
+    $jobNotes = '';
     $job=JobOrderService::createOrder(['order_id'=>$oid,'order_item_id'=>$item,'customer_id'=>(int)$guest['customer_id'],'branch_id'=>(int)$r['branch_id'],'job_title'=>$r['service_name'],'service_type'=>$r['service_type'],'quantity'=>(int)$r['quantity'],'estimated_total'=>$total,'notes'=>$jobNotes,'priority'=>'NORMAL','created_by'=>(int)get_user_id()],[]);
     if ((int)$job<=0) throw new RuntimeException('Generated production job creation failed.');
     $materialPlan = htg_material_plan((string)$r['service_type'], (int)$r['quantity'], (int)($r['service_id'] ?? 0), (string)($r['service_name'] ?? ''));
