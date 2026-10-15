@@ -57,12 +57,87 @@ if (!function_exists('printflow_bulk_pos_is_pending_bucket')) {
     }
 }
 
-if (!function_exists('printflow_bulk_pos_pending_sql_fragment')) {
-    function printflow_bulk_pos_pending_sql_fragment(): string
+if (!function_exists('printflow_bulk_complete_inclusive_calendar_range')) {
+    /**
+     * Match staff list filtering: whole calendar days in the app timezone (Asia/Manila).
+     *
+     * @return array{0: DateTimeImmutable, 1: DateTimeImmutable}|null
+     */
+    function printflow_bulk_complete_inclusive_calendar_range(
+        DateTimeImmutable $start,
+        DateTimeImmutable $end
+    ): ?array {
+        $tz = new DateTimeZone(date_default_timezone_get() ?: 'Asia/Manila');
+        $startDay = $start->setTimezone($tz)->setTime(0, 0, 0);
+        $endDay = $end->setTimezone($tz)->setTime(23, 59, 59);
+        if ($endDay < $startDay) {
+            return null;
+        }
+
+        return [$startDay, $endDay];
+    }
+}
+
+if (!function_exists('printflow_bulk_pos_business_datetime_sql')) {
+    /** Same business datetime as staff customizations list (order_date, then job, then created_at). */
+    function printflow_bulk_pos_business_datetime_sql(string $orderAlias = 'o'): string
+    {
+        return "COALESCE(
+            NULLIF(TRIM({$orderAlias}.order_date), ''),
+            (SELECT MIN(jo.created_at) FROM job_orders jo WHERE jo.order_id = {$orderAlias}.order_id),
+            {$orderAlias}.created_at
+        )";
+    }
+}
+
+if (!function_exists('printflow_bulk_pos_walk_in_source_sql')) {
+    /** POS walk-in scope aligned with admin/job_orders_api.php list_orders (source=pos). */
+    function printflow_bulk_pos_walk_in_source_sql(string $orderAlias = 'o', string $customerAlias = 'c'): string
     {
         return "(
-            LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
-            OR LOWER(TRIM(COALESCE(c.email, ''))) = 'walkin@pos.local'
+            LOWER(TRIM(COALESCE({$orderAlias}.order_source, ''))) IN ('pos', 'walk-in')
+            OR LOWER(TRIM(COALESCE({$customerAlias}.email, ''))) = 'walkin@pos.local'
+            OR EXISTS (
+                SELECT 1
+                FROM customizations cust_pos
+                WHERE cust_pos.order_id = {$orderAlias}.order_id
+                  AND (
+                      cust_pos.customization_details LIKE '%\"source\":\"POS\"%'
+                      OR cust_pos.customization_details LIKE '%\"source\": \"POS\"%'
+                      OR cust_pos.customization_details LIKE '%\"_seed_batch_id\"%'
+                  )
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM order_items oi_pos
+                WHERE oi_pos.order_id = {$orderAlias}.order_id
+                  AND (
+                      oi_pos.customization_data LIKE '%\"source\":\"POS\"%'
+                      OR oi_pos.customization_data LIKE '%\"source\": \"POS\"%'
+                      OR oi_pos.customization_data LIKE '%\"_seed_batch_id\"%'
+                  )
+            )
+        )";
+    }
+}
+
+if (!function_exists('printflow_bulk_pos_exclude_unfinalized_draft_sql')) {
+    function printflow_bulk_pos_exclude_unfinalized_draft_sql(string $orderAlias = 'o'): string
+    {
+        return " AND NOT (
+            LOWER(TRIM(COALESCE({$orderAlias}.payment_status, ''))) = 'unpaid'
+            AND LOWER(TRIM(COALESCE({$orderAlias}.status, ''))) = 'draft'
+            AND (
+                LOWER(TRIM(COALESCE({$orderAlias}.order_source, ''))) IN ('pos_draft', '')
+                OR EXISTS (
+                    SELECT 1 FROM customizations cust_draft
+                    WHERE cust_draft.order_id = {$orderAlias}.order_id
+                      AND (
+                          cust_draft.customization_details LIKE '%\"source\":\"POS\"%'
+                          OR cust_draft.customization_details LIKE '%\"source\": \"POS\"%'
+                      )
+                )
+            )
         )";
     }
 }
@@ -77,10 +152,20 @@ if (!function_exists('printflow_bulk_pos_pending_orders_in_range')) {
         ?int $branchId,
         int $previewLimit = 500
     ): array {
+        $normalized = printflow_bulk_complete_inclusive_calendar_range(
+            $start instanceof DateTimeImmutable ? $start : DateTimeImmutable::createFromInterface($start),
+            $end instanceof DateTimeImmutable ? $end : DateTimeImmutable::createFromInterface($end)
+        );
+        if ($normalized === null) {
+            return ['orders' => [], 'total' => 0, 'all_order_ids' => []];
+        }
+        [$start, $end] = $normalized;
         $startSql = $start->format('Y-m-d H:i:s');
         $endSql = $end->format('Y-m-d H:i:s');
-        $posFragment = printflow_bulk_pos_pending_sql_fragment();
+        $posFragment = printflow_bulk_pos_walk_in_source_sql('o', 'c');
+        $businessDateSql = printflow_bulk_pos_business_datetime_sql('o');
         $archiveSql = printflow_order_archive_scope_sql('o');
+        $draftExcludeSql = printflow_bulk_pos_exclude_unfinalized_draft_sql('o');
 
         $sql = "SELECT
                     o.order_id,
@@ -89,16 +174,18 @@ if (!function_exists('printflow_bulk_pos_pending_orders_in_range')) {
                     o.total_amount,
                     o.order_date,
                     o.created_at,
-                    COALESCE(o.order_date, o.created_at) AS order_sort_at
+                    {$businessDateSql} AS order_sort_at
                 FROM orders o
                 LEFT JOIN customers c ON c.customer_id = o.customer_id
                 WHERE {$archiveSql}
                   AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
-                  AND (o.order_type IS NULL OR o.order_type IN ('product', 'custom'))
+                  AND LOWER(TRIM(COALESCE(o.order_type, ''))) IN ('', 'custom')
+                  AND LOWER(TRIM(COALESCE(o.status, ''))) NOT IN ('draft', 'cancelled')
                   AND {$posFragment}
+                  {$draftExcludeSql}
                   AND o.status NOT IN ('Completed', 'Cancelled', 'Rejected')
-                  AND COALESCE(o.order_date, o.created_at) >= ?
-                  AND COALESCE(o.order_date, o.created_at) <= ?";
+                  AND {$businessDateSql} >= ?
+                  AND {$businessDateSql} <= ?";
         $types = 'ss';
         $params = [$startSql, $endSql];
         if ($branchId !== null && $branchId > 0) {

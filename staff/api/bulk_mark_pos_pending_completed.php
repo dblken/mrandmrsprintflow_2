@@ -57,13 +57,19 @@ if ($end < $start) {
     printflow_json_response(['success' => false, 'error' => 'End date/time must be on or after the start.'], 422);
 }
 
+$inclusiveRange = printflow_bulk_complete_inclusive_calendar_range($start, $end);
+if ($inclusiveRange === null) {
+    printflow_json_response(['success' => false, 'error' => 'End date/time must be on or after the start.'], 422);
+}
+[$rangeStart, $rangeEnd] = $inclusiveRange;
+
 $branchId = function_exists('printflow_branch_filter_for_user') ? printflow_branch_filter_for_user() : null;
 $branchId = $branchId !== null ? (int)$branchId : null;
 if ($branchId !== null && $branchId <= 0) {
     $branchId = null;
 }
 
-$range = printflow_bulk_pos_pending_orders_in_range($start, $end, $branchId, 500);
+$range = printflow_bulk_pos_pending_orders_in_range($rangeStart, $rangeEnd, $branchId, 500);
 $previewOrders = $range['orders'];
 $total = (int)($range['total'] ?? 0);
 $allOrderIds = $range['all_order_ids'] ?? array_column($previewOrders, 'order_id');
@@ -72,8 +78,10 @@ if ($action === 'preview') {
     printflow_json_response([
         'success' => true,
         'action' => 'preview',
-        'start_datetime' => $start->format('Y-m-d H:i:s'),
-        'end_datetime' => $end->format('Y-m-d H:i:s'),
+        'start_datetime' => $rangeStart->format('Y-m-d H:i:s'),
+        'end_datetime' => $rangeEnd->format('Y-m-d H:i:s'),
+        'selected_start_datetime' => $start->format('Y-m-d H:i:s'),
+        'selected_end_datetime' => $end->format('Y-m-d H:i:s'),
         'total' => $total,
         'preview_limit' => 500,
         'truncated' => $total > count($previewOrders),
@@ -96,8 +104,8 @@ if ($total === 0) {
     $emptyResult = [
         'success' => true,
         'action' => 'execute',
-        'start_datetime' => $start->format('Y-m-d H:i:s'),
-        'end_datetime' => $end->format('Y-m-d H:i:s'),
+        'start_datetime' => $rangeStart->format('Y-m-d H:i:s'),
+        'end_datetime' => $rangeEnd->format('Y-m-d H:i:s'),
         'total_matched' => 0,
         'completed_count' => 0,
         'skipped_count' => 0,
@@ -123,8 +131,8 @@ $executeResult = printflow_bulk_execute_pos_pending_complete($allOrderIds);
 $response = [
     'success' => true,
     'action' => 'execute',
-    'start_datetime' => $start->format('Y-m-d H:i:s'),
-    'end_datetime' => $end->format('Y-m-d H:i:s'),
+    'start_datetime' => $rangeStart->format('Y-m-d H:i:s'),
+    'end_datetime' => $rangeEnd->format('Y-m-d H:i:s'),
     'total_matched' => $total,
     'completed_count' => (int)($executeResult['completed_count'] ?? 0),
     'skipped_count' => (int)($executeResult['skipped_count'] ?? 0),

@@ -30,7 +30,9 @@ bulk_complete_test_assert(strpos($api, 'printflow_bulk_complete_load_idempotent'
 
 bulk_complete_test_assert(strpos($bulkInclude, 'printflow_staff_mutate_order_status') !== false, 'bulk execute reuses single-order completion mutation');
 bulk_complete_test_assert(strpos($bulkInclude, 'staff_bulk_complete_runs') !== false, 'bulk idempotency table is defined');
-bulk_complete_test_assert(strpos($bulkInclude, 'COALESCE(o.order_date, o.created_at)') !== false, 'bulk preview filters by order date range');
+bulk_complete_test_assert(strpos($bulkInclude, 'printflow_bulk_pos_business_datetime_sql') !== false, 'bulk preview uses shared business order datetime');
+bulk_complete_test_assert(strpos($bulkInclude, 'cust_pos.customization_details') !== false, 'bulk preview includes POS customization source detection');
+bulk_complete_test_assert(strpos($bulkInclude, 'printflow_bulk_complete_inclusive_calendar_range') !== false, 'bulk preview expands to full start/end calendar days');
 
 bulk_complete_test_assert(strpos($mutation, 'function printflow_staff_mutate_order_status') !== false, 'shared order status mutation helper exists');
 bulk_complete_test_assert(strpos($singleEndpoint, 'printflow_staff_mutate_order_status') !== false, 'single-order endpoint delegates to shared mutation');

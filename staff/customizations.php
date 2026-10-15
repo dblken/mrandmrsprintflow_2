@@ -3857,7 +3857,7 @@ $online_closed_count = 0;
                     <button type="button" @click="closeBulkCompleteModal()" :disabled="bulkCompleteExecuting" style="background:none; border:none; color:#9ca3af; font-size:24px; cursor:pointer;">&times;</button>
                 </div>
                 <div style="padding:20px;">
-                    <p style="margin:0 0 16px; color:#4b5563; font-size:13px; line-height:1.55;">Select a date and time range. Only <strong>pending</strong> walk-in orders with an order date in that range will be marked completed using the same rules as a single completion.</p>
+                    <p style="margin:0 0 16px; color:#4b5563; font-size:13px; line-height:1.55;">Select a date and time range. Preview includes every <strong>pending</strong> walk-in custom order whose business order date falls on any calendar day from the start date through the end date (same date rules as the list). Completion uses the same single-order workflow.</p>
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
                         <label style="display:block; font-size:12px; font-weight:600; color:#374151;">
                             Start date &amp; time
@@ -3901,10 +3901,10 @@ $online_closed_count = 0;
                     <div x-show="bulkCompleteResult && bulkCompleteResult.success" style="margin-top:16px; padding:14px; border-radius:12px; background:#ecfdf5; border:1px solid #a7f3d0; font-size:13px; color:#065f46;">
                         <div style="font-weight:700; margin-bottom:8px;" x-text="bulkCompleteResult.message || 'Bulk completion finished.'"></div>
                         <div style="margin-top:6px;" x-text="'Completed: ' + (bulkCompleteResult.completed_count || 0) + ' · Skipped: ' + (bulkCompleteResult.skipped_count || 0) + ' · Failed: ' + (bulkCompleteResult.failed_count || 0)"></div>
-                        <div x-show="(bulkCompleteResult.failed || []).length" style="margin-top:8px;">
+                        <div x-show="bulkCompleteResult && Array.isArray(bulkCompleteResult.failed) && bulkCompleteResult.failed.length" style="margin-top:8px;">
                             <div style="font-weight:600; color:#b45309;">Failed orders</div>
                             <ul style="margin:6px 0 0; padding-left:18px;">
-                                <template x-for="f in (bulkCompleteResult.failed || [])" :key="'bulk-fail-' + f.order_id">
+                                <template x-for="f in (bulkCompleteResult && bulkCompleteResult.failed ? bulkCompleteResult.failed : [])" :key="'bulk-fail-' + f.order_id">
                                     <li x-text="(f.order_code || f.order_id) + ': ' + (f.error || 'Error')"></li>
                                 </template>
                             </ul>
