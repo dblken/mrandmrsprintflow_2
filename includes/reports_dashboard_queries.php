@@ -1216,9 +1216,54 @@ function pf_reports_heatmap_available_years($branchId): array {
 }
 
 /**
- * Raw monthly qty sums for heatmap year, keeping product and customization rows
- * distinct even when their display labels are identical.
- * Excludes months after the current month when viewing the current calendar year (DB CURDATE()).
+ * Normalize legacy service labels to one reporting identity.
+ * The stored job/order values remain unchanged; this is display/reporting only.
+ *
+ * @return array{key:string,label:string}
+ */
+function pf_reports_heatmap_canonical_service(string $raw): array {
+    $label = trim($raw);
+    if ($label === '') {
+        $label = 'Customization';
+    }
+
+    $normalized = strtolower((string)preg_replace('/[^a-z0-9]+/', '', $label));
+    $aliases = [
+        'tarpaulin' => ['tarpaulin_printing', 'Tarpaulin Printing'],
+        'tarpaulinprinting' => ['tarpaulin_printing', 'Tarpaulin Printing'],
+        'stickersdecals' => ['decals_stickers_print_cut', 'Decals/Stickers (Print/Cut)'],
+        'decalstickersprintcut' => ['decals_stickers_print_cut', 'Decals/Stickers (Print/Cut)'],
+        'decalsstickersprintcut' => ['decals_stickers_print_cut', 'Decals/Stickers (Print/Cut)'],
+        'mugs' => ['souvenirs', 'Souvenirs'],
+        'souvenirs' => ['souvenirs', 'Souvenirs'],
+        'sintraboardstandees' => ['stickers_on_sintraboard', 'Stickers on Sintraboard'],
+        'stickersonsintraboard' => ['stickers_on_sintraboard', 'Stickers on Sintraboard'],
+    ];
+    if (isset($aliases[$normalized])) {
+        return ['key' => $aliases[$normalized][0], 'label' => $aliases[$normalized][1]];
+    }
+
+    $key = $normalized !== '' ? $normalized : 'customization';
+    return ['key' => $key, 'label' => $label];
+}
+
+/** Add a service result while preserving the canonical service identity. */
+function pf_reports_heatmap_add_service_row(array &$rows, string $raw, int $month, int $qty): void {
+    if ($month < 1 || $month > 12 || $qty === 0) {
+        return;
+    }
+    $service = pf_reports_heatmap_canonical_service($raw);
+    $key = pf_reports_heatmap_row_key('service', $service['key'], $service['label']);
+    if (!isset($rows[$key])) {
+        $rows[$key] = array_fill(1, 12, 0);
+    }
+    $rows[$key][$month] += $qty;
+}
+
+/**
+ * Raw monthly quantity sums for a heatmap year.
+ * Products and services use separate internal keys, and service rows are
+ * sourced from canonical custom store sales plus orphan jobs only.
  *
  * @return array<string, array<int,int>> internal row key => month 1..12 => qty
  */
@@ -1262,7 +1307,65 @@ function pf_reports_heatmap_sums_for_year(int $heatmap_year, $branchId): array {
     }
 
     try {
-        [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
+        // Qualifying custom store orders are canonical. Their linked jobs provide
+        // service identity and quantity, but are never counted a second time.
+        [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
+        $storeCustom = pf_reports_store_custom_order_scope_sql('o');
+        $storePayloadServiceExpr = "(
+            SELECT COALESCE(
+                NULLIF(TRIM(CASE WHEN JSON_VALID(oi_service.customization_data)
+                    THEN JSON_UNQUOTE(JSON_EXTRACT(oi_service.customization_data, '$.service_type')) END), ''),
+                NULLIF(TRIM(CASE WHEN JSON_VALID(oi_service.customization_data)
+                    THEN JSON_UNQUOTE(JSON_EXTRACT(oi_service.customization_data, '$.service_name')) END), '')
+            )
+            FROM order_items oi_service
+            WHERE oi_service.order_id = o.order_id
+            ORDER BY oi_service.order_item_id ASC
+            LIMIT 1
+        )";
+        $storeServiceExpr = "COALESCE(NULLIF(TRIM(jo_store.service_type), ''), NULLIF(TRIM({$storePayloadServiceExpr}), ''), 'Customization')";
+        $storeTypes = 'i' . $bto;
+        $storeParams = array_merge([$heatmap_year], $bpo);
+        $storeServiceRaw = db_query(
+            "SELECT {$storeServiceExpr} AS product,
+                    MONTH(o.order_date) AS mo,
+                    SUM(COALESCE(jo_store.quantity, 1)) AS qty
+             FROM orders o
+             LEFT JOIN job_orders jo_store ON jo_store.order_id = o.order_id
+             WHERE {$storeSales}
+               AND {$storeCustom}
+               AND YEAR(o.order_date) = ?
+               AND (
+                 YEAR(o.order_date) < YEAR(CURDATE())
+                 OR MONTH(o.order_date) <= MONTH(CURDATE())
+               )$bo
+             GROUP BY {$storeServiceExpr}, MONTH(o.order_date)
+             ORDER BY product, mo",
+            $storeTypes,
+            $storeParams
+        ) ?: [];
+        foreach ($storeServiceRaw as $r) {
+            // Missing job quantity is intentionally one estimated service unit.
+            pf_reports_heatmap_add_service_row(
+                $heatmap_products,
+                (string)($r['product'] ?? 'Customization'),
+                (int)($r['mo'] ?? 0),
+                (int)($r['qty'] ?? 0)
+            );
+        }
+
+        // Only orphan jobs remain here: linked jobs whose store order is not an
+        // official sale. This is the same ownership rule used by revenue reports.
+        $jobBranchExpr = "COALESCE(jo.branch_id, (SELECT o_branch.branch_id FROM orders o_branch WHERE o_branch.order_id = jo.order_id LIMIT 1))";
+        if (printflow_branch_value_is_all($branchId)) {
+            $bj = " AND ({$jobBranchExpr} IS NULL OR {$jobBranchExpr} IN (SELECT id FROM branches WHERE status != 'Archived')) ";
+            $btj = '';
+            $bpj = [];
+        } else {
+            $bj = " AND {$jobBranchExpr} = ? ";
+            $btj = 'i';
+            $bpj = [(int)$branchId];
+        }
         $jTypes = 'i' . $btj;
         $jParams = array_merge([$heatmap_year], $bpj);
         $jobRaw = db_query(
@@ -1276,7 +1379,7 @@ function pf_reports_heatmap_sums_for_year(int $heatmap_year, $branchId): array {
                AND (
                  YEAR({$jobDate}) < YEAR(CURDATE())
                  OR MONTH({$jobDate}) <= MONTH(CURDATE())
-               )$bj
+               ){$bj}
              GROUP BY COALESCE(NULLIF(TRIM(jo.service_type), ''), 'Customization'), MONTH({$jobDate})
              ORDER BY product, mo",
             $jTypes,
@@ -1284,12 +1387,12 @@ function pf_reports_heatmap_sums_for_year(int $heatmap_year, $branchId): array {
         ) ?: [];
         foreach ($jobRaw as $r) {
             // Missing job quantity remains the existing estimated one-job fallback.
-            $p = (string) $r['product'];
-            $key = pf_reports_heatmap_row_key('service', strtolower($p), $p);
-            if (!isset($heatmap_products[$key])) {
-                $heatmap_products[$key] = array_fill(1, 12, 0);
-            }
-            $heatmap_products[$key][(int) $r['mo']] += (int) $r['qty'];
+            pf_reports_heatmap_add_service_row(
+                $heatmap_products,
+                (string)($r['product'] ?? 'Customization'),
+                (int)($r['mo'] ?? 0),
+                (int)($r['qty'] ?? 0)
+            );
         }
     } catch (Throwable $e) {
     }
