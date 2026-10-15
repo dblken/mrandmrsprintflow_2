@@ -328,6 +328,7 @@ if (!$gaBranchEmpty) {
         $jobSalesSql = pf_reports_job_order_sales_expr('jo');
         $jobRevenueSql = pf_reports_job_order_revenue_expr('jo');
         $jobDateSql = pf_reports_job_order_sales_date_expr('jo');
+        $jobExcludeLinkedCustomStore = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
 
         $raw_store = db_query(
             "SELECT DATE_FORMAT(o.order_date,'%Y-%m') AS mon,
@@ -345,7 +346,7 @@ if (!$gaBranchEmpty) {
                     SUM(CASE WHEN {$jobSalesSql} THEN 1 ELSE 0 END) AS orders_custom,
                     SUM(CASE WHEN {$jobSalesSql} THEN {$jobRevenueSql} ELSE 0 END) AS revenue_custom
              FROM job_orders jo
-             WHERE 1=1{$bj}
+             WHERE 1=1{$jobExcludeLinkedCustomStore}{$bj}
              GROUP BY DATE_FORMAT({$jobDateSql},'%Y-%m')
              ORDER BY mon",
             $btj,
