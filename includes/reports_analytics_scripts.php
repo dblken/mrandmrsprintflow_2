@@ -2201,7 +2201,7 @@ window.printflowInitReportsCharts = function () {
                     series:vals,
                     labels:labels,
                     colors:colors,
-                    plotOptions:{ pie:{ donut:{ size:'62%', labels:{ show:true, name:{show:false}, value:{show:false}, total:{ show:true, showAlways:true, label:'Total orders', color:'#64748b', fontSize:'12px', fontWeight:600, formatter:() => total.toLocaleString() } } } } },
+                    plotOptions:{ pie:{ size:180, donut:{ size:'62%', labels:{ show:true, name:{show:false}, value:{show:false}, total:{ show:true, showAlways:true, label:'Total orders', color:'#64748b', fontSize:'12px', fontWeight:600, formatter:() => total.toLocaleString() } } } } },
                     legend:{position:'bottom', horizontalAlign:'left', fontSize:'11px', fontWeight:600, itemMargin:{vertical:3, horizontal:8}},
                     dataLabels:{enabled:false},
                     tooltip:{ theme:'dark', fillSeriesColor:false, style:{fontSize:'12px'}, y:{ formatter:v => v + ' orders' } }

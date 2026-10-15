@@ -1318,13 +1318,14 @@ a.export-dd-link:hover { background: #f9fafb; }
 }
 #reports-status-branch-charts .reports-branch-chart-title { text-align:left; }
 #reports-status-branch-charts .reports-branch-chart-mount {
-    width:100%;
+    width:260px;
     height:320px;
     max-width:260px;
     flex:0 0 320px;
     overflow:visible;
 }
-#reports-status-branch-charts .apexcharts-canvas { max-width:100%; margin:0 auto; }
+#reports-status-branch-charts .apexcharts-canvas,
+#reports-status-branch-charts .apexcharts-svg { width:260px !important; max-width:260px; margin:0 auto; }
 #reports-status-branch-charts .apexcharts-legend {
     display:grid !important;
     grid-template-columns:repeat(2,minmax(0,1fr));
@@ -1349,6 +1350,9 @@ a.export-dd-link:hover { background: #f9fafb; }
 }
 @media (max-width: 900px) {
     #reports-status-branch-charts { grid-template-columns:1fr; }
+    #reports-status-branch-charts .reports-branch-chart-mount,
+    #reports-status-branch-charts .apexcharts-canvas,
+    #reports-status-branch-charts .apexcharts-svg { width:240px; max-width:240px; }
 }
 #reports-status-single-chart { min-height:255px !important; }
 #ch-status .apexcharts-legend,
