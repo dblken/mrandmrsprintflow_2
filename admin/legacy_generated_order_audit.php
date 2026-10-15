@@ -14,7 +14,11 @@ function lgo_date(string $value, string $fallback): string {
     $errors = DateTimeImmutable::getLastErrors();
     return $date && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0)) ? $date->format('Y-m-d') : $fallback;
 }
-function lgo_hgen(string $reference): bool { return preg_match('/^HGEN-[a-f0-9]{48}-\d+$/i', trim($reference)) === 1; }
+function lgo_hgen(string $reference): bool {
+    $reference = trim($reference);
+    return preg_match('/^HGEN-[a-f0-9]{48}-\d+$/i', $reference) === 1
+        || preg_match('/^HGEN-LEGACY-\d+-\d+$/i', $reference) === 1;
+}
 function lgo_ids(array $rows, string $key): string {
     $ids = array_values(array_filter(array_map(static fn(array $row): int => (int)($row[$key] ?? 0), $rows)));
     return $ids ? implode(', ', $ids) : 'None';
@@ -118,11 +122,17 @@ try {
                 foreach ($repair['rows'] as $row) {
                     $id = (int)$row['order_id'];
                     $current = db_query('SELECT order_id, reference_id FROM orders WHERE order_id=? FOR UPDATE', 'i', [$id]) ?: [];
-                    if (count($current)!==1 || lgo_hgen((string)$current[0]['reference_id'])) throw new RuntimeException('Order #'.$id.' is no longer eligible. Nothing was repaired.');
+                    if (count($current)!==1) throw new RuntimeException('Order #'.$id.' is no longer eligible. Nothing was repaired.');
+                    $currentReference = trim((string)$current[0]['reference_id']);
+                    $marker = (string)$row['marker'];
+                    if (hash_equals($marker, $currentReference)) {
+                        $changed[] = ['order_id'=>$id, 'reference_id'=>$marker, 'activity_id'=>(int)$row['activity_id'], 'already_present'=>true];
+                        continue;
+                    }
+                    if (lgo_hgen($currentReference)) throw new RuntimeException('Order #'.$id.' already has a different protected HGEN marker. Nothing was repaired.');
                     $fresh = array_values(array_filter(lgo_orders((string)$repair['start'], (string)$repair['end']), static fn(array $item): bool => (int)$item['order_id']===$id));
                     $proof = lgo_proven($fresh);
                     if (count($proof)!==1 || (int)$proof[0]['activity_id'] !== (int)$row['activity_id']) throw new RuntimeException('Generator evidence changed for order #'.$id.'. Nothing was repaired.');
-                    $marker = (string)$row['marker'];
                     if (strlen($marker)>$capacity) throw new RuntimeException('Marker capacity validation failed.');
                     if (db_query('SELECT order_id FROM orders WHERE reference_id=? AND order_id<>? LIMIT 1', 'si', [$marker,$id])) throw new RuntimeException('Marker collision detected. Nothing was repaired.');
                     if (db_execute_affected_rows("UPDATE orders SET reference_id=? WHERE order_id=? AND (reference_id IS NULL OR reference_id NOT LIKE 'HGEN-%')", 'si', [$marker,$id]) !== 1) throw new RuntimeException('Order #'.$id.' was not updated. Nothing was repaired.');
