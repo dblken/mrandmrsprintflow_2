@@ -39,7 +39,7 @@ function hgh_orders(string $start, string $end, string $branchId = 'all'): array
 }
 
 $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
-$branches = db_query("SELECT id,branch_name FROM branches WHERE status <> 'Archived' ORDER BY branch_name") ?: [];
+$branches = db_query("SELECT id,branch_name FROM branches WHERE COALESCE(status,'Active') <> 'Archived' ORDER BY branch_name") ?: [];
 $branchNames = ['all' => 'All Branches'];
 foreach ($branches as $branch) $branchNames[(string)$branch['id']] = (string)$branch['branch_name'];
 $requestedBranch = $_REQUEST['branch_id'] ?? (is_array($_SESSION['hgh_preview'] ?? null) ? ($_SESSION['hgh_preview']['branch_id'] ?? 'all') : 'all');
