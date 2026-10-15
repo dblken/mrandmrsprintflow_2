@@ -1,0 +1,327 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Shared staff order-status mutation (used by single-order and bulk completion endpoints).
+ */
+
+require_once __DIR__ . '/product_branch_stock.php';
+require_once __DIR__ . '/product_option_stock.php';
+require_once __DIR__ . '/InventoryManager.php';
+require_once __DIR__ . '/JobOrderService.php';
+require_once __DIR__ . '/provider_payments.php';
+require_once __DIR__ . '/change_item_workflow.php';
+
+if (!function_exists('printflow_staff_mutate_order_status')) {
+    /**
+     * @param array{
+     *   cancel_reason?: string,
+     *   change_item_id?: int,
+     *   complete_change_item?: bool,
+     *   manage_transaction?: bool,
+     * } $options
+     * @return array<string, mixed>
+     */
+    function printflow_staff_mutate_order_status(
+        int $orderId,
+        string $newStatus,
+        string $expectedStatus,
+        array $options = []
+    ): array {
+        $cancelReason = trim((string)($options['cancel_reason'] ?? ''));
+        $changeItemId = max(0, (int)($options['change_item_id'] ?? 0));
+        $completeChangeItem = !empty($options['complete_change_item']) || $changeItemId > 0;
+        $manageTransaction = !array_key_exists('manage_transaction', $options)
+            || (bool)$options['manage_transaction'];
+
+        global $conn;
+        $transactionStarted = $manageTransaction && !printflow_db_in_transaction($conn);
+
+        try {
+            if ($transactionStarted && !$conn->begin_transaction()) {
+                throw new RuntimeException('Unable to start order update transaction.');
+            }
+
+            $rows = db_query(
+                'SELECT status, payment_status, total_amount, branch_id, customer_id, order_type, order_source, reference_id FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE',
+                'i',
+                [$orderId]
+            ) ?: [];
+            if ($rows === []) {
+                if ($transactionStarted) {
+                    $conn->rollback();
+                }
+                return ['success' => false, 'error' => 'Order not found.', '_http_status' => 404];
+            }
+
+            $order = $rows[0];
+            $oldStatus = trim((string)($order['status'] ?? ''));
+            $canonicalStatus = static function (string $status): string {
+                return printflow_workflow_status_key($status);
+            };
+
+            if ($newStatus === 'Completed') {
+                $activeChangeItem = printflow_change_item_get_active($orderId);
+                $changeItemInRework = $activeChangeItem !== null
+                    && in_array(
+                        printflow_change_item_normalize_status((string)($activeChangeItem['request_status'] ?? '')),
+                        ['IN_REWORK', 'APPROVED'],
+                        true
+                    );
+                $parentAlreadyCompleted = $canonicalStatus($oldStatus) === 'COMPLETED';
+                if ($completeChangeItem || ($changeItemInRework && $parentAlreadyCompleted)) {
+                    if (getenv('PRINTFLOW_NOTIFICATION_DEBUG') === '1') {
+                        error_log('[order-status][change_item] user_id=' . (int)get_user_id()
+                            . ' role=' . (string)get_user_type()
+                            . ' order_id=' . $orderId
+                            . ' change_item_id=' . $changeItemId
+                            . ' expected_status=' . $expectedStatus);
+                    }
+                    try {
+                        $changeResult = printflow_change_item_complete_staff_action(
+                            $orderId,
+                            $changeItemId,
+                            $expectedStatus
+                        );
+                        if ($transactionStarted) {
+                            $conn->commit();
+                        }
+                        $changeResult['_http_status'] = ($changeResult['success'] ?? false) ? 200 : 422;
+                        return $changeResult;
+                    } catch (InvalidArgumentException $validationError) {
+                        if ($transactionStarted) {
+                            $conn->rollback();
+                        }
+                        return ['success' => false, 'error' => $validationError->getMessage(), '_http_status' => 422];
+                    } catch (RuntimeException $runtimeError) {
+                        if ($transactionStarted) {
+                            $conn->rollback();
+                        }
+                        $message = $runtimeError->getMessage();
+                        if (str_starts_with($message, 'CHANGE_ITEM_STATUS_CONFLICT:')) {
+                            return [
+                                'success' => false,
+                                'error' => 'This Change Item was updated by another staff member. Please refresh and review the latest status.',
+                                'current_status' => substr($message, strlen('CHANGE_ITEM_STATUS_CONFLICT:')),
+                                'change_item_conflict' => true,
+                                '_http_status' => 409,
+                            ];
+                        }
+                        throw $runtimeError;
+                    }
+                }
+            }
+
+            if ($canonicalStatus($oldStatus) !== $canonicalStatus($expectedStatus)) {
+                $requestingCompleted = strcasecmp($newStatus, 'Completed') === 0;
+                $alreadyCompleted = $canonicalStatus($oldStatus) === 'COMPLETED';
+                if (!($requestingCompleted && $alreadyCompleted)) {
+                    if ($transactionStarted) {
+                        $conn->rollback();
+                    }
+                    return [
+                        'success' => false,
+                        'error' => 'This order was updated by another staff member. Please refresh and review the latest status.',
+                        'current_status' => $oldStatus,
+                        '_http_status' => 409,
+                    ];
+                }
+            }
+            $customerId = (int)($order['customer_id'] ?? 0);
+            $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
+            $isProductOrder = $orderType === 'product';
+            $isServiceOrder = $orderType === 'custom';
+            $isReadyMadeProductOrder = $isProductOrder && printflow_is_ready_made_product_order($order);
+
+            if ($isReadyMadeProductOrder && $newStatus !== 'Completed') {
+                if ($transactionStarted) {
+                    $conn->rollback();
+                }
+                return [
+                    'success' => false,
+                    'error' => 'Ready-made online products can only be completed after verified payment and customer claim.',
+                    '_http_status' => 409,
+                ];
+            }
+
+            if (strcasecmp($oldStatus, $newStatus) === 0) {
+                if ($isServiceOrder && strcasecmp($newStatus, 'Completed') === 0) {
+                    JobOrderService::syncStoreOrderToStatus($orderId, 'COMPLETED');
+                }
+                if ($transactionStarted) {
+                    $conn->commit();
+                }
+                return [
+                    'success' => true,
+                    'changed' => false,
+                    'already_completed' => strcasecmp($newStatus, 'Completed') === 0,
+                    'order_id' => $orderId,
+                    'status' => $newStatus,
+                    'message' => "Order #{$orderId} is already {$newStatus}.",
+                    '_http_status' => 200,
+                ];
+            }
+
+            if ($newStatus === 'Completed') {
+                if ((float)($order['total_amount'] ?? 0) <= 0) {
+                    if ($transactionStarted) {
+                        $conn->rollback();
+                    }
+                    return [
+                        'success' => false,
+                        'error' => 'Set a valid price before completing this order.',
+                        '_http_status' => 409,
+                    ];
+                }
+                $paymentStatus = strtolower(trim((string)($order['payment_status'] ?? '')));
+                if (!in_array($paymentStatus, ['paid', 'fully paid'], true)) {
+                    if ($transactionStarted) {
+                        $conn->rollback();
+                    }
+                    return [
+                        'success' => false,
+                        'error' => 'Cannot mark as Completed: payment must be Paid.',
+                        'payment_status' => (string)($order['payment_status'] ?? 'Unpaid'),
+                        '_http_status' => 409,
+                    ];
+                }
+                if ($isReadyMadeProductOrder) {
+                    $providerPayment = printflow_provider_payment_find('order', $orderId, 'online', printflow_paymongo_mode());
+                    if (($providerPayment['status'] ?? '') !== 'paid') {
+                        if ($transactionStarted) {
+                            $conn->rollback();
+                        }
+                        return [
+                            'success' => false,
+                            'error' => 'Cannot mark as Completed: PayMongo has not verified this payment as paid.',
+                            '_http_status' => 409,
+                        ];
+                    }
+                }
+            }
+
+            $updatedJobs = [];
+            if ($isServiceOrder && $newStatus === 'Completed') {
+                $updatedJobs = JobOrderService::syncStoreOrderToStatus($orderId, 'COMPLETED');
+                if ($updatedJobs === []) {
+                    $ok = db_execute("UPDATE orders SET status = 'Completed', updated_at = NOW() WHERE order_id = ?", 'i', [$orderId]);
+                    if (!$ok) {
+                        throw new RuntimeException('Failed to persist the completed order status.');
+                    }
+                }
+            } elseif ($isServiceOrder && $newStatus === 'Cancelled') {
+                $updatedJobs = JobOrderService::syncStoreOrderToStatus($orderId, 'CANCELLED', null, $cancelReason);
+                $ok = db_execute(
+                    "UPDATE orders SET status = 'Cancelled', cancelled_by = 'Staff', cancel_reason = ?, cancelled_at = NOW(), updated_at = NOW() WHERE order_id = ?",
+                    'si',
+                    [$cancelReason, $orderId]
+                );
+                if (!$ok) {
+                    throw new RuntimeException('Failed to persist the cancelled order status.');
+                }
+            } else {
+                $updateSql = 'UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?';
+                $updateTypes = 'si';
+                $updateParams = [$newStatus, $orderId];
+                if ($newStatus === 'Cancelled') {
+                    $updateSql = "UPDATE orders SET status = ?, cancel_reason = ?, cancelled_by = 'Staff', cancelled_at = NOW(), updated_at = NOW() WHERE order_id = ?";
+                    $updateTypes = 'ssi';
+                    $updateParams = [$newStatus, $cancelReason, $orderId];
+                }
+                if (!db_execute($updateSql, $updateTypes, $updateParams)) {
+                    throw new RuntimeException('Failed to update order status.');
+                }
+
+                if ($newStatus === 'Completed') {
+                    $branchId = (int)($order['branch_id'] ?? 0);
+                    $items = db_query(
+                        'SELECT oi.order_item_id, oi.product_id, oi.quantity
+                         FROM order_items oi
+                         WHERE oi.order_id = ?',
+                        'i',
+                        [$orderId]
+                    ) ?: [];
+
+                    foreach ($items as $item) {
+                        $productId = (int)($item['product_id'] ?? 0);
+                        $quantity = (int)($item['quantity'] ?? 0);
+                        if ($productId <= 0 || $quantity <= 0) {
+                            continue;
+                        }
+
+                        printflow_apply_product_order_item_inventory(
+                            (int)$item['order_item_id'],
+                            $branchId,
+                            (int)($_SESSION['user_id'] ?? 0),
+                            'Online product completion'
+                        );
+                    }
+                }
+
+                $notification = get_order_status_notification_payload($orderId, $newStatus);
+                if ($customerId > 0) {
+                    create_notification($customerId, 'Customer', $notification['message'], $notification['type'], false, false, $orderId);
+                }
+                add_order_system_message($orderId, $notification['message']);
+
+                $chatSteps = [
+                    'Approved' => 'approved', 'To Pay' => 'send_to_payment',
+                    'Processing' => 'in_production', 'In Production' => 'in_production',
+                    'Ready for Pickup' => 'ready_to_pickup', 'Completed' => 'completed',
+                ];
+                $chatStep = $chatSteps[$newStatus] ?? null;
+                if ($chatStep !== null) {
+                    if ($isProductOrder && $chatStep === 'completed') {
+                        db_execute(
+                            "INSERT INTO order_messages (order_id, sender, sender_id, message, message_type, read_receipt) VALUES (?, 'Staff', ?, ?, 'order_update', 0)",
+                            'iis',
+                            [$orderId, (int)($_SESSION['user_id'] ?? 0), 'Order Completed. Your order has been successfully picked up. We hope you are satisfied with our service! Feel free to share your feedback to help us improve even more.']
+                        );
+                    } else {
+                        printflow_send_order_update($orderId, $chatStep);
+                        if ($chatStep === 'completed') {
+                            printflow_send_order_update($orderId, 'rate');
+                        }
+                    }
+                }
+            }
+
+            if ($transactionStarted) {
+                $conn->commit();
+            }
+            return [
+                'success' => true,
+                'changed' => true,
+                'already_completed' => false,
+                'order_id' => $orderId,
+                'status' => $newStatus,
+                'job_ids' => $updatedJobs,
+                'message' => "Order #{$orderId} marked as {$newStatus}.",
+                '_http_status' => 200,
+            ];
+        } catch (Throwable $exception) {
+            if ($transactionStarted && printflow_db_in_transaction($conn)) {
+                $conn->rollback();
+            }
+            $reference = printflow_json_error_reference();
+            error_log(sprintf(
+                '[order-status][%s] order=%d target=%s class=%s code=%s',
+                $reference,
+                $orderId,
+                preg_replace('/[^A-Za-z ]/', '', $newStatus),
+                get_class($exception),
+                (string)$exception->getCode()
+            ));
+            if (getenv('PRINTFLOW_MATERIAL_DEDUCTION_DEBUG') === '1') {
+                error_log('[order-status][' . $reference . '] rolled back: ' . $exception->getMessage());
+            }
+            return [
+                'success' => false,
+                'error' => 'The order status could not be updated.',
+                'error_reference' => $reference,
+                '_http_status' => 500,
+            ];
+        }
+    }
+}
