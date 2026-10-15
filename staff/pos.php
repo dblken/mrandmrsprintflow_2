@@ -1727,43 +1727,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             display: none !important;
         }
 
-        .pos-qrph-payment-section strong {
-            display: block;
-            font-size: 13px;
-            font-weight: 800;
-            color: #0f766e;
-            margin-bottom: 4px;
-        }
-
-        .pos-qrph-payment-section p {
-            margin: 0;
-            font-size: 12px;
-            line-height: 1.5;
-            color: #115e59;
-        }
-
-        .pos-qrph-payment-amount {
-            margin-top: 8px;
-            font-size: 13px;
-            font-weight: 800;
-            color: #134e4a;
-        }
-
-        .pos-qrph-payment-state {
-            margin-top: 6px;
-            font-size: 12px;
-            line-height: 1.45;
-            color: #0f766e;
-            min-height: 16px;
-        }
-
-        .pos-qrph-payment-state.is-error {
-            color: #b91c1c;
-            font-weight: 700;
-        }
-
         .pos-qrph-generate-btn {
-            margin-top: 10px;
+            margin-top: 0;
             width: 100%;
             padding: 10px 12px;
             border: 0;
@@ -3277,14 +3242,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                 </div>
 
                                 <?php if ($posPayMongoQrphAvailable): ?>
-                                <div id="pos-qrph-payment-section" class="pos-qrph-payment-section" hidden aria-live="polite">
-                                    <strong>QR PH</strong>
-                                    <p>PayMongo Dynamic QR Ph. Confirm the sale to generate the scannable QR code; the order stays unpaid until PayMongo confirms payment.</p>
-                                    <?php if ($posPayMongoMode === 'test'): ?>
-                                    <p style="margin-top:8px;color:#92400e;">Test Mode: use PayMongo&apos;s test simulator — do not scan or pay a live QR.</p>
-                                    <?php endif; ?>
-                                    <div id="pos-qrph-payment-amount" class="pos-qrph-payment-amount"></div>
-                                    <div id="pos-qrph-payment-state" class="pos-qrph-payment-state" aria-live="polite"></div>
+                                <div id="pos-qrph-payment-section" class="pos-qrph-payment-section" hidden>
                                     <button type="button" id="pos-qrph-generate-btn" class="pos-qrph-generate-btn" onclick="launchPosQrphPayment('button')">Generate QR PH Payment</button>
                                 </div>
                                 <?php endif; ?>
@@ -7290,8 +7248,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         function syncPosQrphPaymentSection() {
             const section = document.getElementById('pos-qrph-payment-section');
-            const amountEl = document.getElementById('pos-qrph-payment-amount');
-            const stateEl = document.getElementById('pos-qrph-payment-state');
             const generateBtn = document.getElementById('pos-qrph-generate-btn');
             if (!section) {
                 return;
@@ -7303,24 +7259,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (!isPayMongo) {
                 posQrphPanelError = '';
             }
-            if (amountEl) {
-                amountEl.textContent = isPayMongo
-                    ? ('Amount to collect: ' + formatMoney(currentTotal > 0 ? currentTotal : 0))
-                    : '';
-            }
             const readiness = isPayMongo ? posQrphReadinessMessage() : '';
             const busy = posQrphLaunchInFlight || posCheckoutRequestInFlight || posCheckoutConfirmOpen;
-            if (stateEl) {
-                if (posQrphPanelError) {
-                    stateEl.textContent = posQrphPanelError;
-                    stateEl.classList.add('is-error');
-                } else {
-                    stateEl.textContent = busy
-                        ? 'Creating the QR PH payment request…'
-                        : (readiness || 'The QR code will be generated for exactly ' + formatMoney(currentTotal) + '.');
-                    stateEl.classList.remove('is-error');
-                }
-            }
             if (generateBtn) {
                 generateBtn.disabled = !isPayMongo || !!readiness || busy;
                 generateBtn.textContent = busy ? 'Generating…' : 'Generate QR PH Payment';
@@ -7348,7 +7288,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const readiness = posQrphReadinessMessage();
             if (readiness) {
                 if (source === 'button') {
-                    setPosQrphPanelError(readiness);
+                    showPOSAlert('QR PH Payment', readiness, 'warning');
                 }
                 return;
             }
