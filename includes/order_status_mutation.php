@@ -43,7 +43,7 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
         $transactionStarted = $manageTransaction && !printflow_db_in_transaction($conn);
 
         try {
-            if ($transactionStarted && !$conn->begin_transaction()) {
+            if ($transactionStarted && !printflow_db_transaction_depth_bump($conn)) {
                 throw new RuntimeException('Unable to start order update transaction.');
             }
 
@@ -57,7 +57,7 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
             ) ?: [];
             if ($rows === []) {
                 if ($transactionStarted) {
-                    $conn->rollback();
+                    printflow_db_transaction_depth_pop($conn, false);
                 }
                 return ['success' => false, 'error' => 'Order not found.', '_http_status' => 404];
             }
@@ -67,23 +67,23 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
             $actorRole = (string)get_user_type();
             $actorId = (int)get_user_id();
             if ($confirmUnpaidCompletion && !$allowPendingCompletionOverride) {
-                if ($transactionStarted) $conn->rollback();
+                if ($transactionStarted) printflow_db_transaction_depth_pop($conn, false);
                 return ['success' => false, 'error' => 'The unpaid completion confirmation is invalid.', '_http_status' => 422];
             }
             if ($allowPendingCompletionOverride) {
                 $staffCanUseCustomizations = $actorRole !== 'Staff'
                     || (function_exists('printflow_staff_can_access_module') && printflow_staff_can_access_module('customizations'));
                 if (!in_array($actorRole, ['Admin', 'Manager', 'Staff'], true) || !$staffCanUseCustomizations) {
-                    if ($transactionStarted) $conn->rollback();
+                    if ($transactionStarted) printflow_db_transaction_depth_pop($conn, false);
                     return ['success' => false, 'error' => 'You are not authorized to complete orders from Customizations.', '_http_status' => 403];
                 }
                 if (!printflow_order_completion_override_date_in_scope((string)($order['order_date'] ?? ''))) {
-                    if ($transactionStarted) $conn->rollback();
+                    if ($transactionStarted) printflow_db_transaction_depth_pop($conn, false);
                     return ['success' => false, 'error' => 'The completion override is limited to orders dated September 1 through October 5, 2026.', '_http_status' => 409];
                 }
                 if (!printflow_order_completion_override_pending_status($oldStatus)
                     && printflow_workflow_status_key($oldStatus) !== 'COMPLETED') {
-                    if ($transactionStarted) $conn->rollback();
+                    if ($transactionStarted) printflow_db_transaction_depth_pop($conn, false);
                     return ['success' => false, 'error' => 'Only pending orders in the selected date range can use this completion override.', '_http_status' => 409];
                 }
             }
@@ -116,18 +116,18 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                             $expectedStatus
                         );
                         if ($transactionStarted) {
-                            $conn->commit();
+                            printflow_db_transaction_depth_pop($conn, true);
                         }
                         $changeResult['_http_status'] = ($changeResult['success'] ?? false) ? 200 : 422;
                         return $changeResult;
                     } catch (InvalidArgumentException $validationError) {
                         if ($transactionStarted) {
-                            $conn->rollback();
+                            printflow_db_transaction_depth_pop($conn, false);
                         }
                         return ['success' => false, 'error' => $validationError->getMessage(), '_http_status' => 422];
                     } catch (RuntimeException $runtimeError) {
                         if ($transactionStarted) {
-                            $conn->rollback();
+                            printflow_db_transaction_depth_pop($conn, false);
                         }
                         $message = $runtimeError->getMessage();
                         if (str_starts_with($message, 'CHANGE_ITEM_STATUS_CONFLICT:')) {
@@ -160,7 +160,7 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
             if (!$statusCompatible) {
                 if (!($requestingCompletedEarly && $alreadyCompletedEarly)) {
                     if ($transactionStarted) {
-                        $conn->rollback();
+                        printflow_db_transaction_depth_pop($conn, false);
                     }
                     return [
                         'success' => false,
@@ -178,7 +178,7 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
 
             if ($isReadyMadeProductOrder && $newStatus !== 'Completed') {
                 if ($transactionStarted) {
-                    $conn->rollback();
+                    printflow_db_transaction_depth_pop($conn, false);
                 }
                 return [
                     'success' => false,
@@ -189,7 +189,7 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
 
             if (strcasecmp($oldStatus, $newStatus) === 0) {
                 if ($transactionStarted) {
-                    $conn->commit();
+                    printflow_db_transaction_depth_pop($conn, true);
                 }
                 return [
                     'success' => true,
@@ -205,7 +205,7 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
             if ($newStatus === 'Completed') {
                 if ((float)($order['total_amount'] ?? 0) <= 0) {
                     if ($transactionStarted) {
-                        $conn->rollback();
+                        printflow_db_transaction_depth_pop($conn, false);
                     }
                     return [
                         'success' => false,
@@ -216,7 +216,7 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                 $orderSource = strtolower(trim((string)($order['order_source'] ?? '')));
                 if ($orderSource === 'pos_merged') {
                     if ($transactionStarted) {
-                        $conn->rollback();
+                        printflow_db_transaction_depth_pop($conn, false);
                     }
                     return [
                         'success' => false,
@@ -227,7 +227,7 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                 $paymentGate = printflow_order_staff_completion_payment_gate($orderId, $order);
                 if (!$paymentGate['allowed'] && $allowPendingCompletionOverride && !$confirmUnpaidCompletion) {
                     if ($transactionStarted) {
-                        $conn->rollback();
+                        printflow_db_transaction_depth_pop($conn, false);
                     }
                     return [
                         'success' => false,
@@ -239,7 +239,7 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                 }
                 if (!$paymentGate['allowed'] && !$allowPendingCompletionOverride) {
                     if ($transactionStarted) {
-                        $conn->rollback();
+                        printflow_db_transaction_depth_pop($conn, false);
                     }
                     return [
                         'success' => false,
@@ -250,13 +250,13 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                 }
                 if (!$paymentGate['allowed']) {
                     if (!$confirmUnpaidCompletion) {
-                        if ($transactionStarted) $conn->rollback();
+                        if ($transactionStarted) printflow_db_transaction_depth_pop($conn, false);
                         return ['success' => false, 'error' => 'Explicit confirmation is required for unpaid completion.', 'requires_unpaid_confirmation' => true, '_http_status' => 409];
                     }
                     $recordedPaymentStatus = strtoupper(trim((string)($paymentGate['payment_status'] ?? $order['payment_status'] ?? '')));
                     if (!in_array($recordedPaymentStatus, ['', 'UNPAID'], true)
                         || (float)($order['amount_paid'] ?? 0) > 0.0001) {
-                        if ($transactionStarted) $conn->rollback();
+                        if ($transactionStarted) printflow_db_transaction_depth_pop($conn, false);
                         return [
                             'success' => false,
                             'error' => 'This order has a payment submission or partial payment that must be reviewed before completion.',
@@ -278,7 +278,7 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                     $providerPayment = printflow_provider_payment_find('order', $orderId, 'online', printflow_paymongo_mode());
                     if (($providerPayment['status'] ?? '') !== 'paid') {
                         if ($transactionStarted) {
-                            $conn->rollback();
+                            printflow_db_transaction_depth_pop($conn, false);
                         }
                         return [
                             'success' => false,
@@ -295,7 +295,7 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                     $updatedJobs = JobOrderService::syncStoreOrderToStatus($orderId, 'COMPLETED', null, '', false, $unpaidOverrideApplied);
                 } catch (Throwable $jobCompletionError) {
                     if ($transactionStarted) {
-                        $conn->rollback();
+                        printflow_db_transaction_depth_pop($conn, false);
                     }
                     return printflow_staff_mutate_order_status_job_error_response($jobCompletionError);
                 }
@@ -414,7 +414,7 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
             }
 
             if ($transactionStarted) {
-                $conn->commit();
+                printflow_db_transaction_depth_pop($conn, true);
             }
             $branchIdForCache = (int)($order['branch_id'] ?? 0);
             if ($branchIdForCache > 0 && is_file(__DIR__ . '/staff_dashboard_cache.php')) {
@@ -432,8 +432,8 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                 '_http_status' => 200,
             ];
         } catch (Throwable $exception) {
-            if ($transactionStarted && printflow_db_in_transaction($conn)) {
-                $conn->rollback();
+            if ($transactionStarted) {
+                printflow_db_transaction_depth_pop($conn, false);
             }
             return printflow_staff_mutate_order_status_job_error_response($exception, $orderId, $newStatus);
         }
@@ -451,6 +451,9 @@ if (!function_exists('printflow_staff_mutate_order_status_job_error_response')) 
     ): array {
         $reference = printflow_json_error_reference();
         $message = trim($exception->getMessage());
+        if ($message === '') {
+            $message = 'Unexpected ' . get_class($exception) . ' during order status update.';
+        }
         error_log(sprintf(
             '[order-status][%s] order=%d target=%s class=%s message=%s',
             $reference,
@@ -468,6 +471,11 @@ if (!function_exists('printflow_staff_mutate_order_status_job_error_response')) 
         if ($message !== '') {
             $businessHints = [
                 'Cannot mark as Completed',
+                'Cannot complete Job',
+                'Roll stock depleted',
+                'Insufficient roll',
+                'Insufficient stock',
+                'FIFO deduction',
                 'payment must be Paid',
                 'Set a valid price',
                 'Order not found',
@@ -478,6 +486,8 @@ if (!function_exists('printflow_staff_mutate_order_status_job_error_response')) 
                 'Failed to update linked customization',
                 'updated by another staff member',
                 'Reconcile before completing',
+                'Material assignment',
+                'Lamination stock depleted',
             ];
             foreach ($businessHints as $hint) {
                 if (stripos($message, $hint) !== false) {
@@ -489,6 +499,14 @@ if (!function_exists('printflow_staff_mutate_order_status_job_error_response')) 
             if ($exception instanceof InvalidArgumentException) {
                 $httpStatus = 422;
                 $clientMessage = $message;
+            } elseif ($httpStatus === 500) {
+                $clientMessage = $message;
+                if (preg_match(
+                    '/cannot complete|insufficient|reconcile|deduction|roll stock|inventory|failed to (persist|update|finalize)/i',
+                    $message
+                ) === 1) {
+                    $httpStatus = 409;
+                }
             }
         }
 
@@ -496,6 +514,7 @@ if (!function_exists('printflow_staff_mutate_order_status_job_error_response')) 
             'success' => false,
             'error' => $clientMessage,
             'error_reference' => $reference,
+            'error_class' => $message !== '' ? get_class($exception) : null,
             '_http_status' => $httpStatus,
         ];
     }

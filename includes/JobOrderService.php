@@ -156,6 +156,19 @@ class JobOrderService {
                     'si',
                     [$artworkPath, (int)$job['id']]
                 );
+            } elseif ($currentOrderItemId > 0 && $currentOrderItemId !== $resolvedOrderItemId) {
+                $linkedItem = db_query(
+                    'SELECT order_item_id FROM order_items WHERE order_item_id = ? AND order_id = ? LIMIT 1',
+                    'ii',
+                    [$currentOrderItemId, $orderId]
+                ) ?: [];
+                if ($linkedItem === []) {
+                    db_execute(
+                        'UPDATE job_orders SET order_item_id = ? WHERE id = ?',
+                        'ii',
+                        [$resolvedOrderItemId, (int)$job['id']]
+                    );
+                }
             }
         }
     }
@@ -281,6 +294,119 @@ class JobOrderService {
         return $stamp !== '' && $stamp !== '0000-00-00 00:00:00';
     }
 
+    /** @param mixed $metadata */
+    private static function decodeMaterialMetadata($metadata): array {
+        if (is_array($metadata)) {
+            return $metadata;
+        }
+        $raw = trim((string)$metadata);
+        if ($raw === '' || strtolower($raw) === 'null') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private static function assignmentInventorySkipped(array $assignment): bool {
+        $meta = self::decodeMaterialMetadata($assignment['metadata'] ?? null);
+        return ($meta['inventory_skip_reason'] ?? '') === 'superseded_by_wider_roll_material';
+    }
+
+    private static function parseItemNominalWidthFt(array $item): float {
+        $name = (string)($item['name'] ?? '');
+        if (preg_match('/(\d+(?:\.\d+)?)\s*ft/i', $name, $matches) === 1) {
+            return (float)$matches[1];
+        }
+        return 0.0;
+    }
+
+    private static function itemIsRollWithNominalWidth(array $item): bool {
+        return !empty($item['track_by_roll']) && self::parseItemNominalWidthFt($item) > 0;
+    }
+
+    /**
+     * Resolve how many feet to deduct for a roll assignment (manual POS rows often
+     * store an inflated computed_required_length_ft from stale height metadata).
+     *
+     * @param array<string, mixed> $material
+     * @param array<string, mixed>|null $jobRow
+     */
+    public static function resolveRollMaterialLengthFt(array $material, ?array $jobRow = null): float {
+        $computed = (float)($material['computed_required_length_ft'] ?? 0);
+        $quantity = (float)($material['quantity'] ?? 0);
+        $meta = self::decodeMaterialMetadata($material['metadata'] ?? null);
+        $manual = !empty($meta['manual_assignment']);
+
+        if (!$manual) {
+            return $computed > 0 ? $computed : $quantity;
+        }
+
+        if ($quantity > 0 && ($computed <= 0 || $computed > ($quantity * 10))) {
+            return $quantity;
+        }
+
+        if ($jobRow !== null && $computed > 0) {
+            $jobHeight = (float)($jobRow['height_ft'] ?? 0);
+            $jobWidth = (float)($jobRow['width_ft'] ?? 0);
+            $jobQty = max(1.0, (float)($jobRow['quantity'] ?? 1));
+            $jobRunLength = max($jobHeight, $jobWidth) * $jobQty;
+            $metaHeight = (float)($meta['height_ft'] ?? 0);
+            if ($jobRunLength > 0 && $metaHeight > 0 && abs($metaHeight - max($jobHeight, $jobWidth)) > 0.01
+                && $computed > ($jobRunLength * 2)) {
+                return $quantity > 0 ? $quantity : $jobRunLength;
+            }
+            if ($jobRunLength > 0 && $computed > ($jobRunLength * max(1.0, $quantity) * 2)) {
+                return $quantity > 0 ? $quantity : $jobRunLength;
+            }
+        }
+
+        return $computed > 0 ? $computed : $quantity;
+    }
+
+    /**
+     * When staff assign both a narrow and wide tarp roll to the same job, only the
+     * widest roll should consume inventory at completion.
+     *
+     * @param array<string, mixed> $material
+     * @param list<array<string, mixed>> $pendingMaterials
+     * @param array<int, array<string, mixed>> $itemsById
+     */
+    private static function rollMaterialSupersededByWiderAssignment(
+        array $material,
+        array $pendingMaterials,
+        array $itemsById
+    ): bool {
+        $item = $itemsById[(int)($material['item_id'] ?? 0)] ?? null;
+        if ($item === null || !self::itemIsRollWithNominalWidth($item)) {
+            return false;
+        }
+        $thisWidth = self::parseItemNominalWidthFt($item);
+
+        $maxWidth = $thisWidth;
+        foreach ($pendingMaterials as $other) {
+            $otherItem = $itemsById[(int)($other['item_id'] ?? 0)] ?? null;
+            if ($otherItem === null || !self::itemIsRollWithNominalWidth($otherItem)) {
+                continue;
+            }
+            $maxWidth = max($maxWidth, self::parseItemNominalWidthFt($otherItem));
+        }
+
+        return $thisWidth < $maxWidth;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private static function markSupersededRollMaterialSkipped(int $assignmentId, array $metadata): array {
+        $metadata['inventory_skip_reason'] = 'superseded_by_wider_roll_material';
+        db_execute(
+            'UPDATE job_order_materials SET metadata = ? WHERE id = ?',
+            'si',
+            [json_encode($metadata, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), $assignmentId]
+        );
+        return $metadata;
+    }
+
     /**
      * @return list<array{id:int, transaction_date:string}>
      */
@@ -318,6 +444,9 @@ class JobOrderService {
             }
             $itemId = (int)($assignment['item_id'] ?? 0);
             if ($itemId <= 0) {
+                continue;
+            }
+            if (self::assignmentInventorySkipped($assignment)) {
                 continue;
             }
             if (self::findJobMaterialLedgerMovements($jobOrderId, $itemId, $branchId) === []) {
@@ -954,6 +1083,7 @@ class JobOrderService {
         }
 
         self::ensureJobsForStoreOrder($storeOrderId);
+        self::repairMissingOrderItemLinks($storeOrderId);
 
         $normalizedTargetStatus = self::normalizeWorkflowStatus($targetStatus);
         $jobStatusSql = $normalizedTargetStatus === 'COMPLETED'
@@ -1012,35 +1142,19 @@ class JobOrderService {
         $cost = $item['unit_cost'] ?? 0;
         $track_by_roll = $item['track_by_roll'];
         
+        if (!is_array($metadata)) {
+            $metadata = [];
+        }
+
         // Calculate computed length if track_by_roll
         $computed_len = 0;
         if ($track_by_roll) {
-            // For roll-based, if uom is ft, quantity is often the length
-            // But we might have separate height/qty in metadata
             if (isset($metadata['height_ft']) && (float)$metadata['height_ft'] > 0) {
                 $computed_len = (float)$metadata['height_ft'] * $qty;
             } else {
                 $computed_len = ($uom === 'ft') ? $qty : 0;
             }
-
-            // Fallback to job dimensions if still 0
-            if ($computed_len <= 0 && ($orderType === 'JOB' || $colId === 'job_order_id')) {
-                $job = db_query("SELECT height_ft, width_ft, quantity FROM job_orders WHERE id = ?", 'i', [$orderId]);
-                if (!empty($job)) {
-                    $jH = (float)($job[0]['height_ft'] ?? 0);
-                    $jW = (float)($job[0]['width_ft'] ?? 0);
-                    $jQ = (float)($job[0]['quantity'] ?? 1);
-                    // Use the larger dimension as length if height is not specifically set
-                    $computed_len = max($jH, $jW) * $jQ;
-                }
-            }
         }
-
-        if (!is_array($metadata)) {
-            $metadata = [];
-        }
-        $metadata['manual_assignment'] = true;
-        $metaJson = !empty($metadata) ? json_encode($metadata) : null;
 
         $colId = 'job_order_id';
         if ($orderType === 'ORDER' && self::tableHasColumn('job_order_materials', 'std_order_id')) {
@@ -1055,6 +1169,38 @@ class JobOrderService {
         } else {
             $liveJobId = (int)$orderId;
         }
+
+        if ($track_by_roll) {
+            $jobLookupId = (int)($liveJobId ?? 0);
+            if ($jobLookupId <= 0 && $orderType === 'JOB') {
+                $jobLookupId = (int)$orderId;
+            }
+            $jobRowForLength = null;
+            if ($jobLookupId > 0) {
+                $job = db_query('SELECT height_ft, width_ft, quantity FROM job_orders WHERE id = ? LIMIT 1', 'i', [$jobLookupId]);
+                $jobRowForLength = $job[0] ?? null;
+            }
+            if ($computed_len <= 0 && $jobRowForLength !== null) {
+                $jH = (float)($jobRowForLength['height_ft'] ?? 0);
+                $jW = (float)($jobRowForLength['width_ft'] ?? 0);
+                $jQ = (float)($jobRowForLength['quantity'] ?? 1);
+                $computed_len = max($jH, $jW) * $jQ;
+            }
+            if ($jobRowForLength !== null) {
+                $metadata['manual_assignment'] = true;
+                $computed_len = self::resolveRollMaterialLengthFt(
+                    [
+                        'quantity' => $qty,
+                        'computed_required_length_ft' => $computed_len,
+                        'metadata' => $metadata,
+                    ],
+                    $jobRowForLength
+                );
+            }
+        }
+
+        $metadata['manual_assignment'] = true;
+        $metaJson = !empty($metadata) ? json_encode($metadata) : null;
 
         // Check for duplicates
         if ($rollId) {
@@ -1204,11 +1350,9 @@ class JobOrderService {
             throw new Exception('Revision request storage is unavailable.');
         }
 
-        $wasInTransaction = function_exists('printflow_db_in_transaction')
-            ? printflow_db_in_transaction($conn)
-            : false;
-        if (!$wasInTransaction) {
-            $conn->begin_transaction();
+        $startedStatusTransaction = !printflow_db_in_transaction($conn);
+        if ($startedStatusTransaction && !printflow_db_transaction_depth_bump($conn)) {
+            throw new RuntimeException('Unable to start the job status transaction.');
         }
         try {
             // Serialize status transitions and make repeated completion calls a
@@ -1223,8 +1367,8 @@ class JobOrderService {
                 if ($normalizedNewStatus === 'COMPLETED') {
                     self::processDeductions((int)$orderId, ['materials' => true, 'inks' => false]);
                 }
-                if (!$wasInTransaction) {
-                    $conn->commit();
+                if ($startedStatusTransaction) {
+                    printflow_db_transaction_depth_pop($conn, true);
                 }
                 return true;
             }
@@ -1438,13 +1582,13 @@ class JobOrderService {
                 }
             }
 
-            if (!$wasInTransaction) {
-                $conn->commit();
+            if ($startedStatusTransaction) {
+                printflow_db_transaction_depth_pop($conn, true);
             }
             return true;
         } catch (Throwable $e) {
-            if (!$wasInTransaction) {
-                $conn->rollback();
+            if ($startedStatusTransaction) {
+                printflow_db_transaction_depth_pop($conn, false);
             }
             throw $e;
         }
@@ -1457,7 +1601,7 @@ class JobOrderService {
         global $conn;
 
         $startedTransaction = !printflow_db_in_transaction($conn);
-        if ($startedTransaction && !$conn->begin_transaction()) {
+        if ($startedTransaction && !printflow_db_transaction_depth_bump($conn)) {
             throw new RuntimeException('Unable to start the material deduction transaction.');
         }
 
@@ -1500,8 +1644,8 @@ class JobOrderService {
                     self::assertMaterialAssignmentsDeductionIntegrity((int)$orderId, $branchId);
                 }
             }
-            if ($startedTransaction && printflow_db_in_transaction($conn)) {
-                $conn->commit();
+            if ($startedTransaction) {
+                printflow_db_transaction_depth_pop($conn, true);
             }
             return;
         }
@@ -1538,8 +1682,8 @@ class JobOrderService {
                     'order_id' => $storeOrderId,
                     'reason' => 'order_total_not_configured',
                 ]);
-                if ($startedTransaction && printflow_db_in_transaction($conn)) {
-                    $conn->commit();
+                if ($startedTransaction) {
+                    printflow_db_transaction_depth_pop($conn, true);
                 }
                 return;
             }
@@ -1582,6 +1726,23 @@ class JobOrderService {
             self::assertMaterialAssignmentsDeductionIntegrity((int)$orderId, $branchId);
         }
         $materials = $processMaterials ? self::getScopedMaterials((int)$orderId, true, true) : $pendingMaterials;
+        $jobDimensionRows = db_query(
+            'SELECT height_ft, width_ft, quantity FROM job_orders WHERE id = ? LIMIT 1',
+            'i',
+            [(int)$orderId]
+        ) ?: [];
+        $jobDimensionRow = $jobDimensionRows[0] ?? null;
+        $itemsById = [];
+        foreach ($materials as $pendingMaterial) {
+            $pendingItemId = (int)($pendingMaterial['item_id'] ?? 0);
+            if ($pendingItemId <= 0 || isset($itemsById[$pendingItemId])) {
+                continue;
+            }
+            $pendingItem = InventoryManager::getItem($pendingItemId);
+            if ($pendingItem) {
+                $itemsById[$pendingItemId] = $pendingItem;
+            }
+        }
         $debugLog('materials_loaded', [
             'job_order_id' => (int)$orderId,
             'count' => count($materials),
@@ -1626,7 +1787,24 @@ class JobOrderService {
                 ]);
 
                 if ($item['track_by_roll']) {
-                    $lengthNeeded = (float)($m['computed_required_length_ft'] ?: $m['quantity']);
+                    if (self::rollMaterialSupersededByWiderAssignment($m, $materials, $itemsById)) {
+                        $meta = self::decodeMaterialMetadata($m['metadata'] ?? null);
+                        self::markSupersededRollMaterialSkipped((int)$m['id'], $meta);
+                        if (db_execute(
+                            "UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')",
+                            'i',
+                            [$m['id']]
+                        ) === false) {
+                            throw new RuntimeException('Failed to finalize the superseded roll-material assignment.');
+                        }
+                        $debugLog('material_skipped_superseded_roll', [
+                            'assignment_id' => (int)($m['id'] ?? 0),
+                            'item_id' => $itemId,
+                        ]);
+                        continue;
+                    }
+
+                    $lengthNeeded = self::resolveRollMaterialLengthFt($m, $jobDimensionRow);
 
                     if ($lengthNeeded <= 0) {
                         $debugLog('material_skipped_zero_quantity', [
@@ -1806,11 +1984,11 @@ class JobOrderService {
             }
         }
         if ($startedTransaction) {
-            $conn->commit();
+            printflow_db_transaction_depth_pop($conn, true);
         }
         } catch (Throwable $e) {
-            if ($startedTransaction && printflow_db_in_transaction($conn)) {
-                $conn->rollback();
+            if ($startedTransaction) {
+                printflow_db_transaction_depth_pop($conn, false);
             }
             if (getenv('PRINTFLOW_MATERIAL_DEDUCTION_DEBUG') === '1' || getenv('PRINTFLOW_POS_DATETIME_DEBUG') === '1') {
                 error_log('[PrintFlow material deduction] failed job=' . (int)$orderId . ' error=' . $e->getMessage());

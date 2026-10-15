@@ -365,6 +365,9 @@ $GLOBALS['printflow_db_diagnostics'] = array_merge($db_config_status, [
 if (!function_exists('printflow_db_in_transaction')) {
     /** mysqli has no portable inTransaction() API; ask the active SQL session. */
     function printflow_db_in_transaction($connection = null): bool {
+        if ((int)($GLOBALS['printflow_db_transaction_depth'] ?? 0) > 0) {
+            return true;
+        }
         global $conn;
         $connection = $connection instanceof mysqli ? $connection : $conn;
         if (!($connection instanceof mysqli)) return false;
@@ -374,6 +377,46 @@ if (!function_exists('printflow_db_in_transaction')) {
         $row = $result->fetch_assoc();
         $result->free();
         return (int)($row['active_transaction'] ?? 0) === 1;
+    }
+}
+
+if (!function_exists('printflow_db_transaction_depth_bump')) {
+    /** Begin a transaction only when no nested PrintFlow transaction is active. */
+    function printflow_db_transaction_depth_bump($connection = null): bool {
+        global $conn;
+        $connection = $connection instanceof mysqli ? $connection : $conn;
+        if (!($connection instanceof mysqli)) {
+            return false;
+        }
+        $depth = (int)($GLOBALS['printflow_db_transaction_depth'] ?? 0);
+        if ($depth === 0 && !$connection->begin_transaction()) {
+            return false;
+        }
+        $GLOBALS['printflow_db_transaction_depth'] = $depth + 1;
+        return true;
+    }
+}
+
+if (!function_exists('printflow_db_transaction_depth_pop')) {
+    /** Commit or roll back only when the outermost PrintFlow transaction ends. */
+    function printflow_db_transaction_depth_pop($connection = null, bool $commit = true): void {
+        global $conn;
+        $connection = $connection instanceof mysqli ? $connection : $conn;
+        if (!($connection instanceof mysqli)) {
+            return;
+        }
+        $depth = (int)($GLOBALS['printflow_db_transaction_depth'] ?? 0);
+        if ($depth <= 0) {
+            return;
+        }
+        $GLOBALS['printflow_db_transaction_depth'] = $depth - 1;
+        if ($depth === 1) {
+            if ($commit) {
+                $connection->commit();
+            } else {
+                $connection->rollback();
+            }
+        }
     }
 }
 
