@@ -215,13 +215,6 @@ $sql = "SELECT t.*,
         WHERE 1=1 AND " . printflow_customer_exclusion_inventory_scope_sql('t', 'inventory_transactions');
 $params = [];
 $types = '';
-
-// Display-only suppression requested for the ledger. The underlying inventory
-// transactions remain stored and continue to affect inventory balances.
-$sql .= " AND NOT (t.transaction_date >= ? AND t.transaction_date < ?)";
-$types .= 'ss';
-$params[] = '2026-10-15 00:00:00';
-$params[] = '2026-10-17 00:00:00';
 if ($branchId > 0) {
     if (!$is_manager && InventoryManager::isMainBranch($branchId)) {
         // Admin main branch view includes legacy rows that were saved before branch_id was enforced.
@@ -739,9 +732,6 @@ if (isset($_GET['ajax'])) {
         </header>
 
         <main>
-            <div style="margin:0 0 16px;padding:12px 14px;border:1px solid #bfdbfe;border-radius:8px;background:#eff6ff;color:#1e3a8a;font-size:13px;">
-                Ledger display excludes transactions dated October 15-16, 2026. Inventory records and balances are unchanged.
-            </div>
             <!-- Ledger Card -->
             <div class="card">
                 <div id="ledger-filter-toolbar" style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px;" x-data="filterPanel()">
