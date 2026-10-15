@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/../includes/historical_admin_tools_guard.php';
+printflow_block_historical_admin_tool();
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
-require_once __DIR__ . '/../includes/historical_admin_tools_guard.php';
 require_role('Admin');
-printflow_block_historical_admin_tool();
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('Expires: 0');
