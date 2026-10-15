@@ -202,7 +202,10 @@ function htg_branch(int $id): array {
 }
 function htg_catalog(string $table): array {
     if ($table === 'products') return db_query("SELECT product_id AS id, name, price FROM products WHERE LOWER(TRIM(product_type))='fixed' AND LOWER(TRIM(COALESCE(status,''))) NOT IN ('archived','inactive') ORDER BY product_id") ?: [];
-    return db_query("SELECT service_id AS id, name, category, COALESCE(price,0) AS price FROM services WHERE status='Activated' ORDER BY service_id") ?: [];
+    // The admin service catalog treats status values case-insensitively. Keep
+    // the generator aligned with it while still excluding inactive/archived
+    // services from the selectable generation pool.
+    return db_query("SELECT service_id AS id, name, category, COALESCE(price,0) AS price FROM services WHERE LOWER(TRIM(COALESCE(status,'')))='activated' AND TRIM(COALESCE(name,'')) <> '' ORDER BY name, service_id") ?: [];
 }
 function htg_schema_ready(): bool {
     foreach ([['orders','customer_id'],['orders','branch_id'],['orders','reference_id'],['orders','total_amount'],['orders','status'],['orders','payment_status'],['orders','payment_method'],['orders','payment_reference'],['orders','order_date'],['orders','updated_at'],['orders','notes'],['orders','pos_guest_display_name'],['orders','pos_guest_email'],['order_items','customization_data'],['inventory_transactions','transaction_date'],['inventory_transactions','transaction_id']] as $f) if (!db_table_has_column($f[0],$f[1])) return false;
