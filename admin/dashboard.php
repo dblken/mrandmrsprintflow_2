@@ -111,18 +111,44 @@ $bSql = branch_where('o', $branchId, $bTypes, $bParams);
 
 // ── KPI: Total Customers ──────────────────────────────
 try {
+    $customerOrderBranch = $branchId === 'all'
+        ? " AND (o.branch_id IS NULL OR o.branch_id IN (SELECT id FROM branches WHERE status != 'Archived'))"
+        : ' AND o.branch_id = ?';
+    $customerJobBranch = 'COALESCE(jo.branch_id, jo_ord.branch_id)';
+    $customerJobBranchSql = $branchId === 'all'
+        ? " AND ({$customerJobBranch} IS NULL OR {$customerJobBranch} IN (SELECT id FROM branches WHERE status != 'Archived'))"
+        : " AND {$customerJobBranch} = ?";
+    $customerTypes = 'ss' . ($branchId === 'all' ? '' : 'i') . 'ss' . ($branchId === 'all' ? '' : 'i');
+    $customerParams = [$kpiDateFrom, $kpiDateToEnd];
     if ($branchId !== 'all') {
-        [$customerWhere, $customerTypes, $customerParams] = branch_customers_belong_where_sql((int)$branchId, 'c');
-        $customerWhere = ' AND COALESCE(c.email_verified, 0) = 1'
-            . printflow_pos_sql_exclude_placeholder_customers('c')
-            . $customerWhere;
-    } else {
-        $customerWhere = ' AND COALESCE(c.email_verified, 0) = 1'
-            . printflow_pos_sql_exclude_placeholder_customers('c')
-            . ' AND ' . printflow_customer_exclusion_customer_scope_sql('c.customer_id');
-        $customerTypes = '';
-        $customerParams = [];
+        $customerParams[] = (int)$branchId;
     }
+    $customerParams[] = $kpiDateFrom;
+    $customerParams[] = $kpiDateToEnd;
+    if ($branchId !== 'all') {
+        $customerParams[] = (int)$branchId;
+    }
+    $customerWhere = ' AND COALESCE(c.email_verified, 0) = 1'
+        . printflow_pos_sql_exclude_placeholder_customers('c')
+        . ' AND ' . printflow_customer_exclusion_customer_scope_sql('c.customer_id')
+        . " AND (
+            EXISTS (
+                SELECT 1 FROM orders o
+                WHERE o.customer_id = c.customer_id
+                  AND o.order_date BETWEEN ? AND ?
+                  AND " . printflow_order_archive_scope_sql('o') . "
+                  {$customerOrderBranch}
+            )
+            OR EXISTS (
+                SELECT 1 FROM job_orders jo
+                LEFT JOIN orders jo_ord ON jo_ord.order_id = jo.order_id
+                WHERE jo.customer_id = c.customer_id
+                  AND COALESCE(jo_ord.order_date, jo.created_at) BETWEEN ? AND ?
+                  AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
+                  AND " . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . "
+                  {$customerJobBranchSql}
+            )
+        )";
     $total_customers = (int)(db_query(
         "SELECT COUNT(*) AS cnt FROM customers c WHERE 1=1 {$customerWhere}",
         $customerTypes ?: null,
@@ -1209,7 +1235,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Total Customers</span>
                         <span class="kpi-value"><?php echo number_format($total_customers); ?></span>
-                        <span class="kpi-sub"><?php echo $branchId === 'all' ? 'Registered customers' : 'Branch customers'; ?></span>
+                        <span class="kpi-sub"><?php echo htmlspecialchars($dashboard_filter_label); ?> period</span>
                         <span class="kpi-card-cta" aria-hidden="true">View details →</span>
                     </span>
                 </a>
