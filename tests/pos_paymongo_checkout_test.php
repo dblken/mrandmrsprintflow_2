@@ -39,7 +39,9 @@ pos_paymongo_checkout_assert(
 );
 pos_paymongo_checkout_assert(
     strpos($posSource, '<option value="Cash">Cash</option>') !== false
-        && strpos($posSource, '<option value="PayMongo QRPh">PayMongo QR Ph</option>') !== false
+        && strpos($posSource, '<option value="PayMongo QRPh">QR PH</option>') !== false
+        && strpos($posSource, 'id="pos-qrph-payment-section"') !== false
+        && strpos($posSource, 'syncPosQrphPaymentSection') !== false
         && strpos($posSource, '<option value="GCash">') === false
         && strpos($posSource, '<option value="PayMongo Checkout">') === false,
     'POS payment selector exposes only Cash and available PayMongo QR Ph.'

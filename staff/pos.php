@@ -1709,6 +1709,42 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             justify-self: end;
         }
 
+        .pos-qrph-payment-section {
+            display: none;
+            margin-top: 12px;
+            padding: 12px 14px;
+            border: 1px solid #99f6e4;
+            border-radius: 12px;
+            background: #ecfdf5;
+            text-align: left;
+        }
+
+        .pos-qrph-payment-section.is-visible {
+            display: block;
+        }
+
+        .pos-qrph-payment-section strong {
+            display: block;
+            font-size: 13px;
+            font-weight: 800;
+            color: #0f766e;
+            margin-bottom: 4px;
+        }
+
+        .pos-qrph-payment-section p {
+            margin: 0;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #115e59;
+        }
+
+        .pos-qrph-payment-amount {
+            margin-top: 8px;
+            font-size: 13px;
+            font-weight: 800;
+            color: #134e4a;
+        }
+
         .pos-tender-wrap {
             position: relative;
             min-width: 148px;
@@ -3201,9 +3237,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                     <select id="pos-payment-method" class="pos-category-select pos-payment-field"
                                         onchange="toggleReferenceField()">
                                         <option value="Cash">Cash</option>
-                                        <?php if ($posPayMongoQrphAvailable): ?><option value="PayMongo QRPh">PayMongo QR Ph</option><?php endif; ?>
+                                        <?php if ($posPayMongoQrphAvailable): ?><option value="PayMongo QRPh">QR PH</option><?php endif; ?>
                                     </select>
                                 </div>
+
+                                <?php if ($posPayMongoQrphAvailable): ?>
+                                <div id="pos-qrph-payment-section" class="pos-qrph-payment-section" hidden aria-live="polite">
+                                    <strong>QR PH</strong>
+                                    <p>PayMongo Dynamic QR Ph. Confirm the sale to generate the scannable QR code; the order stays unpaid until PayMongo confirms payment.</p>
+                                    <?php if ($posPayMongoMode === 'test'): ?>
+                                    <p style="margin-top:8px;color:#92400e;">Test Mode: use PayMongo&apos;s test simulator — do not scan or pay a live QR.</p>
+                                    <?php endif; ?>
+                                    <div id="pos-qrph-payment-amount" class="pos-qrph-payment-amount"></div>
+                                </div>
+                                <?php endif; ?>
 
                                 <div class="pos-tender-group" id="tender-group">
                                     <label class="pos-summary-label" for="pos-tendered">
@@ -4641,6 +4688,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         document.addEventListener('DOMContentLoaded', async () => {
             updatePosTransactionDateTimeSummaryUI();
+            toggleReferenceField();
             fetchProducts();
             refreshCart(); // Initialize cart from session
             const pendingPayMongo = sessionStorage.getItem('pos_paymongo_pending');
@@ -7153,6 +7201,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             document.getElementById('pos-total').textContent = fTotal;
 
             calculateChange();
+            syncPosQrphPaymentSection();
             updateCheckoutState();
         }
 
@@ -7162,11 +7211,51 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         // Handlers are used above in renderCart via 'index' directly
 
 
+        const POS_PAYMENT_METHOD_QRPH = 'PayMongo QRPh';
+
+        function normalizePosPaymentMethod(method) {
+            const key = String(method || '').trim().toLowerCase().replace(/\s+/g, ' ');
+            if (key === 'paymongo qrph' || key === 'paymongo qr ph') {
+                return POS_PAYMENT_METHOD_QRPH;
+            }
+            return String(method || '').trim();
+        }
+
+        function isPayMongoPaymentMethod(method) {
+            return normalizePosPaymentMethod(method) === POS_PAYMENT_METHOD_QRPH;
+        }
+
+        function syncPosQrphPaymentSection() {
+            const section = document.getElementById('pos-qrph-payment-section');
+            const amountEl = document.getElementById('pos-qrph-payment-amount');
+            if (!section) {
+                return;
+            }
+            const pm = document.getElementById('pos-payment-method')?.value || '';
+            const isPayMongo = isPayMongoPaymentMethod(pm);
+            section.hidden = !isPayMongo;
+            section.classList.toggle('is-visible', isPayMongo);
+            if (amountEl) {
+                amountEl.textContent = isPayMongo && currentTotal > 0
+                    ? ('Amount to collect: ' + formatMoney(currentTotal))
+                    : (isPayMongo ? 'Amount to collect: ' + formatMoney(0) : '');
+            }
+        }
+
         function toggleReferenceField() {
             const pm = document.getElementById('pos-payment-method').value;
             const isPayMongo = isPayMongoPaymentMethod(pm);
-            document.getElementById('tender-group').style.display = isPayMongo ? 'none' : '';
-            document.getElementById('change-group').style.display = isPayMongo ? 'none' : '';
+            const tenderGroup = document.getElementById('tender-group');
+            const changeGroup = document.getElementById('change-group');
+            if (tenderGroup) {
+                tenderGroup.style.display = isPayMongo ? 'none' : '';
+                tenderGroup.hidden = isPayMongo;
+            }
+            if (changeGroup) {
+                changeGroup.style.display = isPayMongo ? 'none' : '';
+                changeGroup.hidden = isPayMongo;
+            }
+            syncPosQrphPaymentSection();
             updateCheckoutState();
         }
 
@@ -7376,10 +7465,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return payload;
         }
 
-        function isPayMongoPaymentMethod(method) {
-            return String(method || '').trim() === 'PayMongo QRPh';
-        }
-
         function calculateChange() {
             if (currentTotal === 0) {
                 document.getElementById('pos-change').textContent = formatMoney(0);
@@ -7540,7 +7625,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const payload = {
                 action: 'walkin_checkout',
                 ...posCheckoutCustomerPayload(),
-                payment_method: pm,
+                payment_method: normalizePosPaymentMethod(pm),
                 reference_number: '',
                 amount_tendered: tendered,
                 csrf_token: POS_CSRF_TOKEN,

@@ -1436,7 +1436,10 @@ if ($servicePriceError !== null) {
     exit;
 }
 
-$pm_lc = strtolower(trim($payment_method));
+$pm_lc = preg_replace('/\s+/', ' ', strtolower(trim($payment_method)));
+if ($pm_lc === 'paymongo qr ph') {
+    $pm_lc = 'paymongo qrph';
+}
 $allowedPosPaymentMethods = [
     'cash' => 'Cash',
     'paymongo qrph' => 'PayMongo QRPh',
