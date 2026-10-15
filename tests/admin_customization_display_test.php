@@ -28,9 +28,8 @@ $assert(str_contains($adminPage, 'max-width:560px'), 'admin modal must match sta
 $assert(str_contains($adminPage, 'pf-customization-order-details'), 'admin modal must use staff order details layout');
 $assert(str_contains($adminPage, 'adminItemSpecEntries'), 'admin modal must build spec grid from API display_specifications');
 $assert(str_contains($adminPage, 'resolvePriorityValue'), 'admin modal must resolve priority before Not specified fallback');
-$assert(str_contains($adminPage, 'jobPaymentProofUrl'), 'admin modal must resolve payment proof URL safely');
+$assert(!str_contains($adminPage, 'customization-payment-proof-block'), 'admin modal must hide payment proof section');
 $assert(str_contains($adminPage, 'closeCustomizationModal'), 'admin modal must reset job state when closing');
-$assert(str_contains($adminPage, 'No payment proof uploaded'), 'admin modal must show payment proof fallback message');
 $assert(str_contains($adminPage, 'template x-if="job && !loading"'), 'admin modal content must not bind while job is null');
 
 $assert(str_contains($jobSummary, 'function printflow_job_order_business_date_value'), 'shared helper for business date exists');

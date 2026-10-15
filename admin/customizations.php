@@ -1929,15 +1929,6 @@ function custom_payment_badge($status) {
                         <p class="customization-section-label" style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 8px;">Notes</p>
                         <div class="notes-box" x-text="displayAdminNotes(job)"></div>
                     </div>
-                    <div class="customization-payment-proof-block" style="margin-top:12px;">
-                        <p style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;margin:0 0 8px;">Payment Proof</p>
-                        <template x-if="jobPaymentProofUrl(job)">
-                            <div data-payment-proof-preview style="width:120px;height:120px;border-radius:8px;border:1px solid #e2e8f0;overflow:hidden;cursor:pointer;background:#f8fafc;" @click="viewImage(jobPaymentProofUrl(job))">
-                                <img :src="jobPaymentProofUrl(job)" style="width:100%;height:100%;object-fit:cover;" alt="Payment Proof" @error="handlePaymentProofImageError($el)">
-                            </div>
-                        </template>
-                        <p x-show="!jobPaymentProofUrl(job)" style="font-size:12px;color:#6b7280;font-style:italic;margin:0;">No payment proof uploaded</p>
-                    </div>
                 </div>
                 <!-- Footer -->
                 <div class="customization-modal-footer">
