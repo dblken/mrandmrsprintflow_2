@@ -1723,6 +1723,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             display: block;
         }
 
+        .pos-qrph-payment-section[hidden] {
+            display: none !important;
+        }
+
         .pos-qrph-payment-section strong {
             display: block;
             font-size: 13px;
@@ -3235,7 +3239,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                         Payment Method
                                     </label>
                                     <select id="pos-payment-method" class="pos-category-select pos-payment-field"
-                                        onchange="toggleReferenceField()">
+                                        onchange="toggleReferenceField()" aria-controls="pos-qrph-payment-section tender-group change-group">
                                         <option value="Cash">Cash</option>
                                         <?php if ($posPayMongoQrphAvailable): ?><option value="PayMongo QRPh">QR PH</option><?php endif; ?>
                                     </select>
@@ -4688,6 +4692,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         document.addEventListener('DOMContentLoaded', async () => {
             updatePosTransactionDateTimeSummaryUI();
+            initPosPaymentMethodHandlers();
             toggleReferenceField();
             fetchProducts();
             refreshCart(); // Initialize cart from session
@@ -7242,8 +7247,19 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
         }
 
+        function initPosPaymentMethodHandlers() {
+            const paymentSelect = document.getElementById('pos-payment-method');
+            if (!paymentSelect || paymentSelect.dataset.posPaymentBound === '1') {
+                return;
+            }
+            paymentSelect.dataset.posPaymentBound = '1';
+            paymentSelect.addEventListener('change', toggleReferenceField);
+            paymentSelect.addEventListener('input', toggleReferenceField);
+        }
+
         function toggleReferenceField() {
-            const pm = document.getElementById('pos-payment-method').value;
+            const paymentSelect = document.getElementById('pos-payment-method');
+            const pm = paymentSelect ? paymentSelect.value : '';
             const isPayMongo = isPayMongoPaymentMethod(pm);
             const tenderGroup = document.getElementById('tender-group');
             const changeGroup = document.getElementById('change-group');
@@ -7256,6 +7272,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 changeGroup.hidden = isPayMongo;
             }
             syncPosQrphPaymentSection();
+            if (isPayMongo) {
+                const section = document.getElementById('pos-qrph-payment-section');
+                if (section && typeof section.scrollIntoView === 'function') {
+                    section.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                }
+            }
             updateCheckoutState();
         }
 
