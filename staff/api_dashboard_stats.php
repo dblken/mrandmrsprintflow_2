@@ -113,6 +113,7 @@ require_once __DIR__ . '/../includes/staff_status_filters.php';
 require_once __DIR__ . '/../includes/staff_dashboard_revenue.php';
 require_once __DIR__ . '/../includes/staff_dashboard_queries.php';
 require_once __DIR__ . '/../includes/staff_dashboard_cache.php';
+require_once __DIR__ . '/../includes/staff_dashboard_metrics_version.php';
 
 if ($__pf_debug_requested && defined('PRINTFLOW_DEBUG_SESSION_LOG') && PRINTFLOW_DEBUG_SESSION_LOG) {
     $sessionCookieName = session_name();
@@ -625,6 +626,7 @@ if ($staffRole === 'pos') {
 
 $payload = [
     'success' => true,
+    'metrics_version' => PRINTFLOW_STAFF_DASHBOARD_METRICS_VERSION,
     '_branch_id' => $staffBranchId,
     'stats' => $stats,
     'chart' => [
