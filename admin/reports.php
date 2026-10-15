@@ -394,11 +394,11 @@ if (!$gaBranchEmpty) {
         $fcRaw = db_query(
             "SELECT p.name AS product,
                     DATE_FORMAT(o.order_date,'%Y-%m') as mon,
-                    COUNT(*) as orders
+                    COALESCE(SUM(oi.quantity), 0) as orders
              FROM order_items oi
              JOIN products p ON oi.product_id=p.product_id
              JOIN orders o ON oi.order_id=o.order_id
-             WHERE " . printflow_order_archive_scope_sql('o') . "
+             WHERE " . pf_reports_store_product_order_scope_sql('o') . "
                AND o.order_date >= DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 5 MONTH),'%Y-%m-01')
                AND o.order_date <  DATE_FORMAT(NOW(),'%Y-%m-01') + INTERVAL 1 MONTH$b
              GROUP BY p.product_id, p.name, mon ORDER BY p.name, mon",
