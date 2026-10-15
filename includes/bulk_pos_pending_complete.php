@@ -229,7 +229,7 @@ if (!function_exists('printflow_bulk_pos_pending_orders_in_range')) {
                 LEFT JOIN customers c ON c.customer_id = o.customer_id
                 WHERE {$archiveSql}
                   AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
-                  AND LOWER(TRIM(COALESCE(o.order_type, ''))) IN ('', 'custom')
+                  AND (o.order_type IS NULL OR o.order_type = 'product' OR o.order_type = 'custom')
                   AND LOWER(TRIM(COALESCE(o.status, ''))) NOT IN ('draft')
                   AND {$posFragment}
                   {$draftExcludeSql}

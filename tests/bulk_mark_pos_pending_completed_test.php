@@ -35,6 +35,7 @@ bulk_complete_test_assert(strpos($bulkInclude, 'cust_pos.customization_details')
 bulk_complete_test_assert(strpos($bulkInclude, 'printflow_bulk_complete_inclusive_calendar_range') !== false, 'bulk preview expands to full start/end calendar days');
 bulk_complete_test_assert(strpos($bulkInclude, 'printflow_bulk_pos_row_pending_bucket') !== false, 'bulk preview pending bucket matches POS list semantics');
 bulk_complete_test_assert(strpos($bulkInclude, 'printflow_bulk_pos_order_branch_id_sql') !== false, 'bulk preview branch filter matches job/order branch resolution');
+bulk_complete_test_assert(strpos($bulkInclude, "o.order_type = 'product'") !== false, 'bulk preview order_type scope matches staff list_pending_orders');
 bulk_complete_test_assert(strpos($bulkInclude, 'printflow_bulk_parse_execute_order_ids') !== false, 'bulk execute accepts preview order id list');
 bulk_complete_test_assert(strpos($staffPage, 'order_ids[]') !== false, 'bulk confirm posts preview order ids');
 
