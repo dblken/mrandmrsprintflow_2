@@ -513,8 +513,9 @@ $dashMark('recent_orders');
 // ── Low Stock Alerts ──────────────────────────────────
 $low_stock_by_branch = [];
 try {
-    printflow_ensure_inv_items_threshold_schema();
-
+    // Dashboard reads must not perform inventory schema maintenance. Inventory
+    // management pages own that setup; keeping it out of this request avoids
+    // CREATE/ALTER metadata locks during normal dashboard loads.
     $all_items = db_query(
         "SELECT i.id, i.name as material_name, i.reorder_level, i.critical_level, i.unit_of_measure as unit,
                 ic.name as category_name
