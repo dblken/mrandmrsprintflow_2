@@ -47,7 +47,7 @@ qrph_409_check(!str_contains($customer, '✓ Payment Confirmed') && !str_contain
 qrph_409_check(str_contains($customer, 'class="paid-total"') && str_contains($customer, 'payment-detail-grid'), '22. paid amount and key values use an emphasized professional layout');
 qrph_409_check(str_contains($customer, 'payment-status-badge') && !str_contains($customer, 'confirmedButton'), '23. Awaiting Production is a compact semantic status');
 qrph_409_check(!str_contains($orders, '<strong>Balance:</strong>') && !str_contains($orders, '>Remaining balance<') && !str_contains($customer, 'Remaining Balance:'), '24. customer Balance and Remaining Balance fields are removed');
-qrph_409_check(str_contains($customer, 'paymongo-method-summary') && str_contains($customer, 'Generating secure QR...'), '25. PayMongo QR-only panel and loading state use the redesigned UI');
+qrph_409_check(str_contains($customer, 'paymongo-qr-image-wrap') && str_contains($customer, 'Generating secure QR...'), '25. PayMongo QR-only panel and loading state use the redesigned UI');
 qrph_409_check(str_contains($staff, 'id="paymongo-paid-details"') && !str_contains($staff, 'Remaining Balance:'), '26. staff Payment Received details are readable and omit the redundant balance');
 
 echo "All {$passed} PayMongo QRPh 409 and payment UI regression tests passed.\n";
