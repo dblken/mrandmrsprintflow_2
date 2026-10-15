@@ -51,6 +51,19 @@ if (!function_exists('printflow_order_archive_tables_ready')) {
     }
 }
 
+if (!function_exists('printflow_hidden_historical_orders_ready')) {
+    function printflow_hidden_historical_orders_ready(): bool
+    {
+        static $ready = null;
+        if ($ready !== null) return $ready;
+        $rows = db_query(
+            "SELECT COUNT(*) AS n FROM information_schema.tables
+             WHERE table_schema = DATABASE() AND table_name = 'historical_generator_hidden_orders'"
+        );
+        return $ready = (int)($rows[0]['n'] ?? 0) === 1;
+    }
+}
+
 if (!function_exists('printflow_order_archive_exclusion_sql')) {
     /** SQL predicate excluding an archived parent order; alias must be trusted code. */
     function printflow_order_archive_exclusion_sql(string $orderIdExpression): string
@@ -62,9 +75,13 @@ if (!function_exists('printflow_order_archive_exclusion_sql')) {
             ? "NOT EXISTS (SELECT 1 FROM printflow_order_archive_map pf_oam
                 WHERE pf_oam.order_id = {$orderIdExpression} AND pf_oam.status = 'archived')"
             : '1=1';
+        $hiddenPredicate = printflow_hidden_historical_orders_ready()
+            ? "NOT EXISTS (SELECT 1 FROM historical_generator_hidden_orders pf_hgh
+                WHERE pf_hgh.order_id = {$orderIdExpression})"
+            : '1=1';
         $customerPredicate = printflow_customer_exclusion_order_scope_sql($orderIdExpression);
-        if ($archivePredicate === '1=1' && $customerPredicate === '1=1') return '1=1';
-        return '(' . $archivePredicate . ' AND ' . $customerPredicate . ')';
+        if ($archivePredicate === '1=1' && $hiddenPredicate === '1=1' && $customerPredicate === '1=1') return '1=1';
+        return '(' . $archivePredicate . ' AND ' . $hiddenPredicate . ' AND ' . $customerPredicate . ')';
     }
 }
 
