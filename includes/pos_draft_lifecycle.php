@@ -144,9 +144,13 @@ function pos_void_unfinalized_draft(int $orderId): array
     }
 
     try {
+        $paymentSet = '';
+        if (function_exists('db_table_has_column') && db_table_has_column('orders', 'payment_status')) {
+            $paymentSet = ", payment_status = 'Cancelled'";
+        }
         db_execute(
             "UPDATE orders
-             SET status = 'Cancelled',
+             SET status = 'Cancelled'{$paymentSet},
                  updated_at = NOW()
              WHERE order_id = ?
                AND status NOT IN ('Completed', 'Cancelled')",
@@ -236,4 +240,78 @@ function pos_void_unfinalized_drafts(array $orderIds): void
             pos_void_unfinalized_draft($orderId);
         }
     }
+}
+
+/**
+ * Order IDs tied to in-flight PayMongo POS checkouts (session only).
+ *
+ * @return int[]
+ */
+function pos_session_pending_checkout_order_ids(?string $checkoutToken = null): array
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        return [];
+    }
+
+    $ids = [];
+    foreach (['pos_checkout_orders', 'pos_paymongo_checkouts'] as $sessionKey) {
+        if (!isset($_SESSION[$sessionKey]) || !is_array($_SESSION[$sessionKey])) {
+            continue;
+        }
+        foreach ($_SESSION[$sessionKey] as $token => $orderId) {
+            if ($checkoutToken !== null && $checkoutToken !== '' && (string)$token !== $checkoutToken) {
+                continue;
+            }
+            $ids[] = (int)$orderId;
+        }
+    }
+
+    return array_values(array_unique(array_filter($ids)));
+}
+
+/**
+ * Cancel unfinalized PayMongo / pending POS checkout orders and clear session mappings.
+ *
+ * @return array{voided:int[],skipped:int[]}
+ */
+function pos_void_session_pending_paymongo_checkouts(?string $checkoutToken = null, int $explicitOrderId = 0): array
+{
+    $orderIds = pos_session_pending_checkout_order_ids($checkoutToken);
+    if ($explicitOrderId > 0) {
+        $orderIds[] = $explicitOrderId;
+    }
+    $orderIds = array_values(array_unique(array_filter(array_map('intval', $orderIds))));
+
+    $voided = [];
+    $skipped = [];
+    foreach ($orderIds as $orderId) {
+        $result = pos_void_unfinalized_draft($orderId);
+        if (!empty($result['success'])) {
+            $voided[] = $orderId;
+        } else {
+            $skipped[] = $orderId;
+        }
+    }
+
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        foreach (['pos_checkout_orders', 'pos_paymongo_checkouts'] as $sessionKey) {
+            if (!isset($_SESSION[$sessionKey]) || !is_array($_SESSION[$sessionKey])) {
+                continue;
+            }
+            if ($checkoutToken === null || $checkoutToken === '') {
+                $_SESSION[$sessionKey] = [];
+                continue;
+            }
+            unset($_SESSION[$sessionKey][$checkoutToken]);
+        }
+    }
+
+    if ($voided !== [] && function_exists('printflow_staff_dashboard_cache_invalidate_branch')) {
+        $branchId = (int)($_SESSION['branch_id'] ?? 0);
+        if ($branchId > 0) {
+            printflow_staff_dashboard_cache_invalidate_branch($branchId);
+        }
+    }
+
+    return ['voided' => $voided, 'skipped' => $skipped];
 }

@@ -4268,7 +4268,7 @@ window.pfServiceFieldCatalog = (() => {
             detailRetryPayload: null,
             detailRequestToken: 0,
             currentPage: 1,
-            itemsPerPage: 15,
+            itemsPerPage: 10,
             orders: [],
             statusOverrides: {},
             isPosSimplifiedView: <?php echo $isPosCustomizationView ? 'true' : 'false'; ?>,

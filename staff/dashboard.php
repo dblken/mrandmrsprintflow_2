@@ -42,7 +42,7 @@ $dashboardServiceJoinSql = $hasOrderItemServiceId
 
 // --- 1. SET DATE RANGE & FILTERS ---
 $page = max(1, (int)($_GET['page'] ?? 1));
-$limit = 15;
+$limit = printflow_staff_list_page_size();
 $offset = ($page - 1) * $limit;
 
 $status_filter = printflow_staff_dashboard_normalize_status_filter((string)($_GET['status'] ?? ''), $staffAccessMeta['key'] ?? null);
@@ -285,7 +285,8 @@ $top_services = printflow_staff_dashboard_top_sales(
 );
 
 // Recent Orders with filters (Scoped)
-$sql_cond = " WHERE o.branch_id = ? AND {$staffOrderScopeSql}";
+$recentVisibilitySql = printflow_staff_recent_orders_visibility_sql('o', $staffAccessMeta['key'] ?? null);
+$sql_cond = " WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$recentVisibilitySql}";
 $params = [$staffBranchId];
 $types = "i";
 
@@ -739,7 +740,7 @@ function staffDashboardToolbar() {
                                                  <?php echo status_badge($order['status'], 'order'); ?>
                                              </td>
                                             <td style="text-align:right;">
-                                                <a href="<?php echo htmlspecialchars(printflow_staff_order_management_url((int)$order['order_id'], true)); ?>" class="btn-staff-action btn-staff-action-blue">Manage</a>
+                                                <a href="<?php echo htmlspecialchars(printflow_staff_order_management_url((int)$order['order_id'], !$is_pos_staff)); ?>" class="btn-staff-action btn-staff-action-blue">Manage</a>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -912,16 +913,8 @@ async function refreshDashboard(page = 1, status = null, timeframe = null) {
         
         // 5. Update Pagination
         const pagWrapper = document.getElementById('paginationWrapper');
-        if (pagWrapper && data.pagination.total_pages > 1) {
-            let pagHtml = '<div style="display:flex; justify-content:center; gap:4px; margin-top:20px;">';
-            for (let i = 1; i <= data.pagination.total_pages; i++) {
-                const active = i === data.pagination.current_page ? 'background:var(--staff-pagination-active-bg); color:#fff; border-color:var(--staff-pagination-active-border);' : 'background:#fff; color:#64748b; border-color:#e2e8f0;';
-                pagHtml += `<button onclick="refreshDashboard(${i}, null, null)" style="width:32px; height:32px; border:1px solid; border-radius:8px; cursor:pointer; font-weight:700; font-size:12px; transition:all 0.2s; ${active}">${i}</button>`;
-            }
-            pagHtml += '</div>';
-            pagWrapper.innerHTML = pagHtml;
-        } else if (pagWrapper) {
-            pagWrapper.innerHTML = '';
+        if (pagWrapper) {
+            pagWrapper.innerHTML = (data.pagination && data.pagination.html) ? data.pagination.html : '';
         }
 
     } catch (err) {

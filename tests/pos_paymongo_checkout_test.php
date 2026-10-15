@@ -77,8 +77,16 @@ pos_paymongo_checkout_assert(
     strpos($posSource, 'closePayMongoPosModal({ fullReset: true })') !== false
         && strpos($posSource, 'function clearPosCartAfterSuccessfulSale') !== false
         && strpos($posSource, 'function dismissPosQrphFlow') !== false
-        && strpos($posSource, 'posQrphFlowEpoch') !== false,
+        && strpos($posSource, 'posQrphFlowEpoch') !== false
+        && strpos($posSource, 'posAbandonPayMongoCheckout') !== false
+        && strpos($posSource, "action: 'abandon_qrph'") !== false,
     'Dismissed QR PH flows invalidate pending state; confirmed sales clear the cart through the shared helper.'
+);
+$cartHandler = (string)file_get_contents(__DIR__ . '/../staff/api/pos_cart_handler.php');
+pos_paymongo_checkout_assert(
+    strpos($cartHandler, "case 'abandon_qrph':") !== false
+        && strpos($cartHandler, 'pos_void_session_pending_paymongo_checkouts') !== false,
+    'Cart handler cancels abandoned PayMongo checkout orders server-side.'
 );
 pos_paymongo_checkout_assert(
     strpos($posSource, 'resumePayMongoPosModal') === false,

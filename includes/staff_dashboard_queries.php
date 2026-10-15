@@ -3,6 +3,105 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/staff_dashboard_revenue.php';
+require_once __DIR__ . '/staff_status_filters.php';
+
+if (!function_exists('printflow_staff_list_page_size')) {
+    function printflow_staff_list_page_size(): int
+    {
+        return 10;
+    }
+}
+
+if (!function_exists('printflow_staff_product_order_visible_sql')) {
+    /** POS/online product rows: completed and paid only. */
+    function printflow_staff_product_order_visible_sql(string $alias = 'o'): string
+    {
+        $alias = trim($alias) !== '' ? trim($alias) : 'o';
+
+        return "(
+            LOWER(TRIM(COALESCE({$alias}.order_type, 'product'))) = 'product'
+            AND LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed'
+            AND LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
+            AND LOWER(TRIM(COALESCE({$alias}.order_source, ''))) NOT IN ('pos_draft', 'pos_merged')
+        )";
+    }
+}
+
+if (!function_exists('printflow_staff_recent_orders_visibility_sql')) {
+    function printflow_staff_recent_orders_visibility_sql(string $alias = 'o', ?string $role = null): string
+    {
+        $alias = trim($alias) !== '' ? trim($alias) : 'o';
+        $roleKey = printflow_staff_status_role($role);
+        $productSql = printflow_staff_product_order_visible_sql($alias);
+
+        if ($roleKey === 'pos') {
+            $customSql = "(
+                LOWER(TRIM(COALESCE({$alias}.order_type, ''))) = 'custom'
+                AND LOWER(TRIM(COALESCE({$alias}.status, ''))) NOT IN ('cancelled', 'rejected', 'draft')
+                AND LOWER(TRIM(COALESCE({$alias}.order_source, ''))) NOT IN ('pos_draft', 'pos_merged')
+                AND LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
+            )";
+        } else {
+            $customSql = "(
+                LOWER(TRIM(COALESCE({$alias}.order_type, ''))) = 'custom'
+                AND LOWER(TRIM(COALESCE({$alias}.status, ''))) NOT IN ('cancelled', 'rejected', 'draft')
+                AND LOWER(TRIM(COALESCE({$alias}.order_source, ''))) NOT IN ('pos_draft', 'pos_merged')
+            )";
+        }
+
+        return "({$productSql} OR {$customSql})";
+    }
+}
+
+if (!function_exists('printflow_staff_dashboard_ajax_pagination_html')) {
+    function printflow_staff_dashboard_ajax_pagination_html(int $currentPage, int $totalPages): string
+    {
+        if ($totalPages <= 1) {
+            return '';
+        }
+        $currentPage = max(1, min($currentPage, $totalPages));
+        $window = 2;
+        $pages = [1];
+        $rangeStart = max(2, $currentPage - $window);
+        $rangeEnd = min($totalPages - 1, $currentPage + $window);
+        for ($i = $rangeStart; $i <= $rangeEnd; $i++) {
+            $pages[] = $i;
+        }
+        if ($totalPages > 1) {
+            $pages[] = $totalPages;
+        }
+        $pages = array_values(array_unique($pages));
+        sort($pages);
+
+        $html = '<div class="pagination-container" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:20px;padding:16px 0;border-top:1px solid #f1f5f9;width:100%;">';
+        $baseBtn = 'all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:34px;padding:0 8px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;color:#374151;font-size:13px;font-weight:500;cursor:pointer;';
+        $activeBtn = 'all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:34px;padding:0 8px;border-radius:8px;border:1px solid var(--staff-pagination-active-border,#06A1A1);background:var(--staff-pagination-active-bg,#06A1A1);color:#fff;font-size:13px;font-weight:600;cursor:pointer;';
+
+        if ($currentPage > 1) {
+            $prev = $currentPage - 1;
+            $html .= '<button type="button" class="pagination-link pagination-prev" onclick="refreshDashboard(' . $prev . ')" style="' . $baseBtn . '">&lsaquo;</button>';
+        }
+        $prevPage = null;
+        foreach ($pages as $page) {
+            if ($prevPage !== null && $page - $prevPage > 1) {
+                $html .= '<span style="display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:34px;font-size:13px;color:#9ca3af;">···</span>';
+            }
+            if ((int)$page === $currentPage) {
+                $html .= '<button type="button" class="pagination-link is-active" aria-current="page" style="' . $activeBtn . '">' . (int)$page . '</button>';
+            } else {
+                $html .= '<button type="button" class="pagination-link" onclick="refreshDashboard(' . (int)$page . ')" style="' . $baseBtn . '">' . (int)$page . '</button>';
+            }
+            $prevPage = $page;
+        }
+        if ($currentPage < $totalPages) {
+            $next = $currentPage + 1;
+            $html .= '<button type="button" class="pagination-link pagination-next" onclick="refreshDashboard(' . $next . ')" style="' . $baseBtn . '">&rsaquo;</button>';
+        }
+        $html .= '</div>';
+
+        return $html;
+    }
+}
 
 if (!function_exists('printflow_staff_dashboard_confirmed_sale_sql')) {
     /**

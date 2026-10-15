@@ -325,7 +325,7 @@ $serviceJoinSql = $hasOrderItemServiceId
     : 'LEFT JOIN services s ON oi.product_id = s.service_id';
 
 $page = max(1, (int)($_GET['page'] ?? 1));
-$limit = 15;
+$limit = printflow_staff_list_page_size();
 $offset = ($page - 1) * $limit;
 $search_filter = trim((string)($_GET['search'] ?? ''));
 $timeframe = strtolower(trim((string)($_GET['timeframe'] ?? 'today')));
@@ -521,7 +521,8 @@ $topServices = printflow_staff_dashboard_top_sales(
     10
 );
 
-$sqlCond = " WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$timeMeta['sql']} AND {$statusMeta['sql']}";
+$recentVisibilitySql = printflow_staff_recent_orders_visibility_sql('o', $staffRole);
+$sqlCond = " WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$timeMeta['sql']} AND {$statusMeta['sql']} AND {$recentVisibilitySql}";
 $params = array_merge([$staffBranchId], $timeMeta['params'], $statusMeta['params']);
 $types = 'i' . $timeMeta['types'] . $statusMeta['types'];
 
@@ -572,7 +573,12 @@ foreach ($orders as &$order) {
     $order['status_html'] = function_exists('status_badge') ? status_badge($order['status'], 'order') : $order['status'];
     $order['formatted_date'] = date('M d, Y', strtotime((string)$order['order_date']));
     $order['formatted_total'] = $peso . number_format((float)$order['total_amount'], 2);
-    $order['manage_url'] = htmlspecialchars(printflow_staff_order_management_url((int)$order['order_id'], true), ENT_QUOTES, 'UTF-8');
+    $preferPendingLink = $staffRole !== 'pos';
+    $order['manage_url'] = htmlspecialchars(
+        printflow_staff_order_management_url((int)$order['order_id'], $preferPendingLink),
+        ENT_QUOTES,
+        'UTF-8'
+    );
 }
 unset($order);
 
@@ -632,6 +638,10 @@ $payload = [
         'current_page' => $page,
         'total_pages' => (int)ceil($totalRows / $limit),
         'total_rows' => $totalRows,
+        'html' => printflow_staff_dashboard_ajax_pagination_html(
+            $page,
+            (int)ceil($totalRows / $limit)
+        ),
     ],
 ];
 

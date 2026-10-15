@@ -7232,10 +7232,45 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
         }
 
-        function dismissPosQrphFlow(options = {}) {
+        async function posAbandonPayMongoCheckout(options = {}) {
+            const checkoutToken = sessionStorage.getItem('pos_paymongo_checkout_token') || '';
+            const orderId = Number(pendingPayMongoOrderId || 0);
+            if (!checkoutToken && orderId <= 0) {
+                return { success: true, skipped: true };
+            }
+            try {
+                const response = await fetchWithTimeout(staffUrl('staff/api/pos_cart_handler.php'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'abandon_qrph',
+                        checkout_token: checkoutToken,
+                        order_id: orderId,
+                        csrf_token: POS_CSRF_TOKEN
+                    })
+                }, Number(options.timeoutMs || 8000));
+                const data = await response.json().catch(() => ({}));
+                return { success: response.ok && data.success !== false, data };
+            } catch (err) {
+                if (!options.silent) {
+                    console.warn('posAbandonPayMongoCheckout failed:', err);
+                }
+                return { success: false };
+            }
+        }
+
+        async function dismissPosQrphFlow(options = {}) {
             const closeModal = options.closeModal !== false;
             const clearToken = options.clearToken !== false;
             const bumpEpoch = options.bumpEpoch !== false;
+            const abandonCheckout = clearToken && (
+                pendingPayMongoOrderId > 0
+                || !!sessionStorage.getItem('pos_paymongo_checkout_token')
+                || !!sessionStorage.getItem('pos_paymongo_pending')
+            );
+            if (abandonCheckout) {
+                await posAbandonPayMongoCheckout({ silent: true });
+            }
             if (bumpEpoch) {
                 posQrphFlowEpoch += 1;
             }
