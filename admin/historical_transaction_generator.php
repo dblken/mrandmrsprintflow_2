@@ -120,6 +120,23 @@ function htg_choose_target_service(array $services, float $desired): array {
     }
     return $best ?? $services[array_rand($services)];
 }
+function htg_least_used_choices(array $choices, array $usage): array {
+    if (count($choices) < 2) return $choices;
+    $minimum = null;
+    foreach ($choices as $choice) {
+        $key = 'ready:' . (int)$choice['p']['id'];
+        $minimum = $minimum === null ? (int)($usage[$key] ?? 0) : min($minimum, (int)($usage[$key] ?? 0));
+    }
+    return array_values(array_filter($choices, static fn(array $choice): bool => (int)($usage['ready:' . (int)$choice['p']['id']] ?? 0) === $minimum));
+}
+function htg_least_used_services(array $services, array $usage): array {
+    if (count($services) < 2) return $services;
+    $minimum = null;
+    foreach ($services as $service) {
+        $minimum = $minimum === null ? (int)($usage['custom:' . (int)$service['id']] ?? 0) : min($minimum, (int)($usage['custom:' . (int)$service['id']] ?? 0));
+    }
+    return array_values(array_filter($services, static fn(array $service): bool => (int)($usage['custom:' . (int)$service['id']] ?? 0) === $minimum));
+}
 function htg_apply_target_sales(array &$rows, array &$stock, ?float $target): void {
     if ($target === null) return;
     $total = htg_sales_total($rows);
@@ -143,7 +160,8 @@ function htg_apply_target_sales(array &$rows, array &$stock, ?float $target): vo
         $key = (string)$row['_stock_key'];
         $row['quantity']++;
         $row['total'] = round((float)$row['unit_price'] * (int)$row['quantity'], 2);
-        $row['expected_usage'] = 'Ready-made stock: ' . (int)$row['quantity'] . ' pcs';
+        $optionSummary = !empty($row['customization']) ? 'Options: ' . implode(', ', array_unique(array_map('strval', array_values($row['customization']))) ) . ' | ' : '';
+        $row['expected_usage'] = $optionSummary . 'Ready-made stock: ' . (int)$row['quantity'] . ' pcs';
         $stock[$key]--;
         $total = htg_sales_total($rows);
         unset($row);
@@ -228,9 +246,16 @@ function htg_insert(array $r, string $token, string $reason): int {
     JobOrderService::processHistoricalProductionDeductions((int)$job, (string)$r['production_at']);
     return $oid;
 }
-function htg_preview(string $start,string $end,int $branch,int $count,int $readyPct,int $customPct,array $products,array $services,string $reason,?float $targetSales=null): array {
+function htg_preview(string $start,string $end,int $branch,int $count,int $readyPct,int $customPct,array $products,array $services,string $reason,?float $targetSales=null,array $selectedReadyIds=[],array $selectedServiceIds=[]): array {
     $b = htg_branch($branch);
     $skippedServices = [];
+    $selectedReadyIds = array_values(array_unique(array_filter(array_map('intval', $selectedReadyIds), static fn(int $id): bool => $id > 0)));
+    $selectedServiceIds = array_values(array_unique(array_filter(array_map('intval', $selectedServiceIds), static fn(int $id): bool => $id > 0)));
+    if ($selectedReadyIds === [] && $selectedServiceIds === []) throw new RuntimeException('Select at least one product or service to generate.');
+    $products = array_values(array_filter($products, static fn(array $product): bool => in_array((int)$product['id'], $selectedReadyIds, true)));
+    $services = array_values(array_filter($services, static fn(array $service): bool => in_array((int)$service['id'], $selectedServiceIds, true)));
+    if ($readyPct > 0 && $products === []) throw new RuntimeException('Select at least one ready-made product for the selected mix.');
+    if ($customPct > 0 && $services === []) throw new RuntimeException('Select at least one custom/service item for the selected mix.');
     if ($customPct > 0) {
         $eligibleServices = [];
         foreach ($services as $service) {
@@ -254,7 +279,7 @@ function htg_preview(string $start,string $end,int $branch,int $count,int $ready
     }
     $from=htg_date($start);$to=htg_date($end)->setTime(23,59,59);$now=htg_now();if($from>$to)throw new RuntimeException('Start Date cannot be after End Date.');if($to->format('Y-m-d')>$now->format('Y-m-d'))throw new RuntimeException('The date range must end today or earlier.');if($count<1||$count>500)throw new RuntimeException('Transactions must be between 1 and 500.');if($readyPct+$customPct!==100)throw new RuntimeException('Percentages must total 100.');if($targetSales !== null && $targetSales <= 0)throw new RuntimeException('Target Total Sales must be positive.');if($readyPct&&!$products)throw new RuntimeException('No active products are available.');if($customPct&&!$services)throw new RuntimeException('No active services are available.');if($customPct&&!db_query("SELECT product_id FROM products WHERE sku='POS-SERVICE' LIMIT 1"))throw new RuntimeException('The existing POS service placeholder product is missing.');
     $stock=[];foreach($products as $p){$pid=(int)$p['id'];$opts=printflow_product_option_stock_map($pid,$branch);if($opts)foreach($opts as $o)$stock[$pid.'|'.$o['option_value']]=(int)$o['stock_quantity'];else{[$n]=printflow_product_effective_stock($pid,$branch);$stock[$pid.'|']=(int)$n;}}
-    $times=[];$span=$to->getTimestamp()-$from->getTimestamp();for($i=0;$i<$count;$i++)$times[]=$from->getTimestamp()+($span?random_int(0,$span):0);sort($times);$target=(int)round($count*$readyPct/100);$rows=[];$ready=0;$custom=0;
+    $times=[];$span=$to->getTimestamp()-$from->getTimestamp();for($i=0;$i<$count;$i++)$times[]=$from->getTimestamp()+($span?random_int(0,$span):0);sort($times);$target=(int)round($count*$readyPct/100);$rows=[];$ready=0;$custom=0;$usage=[];
     foreach ($times as $ts) {
         $isReady = $ready < $target && ($custom >= $count - $target || random_int(0, 1));
         $desired = htg_target_average($targetSales, $rows, $count - count($rows));
@@ -273,6 +298,7 @@ function htg_preview(string $start,string $end,int $branch,int $count,int $ready
                 }
             }
             if (!$choices) throw new RuntimeException('Current branch stock cannot support this preview.');
+            $choices = htg_least_used_choices($choices, $usage);
             if ($desired !== null) {
                 $targetChoice = htg_choose_target_ready_choice($choices, $stock, $desired);
                 $c = $targetChoice['choice'];
@@ -291,16 +317,20 @@ function htg_preview(string $start,string $end,int $branch,int $count,int $ready
                 $customization[$c['o']['field_key']] = $c['o']['option_value'];
                 $customization[$c['o']['field_label']] = $c['o']['option_value'];
             }
-            $rows[] = ['type' => 'ready', 'business_at' => date('Y-m-d H:i:s', $ts), 'production_at' => '-', 'completion_at' => '-', 'branch_id' => $branch, 'branch_name' => $b['branch_name'], 'name' => $c['p']['name'], 'product_id' => (int)$c['p']['id'], 'quantity' => $q, 'unit_price' => (float)$c['p']['price'], 'total' => (float)$c['p']['price'] * $q, 'customization' => $customization, 'expected_usage' => 'Ready-made stock: ' . $q . ' pcs', '_stock_key' => $key];
+            $optionSummary = $customization !== [] ? 'Options: ' . implode(', ', array_unique(array_map('strval', array_values($customization)))) . ' | ' : '';
+            $rows[] = ['type' => 'ready', 'business_at' => date('Y-m-d H:i:s', $ts), 'production_at' => '-', 'completion_at' => '-', 'branch_id' => $branch, 'branch_name' => $b['branch_name'], 'name' => $c['p']['name'], 'product_id' => (int)$c['p']['id'], 'quantity' => $q, 'unit_price' => (float)$c['p']['price'], 'total' => (float)$c['p']['price'] * $q, 'customization' => $customization, 'expected_usage' => $optionSummary . 'Ready-made stock: ' . $q . ' pcs', '_stock_key' => $key];
+            $usage['ready:' . (int)$c['p']['id']] = (int)($usage['ready:' . (int)$c['p']['id']] ?? 0) + 1;
             $ready++;
         } else {
-            $s = $desired !== null ? htg_choose_target_service($services, $desired) : $services[array_rand($services)];
+            $serviceChoices = htg_least_used_services($services, $usage);
+            $s = $desired !== null ? htg_choose_target_service($serviceChoices, $desired) : $serviceChoices[array_rand($serviceChoices)];
             $plan = $s['_htg_plan'] ?? htg_material_plan(JobOrderService::inferServiceTypeFromProduct((string)$s['category'], (string)$s['name']), 1, (int)$s['id']);
             $at = new DateTimeImmutable(date('Y-m-d H:i:s', $ts), htg_business_timezone());
             [$prod, $done] = htg_stage_times($at, $now);
             $ph = db_query("SELECT product_id FROM products WHERE sku='POS-SERVICE' LIMIT 1") ?: [];
             $price = (float)($s['_htg_price'] ?? 0);
             $rows[] = ['type' => 'custom', 'business_at' => $at->format('Y-m-d H:i:s'), 'production_at' => $prod->format('Y-m-d H:i:s'), 'completion_at' => $done->format('Y-m-d H:i:s'), 'branch_id' => $branch, 'branch_name' => $b['branch_name'], 'name' => $s['name'], 'service_name' => $s['name'], 'service_type' => JobOrderService::inferServiceTypeFromProduct((string)$s['category'], (string)$s['name']), 'product_id' => (int)($ph[0]['product_id'] ?? 0), 'quantity' => 1, 'unit_price' => $price, 'total' => $price, 'customization' => array_merge($s['_htg_customization'] ?? [], ['source' => 'HISTORICAL_GENERATOR', 'service_id' => (int)$s['id'], 'service_type' => $s['name'], 'specifications' => 'Historical walk-in service transaction from existing service catalog.', 'dimensions' => $plan['dimensions'] ?? null]), 'service_id' => (int)$s['id'], 'materials' => $plan['materials'], 'expected_usage' => $plan['label'] . ($plan['dimensions'] ? ' | Dimensions: ' . $plan['dimensions'] : '')];
+            $usage['custom:' . (int)$s['id']] = (int)($usage['custom:' . (int)$s['id']] ?? 0) + 1;
             $custom++;
         }
     }
@@ -310,8 +340,8 @@ function htg_preview(string $start,string $end,int $branch,int $count,int $ready
     $generatedSales = htg_sales_total($rows);
     return ['token' => bin2hex(random_bytes(24)), 'expires_at' => time() + 900, 'start' => $start, 'end' => $end, 'branch_id' => $branch, 'branch_name' => $b['branch_name'], 'reason' => $reason, 'target_sales' => $targetSales, 'generated_sales' => $generatedSales, 'difference' => $targetSales === null ? null : round($generatedSales - $targetSales, 2), 'skipped_services' => $skippedServices, 'rows' => $rows];
 }
-$csrf=function_exists('generate_csrf_token')?generate_csrf_token():($_SESSION['csrf_token']??'');$today=htg_now()->format('Y-m-d');$branches=db_query("SELECT id,branch_name FROM branches WHERE status!='Archived' ORDER BY branch_name")?:[];$old=$_POST;
-ob_start(static function (string $html): string {
+$csrf=function_exists('generate_csrf_token')?generate_csrf_token():($_SESSION['csrf_token']??'');$today=htg_now()->format('Y-m-d');$branches=db_query("SELECT id,branch_name FROM branches WHERE status!='Archived' ORDER BY branch_name")?:[];$old=$_POST;$selectionProducts=htg_catalog('products');$selectionServices=htg_catalog('services');
+ob_start(static function (string $html) use ($selectionProducts,$selectionServices): string {
     $html = str_replace('name="reason" required', 'name="reason"', $html);
     $targetValue = htg_h((string)($_POST['target_total_sales'] ?? ''));
     $html = str_replace(
@@ -319,13 +349,30 @@ ob_start(static function (string $html): string {
         '<label>Target Total Sales (optional)<input type="number" name="target_total_sales" min="0.01" step="0.01" placeholder="e.g. 75000" value="' . $targetValue . '"></label><label>Reason / Note',
         $html
     );
+    $selectedReady = array_map('intval', (array)($_POST['selected_ready_ids'] ?? []));
+    $selectedServices = array_map('intval', (array)($_POST['selected_service_ids'] ?? []));
+    $selection = '<fieldset style="grid-column:1/-1;border:1px solid #d9e2e8;border-radius:6px;padding:14px"><legend><strong>Products / Services to Include</strong></legend><div style="display:flex;gap:8px;margin-bottom:10px"><button type="button" onclick="document.querySelectorAll(\'input[data-generator-item]\').forEach(function(e){e.checked=true})">Select All</button><button type="button" onclick="document.querySelectorAll(\'input[data-generator-item]\').forEach(function(e){e.checked=false})">Clear All</button></div><div style="display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:8px">';
+    foreach ($selectionProducts as $product) {
+        $id = (int)$product['id'];
+        $checked = in_array($id, $selectedReady, true) ? ' checked' : '';
+        $selection .= '<label><span><input data-generator-item type="checkbox" name="selected_ready_ids[]" value="' . $id . '"' . $checked . '> Ready-made: ' . htg_h((string)$product['name']) . '</span></label>';
+    }
+    foreach ($selectionServices as $service) {
+        $id = (int)$service['id'];
+        $checked = in_array($id, $selectedServices, true) ? ' checked' : '';
+        $selection .= '<label><span><input data-generator-item type="checkbox" name="selected_service_ids[]" value="' . $id . '"' . $checked . '> Service: ' . htg_h((string)$service['name']) . '</span></label>';
+    }
+    $selection .= '</div></fieldset>';
+    $html = str_replace('<label>Reason / Note', $selection . '<label>Reason / Note', $html);
     $stored = $_SESSION['historical_generator_preview'] ?? [];
     if (($stored['target_sales'] ?? null) !== null) {
         $target = (float)$stored['target_sales'];
         $difference = (float)$stored['difference'];
         $outsideTolerance = $target > 0 && abs($difference) > ($target * 0.05);
+        $differencePercent = $target > 0 ? abs($difference) / $target * 100 : 0;
+        $status = $outsideTolerance ? 'Outside tolerance' : 'Within tolerance';
         $warning = $outsideTolerance ? ' The closest safe configured combination is outside the preferred 5% tolerance; no unsupported prices were used.' : '';
-        $summary = '<div class="notice"><strong>Target Sales:</strong> PHP ' . number_format($target, 2) . ' &nbsp; <strong>Generated Sales:</strong> PHP ' . number_format((float)$stored['generated_sales'], 2) . ' &nbsp; <strong>Difference:</strong> PHP ' . number_format($difference, 2) . htmlspecialchars($warning, ENT_QUOTES, 'UTF-8') . '</div>';
+        $summary = '<div class="notice"><strong>Target Sales:</strong> PHP ' . number_format($target, 2) . ' &nbsp; <strong>Generated Sales:</strong> PHP ' . number_format((float)$stored['generated_sales'], 2) . ' &nbsp; <strong>Difference:</strong> PHP ' . number_format($difference, 2) . ' &nbsp; <strong>Difference %:</strong> ' . number_format($differencePercent, 2) . '% &nbsp; <strong>Status:</strong> ' . htmlspecialchars($status, ENT_QUOTES, 'UTF-8') . htmlspecialchars($warning, ENT_QUOTES, 'UTF-8') . '</div>';
         $html = str_replace('<h2>Preview (nothing has been saved)</h2>', '<h2>Preview (nothing has been saved)</h2>' . $summary, $html);
     }
     if (!empty($stored['skipped_services'])) {
@@ -334,6 +381,6 @@ ob_start(static function (string $html): string {
     }
     return $html;
 });
-if($_SERVER['REQUEST_METHOD']==='POST')try{if(!verify_csrf_token($_POST['csrf_token']??''))throw new RuntimeException('Invalid security token.');$action=(string)($_POST['action']??'preview');if($action==='preview'){$reason=trim((string)($_POST['reason']??''));if(strlen($reason)>1000)throw new RuntimeException('Enter a reason of 1,000 characters or fewer.');$targetRaw=trim((string)($_POST['target_total_sales']??''));$targetSales=null;if($targetRaw!==''){$normalizedTarget=preg_replace('/[^0-9.]+/','',$targetRaw);if($normalizedTarget===''||!is_numeric($normalizedTarget))throw new RuntimeException('Enter a valid positive Target Total Sales amount.');$targetSales=(float)$normalizedTarget;if($targetSales<=0)throw new RuntimeException('Target Total Sales must be positive.');}$preview=htg_preview((string)($_POST['start_date']??''),(string)($_POST['end_date']??''),(int)($_POST['branch_id']??0),(int)($_POST['transaction_count']??0),(int)($_POST['ready_pct']??0),(int)($_POST['custom_pct']??0),htg_catalog('products'),htg_catalog('services'),$reason,$targetSales);$_SESSION['historical_generator_preview']=$preview;}elseif($action==='confirm'){$token=trim((string)($_POST['preview_token']??''));$preview=$_SESSION['historical_generator_preview']??null;if(!$preview||!hash_equals((string)$preview['token'],$token)||(int)$preview['expires_at']<time())throw new RuntimeException('Preview expired. Generate a new preview.');if(isset($_SESSION['historical_generator_used'][$token]))throw new RuntimeException('This preview was already processed.');if(!htg_schema_ready())throw new RuntimeException('Required order or inventory fields are missing.');$conn->begin_transaction();$ids=[];try{foreach($preview['rows'] as $r)$ids[]=htg_insert($r,$token.'-'.count($ids),$preview['reason']);if(!$conn->commit())throw new RuntimeException('Batch commit failed.');}catch(Throwable $e){if(printflow_db_in_transaction($conn))$conn->rollback();throw $e;}$_SESSION['historical_generator_used'][$token]=true;$_SESSION['historical_generator_preview']=null;log_activity((int)get_user_id(),'Historical transaction batch generated',json_encode(['orders'=>$ids,'preview_token'=>$token,'real_processed_at'=>date('Y-m-d H:i:s')],JSON_UNESCAPED_SLASHES));$success='Generated '.count($ids).' historical transaction(s).';$preview=null;}else throw new RuntimeException('Invalid action.');}catch(Throwable $e){$error=$e->getMessage();}
+if($_SERVER['REQUEST_METHOD']==='POST')try{if(!verify_csrf_token($_POST['csrf_token']??''))throw new RuntimeException('Invalid security token.');$action=(string)($_POST['action']??'preview');if($action==='preview'){$reason=trim((string)($_POST['reason']??''));if(strlen($reason)>1000)throw new RuntimeException('Enter a reason of 1,000 characters or fewer.');$targetRaw=trim((string)($_POST['target_total_sales']??''));$targetSales=null;if($targetRaw!==''){$normalizedTarget=preg_replace('/[^0-9.]+/','',$targetRaw);if($normalizedTarget===''||!is_numeric($normalizedTarget))throw new RuntimeException('Enter a valid positive Target Total Sales amount.');$targetSales=(float)$normalizedTarget;if($targetSales<=0)throw new RuntimeException('Target Total Sales must be positive.');}$selectedReadyIds=(array)($_POST['selected_ready_ids']??[]);$selectedServiceIds=(array)($_POST['selected_service_ids']??[]);$preview=htg_preview((string)($_POST['start_date']??''),(string)($_POST['end_date']??''),(int)($_POST['branch_id']??0),(int)($_POST['transaction_count']??0),(int)($_POST['ready_pct']??0),(int)($_POST['custom_pct']??0),htg_catalog('products'),htg_catalog('services'),$reason,$targetSales,$selectedReadyIds,$selectedServiceIds);$_SESSION['historical_generator_preview']=$preview;}elseif($action==='confirm'){$token=trim((string)($_POST['preview_token']??''));$preview=$_SESSION['historical_generator_preview']??null;if(!$preview||!hash_equals((string)$preview['token'],$token)||(int)$preview['expires_at']<time())throw new RuntimeException('Preview expired. Generate a new preview.');if(isset($_SESSION['historical_generator_used'][$token]))throw new RuntimeException('This preview was already processed.');if(!htg_schema_ready())throw new RuntimeException('Required order or inventory fields are missing.');$conn->begin_transaction();$ids=[];try{foreach($preview['rows'] as $r)$ids[]=htg_insert($r,$token.'-'.count($ids),$preview['reason']);if(!$conn->commit())throw new RuntimeException('Batch commit failed.');}catch(Throwable $e){if(printflow_db_in_transaction($conn))$conn->rollback();throw $e;}$_SESSION['historical_generator_used'][$token]=true;$_SESSION['historical_generator_preview']=null;log_activity((int)get_user_id(),'Historical transaction batch generated',json_encode(['orders'=>$ids,'preview_token'=>$token,'real_processed_at'=>date('Y-m-d H:i:s')],JSON_UNESCAPED_SLASHES));$success='Generated '.count($ids).' historical transaction(s).';$preview=null;}else throw new RuntimeException('Invalid action.');}catch(Throwable $e){$error=$e->getMessage();}
 ?>
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Historical Transaction Generator</title><style>body{font-family:Arial;background:#f4f7f9;color:#173047;margin:0}.wrap{max-width:1180px;margin:30px auto;padding:20px}.panel{background:#fff;border:1px solid #d9e2e8;border-radius:10px;padding:24px;margin:18px 0}.notice,.warning,.error,.success{padding:14px;border-radius:7px;margin:14px 0}.notice{background:#fff7d6}.warning{background:#eaf4ff}.error{background:#ffe6e6;color:#a21919}.success{background:#e5f8eb;color:#176b35}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}label{font-weight:700;font-size:13px;display:flex;flex-direction:column;gap:6px}input,select,textarea{font:inherit;padding:10px;border:1px solid #b8c9d4;border-radius:6px}textarea{min-height:70px}button{padding:11px 16px;border:0;border-radius:6px;background:#0b6174;color:#fff;font-weight:700}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px;border-bottom:1px solid #e2e9ee;text-align:left}th{background:#f3f7f9}@media(max-width:800px){.grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:520px){.grid{grid-template-columns:1fr}}</style></head><body><main class="wrap"><h1>Historical Transaction Generator</h1><p>Admin-only preview tool for historical walk-in transactions.</p><div class="notice"><strong>Use this page only for real historical business transactions.</strong> Stock will be deducted from current inventory. Enter transactions from oldest to newest.</div><?php if($error):?><div class="error"><?=htg_h($error)?></div><?php endif;?><?php if($success):?><div class="success"><?=htg_h($success)?></div><?php endif;?><section class="panel"><form method="post"><input type="hidden" name="csrf_token" value="<?=htg_h((string)$csrf)?>"><div class="grid"><label>Start Date<input type="date" name="start_date" max="<?=$today?>" value="<?=htg_h((string)($old['start_date']??$today))?>" required></label><label>End Date<input type="date" name="end_date" max="<?=$today?>" value="<?=htg_h((string)($old['end_date']??$today))?>" required></label><label>Branch<select name="branch_id" required><option value="">Select branch</option><?php foreach($branches as $b):?><option value="<?=htg_h((string)$b['id'])?>"><?=htg_h((string)$b['branch_name'])?></option><?php endforeach;?></select></label><label>Number of Transactions<input type="number" name="transaction_count" min="1" max="500" value="10" required></label><label>Ready-Made %<input type="number" name="ready_pct" min="0" max="100" value="100" required></label><label>Custom/Service %<input type="number" name="custom_pct" min="0" max="100" value="0" required></label><label>Reason / Note<textarea name="reason" required>Historical transaction backfill</textarea></label></div><p>Walk-in customer only · Cash only · Paid only</p><button name="action" value="preview">Generate Preview</button></form></section><?php if(is_array($preview)&&!empty($preview['rows'])):?><section class="panel"><h2>Preview (nothing has been saved)</h2><div style="overflow:auto"><table><tr><th>Date/time</th><th>Type</th><th>Product/service</th><th>Qty</th><th>Total</th><th>Production</th><th>Expected usage</th></tr><?php foreach($preview['rows'] as $r):?><tr><td><?=htg_h($r['business_at'])?></td><td><?=htg_h($r['type'])?></td><td><?=htg_h($r['name'])?></td><td><?=htg_h((string)$r['quantity'])?></td><td>PHP <?=number_format((float)$r['total'],2)?></td><td><?=htg_h($r['production_at'])?></td><td><?=htg_h($r['expected_usage'])?></td></tr><?php endforeach;?></table></div><form method="post" onsubmit="return confirm('Generate this exact preview?');"><input type="hidden" name="csrf_token" value="<?=htg_h((string)$csrf)?>"><input type="hidden" name="preview_token" value="<?=htg_h($preview['token'])?>"><button name="action" value="confirm">Confirm and Generate</button></form><p class="warning">Custom/service rows create paid pending jobs and keep material deductions on the normal production workflow. The current job API does not expose a separate historical production timestamp.</p></section><?php endif;?></main></body></html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Historical Transaction Generator</title><style>body{font-family:Arial;background:#f4f7f9;color:#173047;margin:0}.wrap{max-width:1180px;margin:30px auto;padding:20px}.panel{background:#fff;border:1px solid #d9e2e8;border-radius:10px;padding:24px;margin:18px 0}.notice,.warning,.error,.success{padding:14px;border-radius:7px;margin:14px 0}.notice{background:#fff7d6}.warning{background:#eaf4ff}.error{background:#ffe6e6;color:#a21919}.success{background:#e5f8eb;color:#176b35}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}label{font-weight:700;font-size:13px;display:flex;flex-direction:column;gap:6px}input,select,textarea{font:inherit;padding:10px;border:1px solid #b8c9d4;border-radius:6px}textarea{min-height:70px}button{padding:11px 16px;border:0;border-radius:6px;background:#0b6174;color:#fff;font-weight:700}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px;border-bottom:1px solid #e2e9ee;text-align:left}th{background:#f3f7f9}@media(max-width:800px){.grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:520px){.grid{grid-template-columns:1fr}}</style></head><body><main class="wrap"><h1>Historical Transaction Generator</h1><p>Admin-only preview tool for historical walk-in transactions.</p><div class="notice"><strong>Use this page only for real historical business transactions.</strong> Stock will be deducted from current inventory. Enter transactions from oldest to newest.</div><?php if($error):?><div class="error"><?=htg_h($error)?></div><?php endif;?><?php if($success):?><div class="success"><?=htg_h($success)?></div><?php endif;?><section class="panel"><form method="post"><input type="hidden" name="csrf_token" value="<?=htg_h((string)$csrf)?>"><div class="grid"><label>Start Date<input type="date" name="start_date" max="<?=$today?>" value="<?=htg_h((string)($old['start_date']??$today))?>" required></label><label>End Date<input type="date" name="end_date" max="<?=$today?>" value="<?=htg_h((string)($old['end_date']??$today))?>" required></label><label>Branch<select name="branch_id" required><option value="">Select branch</option><?php foreach($branches as $b):?><option value="<?=htg_h((string)$b['id'])?>"><?=htg_h((string)$b['branch_name'])?></option><?php endforeach;?></select></label><label>Number of Transactions<input type="number" name="transaction_count" min="1" max="500" value="10" required></label><label>Ready-Made %<input type="number" name="ready_pct" min="0" max="100" value="100" required></label><label>Custom/Service %<input type="number" name="custom_pct" min="0" max="100" value="0" required></label><label>Reason / Note<textarea name="reason" required>Historical transaction backfill</textarea></label></div><p>Walk-in customer only · Cash only · Paid only</p><button name="action" value="preview">Generate Preview</button></form></section><?php if(is_array($preview)&&!empty($preview['rows'])):?><section class="panel"><h2>Preview (nothing has been saved)</h2><div style="overflow:auto"><table><tr><th>Date/time</th><th>Type</th><th>Product/service</th><th>Qty</th><th>Total</th><th>Production</th><th>Completion</th><th>Expected usage</th></tr><?php foreach($preview['rows'] as $r):?><tr><td><?=htg_h($r['business_at'])?></td><td><?=htg_h($r['type'])?></td><td><?=htg_h($r['name'])?></td><td><?=htg_h((string)$r['quantity'])?></td><td>PHP <?=number_format((float)$r['total'],2)?></td><td><?=htg_h($r['production_at'])?></td><td><?=htg_h($r['completion_at'])?></td><td><?=htg_h($r['expected_usage'])?></td></tr><?php endforeach;?></table></div><form method="post" onsubmit="return confirm('Generate this exact preview?');"><input type="hidden" name="csrf_token" value="<?=htg_h((string)$csrf)?>"><input type="hidden" name="preview_token" value="<?=htg_h($preview['token'])?>"><button name="action" value="confirm">Confirm and Generate</button></form><p class="warning">Custom/service rows create paid pending jobs and keep material deductions on the normal production workflow. The current job API does not expose a separate historical production timestamp.</p></section><?php endif;?></main></body></html>
