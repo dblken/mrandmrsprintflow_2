@@ -11501,22 +11501,44 @@ window.pfServiceFieldCatalog = (() => {
                             return;
                         }
 
-                        const fd = new FormData();
-                        fd.append('order_id', orderId);
-                        fd.append('status', 'Completed');
-                        fd.append('expected_status', this.resolveCompletionExpectedStatus(this.currentJo));
-                        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
-
+                        const businessDate = this.orderBusinessDateKey(this.currentJo);
+                        const scopedCompletionOverride = businessDate >= '2026-09-01' && businessDate <= '2026-10-05';
+                        const makeCompletionForm = (confirmUnpaid = false) => {
+                            const fd = new FormData();
+                            fd.append('order_id', orderId);
+                            fd.append('status', 'Completed');
+                            fd.append('expected_status', this.resolveCompletionExpectedStatus(this.currentJo));
+                            fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                            if (scopedCompletionOverride) fd.append('allow_pending_completion_override', '1');
+                            if (confirmUnpaid) fd.append('confirm_unpaid_completion', '1');
+                            return fd;
+                        };
                         const endpoint = this.staffApiUrl('update_order_status_process.php');
-                        const res = await this.parseJsonResponse(
+                        let res = await this.parseJsonResponse(
                             await fetch(endpoint, {
                                 method: 'POST',
                                 headers: { 'Accept': 'application/json' },
-                                body: fd
+                                body: makeCompletionForm()
                             }),
                             'Complete order',
                             endpoint
                         );
+                        if (res.requires_unpaid_confirmation && scopedCompletionOverride) {
+                            const paymentLabel = res.payment_status || this.currentJo?.payment_status || 'Unpaid';
+                            const confirmed = window.confirm(
+                                `This order is ${paymentLabel}. Mark it Completed without recording or changing a payment? This action will be audited.`
+                            );
+                            if (!confirmed) return;
+                            res = await this.parseJsonResponse(
+                                await fetch(endpoint, {
+                                    method: 'POST',
+                                    headers: { 'Accept': 'application/json' },
+                                    body: makeCompletionForm(true)
+                                }),
+                                'Confirm unpaid completion',
+                                endpoint
+                            );
+                        }
 
                         if (res.success || this.isAlreadyCompletedOrderConflict(res)) {
                             await this.applyStoreOrderCompletedUi(res, orderId);

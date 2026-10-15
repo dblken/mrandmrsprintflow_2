@@ -13,6 +13,7 @@ require_once __DIR__ . '/JobOrderService.php';
 require_once __DIR__ . '/provider_payments.php';
 require_once __DIR__ . '/change_item_workflow.php';
 require_once __DIR__ . '/order_completion_payment.php';
+require_once __DIR__ . '/order_completion_override.php';
 
 if (!function_exists('printflow_staff_mutate_order_status')) {
     /**
@@ -33,6 +34,8 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
         $cancelReason = trim((string)($options['cancel_reason'] ?? ''));
         $changeItemId = max(0, (int)($options['change_item_id'] ?? 0));
         $completeChangeItem = !empty($options['complete_change_item']) || $changeItemId > 0;
+        $allowPendingCompletionOverride = !empty($options['allow_pending_completion_override']);
+        $confirmUnpaidCompletion = !empty($options['confirm_unpaid_completion']);
         $manageTransaction = !array_key_exists('manage_transaction', $options)
             || (bool)$options['manage_transaction'];
 
@@ -46,7 +49,7 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
 
             $amountPaidSelect = db_table_has_column('orders', 'amount_paid') ? ', amount_paid' : '';
             $rows = db_query(
-                'SELECT status, payment_status, total_amount, branch_id, customer_id, order_type, order_source, reference_id'
+                'SELECT status, payment_status, total_amount, branch_id, customer_id, order_type, order_source, reference_id, order_date'
                 . $amountPaidSelect
                 . ' FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE',
                 'i',
@@ -61,10 +64,34 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
 
             $order = $rows[0];
             $oldStatus = trim((string)($order['status'] ?? ''));
+            $actorRole = (string)get_user_type();
+            $actorId = (int)get_user_id();
+            if ($confirmUnpaidCompletion && !$allowPendingCompletionOverride) {
+                if ($transactionStarted) $conn->rollback();
+                return ['success' => false, 'error' => 'The unpaid completion confirmation is invalid.', '_http_status' => 422];
+            }
+            if ($allowPendingCompletionOverride) {
+                $staffCanUseCustomizations = $actorRole !== 'Staff'
+                    || (function_exists('printflow_staff_can_access_module') && printflow_staff_can_access_module('customizations'));
+                if (!in_array($actorRole, ['Admin', 'Manager', 'Staff'], true) || !$staffCanUseCustomizations) {
+                    if ($transactionStarted) $conn->rollback();
+                    return ['success' => false, 'error' => 'You are not authorized to complete orders from Customizations.', '_http_status' => 403];
+                }
+                if (!printflow_order_completion_override_date_in_scope((string)($order['order_date'] ?? ''))) {
+                    if ($transactionStarted) $conn->rollback();
+                    return ['success' => false, 'error' => 'The completion override is limited to orders dated September 1 through October 5, 2026.', '_http_status' => 409];
+                }
+                if (!printflow_order_completion_override_pending_status($oldStatus)
+                    && printflow_workflow_status_key($oldStatus) !== 'COMPLETED') {
+                    if ($transactionStarted) $conn->rollback();
+                    return ['success' => false, 'error' => 'Only pending orders in the selected date range can use this completion override.', '_http_status' => 409];
+                }
+            }
             $canonicalStatus = static function (string $status): string {
                 return printflow_workflow_status_key($status);
             };
 
+            $unpaidOverrideApplied = false;
             if ($newStatus === 'Completed') {
                 $activeChangeItem = printflow_change_item_get_active($orderId);
                 $changeItemInRework = $activeChangeItem !== null
@@ -161,9 +188,6 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
             }
 
             if (strcasecmp($oldStatus, $newStatus) === 0) {
-                if ($isServiceOrder && strcasecmp($newStatus, 'Completed') === 0) {
-                    JobOrderService::syncStoreOrderToStatus($orderId, 'COMPLETED');
-                }
                 if ($transactionStarted) {
                     $conn->commit();
                 }
@@ -201,7 +225,19 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                     ];
                 }
                 $paymentGate = printflow_order_staff_completion_payment_gate($orderId, $order);
-                if (!$paymentGate['allowed']) {
+                if (!$paymentGate['allowed'] && $allowPendingCompletionOverride && !$confirmUnpaidCompletion) {
+                    if ($transactionStarted) {
+                        $conn->rollback();
+                    }
+                    return [
+                        'success' => false,
+                        'error' => 'This order is unpaid. Confirm that it may be marked Completed without recording or changing a payment.',
+                        'payment_status' => (string)($paymentGate['payment_status'] ?? 'Unpaid'),
+                        'requires_unpaid_confirmation' => true,
+                        '_http_status' => 409,
+                    ];
+                }
+                if (!$paymentGate['allowed'] && !$allowPendingCompletionOverride) {
                     if ($transactionStarted) {
                         $conn->rollback();
                     }
@@ -211,6 +247,24 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                         'payment_status' => (string)($paymentGate['payment_status'] ?? 'Unpaid'),
                         '_http_status' => 409,
                     ];
+                }
+                if (!$paymentGate['allowed']) {
+                    if (!$confirmUnpaidCompletion) {
+                        if ($transactionStarted) $conn->rollback();
+                        return ['success' => false, 'error' => 'Explicit confirmation is required for unpaid completion.', 'requires_unpaid_confirmation' => true, '_http_status' => 409];
+                    }
+                    $recordedPaymentStatus = strtoupper(trim((string)($paymentGate['payment_status'] ?? $order['payment_status'] ?? '')));
+                    if (!in_array($recordedPaymentStatus, ['', 'UNPAID'], true)
+                        || (float)($order['amount_paid'] ?? 0) > 0.0001) {
+                        if ($transactionStarted) $conn->rollback();
+                        return [
+                            'success' => false,
+                            'error' => 'This order has a payment submission or partial payment that must be reviewed before completion.',
+                            'payment_status' => $recordedPaymentStatus !== '' ? $recordedPaymentStatus : 'Unpaid',
+                            '_http_status' => 409,
+                        ];
+                    }
+                    $unpaidOverrideApplied = true;
                 }
                 if (!empty($paymentGate['sync_payment_status'])) {
                     db_execute(
@@ -238,7 +292,7 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
             $updatedJobs = [];
             if ($isServiceOrder && $newStatus === 'Completed') {
                 try {
-                    $updatedJobs = JobOrderService::syncStoreOrderToStatus($orderId, 'COMPLETED');
+                    $updatedJobs = JobOrderService::syncStoreOrderToStatus($orderId, 'COMPLETED', null, '', false, $unpaidOverrideApplied);
                 } catch (Throwable $jobCompletionError) {
                     if ($transactionStarted) {
                         $conn->rollback();
@@ -337,6 +391,25 @@ if (!function_exists('printflow_staff_mutate_order_status')) {
                             printflow_send_order_update($orderId, 'rate');
                         }
                     }
+                }
+            }
+
+            if ($unpaidOverrideApplied) {
+                $auditDetails = json_encode([
+                    'order_id' => $orderId,
+                    'previous_status' => $oldStatus,
+                    'payment_status' => (string)($order['payment_status'] ?? 'Unpaid'),
+                    'actor_user_id' => $actorId,
+                    'actor_role' => $actorRole,
+                    'confirmed_unpaid_completion' => true,
+                    'order_business_date' => (string)($order['order_date'] ?? ''),
+                ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+                if ($actorId <= 0 || !db_execute(
+                    "INSERT INTO activity_logs (user_id, action, details, created_at) VALUES (?, 'Unpaid Order Completion Override', ?, NOW())",
+                    'is',
+                    [$actorId, $auditDetails]
+                )) {
+                    throw new RuntimeException('The unpaid completion audit entry could not be recorded.');
                 }
             }
 

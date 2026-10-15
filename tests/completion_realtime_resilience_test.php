@@ -31,6 +31,12 @@ $expect(strpos($json, "header('Content-Type: application/json; charset=utf-8')")
 $expect(strpos($mutation, 'LIMIT 1 FOR UPDATE') !== false, 'Completion must serialize transitions with a row lock.');
 $expect(strpos($db, 'SELECT @@session.in_transaction AS active_transaction') !== false, 'Nested status services must detect the real mysqli transaction state.');
 $expect(strpos($mutation, "'changed' => false") !== false && strpos($mutation, "'already_completed'") !== false, 'Repeated completion must return an idempotent success contract.');
+$alreadyStart = strpos($mutation, 'if (strcasecmp($oldStatus, $newStatus) === 0) {');
+$alreadyEnd = $alreadyStart === false ? false : strpos($mutation, "if ((float)(\$order['total_amount']", $alreadyStart);
+$alreadyBlock = ($alreadyStart !== false && $alreadyEnd !== false) ? substr($mutation, $alreadyStart, $alreadyEnd - $alreadyStart) : '';
+$expect($alreadyBlock !== '' && strpos($alreadyBlock, 'JobOrderService::syncStoreOrderToStatus') === false
+    && strpos($alreadyBlock, 'create_notification(') === false
+    && strpos($alreadyBlock, 'printflow_send_order_update(') === false, 'Repeated completion must not rerun job work, notifications, or inventory handling.');
 $expect(strpos($mutation, '$requestingCompleted && $alreadyCompleted') !== false || strpos($mutation, 'printflow_workflow_status_compatible') !== false, 'Stale expected_status must not block idempotent completion when the order is already Completed.');
 $expect(strpos($mutation, 'printflow_staff_mutate_order_status_job_error_response') !== false, 'Job completion failures must return actionable client errors instead of opaque HTTP 500.');
 $expect(strpos($customizations, 'resolveCompletionExpectedStatus') !== false, 'Staff completion sends the store order status for optimistic locking.');
@@ -38,6 +44,10 @@ $expect(strpos($customizations, 'isAlreadyCompletedOrderConflict') !== false && 
 $completionPayment = $read('includes/order_completion_payment.php');
 $expect(strpos($mutation, 'printflow_order_staff_completion_payment_gate') !== false, 'Store-order completion must use the shared payment gate.');
 $expect(strpos($completionPayment, "['paid', 'fully paid']") !== false, 'Store-order completion must require a canonical paid state.');
+$overridePolicy = $read('includes/order_completion_override.php');
+$expect(strpos($endpoint, 'confirm_unpaid_completion') !== false && strpos($mutation, 'requires_unpaid_confirmation') !== false, 'Unpaid completion requires explicit client confirmation and server acknowledgment.');
+$expect(strpos($overridePolicy, "'2026-09-01'") !== false && strpos($overridePolicy, "'2026-10-05'") !== false, 'Unpaid override is bounded to the selected inclusive business-date range.');
+$expect(strpos($mutation, 'Unpaid Order Completion Override') !== false && strpos($mutation, 'created_at) VALUES (?,') !== false, 'Override audit is written before the transaction commits.');
 $expect(strpos($completionPayment, "printflow_provider_payment_find('order'") !== false, 'POS completion must accept verified PayMongo POS payments.');
 $expect(strpos($jobs, "['PAID', 'FULLY PAID']") !== false, 'Job completion must accept canonical paid states.');
 $expect(strpos($jobs, 'LIMIT 1 FOR UPDATE') !== false && strpos($jobs, '$currentNormalizedStatus === $normalizedNewStatus') !== false, 'Job transitions must lock and short-circuit repeated statuses.');

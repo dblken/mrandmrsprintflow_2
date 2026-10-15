@@ -948,7 +948,7 @@ class JobOrderService {
      *
      * @return int[] Updated job order IDs
      */
-    public static function syncStoreOrderToStatus(int $storeOrderId, string $targetStatus, ?int $machineId = null, string $reason = '', bool $silent = false): array {
+    public static function syncStoreOrderToStatus(int $storeOrderId, string $targetStatus, ?int $machineId = null, string $reason = '', bool $silent = false, bool $allowUnpaidCompletionOverride = false): array {
         if ($storeOrderId <= 0 || trim($targetStatus) === '') {
             return [];
         }
@@ -976,7 +976,7 @@ class JobOrderService {
                 continue;
             }
 
-            self::updateStatus($jobId, $targetStatus, $machineId, $reason, $silent);
+            self::updateStatus($jobId, $targetStatus, $machineId, $reason, $silent, [], $allowUnpaidCompletionOverride);
             $updatedJobIds[] = $jobId;
         }
 
@@ -1192,7 +1192,7 @@ class JobOrderService {
     /**
      * Set job order status and trigger logic.
      */
-    public static function updateStatus($orderId, $newStatus, $machineId = null, $reason = '', $silent = false, array $revisionMeta = []) {
+    public static function updateStatus($orderId, $newStatus, $machineId = null, $reason = '', $silent = false, array $revisionMeta = [], bool $allowUnpaidCompletionOverride = false) {
         global $conn;
         
         $order = db_query("SELECT * FROM job_orders WHERE id = ?", 'i', [$orderId]);
@@ -1317,7 +1317,7 @@ class JobOrderService {
                 $canComplete = in_array($payment, $paidStates, true)
                     || in_array($storePayment, $paidStates, true);
                 
-                if (!$canComplete) {
+                if (!$canComplete && !$allowUnpaidCompletionOverride) {
                     throw new Exception('Cannot mark as Completed: payment must be Paid. Current payment status: ' . ($order['payment_status'] ?? 'Unpaid'));
                 }
                 
@@ -1484,6 +1484,22 @@ class JobOrderService {
             $pendingInkRows = db_query($inkPendingSql, 'i', [(int)$orderId]) ?: [];
         }
         if ($pendingMaterials === [] && $pendingInkRows === []) {
+            if ($processMaterials) {
+                $hasMarkedMaterial = false;
+                foreach (self::getScopedMaterials((int)$orderId, false, false) as $assignment) {
+                    if (self::assignmentIsMarkedDeducted($assignment)) {
+                        $hasMarkedMaterial = true;
+                        break;
+                    }
+                }
+                if ($hasMarkedMaterial) {
+                    $branchId = self::getJobBranchId((int)$orderId);
+                    if ($branchId === null || $branchId <= 0) {
+                        throw new RuntimeException("Job #{$orderId} does not identify an inventory branch.");
+                    }
+                    self::assertMaterialAssignmentsDeductionIntegrity((int)$orderId, $branchId);
+                }
+            }
             if ($startedTransaction && printflow_db_in_transaction($conn)) {
                 $conn->commit();
             }

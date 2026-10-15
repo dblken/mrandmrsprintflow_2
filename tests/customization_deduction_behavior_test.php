@@ -38,7 +38,21 @@ class InventoryManager {
 function printflow_db_in_transaction($conn): bool { return $conn->active; }
 function printflow_store_order_ledger_date($id): string { return '2026-09-07 14:30:00'; }
 function printflow_get_job_inventory_reference($id): array { return ['label' => 'Test job']; }
-function db_query($sql, $types = null, $params = []): array { return [['order_id' => 11510, 'id' => 9]]; }
+function db_query($sql, $types = null, $params = []): array {
+    if (str_contains($sql, 'FROM inventory_transactions')) {
+        $rows = [];
+        foreach (InventoryManager::$ledger as $index => $movement) {
+            if (($movement['ref'] ?? '') === 'JOB_ORDER'
+                && (int)($movement['refId'] ?? 0) === (int)($params[0] ?? 0)
+                && (int)($movement['id'] ?? 0) === (int)($params[1] ?? 0)
+                && (int)($movement['branch'] ?? 0) === (int)($params[2] ?? 0)) {
+                $rows[] = ['id' => $index + 1, 'transaction_date' => $movement['date']];
+            }
+        }
+        return $rows;
+    }
+    return [['order_id' => 11510, 'id' => 9]];
+}
 function db_execute($sql, $types, $params): bool {
     if (str_contains($sql, 'SET deducted_at = NOW()')) {
         foreach ($GLOBALS['materials'] as &$row) {
@@ -92,6 +106,7 @@ function check(bool $ok, string $label): void {
     if (!$ok) throw new RuntimeException($label);
     echo 'PASS: ', $label, PHP_EOL;
 }
+$materials =& $GLOBALS['materials'];
 $conn = new TestConnection();
 fixture([2]);
 DeductionUnderTest::processDeductions(9, ['materials' => true, 'inks' => false]);

@@ -13,6 +13,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/order_status_mutation.php';
+require_once __DIR__ . '/../includes/order_completion_override.php';
 
 if (!is_logged_in()) {
     printflow_json_response(['success' => false, 'error' => 'Authentication required.'], 401);
@@ -32,6 +33,8 @@ $cancelReason = trim((string)($_POST['cancel_reason'] ?? ''));
 $changeItemId = max(0, (int)($_POST['change_item_id'] ?? 0));
 $completeChangeItem = filter_var($_POST['complete_change_item'] ?? false, FILTER_VALIDATE_BOOLEAN)
     || $changeItemId > 0;
+$allowPendingCompletionOverride = filter_var($_POST['allow_pending_completion_override'] ?? false, FILTER_VALIDATE_BOOLEAN);
+$confirmUnpaidCompletion = filter_var($_POST['confirm_unpaid_completion'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
 if (!verify_csrf_token((string)($_POST['csrf_token'] ?? ''))) {
     printflow_json_response([
@@ -51,6 +54,12 @@ $allowedStatuses = [
 if (!in_array($newStatus, $allowedStatuses, true)) {
     printflow_json_response(['success' => false, 'error' => 'Invalid order status.'], 422);
 }
+if (($allowPendingCompletionOverride || $confirmUnpaidCompletion) && $newStatus !== 'Completed') {
+    printflow_json_response(['success' => false, 'error' => 'Completion override can only be used when marking an order Completed.'], 422);
+}
+if ($confirmUnpaidCompletion && !$allowPendingCompletionOverride) {
+    printflow_json_response(['success' => false, 'error' => 'The unpaid completion confirmation is invalid. Please retry from the Customizations page.'], 422);
+}
 
 printflow_assert_order_branch_access($orderId);
 
@@ -58,6 +67,8 @@ $result = printflow_staff_mutate_order_status($orderId, $newStatus, $expectedSta
     'cancel_reason' => $cancelReason,
     'change_item_id' => $changeItemId,
     'complete_change_item' => $completeChangeItem,
+    'allow_pending_completion_override' => $allowPendingCompletionOverride,
+    'confirm_unpaid_completion' => $confirmUnpaidCompletion,
     'manage_transaction' => true,
 ]);
 
