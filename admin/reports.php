@@ -1311,7 +1311,7 @@ a.export-dd-link:hover { background: #f9fafb; }
     width:100%;
     max-width:none;
     min-width:0;
-    min-height:330px;
+    min-height:390px;
     display:flex;
     flex-direction:column;
     overflow:hidden;
@@ -1319,9 +1319,9 @@ a.export-dd-link:hover { background: #f9fafb; }
 #reports-status-branch-charts .reports-branch-chart-title { text-align:left; }
 #reports-status-branch-charts .reports-branch-chart-mount {
     width:100%;
-    height:270px;
+    height:320px;
     max-width:260px;
-    flex:0 0 270px;
+    flex:0 0 320px;
     overflow:visible;
 }
 #reports-status-branch-charts .apexcharts-canvas { max-width:100%; margin:0 auto; }
@@ -1330,7 +1330,7 @@ a.export-dd-link:hover { background: #f9fafb; }
     grid-template-columns:repeat(2,minmax(0,1fr));
     gap:4px 8px;
     width:100% !important;
-    max-height:106px;
+    max-height:128px;
     overflow-y:auto;
     padding:2px 4px 0;
     box-sizing:border-box;
