@@ -3,6 +3,9 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_role('Admin');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
 
 function hgh(string $v): string { return htmlspecialchars($v, ENT_QUOTES, 'UTF-8'); }
 function hgh_date(string $v, string $fallback): string {
