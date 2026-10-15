@@ -1911,6 +1911,7 @@ function pf_reports_estimated_gross_profit_analytics(string $from, string $toEnd
         'coverage_pct' => 0.0,
         'highest_gp_branch' => null,
         'costed_revenue' => 0.0,
+        'estimated_material_cost' => 0.0,
         'uncosted_revenue' => 0.0,
         'total_revenue' => 0.0,
         'missing_cost_transactions' => 0,
@@ -1943,23 +1944,25 @@ function pf_reports_estimated_gross_profit_analytics(string $from, string $toEnd
         $jTypes = '';
         $oParams = [];
         $jParams = [];
+        $jobExcludeLinkedCustomStore = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
+        $jobDate = pf_reports_job_order_sales_date_expr('jo');
         if ($from !== '' && $toEnd !== '') {
             $oDatePart = ' AND o.order_date BETWEEN ? AND ?';
-            $jDatePart = ' AND jo.created_at BETWEEN ? AND ?';
+            $jDatePart = " AND {$jobDate} BETWEEN ? AND ?";
             $oTypes = 'ss';
             $jTypes = 'ss';
             $oParams = [$from, $toEnd];
             $jParams = [$from, $toEnd];
         } elseif ($from !== '') {
             $oDatePart = ' AND o.order_date >= ?';
-            $jDatePart = ' AND jo.created_at >= ?';
+            $jDatePart = " AND {$jobDate} >= ?";
             $oTypes = 's';
             $jTypes = 's';
             $oParams = [$from];
             $jParams = [$from];
         } elseif ($toEnd !== '') {
             $oDatePart = ' AND o.order_date <= ?';
-            $jDatePart = ' AND jo.created_at <= ?';
+            $jDatePart = " AND {$jobDate} <= ?";
             $oTypes = 's';
             $jTypes = 's';
             $oParams = [$toEnd];
@@ -2005,7 +2008,7 @@ function pf_reports_estimated_gross_profit_analytics(string $from, string $toEnd
              INNER JOIN job_order_materials m ON m.job_order_id = jo.id
              LEFT JOIN inv_items i ON i.id = m.item_id
              WHERE (" . pf_reports_job_order_paid_completed_expr('jo') . ")
-               {$jDatePart} {$bj}
+               {$jobExcludeLinkedCustomStore} {$jDatePart} {$bj}
              GROUP BY jo.id, jo.branch_id",
             $jTypes . $btj,
             array_merge($jParams, $bpj)
@@ -2113,7 +2116,7 @@ function pf_reports_estimated_gross_profit_analytics(string $from, string $toEnd
                     SUM(COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0)) AS total_rev
                  FROM job_orders jo
                  WHERE (" . pf_reports_job_order_paid_completed_expr('jo') . ")
-                   {$jDatePart} {$bj}",
+                   {$jobExcludeLinkedCustomStore} {$jDatePart} {$bj}",
                 $jTypes . $btj,
                 array_merge($jParams, $bpj)
             ) ?: [];
@@ -2135,6 +2138,7 @@ function pf_reports_estimated_gross_profit_analytics(string $from, string $toEnd
         $summary['estimated_gross_margin_pct'] = round($margin, 2);
         $summary['coverage_pct'] = round($coverage, 2);
         $summary['costed_revenue'] = round($costedRevenue, 2);
+        $summary['estimated_material_cost'] = round($costedCost, 2);
         $summary['uncosted_revenue'] = round($uncostedRevenue, 2);
         $summary['total_revenue'] = round($totalRevenue, 2);
         $summary['missing_cost_transactions'] = $missingCostTx;
@@ -2163,7 +2167,7 @@ function pf_reports_estimated_gross_profit_analytics(string $from, string $toEnd
                     GROUP BY LOWER(TRIM(name))
                  ) sc ON sc.name_key = LOWER(TRIM(COALESCE(jo.service_type, '')))
                  WHERE (" . pf_reports_job_order_paid_completed_expr('jo') . ")
-                   {$jDatePart} {$bj}
+                   {$jobExcludeLinkedCustomStore} {$jDatePart} {$bj}
                  GROUP BY COALESCE(NULLIF(TRIM(sc.category), ''), NULLIF(TRIM(jo.service_type), ''), 'Customization')
                  HAVING revenue > 0",
                 $jTypes . $btj,
