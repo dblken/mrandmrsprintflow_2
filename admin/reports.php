@@ -372,13 +372,20 @@ if (!$gaBranchEmpty) {
     while ($curr_m <= $end_m) {
         $trend12_labels[] = date('M Y', strtotime($curr_m . '-01'));
         $s  = $mapS[$curr_m] ?? [];
-        $j  = $mapJ[$curr_m] ?? [];
         $rs = (float)($s['revenue_store'] ?? 0);
-        $rc = (float)($j['revenue_custom'] ?? 0);
+        $monthStart = $curr_m . '-01';
+        $monthEnd = date('Y-m-t', strtotime($monthStart)) . ' 23:59:59';
+        // Use the same canonical store-order + orphan-job basis as the KPI.
+        // This keeps every displayed month mathematically consistent with
+        // the selected-period revenue, including linked custom-sale dedupe.
+        $monthCanonical = pf_reports_canonical_official_sales_totals($monthStart, $monthEnd, $globalAnalyticsBranchId);
+        $monthRevenue = (float)($monthCanonical['total_sales'] ?? 0);
+        $monthOrders = (int)($monthCanonical['transaction_count'] ?? 0);
+        $rc = max(0.0, $monthRevenue - $rs);
         $trend12_revenue_store[] = $rs;
         $trend12_revenue_custom[] = $rc;
-        $trend12_revenues[] = $rs + $rc;
-        $trend12_orders[] = (int)($s['orders_store'] ?? 0) + (int)($j['orders_custom'] ?? 0);
+        $trend12_revenues[] = $monthRevenue;
+        $trend12_orders[] = $monthOrders;
 
         // Advance one month
         $curr_m = date('Y-m', strtotime($curr_m . '-01 +1 month'));
