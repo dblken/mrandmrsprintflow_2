@@ -124,6 +124,22 @@ function htg_service_quantity_limit(array $service, int $branch, int $hardLimit 
     }
     return $limit;
 }
+function htg_service_generator_check(array $service, int $branch = 0): array {
+    $serviceId = (int)($service['id'] ?? 0);
+    $serviceName = (string)($service['name'] ?? 'Service #' . $serviceId);
+    $serviceType = JobOrderService::inferServiceTypeFromProduct((string)($service['category'] ?? ''), $serviceName);
+    $plan = htg_material_plan($serviceType, 1, $serviceId, $serviceName);
+    if (empty($plan['supported'])) {
+        $reason = (string)($plan['warning'] ?? 'Unsupported material configuration.');
+        $prefix = 'Service "' . $serviceName . '" was skipped because ';
+        if (str_starts_with($reason, $prefix)) $reason = substr($reason, strlen($prefix));
+        return ['valid' => false, 'reason' => $reason, 'plan' => $plan];
+    }
+    $pricing = htg_service_price($service, $plan['dimensions'] ?? null);
+    if (empty($pricing['ok'])) return ['valid' => false, 'reason' => (string)($pricing['reason'] ?? 'No valid configured price was found.'), 'plan' => $plan];
+    if ($branch > 0 && htg_service_quantity_limit($service, $branch) < 1) return ['valid' => false, 'reason' => 'insufficient current material stock.', 'plan' => $plan];
+    return ['valid' => true, 'reason' => '', 'plan' => $plan, 'pricing' => $pricing];
+}
 function htg_choose_target_service(array $services, float $desired, int $branch): array {
     $best = null;
     $bestDistance = INF;
@@ -446,8 +462,8 @@ function htg_preview(string $start,string $end,int $branch,int $count,int $ready
 function htg_target_within_tolerance(?float $target, float $generated): bool {
     return $target === null || $target > 0 && abs($generated - $target) <= $target * 0.05;
 }
-$csrf=function_exists('generate_csrf_token')?generate_csrf_token():($_SESSION['csrf_token']??'');$today=htg_now()->format('Y-m-d');$branches=db_query("SELECT id,branch_name FROM branches WHERE status!='Archived' ORDER BY branch_name")?:[];$old=$_POST;$selectionProducts=htg_catalog('products');$selectionServices=htg_catalog('services');
-ob_start(static function (string $html) use ($selectionProducts,$selectionServices,$csrf,$today): string {
+$csrf=function_exists('generate_csrf_token')?generate_csrf_token():($_SESSION['csrf_token']??'');$today=htg_now()->format('Y-m-d');$branches=db_query("SELECT id,branch_name FROM branches WHERE status!='Archived' ORDER BY branch_name")?:[];$old=$_POST;$selectionProducts=htg_catalog('products');$selectionServices=htg_catalog('services');$selectionBranch=(int)($_POST['branch_id']??($_SESSION['historical_generator_preview']['branch_id']??0));$serviceEligibility=[];foreach($selectionServices as $selectionService)$serviceEligibility[(int)$selectionService['id']]=htg_service_generator_check($selectionService,$selectionBranch);
+ob_start(static function (string $html) use ($selectionProducts,$selectionServices,$serviceEligibility,$csrf,$today): string {
     $html = str_replace('name="reason" required', 'name="reason"', $html);
     $html = str_replace('>Historical transaction backfill</textarea>', '></textarea>', $html);
     $transactionType = (string)($_POST['transaction_type'] ?? ($_SESSION['historical_generator_preview']['transaction_type'] ?? 'ready'));
@@ -466,7 +482,8 @@ ob_start(static function (string $html) use ($selectionProducts,$selectionServic
     );
     $selectedReady = array_map('intval', (array)($_POST['selected_ready_ids'] ?? []));
     $selectedServices = array_map('intval', (array)($_POST['selected_service_ids'] ?? []));
-    $selection = '<fieldset style="grid-column:1/-1;border:1px solid #d9e2e8;border-radius:6px;padding:14px"><legend><strong>Products / Services to Include</strong></legend><div style="display:flex;gap:8px;margin-bottom:10px"><button type="button" onclick="document.querySelectorAll(\'input[data-generator-item]\').forEach(function(e){e.checked=true})">Select All</button><button type="button" onclick="document.querySelectorAll(\'input[data-generator-item]\').forEach(function(e){e.checked=false})">Clear All</button></div><div style="display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:8px">';
+    $availableServiceCount = count(array_filter($serviceEligibility, static fn(array $check): bool => !empty($check['valid'])));
+    $selection = '<fieldset style="grid-column:1/-1;border:1px solid #d9e2e8;border-radius:6px;padding:14px"><legend><strong>Products / Services to Include</strong></legend><p style="margin:6px 0 12px;color:#526777"><strong>Available for generator:</strong> ' . $availableServiceCount . ' of ' . count($selectionServices) . ' services</p><div style="display:flex;gap:8px;margin-bottom:10px"><button type="button" onclick="document.querySelectorAll(\'input[data-generator-item]\').forEach(function(e){e.checked=true})">Select All</button><button type="button" onclick="document.querySelectorAll(\'input[data-generator-item]\').forEach(function(e){e.checked=false})">Clear All</button></div><div style="display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:8px">';
     foreach ($selectionProducts as $product) {
         $id = (int)$product['id'];
         $checked = in_array($id, $selectedReady, true) ? ' checked' : '';
@@ -474,8 +491,12 @@ ob_start(static function (string $html) use ($selectionProducts,$selectionServic
     }
     foreach ($selectionServices as $service) {
         $id = (int)$service['id'];
-        $checked = in_array($id, $selectedServices, true) ? ' checked' : '';
-        $selection .= '<label data-generator-kind="custom"><span><input data-generator-item type="checkbox" name="selected_service_ids[]" value="' . $id . '"' . $checked . '> Service: ' . htg_h((string)$service['name']) . '</span></label>';
+        $check = $serviceEligibility[$id] ?? ['valid' => false, 'reason' => 'Service eligibility could not be determined.'];
+        $isValid = !empty($check['valid']);
+        $checked = $isValid && in_array($id, $selectedServices, true) ? ' checked' : '';
+        $disabled = $isValid ? '' : ' disabled';
+        $suffix = $isValid ? '' : ' <small style="color:#a21919">Unavailable: ' . htg_h((string)$check['reason']) . '</small>';
+        $selection .= '<label data-generator-kind="custom" title="' . htg_h((string)($check['reason'] ?? '')) . '"><span><input data-generator-item type="checkbox" name="selected_service_ids[]" value="' . $id . '"' . $checked . $disabled . '> Service: ' . htg_h((string)$service['name']) . $suffix . '</span></label>';
     }
     $selection .= '</div></fieldset>';
     $html = str_replace('<label>Reason / Note', $selection . '<label>Reason / Note', $html);
