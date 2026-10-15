@@ -12,6 +12,7 @@ require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
+require_once __DIR__ . '/../includes/pos_customer_helpers.php';
 
 // Only Managers allowed here
 require_role('Manager');
@@ -102,16 +103,21 @@ try {
          FROM (
              SELECT o.customer_id
              FROM orders o
+             LEFT JOIN customers o_customer ON o_customer.customer_id = o.customer_id
              WHERE o.customer_id IS NOT NULL
                AND o.order_date BETWEEN ? AND ? {$bSqlFrag}
+               AND " . printflow_customer_exclusion_customer_scope_sql('o.customer_id') . "
+               " . printflow_pos_sql_exclude_placeholder_customers('o_customer') . "
              UNION
              SELECT jo.customer_id
              FROM job_orders jo
              LEFT JOIN orders jo_ord ON jo_ord.order_id = jo.order_id
+             LEFT JOIN customers jo_customer ON jo_customer.customer_id = jo.customer_id
              WHERE jo.customer_id IS NOT NULL
                AND COALESCE(jo_ord.order_date, jo.created_at) BETWEEN ? AND ?
                AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
                AND " . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . "
+               " . printflow_pos_sql_exclude_placeholder_customers('jo_customer') . "
                {$jSqlFrag}
          ) src",
         $customerTypes,
@@ -138,10 +144,39 @@ try {
 
 // ── KPI: Total Orders (count in window) ───────────────────────
 try {
-    $total_orders = (int)($kpi_product_orders ?? 0) + (int)($kpi_custom_orders ?? 0);
+    $customOrderBranch = 'COALESCE(j.branch_id, j_ord.branch_id)';
+    $customOrderTypes = 'ss';
+    $customOrderParams = [$kpiDateFrom, $kpiDateToEnd];
+    if ($branchId !== 'all') {
+        $customOrderBranchSql = " AND {$customOrderBranch} = ?";
+        $customOrderTypes .= 'i';
+        $customOrderParams[] = (int)$branchId;
+    } else {
+        $customOrderBranchSql = " AND ({$customOrderBranch} IS NULL OR {$customOrderBranch} IN (SELECT id FROM branches WHERE status != 'Archived'))";
+    }
+    $customOrderScope = ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id') . " AND (
+        j.order_id IS NULL
+        OR EXISTS (
+            SELECT 1 FROM orders custom_scope_order
+            JOIN order_items custom_scope_item ON custom_scope_item.order_id = custom_scope_order.order_id
+            LEFT JOIN products custom_scope_product ON custom_scope_product.product_id = custom_scope_item.product_id
+            WHERE custom_scope_order.order_id = j.order_id
+              AND custom_scope_order.order_type = 'custom'
+              AND COALESCE(LOWER(TRIM(custom_scope_product.product_type)), 'custom') <> 'fixed'
+        )
+    )";
+    $total_orders = (int)(db_query(
+        "SELECT COUNT(*) AS cnt
+         FROM job_orders j
+         LEFT JOIN orders j_ord ON j_ord.order_id = j.order_id
+         WHERE COALESCE(j_ord.order_date, j.created_at) BETWEEN ? AND ?
+           {$customOrderBranchSql}{$customOrderScope}",
+        $customOrderTypes,
+        $customOrderParams
+    )[0]['cnt'] ?? 0);
 } catch (Exception $e) { $total_orders = 0; }
 
-// ── KPI: Pending custom orders (same PENDING/APPROVED job scope as Custom Orders) ─
+// ── KPI: Pending custom orders (same PENDING job scope as Custom Orders) ─
 try {
     $pendingJobScope = ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id') . " AND (
         j.order_id IS NULL
@@ -171,7 +206,7 @@ try {
         "SELECT COUNT(*) AS cnt
          FROM job_orders j
          LEFT JOIN orders j_ord ON j_ord.order_id = j.order_id
-         WHERE {$pendingJobStatus} IN ('PENDING','APPROVED')
+         WHERE {$pendingJobStatus} = 'PENDING'
            AND {$pendingJobDate} BETWEEN ? AND ?
            {$pendingJobBranchSql}{$pendingJobScope}",
         $pendingTypes,
@@ -763,13 +798,13 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     </span>
                 </a>
                 <a class="kpi-card amber kpi-card--link"
-                   href="<?php echo htmlspecialchars($basePath . '/manager/reports.php?' . http_build_query(['from' => $dashFromDate, 'to' => $dashToDate])); ?>"
-                   aria-label="View product and custom order report"
-                   title="View order breakdown">
+                   href="<?php echo htmlspecialchars($basePath . '/manager/customizations.php?' . http_build_query(['date_from' => $dashFromDate, 'date_to' => $dashToDate])); ?>"
+                   aria-label="View custom orders"
+                   title="View custom orders">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">Total Orders</span>
+                        <span class="kpi-label">Total Custom Orders</span>
                         <span class="kpi-value"><?php echo number_format($total_orders); ?></span>
-                        <span class="kpi-sub">Product: <?php echo number_format((int)$kpi_product_orders); ?> &middot; Custom: <?php echo number_format((int)$kpi_custom_orders); ?></span>
+                        <span class="kpi-sub"><?php echo htmlspecialchars($dashboard_filter_label); ?> period</span>
                         <span class="kpi-card-cta" aria-hidden="true">View details &rarr;</span>
                     </span>
                 </a>
@@ -780,7 +815,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Pending Custom Orders</span>
                         <span class="kpi-value"><?php echo number_format($pending_orders); ?></span>
-                        <span class="kpi-sub">PENDING / APPROVED &middot; <?php echo htmlspecialchars($dashboard_filter_label); ?></span>
+                        <span class="kpi-sub">Pending in <?php echo htmlspecialchars($dashboard_filter_label); ?></span>
                         <span class="kpi-card-cta" aria-hidden="true">View details &rarr;</span>
                     </span>
                 </a>
