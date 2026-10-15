@@ -18,6 +18,8 @@ $singleEndpoint = file_get_contents($root . '/staff/update_order_status_process.
 
 bulk_complete_test_assert(strpos($staffPage, 'Mark All Completed') !== false, 'POS customizations toolbar exposes Mark All Completed');
 bulk_complete_test_assert(strpos($staffPage, 'previewBulkComplete') !== false && strpos($staffPage, 'confirmBulkComplete') !== false, 'bulk completion modal wires preview and confirm handlers');
+bulk_complete_test_assert(strpos($staffPage, 'x-teleport="body"') !== false && strpos($staffPage, 'showBulkCompleteModal') !== false, 'bulk completion modal teleports to body like other staff dialogs');
+bulk_complete_test_assert(strpos($staffPage, 'validateBulkCompleteDateRange') !== false, 'bulk completion validates date range before preview or execute');
 bulk_complete_test_assert(strpos($staffPage, 'bulkCompleteIdempotencyKey') !== false, 'bulk completion UI tracks idempotency key');
 bulk_complete_test_assert(strpos($staffPage, 'api/bulk_mark_pos_pending_completed.php') !== false, 'bulk completion calls dedicated staff API');
 

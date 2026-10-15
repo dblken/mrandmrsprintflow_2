@@ -2376,12 +2376,15 @@ $online_closed_count = 0;
                         <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;white-space:nowrap;">Custom Orders List</h3>
                     </div>
                     <div class="toolbar-group toolbar-group--actions" style="margin-left: auto; display: flex; gap: 8px;">
-                        <template x-if="isPosSimplifiedView">
-                            <button type="button" @click="openBulkCompleteModal()" class="toolbar-btn" style="background:#ecfdf5; border-color:#6ee7b7; color:#047857;">
-                                <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                <span class="toolbar-btn-label">Mark All Completed</span>
-                            </button>
-                        </template>
+                        <button type="button"
+                                x-show="isPosSimplifiedView"
+                                x-cloak
+                                @click.stop="openBulkCompleteModal()"
+                                class="toolbar-btn"
+                                style="background:#ecfdf5; border-color:#6ee7b7; color:#047857;">
+                            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span class="toolbar-btn-label">Mark All Completed</span>
+                        </button>
 
                         <!-- Sort Menu -->
                         <div style="position: relative;">
@@ -3844,74 +3847,81 @@ $online_closed_count = 0;
 </template>
 
 <template x-if="showBulkCompleteModal">
-    <div>
-        <div x-show="showBulkCompleteModal" x-cloak style="position:fixed; inset:0; z-index:10001; background:rgba(15,23,42,0.45);" @click="closeBulkCompleteModal()"></div>
-        <div x-show="showBulkCompleteModal" x-cloak style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002; width:calc(100% - 32px); max-width:640px; max-height:calc(100vh - 48px); overflow:auto; background:#fff; border-radius:16px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.35);">
-            <div style="padding:18px 20px; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; background:#fff; z-index:1;">
-                <h3 style="margin:0; font-size:18px; font-weight:700; color:#1f2937;">Mark All Completed</h3>
-                <button type="button" @click="closeBulkCompleteModal()" style="background:none; border:none; color:#9ca3af; font-size:24px; cursor:pointer;">&times;</button>
-            </div>
-            <div style="padding:20px;">
-                <p style="margin:0 0 16px; color:#4b5563; font-size:13px; line-height:1.55;">Select a date and time range. Only <strong>pending</strong> walk-in orders with an order date in that range will be marked completed using the same rules as a single completion.</p>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-                    <label style="display:block; font-size:12px; font-weight:600; color:#374151;">
-                        Start date &amp; time
-                        <input type="datetime-local" x-model="bulkCompleteStart" style="margin-top:6px; width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:13px;">
-                    </label>
-                    <label style="display:block; font-size:12px; font-weight:600; color:#374151;">
-                        End date &amp; time
-                        <input type="datetime-local" x-model="bulkCompleteEnd" style="margin-top:6px; width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:13px;">
-                    </label>
+    <template x-teleport="body">
+        <div @keydown.escape.window.stop="closeBulkCompleteModal()">
+            <div style="position:fixed; inset:0; z-index:13050; background:rgba(15,23,42,0.45);" @click="closeBulkCompleteModal()"></div>
+            <div role="dialog" aria-modal="true" aria-labelledby="pf-bulk-complete-title"
+                 style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:13051; width:calc(100% - 32px); max-width:640px; max-height:calc(100vh - 48px); overflow:auto; background:#fff; border-radius:16px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.35);">
+                <div style="padding:18px 20px; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; background:#fff; z-index:1;">
+                    <h3 id="pf-bulk-complete-title" style="margin:0; font-size:18px; font-weight:700; color:#1f2937;">Mark All Completed</h3>
+                    <button type="button" @click="closeBulkCompleteModal()" :disabled="bulkCompleteExecuting" style="background:none; border:none; color:#9ca3af; font-size:24px; cursor:pointer;">&times;</button>
                 </div>
-                <div style="margin-top:16px; display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-                    <button type="button" @click="previewBulkComplete()" :disabled="bulkCompletePreviewLoading || bulkCompleteExecuting" class="btn-secondary" x-text="bulkCompletePreviewLoading ? 'Loading preview…' : 'Preview matching orders'"></button>
-                    <span x-show="bulkCompletePreview && bulkCompletePreview.success" style="font-size:13px; font-weight:700; color:#0f766e;" x-text="'Total: ' + (bulkCompletePreview.total || 0) + ' order(s)'"></span>
-                </div>
-                <p x-show="bulkCompletePreviewError" style="margin:12px 0 0; color:#b91c1c; font-size:13px;" x-text="bulkCompletePreviewError"></p>
-                <div x-show="bulkCompletePreview && bulkCompletePreview.success && (bulkCompletePreview.total || 0) > 0" style="margin-top:16px; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden;">
-                    <div style="padding:10px 14px; background:#f9fafb; font-size:12px; font-weight:600; color:#6b7280;">Preview (first <?php echo 500; ?>)</div>
-                    <div style="max-height:220px; overflow:auto;">
-                        <table style="width:100%; border-collapse:collapse; font-size:12px;">
-                            <thead><tr style="background:#fff;">
-                                <th style="text-align:left; padding:8px 12px; border-bottom:1px solid #e5e7eb;">Order</th>
-                                <th style="text-align:left; padding:8px 12px; border-bottom:1px solid #e5e7eb;">Order date</th>
-                                <th style="text-align:left; padding:8px 12px; border-bottom:1px solid #e5e7eb;">Payment</th>
-                            </tr></thead>
-                            <tbody>
-                                <template x-for="row in (bulkCompletePreview.orders || [])" :key="'bulk-prev-' + row.order_id">
-                                    <tr>
-                                        <td style="padding:8px 12px; border-bottom:1px solid #f3f4f6;" x-text="row.order_code || ('#' + row.order_id)"></td>
-                                        <td style="padding:8px 12px; border-bottom:1px solid #f3f4f6;" x-text="formatOrderBusinessDate(row)"></td>
-                                        <td style="padding:8px 12px; border-bottom:1px solid #f3f4f6;" x-text="row.payment_status || '—'"></td>
-                                    </tr>
+                <div style="padding:20px;">
+                    <p style="margin:0 0 16px; color:#4b5563; font-size:13px; line-height:1.55;">Select a date and time range. Only <strong>pending</strong> walk-in orders with an order date in that range will be marked completed using the same rules as a single completion.</p>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                        <label style="display:block; font-size:12px; font-weight:600; color:#374151;">
+                            Start date &amp; time
+                            <input type="datetime-local" x-model="bulkCompleteStart" x-ref="bulkCompleteStartInput" style="margin-top:6px; width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:13px;">
+                        </label>
+                        <label style="display:block; font-size:12px; font-weight:600; color:#374151;">
+                            End date &amp; time
+                            <input type="datetime-local" x-model="bulkCompleteEnd" style="margin-top:6px; width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:13px;">
+                        </label>
+                    </div>
+                    <div style="margin-top:16px; display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+                        <button type="button" @click="previewBulkComplete()" :disabled="bulkCompletePreviewLoading || bulkCompleteExecuting" class="btn-secondary" x-text="bulkCompletePreviewLoading ? 'Loading preview…' : 'Preview matching orders'"></button>
+                        <span x-show="bulkCompletePreview && bulkCompletePreview.success" style="font-size:13px; font-weight:700; color:#0f766e;" x-text="'Total: ' + (bulkCompletePreview.total || 0) + ' order(s)'"></span>
+                    </div>
+                    <p x-show="bulkCompletePreviewError" x-cloak style="margin:12px 0 0; color:#b91c1c; font-size:13px; font-weight:600;" x-text="bulkCompletePreviewError"></p>
+                    <div x-show="bulkCompletePreview && bulkCompletePreview.success && (bulkCompletePreview.total || 0) === 0" x-cloak style="margin-top:12px; padding:12px; border-radius:10px; background:#f9fafb; border:1px solid #e5e7eb; font-size:13px; color:#6b7280;">
+                        No pending walk-in orders match this range. Adjust the dates and preview again.
+                    </div>
+                    <div x-show="bulkCompletePreview && bulkCompletePreview.success && (bulkCompletePreview.total || 0) > 0" style="margin-top:16px; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden;">
+                        <div style="padding:10px 14px; background:#f9fafb; font-size:12px; font-weight:600; color:#6b7280;">Preview (first <?php echo 500; ?>)</div>
+                        <div style="max-height:220px; overflow:auto;">
+                            <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                                <thead><tr style="background:#fff;">
+                                    <th style="text-align:left; padding:8px 12px; border-bottom:1px solid #e5e7eb;">Order</th>
+                                    <th style="text-align:left; padding:8px 12px; border-bottom:1px solid #e5e7eb;">Order date</th>
+                                    <th style="text-align:left; padding:8px 12px; border-bottom:1px solid #e5e7eb;">Payment</th>
+                                </tr></thead>
+                                <tbody>
+                                    <template x-for="row in (bulkCompletePreview.orders || [])" :key="'bulk-prev-' + row.order_id">
+                                        <tr>
+                                            <td style="padding:8px 12px; border-bottom:1px solid #f3f4f6;" x-text="row.order_code || ('#' + row.order_id)"></td>
+                                            <td style="padding:8px 12px; border-bottom:1px solid #f3f4f6;" x-text="formatOrderBusinessDate(row)"></td>
+                                            <td style="padding:8px 12px; border-bottom:1px solid #f3f4f6;" x-text="row.payment_status || '—'"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p x-show="bulkCompletePreview.truncated" style="margin:0; padding:8px 12px; font-size:11px; color:#6b7280;">List truncated. All matching orders in range will be processed on confirm.</p>
+                    </div>
+                    <div x-show="bulkCompleteResult && bulkCompleteResult.success" style="margin-top:16px; padding:14px; border-radius:12px; background:#ecfdf5; border:1px solid #a7f3d0; font-size:13px; color:#065f46;">
+                        <div style="font-weight:700; margin-bottom:8px;" x-text="bulkCompleteResult.message || 'Bulk completion finished.'"></div>
+                        <div style="margin-top:6px;" x-text="'Completed: ' + (bulkCompleteResult.completed_count || 0) + ' · Skipped: ' + (bulkCompleteResult.skipped_count || 0) + ' · Failed: ' + (bulkCompleteResult.failed_count || 0)"></div>
+                        <div x-show="(bulkCompleteResult.failed || []).length" style="margin-top:8px;">
+                            <div style="font-weight:600; color:#b45309;">Failed orders</div>
+                            <ul style="margin:6px 0 0; padding-left:18px;">
+                                <template x-for="f in (bulkCompleteResult.failed || [])" :key="'bulk-fail-' + f.order_id">
+                                    <li x-text="(f.order_code || f.order_id) + ': ' + (f.error || 'Error')"></li>
                                 </template>
-                            </tbody>
-                        </table>
-                    </div>
-                    <p x-show="bulkCompletePreview.truncated" style="margin:0; padding:8px 12px; font-size:11px; color:#6b7280;">List truncated. All matching orders in range will be processed on confirm.</p>
-                </div>
-                <div x-show="bulkCompleteResult && bulkCompleteResult.success" style="margin-top:16px; padding:14px; border-radius:12px; background:#ecfdf5; border:1px solid #a7f3d0; font-size:13px; color:#065f46;">
-                    <div style="font-weight:700; margin-bottom:8px;" x-text="bulkCompleteResult.message || 'Bulk completion finished.'"></div>
-                    <div x-show="(bulkCompleteResult.failed || []).length" style="margin-top:8px;">
-                        <div style="font-weight:600; color:#b45309;">Failed orders</div>
-                        <ul style="margin:6px 0 0; padding-left:18px;">
-                            <template x-for="f in (bulkCompleteResult.failed || [])" :key="'bulk-fail-' + f.order_id">
-                                <li x-text="(f.order_code || f.order_id) + ': ' + (f.error || 'Error')"></li>
-                            </template>
-                        </ul>
+                            </ul>
+                        </div>
                     </div>
                 </div>
-            </div>
-            <div style="padding:16px 20px; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:10px; position:sticky; bottom:0; background:#fff;">
-                <button type="button" @click="closeBulkCompleteModal()" class="btn-secondary">Close</button>
-                <button type="button" @click="confirmBulkComplete()"
-                        :disabled="bulkCompleteExecuting || !bulkCompletePreview || !(bulkCompletePreview.total > 0)"
-                        class="pf-entry-btn pf-entry-in"
-                        :style="(bulkCompleteExecuting || !bulkCompletePreview || !(bulkCompletePreview.total > 0) ? 'opacity:.55;cursor:not-allowed;' : '') + 'background:#10b981; color:#fff;'"
-                        x-text="bulkCompleteExecuting ? 'Processing…' : 'Confirm mark completed'"></button>
+                <div style="padding:16px 20px; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:10px; position:sticky; bottom:0; background:#fff;">
+                    <button type="button" @click="closeBulkCompleteModal()" :disabled="bulkCompleteExecuting" class="btn-secondary">Close</button>
+                    <button type="button" @click="confirmBulkComplete()"
+                            :disabled="bulkCompleteExecuting || bulkCompletePreviewLoading || !bulkCompletePreview || !(bulkCompletePreview.total > 0)"
+                            class="pf-entry-btn pf-entry-in"
+                            :style="(bulkCompleteExecuting || bulkCompletePreviewLoading || !bulkCompletePreview || !(bulkCompletePreview.total > 0) ? 'opacity:.55;cursor:not-allowed;' : '') + 'background:#10b981; color:#fff;'"
+                            x-text="bulkCompleteExecuting ? 'Processing…' : 'Confirm mark completed'"></button>
+                </div>
             </div>
         </div>
-    </div>
+    </template>
 </template>
 
 <template x-if="showPosCompleteConfirmModal">
@@ -10460,6 +10470,10 @@ window.pfServiceFieldCatalog = (() => {
             },
 
             onSvcEscape() {
+                if (this.showBulkCompleteModal) {
+                    this.closeBulkCompleteModal();
+                    return;
+                }
                 if (this.showRevisionModal) {
                     this.closeRevisionModal();
                     return;
@@ -11269,8 +11283,29 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 return 'bulk-' + Date.now() + '-' + Math.random().toString(36).slice(2, 12);
             },
+            validateBulkCompleteDateRange() {
+                if (!this.bulkCompleteStart || !this.bulkCompleteEnd) {
+                    this.bulkCompletePreviewError = 'Select both start and end date/time.';
+                    return false;
+                }
+                const start = new Date(String(this.bulkCompleteStart));
+                const end = new Date(String(this.bulkCompleteEnd));
+                if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+                    this.bulkCompletePreviewError = 'Enter valid start and end date/time values.';
+                    return false;
+                }
+                if (end < start) {
+                    this.bulkCompletePreviewError = 'End date/time must be on or after the start.';
+                    return false;
+                }
+                this.bulkCompletePreviewError = '';
+                return true;
+            },
             openBulkCompleteModal() {
-                if (!this.isPosSimplifiedView) return;
+                if (!this.isPosSimplifiedView) {
+                    this.showStaffAlert('Unavailable', 'Mark All Completed is only available on the walk-in custom orders list.');
+                    return;
+                }
                 this.bulkCompleteStart = '';
                 this.bulkCompleteEnd = '';
                 this.bulkCompletePreview = null;
@@ -11278,15 +11313,23 @@ window.pfServiceFieldCatalog = (() => {
                 this.bulkCompleteResult = null;
                 this.bulkCompleteIdempotencyKey = this.newBulkCompleteIdempotencyKey();
                 this.showBulkCompleteModal = true;
+                this.$nextTick(() => {
+                    const input = this.$refs && this.$refs.bulkCompleteStartInput;
+                    if (input && typeof input.focus === 'function') {
+                        input.focus();
+                    }
+                });
             },
             closeBulkCompleteModal() {
                 if (this.bulkCompleteExecuting) return;
                 this.showBulkCompleteModal = false;
             },
             async previewBulkComplete() {
-                if (!this.bulkCompleteStart || !this.bulkCompleteEnd) {
-                    this.bulkCompletePreviewError = 'Select both start and end date/time.';
+                if (!this.validateBulkCompleteDateRange()) {
                     this.bulkCompletePreview = null;
+                    return;
+                }
+                if (this.bulkCompletePreviewLoading || this.bulkCompleteExecuting) {
                     return;
                 }
                 this.bulkCompletePreviewLoading = true;
@@ -11319,11 +11362,14 @@ window.pfServiceFieldCatalog = (() => {
                 }
             },
             async confirmBulkComplete() {
-                if (this.bulkCompleteExecuting || !this.bulkCompletePreview || !(this.bulkCompletePreview.total > 0)) {
+                if (this.bulkCompleteExecuting || this.bulkCompletePreviewLoading) {
                     return;
                 }
-                if (!this.bulkCompleteStart || !this.bulkCompleteEnd) {
-                    this.bulkCompletePreviewError = 'Select both start and end date/time.';
+                if (!this.validateBulkCompleteDateRange()) {
+                    return;
+                }
+                if (!this.bulkCompletePreview || !(this.bulkCompletePreview.total > 0)) {
+                    this.bulkCompletePreviewError = 'Preview matching orders first, then confirm.';
                     return;
                 }
                 this.bulkCompleteExecuting = true;
