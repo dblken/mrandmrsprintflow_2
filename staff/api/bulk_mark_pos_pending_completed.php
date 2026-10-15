@@ -127,15 +127,39 @@ if ($total > 500) {
     ], 422);
 }
 
-$executeResult = printflow_bulk_execute_pos_pending_complete($allOrderIds);
+$requestedOrderIds = printflow_bulk_parse_execute_order_ids($_POST);
+if ($requestedOrderIds === []) {
+    printflow_json_response([
+        'success' => false,
+        'error' => 'Missing preview order list. Run preview again, then confirm.',
+    ], 422);
+}
+
+$executeOrderIds = printflow_bulk_filter_execute_order_ids(
+    $requestedOrderIds,
+    $rangeStart,
+    $rangeEnd,
+    $branchId
+);
+if ($executeOrderIds === []) {
+    printflow_json_response([
+        'success' => false,
+        'error' => 'None of the previewed orders are still eligible. Refresh preview and try again.',
+    ], 422);
+}
+
+$executeResult = printflow_bulk_execute_pos_pending_complete($executeOrderIds);
+$responseSkippedPreview = count($requestedOrderIds) - count($executeOrderIds);
 $response = [
     'success' => true,
     'action' => 'execute',
     'start_datetime' => $rangeStart->format('Y-m-d H:i:s'),
     'end_datetime' => $rangeEnd->format('Y-m-d H:i:s'),
-    'total_matched' => $total,
+    'total_matched' => count($executeOrderIds),
+    'preview_total' => $total,
+    'preview_stale_skipped' => max(0, $responseSkippedPreview),
     'completed_count' => (int)($executeResult['completed_count'] ?? 0),
-    'skipped_count' => (int)($executeResult['skipped_count'] ?? 0),
+    'skipped_count' => (int)($executeResult['skipped_count'] ?? 0) + max(0, $responseSkippedPreview),
     'failed_count' => (int)($executeResult['failed_count'] ?? 0),
     'completed' => $executeResult['completed'] ?? [],
     'skipped' => $executeResult['skipped'] ?? [],

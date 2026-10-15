@@ -33,6 +33,10 @@ bulk_complete_test_assert(strpos($bulkInclude, 'staff_bulk_complete_runs') !== f
 bulk_complete_test_assert(strpos($bulkInclude, 'printflow_bulk_pos_business_datetime_sql') !== false, 'bulk preview uses shared business order datetime');
 bulk_complete_test_assert(strpos($bulkInclude, 'cust_pos.customization_details') !== false, 'bulk preview includes POS customization source detection');
 bulk_complete_test_assert(strpos($bulkInclude, 'printflow_bulk_complete_inclusive_calendar_range') !== false, 'bulk preview expands to full start/end calendar days');
+bulk_complete_test_assert(strpos($bulkInclude, 'printflow_bulk_pos_row_pending_bucket') !== false, 'bulk preview pending bucket matches POS list semantics');
+bulk_complete_test_assert(strpos($bulkInclude, 'printflow_bulk_pos_order_branch_id_sql') !== false, 'bulk preview branch filter matches job/order branch resolution');
+bulk_complete_test_assert(strpos($bulkInclude, 'printflow_bulk_parse_execute_order_ids') !== false, 'bulk execute accepts preview order id list');
+bulk_complete_test_assert(strpos($staffPage, 'order_ids[]') !== false, 'bulk confirm posts preview order ids');
 
 bulk_complete_test_assert(strpos($mutation, 'function printflow_staff_mutate_order_status') !== false, 'shared order status mutation helper exists');
 bulk_complete_test_assert(strpos($singleEndpoint, 'printflow_staff_mutate_order_status') !== false, 'single-order endpoint delegates to shared mutation');

@@ -57,6 +57,52 @@ if (!function_exists('printflow_bulk_pos_is_pending_bucket')) {
     }
 }
 
+if (!function_exists('printflow_bulk_pos_row_pending_bucket')) {
+    /**
+     * Match staff POS tab: pending unless every known status is terminal.
+     */
+    function printflow_bulk_pos_row_pending_bucket(?string $storeStatus, ?string $jobStatus): bool
+    {
+        $keys = [];
+        foreach ([$storeStatus, $jobStatus] as $status) {
+            if ($status === null || trim($status) === '') {
+                continue;
+            }
+            $keys[] = printflow_workflow_status_key($status);
+        }
+        if ($keys === []) {
+            return false;
+        }
+        foreach ($keys as $key) {
+            if (!in_array($key, ['COMPLETED', 'CANCELLED', 'REJECTED'], true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+if (!function_exists('printflow_bulk_pos_order_branch_id_sql')) {
+    function printflow_bulk_pos_order_branch_id_sql(string $orderAlias = 'o'): string
+    {
+        return "COALESCE(
+            (SELECT jo.branch_id FROM job_orders jo WHERE jo.order_id = {$orderAlias}.order_id ORDER BY jo.id ASC LIMIT 1),
+            {$orderAlias}.branch_id
+        )";
+    }
+}
+
+if (!function_exists('printflow_bulk_pos_latest_job_status_sql')) {
+    function printflow_bulk_pos_latest_job_status_sql(string $orderAlias = 'o'): string
+    {
+        return "(SELECT jo.status FROM job_orders jo
+                 WHERE jo.order_id = {$orderAlias}.order_id
+                 ORDER BY jo.updated_at DESC, jo.id DESC
+                 LIMIT 1)";
+    }
+}
+
 if (!function_exists('printflow_bulk_complete_inclusive_calendar_range')) {
     /**
      * Match staff list filtering: whole calendar days in the app timezone (Asia/Manila).
@@ -167,6 +213,9 @@ if (!function_exists('printflow_bulk_pos_pending_orders_in_range')) {
         $archiveSql = printflow_order_archive_scope_sql('o');
         $draftExcludeSql = printflow_bulk_pos_exclude_unfinalized_draft_sql('o');
 
+        $branchSql = printflow_bulk_pos_order_branch_id_sql('o');
+        $jobStatusSql = printflow_bulk_pos_latest_job_status_sql('o');
+
         $sql = "SELECT
                     o.order_id,
                     o.status,
@@ -174,22 +223,22 @@ if (!function_exists('printflow_bulk_pos_pending_orders_in_range')) {
                     o.total_amount,
                     o.order_date,
                     o.created_at,
+                    {$jobStatusSql} AS job_status,
                     {$businessDateSql} AS order_sort_at
                 FROM orders o
                 LEFT JOIN customers c ON c.customer_id = o.customer_id
                 WHERE {$archiveSql}
                   AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
                   AND LOWER(TRIM(COALESCE(o.order_type, ''))) IN ('', 'custom')
-                  AND LOWER(TRIM(COALESCE(o.status, ''))) NOT IN ('draft', 'cancelled')
+                  AND LOWER(TRIM(COALESCE(o.status, ''))) NOT IN ('draft')
                   AND {$posFragment}
                   {$draftExcludeSql}
-                  AND o.status NOT IN ('Completed', 'Cancelled', 'Rejected')
                   AND {$businessDateSql} >= ?
                   AND {$businessDateSql} <= ?";
         $types = 'ss';
         $params = [$startSql, $endSql];
         if ($branchId !== null && $branchId > 0) {
-            $sql .= ' AND o.branch_id = ?';
+            $sql .= " AND {$branchSql} = ?";
             $types .= 'i';
             $params[] = $branchId;
         }
@@ -198,7 +247,10 @@ if (!function_exists('printflow_bulk_pos_pending_orders_in_range')) {
         $rows = db_query($sql, $types, $params) ?: [];
         $eligible = [];
         foreach ($rows as $row) {
-            if (!printflow_bulk_pos_is_pending_bucket((string)($row['status'] ?? ''))) {
+            if (!printflow_bulk_pos_row_pending_bucket(
+                (string)($row['status'] ?? ''),
+                isset($row['job_status']) ? (string)$row['job_status'] : null
+            )) {
                 continue;
             }
             $orderId = (int)($row['order_id'] ?? 0);
@@ -209,9 +261,11 @@ if (!function_exists('printflow_bulk_pos_pending_orders_in_range')) {
                 'order_id' => $orderId,
                 'order_code' => printflow_format_order_code($orderId, ''),
                 'status' => (string)($row['status'] ?? ''),
+                'job_status' => (string)($row['job_status'] ?? ''),
                 'payment_status' => (string)($row['payment_status'] ?? ''),
                 'total_amount' => (float)($row['total_amount'] ?? 0),
                 'order_date' => (string)($row['order_sort_at'] ?? ''),
+                'order_business_date' => (string)($row['order_sort_at'] ?? ''),
             ];
         }
 
@@ -261,6 +315,56 @@ if (!function_exists('printflow_bulk_complete_store_idempotent')) {
             'siss',
             [$key, $staffUserId, $action, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]
         );
+    }
+}
+
+if (!function_exists('printflow_bulk_parse_execute_order_ids')) {
+    /**
+     * @return list<int>
+     */
+    function printflow_bulk_parse_execute_order_ids(array $post): array
+    {
+        $raw = $post['order_ids'] ?? null;
+        if ($raw === null && isset($post['order_ids_json'])) {
+            $decoded = json_decode((string)$post['order_ids_json'], true);
+            $raw = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($raw)) {
+            return [];
+        }
+        $ids = [];
+        foreach ($raw as $value) {
+            $id = (int)$value;
+            if ($id > 0) {
+                $ids[$id] = $id;
+            }
+        }
+
+        return array_values($ids);
+    }
+}
+
+if (!function_exists('printflow_bulk_filter_execute_order_ids')) {
+    /**
+     * @param list<int> $orderIds
+     * @return list<int>
+     */
+    function printflow_bulk_filter_execute_order_ids(
+        array $orderIds,
+        DateTimeInterface $rangeStart,
+        DateTimeInterface $rangeEnd,
+        ?int $branchId
+    ): array {
+        if ($orderIds === []) {
+            return [];
+        }
+        $range = printflow_bulk_pos_pending_orders_in_range($rangeStart, $rangeEnd, $branchId, 0);
+        $allowed = array_flip($range['all_order_ids'] ?? []);
+
+        return array_values(array_filter(
+            $orderIds,
+            static fn(int $orderId): bool => $orderId > 0 && isset($allowed[$orderId])
+        ));
     }
 }
 
