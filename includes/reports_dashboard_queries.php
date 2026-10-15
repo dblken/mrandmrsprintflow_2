@@ -2429,6 +2429,7 @@ function pf_reports_render_heatmap_html(array $cellsByService, int $displayYear)
     foreach ($cellsByService as $prod => $mo) {
         $meta = pf_reports_heatmap_row_meta((string) $prod);
         $displayName = $meta['label'] . ' - ' . $meta['source'];
+        $prod = $displayName;
         $prodE = htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8');
         $h .= '<div class="pf-hm-label-col"><span class="pf-hm-label-text" title="' . $prodE . '">' . $prodE . '</span></div>';
         $h .= '<div class="pf-hm-tiles" role="row">';
