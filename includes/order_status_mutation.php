@@ -496,6 +496,14 @@ if (!function_exists('printflow_staff_mutate_order_status_job_error_response')) 
             if ($exception instanceof InvalidArgumentException) {
                 $httpStatus = 422;
                 $clientMessage = $message;
+            } elseif ($httpStatus === 500) {
+                $clientMessage = $message;
+                if (preg_match(
+                    '/cannot complete|insufficient|reconcile|deduction|roll stock|inventory|failed to (persist|update|finalize)/i',
+                    $message
+                ) === 1) {
+                    $httpStatus = 409;
+                }
             }
         }
 
@@ -503,6 +511,7 @@ if (!function_exists('printflow_staff_mutate_order_status_job_error_response')) 
             'success' => false,
             'error' => $clientMessage,
             'error_reference' => $reference,
+            'error_class' => $message !== '' ? get_class($exception) : null,
             '_http_status' => $httpStatus,
         ];
     }

@@ -156,6 +156,19 @@ class JobOrderService {
                     'si',
                     [$artworkPath, (int)$job['id']]
                 );
+            } elseif ($currentOrderItemId > 0 && $currentOrderItemId !== $resolvedOrderItemId) {
+                $linkedItem = db_query(
+                    'SELECT order_item_id FROM order_items WHERE order_item_id = ? AND order_id = ? LIMIT 1',
+                    'ii',
+                    [$currentOrderItemId, $orderId]
+                ) ?: [];
+                if ($linkedItem === []) {
+                    db_execute(
+                        'UPDATE job_orders SET order_item_id = ? WHERE id = ?',
+                        'ii',
+                        [$resolvedOrderItemId, (int)$job['id']]
+                    );
+                }
             }
         }
     }
@@ -1076,6 +1089,7 @@ class JobOrderService {
         }
 
         self::ensureJobsForStoreOrder($storeOrderId);
+        self::repairMissingOrderItemLinks($storeOrderId);
 
         $normalizedTargetStatus = self::normalizeWorkflowStatus($targetStatus);
         $jobStatusSql = $normalizedTargetStatus === 'COMPLETED'
