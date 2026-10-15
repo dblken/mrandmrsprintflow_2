@@ -1338,7 +1338,7 @@ window.printflowInitReportsCharts = function () {
                     }
                 },
                 y: { 
-                    formatter: function(v) { return v != null && v !== 0 ? Math.round(v) + ' orders' : null; },
+                    formatter: function(v) { return v != null && v !== 0 ? Math.round(v) + ' units' : null; },
                     title: { formatter: function(sName) { return sName.replace(/\s*\((actual|forecast)\)\s*/gi, '').trim(); } }
                 },
                 custom: function({ series, seriesIndex, dataPointIndex, w }) {

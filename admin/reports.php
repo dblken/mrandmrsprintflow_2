@@ -380,9 +380,9 @@ if ($chart_sort === 'month_desc' && !empty($trend12_labels)) {
     $trend12_orders = array_reverse($trend12_orders);
 }
 
-// ── 5. Per-product forecast (last 6 months → next 3 months) ─────────────────
+// ── 5. Per-product forecast (last 6 completed months → next 3 months) ────────
 $fc_hist_labels = $fc_fore_labels = [];
-for ($i = 5; $i >= 0; $i--) $fc_hist_labels[] = date('M y', strtotime("-$i months"));
+for ($i = 6; $i >= 1; $i--) $fc_hist_labels[] = date('M y', strtotime("-$i months"));
 for ($i = 1; $i <= 3; $i++)  $fc_fore_labels[] = date('M y', strtotime("+$i months"));
 $fc_all_labels = array_merge($fc_hist_labels, $fc_fore_labels); // 9 labels
 
@@ -399,8 +399,8 @@ if (!$gaBranchEmpty) {
              JOIN products p ON oi.product_id=p.product_id
              JOIN orders o ON oi.order_id=o.order_id
              WHERE " . pf_reports_store_product_order_scope_sql('o') . "
-               AND o.order_date >= DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 5 MONTH),'%Y-%m-01')
-               AND o.order_date <  DATE_FORMAT(NOW(),'%Y-%m-01') + INTERVAL 1 MONTH$b
+               AND o.order_date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 6 MONTH),'%Y-%m-01')
+               AND o.order_date <  DATE_FORMAT(CURDATE(),'%Y-%m-01')$b
              GROUP BY p.product_id, p.name, mon ORDER BY p.name, mon",
             $bt, $bp
         ) ?: [];
@@ -420,7 +420,7 @@ if (!$gaBranchEmpty) {
 
     foreach ($topProdFc as $prod => $_) {
         $hist = [];
-        for ($i = 5; $i >= 0; $i--) {
+        for ($i = 6; $i >= 1; $i--) {
             $k = date('Y-m', strtotime("-$i months"));
             $v = $fcByProd[$prod][$k] ?? 0;
             $hist[] = $v;
