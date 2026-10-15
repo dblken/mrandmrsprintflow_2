@@ -41,7 +41,7 @@ $assert(
 );
 $assert(
     str_contains($serviceFields, 'name="needed_date"')
-        && str_contains($serviceFields, 'min="<?php echo date(\'Y-m-d\'); ?>"')
+        && str_contains($serviceFields, '$needed_date_min = date(\'Y-m-d\')')
         && !str_contains($serviceFields, 'printflow_allow_past_needed_date'),
     'POS service fields keep needed_date min set to today'
 );

@@ -41,17 +41,20 @@ foreach ($branches as $branchRow) {
     }
 }
 
-ob_start();
-if (service_has_field_config($service_id)) {
-    echo render_service_fields($service_id, $branches, ['branch_id' => $staff_branch_id]);
-} else {
-    // Fallback: simple form for unconfigured services
-    $branch_options = '';
-    foreach ($branches as $b) {
-        $sel = ($staff_branch_id == $b['id']) ? ' selected' : '';
-        $branch_options .= '<option value="' . (int)$b['id'] . '"' . $sel . '>' . htmlspecialchars($b['branch_name']) . '</option>';
-    }
-    echo '
+$fields_html = '';
+try {
+    ob_start();
+    if (service_has_field_config($service_id)) {
+        echo render_service_fields($service_id, $branches, ['branch_id' => $staff_branch_id]);
+    } else {
+        // Fallback: simple form for unconfigured services
+        $branch_options = '';
+        foreach ($branches as $b) {
+            $sel = ($staff_branch_id == $b['id']) ? ' selected' : '';
+            $branch_options .= '<option value="' . (int)$b['id'] . '"' . $sel . '>' . htmlspecialchars($b['branch_name']) . '</option>';
+        }
+        $needed_date_min = date('Y-m-d');
+        echo '
     <div class="shopee-form-row">
         <div class="shopee-form-label">Branch *</div>
         <div class="shopee-form-field">
@@ -63,7 +66,7 @@ if (service_has_field_config($service_id)) {
     <div class="shopee-form-row">
         <div class="shopee-form-label">Needed Date *</div>
         <div class="shopee-form-field">
-            <input type="date" name="needed_date" class="shopee-opt-btn" required min="<?php echo date('Y-m-d'); ?>" style="width:175px;cursor:pointer;">
+            <input type="date" name="needed_date" class="shopee-opt-btn" required min="' . htmlspecialchars($needed_date_min, ENT_QUOTES, 'UTF-8') . '" style="width:175px;cursor:pointer;">
         </div>
     </div>
     <div class="shopee-form-row">
@@ -82,8 +85,33 @@ if (service_has_field_config($service_id)) {
             <textarea name="notes" rows="3" class="shopee-opt-btn" style="max-width:400px;resize:none;text-align:left;padding:.75rem;"></textarea>
         </div>
     </div>';
+    }
+    $fields_html = ob_get_clean();
+} catch (Throwable $renderError) {
+    if (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+    error_log('[pos_service_fields] service_id=' . $service_id . ' ' . $renderError->getMessage());
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Unable to load service order fields. Please contact support if this continues.',
+        'service_id' => $service_id,
+    ]);
+    exit;
 }
-$fields_html = ob_get_clean();
+
+if ($fields_html === '') {
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(422);
+    echo json_encode([
+        'success' => false,
+        'error' => 'This service has no order fields configured for POS.',
+        'service_id' => $service_id,
+    ]);
+    exit;
+}
 
 header('Content-Type: application/json; charset=utf-8');
 echo json_encode([
