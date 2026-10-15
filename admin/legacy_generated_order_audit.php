@@ -138,7 +138,6 @@ try {
                     if (db_execute_affected_rows("UPDATE orders SET reference_id=? WHERE order_id=? AND (reference_id IS NULL OR reference_id NOT LIKE 'HGEN-%')", 'si', [$marker,$id]) !== 1) throw new RuntimeException('Order #'.$id.' was not updated. Nothing was repaired.');
                     $changed[] = ['order_id'=>$id, 'reference_id'=>$marker, 'activity_id'=>(int)$row['activity_id']];
                 }
-                log_activity((int)($_SESSION['user_id'] ?? 0), 'Legacy historical generator markers repaired', json_encode(['orders'=>$changed, 'real_processed_at'=>date(DATE_ATOM)], JSON_UNESCAPED_SLASHES));
                 $conn->commit(); unset($_SESSION['lgo_repair']); $repair=null; $success=count($changed).' proven legacy marker(s) repaired. No orders were deleted.';
             } catch (Throwable $e) { $conn->rollback(); throw $e; }
         }

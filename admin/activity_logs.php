@@ -34,7 +34,8 @@ $sql_base = "SELECT al.log_id, al.user_id, al.action AS action_type, al.details 
            CONCAT(u.first_name, ' ', u.last_name) as user_name, u.role 
            FROM activity_logs al 
            LEFT JOIN users u ON al.user_id = u.user_id 
-           WHERE 1=1";
+           WHERE 1=1
+             AND al.action <> 'Legacy historical generator markers repaired'";
 
 $params = [];
 $types = '';
