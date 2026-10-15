@@ -10,6 +10,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/order_archive.php';
+require_once __DIR__ . '/../includes/temporary_order_visibility.php';
 
 require_role(['Admin', 'Manager']);
 // Ensure $base_path is defined
@@ -73,7 +74,8 @@ $sql = "SELECT o.*, CONCAT(c.first_name, ' ', c.last_name) as customer_name, c.e
         LEFT JOIN products p ON oi.product_id = p.product_id
         WHERE 1=1
           AND o.order_type = 'product'
-          AND " . printflow_order_archive_scope_sql('o');
+          AND " . printflow_order_archive_scope_sql('o') . "
+          AND " . printflow_temporary_hidden_order_exclusion_sql('o.order_id');
 $params = [];
 $types = '';
 $order_code_search_sql = "CONCAT(
@@ -145,7 +147,8 @@ $count_sql = "SELECT COUNT(*) as total FROM (
     LEFT JOIN products p ON oi.product_id = p.product_id
     WHERE 1=1
       AND o.order_type = 'product'
-      AND " . printflow_order_archive_scope_sql('o');
+      AND " . printflow_order_archive_scope_sql('o') . "
+      AND " . printflow_temporary_hidden_order_exclusion_sql('o.order_id');
 
 if ($branchId !== 'all') {
     $count_sql .= " AND o.branch_id = " . (int)$branchId;
@@ -199,7 +202,7 @@ $orders = db_query($sql, $types, $params);
 // Get statistics (branch-aware)
 [$bSqlFrag, $bT, $bP] = branch_where_parts('o', $branchId);
 
-$archiveScope = printflow_order_archive_scope_sql('o');
+$archiveScope = printflow_order_archive_scope_sql('o') . ' AND ' . printflow_temporary_hidden_order_exclusion_sql('o.order_id');
 $total_count      = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.order_type = 'product' AND {$archiveScope} {$bSqlFrag}", $bT ?: null, $bP ?: null)[0]['count'] ?? 0;
 $pending_count    = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.order_type = 'product' AND {$archiveScope} AND o.status IN ('Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'Downpayment Submitted') {$bSqlFrag}", $bT ?: null, $bP ?: null)[0]['count'] ?? 0;
 $ready_count      = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.order_type = 'product' AND {$archiveScope} AND o.status IN ('Ready for Pickup', 'Processing', 'In Production', 'Printing', 'Approved Design') {$bSqlFrag}", $bT ?: null, $bP ?: null)[0]['count'] ?? 0;
