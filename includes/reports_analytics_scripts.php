@@ -2231,7 +2231,7 @@ window.printflowInitReportsCharts = function () {
                         pfReportsRenderBranchEmpty(chartMount, 'No order status data');
                         return;
                     }
-                    pfPushApexChart(chartMount, statusOptions(rows, 205));
+                    pfPushApexChart(chartMount, statusOptions(rows, 270));
                 });
                 return;
             }

@@ -585,9 +585,15 @@ if (!$gaBranchEmpty) {
     try {
         [$b,$bt,$bp] = branch_where_parts('o', $globalAnalyticsBranchId);
         [$dw,$dt,$dp] = $getDateWhere('o', 'order_date');
+        // Exclude only unfinalized POS draft shells; preserve legitimate workflow statuses.
+        $statusDraftExclusion = " AND NOT (
+            LOWER(TRIM(COALESCE(o.payment_status, ''))) = 'unpaid'
+            AND LOWER(TRIM(COALESCE(o.status, ''))) = 'draft'
+            AND LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos_draft', '')
+        )";
         $status_data = db_query(
             "SELECT o.status, COUNT(*) as cnt FROM orders o
-             WHERE " . printflow_order_archive_scope_sql('o') . " {$dw} {$b}
+             WHERE " . printflow_order_archive_scope_sql('o') . " {$statusDraftExclusion} {$dw} {$b}
              GROUP BY o.status ORDER BY cnt DESC",
             $dt . $bt, array_merge($dp, $bp)
         ) ?: [];
@@ -602,7 +608,7 @@ if (!$gaBranchEmpty) {
                 [$bdw,$bdt,$bdp] = $getDateWhere('o', 'order_date');
                 $branchStatusRows = db_query(
                     "SELECT o.status, COUNT(*) as cnt FROM orders o
-                     WHERE " . printflow_order_archive_scope_sql('o') . " {$bdw} {$bb}
+                     WHERE " . printflow_order_archive_scope_sql('o') . " {$statusDraftExclusion} {$bdw} {$bb}
                      GROUP BY o.status ORDER BY cnt DESC",
                     $bdt . $bbt,
                     array_merge($bdp, $bbp)
@@ -1295,10 +1301,55 @@ a.export-dd-link:hover { background: #f9fafb; }
 .reports-branch-service-list::-webkit-scrollbar-thumb,
 #reports-product-cat-legend::-webkit-scrollbar-thumb,
 #reports-service-cat-legend::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:999px; }
-#reports-status-branch-charts { align-items:start; }
-#reports-status-branch-charts .reports-branch-chart-card { min-height:0; }
+#reports-status-branch-charts {
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:24px;
+    align-items:stretch;
+}
+#reports-status-branch-charts .reports-branch-chart-card {
+    width:100%;
+    max-width:none;
+    min-width:0;
+    min-height:330px;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+}
 #reports-status-branch-charts .reports-branch-chart-title { text-align:left; }
-#reports-status-branch-charts .reports-branch-chart-mount { height:205px; max-width:100%; }
+#reports-status-branch-charts .reports-branch-chart-mount {
+    width:100%;
+    height:270px;
+    max-width:260px;
+    flex:0 0 270px;
+    overflow:visible;
+}
+#reports-status-branch-charts .apexcharts-canvas { max-width:100%; margin:0 auto; }
+#reports-status-branch-charts .apexcharts-legend {
+    display:grid !important;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:4px 8px;
+    width:100% !important;
+    max-height:106px;
+    overflow-y:auto;
+    padding:2px 4px 0;
+    box-sizing:border-box;
+    justify-content:stretch !important;
+    align-content:start;
+}
+#reports-status-branch-charts .apexcharts-legend-series {
+    min-width:0;
+    width:auto !important;
+    margin:0 !important;
+    overflow:hidden;
+}
+#reports-status-branch-charts .apexcharts-legend-text {
+    white-space:normal !important;
+    overflow-wrap:anywhere;
+}
+@media (max-width: 900px) {
+    #reports-status-branch-charts { grid-template-columns:1fr; }
+}
 #reports-status-single-chart { min-height:255px !important; }
 #ch-status .apexcharts-legend,
 #reports-status-branch-charts .apexcharts-legend {
