@@ -1305,7 +1305,7 @@ function pf_reports_heatmap_row_key(string $source, string $identity, string $la
 /** @return array{source:string,label:string} */
 function pf_reports_heatmap_row_meta(string $key): array {
     $parts = explode(':', $key, 3);
-    $source = ($parts[0] ?? '') === 'product' ? 'Product' : 'Customization';
+    $source = ($parts[0] ?? '') === 'product' ? 'Product' : 'Service';
     $label = isset($parts[2]) ? base64_decode($parts[2], true) : $key;
     return [
         'source' => $source,
