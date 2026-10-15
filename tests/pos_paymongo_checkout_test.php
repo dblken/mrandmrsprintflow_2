@@ -44,6 +44,9 @@ pos_paymongo_checkout_assert(
         && strpos($posSource, 'syncPosQrphPaymentSection') !== false
         && strpos($posSource, 'initPosPaymentMethodHandlers') !== false
         && strpos($posSource, 'normalizePosPaymentMethod') !== false
+        && strpos($posSource, "launchPosQrphPayment('select')") !== false
+        && strpos($posSource, 'pos_paymongo_checkout_token_total') !== false
+        && strpos($posSource, 'setPosQrphPanelError(checkoutErrorMessage)') !== false
         && strpos($posSource, '<option value="GCash">') === false
         && strpos($posSource, '<option value="PayMongo Checkout">') === false,
     'POS payment selector exposes only Cash and available PayMongo QR Ph.'
@@ -55,7 +58,7 @@ pos_paymongo_checkout_assert(
 pos_paymongo_checkout_assert(
     strpos($posSource, 'posPayMongoCheckoutPending') !== false
         && strpos($posSource, 'resetPayMongoPosCheckoutState(false)') !== false
-        && strpos($posSource, 'getPosPayMongoCheckoutToken()') !== false
+        && strpos($posSource, 'const checkoutToken = getPosPayMongoCheckoutToken(') !== false
         && strpos($checkoutSource, "\$_SESSION['pos_checkout_orders'][\$checkoutToken]") !== false
         && strpos($posSource, "sessionStorage.removeItem('pos_paymongo_checkout_token');") !== false,
     'POS retries reuse one attempt token until the committed order is recovered or shown successfully.'
