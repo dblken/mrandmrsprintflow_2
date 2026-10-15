@@ -317,29 +317,46 @@ function htg_build_preview(string $start,string $end,int $branch,int $count,int 
         if (!$services) throw new RuntimeException('No custom/service items can be generated safely. ' . implode(' ', $skippedServices));
     }
     $from=htg_date($start);$to=htg_date($end)->setTime(23,59,59);$now=htg_now();if($from>$to)throw new RuntimeException('Start Date cannot be after End Date.');if($to->format('Y-m-d')>$now->format('Y-m-d'))throw new RuntimeException('The date range must end today or earlier.');if($count<1||$count>500)throw new RuntimeException('Transactions must be between 1 and 500.');if($readyPct+$customPct!==100)throw new RuntimeException('Percentages must total 100.');if($targetSales !== null && $targetSales <= 0)throw new RuntimeException('Target Total Sales must be positive.');if($readyPct&&!$products)throw new RuntimeException('No active products are available.');if($customPct&&!$services)throw new RuntimeException('No active services are available.');if($customPct&&!db_query("SELECT product_id FROM products WHERE sku='POS-SERVICE' LIMIT 1"))throw new RuntimeException('The existing POS service placeholder product is missing.');
-    $stock=[];foreach($products as $p){$pid=(int)$p['id'];$opts=printflow_product_option_stock_map($pid,$branch);if($opts)foreach($opts as $o)$stock[$pid.'|'.$o['option_value']]=(int)$o['stock_quantity'];else{[$n]=printflow_product_effective_stock($pid,$branch);$stock[$pid.'|']=(int)$n;}}
+    $stock=[];$readyChoicesByProduct=[];$skippedItems=[];
+    foreach($products as $p){
+        $pid=(int)$p['id'];
+        if($targetSales!==null&&(float)($p['price']??0)<=0){$skippedItems[]=(string)$p['name'].': no positive configured price.';continue;}
+        $opts=printflow_product_option_stock_map($pid,$branch);
+        if($opts){
+            foreach($opts as $o){
+                $key=$pid.'|'.$o['option_value'];$stock[$key]=(int)$o['stock_quantity'];
+                if($stock[$key]>0)$readyChoicesByProduct[$pid][]= ['p'=>$p,'o'=>$o];
+            }
+        }else{
+            [$n]=printflow_product_effective_stock($pid,$branch);$key=$pid.'|';$stock[$key]=(int)$n;
+            if($stock[$key]>0)$readyChoicesByProduct[$pid][]= ['p'=>$p,'o'=>null];
+        }
+        if(empty($readyChoicesByProduct[$pid]))$skippedItems[]=(string)$p['name'].': insufficient current branch stock.';
+    }
+    $validReadyProducts=$readyPct>0?array_values(array_filter($products,static fn(array $p):bool=>!empty($readyChoicesByProduct[(int)$p['id']]))):[];
+    $validServices=$customPct>0?$services:[];
+    $readySlots=(int)round($count*$readyPct/100);$customSlots=$count-$readySlots;
+    if($readyPct>0&&count($validReadyProducts)>$readySlots)throw new RuntimeException('You selected '.count($validReadyProducts).' valid ready-made items but requested only '.$readySlots.' ready-made transaction(s). Increase the transaction count or select fewer items.');
+    if($customPct>0&&count($validServices)>$customSlots)throw new RuntimeException('You selected '.count($validServices).' valid custom/service items but requested only '.$customSlots.' custom/service transaction(s). Increase the transaction count or select fewer items.');
+    if($readyPct>0&&!$validReadyProducts)throw new RuntimeException('No selected ready-made items can be generated safely. '.implode(' ',$skippedItems));
+    if($customPct>0&&!$validServices)throw new RuntimeException('No selected custom/service items can be generated safely. '.implode(' ',$skippedServices));
     $generationEnd = min($to->getTimestamp(), $now->getTimestamp() - 10800);
     if ($generationEnd < $from->getTimestamp()) throw new RuntimeException('The selected date range does not leave enough past time for safe historical production timing. Choose an earlier date range.');
-    $times=[];$span=$generationEnd-$from->getTimestamp();for($i=0;$i<$count;$i++)$times[]=$from->getTimestamp()+($span?random_int(0,$span):0);sort($times);$target=(int)round($count*$readyPct/100);$rows=[];$ready=0;$custom=0;$usage=[];
+    $times=[];$span=$generationEnd-$from->getTimestamp();for($i=0;$i<$count;$i++)$times[]=$from->getTimestamp()+($span?random_int(0,$span):0);sort($times);$target=$readySlots;$rows=[];$ready=0;$custom=0;$usage=[];$requiredReady=[];$requiredServices=$customPct>0?$validServices:[];
+    if($readyPct>0)foreach($validReadyProducts as $product)$requiredReady[]=$readyChoicesByProduct[(int)$product['id']][0];
     foreach ($times as $ts) {
-        $isReady = $ready < $target && ($custom >= $count - $target || random_int(0, 1));
+        $mustUseReady=!empty($requiredReady);$mustUseCustom=!empty($requiredServices);
+        if($mustUseReady&&$mustUseCustom){$isReady=$readySlots-$ready >= count($requiredReady) ? true : false;}
+        elseif($mustUseReady)$isReady=true;
+        elseif($mustUseCustom)$isReady=false;
+        else $isReady = $ready < $target && ($custom >= $count - $target || random_int(0, 1));
         $desired = htg_target_average($targetSales, $rows, $count - count($rows));
         if ($isReady) {
-            $choices = [];
-            foreach ($products as $p) {
-                $pid = (int)$p['id'];
-                if ($targetSales !== null && (float)($p['price'] ?? 0) <= 0) continue;
-                $opts = printflow_product_option_stock_map($pid, $branch);
-                if ($opts) {
-                    foreach ($opts as $o) {
-                        if (($stock[$pid . '|' . $o['option_value']] ?? 0) > 0) $choices[] = ['p' => $p, 'o' => $o];
-                    }
-                } elseif (($stock[$pid . '|'] ?? 0) > 0) {
-                    $choices[] = ['p' => $p, 'o' => null];
-                }
-            }
+            $choices=[];foreach($readyChoicesByProduct as $productChoices)foreach($productChoices as $choice){$key=(int)$choice['p']['id'].'|'.($choice['o']['option_value']??'');if(($stock[$key]??0)>0)$choices[]=$choice;}
             if (!$choices) throw new RuntimeException('Current branch stock cannot support this preview.');
-            $choices = htg_least_used_choices($choices, $usage);
+            $mandatoryChoice=array_shift($requiredReady);$c=$mandatoryChoice??null;
+            if($c!==null){$key=(int)$c['p']['id'].'|'.($c['o']['option_value']??'');if(($stock[$key]??0)<1)throw new RuntimeException((string)$c['p']['name'].': stock became insufficient while reserving selected-item coverage.');$available=(int)$stock[$key];$q=$desired===null?1:min($available,max(1,(int)round($desired/(float)$c['p']['price'])));
+            }else{$choices = htg_least_used_choices($choices, $usage);
             if ($desired !== null) {
                 $targetChoice = htg_choose_target_ready_choice($choices, $stock, $desired);
                 $c = $targetChoice['choice'];
@@ -351,7 +368,7 @@ function htg_build_preview(string $start,string $end,int $branch,int $count,int 
                 $key = (int)$c['p']['id'] . '|' . ($c['o']['option_value'] ?? '');
                 $available = max(1, (int)$stock[$key]);
                 $q = min(random_int(1, 3), $available);
-            }
+            }}
             $stock[$key] -= $q;
             $customization = [];
             if ($c['o']) {
@@ -363,8 +380,10 @@ function htg_build_preview(string $start,string $end,int $branch,int $count,int 
             $usage['ready:' . (int)$c['p']['id']] = (int)($usage['ready:' . (int)$c['p']['id']] ?? 0) + 1;
             $ready++;
         } else {
+            $mandatoryService=array_shift($requiredServices);
             $serviceChoices = htg_least_used_services($services, $usage);
-            $serviceChoice = $desired !== null ? htg_choose_target_service($serviceChoices, $desired, $branch) : ['service' => $serviceChoices[array_rand($serviceChoices)], 'quantity' => 1];
+            if($mandatoryService!==null){$serviceChoice=['service'=>$mandatoryService,'quantity'=>1];$limit=htg_service_quantity_limit($mandatoryService,$branch);if($limit<1)throw new RuntimeException((string)$mandatoryService['name'].': stock/material availability changed while reserving selected-item coverage.');if($desired!==null){$ideal=min($limit,max(1,(int)round($desired/(float)$mandatoryService['_htg_price'])));$serviceChoice['quantity']=$ideal;}}
+            else $serviceChoice = $desired !== null ? htg_choose_target_service($serviceChoices, $desired, $branch) : ['service' => $serviceChoices[array_rand($serviceChoices)], 'quantity' => 1];
             $s = $serviceChoice['service'];
             $quantity = (int)$serviceChoice['quantity'];
             if ($desired === null) $quantity = random_int(1, htg_service_quantity_limit($s, $branch));
@@ -382,7 +401,12 @@ function htg_build_preview(string $start,string $end,int $branch,int $count,int 
     htg_apply_target_sales($rows, $stock, $targetSales);
     usort($rows, static fn($a, $b) => strcmp($a['business_at'], $b['business_at']));
     $generatedSales = htg_sales_total($rows);
-    return ['token' => bin2hex(random_bytes(24)), 'expires_at' => time() + 900, 'start' => $start, 'end' => $end, 'branch_id' => $branch, 'branch_name' => $b['branch_name'], 'reason' => $reason, 'target_sales' => $targetSales, 'generated_sales' => $generatedSales, 'difference' => $targetSales === null ? null : round($generatedSales - $targetSales, 2), 'skipped_services' => $skippedServices, 'rows' => $rows];
+    $usedReadyIds=[];$usedServiceIds=[];
+    foreach($rows as $row){if($row['type']==='ready')$usedReadyIds[(int)$row['product_id']]=true;else$usedServiceIds[(int)$row['service_id']]=true;}
+    $selectedCount=($readyPct>0?count($selectedReadyIds):0)+($customPct>0?count($selectedServiceIds):0);
+    $validSelectedCount=($readyPct>0?count($validReadyProducts):0)+($customPct>0?count($validServices):0);
+    $usedCount=count($usedReadyIds)+count($usedServiceIds);
+    return ['token' => bin2hex(random_bytes(24)), 'expires_at' => time() + 900, 'start' => $start, 'end' => $end, 'branch_id' => $branch, 'branch_name' => $b['branch_name'], 'reason' => $reason, 'target_sales' => $targetSales, 'generated_sales' => $generatedSales, 'difference' => $targetSales === null ? null : round($generatedSales - $targetSales, 2), 'skipped_services' => array_values(array_merge($skippedItems,$skippedServices)), 'rows' => $rows, 'selected_item_count' => $selectedCount, 'valid_selected_item_count' => $validSelectedCount, 'used_item_count' => $usedCount];
 }
 function htg_preview(string $start,string $end,int $branch,int $count,int $readyPct,int $customPct,array $products,array $services,string $reason,?float $targetSales=null,array $selectedReadyIds=[],array $selectedServiceIds=[]): array {
     $attempts = $targetSales === null ? 1 : 8;
@@ -442,6 +466,16 @@ ob_start(static function (string $html) use ($selectionProducts,$selectionServic
     $selection .= '</div></fieldset>';
     $html = str_replace('<label>Reason / Note', $selection . '<label>Reason / Note', $html);
     $stored = $_SESSION['historical_generator_preview'] ?? [];
+    if (!empty($stored['rows'])) {
+        $selectedCount = (int)($stored['selected_item_count'] ?? 0);
+        $validSelectedCount = (int)($stored['valid_selected_item_count'] ?? 0);
+        $usedCount = (int)($stored['used_item_count'] ?? 0);
+        $coverageMessage = $validSelectedCount > 0 && $usedCount >= $validSelectedCount
+            ? ' <strong>All selected valid items are represented in this preview.</strong>'
+            : '';
+        $coverageSummary = '<div class="notice"><strong>Selected items:</strong> ' . $selectedCount . ' &nbsp; <strong>Valid selected items:</strong> ' . $validSelectedCount . ' &nbsp; <strong>Used in preview:</strong> ' . $usedCount . ' &nbsp; <strong>Skipped:</strong> ' . max(0, $selectedCount - $validSelectedCount) . $coverageMessage . '</div>';
+        $html = str_replace('<h2>Preview (nothing has been saved)</h2>', '<h2>Preview (nothing has been saved)</h2>' . $coverageSummary, $html);
+    }
     if (($stored['target_sales'] ?? null) !== null) {
         $target = (float)$stored['target_sales'];
         $difference = (float)$stored['difference'];
