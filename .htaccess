@@ -69,6 +69,9 @@ SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
     RewriteRule ^printing/jobs/update/error/?$ printing/jobs/update/error/index.php [L,QSA]
 
     # Admin and Staff directories - serve directly (not through public)
+    # Keep historical maintenance tools unavailable even through direct URLs.
+    RewriteRule ^admin/(historical_transaction_generator|historical_generator_hide|historical_transactions|legacy_generated_order_audit)\.php$ - [G,L,NC]
+
     RewriteCond %{REQUEST_URI} ^/(admin|staff|customer)/
     RewriteCond %{REQUEST_FILENAME} -f [OR]
     RewriteCond %{REQUEST_FILENAME} -d
