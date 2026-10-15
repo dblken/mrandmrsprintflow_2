@@ -77,9 +77,23 @@ if (!function_exists('printflow_staff_dashboard_cache_set')) {
     }
 }
 
+if (!function_exists('printflow_staff_dashboard_cache_flush_admin_summary')) {
+    /**
+     * The admin dashboard "All Branches" summary combines every branch, so any
+     * branch-level change flushes all admin summary entries.
+     */
+    function printflow_staff_dashboard_cache_flush_admin_summary(): void
+    {
+        foreach (glob(printflow_staff_dashboard_cache_dir() . '/admin_dash_*.json') ?: [] as $file) {
+            @unlink($file);
+        }
+    }
+}
+
 if (!function_exists('printflow_staff_dashboard_cache_invalidate_branch')) {
     function printflow_staff_dashboard_cache_invalidate_branch(int $branchId): void
     {
+        printflow_staff_dashboard_cache_flush_admin_summary();
         if ($branchId <= 0) {
             printflow_staff_dashboard_cache_flush_all();
             return;
@@ -105,5 +119,6 @@ if (!function_exists('printflow_staff_dashboard_cache_flush_all')) {
         foreach (glob(printflow_staff_dashboard_cache_dir() . '/staff_dash_*.json') ?: [] as $file) {
             @unlink($file);
         }
+        printflow_staff_dashboard_cache_flush_admin_summary();
     }
 }

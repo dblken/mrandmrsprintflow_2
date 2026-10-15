@@ -305,6 +305,73 @@ class InventoryManager {
     }
 
     /**
+     * Stock On Hand for many items in a few grouped queries.
+     *
+     * Read-only. Applies exactly the same rules as getStockOnHand(): roll items
+     * sum OPEN roll lengths, other items sum IN minus OUT ledger movements with
+     * the same ref_type exclusions and branch clause. Items with no rows map to 0.
+     *
+     * @param int[] $itemIds
+     * @return array<int, float> item_id => stock on hand
+     */
+    public static function getStockOnHandBulk(array $itemIds, $branchId = null): array {
+        self::ensureBranchScopedSchema();
+
+        $ids = array_values(array_unique(array_filter(array_map('intval', $itemIds), static fn($id) => $id > 0)));
+        if ($ids === []) {
+            return [];
+        }
+        if ($branchId === null) {
+            $branchId = self::getCurrentBranchId();
+        }
+
+        $result = array_fill_keys($ids, 0.0);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $idTypes = str_repeat('i', count($ids));
+
+        $items = db_query("SELECT id, track_by_roll FROM inv_items WHERE id IN ({$placeholders})", $idTypes, $ids) ?: [];
+        $rollIds = [];
+        $ledgerIds = [];
+        foreach ($items as $row) {
+            $id = (int)($row['id'] ?? 0);
+            if ($id <= 0) continue;
+            if (!empty($row['track_by_roll'])) {
+                $rollIds[] = $id;
+            } else {
+                $ledgerIds[] = $id;
+            }
+        }
+
+        [$branchSql, $branchTypes, $branchParams] = self::branchClause('branch_id', $branchId);
+
+        if ($rollIds !== []) {
+            $ph = implode(',', array_fill(0, count($rollIds), '?'));
+            $rows = db_query(
+                "SELECT item_id, SUM(remaining_length_ft) AS soh FROM inv_rolls WHERE item_id IN ({$ph}) AND status = 'OPEN'{$branchSql} GROUP BY item_id",
+                str_repeat('i', count($rollIds)) . $branchTypes,
+                array_merge($rollIds, $branchParams)
+            ) ?: [];
+            foreach ($rows as $row) {
+                $result[(int)$row['item_id']] = (float)($row['soh'] ?? 0);
+            }
+        }
+
+        if ($ledgerIds !== []) {
+            $ph = implode(',', array_fill(0, count($ledgerIds), '?'));
+            $rows = db_query(
+                "SELECT item_id, SUM(IF(direction='IN', quantity, -quantity)) AS soh FROM inventory_transactions WHERE item_id IN ({$ph}) AND UPPER(COALESCE(ref_type, '')) NOT IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT', 'ORDER'){$branchSql} GROUP BY item_id",
+                str_repeat('i', count($ledgerIds)) . $branchTypes,
+                array_merge($ledgerIds, $branchParams)
+            ) ?: [];
+            foreach ($rows as $row) {
+                $result[(int)$row['item_id']] = (float)($row['soh'] ?? 0);
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * Get item details.
      */
     public static function getItem($id) {
