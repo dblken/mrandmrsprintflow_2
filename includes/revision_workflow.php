@@ -933,6 +933,193 @@ function printflow_revision_ensure_customer_add_details_notification(
 }
 
 /**
+ * Ensure orders/customizations columns used by Request Add Details exist and accept workflow values.
+ */
+function printflow_revision_ensure_order_mutation_schema(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+
+    if (!function_exists('printflow_ensure_orders_status_schema')) {
+        require_once __DIR__ . '/ensure_orders_status_schema.php';
+    }
+    printflow_ensure_orders_status_schema();
+
+    $addColumn = static function (string $table, string $column, string $definition): void {
+        if (!function_exists('db_table_has_column') || db_table_has_column($table, $column)) {
+            return;
+        }
+        $safeTable = preg_replace('/[^a-zA-Z0-9_]/', '', $table);
+        $safeColumn = preg_replace('/[^a-zA-Z0-9_]/', '', $column);
+        if ($safeTable === '' || $safeColumn === '') {
+            return;
+        }
+        if (!db_execute("ALTER TABLE `{$safeTable}` ADD COLUMN `{$safeColumn}` {$definition}")) {
+            error_log("printflow_revision_ensure_order_mutation_schema: failed adding {$safeTable}.{$safeColumn}");
+        }
+    };
+
+    $addColumn('orders', 'rejection_reason', 'TEXT NULL');
+    $addColumn('orders', 'revision_reason', 'VARCHAR(255) NULL');
+    $addColumn('customizations', 'rejection_reason', 'TEXT NULL');
+
+    global $conn;
+    if (!isset($conn) || !($conn instanceof mysqli)) {
+        return;
+    }
+
+    $widenStatusLike = static function (string $table, string $column, string $defaultLiteral) use ($conn): void {
+        $tableEsc = preg_replace('/[^a-zA-Z0-9_]/', '', $table);
+        $columnEsc = preg_replace('/[^a-zA-Z0-9_]/', '', $column);
+        if ($tableEsc === '' || $columnEsc === '') {
+            return;
+        }
+        $res = @$conn->query("SHOW COLUMNS FROM `{$tableEsc}` LIKE '{$columnEsc}'");
+        if (!$res || $res->num_rows === 0) {
+            if ($res) {
+                $res->free();
+            }
+            return;
+        }
+        $row = $res->fetch_assoc();
+        $res->free();
+        $type = strtolower((string)($row['Type'] ?? ''));
+        $needs = str_starts_with($type, 'enum(');
+        if (preg_match('/^varchar\((\d+)\)/', $type, $m) && (int)$m[1] < 40) {
+            $needs = true;
+        }
+        if (preg_match('/^char\((\d+)\)/', $type, $m) && (int)$m[1] < 40) {
+            $needs = true;
+        }
+        if (!$needs) {
+            return;
+        }
+        $def = $conn->real_escape_string($defaultLiteral);
+        $sql = "ALTER TABLE `{$tableEsc}` MODIFY COLUMN `{$columnEsc}` VARCHAR(80) NULL DEFAULT '{$def}'";
+        if (!@$conn->query($sql)) {
+            error_log('printflow_revision_ensure_order_mutation_schema: ' . $tableEsc . '.' . $columnEsc . ' — ' . $conn->error);
+        }
+    };
+
+    if (function_exists('db_table_has_column') && db_table_has_column('orders', 'design_status')) {
+        $widenStatusLike('orders', 'design_status', 'Pending');
+    } else {
+        $addColumn('orders', 'design_status', "VARCHAR(80) NULL DEFAULT 'Pending'");
+    }
+}
+
+/**
+ * @throws RuntimeException when the order status row cannot be updated
+ */
+function printflow_revision_update_order_after_staff_request(int $orderId, string $legacyReason): void
+{
+    printflow_revision_ensure_order_mutation_schema();
+
+    $statusUpdated = db_execute(
+        'UPDATE orders SET status = ? WHERE order_id = ?',
+        'si',
+        ['For Revision', $orderId]
+    );
+    if ($statusUpdated === false) {
+        error_log("Request Add Details: unable to update orders.status for order #{$orderId}.");
+        throw new RuntimeException(
+            'Unable to update the order for Request Add Details. The order status column may need a schema update—contact support.'
+        );
+    }
+
+    if (function_exists('db_table_has_column') && db_table_has_column('orders', 'design_status')) {
+        $designUpdated = db_execute(
+            'UPDATE orders SET design_status = ? WHERE order_id = ?',
+            'si',
+            ['Revision Requested', $orderId]
+        );
+        if ($designUpdated === false) {
+            printflow_revision_ensure_order_mutation_schema();
+            $designUpdated = db_execute(
+                'UPDATE orders SET design_status = ? WHERE order_id = ?',
+                'si',
+                ['Revision Requested', $orderId]
+            );
+            if ($designUpdated === false) {
+                error_log("Request Add Details: design_status update failed for order #{$orderId}.");
+            }
+        }
+    }
+
+    $reason = trim($legacyReason);
+    if ($reason !== '') {
+        if (function_exists('db_table_has_column') && db_table_has_column('orders', 'rejection_reason')) {
+            db_execute('UPDATE orders SET rejection_reason = ? WHERE order_id = ?', 'si', [$reason, $orderId]);
+        }
+        if (function_exists('db_table_has_column') && db_table_has_column('orders', 'revision_reason')) {
+            db_execute('UPDATE orders SET revision_reason = ? WHERE order_id = ?', 'si', [$reason, $orderId]);
+        }
+    }
+
+    if (function_exists('db_table_has_column') && db_table_has_column('orders', 'updated_at')) {
+        db_execute('UPDATE orders SET updated_at = NOW() WHERE order_id = ?', 'i', [$orderId]);
+    }
+}
+
+function printflow_revision_update_customization_after_staff_request(
+    int $orderId,
+    int $targetCustomizationId,
+    string $legacyReason
+): void {
+    $reason = trim($legacyReason);
+    $hasRejection = function_exists('db_table_has_column') && db_table_has_column('customizations', 'rejection_reason');
+    $hasUpdatedAt = function_exists('db_table_has_column') && db_table_has_column('customizations', 'updated_at');
+
+    if ($targetCustomizationId > 0) {
+        if ($hasRejection) {
+            db_execute(
+                'UPDATE customizations SET status = ?, rejection_reason = ?, updated_at = NOW() WHERE customization_id = ? AND order_id = ?',
+                'ssii',
+                ['For Revision', $reason, $targetCustomizationId, $orderId]
+            );
+        } elseif ($hasUpdatedAt) {
+            db_execute(
+                'UPDATE customizations SET status = ?, updated_at = NOW() WHERE customization_id = ? AND order_id = ?',
+                'sii',
+                ['For Revision', $targetCustomizationId, $orderId]
+            );
+        } else {
+            db_execute(
+                'UPDATE customizations SET status = ? WHERE customization_id = ? AND order_id = ?',
+                'sii',
+                ['For Revision', $targetCustomizationId, $orderId]
+            );
+        }
+        return;
+    }
+
+    $statusGuard = "status NOT IN ('Processing', 'In Production', 'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled')";
+    if ($hasRejection) {
+        db_execute(
+            "UPDATE customizations SET status = ?, rejection_reason = ?, updated_at = NOW()
+             WHERE order_id = ? AND {$statusGuard}",
+            'ssi',
+            ['For Revision', $reason, $orderId]
+        );
+    } elseif ($hasUpdatedAt) {
+        db_execute(
+            "UPDATE customizations SET status = ?, updated_at = NOW() WHERE order_id = ? AND {$statusGuard}",
+            'si',
+            ['For Revision', $orderId]
+        );
+    } else {
+        db_execute(
+            "UPDATE customizations SET status = ? WHERE order_id = ? AND {$statusGuard}",
+            'si',
+            ['For Revision', $orderId]
+        );
+    }
+}
+
+/**
  * Sync order, customization, job, and chat card after staff Request Add Details.
  *
  * @param array<string,mixed> $revisionRequest
@@ -945,39 +1132,15 @@ function printflow_revision_sync_entities_after_staff_request(
     array $revisionRequest,
     bool $requireOrderUpdate = true
 ): array {
-    if (!function_exists('printflow_ensure_orders_status_schema')) {
-        require_once __DIR__ . '/ensure_orders_status_schema.php';
-    }
-    printflow_ensure_orders_status_schema();
+    printflow_revision_update_customization_after_staff_request($orderId, $targetCustomizationId, $legacyReason);
 
-    if ($targetCustomizationId > 0) {
-        db_execute(
-            'UPDATE customizations SET status = ?, rejection_reason = ?, updated_at = NOW() WHERE customization_id = ? AND order_id = ?',
-            'ssii',
-            ['For Revision', $legacyReason, $targetCustomizationId, $orderId]
-        );
-    } else {
-        db_execute(
-            "UPDATE customizations SET status = ?, rejection_reason = ?, updated_at = NOW()
-             WHERE order_id = ?
-               AND status NOT IN ('Processing', 'In Production', 'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled')",
-            'ssi',
-            ['For Revision', $legacyReason, $orderId]
-        );
-    }
-
-    $orderUpdated = db_execute(
-        'UPDATE orders SET status = ?, rejection_reason = ?, design_status = ? WHERE order_id = ?',
-        'sssi',
-        ['For Revision', $legacyReason, 'Revision Requested', $orderId]
-    );
-    if ($orderUpdated === false) {
-        error_log("Request Add Details: unable to update orders.status for order #{$orderId}.");
+    try {
+        printflow_revision_update_order_after_staff_request($orderId, $legacyReason);
+    } catch (RuntimeException $e) {
         if ($requireOrderUpdate) {
-            throw new RuntimeException(
-                'Unable to update the order for Request Add Details. The order status column may need a schema update—contact support.'
-            );
+            throw $e;
         }
+        error_log('Request Add Details order sync (non-fatal): ' . $e->getMessage());
     }
 
     $jobStatusSync = 'skipped';
@@ -2072,6 +2235,8 @@ function printflow_revision_submit_staff_request(array $input): array
     if ($staffId <= 0) {
         throw new RuntimeException('Staff authorization is required.');
     }
+
+    printflow_revision_ensure_order_mutation_schema();
 
     if ($idempotencyKey !== ''
         && function_exists('db_table_has_column')
