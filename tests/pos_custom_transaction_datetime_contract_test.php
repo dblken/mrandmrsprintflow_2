@@ -20,6 +20,7 @@ $assert = static function (bool $condition, string $message) use (&$passed): voi
 
 $assert(
     str_contains($pos, 'Set Date &amp; Time')
+        && str_contains($pos, 'pos-order-datetime-section')
         && str_contains($pos, 'POS_CAN_CUSTOM_TRANSACTION_DATETIME')
         && str_contains($pos, 'posCheckoutCustomTransactionPayload')
         && str_contains($pos, 'validatePosCheckoutTransactionDateTime'),

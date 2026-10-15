@@ -1022,6 +1022,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             color: #1e293b;
         }
 
+        .pos-order-datetime-section {
+            margin: 0 0 12px;
+            padding: 12px 14px;
+            border: 1px solid #bfdbfe;
+            border-radius: 12px;
+            background: linear-gradient(180deg, #eff6ff 0%, #f8fafc 100%);
+        }
+
+        .pos-order-datetime-section .pos-transaction-datetime-compact {
+            gap: 10px;
+        }
+
         .pos-btn-clear {
             background: #fff7f7;
             color: #c2414d;
@@ -3150,6 +3162,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             </div>
                         </div>
 
+                        <?php if ($pos_can_custom_transaction_datetime): ?>
+                        <section id="pos-checkout-transaction-datetime-compact" class="pos-order-datetime-section" aria-label="Order date and time">
+                            <div class="pos-transaction-datetime-compact">
+                                <button type="button" id="pos-open-transaction-datetime-btn" class="pos-transaction-datetime-open-btn" onclick="openPosTransactionDateTimeModal()">
+                                    <i class="fas fa-calendar-alt" aria-hidden="true"></i> Set Date &amp; Time
+                                </button>
+                                <p id="pos-transaction-datetime-summary" class="pos-transaction-datetime-summary" aria-live="polite">Date/Time: Current server time</p>
+                            </div>
+                        </section>
+                        <?php endif; ?>
+
                         <div class="pos-cart-list" id="pos-cart-items">
                             <div class="pos-empty-state">
                                 <i class="fas fa-shopping-cart"></i>
@@ -3211,16 +3234,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             </div>
 
                             <div class="pos-checkout-footer">
-                            <?php if ($pos_can_custom_transaction_datetime): ?>
-                            <div id="pos-checkout-transaction-datetime-compact" class="pos-checkout-datetime-bar">
-                                <div class="pos-transaction-datetime-compact">
-                                    <button type="button" id="pos-open-transaction-datetime-btn" class="pos-transaction-datetime-open-btn" onclick="openPosTransactionDateTimeModal()">
-                                        Set Date &amp; Time
-                                    </button>
-                                    <p id="pos-transaction-datetime-summary" class="pos-transaction-datetime-summary" aria-live="polite">Date/Time: Current server time</p>
-                                </div>
-                            </div>
-                            <?php endif; ?>
                             <button class="pos-btn-checkout" id="pos-checkout-btn" disabled onclick="processCheckout()">
                                 <i class="fas fa-lock" id="checkout-icon"></i> <span id="checkout-text">Select
                                     Items</span>
