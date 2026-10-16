@@ -699,7 +699,7 @@ function staffDashboardToolbar() {
                                 <?php foreach ($top_services as $service): ?>
                                     <div class="service-item">
                                         <span class="service-info truncate-ellipsis" title="<?php echo htmlspecialchars($service['name']); ?>"><?php echo htmlspecialchars($service['name']); ?></span>
-                                        <span class="service-count"><?php echo (int)$service['item_count']; ?> Items</span>
+                                        <span class="service-count"><?php echo (int)($service['order_count'] ?? $service['item_count']); ?> Orders</span>
                                     </div>
                                 <?php endforeach; ?>
                             <?php else: ?>
@@ -876,7 +876,7 @@ async function refreshDashboard(page = 1, status = null, timeframe = null) {
                     servicesList.innerHTML = data.top_services.map(s => `
                         <div class="service-item">
                             <span class="service-info truncate-ellipsis" title="${s.name}">${s.name}</span>
-                            <span class="service-count">${s.item_count} Items</span>
+                            <span class="service-count">${s.order_count ?? s.item_count} Orders</span>
                         </div>
                     `).join('');
                 } else {
