@@ -29,11 +29,6 @@ $is_admin = (($current_user['role'] ?? '') === 'Admin');
 $reports_href_base = rtrim(AUTH_REDIRECT_BASE, '/') . '/admin/reports.php';
 
 // ── Branch context ────────────────────────────────────────────────────────────
-// Reports open on the main Cabuyao branch for admins unless a branch was
-// explicitly requested. Restricted users continue using their assigned branch.
-if (!$is_manager && $is_admin && !array_key_exists('branch_id', $_GET)) {
-    $_SESSION['selected_branch_id'] = printflow_get_default_admin_branch_id();
-}
 $branchCtx = init_branch_context(false);
 $branchId  = $branchCtx['selected_branch_id'];   // 'all' | int
 $branchName = $branchCtx['branch_name'];
@@ -170,25 +165,14 @@ $reportsMark = static function (string $name) use (&$reportsPhaseStart, &$report
 };
 
 // ── 1. Branch empty check (orders + customization jobs) ───────────────────────
-$branch_empty = !pf_admin_reports_cached(
-    'branch-activity',
-    $branchId,
-    [],
-    static fn() => pf_reports_branch_has_activity($branchId) ? ['active' => 1] : []
-);
-$branch_empty = !is_array($branch_empty) || empty($branch_empty);
+$branch_empty = !pf_reports_branch_has_activity($branchId);
 $gaBranchEmpty = $branch_empty; // Same resolved branch; avoid repeating lifetime counts.
 
 $reportsMark('branch_activity');
 // ── Heatmap year list (only years with real data; never future years) ─────────
 if (!$gaBranchEmpty) {
     // Heatmap follows globalAnalyticsBranchId (usually All Branches for Admins)
-    $heatmap_available_years = pf_admin_reports_cached(
-        'heatmap-years',
-        $globalAnalyticsBranchId,
-        [],
-        static fn() => pf_reports_heatmap_available_years($globalAnalyticsBranchId)
-    );
+    $heatmap_available_years = pf_reports_heatmap_available_years($globalAnalyticsBranchId);
 }
 $heatmap_year_req = isset($_GET['heatmap_year']) ? (int) $_GET['heatmap_year'] : 0;
 if ($heatmap_available_years === []) {
@@ -225,11 +209,10 @@ $report_service_category_sales = [];
 $report_service_category_sales_by_branch = [];
 if (!$gaBranchEmpty) {
     try {
-        $report_product_category_sales = pf_admin_reports_cached(
-            'product-category',
-            $globalAnalyticsBranchId,
-            [$from, $toEnd],
-            static fn() => pf_reports_sales_by_official_product($from, $toEnd, $globalAnalyticsBranchId)
+        $report_product_category_sales = pf_reports_sales_by_official_product(
+            $from,
+            $toEnd,
+            $globalAnalyticsBranchId
         );
         if (printflow_branch_value_is_all($globalAnalyticsBranchId)) {
             foreach (($branchCtx['branches_list'] ?? []) as $branchRow) {
@@ -240,12 +223,7 @@ if (!$gaBranchEmpty) {
                 $report_product_category_sales_by_branch[] = [
                     'branch_id' => $branchProductId,
                     'branch_name' => (string)($branchRow['branch_name'] ?? ('Branch #' . $branchProductId)),
-                    'rows' => pf_admin_reports_cached(
-                        'product-category',
-                        $branchProductId,
-                        [$from, $toEnd],
-                        static fn() => pf_reports_sales_by_official_product($from, $toEnd, $branchProductId)
-                    ),
+                    'rows' => pf_reports_sales_by_official_product($from, $toEnd, $branchProductId),
                 ];
             }
         }
@@ -254,11 +232,10 @@ if (!$gaBranchEmpty) {
         $report_product_category_sales_by_branch = [];
     }
     try {
-        $report_service_category_sales = pf_admin_reports_cached(
-            'service-category',
-            $globalAnalyticsBranchId,
-            [$from, $toEnd],
-            static fn() => pf_reports_sales_by_service_category($from, $toEnd, $globalAnalyticsBranchId)
+        $report_service_category_sales = pf_reports_sales_by_service_category(
+            $from,
+            $toEnd,
+            $globalAnalyticsBranchId
         );
         $report_service_category_sales = pf_reports_fold_demo_service_categories(
             $report_service_category_sales,
@@ -270,11 +247,10 @@ if (!$gaBranchEmpty) {
                 if ($branchServiceId <= 0) {
                     continue;
                 }
-                $branchServiceRows = pf_admin_reports_cached(
-                    'service-category',
-                    $branchServiceId,
-                    [$from, $toEnd],
-                    static fn() => pf_reports_sales_by_service_category($from, $toEnd, $branchServiceId)
+                $branchServiceRows = pf_reports_sales_by_service_category(
+                    $from,
+                    $toEnd,
+                    $branchServiceId
                 );
                 $branchServiceRows = pf_reports_fold_demo_service_categories(
                     $branchServiceRows,
@@ -330,12 +306,7 @@ if (!$gaBranchEmpty && $total_orders > 0) {
     } catch(Exception $e){}
 
     try {
-        $topRows = pf_admin_reports_cached(
-            'customer-location-top',
-            $globalAnalyticsBranchId,
-            [$from, $toEnd, $branchName],
-            static fn() => pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 1, false, $branchName)
-        );
+        $topRows = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 1, false, $branchName);
         $top_kpi_location = $topRows[0] ?? null;
         if ($top_kpi_location !== null) {
             $top_kpi_location['cnt'] = (int)($top_kpi_location['orders'] ?? 0);
@@ -684,12 +655,7 @@ $customer_locations = [];
 $customer_locations_by_branch = [];
 if (!$gaBranchEmpty) {
     try {
-        $customer_locations = pf_admin_reports_cached(
-            'customer-locations',
-            $globalAnalyticsBranchId,
-            [$from, $toEnd, $branchName],
-            static fn() => pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 5, false, $branchName)
-        );
+        $customer_locations = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 5, false, $branchName);
         if ($chart_sort === 'value_asc') {
             $customer_locations = array_reverse($customer_locations);
         }
@@ -699,13 +665,7 @@ if (!$gaBranchEmpty) {
                 if ($branchLocationId <= 0) {
                     continue;
                 }
-                $branchLocationName = (string)($branchRow['branch_name'] ?? '');
-                $branchLocationRows = pf_admin_reports_cached(
-                    'customer-locations',
-                    $branchLocationId,
-                    [$from, $toEnd, $branchLocationName],
-                    static fn() => pf_reports_customer_locations_merged($from, $toEnd, $branchLocationId, 5, false, $branchLocationName)
-                );
+                $branchLocationRows = pf_reports_customer_locations_merged($from, $toEnd, $branchLocationId, 5, false, (string)($branchRow['branch_name'] ?? ''));
                 if ($chart_sort === 'value_asc') {
                     $branchLocationRows = array_reverse($branchLocationRows);
                 }
@@ -803,12 +763,7 @@ if ($dash_single_branch && (float)($dash_single_branch['revenue'] ?? 0) > 0) {
 
 $reportsMark('branch_performance');
 // ── 12b. Estimated Gross Profit Summary (material-cost-based only) ─────────
-$gross_profit_analytics = pf_admin_reports_cached(
-    'gross-profit',
-    $globalAnalyticsBranchId,
-    [$from, $toEnd],
-    static fn() => pf_reports_estimated_gross_profit_analytics($from, $toEnd, $globalAnalyticsBranchId)
-);
+$gross_profit_analytics = pf_reports_estimated_gross_profit_analytics($from, $toEnd, $globalAnalyticsBranchId);
 $gp_summary = $gross_profit_analytics['summary'] ?? [];
 $gp_branch_rows = $gross_profit_analytics['by_branch'] ?? [];
 $gp_cat = $gross_profit_analytics['category_insights'] ?? [];
@@ -2463,12 +2418,7 @@ a.export-dd-link:hover { background: #f9fafb; }
 // ── 15. Dash Sales Chart (branch revenue = store + customization; filter-aware) ──
 // This is the ONLY component affected by the global from/to/branch filter
 try {
-    $dashSales = pf_admin_reports_cached(
-        'period-sales-chart',
-        $salesTrendBranchId,
-        [$salesTrendFrom, $salesTrendToEnd],
-        static fn() => pf_reports_period_sales_merged($salesTrendFrom, $salesTrendToEnd, $salesTrendBranchId)
-    );
+    $dashSales = pf_reports_period_sales_merged($salesTrendFrom, $salesTrendToEnd, $salesTrendBranchId);
     $dash_labels     = $dashSales['labels'] ?? [];
     $dash_rev_store  = $dashSales['revStore'] ?? [];
     $dash_rev_custom = $dashSales['revCustom'] ?? [];
