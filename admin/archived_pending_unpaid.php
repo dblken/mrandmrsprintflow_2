@@ -69,7 +69,6 @@ body{font-family:var(--pf-ui-font-sans,Arial,sans-serif);color:#172b4d;backgroun
 @media(max-width:768px){.main-content{padding:14px}.pf-card{padding:16px}.pf-card h1{font-size:21px}.pf-fields{grid-template-columns:1fr}.pf-fields .pf-button{width:100%}.pf-actions .pf-button{width:100%}.pf-table{font-size:13px}.pf-table th,.pf-table td{padding:8px 10px}.pf-table-wrap{max-height:60vh}.pf-dialog-actions .pf-button{width:100%}}
 </style></head><body>
 <div class="dashboard-container"><?php include __DIR__ . '/../includes/admin_sidebar.php'; ?><main class="main-content">
-<a class="pf-back" href="<?= htmlspecialchars($basePath, ENT_QUOTES, 'UTF-8') ?>/admin/archived_orders.php">&larr; Back to Archived Orders</a>
 
 <section class="pf-card">
 <h1>Hide Pending/Unpaid Orders</h1>
