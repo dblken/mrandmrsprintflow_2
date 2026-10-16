@@ -3224,15 +3224,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             </div>
 
                             <div class="pos-checkout-footer">
-                            <!-- pos-datetime-feature: staff-walkin-20261016 -->
-                            <section id="pos-checkout-transaction-datetime-compact" class="pos-order-datetime-section" aria-label="Order date and time">
-                                <div class="pos-transaction-datetime-compact">
-                                    <button type="button" id="pos-open-transaction-datetime-btn" class="pos-transaction-datetime-open-btn" onclick="openPosTransactionDateTimeModal()">
-                                        <i class="fas fa-calendar-alt" aria-hidden="true"></i> Set Date &amp; Time
-                                    </button>
-                                    <p id="pos-transaction-datetime-summary" class="pos-transaction-datetime-summary" aria-live="polite">Date/Time: Current server time (Manila)</p>
-                                </div>
-                            </section>
                             <button class="pos-btn-checkout" id="pos-checkout-btn" disabled onclick="processCheckout()">
                                 <i class="fas fa-lock" id="checkout-icon"></i> <span id="checkout-text">Select
                                     Items</span>
@@ -3244,38 +3235,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                 </div> <!-- END pos-wrapper -->
             </main>
-        </div>
-    </div>
-
-    <div id="pos-transaction-datetime-modal" class="pos-tx-datetime-modal-overlay" hidden aria-hidden="true"
-        onclick="if(event.target===this)closePosTransactionDateTimeModal()">
-        <div class="pos-tx-datetime-modal" role="dialog" aria-modal="true" aria-labelledby="pos-tx-datetime-modal-title">
-            <div class="pos-tx-datetime-modal-head">
-                <h3 id="pos-tx-datetime-modal-title">Date &amp; Time</h3>
-                <button type="button" class="pos-tx-datetime-modal-close" aria-label="Close" onclick="closePosTransactionDateTimeModal()">&times;</button>
-            </div>
-            <div class="pos-tx-datetime-modal-body">
-                <label class="pos-transaction-datetime-toggle" for="pos-confirm-use-custom-date">
-                    <input type="checkbox" id="pos-confirm-use-custom-date" onchange="toggleConfirmTransactionDate()">
-                    Use custom date/time
-                </label>
-                <div id="pos-confirm-transaction-date-fields" class="pos-transaction-datetime-fields">
-                    <div class="pos-tender-group">
-                        <label class="pos-summary-label" for="pos-confirm-transaction-date">Date</label>
-                        <input type="date" id="pos-confirm-transaction-date" disabled class="pos-datetime-input" max="<?php echo htmlspecialchars($pos_manila_today, ENT_QUOTES, 'UTF-8'); ?>">
-                    </div>
-                    <div class="pos-tender-group">
-                        <label class="pos-summary-label" for="pos-confirm-transaction-time">Time</label>
-                        <input type="time" id="pos-confirm-transaction-time" disabled class="pos-datetime-input" step="60">
-                    </div>
-                </div>
-                <p class="pos-transaction-datetime-hint">When enabled, order, receipt, inventory, and reports use this Manila date/time instead of now.</p>
-                <p id="pos-confirm-transaction-date-error" class="pos-transaction-datetime-error" hidden role="alert">Choose both date and time, or turn off custom date/time.</p>
-            </div>
-            <div class="pos-tx-datetime-modal-foot">
-                <button type="button" class="pos-tx-datetime-btn-secondary" onclick="closePosTransactionDateTimeModal()">Cancel</button>
-                <button type="button" class="pos-tx-datetime-btn-primary" onclick="savePosTransactionDateTimeModal()">Save</button>
-            </div>
         </div>
     </div>
 
