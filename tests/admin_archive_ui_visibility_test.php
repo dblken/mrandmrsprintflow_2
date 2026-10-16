@@ -31,8 +31,32 @@ foreach (['admin', 'includes', 'assets', 'public/assets'] as $directory) {
         $expect(!preg_match('~(?:/admin/|[\x27\x22`])archived_orders\.php~i', $source), $relative . ' does not render or generate an archive hub link');
     }
 }
-$expect(str_contains($archive, 'pfArchiveAdminSurface') && str_contains($archive, '$archiveAdminUiVisible'), 'Archived Orders page wraps tools in a visibility-controlled surface');
-$expect(str_contains($archive, 'if ($archiveAdminUiVisible):') && str_contains($archive, 'api_jenny_customer_exclusion.php'), 'Archive APIs remain in page source but scripts init only when UI visible');
+$surfaceStart = strpos($archive, '<?php if ($archiveAdminUiVisible): ?>');
+$surfaceEnd = strrpos($archive, '<?php endif; ?>');
+$surfaceMarkup = strpos($archive, '<div id="pfArchiveAdminSurface">');
+$expect($surfaceStart !== false && $surfaceMarkup !== false && $surfaceStart < $surfaceMarkup, 'archive visibility is checked before rendering controls');
+if ($surfaceStart !== false && $surfaceEnd !== false && $surfaceEnd > $surfaceStart) {
+    $archiveAdminUiVisible = false;
+    ob_start();
+    eval('?>' . substr($archive, $surfaceStart, $surfaceEnd - $surfaceStart + strlen('<?php endif; ?>')));
+    $rendered = (string)ob_get_clean();
+    $expect(trim($rendered) === '', 'disabled archive UI emits no HTML from the visibility block');
+    $expect(
+        !str_contains($rendered, 'pfArchiveAdminSurface')
+        && !str_contains($rendered, 'pfCaSearch')
+        && !str_contains($rendered, 'Hide All Orders')
+        && !str_contains($rendered, '<script'),
+        'disabled archive UI omits controls, links, and client scripts'
+    );
+} else {
+    $expect(false, 'archive UI has a complete server-side visibility boundary');
+}
+$expect(
+    str_contains($archive, 'if ($archiveAdminUiVisible):')
+    && str_contains($archive, 'api_jenny_customer_exclusion.php')
+    && !preg_match('~pfArchiveAdminSurface[^>]*hidden~', $archive),
+    'archive hub uses server-side guard instead of hidden DOM fallback'
+);
 
 if ($failures !== []) {
     fwrite(STDERR, "admin_archive_ui_visibility_test failed:\n- " . implode("\n- ", $failures) . "\n");
