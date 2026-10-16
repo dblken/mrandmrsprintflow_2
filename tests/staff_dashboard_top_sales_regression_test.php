@@ -36,7 +36,7 @@ $expect(strpos($api, 'metrics_version') !== false, 'dashboard API exposes metric
 $expect(strpos($api, 'orderTimeBounds') !== false, 'Recent Orders API shares orderTimeBounds with Top Sales');
 $expect(strpos($cache, 'top_sales_order_labels_20261016') !== false, 'cache key version includes top sales fix');
 $expect(strpos($clear, 'printflow_staff_dashboard_cache_flush_all') !== false, 'clear_cache flushes staff dashboard JSON cache');
-$expect(strpos($version, 'staff_dashboard_metrics_20261016_v2') !== false, 'metrics version constant defined');
+$expect(strpos($version, 'staff_dashboard_metrics_20261016_v4') !== false, 'metrics version constant defined');
 
 if ($failures !== []) {
     fwrite(STDERR, "staff_dashboard_top_sales_regression_test failed:\n- " . implode("\n- ", $failures) . "\n");

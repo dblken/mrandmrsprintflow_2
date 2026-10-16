@@ -1021,20 +1021,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             color: #1e293b;
         }
 
-        .pos-order-datetime-section {
-            display: block !important;
-            visibility: visible !important;
-            margin: 0 0 12px;
-            padding: 12px 14px;
-            border: 1px solid #bfdbfe;
-            border-radius: 12px;
-            background: linear-gradient(180deg, #eff6ff 0%, #f8fafc 100%);
-        }
-
-        .pos-order-datetime-section .pos-transaction-datetime-compact {
-            gap: 10px;
-        }
-
         .pos-btn-clear {
             background: #fff7f7;
             color: #c2414d;
@@ -1470,48 +1456,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             font-size: 20px;
             font-weight: 800;
             color: var(--staff-primary);
-        }
-
-        .pos-checkout-datetime-bar {
-            margin-bottom: 10px;
-        }
-
-        .pos-transaction-datetime-compact {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            align-items: stretch;
-        }
-
-        .pos-transaction-datetime-open-btn {
-            width: 100%;
-            padding: 8px 12px;
-            border: 1px solid var(--staff-primary);
-            border-radius: 8px;
-            background: #ffffff;
-            color: var(--staff-primary);
-            font-size: 12px;
-            font-weight: 700;
-            cursor: pointer;
-            font-family: inherit;
-            text-align: center;
-        }
-
-        .pos-transaction-datetime-open-btn:hover {
-            background: var(--staff-primary);
-            color: #ffffff;
-        }
-
-        .pos-transaction-datetime-summary {
-            margin: 0;
-            font-size: 11px;
-            font-weight: 600;
-            color: #475569;
-            line-height: 1.35;
-        }
-
-        .pos-transaction-datetime-summary.is-custom {
-            color: #0f766e;
         }
 
         .pos-tx-datetime-modal-overlay {

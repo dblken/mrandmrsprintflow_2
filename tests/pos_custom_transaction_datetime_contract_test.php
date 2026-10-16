@@ -19,13 +19,12 @@ $assert = static function (bool $condition, string $message) use (&$passed): voi
 };
 
 $assert(
-    str_contains($pos, 'Set Date &amp; Time')
-        && str_contains($pos, 'pos-order-datetime-section')
-        && str_contains($pos, 'pos-datetime-feature: staff-walkin-20261016')
+    !str_contains($pos, 'Set Date &amp; Time')
+        && !str_contains($pos, 'pos-open-transaction-datetime-btn')
         && str_contains($pos, 'POS_CAN_CUSTOM_TRANSACTION_DATETIME')
         && str_contains($pos, 'posCheckoutCustomTransactionPayload')
         && str_contains($pos, 'validatePosCheckoutTransactionDateTime'),
-    'POS exposes authorized Set Date & Time controls and checkout payload wiring'
+    'POS hides Set Date & Time button; checkout payload wiring retained for server time default'
 );
 $assert(
     str_contains($pos, 'Needed date cannot be in the past.')
