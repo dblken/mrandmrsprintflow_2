@@ -209,10 +209,11 @@ $report_service_category_sales = [];
 $report_service_category_sales_by_branch = [];
 if (!$gaBranchEmpty) {
     try {
-        $report_product_category_sales = pf_reports_sales_by_official_product(
-            $from,
-            $toEnd,
-            $globalAnalyticsBranchId
+        $report_product_category_sales = pf_admin_reports_cached(
+            'product-category',
+            $globalAnalyticsBranchId,
+            [$from, $toEnd],
+            static fn() => pf_reports_sales_by_official_product($from, $toEnd, $globalAnalyticsBranchId)
         );
         if (printflow_branch_value_is_all($globalAnalyticsBranchId)) {
             foreach (($branchCtx['branches_list'] ?? []) as $branchRow) {
@@ -223,7 +224,12 @@ if (!$gaBranchEmpty) {
                 $report_product_category_sales_by_branch[] = [
                     'branch_id' => $branchProductId,
                     'branch_name' => (string)($branchRow['branch_name'] ?? ('Branch #' . $branchProductId)),
-                    'rows' => pf_reports_sales_by_official_product($from, $toEnd, $branchProductId),
+                    'rows' => pf_admin_reports_cached(
+                        'product-category',
+                        $branchProductId,
+                        [$from, $toEnd],
+                        static fn() => pf_reports_sales_by_official_product($from, $toEnd, $branchProductId)
+                    ),
                 ];
             }
         }
@@ -232,10 +238,11 @@ if (!$gaBranchEmpty) {
         $report_product_category_sales_by_branch = [];
     }
     try {
-        $report_service_category_sales = pf_reports_sales_by_service_category(
-            $from,
-            $toEnd,
-            $globalAnalyticsBranchId
+        $report_service_category_sales = pf_admin_reports_cached(
+            'service-category',
+            $globalAnalyticsBranchId,
+            [$from, $toEnd],
+            static fn() => pf_reports_sales_by_service_category($from, $toEnd, $globalAnalyticsBranchId)
         );
         $report_service_category_sales = pf_reports_fold_demo_service_categories(
             $report_service_category_sales,
@@ -247,10 +254,11 @@ if (!$gaBranchEmpty) {
                 if ($branchServiceId <= 0) {
                     continue;
                 }
-                $branchServiceRows = pf_reports_sales_by_service_category(
-                    $from,
-                    $toEnd,
-                    $branchServiceId
+                $branchServiceRows = pf_admin_reports_cached(
+                    'service-category',
+                    $branchServiceId,
+                    [$from, $toEnd],
+                    static fn() => pf_reports_sales_by_service_category($from, $toEnd, $branchServiceId)
                 );
                 $branchServiceRows = pf_reports_fold_demo_service_categories(
                     $branchServiceRows,
@@ -306,7 +314,12 @@ if (!$gaBranchEmpty && $total_orders > 0) {
     } catch(Exception $e){}
 
     try {
-        $topRows = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 1, false, $branchName);
+        $topRows = pf_admin_reports_cached(
+            'customer-location-top',
+            $globalAnalyticsBranchId,
+            [$from, $toEnd, $branchName],
+            static fn() => pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 1, false, $branchName)
+        );
         $top_kpi_location = $topRows[0] ?? null;
         if ($top_kpi_location !== null) {
             $top_kpi_location['cnt'] = (int)($top_kpi_location['orders'] ?? 0);
@@ -655,7 +668,12 @@ $customer_locations = [];
 $customer_locations_by_branch = [];
 if (!$gaBranchEmpty) {
     try {
-        $customer_locations = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 5, false, $branchName);
+        $customer_locations = pf_admin_reports_cached(
+            'customer-locations',
+            $globalAnalyticsBranchId,
+            [$from, $toEnd, $branchName],
+            static fn() => pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 5, false, $branchName)
+        );
         if ($chart_sort === 'value_asc') {
             $customer_locations = array_reverse($customer_locations);
         }
@@ -665,7 +683,13 @@ if (!$gaBranchEmpty) {
                 if ($branchLocationId <= 0) {
                     continue;
                 }
-                $branchLocationRows = pf_reports_customer_locations_merged($from, $toEnd, $branchLocationId, 5, false, (string)($branchRow['branch_name'] ?? ''));
+                $branchLocationName = (string)($branchRow['branch_name'] ?? '');
+                $branchLocationRows = pf_admin_reports_cached(
+                    'customer-locations',
+                    $branchLocationId,
+                    [$from, $toEnd, $branchLocationName],
+                    static fn() => pf_reports_customer_locations_merged($from, $toEnd, $branchLocationId, 5, false, $branchLocationName)
+                );
                 if ($chart_sort === 'value_asc') {
                     $branchLocationRows = array_reverse($branchLocationRows);
                 }
