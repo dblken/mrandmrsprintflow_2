@@ -190,7 +190,9 @@ $reportsMark('heatmap_years');
 $current_sales_summary = !$gaBranchEmpty
     // Revenue is an authoritative KPI; keep it fresh so it cannot disagree
     // with the independently recalculated monthly trend after data changes.
-    ? pf_reports_canonical_official_sales_totals($from, $toEnd, $globalAnalyticsBranchId)
+    ? pf_reports_sum_canonical_sales_months(
+        pf_reports_canonical_official_sales_monthly($from, $toEnd, $globalAnalyticsBranchId)
+    )
     : [];
 $total_orders = (int)($current_sales_summary['transaction_count'] ?? 0);
 $revenue = (float)($current_sales_summary['total_sales'] ?? 0);
@@ -319,71 +321,30 @@ $reportsMark('kpi_labels');
 $trend12_labels = $trend12_revenue_store = $trend12_revenue_custom = $trend12_revenues = $trend12_orders = [];
 if (!$gaBranchEmpty) {
     try {
-        [$bo,$bto,$bpo] = branch_where_parts('o', $globalAnalyticsBranchId);
-        [$bj,$btj,$bpj] = branch_where_parts('jo', $globalAnalyticsBranchId);
-
         // Dashboard standard: Last 12 months (11 months prior + current)
         $trend_start_str = date('Y-m-d', strtotime('-11 months'));
         $trend_start_key = date('Y-m', strtotime($trend_start_str));
-        $storeSalesSql = pf_reports_store_order_sales_expr('o');
-        $storeRevenueSql = pf_reports_store_order_revenue_expr('o');
-        $jobSalesSql = pf_reports_job_order_sales_expr('jo');
-        $jobRevenueSql = pf_reports_job_order_revenue_expr('jo');
-        $jobDateSql = pf_reports_job_order_sales_date_expr('jo');
-        $jobExcludeLinkedCustomStore = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
-
-        $raw_store = db_query(
-            "SELECT DATE_FORMAT(o.order_date,'%Y-%m') AS mon,
-                    SUM(CASE WHEN {$storeSalesSql} THEN 1 ELSE 0 END) AS orders_store,
-                    SUM(CASE WHEN {$storeSalesSql} THEN {$storeRevenueSql} ELSE 0 END) AS revenue_store
-             FROM orders o
-             WHERE " . printflow_order_archive_scope_sql('o') . "{$bo}
-             GROUP BY DATE_FORMAT(o.order_date,'%Y-%m')
-             ORDER BY mon",
-            $bto,
-            $bpo
-        ) ?: [];
-        $raw_job = db_query(
-            "SELECT DATE_FORMAT({$jobDateSql},'%Y-%m') AS mon,
-                    SUM(CASE WHEN {$jobSalesSql} THEN 1 ELSE 0 END) AS orders_custom,
-                    SUM(CASE WHEN {$jobSalesSql} THEN {$jobRevenueSql} ELSE 0 END) AS revenue_custom
-             FROM job_orders jo
-             WHERE 1=1{$jobExcludeLinkedCustomStore}{$bj}
-             GROUP BY DATE_FORMAT({$jobDateSql},'%Y-%m')
-             ORDER BY mon",
-            $btj,
-            $bpj
-        ) ?: [];
+        $trend_start_date = $trend_start_key . '-01';
+        $trend_end_date = date('Y-m-t', strtotime(date('Y-m') . '-01')) . ' 23:59:59';
+        $trendMonthly = pf_reports_canonical_official_sales_monthly(
+            $trend_start_date,
+            $trend_end_date,
+            $globalAnalyticsBranchId
+        );
     } catch (Exception $e) {
-        $raw_store = [];
-        $raw_job = [];
+        $trendMonthly = [];
         $trend_start_key = date('Y-m', strtotime('-11 months'));
-    }
-
-    $mapS = [];
-    foreach ($raw_store as $r) {
-        $mapS[$r['mon']] = $r;
-    }
-    $mapJ = [];
-    foreach ($raw_job as $r) {
-        $mapJ[$r['mon']] = $r;
     }
 
     $curr_m = $trend_start_key;
     $end_m  = date('Y-m');
     while ($curr_m <= $end_m) {
         $trend12_labels[] = date('M Y', strtotime($curr_m . '-01'));
-        $s  = $mapS[$curr_m] ?? [];
-        $rs = (float)($s['revenue_store'] ?? 0);
-        $monthStart = $curr_m . '-01';
-        $monthEnd = date('Y-m-t', strtotime($monthStart)) . ' 23:59:59';
-        // Use the same canonical store-order + orphan-job basis as the KPI.
-        // This keeps every displayed month mathematically consistent with
-        // the selected-period revenue, including linked custom-sale dedupe.
-        $monthCanonical = pf_reports_canonical_official_sales_totals($monthStart, $monthEnd, $globalAnalyticsBranchId);
+        $monthCanonical = $trendMonthly[$curr_m] ?? [];
+        $rs = (float)($monthCanonical['store_revenue'] ?? 0);
+        $rc = (float)($monthCanonical['orphan_job_revenue'] ?? 0);
         $monthRevenue = (float)($monthCanonical['total_sales'] ?? 0);
         $monthOrders = (int)($monthCanonical['transaction_count'] ?? 0);
-        $rc = max(0.0, $monthRevenue - $rs);
         $trend12_revenue_store[] = $rs;
         $trend12_revenue_custom[] = $rc;
         $trend12_revenues[] = $monthRevenue;
@@ -2719,7 +2680,13 @@ if ($fc_debug_mode) {
 <?php
             $reportsMark('insights_and_chart_payload');
             header('Cache-Control: private, no-store');
-            header('Server-Timing: ' . implode(', ', array_map(static fn($name, $ms) => 'reports_' . $name . ';dur=' . $ms, array_keys($reportsPhases), array_values($reportsPhases))));
+            $reportsTimingParts = array_map(static fn($name, $ms) => 'reports_' . $name . ';dur=' . $ms, array_keys($reportsPhases), array_values($reportsPhases));
+            if (function_exists('printflow_db_perf_enabled') && printflow_db_perf_enabled()) {
+                $reportsDbPerf = printflow_db_perf_snapshot();
+                $reportsTimingParts[] = 'db_total;dur=' . round((float)$reportsDbPerf['total_ms'], 1);
+                $reportsTimingParts[] = 'db_queries;desc="reports:' . (int)$reportsDbPerf['count'] . '"';
+            }
+            header('Server-Timing: ' . implode(', ', $reportsTimingParts));
             if (isset($_GET['ajax'])) {
                 ob_clean(); // Clear any boilerplate buffered before line 1612
                 ob_start();

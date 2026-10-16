@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+$pfPagePerfStart = microtime(true);
 require_once __DIR__ . '/../includes/historical_admin_tools_guard.php';
 printflow_block_historical_admin_tool();
 require_once __DIR__ . '/../includes/auth.php';
@@ -118,6 +119,7 @@ function htg_choose_target_ready_choice(array $choices, array $stock, float $des
     return $best ?? ['choice' => $choices[array_rand($choices)], 'key' => '', 'quantity' => 1];
 }
 function htg_service_quantity_limit(array $service, int $branch, int $hardLimit = 10): int {
+    static $stockCache = [];
     $serviceType = JobOrderService::inferServiceTypeFromProduct((string)$service['category'], (string)$service['name']);
     $limit = 0;
     for ($quantity = 1; $quantity <= $hardLimit; $quantity++) {
@@ -125,7 +127,11 @@ function htg_service_quantity_limit(array $service, int $branch, int $hardLimit 
         if (empty($plan['supported'])) break;
         $sufficient = true;
         foreach ($plan['materials'] as $material) {
-            $available = (float)InventoryManager::getStockOnHand((int)$material['item_id'], $branch);
+            $stockKey = $branch . ':' . (int)$material['item_id'];
+            if (!array_key_exists($stockKey, $stockCache)) {
+                $stockCache[$stockKey] = (float)InventoryManager::getStockOnHand((int)$material['item_id'], $branch);
+            }
+            $available = $stockCache[$stockKey];
             $required = (float)($material['computed_len'] ?: $material['quantity']);
             if ($available < $required) { $sufficient = false; break; }
         }
@@ -256,12 +262,84 @@ function htg_catalog(string $table): array {
     // services from the selectable generation pool.
     return db_query("SELECT service_id AS id, name, category, COALESCE(price,0) AS price FROM services WHERE LOWER(TRIM(COALESCE(status,'')))='activated' AND TRIM(COALESCE(name,'')) <> '' ORDER BY name, service_id") ?: [];
 }
+
+/** Prime all service eligibility metadata in two read-only batch queries. */
+function htg_prime_service_generator_lookups(array $services): void {
+    $GLOBALS['htg_service_material_rules_cache'] = [];
+    $GLOBALS['htg_service_dimension_options_cache'] = [];
+    $serviceIds = [];
+    $serviceTypes = [];
+    foreach ($services as $service) {
+        $serviceId = (int)($service['id'] ?? 0);
+        if ($serviceId > 0) $serviceIds[$serviceId] = true;
+        $serviceType = JobOrderService::inferServiceTypeFromProduct(
+            (string)($service['category'] ?? ''),
+            (string)($service['name'] ?? '')
+        );
+        if ($serviceType !== '') $serviceTypes[$serviceType] = true;
+    }
+
+    if ($serviceIds && db_table_has_column('service_field_configs', 'field_options')) {
+        $ids = array_keys($serviceIds);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $rows = db_query(
+            "SELECT service_id, field_key, field_label, field_options
+             FROM service_field_configs
+             WHERE service_id IN ({$placeholders})
+             ORDER BY service_id, display_order ASC",
+            str_repeat('i', count($ids)),
+            $ids
+        ) ?: [];
+        $valuesByService = [];
+        $walk = static function ($value, array &$values) use (&$walk): void {
+            if (is_string($value)) {
+                $value = trim($value);
+                if (preg_match('/^\s*\d+(?:\.\d+)?\s*[xÃ—]\s*\d+(?:\.\d+)?\s*(?:ft|feet|in|cm)?\s*$/iu', $value)) {
+                    $values[] = preg_replace('/\s*[Ã—]\s*/u', 'x', $value);
+                }
+            } elseif (is_array($value)) {
+                foreach ($value as $item) $walk($item, $values);
+            }
+        };
+        foreach ($rows as $row) {
+            $serviceId = (int)($row['service_id'] ?? 0);
+            if ($serviceId <= 0) continue;
+            $valuesByService[$serviceId] ??= [];
+            $walk(json_decode((string)($row['field_options'] ?? ''), true), $valuesByService[$serviceId]);
+        }
+        foreach ($serviceIds as $serviceId => $_) {
+            $GLOBALS['htg_service_dimension_options_cache'][$serviceId] = array_values(array_unique(array_filter($valuesByService[$serviceId] ?? [])));
+        }
+    }
+
+    if ($serviceTypes) {
+        $types = array_keys($serviceTypes);
+        $placeholders = implode(',', array_fill(0, count($types), '?'));
+        $rows = db_query(
+            "SELECT r.service_type, r.item_id, r.rule_type, i.*, c.name AS category_name
+             FROM service_material_rules r
+             JOIN inv_items i ON i.id = r.item_id
+             LEFT JOIN inv_categories c ON c.id = i.category_id
+             WHERE r.service_type IN ({$placeholders})
+             ORDER BY r.service_type, r.item_id",
+            str_repeat('s', count($types)),
+            $types
+        ) ?: [];
+        foreach ($types as $serviceType) $GLOBALS['htg_service_material_rules_cache'][$serviceType] = [];
+        foreach ($rows as $row) {
+            $GLOBALS['htg_service_material_rules_cache'][(string)$row['service_type']][] = $row;
+        }
+    }
+}
 function htg_schema_ready(): bool {
     foreach ([['orders','customer_id'],['orders','branch_id'],['orders','reference_id'],['orders','total_amount'],['orders','status'],['orders','payment_status'],['orders','payment_method'],['orders','payment_reference'],['orders','order_date'],['orders','updated_at'],['orders','notes'],['orders','pos_guest_display_name'],['orders','pos_guest_email'],['order_items','customization_data'],['inventory_transactions','transaction_date'],['inventory_transactions','transaction_id']] as $f) if (!db_table_has_column($f[0],$f[1])) return false;
     return true;
 }
 function htg_dimension_options(int $serviceId): array {
     if ($serviceId <= 0 || !db_table_has_column('service_field_configs', 'field_options')) return [];
+    if (array_key_exists($serviceId, $GLOBALS['htg_service_dimension_options_cache'] ?? [])) {
+        return $GLOBALS['htg_service_dimension_options_cache'][$serviceId];
+    }
     $rows = db_query('SELECT field_key, field_label, field_options FROM service_field_configs WHERE service_id = ? ORDER BY display_order ASC', 'i', [$serviceId]) ?: [];
     $values = [];
     $walk = static function ($value) use (&$walk, &$values): void {
@@ -297,11 +375,15 @@ function htg_material_plan(string $serviceType, int $quantity, int $serviceId = 
             'label' => 'Skipped: unsupported service type',
         ];
     }
-    $rules = db_query("SELECT r.item_id, r.rule_type, i.*, c.name AS category_name
-                       FROM service_material_rules r
-                       JOIN inv_items i ON i.id = r.item_id
-                       LEFT JOIN inv_categories c ON c.id = i.category_id
-                       WHERE r.service_type = ? ORDER BY r.item_id", 's', [$serviceType]) ?: [];
+    if (array_key_exists($serviceType, $GLOBALS['htg_service_material_rules_cache'] ?? [])) {
+        $rules = $GLOBALS['htg_service_material_rules_cache'][$serviceType];
+    } else {
+        $rules = db_query("SELECT r.item_id, r.rule_type, i.*, c.name AS category_name
+                           FROM service_material_rules r
+                           JOIN inv_items i ON i.id = r.item_id
+                           LEFT JOIN inv_categories c ON c.id = i.category_id
+                           WHERE r.service_type = ? ORDER BY r.item_id", 's', [$serviceType]) ?: [];
+    }
     $materials = [];
     $dimensions = htg_dimension_options($serviceId);
     foreach ($rules as $rule) {
@@ -579,7 +661,8 @@ function htg_preview(string $start,string $end,int $branch,int $count,int $ready
 function htg_target_within_tolerance(?float $target, float $generated): bool {
     return $target === null || $target > 0 && abs($generated - $target) <= $target * 0.05;
 }
-$csrf=function_exists('generate_csrf_token')?generate_csrf_token():($_SESSION['csrf_token']??'');$today=htg_now()->format('Y-m-d');$branches=db_query("SELECT id,branch_name FROM branches WHERE COALESCE(status,'Active')!='Archived' ORDER BY branch_name")?:[];$old=$_POST;$selectionProducts=htg_catalog('products');$selectionServices=htg_catalog('services');$selectionBranch=(int)($_POST['branch_id']??($_SESSION['historical_generator_preview']['branch_id']??0));$serviceEligibility=[];foreach($selectionServices as $selectionService){try{$serviceEligibility[(int)$selectionService['id']]=htg_service_generator_check($selectionService,$selectionBranch);}catch(Throwable $eligibilityError){error_log('[historical_generator] service eligibility check failed: '.$eligibilityError->getMessage());$serviceEligibility[(int)$selectionService['id']]=['valid'=>false,'reason'=>'Eligibility could not be determined safely.'];}}
+$csrf=function_exists('generate_csrf_token')?generate_csrf_token():($_SESSION['csrf_token']??'');$today=htg_now()->format('Y-m-d');$branches=db_query("SELECT id,branch_name FROM branches WHERE COALESCE(status,'Active')!='Archived' ORDER BY branch_name")?:[];$old=$_POST;$selectionProducts=htg_catalog('products');$selectionServices=htg_catalog('services');$selectionBranch=(int)($_POST['branch_id']??($_SESSION['historical_generator_preview']['branch_id']??0));htg_prime_service_generator_lookups($selectionServices);$serviceEligibility=[];foreach($selectionServices as $selectionService){try{$serviceEligibility[(int)$selectionService['id']]=htg_service_generator_check($selectionService,$selectionBranch);}catch(Throwable $eligibilityError){error_log('[historical_generator] service eligibility check failed: '.$eligibilityError->getMessage());$serviceEligibility[(int)$selectionService['id']]=['valid'=>false,'reason'=>'Eligibility could not be determined safely.'];}}
+printflow_dev_perf_header('historical_generator', $pfPagePerfStart);
 ob_start(static function (string $html) use ($selectionProducts,$selectionServices,$serviceEligibility,$csrf,$today): string {
     $html = str_replace('name="reason" required', 'name="reason"', $html);
     $html = str_replace('>Historical transaction backfill</textarea>', '></textarea>', $html);

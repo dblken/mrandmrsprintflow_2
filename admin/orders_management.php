@@ -1,4 +1,5 @@
 <?php
+$pfPagePerfStart = microtime(true);
 /**
  * Admin Orders Management
  * PrintFlow - Printing Shop PWA  
@@ -31,6 +32,7 @@ $status_filter  = trim((string)($_GET['status'] ?? ''));
 $search         = ltrim(trim((string)($_GET['search'] ?? '')), '#');
 $date_from      = $_GET['date_from'] ?? '';
 $date_to        = $_GET['date_to']   ?? '';
+$date_to_exclusive = $date_to !== '' ? date('Y-m-d', strtotime($date_to . ' +1 day')) : '';
 $sort_by        = $_GET['sort']      ?? 'newest';
 $page     = max(1, (int)($_GET['page'] ?? 1));
 $per_page = 10;
@@ -111,14 +113,14 @@ if ($status_filter !== '') {
 }
 
 if (!empty($date_from)) {
-    $sql .= " AND DATE(o.order_date) >= ?";
-    $params[] = $date_from;
+    $sql .= " AND o.order_date >= ?";
+    $params[] = $date_from . ' 00:00:00';
     $types .= 's';
 }
 
 if (!empty($date_to)) {
-    $sql .= " AND DATE(o.order_date) <= ?";
-    $params[] = $date_to;
+    $sql .= " AND o.order_date < ?";
+    $params[] = $date_to_exclusive . ' 00:00:00';
     $types .= 's';
 }
 
@@ -166,11 +168,11 @@ if ($status_filter !== '') {
 }
 
 if (!empty($date_from)) {
-    $count_sql .= " AND DATE(o.order_date) >= '" . $conn->real_escape_string($date_from) . "'";
+    $count_sql .= " AND o.order_date >= '" . $conn->real_escape_string($date_from . ' 00:00:00') . "'";
 }
 
 if (!empty($date_to)) {
-    $count_sql .= " AND DATE(o.order_date) <= '" . $conn->real_escape_string($date_to) . "'";
+    $count_sql .= " AND o.order_date < '" . $conn->real_escape_string($date_to_exclusive . ' 00:00:00') . "'";
 }
 
 if (!empty($search)) {
@@ -200,10 +202,21 @@ $orders = db_query($sql, $types, $params);
 [$bSqlFrag, $bT, $bP] = branch_where_parts('o', $branchId);
 
 $archiveScope = printflow_order_archive_scope_sql('o');
-$total_count      = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.order_type = 'product' AND {$archiveScope} {$bSqlFrag}", $bT ?: null, $bP ?: null)[0]['count'] ?? 0;
-$pending_count    = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.order_type = 'product' AND {$archiveScope} AND o.status IN ('Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'Downpayment Submitted') {$bSqlFrag}", $bT ?: null, $bP ?: null)[0]['count'] ?? 0;
-$ready_count      = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.order_type = 'product' AND {$archiveScope} AND o.status IN ('Ready for Pickup', 'Processing', 'In Production', 'Printing', 'Approved Design') {$bSqlFrag}", $bT ?: null, $bP ?: null)[0]['count'] ?? 0;
-$completed_count  = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.order_type = 'product' AND {$archiveScope} AND o.status = 'Completed' {$bSqlFrag}", $bT ?: null, $bP ?: null)[0]['count'] ?? 0;
+$kpiRow = db_query(
+    "SELECT COUNT(*) AS total_count,
+            SUM(CASE WHEN o.status IN ('Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'Downpayment Submitted') THEN 1 ELSE 0 END) AS pending_count,
+            SUM(CASE WHEN o.status IN ('Ready for Pickup', 'Processing', 'In Production', 'Printing', 'Approved Design') THEN 1 ELSE 0 END) AS ready_count,
+            SUM(CASE WHEN o.status = 'Completed' THEN 1 ELSE 0 END) AS completed_count
+     FROM orders o
+     WHERE o.order_type = 'product' AND {$archiveScope} {$bSqlFrag}",
+    $bT ?: null,
+    $bP ?: null
+)[0] ?? [];
+$total_count = (int)($kpiRow['total_count'] ?? 0);
+$pending_count = (int)($kpiRow['pending_count'] ?? 0);
+$ready_count = (int)($kpiRow['ready_count'] ?? 0);
+$completed_count = (int)($kpiRow['completed_count'] ?? 0);
+printflow_dev_perf_header('product_orders', $pfPagePerfStart);
 
 function admin_display_status(string $status): string {
     $toVerifyStatuses = ['Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'Downpayment Submitted'];

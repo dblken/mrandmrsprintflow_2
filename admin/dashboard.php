@@ -752,6 +752,11 @@ if (!headers_sent()) {
         $dashServerTiming[] = preg_replace('/[^a-z0-9_]/', '', (string)$dashPhase) . ';dur=' . round((float)$dashMs, 1);
     }
     $dashServerTiming[] = 'total;dur=' . round((microtime(true) - ($_SERVER['REQUEST_TIME_FLOAT'] ?? $dashTimingStart)) * 1000, 1);
+    if (function_exists('printflow_db_perf_enabled') && printflow_db_perf_enabled()) {
+        $dashDbPerf = printflow_db_perf_snapshot();
+        $dashServerTiming[] = 'db_total;dur=' . round((float)$dashDbPerf['total_ms'], 1);
+        $dashServerTiming[] = 'db_queries;desc="dashboard:' . (int)$dashDbPerf['count'] . '"';
+    }
     header('Server-Timing: ' . implode(', ', $dashServerTiming));
 }
 

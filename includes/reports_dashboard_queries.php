@@ -209,6 +209,105 @@ function pf_reports_canonical_official_sales_totals(string $from, string $toEnd,
     return $out;
 }
 
+/**
+ * Canonical official sales grouped by month. Uses the same store-order and
+ * orphan-job predicates as pf_reports_canonical_official_sales_totals(), but
+ * performs both sources in one grouped query.
+ *
+ * @return array<string,array{store_revenue:float,store_count:int,orphan_job_revenue:float,orphan_job_count:int,total_sales:float,transaction_count:int}>
+ */
+function pf_reports_canonical_official_sales_monthly(string $from, string $toEnd, $branchId): array {
+    static $cache = [];
+    $cacheKey = $from . '|' . $toEnd . '|' . (is_scalar($branchId) ? (string)$branchId : serialize($branchId));
+    if (array_key_exists($cacheKey, $cache)) return $cache[$cacheKey];
+
+    $storeSales = pf_reports_store_order_sales_expr('o');
+    $storeRevenue = pf_reports_store_order_revenue_expr('o');
+    $jobSales = pf_reports_job_order_sales_expr('jo');
+    $jobRevenue = pf_reports_job_order_revenue_expr('jo');
+    [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
+    [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
+    [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
+    [$jobJoin, $jobBizDate] = pf_reports_job_order_sales_date_join_parts('jo', 'o_canon');
+    [$dj, $dtj, $dpj] = pf_reports_date_expr_where($jobBizDate, $from, $toEnd);
+    $jobExcludeLinkedCustomStore = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
+
+    $sql = "SELECT mon,
+                   SUM(store_count) AS store_count,
+                   SUM(store_revenue) AS store_revenue,
+                   SUM(orphan_job_count) AS orphan_job_count,
+                   SUM(orphan_job_revenue) AS orphan_job_revenue
+            FROM (
+                SELECT DATE_FORMAT(o.order_date, '%Y-%m') AS mon,
+                       COUNT(*) AS store_count,
+                       COALESCE(SUM({$storeRevenue}), 0) AS store_revenue,
+                       0 AS orphan_job_count,
+                       0 AS orphan_job_revenue
+                FROM orders o
+                WHERE {$storeSales}{$do}{$bo}
+                GROUP BY DATE_FORMAT(o.order_date, '%Y-%m')
+                UNION ALL
+                SELECT DATE_FORMAT({$jobBizDate}, '%Y-%m') AS mon,
+                       0 AS store_count,
+                       0 AS store_revenue,
+                       COUNT(*) AS orphan_job_count,
+                       COALESCE(SUM({$jobRevenue}), 0) AS orphan_job_revenue
+                FROM job_orders jo{$jobJoin}
+                WHERE {$jobSales}{$jobExcludeLinkedCustomStore}{$dj}{$bj}
+                GROUP BY DATE_FORMAT({$jobBizDate}, '%Y-%m')
+            ) monthly
+            GROUP BY mon
+            ORDER BY mon";
+
+    $rows = db_query(
+        $sql,
+        $dto . $bto . $dtj . $btj,
+        array_merge($dpo, $bpo, $dpj, $bpj)
+    ) ?: [];
+    $monthly = [];
+    foreach ($rows as $row) {
+        $month = (string)($row['mon'] ?? '');
+        if ($month === '') continue;
+        $storeCount = (int)($row['store_count'] ?? 0);
+        $storeRevenueValue = (float)($row['store_revenue'] ?? 0);
+        $jobCount = (int)($row['orphan_job_count'] ?? 0);
+        $jobRevenueValue = (float)($row['orphan_job_revenue'] ?? 0);
+        $monthly[$month] = [
+            'store_revenue' => $storeRevenueValue,
+            'store_count' => $storeCount,
+            'orphan_job_revenue' => $jobRevenueValue,
+            'orphan_job_count' => $jobCount,
+            'total_sales' => round($storeRevenueValue + $jobRevenueValue, 2),
+            'transaction_count' => $storeCount + $jobCount,
+        ];
+    }
+    $cache[$cacheKey] = $monthly;
+    return $monthly;
+}
+
+/** Sum canonical monthly rows while preserving the canonical totals shape. */
+function pf_reports_sum_canonical_sales_months(array $monthly): array {
+    $out = [
+        'store_revenue' => 0.0,
+        'store_count' => 0,
+        'orphan_job_revenue' => 0.0,
+        'orphan_job_count' => 0,
+        'total_sales' => 0.0,
+        'transaction_count' => 0,
+    ];
+    foreach ($monthly as $row) {
+        $out['store_revenue'] += (float)($row['store_revenue'] ?? 0);
+        $out['store_count'] += (int)($row['store_count'] ?? 0);
+        $out['orphan_job_revenue'] += (float)($row['orphan_job_revenue'] ?? 0);
+        $out['orphan_job_count'] += (int)($row['orphan_job_count'] ?? 0);
+    }
+    $out['store_revenue'] = round($out['store_revenue'], 2);
+    $out['orphan_job_revenue'] = round($out['orphan_job_revenue'], 2);
+    $out['total_sales'] = round($out['store_revenue'] + $out['orphan_job_revenue'], 2);
+    $out['transaction_count'] = $out['store_count'] + $out['orphan_job_count'];
+    return $out;
+}
+
 /** Official product/store revenue amount. Uses amount_paid when the column exists. */
 function pf_reports_store_order_revenue_expr(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');

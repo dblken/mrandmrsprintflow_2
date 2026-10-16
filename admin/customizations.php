@@ -1,4 +1,5 @@
 <?php
+$pfPagePerfStart = microtime(true);
 /**
  * Admin: Customizations (Job Orders) — Read-Only View
  * PrintFlow - Printing Shop PWA
@@ -222,6 +223,30 @@ foreach ($jobs as &$jobRow) {
 }
 unset($jobRow);
 
+// Fetch regular-order history counts for the current page in one grouped query.
+$orderCountsByCustomer = [];
+$pageCustomerIds = [];
+foreach ($jobs as $jobRow) {
+    $customerId = (int)($jobRow['customer_id'] ?? 0);
+    if ($customerId > 0) $pageCustomerIds[$customerId] = true;
+}
+if ($pageCustomerIds) {
+    $customerIds = array_keys($pageCustomerIds);
+    $placeholders = implode(',', array_fill(0, count($customerIds), '?'));
+    $orderCountRows = db_query(
+        "SELECT o.customer_id, COUNT(*) AS c
+         FROM orders o
+         WHERE o.customer_id IN ({$placeholders})
+           AND " . printflow_order_archive_scope_sql('o') . "
+         GROUP BY o.customer_id",
+        str_repeat('i', count($customerIds)),
+        $customerIds
+    ) ?: [];
+    foreach ($orderCountRows as $countRow) {
+        $orderCountsByCustomer[(int)$countRow['customer_id']] = (int)$countRow['c'];
+    }
+}
+
 // AJAX check
 if (isset($_GET['ajax'])) {
     ob_start();
@@ -343,10 +368,22 @@ if ($branchId !== 'all') {
 } else {
     $kpiBranchSql = " AND ({$joBranchExpr} IS NULL OR {$joBranchExpr} IN (SELECT id FROM branches WHERE status != 'Archived'))";
 }
-$kpi_total   = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE 1=1" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
-$kpi_pending = db_query("SELECT COUNT(*) as c FROM job_orders jo LEFT JOIN orders jo_ord ON jo_ord.order_id = jo.order_id WHERE {$effectiveJobStatusExpr} = 'PENDING'" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
-$kpi_active  = db_query("SELECT COUNT(*) as c FROM job_orders jo LEFT JOIN orders jo_ord ON jo_ord.order_id = jo.order_id WHERE {$effectiveJobStatusExpr} IN ('IN_PRODUCTION','PROCESSING','PRINTING')" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
-$kpi_done    = db_query("SELECT COUNT(*) as c FROM job_orders jo LEFT JOIN orders jo_ord ON jo_ord.order_id = jo.order_id WHERE {$effectiveJobStatusExpr} = 'COMPLETED'" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
+$kpiRow = db_query(
+    "SELECT COUNT(*) AS total_count,
+            SUM(CASE WHEN {$effectiveJobStatusExpr} = 'PENDING' THEN 1 ELSE 0 END) AS pending_count,
+            SUM(CASE WHEN {$effectiveJobStatusExpr} IN ('IN_PRODUCTION','PROCESSING','PRINTING') THEN 1 ELSE 0 END) AS active_count,
+            SUM(CASE WHEN {$effectiveJobStatusExpr} = 'COMPLETED' THEN 1 ELSE 0 END) AS done_count
+     FROM job_orders jo
+     LEFT JOIN orders jo_ord ON jo_ord.order_id = jo.order_id
+     WHERE 1=1" . $jobCustomizationScopeSql . $kpiBranchSql,
+    $kpiTypes ?: null,
+    $kpiParams ?: null
+)[0] ?? [];
+$kpi_total = (int)($kpiRow['total_count'] ?? 0);
+$kpi_pending = (int)($kpiRow['pending_count'] ?? 0);
+$kpi_active = (int)($kpiRow['active_count'] ?? 0);
+$kpi_done = (int)($kpiRow['done_count'] ?? 0);
+printflow_dev_perf_header('custom_orders', $pfPagePerfStart);
 
 $page_title = 'Custom Orders - Admin | PrintFlow';
 
@@ -1699,7 +1736,7 @@ function custom_payment_badge($status) {
                                     // Fetch regular order count for history
                                     $order_count = 0;
                                     if ($jo['customer_id']) {
-                                        $order_count = db_query("SELECT COUNT(*) as c FROM orders o WHERE o.customer_id = ? AND " . printflow_order_archive_scope_sql('o'), "i", [$jo['customer_id']])[0]['c'] ?? 0;
+                                        $order_count = $orderCountsByCustomer[(int)$jo['customer_id']] ?? 0;
                                     }
                                 ?>
                                     <?php $adminOrderCode = (string)($jo['order_code'] ?? admin_customization_order_code($jo)); ?>

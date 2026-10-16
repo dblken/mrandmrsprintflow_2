@@ -420,11 +420,63 @@ if (!function_exists('printflow_db_transaction_depth_pop')) {
     }
 }
 
+function printflow_db_perf_enabled(): bool {
+    static $enabled = null;
+    if ($enabled === null) {
+        $enabled = getenv('PRINTFLOW_DEV_PERF') === '1'
+            && (
+                in_array((string)($_GET['pf_perf'] ?? ''), ['1', 'reports', 'dashboard'], true)
+                || (($_GET['reports_perf'] ?? '') === '1')
+                || (($_GET['dashboard_perf'] ?? '') === '1')
+            );
+    }
+    return $enabled;
+}
+
+function printflow_db_perf_record(string $sql, float $elapsedMs, int $rows): void {
+    if (!printflow_db_perf_enabled()) return;
+    $fingerprint = preg_replace('/\s+/', ' ', trim($sql)) ?: '(empty query)';
+    $fingerprint = preg_replace('/\b\d+(?:\.\d+)?\b/', '?', $fingerprint) ?: $fingerprint;
+    $fingerprint = preg_replace("/'[^']*'/", "'?'", $fingerprint) ?: $fingerprint;
+    $stats = $GLOBALS['printflow_db_perf_stats'] ?? [
+        'count' => 0,
+        'total_ms' => 0.0,
+        'queries' => [],
+    ];
+    $stats['count']++;
+    $stats['total_ms'] += $elapsedMs;
+    if (!isset($stats['queries'][$fingerprint])) {
+        $stats['queries'][$fingerprint] = ['calls' => 0, 'total_ms' => 0.0, 'rows_returned' => 0];
+    }
+    $stats['queries'][$fingerprint]['calls']++;
+    $stats['queries'][$fingerprint]['total_ms'] += $elapsedMs;
+    $stats['queries'][$fingerprint]['rows_returned'] += $rows;
+    $GLOBALS['printflow_db_perf_stats'] = $stats;
+}
+
+function printflow_db_perf_snapshot(): array {
+    $stats = $GLOBALS['printflow_db_perf_stats'] ?? ['count' => 0, 'total_ms' => 0.0, 'queries' => []];
+    uasort($stats['queries'], static fn(array $a, array $b): int => $b['total_ms'] <=> $a['total_ms']);
+    $stats['queries'] = array_slice($stats['queries'], 0, 20, true);
+    return $stats;
+}
+
+function printflow_dev_perf_header(string $page, float $start): void {
+    if (!printflow_db_perf_enabled() || headers_sent()) return;
+    $stats = printflow_db_perf_snapshot();
+    header('Server-Timing: ' . implode(', ', [
+        'php_total;dur=' . round((microtime(true) - $start) * 1000, 1),
+        'db_total;dur=' . round((float)$stats['total_ms'], 1),
+        'db_queries;desc="' . $page . ':' . (int)$stats['count'] . '"',
+    ]));
+}
+
 function db_query($sql, $types = '', $params = []) {
     global $conn;
 
     $stmt = null;
     $result = null;
+    $perfStart = printflow_db_perf_enabled() ? microtime(true) : null;
 
     try {
         if (empty($types) || empty($params)) {
@@ -497,6 +549,9 @@ function db_query($sql, $types = '', $params = []) {
                 }
 
                 $stmt->close();
+                if ($perfStart !== null) {
+                    printflow_db_perf_record((string)$sql, (microtime(true) - $perfStart) * 1000, count($data));
+                }
                 return $data;
             }
         }
@@ -534,6 +589,10 @@ function db_query($sql, $types = '', $params = []) {
     $data = [];
     while ($row = $result->fetch_assoc()) {
         $data[] = $row;
+    }
+
+    if ($perfStart !== null) {
+        printflow_db_perf_record((string)$sql, (microtime(true) - $perfStart) * 1000, count($data));
     }
 
     if (isset($stmt) && $stmt instanceof mysqli_stmt) {
