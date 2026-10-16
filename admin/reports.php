@@ -165,14 +165,25 @@ $reportsMark = static function (string $name) use (&$reportsPhaseStart, &$report
 };
 
 // ── 1. Branch empty check (orders + customization jobs) ───────────────────────
-$branch_empty = !pf_reports_branch_has_activity($branchId);
+$branch_empty = !pf_admin_reports_cached(
+    'branch-activity',
+    $branchId,
+    [],
+    static fn() => pf_reports_branch_has_activity($branchId) ? ['active' => 1] : []
+);
+$branch_empty = !is_array($branch_empty) || empty($branch_empty);
 $gaBranchEmpty = $branch_empty; // Same resolved branch; avoid repeating lifetime counts.
 
 $reportsMark('branch_activity');
 // ── Heatmap year list (only years with real data; never future years) ─────────
 if (!$gaBranchEmpty) {
     // Heatmap follows globalAnalyticsBranchId (usually All Branches for Admins)
-    $heatmap_available_years = pf_reports_heatmap_available_years($globalAnalyticsBranchId);
+    $heatmap_available_years = pf_admin_reports_cached(
+        'heatmap-years',
+        $globalAnalyticsBranchId,
+        [],
+        static fn() => pf_reports_heatmap_available_years($globalAnalyticsBranchId)
+    );
 }
 $heatmap_year_req = isset($_GET['heatmap_year']) ? (int) $_GET['heatmap_year'] : 0;
 if ($heatmap_available_years === []) {
@@ -787,7 +798,12 @@ if ($dash_single_branch && (float)($dash_single_branch['revenue'] ?? 0) > 0) {
 
 $reportsMark('branch_performance');
 // ── 12b. Estimated Gross Profit Summary (material-cost-based only) ─────────
-$gross_profit_analytics = pf_reports_estimated_gross_profit_analytics($from, $toEnd, $globalAnalyticsBranchId);
+$gross_profit_analytics = pf_admin_reports_cached(
+    'gross-profit',
+    $globalAnalyticsBranchId,
+    [$from, $toEnd],
+    static fn() => pf_reports_estimated_gross_profit_analytics($from, $toEnd, $globalAnalyticsBranchId)
+);
 $gp_summary = $gross_profit_analytics['summary'] ?? [];
 $gp_branch_rows = $gross_profit_analytics['by_branch'] ?? [];
 $gp_cat = $gross_profit_analytics['category_insights'] ?? [];
@@ -2442,7 +2458,12 @@ a.export-dd-link:hover { background: #f9fafb; }
 // ── 15. Dash Sales Chart (branch revenue = store + customization; filter-aware) ──
 // This is the ONLY component affected by the global from/to/branch filter
 try {
-    $dashSales = pf_reports_period_sales_merged($salesTrendFrom, $salesTrendToEnd, $salesTrendBranchId);
+    $dashSales = pf_admin_reports_cached(
+        'period-sales-chart',
+        $salesTrendBranchId,
+        [$salesTrendFrom, $salesTrendToEnd],
+        static fn() => pf_reports_period_sales_merged($salesTrendFrom, $salesTrendToEnd, $salesTrendBranchId)
+    );
     $dash_labels     = $dashSales['labels'] ?? [];
     $dash_rev_store  = $dashSales['revStore'] ?? [];
     $dash_rev_custom = $dashSales['revCustom'] ?? [];
