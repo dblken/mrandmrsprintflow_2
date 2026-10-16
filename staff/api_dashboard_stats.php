@@ -173,17 +173,23 @@ printflow_require_staff_module('dashboard');
 
 function pf_dashboard_timeframe_meta(string $timeframe): array
 {
-    $today = date('Y-m-d');
+    $tz = new DateTimeZone('Asia/Manila');
+    $now = new DateTimeImmutable('now', $tz);
+    $today = $now->format('Y-m-d');
 
     return match ($timeframe) {
         'week' => (function () {
-            $start = date('Y-m-d', strtotime('monday this week'));
-            $end = date('Y-m-d', strtotime('sunday this week'));
-            $startDay = date('j', strtotime($start));
-            $endDay = date('j', strtotime($end));
-            $startMonth = date('F', strtotime($start));
-            $endMonth = date('F', strtotime($end));
-            $year = date('Y', strtotime($end));
+            $tz = new DateTimeZone('Asia/Manila');
+            $now = new DateTimeImmutable('now', $tz);
+            $weekStart = $now->modify('monday this week');
+            $weekEnd = $now->modify('sunday this week');
+            $start = $weekStart->format('Y-m-d');
+            $end = $weekEnd->format('Y-m-d');
+            $startDay = $weekStart->format('j');
+            $endDay = $weekEnd->format('j');
+            $startMonth = $weekStart->format('F');
+            $endMonth = $weekEnd->format('F');
+            $year = $weekEnd->format('Y');
             return [
                 'key' => 'week',
                 'start' => $start,
@@ -199,27 +205,31 @@ function pf_dashboard_timeframe_meta(string $timeframe): array
                 'chart_title' => 'Sales Trend (7 Days)',
             ];
         })(),
-        'month' => [
+        'month' => (function () use ($now) {
+            $start = $now->modify('first day of this month')->format('Y-m-d');
+            $end = $now->modify('last day of this month')->format('Y-m-d');
+            return [
             'key' => 'month',
-            'start' => date('Y-m-01'),
-            'end' => date('Y-m-t'),
+            'start' => $start,
+            'end' => $end,
             'sql' => "DATE(o.order_date) BETWEEN ? AND ?",
             'sql_no_alias' => "DATE(order_date) BETWEEN ? AND ?",
             'types' => 'ss',
-            'params' => [date('Y-m-01'), date('Y-m-t')],
-            'display_label' => 'This Month (' . date('F Y') . ')',
+            'params' => [$start, $end],
+            'display_label' => 'This Month (' . $now->format('F Y') . ')',
             'short_label' => 'This Month',
             'chart_title' => 'Sales Trend (This Month)',
-        ],
+            ];
+        })(),
         'year' => [
             'key' => 'year',
-            'start' => date('Y-01-01'),
-            'end' => date('Y-12-31'),
+            'start' => $now->setDate((int)$now->format('Y'), 1, 1)->format('Y-m-d'),
+            'end' => $now->setDate((int)$now->format('Y'), 12, 31)->format('Y-m-d'),
             'sql' => "DATE(o.order_date) BETWEEN ? AND ?",
             'sql_no_alias' => "DATE(order_date) BETWEEN ? AND ?",
             'types' => 'ss',
-            'params' => [date('Y-01-01'), date('Y-12-31')],
-            'display_label' => 'This Year (' . date('Y') . ')',
+            'params' => [$now->setDate((int)$now->format('Y'), 1, 1)->format('Y-m-d'), $now->setDate((int)$now->format('Y'), 12, 31)->format('Y-m-d')],
+            'display_label' => 'This Year (' . $now->format('Y') . ')',
             'short_label' => 'This Year',
             'chart_title' => 'Sales Trend (This Year)',
         ],
@@ -231,7 +241,7 @@ function pf_dashboard_timeframe_meta(string $timeframe): array
             'sql_no_alias' => "DATE(order_date) = ?",
             'types' => 's',
             'params' => [$today],
-            'display_label' => 'Today (' . date('F j, Y') . ')',
+            'display_label' => 'Today (' . $now->format('F j, Y') . ')',
             'short_label' => 'Today',
             'chart_title' => 'Sales Trend (Today)',
         ],
@@ -355,7 +365,8 @@ $cacheKey = printflow_staff_dashboard_cache_key(
     'bundle',
     $timeframe,
     $status_filter,
-    $page
+    $page,
+    (new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->format('Y-m-d')
 );
 if (empty($_GET['nocache']) && empty($search_filter)) {
     $cachedPayload = printflow_staff_dashboard_cache_get($cacheKey, 90);

@@ -20,7 +20,8 @@ if (!function_exists('printflow_staff_dashboard_cache_key')) {
         string $section,
         string $timeframe,
         string $statusFilter,
-        int $page = 1
+        int $page = 1,
+        string $businessDate = ''
     ): string {
         $payload = implode('|', [
             (string)$branchId,
@@ -29,8 +30,9 @@ if (!function_exists('printflow_staff_dashboard_cache_key')) {
             strtolower(trim($timeframe)),
             strtoupper(trim($statusFilter)),
             (string)max(1, $page),
+            trim($businessDate),
             'pending_kpi_customization_counts_20261016',
-            'top_sales_order_labels_20261016',
+            'top_sales_order_lines_20261016_v2',
         ]);
 
         return 'staff_dash_' . hash('sha256', $payload);
