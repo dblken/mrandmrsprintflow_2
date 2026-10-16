@@ -15,7 +15,7 @@ $expect = static function (bool $ok, string $msg) use (&$failures): void {
 };
 
 $expect(str_contains($flag, 'PRINTFLOW_ADMIN_ARCHIVE_UI_VISIBLE') && str_contains($flag, 'false'), 'archive admin UI flag defaults to hidden');
-$expect(str_contains($settings, 'printflow_admin_archive_ui_visible()') && str_contains($settings, 'hidden aria-hidden="true"'), 'Settings Archived Orders link is hidden when flag is off');
+$expect(str_contains($settings, 'is_admin() && printflow_admin_archive_ui_visible()'), 'Settings omits Archived Orders link when flag is off');
 $expect(str_contains($archive, 'pfArchiveAdminSurface') && str_contains($archive, '$archiveAdminUiVisible'), 'Archived Orders page wraps tools in a visibility-controlled surface');
 $expect(str_contains($archive, 'if ($archiveAdminUiVisible):') && str_contains($archive, 'api_jenny_customer_exclusion.php'), 'Archive APIs remain in page source but scripts init only when UI visible');
 
