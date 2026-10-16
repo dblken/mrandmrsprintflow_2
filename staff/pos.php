@@ -123,6 +123,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
+        /* The POS date/time override is retired. Keep this guard for cached or
+           older partial markup so the control cannot reappear in the checkout UI. */
+        #pos-checkout-transaction-datetime-compact,
+        #pos-transaction-datetime-modal,
+        .pos-order-datetime-section,
+        .pos-tx-datetime-modal-overlay {
+            display: none !important;
+        }
         /* Field styles for service modal (mirrors order_service_dynamic.php) */
         .shopee-form-row {
             display: flex;
