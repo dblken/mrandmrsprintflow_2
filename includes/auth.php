@@ -730,7 +730,7 @@ function printflow_get_default_admin_branch_id(): int {
         $match = db_query(
             "SELECT id
              FROM branches
-             WHERE COALESCE(status, 'Active') != 'Archived'
+             WHERE status != 'Archived'
                AND (
                    LOWER(branch_name) LIKE '%cabuyao%'
                    OR LOWER(city) LIKE '%cabuyao%'
@@ -755,7 +755,7 @@ function printflow_get_default_admin_branch_id(): int {
         $fallback = db_query(
             "SELECT id
              FROM branches
-             WHERE COALESCE(status, 'Active') != 'Archived'
+             WHERE status != 'Archived'
              ORDER BY id ASC
              LIMIT 1"
         );
