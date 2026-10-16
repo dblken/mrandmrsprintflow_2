@@ -29,6 +29,11 @@ $is_admin = (($current_user['role'] ?? '') === 'Admin');
 $reports_href_base = rtrim(AUTH_REDIRECT_BASE, '/') . '/admin/reports.php';
 
 // ── Branch context ────────────────────────────────────────────────────────────
+// Reports open on the main Cabuyao branch for admins unless a branch was
+// explicitly requested. Restricted users continue using their assigned branch.
+if (!$is_manager && $is_admin && !array_key_exists('branch_id', $_GET)) {
+    $_SESSION['selected_branch_id'] = printflow_get_default_admin_branch_id();
+}
 $branchCtx = init_branch_context(false);
 $branchId  = $branchCtx['selected_branch_id'];   // 'all' | int
 $branchName = $branchCtx['branch_name'];
