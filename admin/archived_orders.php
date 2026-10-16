@@ -4,7 +4,9 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/order_archive.php';
+require_once __DIR__ . '/../includes/admin_archive_ui.php';
 require_role('Admin');
+$archiveAdminUiVisible = printflow_admin_archive_ui_visible();
 if (!is_admin()) { http_response_code(403); exit('Admin authorization is required.'); }
 $basePath = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 $csrfToken = generate_csrf_token();
@@ -18,6 +20,7 @@ $archiveUiVersion = 'archived-orders-20261012-v6';
 body{font-family:var(--pf-ui-font-sans,Arial,sans-serif);color:#172b4d;background:#f4f7fb}.dashboard-container{min-height:100vh}.main-content{min-width:0;max-width:1280px;padding:24px;box-sizing:border-box}.main-content h1{margin:0 0 8px;font-size:24px}.pf-archive-card{background:#fff;padding:20px;margin:16px 0;border:1px solid #d8e1eb;border-radius:12px;box-shadow:0 4px 18px rgba(15,35,55,.06)}.pf-archive-card h2{margin:0 0 8px}.pf-muted{color:#536579}.pf-search{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin:16px 0}.pf-search label{display:grid;gap:6px;min-width:min(100%,320px);font-weight:600}.pf-search input,.pf-search select{border:1px solid #cbd5e1;border-radius:7px;padding:10px;background:#fff;min-height:42px}.pf-search input:focus,.pf-search select:focus{outline:3px solid rgba(14,165,233,.2);border-color:#0284c7}.pf-actions{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}.pf-button{border:0;border-radius:7px;padding:10px 16px;font-weight:700;cursor:pointer;min-height:42px}.pf-button:disabled{opacity:.45;cursor:not-allowed}.pf-primary{background:#0b6675;color:#fff}.pf-restore{background:#177245;color:#fff}.pf-box{padding:12px;border-radius:8px;background:#f2f7fb;margin:12px 0;white-space:pre-wrap}.pf-box.error{background:#fff1f2;color:#9f1239}.pf-box.success{background:#ecfdf3;color:#166534}.pf-scroll{max-height:350px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px}.pf-table{width:100%;border-collapse:collapse}.pf-table th,.pf-table td{text-align:left;padding:9px 10px;border-bottom:1px solid #e2e8f0;white-space:nowrap}.pf-table th{position:sticky;top:0;background:#f8fafc;z-index:1}.pf-scope-table{table-layout:fixed}.pf-scope-table th:nth-child(1),.pf-scope-table td:nth-child(1){width:34%}.pf-scope-table th:nth-child(2),.pf-scope-table td:nth-child(2){width:12%}.pf-scope-table th:nth-child(3),.pf-scope-table td:nth-child(3){width:54%}.pf-scope-table td{white-space:normal;overflow-wrap:anywhere}.pf-disposition{font-size:13px;font-weight:600;color:#334155}.pf-chip{display:inline-block;padding:3px 8px;border-radius:99px;background:#e0f2fe;color:#075985;font-size:12px;font-weight:700}.pf-dialog{border:0;border-radius:12px;max-width:520px;width:calc(100% - 30px);padding:22px;box-shadow:0 20px 65px rgba(0,0,0,.25)}.pf-dialog::backdrop{background:rgba(15,23,42,.55)}.pf-dialog-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}.pf-empty{padding:14px;color:#61758a;text-align:center}@media(max-width:768px){.main-content{padding:16px}.pf-archive-card{padding:16px}.pf-scroll{max-height:55vh}.pf-table{font-size:13px}.pf-table th,.pf-table td{padding:8px}.pf-actions .pf-button{flex:1 1 100%}}
 </style></head><body>
 <div class="dashboard-container"><?php include __DIR__ . '/../includes/admin_sidebar.php'; ?><main class="main-content">
+<div id="pfArchiveAdminSurface"<?= $archiveAdminUiVisible ? '' : ' hidden aria-hidden="true"' ?>>
 <h1 data-archive-ui-version="<?= htmlspecialchars($archiveUiVersion, ENT_QUOTES, 'UTF-8') ?>">Archived Orders</h1>
 <p class="pf-muted">Search, review, hide, and restore customer order visibility. Hiding is reversible and does not delete business records.</p>
 <section class="pf-archive-card" aria-labelledby="pfPendingUnpaidArchiveHeading"><h2 id="pfPendingUnpaidArchiveHeading">Hide Pending/Unpaid Orders by Date Range</h2><p class="pf-muted">Preview the exact order IDs before hiding eligible Pending and Unpaid orders with no payment submission or provider-payment record.</p><a class="pf-button pf-primary" style="display:inline-block;text-decoration:none" href="<?= htmlspecialchars($basePath, ENT_QUOTES, 'UTF-8') ?>/admin/archived_pending_unpaid.php">Open date-range preview</a></section>
@@ -36,6 +39,9 @@ body{font-family:var(--pf-ui-font-sans,Arial,sans-serif);color:#172b4d;backgroun
 <dialog id="pfCaDialog" class="pf-dialog"><h2 id="pfCaDialogTitle">Confirm archive</h2><p id="pfCaDialogText"></p><div class="pf-dialog-actions"><button id="pfCaDialogCancel" class="pf-button" type="button">Cancel</button><button id="pfCaDialogConfirm" class="pf-button pf-primary" type="button">Confirm</button></div></dialog>
 </section>
 <?php endif; ?>
+<details class="pf-archive-card"><summary style="font-weight:700;cursor:pointer">Other order archive tools</summary><p class="pf-muted"><strong>Hide Pending/Unpaid Orders</strong> — temporarily removes matching pending and unpaid orders in a date range from operational order lists. No orders or customer data are deleted.</p><p><a class="pf-button pf-primary" style="display:inline-block;text-decoration:none" href="<?= htmlspecialchars($basePath, ENT_QUOTES, 'UTF-8') ?>/admin/archived_pending_unpaid.php">Open Hide Pending/Unpaid Orders</a></p><p class="pf-muted">The separately maintained exact-order manifest tool also remains available: <a href="<?= htmlspecialchars($basePath, ENT_QUOTES, 'UTF-8') ?>/admin/archived_orders_manifest.php">Open exact-order manifest archive</a></p></details>
+</div>
+<?php if ($archiveAdminUiVisible): ?>
 <script>
 (() => {
  const api='api_jenny_customer_exclusion.php', previewApi='api_jenny_cleanup_preview.php';
@@ -59,5 +65,5 @@ body{font-family:var(--pf-ui-font-sans,Arial,sans-serif);color:#172b4d;backgroun
  search.addEventListener('input',findCustomer);hide.addEventListener('click',()=>openDialog('activate'));restore.addEventListener('click',()=>openDialog('restore'));loadArchiveList();
 })();
 </script>
-<details class="pf-archive-card"><summary style="font-weight:700;cursor:pointer">Other order archive tools</summary><p class="pf-muted"><strong>Hide Pending/Unpaid Orders</strong> — temporarily removes matching pending and unpaid orders in a date range from operational order lists. No orders or customer data are deleted.</p><p><a class="pf-button pf-primary" style="display:inline-block;text-decoration:none" href="<?= htmlspecialchars($basePath, ENT_QUOTES, 'UTF-8') ?>/admin/archived_pending_unpaid.php">Open Hide Pending/Unpaid Orders</a></p><p class="pf-muted">The separately maintained exact-order manifest tool also remains available: <a href="<?= htmlspecialchars($basePath, ENT_QUOTES, 'UTF-8') ?>/admin/archived_orders_manifest.php">Open exact-order manifest archive</a></p></details>
+<?php endif; ?>
 </main></div></body></html>

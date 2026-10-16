@@ -11,7 +11,7 @@ $failures = [];
 $expect = static function (bool $ok, string $msg) use (&$failures): void { if (!$ok) { $failures[] = $msg; } };
 
 // Entry point only under Settings → Archived Orders.
-$expect(str_contains($settings, '/admin/archived_orders.php'), 'Settings links to Archived Orders.');
+$expect(str_contains($settings, '/admin/archived_orders.php') && str_contains($settings, 'admin_archive_ui.php'), 'Settings references Archived Orders behind UI visibility flag.');
 $expect(str_contains($hub, '/admin/archived_pending_unpaid.php'), 'Archived Orders links to the date-range tool.');
 foreach (['admin/job_orders.php', 'admin/orders_management.php', 'staff/orders.php', 'admin/customizations.php'] as $f) {
     $expect(!str_contains((string)file_get_contents($root . '/' . $f), 'archived_pending_unpaid'), "No pending/unpaid hide control leaks into {$f}.");
