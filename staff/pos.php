@@ -5473,6 +5473,22 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     }, 180);
                 });
                 input.addEventListener('change', () => posValidateServiceStockNow(serviceId, input.value));
+
+                // The service quantity +/- controls update the input value from
+                // inline handlers and do not dispatch input/change events.
+                // Revalidate after those handlers have finished updating it.
+                const quantityControls = input.closest('.quantity-container');
+                if (quantityControls) {
+                    quantityControls.querySelectorAll('button').forEach(button => {
+                        button.addEventListener('click', () => {
+                            setTimeout(() => {
+                                if (document.getElementById('sm-fields-body')?.contains(input)) {
+                                    posValidateServiceStockNow(serviceId, input.value);
+                                }
+                            }, 0);
+                        });
+                    });
+                }
             }
             const pricing = resolveServiceModalPricing();
             const quantity = input ? input.value : pricing.quantity;
