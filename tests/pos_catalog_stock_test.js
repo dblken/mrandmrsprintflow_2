@@ -72,8 +72,19 @@ const product = (id, stock, low = 5) => ({ product_id: id, product_name: 'Produc
     assert.doesNotMatch(grid.children[3].innerHTML, /Low Stock/, 'zero threshold must not default to ten');
     assert.match(grid.children[4].innerHTML, /Low Stock/, 'threshold boundary is low stock');
     assert.equal(typeof grid.children[0].onclick, 'function');
-
     const originalPayload = payload;
+
+    // The API response is branch-resolved server-side. These synthetic
+    // responses prove that the card follows each branch's quantity instead
+    // of retaining or deriving another branch's value.
+    payload = [product(501, 41, 8)]; // Branch A fixture
+    await context.fetchProducts();
+    assert.match(grid.children[0].innerHTML, /Stock: <strong>41<\/strong>/);
+    payload = [product(501, 6, 8)]; // Branch B fixture
+    await context.fetchProducts();
+    assert.match(grid.children[0].innerHTML, /Stock: <strong>6<\/strong>/);
+    assert.ok(grid.children[0].innerHTML.includes(statusBadges.low.badge_html), 'the second branch threshold is applied to its own stock response');
+
     payload = [{ ...product(6, 1), stock_display: statusBadges.critical }, { ...product(7, 0), stock_quantity: null, stock_display: null }];
     await context.fetchProducts();
     assert.ok(grid.children[0].innerHTML.includes(statusBadges.critical.badge_html), 'Critical uses Admin badge verbatim');
