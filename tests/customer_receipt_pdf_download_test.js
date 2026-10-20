@@ -111,6 +111,8 @@ const context = vm.createContext({
         querySelector() { return button; }
     },
     window: {
+        location: {origin: 'https://printflow.test'},
+        parent: {postMessage() {}},
         html2pdf() { return workerCalls++ === 0 ? measurementWorker : pdfWorker; },
         requestAnimationFrame(callback) { callback(); },
         getComputedStyle() {

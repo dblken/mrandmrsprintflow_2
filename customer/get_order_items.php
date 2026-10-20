@@ -17,6 +17,7 @@ header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, must-revalidate');
 
 require_once __DIR__ . '/../includes/receipt_access.php';
+require_once __DIR__ . '/../includes/customer_paid_order_status.php';
 require_once __DIR__ . '/../includes/pos_receipt_format.php';
 
 function customer_order_items_json_flags(): int {
@@ -1372,6 +1373,16 @@ if (in_array($order['status'], ['Completed', 'To Rate', 'Rated'], true)) {
 $order['_receipt_paid_at'] = $payment_paid_at_raw;
 $order['_receipt_payment_method'] = $payment_method_display;
 $is_ready_made_product = !$is_service_order && printflow_is_ready_made_product_order($order);
+$paid_waiting_label = printflow_customer_paid_order_waiting_label(
+    (string)($order['status'] ?? ''),
+    $payment_received,
+    $is_ready_made_product
+);
+$awaiting_production = $paid_waiting_label === 'Payment Received / Awaiting Production';
+$awaiting_fulfillment = $paid_waiting_label === 'Paid / Awaiting Fulfillment';
+if ($paid_waiting_label !== '') {
+    $display_status = $paid_waiting_label;
+}
 // The PayMongo ledger is the source of truth. Ready-made products are
 // claimable immediately after provider-confirmed payment; they do not wait
 // for a production status transition.
@@ -1409,6 +1420,7 @@ customer_order_items_json([
     'payment_method'   => $payment_method_display,
     'payment_received' => $payment_received,
     'awaiting_production' => $awaiting_production,
+    'awaiting_fulfillment' => $awaiting_fulfillment,
     'payment_reference' => $payment_reference,
     'payment_paid_at' => $payment_paid_at_display,
     'payment_proof_status' => $latest_payment_proof_status,

@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/customer_paid_order_status.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/runtime_config.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
@@ -449,6 +450,12 @@ $financial_snapshot = printflow_order_financial_snapshot(
     (($paymongo_payment['status'] ?? '') === 'paid' || $paymongo_online_enabled) ? $paymongo_payment : []
 );
 $is_ready_made_product = !$is_job_order && printflow_is_ready_made_product_order($order);
+$paid_waiting_label = printflow_customer_paid_order_waiting_label(
+    (string)$order_status,
+    true,
+    $is_ready_made_product
+);
+$paid_status_label = $paid_waiting_label !== '' ? $paid_waiting_label : (string)$order_status;
 $paymongo_public = !empty($paymongo_payment)
     ? printflow_provider_payment_public($paymongo_payment, true)
     : [];
@@ -1079,10 +1086,10 @@ if (!function_exists('pf_payment_qr_url')) {
                                 <div class="payment-detail"><span class="paymongo-label">Payment Method</span><strong class="payment-detail-value"><?php echo htmlspecialchars((string)$paymongo_public['payment_method_label']); ?></strong></div>
                                 <div class="payment-detail"><span class="paymongo-label">Reference</span><strong class="payment-detail-value"><?php echo htmlspecialchars((string)($paymongo_public['reference_number'] ?: $paymongo_public['payment_reference'] ?: 'Not recorded')); ?></strong></div>
                                 <div class="payment-detail"><span class="paymongo-label">Paid On</span><strong class="payment-detail-value"><?php echo htmlspecialchars(!empty($paymongo_public['provider_paid_at']) ? format_datetime((string)$paymongo_public['provider_paid_at']) : 'Not recorded'); ?></strong></div>
-                                <div class="payment-detail"><span class="paymongo-label">Order Status</span><strong class="payment-detail-value"><?php echo $is_ready_made_product ? 'Paid' : 'Awaiting Production'; ?></strong></div>
+                                <div class="payment-detail"><span class="paymongo-label">Order Status</span><strong class="payment-detail-value"><?php echo htmlspecialchars($paid_status_label !== '' ? $paid_status_label : 'Paid'); ?></strong></div>
                             </div>
                             <p style="color:#52666d;font-size:.82rem;line-height:1.55;margin:1rem auto 0;max-width:34rem;"><?php echo $is_ready_made_product ? 'Your payment has been received successfully. Please present your order reference when you claim your order.' : 'Payment has been received. Production will begin after staff confirmation.'; ?></p>
-                            <div class="payment-confirmed-actions"><span class="payment-status-badge"><?php echo $is_ready_made_product ? 'Paid' : 'Awaiting Production'; ?></span><?php if ($is_ready_made_product): ?><a href="<?php echo 'orders.php?receipt_order_id=' . $order_id; ?>" class="paymongo-action paymongo-action-secondary">Download Receipt</a><?php endif; ?><a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="paymongo-action paymongo-action-secondary">View Order Details</a></div>
+                            <div class="payment-confirmed-actions"><span class="payment-status-badge"><?php echo htmlspecialchars($paid_status_label !== '' ? $paid_status_label : 'Paid'); ?></span><?php if ($is_ready_made_product): ?><button type="button" id="payment-download-receipt" class="paymongo-action paymongo-action-secondary" onclick="downloadPaymentReceipt()">Download Receipt</button><?php endif; ?><a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="paymongo-action paymongo-action-secondary">View Order Details</a></div>
                         <?php else: ?>
                             <div style="font-size:1.45rem;font-weight:900;color:#eaf6fb;margin:10px 0;">Amount Paid: <?php echo format_currency($total_amount); ?></div>
                             <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Payment method: <?php echo htmlspecialchars((string)($order['payment_method'] ?? 'GCash')); ?></p>
@@ -1288,6 +1295,44 @@ if (!function_exists('pf_payment_qr_url')) {
     const paymongoQrCountdown = document.getElementById('paymongo-qr-countdown');
     const paymongoRetryButton = document.getElementById('paymongo-retry');
     const paymentSidebarCard = document.getElementById('payment-sidebar-card');
+    const receiptOrderId = <?php echo (int)$order_id; ?>;
+    let receiptDownloadFrame = null;
+    let receiptDownloadTimer = null;
+    function downloadPaymentReceipt() {
+        if (receiptDownloadFrame) return;
+        const button = document.getElementById('payment-download-receipt');
+        if (button) {
+            button.disabled = true;
+            button.textContent = 'Preparing Receipt...';
+        }
+        receiptDownloadFrame = document.createElement('iframe');
+        receiptDownloadFrame.title = 'Receipt download';
+        receiptDownloadFrame.setAttribute('aria-hidden', 'true');
+        receiptDownloadFrame.style.cssText = 'position:fixed;left:-1400px;top:0;width:1200px;height:900px;border:0;';
+        receiptDownloadFrame.src = `orders.php?receipt_order_id=${encodeURIComponent(receiptOrderId)}&receipt_download=1`;
+        document.body.appendChild(receiptDownloadFrame);
+        receiptDownloadTimer = window.setTimeout(() => finishReceiptDownload(false, 'Receipt download timed out. Please try again.'), 45000);
+    }
+    window.downloadPaymentReceipt = downloadPaymentReceipt;
+    function finishReceiptDownload(success, message) {
+        if (!receiptDownloadFrame) return;
+        receiptDownloadFrame.remove();
+        receiptDownloadFrame = null;
+        if (receiptDownloadTimer) window.clearTimeout(receiptDownloadTimer);
+        receiptDownloadTimer = null;
+        const button = document.getElementById('payment-download-receipt');
+        if (button) {
+            button.disabled = false;
+            button.textContent = 'Download Receipt';
+        }
+        if (!success && typeof showToast === 'function') showToast(message || 'Unable to download the receipt right now. Please try again.');
+    }
+    window.addEventListener('message', event => {
+        if (event.origin !== window.location.origin
+            || event.source !== receiptDownloadFrame?.contentWindow
+            || event.data?.type !== 'printflow-receipt-download') return;
+        finishReceiptDownload(Boolean(event.data.success), String(event.data.message || ''));
+    });
     if (paymongoState) {
         let paymongoPollTimer = null;
         let paymongoCountdownTimer = null;
@@ -1313,6 +1358,7 @@ if (!function_exists('pf_payment_qr_url')) {
             return response.json();
         };
         const isReadyMadeProductOrder = <?php echo $is_ready_made_product ? 'true' : 'false'; ?>;
+        const paidStatusLabel = <?php echo json_encode($paid_status_label !== '' ? $paid_status_label : 'Paid'); ?>;
         const renderPayMongoConfirmed = (payment) => {
             stopPayMongoTimers();
             if (!paymentSidebarCard) return;
@@ -1344,7 +1390,7 @@ if (!function_exists('pf_payment_qr_url')) {
                 ['Payment Method', payment.payment_method_label || 'QR Ph'],
                 ['Reference', reference || 'Not recorded'],
                 ['Paid On', payment.provider_paid_at || payment.paid_at || 'Not recorded'],
-                ['Order Status', isReadyMadeProductOrder ? 'Paid' : 'Awaiting Production']
+                ['Order Status', paidStatusLabel]
             ];
             detailValues.forEach(([label, value]) => {
                 const detail = document.createElement('div');
@@ -1371,15 +1417,16 @@ if (!function_exists('pf_payment_qr_url')) {
             actions.className = 'payment-confirmed-actions';
             const statusBadge = document.createElement('span');
             statusBadge.className = 'payment-status-badge';
-            statusBadge.textContent = isReadyMadeProductOrder ? 'Paid' : 'Awaiting Production';
+            statusBadge.textContent = paidStatusLabel;
             actions.appendChild(statusBadge);
 
             if (isReadyMadeProductOrder) {
-                const receiptLink = document.createElement('a');
-                receiptLink.href = <?php echo json_encode('orders.php?receipt_order_id=' . $order_id); ?>;
-                receiptLink.textContent = 'Download Receipt';
-                receiptLink.className = 'paymongo-action paymongo-action-secondary';
-                actions.appendChild(receiptLink);
+                const receiptButton = document.createElement('button');
+                receiptButton.type = 'button';
+                receiptButton.textContent = 'Download Receipt';
+                receiptButton.className = 'paymongo-action paymongo-action-secondary';
+                receiptButton.onclick = downloadPaymentReceipt;
+                actions.appendChild(receiptButton);
             }
 
             const orderLink = document.createElement('a');
