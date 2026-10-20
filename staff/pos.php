@@ -826,29 +826,29 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-products-grid {
-            gap: 16px;
-            padding: 18px 20px 24px;
+            gap: 10px;
+            padding: 12px;
             scroll-padding: 12px;
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         @media (min-width: 769px) {
             .pos-products-grid {
-                grid-template-columns: repeat(4, minmax(0, 1fr));
+                grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
             }
         }
 
         .pos-products-grid .pos-catalog-card {
-            min-height: 258px;
-            align-self: start;
+            min-height: 0;
+            align-self: stretch;
             max-width: 100%;
         }
 
         .pos-products-grid .pos-catalog-card__media {
             aspect-ratio: 1;
-            height: 126px;
-            min-height: 126px;
-            max-height: 126px;
+            height: 112px;
+            min-height: 112px;
+            max-height: 112px;
             background: #f8fafc;
         }
 
@@ -860,10 +860,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-products-grid .pos-catalog-card__body {
-            flex: 0 0 auto;
+            flex: 1 0 auto;
             flex-shrink: 0;
-            min-height: 96px;
-            padding: 10px 12px 14px;
+            min-height: 0;
+            padding: 8px 10px;
+            gap: 4px;
             border-top: 1px solid #eef2f6;
             background: #ffffff;
         }
@@ -885,10 +886,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         .pos-products-grid .pos-catalog-card__price {
             margin-top: auto;
             flex-shrink: 0;
-            padding-top: 6px;
+            padding-top: 2px;
             font-size: 15px;
             color: #0f172a;
         }
+
+        .pos-products-grid .pos-product-stock {
+            font-size: 12px;
+            line-height: 1.4;
+            font-weight: 600;
+            color: #166534;
+            overflow-wrap: anywhere;
+        }
+
+        .pos-products-grid .pos-product-stock.is-low { color: #92400e; }
+        .pos-products-grid .pos-product-stock.is-empty { color: #b91c1c; }
 
         .pos-products-grid .pos-catalog-card.is-selecting {
             opacity: 0.88;
@@ -2764,7 +2776,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
 
             .pos-products-grid .pos-catalog-card {
-                min-height: 236px;
+                min-height: 0;
             }
 
             .pos-products-grid .pos-catalog-card__media {
@@ -2774,7 +2786,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
 
             .pos-products-grid .pos-catalog-card__body {
-                min-height: 88px;
+                min-height: 0;
             }
 
             .pos-services-grid .pos-catalog-card {
@@ -4540,12 +4552,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (mode === 'products') {
                 document.getElementById('products-view').style.display = 'flex';
                 document.getElementById('services-view').style.display = 'none';
-                // Force re-render products to ensure they show with icons
-                if (products.length > 0) {
-                    renderProducts();
-                } else {
-                    fetchProducts();
-                }
+                fetchProducts();
                 setTimeout(focusBarcodeInput, 40);
             } else if (mode === 'services') {
                 document.getElementById('products-view').style.display = 'none';
@@ -4683,28 +4690,51 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             await syncedCartAction('get');
         }
 
-        async function fetchProducts() {
+        let posProductFetchId = 0;
+        let posProductFetchBusy = false;
+
+        function refreshVisibleProductStock() {
+            if (currentMode === 'products' && !document.hidden) {
+                fetchProducts({ background: true });
+            }
+        }
+        window.addEventListener('focus', refreshVisibleProductStock);
+        document.addEventListener('visibilitychange', refreshVisibleProductStock);
+        window.setInterval(refreshVisibleProductStock, 30000);
+
+        async function fetchProducts({ background = false } = {}) {
+            if (background && posProductFetchBusy) return;
+            const fetchId = ++posProductFetchId;
+            posProductFetchBusy = true;
             const grid = document.getElementById('pos-products-grid');
-            if (grid) {
+            if (grid && !background) {
                 grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px; color:#94a3b8;"><i class="fas fa-spinner fa-spin" style="font-size:32px; margin-bottom:16px;"></i><br>Loading products...</div>';
             }
             try {
-                const res = await fetch(staffUrl('staff/api/get_products.php'));
+                const res = await fetch(staffUrl('staff/api/get_products.php'), { cache: 'no-store' });
                 const data = await res.json();
-                console.log('Products API Response:', data);
-                if (data.success) {
+                if (fetchId !== posProductFetchId) return;
+                if (res.ok && data.success) {
+                    const changed = JSON.stringify(products) !== JSON.stringify(data.products || []);
                     products = data.products || [];
-                    console.log('Total products loaded:', products.length);
-                    if (products.length > 0) {
-                        console.log('Sample product:', products[0]);
+                    if (grid && (!background || changed)) {
+                        const focusedId = document.activeElement?.dataset?.productId;
+                        const scrollTop = grid.scrollTop;
+                        renderProducts();
+                        grid.scrollTop = scrollTop;
+                        if (focusedId) {
+                            Array.from(grid.children).find(card => card.dataset.productId === focusedId)
+                                ?.focus({ preventScroll: true });
+                        }
                     }
-                    if (grid) renderProducts();
                 } else {
-                    if (grid) grid.innerHTML = '<p style="color:red; text-align:center; padding:20px;">Failed to load products: ' + (data.message || 'Unknown error') + '</p>';
+                    if (grid && !background) grid.textContent = 'Failed to load products. Please reopen Products to retry.';
                 }
             } catch (e) {
                 console.error('Fetch error:', e);
-                if (grid) grid.innerHTML = '<p style="color:red; text-align:center; padding:20px;">Network error: ' + e.message + '</p>';
+                if (fetchId === posProductFetchId && grid && !background) grid.textContent = 'Unable to load products. Please reopen Products to retry.';
+            } finally {
+                if (fetchId === posProductFetchId) posProductFetchBusy = false;
             }
         }
 
@@ -6179,6 +6209,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                 const card = document.createElement('button');
                 card.type = 'button';
+                card.dataset.productId = String(p.product_id);
                 card.className = `pos-catalog-card pos-product-card pos-card ${outOfStock ? 'no-stock' : ''}`;
                 const nameForTitle = String(p.product_name || 'Unnamed Product');
                 card.title = nameForTitle;
@@ -6196,10 +6227,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const priceFormatted = formatMoney(p.price || 0);
                 const productName = escapeHtml(p.product_name || 'Unnamed Product');
                 const category = escapeHtml(p.category || 'Product');
-                const stockQty = parseInt(p.stock_quantity) || 0;
+                const stockQty = parseInt(p.stock_quantity, 10) || 0;
+                const lowStockLevel = parseInt(p.low_stock_level ?? 10, 10);
+                const lowStock = !outOfStock && stockQty <= lowStockLevel;
                 const stockBadge = outOfStock
                     ? '<span class="pos-catalog-card__badge is-danger">Out of Stock</span>'
-                    : (stockQty <= (parseInt(p.low_stock_level, 10) || 10)
+                    : (lowStock
                         ? `<span class="pos-catalog-card__badge">${stockQty} left</span>`
                         : '');
 
@@ -6213,6 +6246,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 <span class="pos-catalog-card__meta">${category}</span>
                 <p class="pos-catalog-card__name" title="${productName}">${productName}</p>
                 <div class="pos-catalog-card__price" aria-label="Price">${priceFormatted}</div>
+                <div class="pos-product-stock ${outOfStock ? 'is-empty' : (lowStock ? 'is-low' : '')}">Available Stock: <strong>${stockQty.toLocaleString()}</strong>${outOfStock ? ' · Out of stock' : (lowStock ? ' · Low stock' : '')}</div>
             </div>
         `;
                 grid.appendChild(card);
@@ -7787,6 +7821,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
             if (!checkoutData) return;
+
+            // Read fresh inventory after checkout; never calculate stock in the UI.
+            fetchProducts();
 
             posPayMongoCheckoutPending = false;
 
