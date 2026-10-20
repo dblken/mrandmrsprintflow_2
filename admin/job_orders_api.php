@@ -3109,6 +3109,88 @@ try {
             }
             $materialContext = jo_api_material_context_for_assignment($orderId, $orderType);
             pfpm_assert_material_applicable($itemId, $materialContext);
+
+            // POS Set Price saves assignments through this shared endpoint. Keep
+            // its stricter quantity and latest-stock checks scoped to POS orders.
+            $jobRows = [];
+            if (strtoupper((string)$orderType) === 'JOB') {
+                $jobRows = db_query(
+                    'SELECT j.id AS job_id, j.order_id, o.order_source FROM job_orders j LEFT JOIN orders o ON o.order_id = j.order_id WHERE j.id = ? LIMIT 1',
+                    'i',
+                    [$orderId]
+                ) ?: [];
+            } elseif (strtoupper((string)$orderType) === 'ORDER') {
+                $jobRows = db_query(
+                    'SELECT j.id AS job_id, j.order_id, o.order_source FROM job_orders j LEFT JOIN orders o ON o.order_id = j.order_id WHERE j.order_id = ? ORDER BY j.id ASC LIMIT 1',
+                    'i',
+                    [$orderId]
+                ) ?: [];
+            }
+            $posJob = $jobRows[0] ?? null;
+            $posOrderId = (int)($posJob['order_id'] ?? 0);
+            $posSource = strtolower(trim((string)($posJob['order_source'] ?? '')));
+            $sessionMarksPos = $posOrderId > 0 && in_array(
+                $posOrderId,
+                array_map('intval', (array)($_SESSION['pos_pending_orders'] ?? [])),
+                true
+            );
+            $isPosAssignment = $posJob !== null
+                && (in_array($posSource, ['pos', 'pos_draft', 'pos_merged', 'walk-in'], true) || $sessionMarksPos);
+            if ($isPosAssignment) {
+                require_once __DIR__ . '/../includes/pos_service_stock_validation.php';
+                $rawQuantity = trim((string)($_POST['quantity'] ?? ''));
+                try {
+                    $posMaterialQty = printflow_pos_parse_positive_quantity($rawQuantity);
+                } catch (InvalidArgumentException $quantityError) {
+                    throw new Exception('POS material quantities must be positive whole numbers.');
+                }
+                $jobId = (int)$posJob['job_id'];
+                $branchId = (int)(JobOrderService::getJobBranchIdPublic($jobId) ?? 0);
+                if ($branchId <= 0) {
+                    throw new Exception('The POS service branch could not be identified for material validation.');
+                }
+                $cartLines = array_values((array)($_SESSION['pos_cart'] ?? []));
+                $targetIndex = -1;
+                foreach ($cartLines as $cartIndex => &$cartLine) {
+                    $cartProductId = (int)($cartLine['product_id'] ?? 0);
+                    $linkedOrderId = (int)($cartLine['pending_order_id'] ?? ($_SESSION['pos_pending_orders'][$cartProductId] ?? 0));
+                    if ($linkedOrderId === $posOrderId && (!empty($cartLine['is_service']) || !empty($cartLine['customization']['service_id']))) {
+                        $cartLine['pending_order_id'] = $posOrderId;
+                        if ($targetIndex < 0) $targetIndex = $cartIndex;
+                    }
+                }
+                unset($cartLine);
+                if ($targetIndex < 0) {
+                    throw new Exception('The POS cart service could not be matched for material stock validation. Reopen Set Price from the cart.');
+                }
+                $assignments = JobOrderService::getScopedMaterialsPublic($jobId, false, false);
+                $candidateMaterials = [];
+                foreach ($assignments as $assignment) {
+                    $assignmentMetadata = $assignment['metadata'] ?? [];
+                    if (is_string($assignmentMetadata)) $assignmentMetadata = json_decode($assignmentMetadata, true);
+                    $candidateMaterials[] = [
+                        'item_id' => (int)($assignment['item_id'] ?? 0),
+                        'quantity' => $assignment['quantity'] ?? null,
+                        'metadata' => is_array($assignmentMetadata) ? $assignmentMetadata : [],
+                    ];
+                }
+                $candidateMaterials[] = [
+                    'item_id' => $itemId,
+                    'quantity' => $posMaterialQty,
+                    'metadata' => is_array($metadata) ? $metadata : [],
+                ];
+                $cartLines[$targetIndex]['pos_material_assignments'] = $candidateMaterials;
+                $stockCheck = printflow_pos_validate_service_stock($cartLines, $branchId);
+                if (empty($stockCheck['ok'])) {
+                    $issue = $stockCheck['issues'][0] ?? [];
+                    $uom = trim((string)($issue['uom'] ?? ''));
+                    throw new Exception(
+                        'Insufficient ' . (string)($issue['name'] ?? 'material') . ' stock. Available: '
+                        . (float)($issue['available'] ?? 0) . ($uom !== '' ? ' ' . $uom : '')
+                        . '. Required: ' . (float)($issue['required'] ?? 0) . ($uom !== '' ? ' ' . $uom : '') . '.'
+                    );
+                }
+            }
             $res = JobOrderService::addMaterial($orderId, $itemId, $qty, $uom, $rollId, $notes, $metadata, $orderType);
             jo_api_json_response(['success' => true, 'id' => $res]);
             break;

@@ -31,6 +31,12 @@ $assert(
     'all cash and PayMongo submissions require an idempotency token'
 );
 $assert(
+    strpos($checkout, 'GET_LOCK(?, 15)') !== false
+        && strpos($checkout, 'RELEASE_LOCK(?)') !== false
+        && strpos($checkout, 'pos_checkout_validate_assigned_service_materials($items, $pos_pending_orders_snapshot)') !== false,
+    'checkout retries serialize by token and assigned service materials are revalidated before order writes'
+);
+$assert(
     strpos($checkout, 'function pos_checkout_persist_session_state(') !== false
         && strpos($checkout, "\$_SESSION['pos_checkout_orders'][\$checkoutToken] = \$orderId;") !== false
         && strpos($checkout, "'duplicate_request' => true") !== false,
@@ -53,8 +59,9 @@ if ($cartHandler === false) {
 }
 $assert(
     strpos($cartHandler, '$cartResponse = array_values($_SESSION[\'pos_cart\'] ?? []);') !== false
-        && preg_match('/completedCustomizationIds[\s\S]*session_write_close\(\);[\s\S]*job_orders[\s\S]*pos_cart_effective_product_stock/', $cartHandler) === 1,
-    'cart refresh releases the session lock before slow cleanup queries and per-item stock lookups'
+        && preg_match('/completedCustomizationIds[\s\S]*session_write_close\(\);[\s\S]*pos_cart_effective_product_stock/', $cartHandler) === 1
+        && strpos($cartHandler, 'JobOrderService::validatePendingMaterialStockPublic') !== false,
+    'cart refresh releases the session lock before per-item stock lookups and assigned service materials use the production stock validator'
 );
 $assert(
     preg_match('/finally \{[\s\S]*posCheckoutRequestInFlight = false;[\s\S]*updateCheckoutState\(\);[\s\S]*\}[\s\S]*if \(!checkoutData\) return;[\s\S]*syncedCartAction\(\'clear\'/', $pos) === 1,

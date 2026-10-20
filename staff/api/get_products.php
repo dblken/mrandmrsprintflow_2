@@ -9,6 +9,7 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/branch_context.php';
 require_once __DIR__ . '/../../includes/product_branch_stock.php';
 require_once __DIR__ . '/../../includes/product_option_stock.php';
+require_once __DIR__ . '/../../includes/product_stock_status.php';
 
 // Require staff or admin role
 if (!has_role(['Admin', 'Staff'])) {
@@ -38,6 +39,7 @@ try {
     $types = '';
     $stockSel = 'p.stock_quantity';
     $lowSel = 'COALESCE(p.low_stock_level, 10)';
+    $criticalSel = 'COALESCE(p.critical_level, 0)';
     if ($staffBranch > 0) {
         $join = ' LEFT JOIN product_branch_stock pbs ON pbs.product_id = p.product_id AND pbs.branch_id = ? ';
         if ($usesBaseProductStock) {
@@ -46,6 +48,7 @@ try {
         } else {
             $stockSel = 'COALESCE(pbs.stock_quantity, 0)';
             $lowSel = 'COALESCE(pbs.low_stock_level, p.low_stock_level, 10)';
+            $criticalSel = 'COALESCE(pbs.critical_level, p.critical_level, 0)';
         }
         $params[] = $staffBranch;
         $types = 'i';
@@ -61,6 +64,7 @@ try {
             p.product_type,
             ({$stockSel}) as stock_quantity, 
             ({$lowSel}) as low_stock_level,
+            ({$criticalSel}) as critical_level,
             p.product_image,
             p.photo_path
         FROM products p
@@ -76,18 +80,23 @@ try {
     $default_product_img = $base_path . '/public/assets/images/services/default.png';
     $products = [];
     foreach ($rows ?: [] as $p) {
-        $optionStock = $staffBranch > 0 ? printflow_product_option_stock_total((int)$p['product_id'], $staffBranch) : null;
-        if ($optionStock !== null) {
-            $p['stock_quantity'] = (int)$optionStock['total_stock'];
-            $p['low_stock_level'] = (int)$optionStock['total_low_stock'];
-            $p['has_variant_stock'] = true;
-            $p['variant_stock_field_key'] = $optionStock['field_key'];
-            $p['variant_stock_field_label'] = $optionStock['field_label'];
-            $p['variant_stock_options'] = $optionStock['options'];
+        if ($staffBranch > 0) {
+            // Use the same branch/variant resolver as Admin Products.
+            $stock = printflow_get_branch_product_stock((int)$p['product_id'], $staffBranch);
+            foreach (['stock_quantity', 'low_stock_level', 'has_variant_stock', 'variant_stock_field_key', 'variant_stock_field_label', 'variant_stock_options'] as $field) {
+                $p[$field] = $stock[$field];
+            }
         } else {
             $p['has_variant_stock'] = false;
         }
         $p['stock_status'] = get_stock_status($p['stock_quantity'], $p['low_stock_level']);
+        // Keep existing API fields stable; share Admin's status policy and badge HTML.
+        $displayStatus = printflow_product_display_stock_status($p);
+        $p['stock_display'] = [
+            'key' => $displayStatus['key'],
+            'label' => $displayStatus['label'],
+            'badge_html' => printflow_stock_status_badge_html($displayStatus, false),
+        ];
         $p['quantity'] = (int) ($p['stock_quantity'] ?? 0);
         $raw_img = ($p['photo_path'] ?? '') ?: ($p['product_image'] ?? '');
         $p['image_url'] = pf_normalize_service_image_path((string) $raw_img, $base_path, $default_product_img);

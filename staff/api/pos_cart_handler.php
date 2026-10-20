@@ -14,6 +14,9 @@ require_once __DIR__ . '/../../includes/service_field_config_helper.php';
 require_once __DIR__ . '/../../includes/service_order_helper.php';
 require_once __DIR__ . '/../../includes/pos_draft_lifecycle.php';
 require_once __DIR__ . '/../../includes/pos_set_price_helpers.php';
+require_once __DIR__ . '/../../includes/JobOrderService.php';
+require_once __DIR__ . '/../../includes/pos_quantity_validation.php';
+require_once __DIR__ . '/../../includes/pos_service_stock_validation.php';
 
 // Require staff or admin role
 if (!has_role(['Admin', 'Staff'])) {
@@ -75,6 +78,124 @@ function pos_cart_effective_product_stock(int $productId, int $branchId): int
 
     [$effectiveStock] = printflow_product_effective_stock($productId, $branchId);
     return (int)$effectiveStock;
+}
+
+function pos_cart_parse_positive_quantity($value): int
+{
+    try {
+        return printflow_pos_parse_positive_quantity($value);
+    } catch (InvalidArgumentException $error) {
+        throw new Exception($error->getMessage());
+    }
+}
+
+/** Validate aggregate product demand so separate cart lines cannot exceed stock. */
+function pos_cart_validate_product_demand(array $cart, int $branchId): void
+{
+    $demands = [];
+    foreach ($cart as $item) {
+        if (!is_array($item) || pos_cart_item_is_service($item)) {
+            continue;
+        }
+        $productId = (int)($item['product_id'] ?? 0);
+        $qty = pos_cart_parse_positive_quantity($item['qty'] ?? null);
+        if ($productId <= 0) {
+            throw new Exception('A cart product is invalid.');
+        }
+        $customization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+        $usesOptions = printflow_product_option_stock_has_rows($productId, $branchId);
+        $selection = $usesOptions ? printflow_product_option_stock_find_selected_value($productId, $customization) : null;
+        if ($usesOptions && $selection === null) {
+            throw new Exception('A valid stock option must be selected for ' . (string)($item['name'] ?? 'this product') . '.');
+        }
+        $key = $productId . ':' . ($usesOptions ? strtolower((string)$selection['option_value']) : 'base');
+        if (!isset($demands[$key])) {
+            $demands[$key] = [
+                'product_id' => $productId,
+                'qty' => 0,
+                'uses_options' => $usesOptions,
+                'customization' => $customization,
+                'name' => (string)($item['name'] ?? 'Product'),
+            ];
+        }
+        $demands[$key]['qty'] += $qty;
+    }
+
+    foreach ($demands as $demand) {
+        if ($demand['uses_options']) {
+            $stock = printflow_product_option_stock_validate(
+                (int)$demand['product_id'],
+                $branchId,
+                (array)$demand['customization'],
+                (int)$demand['qty']
+            );
+            if (empty($stock['ok'])) {
+                $available = (int)($stock['available'] ?? 0);
+                throw new Exception('Only ' . $available . ' items are available for ' . $demand['name'] . '.');
+            }
+            continue;
+        }
+        $available = pos_cart_effective_product_stock((int)$demand['product_id'], $branchId);
+        if ((int)$demand['qty'] > $available) {
+            throw new Exception('Only ' . $available . ' items are available for ' . $demand['name'] . '.');
+        }
+    }
+}
+
+function pos_cart_validate_assigned_service_stock(array $item): void
+{
+    if (!pos_cart_item_is_service($item)) {
+        return;
+    }
+    $productId = (int)($item['product_id'] ?? 0);
+    $orderId = (int)($item['pending_order_id'] ?? 0);
+    if ($orderId <= 0 && $productId > 0) {
+        $orderId = (int)($_SESSION['pos_pending_orders'][$productId] ?? 0);
+    }
+    $customization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+    $orderItemId = (int)($item['pending_order_item_id'] ?? ($customization['pending_order_item_id'] ?? 0));
+    if ($orderId <= 0) {
+        return;
+    }
+
+    $jobSql = 'SELECT id FROM job_orders WHERE order_id = ?';
+    $jobTypes = 'i';
+    $jobParams = [$orderId];
+    if ($orderItemId > 0 && db_table_has_column('job_orders', 'order_item_id')) {
+        $jobSql .= ' AND order_item_id = ?';
+        $jobTypes .= 'i';
+        $jobParams[] = $orderItemId;
+    }
+    $jobSql .= ' ORDER BY id ASC LIMIT 1';
+    $jobs = db_query($jobSql, $jobTypes, $jobParams) ?: [];
+    $jobId = (int)($jobs[0]['id'] ?? 0);
+    if ($jobId <= 0) {
+        return;
+    }
+    $assignments = JobOrderService::getScopedMaterialsPublic($jobId, false, false);
+    if ($assignments === []) {
+        return;
+    }
+    $qty = pos_cart_parse_positive_quantity($item['qty'] ?? null);
+    $issues = JobOrderService::validatePendingMaterialStockPublic($jobId, $qty);
+    if ($issues !== []) {
+        $issue = $issues[0];
+        $uom = trim((string)($issue['uom'] ?? ''));
+        $required = rtrim(rtrim(number_format((float)$issue['required'], 3, '.', ''), '0'), '.');
+        $available = rtrim(rtrim(number_format((float)$issue['available'], 3, '.', ''), '0'), '.');
+        throw new Exception((string)$issue['name'] . ' has only ' . $available . ($uom !== '' ? ' ' . $uom : '') . ' available; ' . $required . ($uom !== '' ? ' ' . $uom : '') . ' required.');
+    }
+}
+
+function pos_cart_service_stock_message(array $validation): string
+{
+    $issue = $validation['issues'][0] ?? null;
+    if (!is_array($issue)) return 'Service material stock is unavailable for validation.';
+    $format = static fn($value): string => rtrim(rtrim(number_format((float)$value, 3, '.', ''), '0'), '.');
+    $uom = trim((string)($issue['uom'] ?? ''));
+    return 'Insufficient ' . (string)($issue['name'] ?? 'material') . ' stock. Available: '
+        . $format($issue['available'] ?? 0) . ($uom !== '' ? ' ' . $uom : '')
+        . '. Required: ' . $format($issue['required'] ?? 0) . ($uom !== '' ? ' ' . $uom : '') . '.';
 }
 
 function pos_cart_custom_value(array $customization, string $key, ?string $label = null): string
@@ -223,10 +344,8 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
         ] as $key => [$label, $type]) {
             $value = $key === 'quantity' ? (string)$qty : pos_cart_custom_value($customization, $key, $label);
             if ($key === 'quantity') {
-                $quantity = (int)$value;
-                if ($quantity < 1) {
-                    $errors[$key] = 'Quantity must be at least 1.';
-                }
+                try { printflow_pos_parse_positive_quantity($value); }
+                catch (InvalidArgumentException $error) { $errors[$key] = $error->getMessage(); }
             } elseif ($value === '') {
                 $errors[$key] = pos_cart_required_message($key, $label, $type);
             } elseif ($type === 'date' && pos_cart_is_needed_date_field($key, $label) && !pos_cart_date_value_not_before_today($value)) {
@@ -264,10 +383,8 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
         } elseif ($type === 'date' && $value !== '' && pos_cart_is_needed_date_field((string)$fieldKey, $label) && !pos_cart_date_value_not_before_today($value)) {
             $errors[(string)$fieldKey] = 'Needed date cannot be in the past.';
         } elseif ($type === 'quantity') {
-            $quantity = (int)($value !== '' ? $value : $qty);
-            if ($quantity < 1) {
-                $errors[(string)$fieldKey] = 'Quantity must be at least 1.';
-            }
+            try { printflow_pos_parse_positive_quantity($value !== '' ? $value : $qty); }
+            catch (InvalidArgumentException $error) { $errors[(string)$fieldKey] = $error->getMessage(); }
         } elseif ($type === 'file') {
             $designMode = service_order_design_input_mode_from_customization($customization, (string) $fieldKey);
             $hasUploadedDesign = service_order_customization_has_design_file($customization, (string) $fieldKey, $label);
@@ -347,14 +464,14 @@ if ($action !== 'get' && !verify_csrf_token((string)($data['csrf_token'] ?? ''))
 }
 
 try {
+    $cartBeforeAction = array_values($_SESSION['pos_cart'] ?? []);
     switch ($action) {
         case 'add':
             if (empty($data['product_id'])) {
                 throw new Exception('Product ID is required.');
             }
             $product_id = (int)$data['product_id'];
-            $qty = (int)($data['qty'] ?? 1);
-            if ($qty < 1 || $qty > 100) throw new Exception('Quantity must be between 1 and 100.');
+            $qty = pos_cart_parse_positive_quantity($data['qty'] ?? 1);
             
             $price = isset($data['price']) ? (float)$data['price'] : null;
             $name = $data['name'] ?? null;
@@ -444,7 +561,7 @@ try {
                 $custom_json = !empty($preparedCustomization) ? json_encode($preparedCustomization) : null;
                 $stock = pos_cart_effective_product_stock($product_id, $pos_branch_id);
                 if ($stock <= 0) {
-                    throw new Exception('Out of stock.');
+                    throw new Exception('Only 0 items are available for ' . (string)$name . '.');
                 }
             }
 
@@ -514,16 +631,52 @@ try {
             }
             break;
 
+        case 'validate_service_stock':
+            $serviceId = (int)($data['service_id'] ?? $data['product_id'] ?? 0);
+            $qty = pos_cart_parse_positive_quantity($data['qty'] ?? null);
+            $customization = is_array($data['customization'] ?? null) ? $data['customization'] : [];
+            $candidate = [
+                'product_id' => $serviceId,
+                'qty' => $qty,
+                'customization' => $customization,
+                'is_service' => true,
+            ];
+            $validation = printflow_pos_validate_service_stock(
+                array_merge(array_values($_SESSION['pos_cart'] ?? []), [$candidate]),
+                pos_cart_branch_id()
+            );
+            $serviceStockValidation = $validation;
+            break;
+
+        case 'validate_service_materials':
+            $index = isset($data['cart_index']) ? (int)$data['cart_index'] : -1;
+            $pendingOrderId = (int)($data['pending_order_id'] ?? 0);
+            $materials = $data['materials'] ?? null;
+            if ($index < 0 || !isset($_SESSION['pos_cart'][$index]) || $pendingOrderId <= 0 || !is_array($materials)) {
+                throw new Exception('The POS Set Price material check could not be matched to the cart item. Reopen Set Price and try again.');
+            }
+            $cartItem = (array)$_SESSION['pos_cart'][$index];
+            $productId = (int)($cartItem['product_id'] ?? 0);
+            $sessionOrderId = (int)($cartItem['pending_order_id'] ?? ($_SESSION['pos_pending_orders'][$productId] ?? 0));
+            if (!pos_cart_item_is_service($cartItem) || $sessionOrderId !== $pendingOrderId) {
+                throw new Exception('The POS Set Price material check could not be matched to the current service. Reopen Set Price and try again.');
+            }
+            $cartItem['pos_material_assignments'] = $materials;
+            $candidateCart = array_values($_SESSION['pos_cart']);
+            $candidateCart[$index] = $cartItem;
+            $serviceStockValidation = printflow_pos_validate_service_stock($candidateCart, pos_cart_branch_id());
+            if (empty($serviceStockValidation['ok'])) {
+                throw new Exception(pos_cart_service_stock_message($serviceStockValidation));
+            }
+            break;
+
         case 'update':
             $index = isset($data['index']) ? (int)$data['index'] : -1;
             if ($index < 0 || !isset($_SESSION['pos_cart'][$index])) {
                 throw new Exception('Invalid cart item.');
             }
-            $qty = (int)$data['qty'];
-            if ($qty <= 0) {
-                array_splice($_SESSION['pos_cart'], $index, 1);
-            } else {
-                if ($qty > 100) throw new Exception('Quantity cannot exceed 100.');
+            $qty = pos_cart_parse_positive_quantity($data['qty'] ?? null);
+            {
                 $item = &$_SESSION['pos_cart'][$index];
                 $isServiceItem = pos_cart_item_is_service($item);
                 $item['is_service'] = $isServiceItem;
@@ -545,14 +698,6 @@ try {
                 } else {
                     $item['stock'] = null;
                 }
-                if (
-                    !$isServiceItem
-                    && $item['stock'] !== null
-                    && $qty > $item['stock']
-                    && !printflow_product_option_stock_has_rows((int)$item['product_id'], $pos_branch_id)
-                ) {
-                    throw new Exception('Insufficient stock.');
-                }
                 $item['qty'] = $qty;
             }
             break;
@@ -562,8 +707,11 @@ try {
             if ($index < 0 || !isset($_SESSION['pos_cart'][$index])) {
                 throw new Exception('Invalid cart item.');
             }
-            $price = (float)$data['price'];
-            if ($price < 0) throw new Exception('Price cannot be negative.');
+            try {
+                $price = printflow_pos_parse_final_price($data['price'] ?? null);
+            } catch (InvalidArgumentException $priceError) {
+                throw new Exception($priceError->getMessage());
+            }
             $_SESSION['pos_cart'][$index]['price'] = $price;
             $_SESSION['pos_cart'][$index]['price_set'] = true;
             if (!empty($data['customization']) && is_array($data['customization'])) {
@@ -646,6 +794,20 @@ try {
             break;
     }
 
+    if (in_array($action, ['add', 'update', 'update_service_link', 'validate_stock'], true)) {
+        pos_cart_validate_product_demand($_SESSION['pos_cart'], pos_cart_branch_id());
+        $serviceStockValidation = printflow_pos_validate_service_stock(
+            array_values($_SESSION['pos_cart']),
+            pos_cart_branch_id()
+        );
+        if (empty($serviceStockValidation['ok'])) {
+            throw new Exception(pos_cart_service_stock_message($serviceStockValidation));
+        }
+        foreach ($_SESSION['pos_cart'] as $cartItem) {
+            pos_cart_validate_assigned_service_stock((array)$cartItem);
+        }
+    }
+
     // Auto-remove any cart items whose linked customization has been completed.
     // This handles the case where staff marks a job Completed from the Customizations
     // page directly (without using the POS set-price flow), so stale items are cleaned up.
@@ -705,16 +867,25 @@ try {
             $cartItem['stock'] = null;
             continue;
         }
-        $cartItem['stock'] = pos_cart_effective_product_stock((int)($cartItem['product_id'] ?? 0), $pos_branch_id);
+        $productId = (int)($cartItem['product_id'] ?? 0);
+        $customization = is_array($cartItem['customization'] ?? null) ? $cartItem['customization'] : [];
+        $selectedStock = printflow_product_option_stock_validate($productId, $pos_branch_id, $customization, 1);
+        $cartItem['stock'] = !empty($selectedStock['uses_option_stock'])
+            ? (int)($selectedStock['available'] ?? 0)
+            : pos_cart_effective_product_stock($productId, $pos_branch_id);
     }
     unset($cartItem);
 
     echo json_encode([
         'success' => true,
-        'cart' => $cartResponse
+        'cart' => $cartResponse,
+        'stock_validation' => $serviceStockValidation ?? null,
     ]);
 
 } catch (PosCartValidationException $e) {
+    if (isset($cartBeforeAction) && session_status() === PHP_SESSION_ACTIVE) {
+        $_SESSION['pos_cart'] = $cartBeforeAction;
+    }
     session_write_close();
     echo json_encode([
         'success' => false,
@@ -723,6 +894,9 @@ try {
         'cart' => array_values($_SESSION['pos_cart'] ?? [])
     ]);
 } catch (Exception $e) {
+    if (isset($cartBeforeAction) && session_status() === PHP_SESSION_ACTIVE) {
+        $_SESSION['pos_cart'] = $cartBeforeAction;
+    }
     session_write_close();
     echo json_encode([
         'success' => false,

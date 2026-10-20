@@ -900,15 +900,26 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-products-grid .pos-product-stock {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 3px 5px;
             font-size: 12px;
             line-height: 1.4;
             font-weight: 600;
-            color: #166534;
+            color: #374151;
             overflow-wrap: anywhere;
         }
 
-        .pos-products-grid .pos-product-stock.is-low { color: #92400e; }
-        .pos-products-grid .pos-product-stock.is-empty { color: #b91c1c; }
+        .pos-products-grid .pos-product-stock .pf-stock-status-badge {
+            max-width: 100%;
+            white-space: normal;
+            box-sizing: border-box;
+        }
+
+        .pos-products-grid {
+            grid-auto-rows: max-content;
+        }
 
         .pos-products-grid .pos-catalog-card.is-selecting {
             opacity: 0.88;
@@ -1281,13 +1292,33 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-qty-val {
-            width: 30px;
+            width: 48px;
             text-align: center;
             font-size: 14px;
             font-weight: 600;
-            border: none;
+            border: 1px solid transparent;
+            border-radius: 5px;
             background: transparent;
-            pointer-events: none;
+            color: #0f172a;
+            outline: none;
+            padding: 3px 2px;
+        }
+
+        .pos-qty-val:focus {
+            border-color: #93c5fd;
+            background: #fff;
+        }
+
+        .pos-qty-warning {
+            color: #b91c1c;
+            font-size: 11px;
+            font-weight: 600;
+            margin-top: 3px;
+            min-height: 0;
+        }
+
+        .pos-qty-warning:empty {
+            display: none;
         }
 
         .pos-item-total {
@@ -3242,6 +3273,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         <div id="pos-estimated-total" class="pos-est-price-amount">₱0.00</div>
                         <div class="pos-est-price-meta">Based on selected options · Qty <span id="pos-qty-display">1</span></div>
                     </div>
+                    <div id="pos-service-stock-feedback" style="display:none; flex:1 0 100%; margin-top:8px; font-size:12px; line-height:1.4;" aria-live="polite">
+                        <div id="pos-service-stock-indicator" style="color:#475569;font-weight:700;"></div>
+                        <div id="pos-service-stock-warning" style="color:#b91c1c;font-weight:700;"></div>
+                    </div>
                     <div class="sm-footer-buttons">
                         <button type="button" class="sm-btn-cancel" onclick="closeServiceModal()">Cancel</button>
                         <button type="button" id="sm-add-to-order-btn" class="sm-btn-add" onclick="confirmServiceModal()">Add to Order</button>
@@ -3479,6 +3514,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         const barcodeScanQueue = [];
         let posBarcodeDebugEnabled = false;
         let isAddingToOrder = false;
+        let posServiceStockRequestVersion = 0;
+        let posServiceStockRequestTimer = null;
+        let posServiceStockBlocking = false;
         let posEstimatedPriceController = null;
         const STAFF_BASE_PATH = <?php echo json_encode(BASE_PATH); ?>;
         const POS_DEFAULT_CATALOG_IMG = <?php echo json_encode($pos_default_catalog_img); ?>;
@@ -4797,6 +4835,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const footerActions = document.getElementById('sm-footer-actions');
 
             destroyPosEstimatedPrice();
+            posServiceStockBlocking = true;
+            const stockFeedback = document.getElementById('pos-service-stock-feedback');
+            const stockIndicator = document.getElementById('pos-service-stock-indicator');
+            const stockWarning = document.getElementById('pos-service-stock-warning');
+            if (stockFeedback) stockFeedback.style.display = 'block';
+            if (stockIndicator) stockIndicator.textContent = 'Checking current material stock…';
+            if (stockWarning) stockWarning.textContent = '';
+            setServiceAddButtonBusy(false);
             title.textContent = serviceName + ' — Order Details';
             body.innerHTML = '<div style="text-align:center;padding:2rem;color:#64748b;"><i class="fas fa-spinner fa-spin"></i> Loading fields...</div>';
             footerActions.style.display = 'none';
@@ -4860,6 +4906,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (typeof initServiceFieldRenderer === 'function') initServiceFieldRenderer(body);
                 else if (typeof initPfDesignUploadGroups === 'function') initPfDesignUploadGroups(body);
                 initPosEstimatedPrice(body, parseFloat(data.base_price) || 0);
+                posBindServiceStockValidation(serviceId);
                 if (POS_CAN_CUSTOM_TRANSACTION_DATETIME && typeof posAllowPastNeededDateInputs === 'function') {
                     posAllowPastNeededDateInputs(body);
                 }
@@ -5329,10 +5376,107 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function setServiceAddButtonBusy(isBusy) {
             const btn = document.getElementById('sm-add-to-order-btn');
             if (!btn) return;
-            btn.disabled = !!isBusy;
-            btn.style.opacity = isBusy ? '0.7' : '1';
-            btn.style.cursor = isBusy ? 'not-allowed' : 'pointer';
+            const disabled = !!isBusy || posServiceStockBlocking;
+            btn.disabled = disabled;
+            btn.style.opacity = disabled ? '0.7' : '1';
+            btn.style.cursor = disabled ? 'not-allowed' : 'pointer';
             btn.textContent = isBusy ? 'Adding...' : 'Add to Order';
+        }
+
+        function posServiceQuantityInput() {
+            const body = document.getElementById('sm-fields-body');
+            return body ? body.querySelector('#quantity-input, .pf-service-quantity-input, input[name="quantity"]') : null;
+        }
+
+        function posSetServiceStockState(blocking, indicatorText = '', warningText = '') {
+            posServiceStockBlocking = !!blocking;
+            const feedback = document.getElementById('pos-service-stock-feedback');
+            const indicator = document.getElementById('pos-service-stock-indicator');
+            const warning = document.getElementById('pos-service-stock-warning');
+            if (feedback) feedback.style.display = indicatorText || warningText ? 'block' : 'none';
+            if (indicator) indicator.textContent = indicatorText;
+            if (warning) warning.textContent = warningText;
+            setServiceAddButtonBusy(isAddingToOrder);
+        }
+
+        async function posValidateServiceStockNow(serviceId, quantityRaw) {
+            const input = posServiceQuantityInput();
+            const qty = posReadPositiveWholeQuantity(quantityRaw);
+            if (input) input.setCustomValidity(qty === null ? 'Enter a positive whole number.' : '');
+            if (qty === null) {
+                posSetServiceStockState(true, '', 'Enter a positive whole number.');
+                return { valid: false, message: 'Enter a positive whole number.' };
+            }
+
+            const requestVersion = ++posServiceStockRequestVersion;
+            posSetServiceStockState(true, 'Checking current material stock…', '');
+            try {
+                const response = await fetchWithTimeout(staffUrl('staff/api/pos_cart_handler.php'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'validate_service_stock',
+                        service_id: Number(serviceId),
+                        qty,
+                        csrf_token: POS_CSRF_TOKEN
+                    })
+                }, 12000);
+                const data = await response.json().catch(() => ({}));
+                if (requestVersion !== posServiceStockRequestVersion) return { valid: false, stale: true };
+                if (!response.ok || data.success === false) {
+                    const message = data.message || 'Material stock could not be verified. Try again.';
+                    posSetServiceStockState(true, '', message);
+                    return { valid: false, message };
+                }
+                const validation = data.stock_validation || {};
+                if (!validation.tracked) {
+                    posSetServiceStockState(false, '', '');
+                    return { valid: true, tracked: false };
+                }
+                const materials = Array.isArray(validation.materials) ? validation.materials : [];
+                const formatQty = value => String(Number(value || 0));
+                const indicator = materials.map(material => `${material.name}: ${formatQty(material.available)} ${material.uom || 'units'} available · ${formatQty(material.required)} required`).join(' | ');
+                const issues = Array.isArray(validation.issues) ? validation.issues : [];
+                if (!validation.ok || issues.length) {
+                    const issue = issues[0] || {};
+                    const message = `Insufficient ${issue.name || 'material'} stock. Available: ${formatQty(issue.available)} ${issue.uom || 'units'}. Required: ${formatQty(issue.required)} ${issue.uom || 'units'}.`;
+                    posSetServiceStockState(true, indicator, message);
+                    return { valid: false, message };
+                }
+                posSetServiceStockState(false, indicator, '');
+                return { valid: true, tracked: true };
+            } catch (error) {
+                if (requestVersion !== posServiceStockRequestVersion) return { valid: false, stale: true };
+                const message = 'Material stock could not be verified. Try again.';
+                posSetServiceStockState(true, '', message);
+                return { valid: false, message };
+            }
+        }
+
+        function posBindServiceStockValidation(serviceId) {
+            const input = posServiceQuantityInput();
+            if (input) {
+                input.min = '1';
+                input.step = '1';
+                input.addEventListener('input', () => {
+                    if (posServiceStockRequestTimer) clearTimeout(posServiceStockRequestTimer);
+                    posServiceStockBlocking = true;
+                    setServiceAddButtonBusy(isAddingToOrder);
+                    const feedback = document.getElementById('pos-service-stock-feedback');
+                    const warning = document.getElementById('pos-service-stock-warning');
+                    const indicator = document.getElementById('pos-service-stock-indicator');
+                    if (feedback) feedback.style.display = 'block';
+                    if (indicator) indicator.textContent = 'Checking current material stock…';
+                    if (warning) warning.textContent = '';
+                    posServiceStockRequestTimer = setTimeout(() => {
+                        posValidateServiceStockNow(serviceId, input.value);
+                    }, 180);
+                });
+                input.addEventListener('change', () => posValidateServiceStockNow(serviceId, input.value));
+            }
+            const pricing = resolveServiceModalPricing();
+            const quantity = input ? input.value : pricing.quantity;
+            posValidateServiceStockNow(serviceId, quantity);
         }
 
         function pfLayoutOptionCanonical(value) {
@@ -5729,6 +5873,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (!validationResult.valid) {
                 showValidationErrors(validationResult.errors);
                 focusFirstInvalidField(validationResult.errors);
+                return;
+            }
+            const serviceQuantityInput = posServiceQuantityInput();
+            const serviceStockCheck = await posValidateServiceStockNow(
+                serviceId,
+                serviceQuantityInput ? serviceQuantityInput.value : resolveServiceModalPricing().quantity
+            );
+            if (!serviceStockCheck.valid) {
+                if (serviceQuantityInput && !serviceQuantityInput.checkValidity()) serviceQuantityInput.reportValidity();
                 return;
             }
             if (typeof window.pfValidateDesignUploadGroups === 'function') {
@@ -6203,26 +6356,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const priceFormatted = formatMoney(p.price || 0);
                 const productName = escapeHtml(p.product_name || 'Unnamed Product');
                 const category = escapeHtml(p.category || 'Product');
-                const stockQty = parseInt(p.stock_quantity, 10) || 0;
-                const lowStockLevel = parseInt(p.low_stock_level ?? 10, 10);
-                const lowStock = !outOfStock && stockQty <= lowStockLevel;
-                const stockBadge = outOfStock
-                    ? '<span class="pos-catalog-card__badge is-danger">Out of Stock</span>'
-                    : (lowStock
-                        ? `<span class="pos-catalog-card__badge">${stockQty} left</span>`
-                        : '');
+                // Admin Products supplies the status badge; never derive stock from the cart.
+                const stockIndicator = p.stock_display && p.stock_quantity != null
+                    ? `<div class="pos-product-stock"><span>Stock: <strong>${escapeHtml(String(p.stock_quantity))}</strong></span>${p.stock_display.key === 'in' ? '' : p.stock_display.badge_html}</div>`
+                    : '';
 
                 card.innerHTML = `
             <div class="pos-catalog-card__media">
                 <img src="${imgUrl}" alt="" loading="lazy" decoding="async"
                     onerror="this.onerror=null;this.src='${defaultImg}';">
-                ${stockBadge}
             </div>
             <div class="pos-catalog-card__body">
                 <span class="pos-catalog-card__meta">${category}</span>
                 <p class="pos-catalog-card__name" title="${productName}">${productName}</p>
                 <div class="pos-catalog-card__price" aria-label="Price">${priceFormatted}</div>
-                <div class="pos-product-stock ${outOfStock ? 'is-empty' : (lowStock ? 'is-low' : '')}">Stock: <strong>${stockQty.toLocaleString()}</strong>${lowStock ? ' left · Low stock' : ' available'}${outOfStock ? ' · Out of stock' : ''}</div>
+                ${stockIndicator}
             </div>
         `;
                 grid.appendChild(card);
@@ -6996,15 +7144,52 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         // addQuickService kept as no-op for legacy compatibility
         function addQuickService(serviceName) { }
 
+        function posReadPositiveWholeQuantity(value) {
+            const raw = String(value ?? '').trim();
+            if (!/^[1-9]\d*$/.test(raw)) return null;
+            const parsed = Number(raw);
+            return Number.isSafeInteger(parsed) && parsed <= 2147483647 ? parsed : null;
+        }
+
+        function validateCartQuantityInput(index, input) {
+            const warning = document.getElementById(`pos-qty-warning-${index}`);
+            const quantity = posReadPositiveWholeQuantity(input.value);
+            const item = cart[index];
+            let message = quantity === null ? 'Enter a positive whole number.' : '';
+            const available = Number(item?.stock);
+            if (!message && item && !item.is_service && Number.isFinite(available) && quantity > available) {
+                message = `Only ${available} items are available.`;
+            }
+            if (warning) warning.textContent = message;
+            input.setCustomValidity(message);
+            return { quantity, message };
+        }
+
+        async function commitCartQuantityInput(index, input) {
+            const result = validateCartQuantityInput(index, input);
+            if (result.quantity === null || result.message) {
+                input.reportValidity();
+                return;
+            }
+            if (result.quantity === Number(cart[index]?.qty)) return;
+            const response = await syncedCartAction('update', { index, qty: result.quantity }, { silentErrors: true });
+            if (!response.success) {
+                if (input.isConnected) {
+                    const warning = document.getElementById(`pos-qty-warning-${index}`);
+                    const message = response.message || 'Unable to validate available stock.';
+                    if (warning) warning.textContent = message;
+                    input.setCustomValidity(message);
+                }
+                await showPOSAlert('Stock Validation', response.message || 'Unable to update quantity.', 'warning');
+            }
+        }
+
         async function updateQtyByCartIndex(index, delta) {
             const item = cart[index];
             if (!item) return;
             let newQty = parseInt(item.qty) + delta;
             if (newQty < 1) newQty = 1;
-            if (newQty > 100) {
-                await showPOSAlert('Quantity Limit', "Maximum quantity per item is 100.", 'warning');
-                newQty = 100;
-            }
+            if (!Number.isSafeInteger(newQty) || newQty > 2147483647) return;
             await syncedCartAction('update', { index, qty: newQty });
         }
 
@@ -7092,11 +7277,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     <div class="pos-item-action">${priceHtml}</div>
                     <div class="pos-item-controls">
                         <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, -1)" aria-label="Decrease quantity">&minus;</button>
-                        <input class="pos-qty-val" value="${item.qty}" readonly aria-label="Quantity">
+                        <input class="pos-qty-val" type="text" inputmode="numeric" autocomplete="off" value="${escapeHtml(String(item.qty))}" aria-label="Quantity" aria-describedby="pos-qty-warning-${index}" oninput="validateCartQuantityInput(${index}, this)" onblur="commitCartQuantityInput(${index}, this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
                         <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, 1)" aria-label="Increase quantity">&plus;</button>
                     </div>
                     <div class="pos-item-total">${totalDisplay}</div>
                 </div>
+                <div class="pos-qty-warning" id="pos-qty-warning-${index}" role="status" aria-live="polite"></div>
             `;
                     cont.appendChild(div);
                 });
@@ -7676,6 +7862,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const needsSetPrice = cart.some(i => posCartItemShowsSetPriceButton(i));
             if (needsSetPrice) {
                 await showPOSAlert('Price Required', 'Please set the material and final price for service items before completing the sale.\n\nClick "Set Price" on the cart item to continue.', 'warning');
+                return;
+            }
+
+            const stockValidation = await syncedCartAction('validate_stock', {}, { silentErrors: true });
+            if (!stockValidation.success) {
+                await showPOSAlert('Stock Validation', stockValidation.message || 'Available stock changed. Review the cart and try again.', 'warning');
                 return;
             }
 
@@ -8287,6 +8479,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         window.confirmVariantSelection = confirmVariantSelection;
         window.togglePosOtherInput = togglePosOtherInput;
         window.updateQtyByCartIndex = updateQtyByCartIndex;
+        window.validateCartQuantityInput = validateCartQuantityInput;
+        window.commitCartQuantityInput = commitCartQuantityInput;
         window.removeByCartIndex = removeByCartIndex;
         window.clearCart = clearCart;
 

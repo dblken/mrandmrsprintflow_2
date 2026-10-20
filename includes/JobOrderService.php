@@ -258,6 +258,112 @@ class JobOrderService {
         return self::getScopedMaterials($jobId, $onlyUndeducted, $forUpdate);
     }
 
+    /**
+     * Read-only POS check for materials already assigned through Set Price.
+     * It follows the same roll length, wider-roll, and lamination rules used by
+     * processDeductions() and never writes inventory or assignment records.
+     *
+     * @return list<array{item_id:int,name:string,required:float,available:float,uom:string}>
+     */
+    public static function validatePendingMaterialStockPublic(int $jobId, ?int $expectedQuantity = null): array {
+        $jobRows = db_query(
+            'SELECT id, order_id, order_item_id, quantity, width_ft, height_ft FROM job_orders WHERE id = ? LIMIT 1',
+            'i',
+            [$jobId]
+        ) ?: [];
+        if ($jobRows === []) {
+            throw new RuntimeException('The assigned service job could not be found for stock validation.');
+        }
+        $job = $jobRows[0];
+        $allMaterials = self::getScopedMaterials($jobId, false, false);
+        if ($allMaterials === []) {
+            return [];
+        }
+        if ($expectedQuantity !== null && (int)($job['quantity'] ?? 0) !== $expectedQuantity) {
+            throw new RuntimeException('Service quantity changed after materials were assigned. Return to Set Price and update the material quantities.');
+        }
+        $materials = array_values(array_filter(
+            $allMaterials,
+            static function (array $material): bool {
+                $stamp = trim((string)($material['deducted_at'] ?? ''));
+                return $stamp === '' || $stamp === '0000-00-00 00:00:00';
+            }
+        ));
+        if ($materials === []) {
+            return [];
+        }
+
+        $itemsById = [];
+        foreach ($materials as $material) {
+            $itemId = (int)($material['item_id'] ?? 0);
+            if ($itemId <= 0 || isset($itemsById[$itemId])) {
+                continue;
+            }
+            $inventoryItem = InventoryManager::getItem($itemId);
+            if (!$inventoryItem) {
+                throw new RuntimeException('An assigned inventory material no longer exists.');
+            }
+            $itemsById[$itemId] = $inventoryItem;
+        }
+        $demandByItem = [];
+        foreach ($materials as $material) {
+            if (self::assignmentInventorySkipped($material)) {
+                continue;
+            }
+            $itemId = (int)($material['item_id'] ?? 0);
+            if ($itemId <= 0) {
+                continue;
+            }
+            $inventoryItem = $itemsById[$itemId];
+            if (!empty($inventoryItem['track_by_roll']) && self::rollMaterialSupersededByWiderAssignment($material, $materials, $itemsById)) {
+                continue;
+            }
+            $required = !empty($inventoryItem['track_by_roll'])
+                ? self::resolveRollMaterialLengthFt($material, $job)
+                : (float)($material['quantity'] ?? 0);
+            if ($required > 0) {
+                $demandByItem[$itemId] = ($demandByItem[$itemId] ?? 0.0) + $required;
+            }
+
+            $metadata = self::decodeMaterialMetadata($material['metadata'] ?? null);
+            $laminationItemId = (int)($metadata['lamination_item_id'] ?? 0);
+            $laminationLength = (float)($metadata['lamination_length_ft'] ?? 0);
+            if ($laminationItemId > 0 && $laminationLength > 0) {
+                if (!isset($itemsById[$laminationItemId])) {
+                    $laminationItem = InventoryManager::getItem($laminationItemId);
+                    if (!$laminationItem) {
+                        throw new RuntimeException('An assigned lamination material no longer exists.');
+                    }
+                    $itemsById[$laminationItemId] = $laminationItem;
+                }
+                $demandByItem[$laminationItemId] = ($demandByItem[$laminationItemId] ?? 0.0) + $laminationLength;
+            }
+        }
+
+        $branchId = self::getJobBranchId($jobId);
+        if ($branchId === null || $branchId <= 0) {
+            throw new RuntimeException('The assigned service job does not identify an inventory branch.');
+        }
+        $issues = [];
+        foreach ($demandByItem as $itemId => $required) {
+            $inventoryItem = $itemsById[$itemId];
+            if (empty($inventoryItem['track_by_roll']) && !empty($inventoryItem['allow_negative_stock'])) {
+                continue;
+            }
+            $available = (float)InventoryManager::getStockOnHand((int)$itemId, $branchId);
+            if ($required > $available) {
+                $issues[] = [
+                    'item_id' => (int)$itemId,
+                    'name' => (string)($inventoryItem['name'] ?? ('Material #' . $itemId)),
+                    'required' => $required,
+                    'available' => $available,
+                    'uom' => (string)($inventoryItem['unit_of_measure'] ?? ''),
+                ];
+            }
+        }
+        return $issues;
+    }
+
     private static function getScopedMaterials(int $jobId, bool $onlyUndeducted = false, bool $forUpdate = false): array {
         $errorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
         $storeOrderId = self::getLinkedStoreOrderId($jobId);

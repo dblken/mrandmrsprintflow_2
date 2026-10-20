@@ -3257,14 +3257,20 @@ $online_closed_count = 0;
                                                placeholder="0.00"
                                                x-effect="if (showDetailsModal) syncJobPriceInputField()"
                                                x-on:input="
-                                                   let val = $event.target.value.replace(/[^0-9.]/g, '');
-                                                   let parts = val.split('.');
-                                                   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-                                                   $event.target.value = parts.join('.');
-                                                   jobPriceInput = $event.target.value.replace(/,/g, '');
+                                                   if (isPosSetPriceFlow()) {
+                                                       jobPriceInput = $event.target.value.replace(/,/g, '');
+                                                   } else {
+                                                       let val = $event.target.value.replace(/[^0-9.]/g, '');
+                                                       let parts = val.split('.');
+                                                       parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+                                                       $event.target.value = parts.join('.');
+                                                       jobPriceInput = $event.target.value.replace(/,/g, '');
+                                                   }
                                                "
                                                x-on:blur="
-                                                   if (jobPriceInput && String(jobPriceInput).trim() !== '') {
+                                                   if (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput)) {
+                                                       $event.target.value = jobPriceInput;
+                                                   } else if (jobPriceInput && String(jobPriceInput).trim() !== '') {
                                                        jobPriceInput = parseFloat(jobPriceInput).toFixed(2);
                                                        $event.target.value = Number(jobPriceInput).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                                                    } else {
@@ -3276,6 +3282,7 @@ $online_closed_count = 0;
                                                onfocus="this.style.borderColor='#0d9488'; this.style.boxShadow='0 0 0 3px rgba(6, 161, 161, 0.08)'"
                                                onblur="this.style.borderColor='#5eead4'; this.style.boxShadow='none'">
                                     </div>
+                                    <div x-show="isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput)" x-cloak style="margin-top:6px;font-size:12px;font-weight:700;color:#b91c1c;">Enter a positive final price with no more than two decimal places (maximum ₱9,999,999.99).</div>
                                     <div x-show="priceBelowEstimateLabel" x-cloak x-text="priceBelowEstimateLabel" style="margin-top:6px; font-size:11px; font-weight:700; color:#b45309;"></div>
                                 </div>
                                 <div x-show="approvalStockErrors.length > 0" style="margin-bottom:12px; padding:12px 14px; border-radius:10px; border:1px solid #fecaca; background:#fff1f2; color:#b91c1c; font-size:12px; font-weight:700; line-height:1.5;">
@@ -3760,13 +3767,13 @@ $online_closed_count = 0;
                                 <button type="button" @click="openRevisionModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Request Additional Details</button>
                             </div>
                             <div x-show="isPosPricingMode() && modalWorkflowStatus(currentJo) === 'APPROVED'" style="display:flex; gap:8px; flex-wrap:wrap;">
-                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Confirm Set Price</button>
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)) ? 'opacity:.6;cursor:not-allowed;' : ''">Confirm Set Price</button>
                             </div>
                             <div x-show="!isPosPricingMode() && modalWorkflowStatus(currentJo) === 'APPROVED' && (!isPosSimplifiedView || !isPosPricingReturnFlow(currentJo))" style="display:flex; gap:8px;">
-                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Set Price</button>
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))) ? 'opacity:.6;cursor:not-allowed;' : ''">Set Price</button>
                             </div>
                             <div x-show="!isPosPricingMode() && isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'APPROVED' && isPosPricingReturnFlow(currentJo)" style="display:flex; gap:8px;">
-                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Continue to POS Payment</button>
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))) ? 'opacity:.6;cursor:not-allowed;' : ''">Continue to POS Payment</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'PAYMENT_CONFIRMED' && canStartProduction(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="startProduction()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Proceed to Production</button>
@@ -4437,6 +4444,19 @@ window.pfServiceFieldCatalog = (() => {
                 if (!Number.isFinite(parsed)) return fallback;
                 return parsed < 1 ? 1 : parsed;
             },
+            isValidPosMaterialQuantity(value) {
+                const raw = String(value ?? '').trim();
+                return /^[1-9][0-9]*$/.test(raw) && Number.isSafeInteger(Number(raw)) && Number(raw) <= 2147483647;
+            },
+            posMaterialQuantityError(materials = []) {
+                if (!this.isPosSetPriceFlow()) return '';
+                for (const material of materials) {
+                    if (!this.isValidPosMaterialQuantity(material && (material.qty ?? material.quantity))) {
+                        return 'POS material quantities must be positive whole numbers.';
+                    }
+                }
+                return '';
+            },
             isPcsMaterial(itemId) {
                 const item = this.getInventoryItem(itemId);
                 const uom = String(item && item.unit_of_measure ? item.unit_of_measure : '').trim().toLowerCase();
@@ -4513,7 +4533,9 @@ window.pfServiceFieldCatalog = (() => {
             },
             handleMaterialQtyInput(value) {
                 this.materialQtyManuallyEdited = true;
-                this.newMaterialQty = this.normalizeMaterialQtyValue(value, 1);
+                this.newMaterialQty = this.isPosSetPriceFlow()
+                    ? String(value ?? '')
+                    : this.normalizeMaterialQtyValue(value, 1);
             },
             getMaterialRequiredStock(itemId, qty = 0, height = 0) {
                 const parsedQty = parseFloat(qty || 0);
@@ -4533,6 +4555,9 @@ window.pfServiceFieldCatalog = (() => {
                 if (!this.newMaterialId) return '';
                 const item = this.getInventoryItem(this.newMaterialId);
                 if (!item) return '';
+                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty)) {
+                    return 'POS material quantities must be positive whole numbers.';
+                }
                 const available = parseFloat(item.current_stock || 0);
                 const queued = this.getQueuedMaterialRequiredStock(this.newMaterialId);
                 const needed = this.getMaterialRequiredStock(this.newMaterialId, this.newMaterialQty, this.newMaterialHeight);
@@ -4611,6 +4636,11 @@ window.pfServiceFieldCatalog = (() => {
             get approvalStockErrors() {
                 const errors = [];
                 if (this.selectedMaterialStockError) errors.push(this.selectedMaterialStockError);
+                if (this.isPosSetPriceFlow()) {
+                    const saved = Array.isArray(this.currentJo?.materials) ? this.currentJo.materials : [];
+                    const invalidSavedOrQueued = this.posMaterialQuantityError([...saved, ...this.pendingMaterials]);
+                    if (invalidSavedOrQueued && !errors.includes(invalidSavedOrQueued)) errors.push(invalidSavedOrQueued);
+                }
                 this.pendingMaterials.forEach(pm => {
                     const item = this.getInventoryItem(pm.item_id);
                     if (!item) return;
@@ -4723,6 +4753,18 @@ window.pfServiceFieldCatalog = (() => {
             },
             isPosPricingMode() {
                 return this.detailContextMode === 'pos_pricing';
+            },
+            isPosSetPriceFlow() {
+                if (this.isPosPricingMode() || this.isPosPricingReturnFlow(this.currentJo)) return true;
+                if (String(this.currentJo?.order_source || '').toLowerCase() === 'pos') return true;
+                const details = this.currentJo?.customization_details || {};
+                return String(details.source || '').toUpperCase() === 'POS';
+            },
+            isValidPosFinalPrice(value) {
+                const raw = String(value ?? '').trim().replace(/,/g, '');
+                if (!/^(?:0|[1-9]\d{0,6})(?:\.\d{1,2})?$/.test(raw)) return false;
+                const amount = Number(raw);
+                return Number.isFinite(amount) && amount >= 1 && amount <= 9999999.99;
             },
             modalWorkflowStatus(jo) {
                 if (!jo) return '';
@@ -9794,7 +9836,13 @@ window.pfServiceFieldCatalog = (() => {
                     this.showStaffAlert('Material Unavailable', 'This material is not available for a new assignment on the current service.');
                     return;
                 }
-                const normalizedQty = this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
+                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty)) {
+                    this.showStaffAlert('Invalid Quantity', 'POS material quantities must be positive whole numbers.');
+                    return;
+                }
+                const normalizedQty = this.isPosSetPriceFlow()
+                    ? Number(this.newMaterialQty)
+                    : this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
                 if (normalizedQty < 1) {
                     this.showStaffAlert('Invalid Quantity', 'Material quantity must be at least 1.');
                     return;
@@ -9840,7 +9888,10 @@ window.pfServiceFieldCatalog = (() => {
             },
             buildCurrentMaterialPayload() {
                 if (!this.newMaterialId) return null;
-                const normalizedQty = this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
+                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty)) return null;
+                const normalizedQty = this.isPosSetPriceFlow()
+                    ? Number(this.newMaterialQty)
+                    : this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
                 if (normalizedQty < 1) return null;
                 this.newMaterialQty = normalizedQty;
                 const item = this.allInventoryItems.find(i => i.id == this.newMaterialId);
@@ -9895,8 +9946,9 @@ window.pfServiceFieldCatalog = (() => {
                 const errors = { material: '', ink_set: '', ink_consumption: '' };
                 const savedMaterials = Array.isArray(this.currentJo.materials) ? this.currentJo.materials : [];
                 const savedInks = Array.isArray(this.currentJo.ink_usage) ? this.currentJo.ink_usage : [];
+                errors.material = this.posMaterialQuantityError([...savedMaterials, ...this.pendingMaterials, ...extraMaterials]);
                 if (savedMaterials.length + extraMaterials.length <= 0) {
-                    errors.material = 'Please select and add a material.';
+                    errors.material = errors.material || 'Please select and add a material.';
                 }
                 if (this.requiresInk) {
                     if (!this.inkCategorySelected && savedInks.length === 0) {
@@ -10047,6 +10099,10 @@ window.pfServiceFieldCatalog = (() => {
             },
             async submitToPay() {
                 if (this.currentJo.order_type === 'CUSTOMIZATION') {
+                    if (this.isPosSetPriceFlow() && !this.isValidPosFinalPrice(this.jobPriceInput)) {
+                        this.setFooterActionError('Enter a positive final price with no more than two decimal places (maximum ₱9,999,999.99).');
+                        return;
+                    }
                     const priceValue = parseFloat(this.jobPriceInput);
                     if (!priceValue || priceValue <= 0 || isNaN(priceValue)) {
                         this.setFooterActionError('Please enter a valid final price before approving.');
@@ -10058,6 +10114,10 @@ window.pfServiceFieldCatalog = (() => {
                         this.setFooterActionError('No linked production job was found for this customization.');
                         return;
                     }
+                    const posDetails = this.currentJo.customization_details || {};
+                    const posUrlParams = new URLSearchParams(window.location.search);
+                    const posReturnToPOS = posUrlParams.get('return_to_pos') === '1';
+                    const isPosReturnFlow = this.isPosPricingMode() || posDetails.source === 'POS' || posReturnToPOS;
                     const materialsToSave = [...this.pendingMaterials];
                     const currentMaterial = this.buildCurrentMaterialPayload();
                     if (currentMaterial) {
@@ -10067,6 +10127,41 @@ window.pfServiceFieldCatalog = (() => {
                     if (!this.validateProductionAssignments(materialsToSave, inkPayload)) {
                         this.setFooterActionError(Object.values(this.productionErrors).find(Boolean));
                         return;
+                    }
+                    if (isPosReturnFlow) {
+                        const savedState = sessionStorage.getItem('pos_cart_state');
+                        let cartState = null;
+                        try { cartState = savedState ? JSON.parse(savedState) : null; } catch (_) {}
+                        const cartIndex = Number(cartState?.item_index);
+                        const pendingOrderId = parseInt(this.currentJo.order_id || this.deepLinkSourceOrderId || 0, 10) || 0;
+                        if (!Number.isInteger(cartIndex) || cartIndex < 0 || pendingOrderId <= 0) {
+                            this.setFooterActionError('The POS cart item could not be matched for material stock validation. Reopen Set Price from the cart.');
+                            return;
+                        }
+                        const allMaterialsForCheck = [
+                            ...(Array.isArray(this.currentJo.materials) ? this.currentJo.materials : []),
+                            ...materialsToSave,
+                        ].map(material => ({
+                            item_id: Number(material.item_id || material.id || 0),
+                            quantity: material.quantity ?? material.qty,
+                            metadata: material.metadata || {},
+                        }));
+                        const stockResponse = await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                            body: JSON.stringify({
+                                action: 'validate_service_materials',
+                                cart_index: cartIndex,
+                                pending_order_id: pendingOrderId,
+                                materials: allMaterialsForCheck,
+                                csrf_token: document.body.getAttribute('data-csrf') || ''
+                            })
+                        });
+                        const stockData = await this.parseJsonResponse(stockResponse);
+                        if (!stockResponse.ok || !stockData.success) {
+                            this.setFooterActionError(stockData.message || 'Assigned material stock changed. Review the quantities and try again.');
+                            return;
+                        }
                     }
                     for (const pm of materialsToSave) {
                         const fdMaterial = new FormData();
@@ -10099,10 +10194,6 @@ window.pfServiceFieldCatalog = (() => {
                         }
                     }
                     await this.refreshMaterials();
-                    const details = this.currentJo.customization_details || {};
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const returnToPOS = urlParams.get('return_to_pos') === '1';
-                    const isPosReturnFlow = this.isPosPricingMode() || details.source === 'POS' || returnToPOS;
                     if (!this.beginModalAction()) return;
                     try {
                         if (isPosReturnFlow) {
@@ -10184,6 +10275,10 @@ window.pfServiceFieldCatalog = (() => {
                     return;
                 }
                 const jid = target.jobId;
+                if (this.isPosSetPriceFlow() && !this.isValidPosFinalPrice(this.jobPriceInput)) {
+                    this.setFooterActionError('Enter a positive final price with no more than two decimal places (maximum ₱9,999,999.99).');
+                    return;
+                }
                 const userEnteredPrice = parseFloat(this.jobPriceInput);
                 if (!Number.isFinite(userEnteredPrice) || userEnteredPrice <= 0) {
                     this.setFooterActionError('Please enter a valid final price before submitting.');
@@ -10205,6 +10300,41 @@ window.pfServiceFieldCatalog = (() => {
                 if (!this.validateProductionAssignments(materialsToSave, inkPayload)) {
                     this.setFooterActionError(Object.values(this.productionErrors).find(Boolean));
                     return;
+                }
+                if (fromPOS) {
+                    const savedState = sessionStorage.getItem('pos_cart_state');
+                    let cartState = null;
+                    try { cartState = savedState ? JSON.parse(savedState) : null; } catch (_) {}
+                    const cartIndex = Number(cartState?.item_index);
+                    const pendingOrderId = parseInt(this.currentJo.order_id || this.deepLinkSourceOrderId || 0, 10) || 0;
+                    if (!Number.isInteger(cartIndex) || cartIndex < 0 || pendingOrderId <= 0) {
+                        this.setFooterActionError('The POS cart item could not be matched for material stock validation. Reopen Set Price from the cart.');
+                        return;
+                    }
+                    const allMaterialsForCheck = [
+                        ...(Array.isArray(this.currentJo.materials) ? this.currentJo.materials : []),
+                        ...materialsToSave,
+                    ].map(material => ({
+                        item_id: Number(material.item_id || material.id || 0),
+                        quantity: material.quantity ?? material.qty,
+                        metadata: material.metadata || {},
+                    }));
+                    const stockResponse = await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                        body: JSON.stringify({
+                            action: 'validate_service_materials',
+                            cart_index: cartIndex,
+                            pending_order_id: pendingOrderId,
+                            materials: allMaterialsForCheck,
+                            csrf_token: document.body.getAttribute('data-csrf') || ''
+                        })
+                    });
+                    const stockData = await this.parseJsonResponse(stockResponse);
+                    if (!stockResponse.ok || !stockData.success) {
+                        this.setFooterActionError(stockData.message || 'Assigned material stock changed. Review the quantities and try again.');
+                        return;
+                    }
                 }
                 for (const pm of materialsToSave) {
                     const fd = new FormData();

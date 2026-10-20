@@ -3,7 +3,17 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const source = fs.readFileSync(require('node:path').join(__dirname, '../staff/pos.php'), 'utf8');
+const { execFileSync } = require('node:child_process');
+const statusBadges = JSON.parse(execFileSync('php', ['-r', `
+require 'includes/product_stock_status.php';
+$badges = [];
+foreach (['in' => [20,5,1], 'low' => [3,5,1], 'critical' => [1,5,1], 'out' => [0,5,1]] as $key => $values) {
+    $status = printflow_product_resolve_stock_status(...$values);
+    $badges[$key] = ['key' => $status['key'], 'label' => $status['label'], 'badge_html' => printflow_stock_status_badge_html($status, false)];
+}
+echo json_encode($badges);
+`], { cwd: require('node:path').join(__dirname, '..'), encoding: 'utf8' }));
+const source = fs.readFileSync(process.argv[2] || require('node:path').join(__dirname, '../staff/pos.php'), 'utf8');
 const renderSource = source.slice(source.indexOf('        function renderProducts()'), source.indexOf('        function focusBarcodeInput('));
 // Extract the complete fetch block without executing the rest of the POS page.
 const fetchEnd = source.indexOf('\n        //', source.indexOf('        async function fetchProducts('));
@@ -45,21 +55,31 @@ const context = vm.createContext({
     }
 });
 vm.runInContext(renderSource + '\n' + refreshSource, context);
-const product = (id, stock, low = 5) => ({ product_id: id, product_name: 'Product ' + id, category: 'Stickers', stock_quantity: stock, low_stock_level: low, price: 50 });
+const product = (id, stock, low = 5) => ({ product_id: id, product_name: 'Product ' + id, category: 'Stickers', stock_quantity: stock, low_stock_level: low, price: 50, stock_display: statusBadges[stock <= 0 ? 'out' : stock <= low ? 'low' : 'in'] });
 
 (async () => {
     payload = [product(1, 20), product(2, 0), product(3, 3), product(4, 1, 0), product(5, 9, 9)];
     await context.fetchProducts();
     assert.equal(grid.children.length, 5);
     for (const card of grid.children) assert.match(card.innerHTML, /Stock:/);
-    assert.match(grid.children[0].innerHTML, /Stock: <strong>20<\/strong> available/);
-    assert.doesNotMatch(grid.children[0].innerHTML, /Low stock|Out of stock/);
-    assert.match(grid.children[1].innerHTML, /Stock: <strong>0<\/strong> available · Out of stock/);
+    assert.match(grid.children[0].innerHTML, /Stock: <strong>20<\/strong>/);
+    assert.ok(!grid.children[0].innerHTML.includes(statusBadges.in.badge_html), 'In Stock badge is omitted while quantity stays visible');
+    assert.match(grid.children[1].innerHTML, /Stock: <strong>0<\/strong>/);
+    assert.ok(grid.children[1].innerHTML.includes(statusBadges.out.badge_html));
     assert.equal(grid.children[1].onclick, undefined, 'zero-stock purchase behavior stays blocked');
-    assert.match(grid.children[2].innerHTML, /Stock: <strong>3<\/strong> left · Low stock/);
-    assert.doesNotMatch(grid.children[3].innerHTML, /Low stock/, 'zero threshold must not default to ten');
-    assert.match(grid.children[4].innerHTML, /Low stock/, 'threshold boundary is low stock');
+    assert.match(grid.children[2].innerHTML, /Stock: <strong>3<\/strong>/);
+    assert.ok(grid.children[2].innerHTML.includes(statusBadges.low.badge_html));
+    assert.doesNotMatch(grid.children[3].innerHTML, /Low Stock/, 'zero threshold must not default to ten');
+    assert.match(grid.children[4].innerHTML, /Low Stock/, 'threshold boundary is low stock');
     assert.equal(typeof grid.children[0].onclick, 'function');
+
+    const originalPayload = payload;
+    payload = [{ ...product(6, 1), stock_display: statusBadges.critical }, { ...product(7, 0), stock_quantity: null, stock_display: null }];
+    await context.fetchProducts();
+    assert.ok(grid.children[0].innerHTML.includes(statusBadges.critical.badge_html), 'Critical uses Admin badge verbatim');
+    assert.doesNotMatch(grid.children[1].innerHTML, /Stock:/, 'missing inventory display must not invent a quantity');
+    payload = originalPayload;
+    await context.fetchProducts();
 
     const originalCard = grid.children[0];
     await context.fetchProducts({ background: true });
