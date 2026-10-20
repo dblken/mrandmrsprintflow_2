@@ -51,11 +51,12 @@ const product = (id, stock, low = 5) => ({ product_id: id, product_name: 'Produc
     payload = [product(1, 20), product(2, 0), product(3, 3), product(4, 1, 0), product(5, 9, 9)];
     await context.fetchProducts();
     assert.equal(grid.children.length, 5);
-    for (const card of grid.children) assert.match(card.innerHTML, /Available Stock:/);
+    for (const card of grid.children) assert.match(card.innerHTML, /Stock:/);
+    assert.match(grid.children[0].innerHTML, /Stock: <strong>20<\/strong> available/);
     assert.doesNotMatch(grid.children[0].innerHTML, /Low stock|Out of stock/);
-    assert.match(grid.children[1].innerHTML, /<strong>0<\/strong> · Out of stock/);
+    assert.match(grid.children[1].innerHTML, /Stock: <strong>0<\/strong> available · Out of stock/);
     assert.equal(grid.children[1].onclick, undefined, 'zero-stock purchase behavior stays blocked');
-    assert.match(grid.children[2].innerHTML, /<strong>3<\/strong> · Low stock/);
+    assert.match(grid.children[2].innerHTML, /Stock: <strong>3<\/strong> left · Low stock/);
     assert.doesNotMatch(grid.children[3].innerHTML, /Low stock/, 'zero threshold must not default to ten');
     assert.match(grid.children[4].innerHTML, /Low stock/, 'threshold boundary is low stock');
     assert.equal(typeof grid.children[0].onclick, 'function');

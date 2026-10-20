@@ -6222,7 +6222,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 <span class="pos-catalog-card__meta">${category}</span>
                 <p class="pos-catalog-card__name" title="${productName}">${productName}</p>
                 <div class="pos-catalog-card__price" aria-label="Price">${priceFormatted}</div>
-                <div class="pos-product-stock ${outOfStock ? 'is-empty' : (lowStock ? 'is-low' : '')}">Available Stock: <strong>${stockQty.toLocaleString()}</strong>${outOfStock ? ' · Out of stock' : (lowStock ? ' · Low stock' : '')}</div>
+                <div class="pos-product-stock ${outOfStock ? 'is-empty' : (lowStock ? 'is-low' : '')}">Stock: <strong>${stockQty.toLocaleString()}</strong>${lowStock ? ' left · Low stock' : ' available'}${outOfStock ? ' · Out of stock' : ''}</div>
             </div>
         `;
                 grid.appendChild(card);
