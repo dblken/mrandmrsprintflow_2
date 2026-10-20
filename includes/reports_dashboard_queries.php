@@ -997,7 +997,7 @@ function pf_reports_sales_by_service_category(string $from, string $toEnd, $bran
         }
 
         $pfServiceCatBucket = "COALESCE(NULLIF(TRIM(sc.category), ''), NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization')";
-        return db_query(
+        $rows = db_query(
             "SELECT {$pfServiceCatBucket} AS category,
                     SUM(CASE WHEN (LOWER(TRIM(COALESCE(jo.payment_status, ''))) IN ('paid', 'fully paid') OR UPPER(TRIM(COALESCE(jo.status, ''))) = 'COMPLETED')
                              THEN COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) ELSE 0 END) AS total,
@@ -1020,6 +1020,99 @@ function pf_reports_sales_by_service_category(string $from, string $toEnd, $bran
             $jdTypes . $btjsc,
             array_merge($jdParams, $bpjsc)
         ) ?: [];
+
+        // Canonical paid custom orders are counted from orders. Their linked
+        // job rows are excluded above, so include them here to keep this chart
+        // aligned with the official revenue totals without double-counting.
+        try {
+            [$bosc, $btosc, $bposc] = branch_where_parts('o', $branchId);
+            $storeSales = pf_reports_store_order_sales_expr('o');
+            $storeRevenue = pf_reports_store_order_revenue_expr('o');
+            $storeCustomScope = pf_reports_store_custom_order_scope_sql('o');
+            $storeServiceName = "COALESCE(
+                NULLIF(TRIM(CASE WHEN JSON_VALID(oi_service.customization_data)
+                    THEN JSON_UNQUOTE(JSON_EXTRACT(oi_service.customization_data, '$.service_type')) END), ''),
+                NULLIF(TRIM(CASE WHEN JSON_VALID(oi_service.customization_data)
+                    THEN JSON_UNQUOTE(JSON_EXTRACT(oi_service.customization_data, '$.service_name')) END), ''),
+                NULLIF(TRIM(jo_service.service_type), ''),
+                NULLIF(TRIM(jo_service.job_title), ''),
+                'Customization'
+            )";
+            $storeServiceCategory = "COALESCE(NULLIF(TRIM(sc.category), ''), {$storeServiceName}, 'Customization')";
+            $storeDatePart = '';
+            $storeDateTypes = '';
+            $storeDateParams = [];
+            if ($from !== '' && $toEnd !== '') {
+                $storeDatePart = ' AND o.order_date BETWEEN ? AND ?';
+                $storeDateTypes = 'ss';
+                $storeDateParams = [$from, $toEnd];
+            } elseif ($from !== '') {
+                $storeDatePart = ' AND o.order_date >= ?';
+                $storeDateTypes = 's';
+                $storeDateParams = [$from];
+            } elseif ($toEnd !== '') {
+                $storeDatePart = ' AND o.order_date <= ?';
+                $storeDateTypes = 's';
+                $storeDateParams = [$toEnd];
+            }
+            $customRows = db_query(
+                "SELECT {$storeServiceCategory} AS category,
+                        SUM({$storeRevenue}) AS total,
+                        SUM(COALESCE(oi_qty.quantity, 1)) AS qty_sold
+                 FROM orders o
+                 LEFT JOIN order_items oi_service
+                   ON oi_service.order_item_id = (
+                       SELECT oi_first.order_item_id
+                       FROM order_items oi_first
+                       WHERE oi_first.order_id = o.order_id
+                       ORDER BY oi_first.order_item_id ASC
+                       LIMIT 1
+                   )
+                 LEFT JOIN job_orders jo_service
+                   ON jo_service.id = (
+                       SELECT jo_first.id
+                       FROM job_orders jo_first
+                       WHERE jo_first.order_id = o.order_id
+                       ORDER BY jo_first.id ASC
+                       LIMIT 1
+                   )
+                 LEFT JOIN (
+                     SELECT LOWER(TRIM(name)) AS name_key,
+                            MAX(NULLIF(TRIM(category), '')) AS category
+                     FROM services
+                     GROUP BY LOWER(TRIM(name))
+                 ) sc ON sc.name_key = LOWER(TRIM({$storeServiceName}))
+                 LEFT JOIN (
+                     SELECT order_id, SUM(COALESCE(quantity, 1)) AS quantity
+                     FROM order_items
+                     GROUP BY order_id
+                 ) oi_qty ON oi_qty.order_id = o.order_id
+                 WHERE {$storeSales} AND {$storeCustomScope} {$storeDatePart} {$bosc}
+                 GROUP BY {$storeServiceCategory}
+                 HAVING SUM({$storeRevenue}) > 0
+                    OR SUM(COALESCE(oi_qty.quantity, 1)) > 0
+                 ORDER BY total DESC",
+                $storeDateTypes . $btosc,
+                array_merge($storeDateParams, $bposc)
+            ) ?: [];
+
+            $merged = [];
+            foreach (array_merge($rows, $customRows) as $row) {
+                $category = trim((string)($row['category'] ?? '')) ?: 'Customization';
+                if (!isset($merged[$category])) {
+                    $merged[$category] = ['category' => $category, 'total' => 0.0, 'qty_sold' => 0];
+                }
+                $merged[$category]['total'] += (float)($row['total'] ?? 0);
+                $merged[$category]['qty_sold'] += (int)($row['qty_sold'] ?? 0);
+            }
+            $rows = array_values($merged);
+            usort($rows, static fn(array $a, array $b): int => ((float)$b['total']) <=> ((float)$a['total']));
+        } catch (Throwable $e) {
+            // Keep standalone job-order rows available if legacy custom-order
+            // metadata is incomplete on a deployment.
+        }
+
+        return $rows;
     } catch (Throwable $e) {
         return [];
     }

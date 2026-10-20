@@ -165,39 +165,6 @@ $reportsMark = static function (string $name) use (&$reportsPhaseStart, &$report
 };
 
 // ── 1. Branch empty check (orders + customization jobs) ───────────────────────
-$reportsShellOnly = !isset($_GET['ajax']) && !isset($_GET['section']) && !isset($_GET['reports_full']);
-if ($reportsShellOnly) {
-    try {
-        $shellSummary = pf_reports_canonical_official_sales_totals($from, $toEnd, $globalAnalyticsBranchId);
-        $shellRevenue = (float)($shellSummary['total_sales'] ?? 0);
-        $shellGross = pf_reports_estimated_gross_profit_analytics($from, $toEnd, $globalAnalyticsBranchId);
-        $shellMaterial = max(0.0, round((float)($shellGross['summary']['estimated_material_cost'] ?? 0), 2));
-        $shellGrossProfit = round($shellRevenue - $shellMaterial, 2);
-        $shellExpenses = (float)pf_expense_reports_paid_total($from, $toEnd, $globalAnalyticsBranchId);
-        $shellNetProfit = round($shellGrossProfit - $shellExpenses, 2);
-    } catch (Throwable $e) {
-        error_log('[reports] fast shell KPI failure: ' . $e->getMessage());
-        $shellRevenue = $shellGrossProfit = $shellExpenses = $shellNetProfit = 0.0;
-    }
-    require_once __DIR__ . '/../includes/reports_emergency_shell.php';
-    pf_reports_render_emergency_shell([
-        'base_path' => $base_path,
-        'branch_ctx' => $branchCtx,
-        'branch_id' => $branchId,
-        'branch_name' => $branchName,
-        'from' => $from,
-        'to' => $to,
-        'revenue' => $shellRevenue,
-        'gross_profit' => $shellGrossProfit,
-        'operating_expenses' => $shellExpenses,
-        'net_profit' => $shellNetProfit,
-        'current_user' => $current_user,
-        'reports_perf' => (($_GET['reports_perf'] ?? '') === '1'),
-        'shell_ms' => (microtime(true) - ($_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true))) * 1000,
-    ]);
-    exit;
-}
-
 $branch_empty = !pf_reports_branch_has_activity($branchId);
 $gaBranchEmpty = $branch_empty; // Same resolved branch; avoid repeating lifetime counts.
 

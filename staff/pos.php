@@ -123,6 +123,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
+        /* The POS date/time override is retired. Keep this guard for cached or
+           older partial markup so the control cannot reappear in the checkout UI. */
+        #pos-checkout-transaction-datetime-compact,
+        #pos-transaction-datetime-modal,
+        .pos-order-datetime-section,
+        .pos-tx-datetime-modal-overlay {
+            display: none !important;
+        }
         /* Field styles for service modal (mirrors order_service_dynamic.php) */
         .shopee-form-row {
             display: flex;
@@ -3191,38 +3199,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
                 </div> <!-- END pos-wrapper -->
             </main>
-        </div>
-    </div>
-
-    <div id="pos-transaction-datetime-modal" class="pos-tx-datetime-modal-overlay" hidden aria-hidden="true"
-        onclick="if(event.target===this)closePosTransactionDateTimeModal()">
-        <div class="pos-tx-datetime-modal" role="dialog" aria-modal="true" aria-labelledby="pos-tx-datetime-modal-title">
-            <div class="pos-tx-datetime-modal-head">
-                <h3 id="pos-tx-datetime-modal-title">Date &amp; Time</h3>
-                <button type="button" class="pos-tx-datetime-modal-close" aria-label="Close" onclick="closePosTransactionDateTimeModal()">&times;</button>
-            </div>
-            <div class="pos-tx-datetime-modal-body">
-                <label class="pos-transaction-datetime-toggle" for="pos-confirm-use-custom-date">
-                    <input type="checkbox" id="pos-confirm-use-custom-date" onchange="toggleConfirmTransactionDate()">
-                    Use custom date/time
-                </label>
-                <div id="pos-confirm-transaction-date-fields" class="pos-transaction-datetime-fields">
-                    <div class="pos-tender-group">
-                        <label class="pos-summary-label" for="pos-confirm-transaction-date">Date</label>
-                        <input type="date" id="pos-confirm-transaction-date" disabled class="pos-datetime-input" max="<?php echo htmlspecialchars($pos_manila_today, ENT_QUOTES, 'UTF-8'); ?>">
-                    </div>
-                    <div class="pos-tender-group">
-                        <label class="pos-summary-label" for="pos-confirm-transaction-time">Time</label>
-                        <input type="time" id="pos-confirm-transaction-time" disabled class="pos-datetime-input" step="60">
-                    </div>
-                </div>
-                <p class="pos-transaction-datetime-hint">When enabled, order, receipt, inventory, and reports use this Manila date/time instead of now.</p>
-                <p id="pos-confirm-transaction-date-error" class="pos-transaction-datetime-error" hidden role="alert">Choose both date and time, or turn off custom date/time.</p>
-            </div>
-            <div class="pos-tx-datetime-modal-foot">
-                <button type="button" class="pos-tx-datetime-btn-secondary" onclick="closePosTransactionDateTimeModal()">Cancel</button>
-                <button type="button" class="pos-tx-datetime-btn-primary" onclick="savePosTransactionDateTimeModal()">Save</button>
-            </div>
         </div>
     </div>
 
