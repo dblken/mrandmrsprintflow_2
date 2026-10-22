@@ -5251,6 +5251,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const body = document.getElementById('sm-fields-body');
             const customization = {};
             if (!body) return customization;
+            if (typeof pfPrepareServiceFormDimensions === 'function') {
+                pfPrepareServiceFormDimensions(body);
+            }
             body.querySelectorAll('[data-dimension-role="width"], [data-dimension-role="height"]').forEach((field) => {
                 const role = String(field.dataset.dimensionRole || '').trim().toLowerCase();
                 if (role === 'width' || role === 'height') customization[role] = field.value;
@@ -5357,7 +5360,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
             if (Number(serviceId) === 40 && body) {
                 const revalidateDimensions = (event) => {
-                    if (!event.target.matches('[data-dimension-role="width"], [data-dimension-role="height"]')) return;
+                    const target = event.target;
+                    const dimensionField = target && typeof target.matches === 'function'
+                        && target.matches('[data-dimension-role="width"], [data-dimension-role="height"], .custom-dim-width, .custom-dim-height');
+                    const dimensionSelect = event.type === 'change' && target && typeof target.matches === 'function'
+                        && target.matches('select.pf-select-with-others, select.pf-select-custom-size');
+                    const dimensionChoice = dimensionSelect || (target && typeof target.closest === 'function'
+                        && target.closest('.shopee-opt-btn[data-dimension-choice], .shopee-opt-btn[data-dimension-others]'));
+                    if (!dimensionField && !dimensionChoice) return;
                     if (posServiceStockRequestTimer) clearTimeout(posServiceStockRequestTimer);
                     ++posServiceStockRequestVersion;
                     posServiceStockBlocking = true;
@@ -5375,6 +5385,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 };
                 body.addEventListener('input', revalidateDimensions);
                 body.addEventListener('change', revalidateDimensions);
+                body.addEventListener('click', revalidateDimensions);
             }
             const pricing = resolveServiceModalPricing();
             const quantity = input ? input.value : pricing.quantity;

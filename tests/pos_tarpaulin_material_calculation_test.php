@@ -15,7 +15,7 @@ $assert($calc(4, 6, 1, 4)['required_linear_ft'] === 6.0, '4x6 on 4FT uses 6 line
 $assert($calc(4, 6, 1, 6)['required_linear_ft'] === 4.0, '4x6 on 6FT rotates and uses 4 linear feet.');
 $assert($calc(3, 5, 1, 5)['print_area_sqft'] === 15.0, 'Print area is reported separately in square feet.');
 
-foreach ([[0, 5, 1, 5], [3, null, 1, 5], [3, 5, 0, 5], [3, 5, 1, 0]] as $invalid) {
+foreach ([[0, 5, 1, 5], [null, 5, 1, 5], [3, null, 1, 5], [3, 5, 0, 5], [3, 5, 1, 0]] as $invalid) {
     try {
         $calc(...$invalid);
         throw new RuntimeException('Missing, zero, or invalid dimensions and quantity must be rejected.');
@@ -40,6 +40,12 @@ $selection = printflow_tarpaulin_resolve_candidate([
 ], 3, 5, 2);
 $assert($selection['ok'] && $selection['selection']['item_id'] === 15, 'The picker preference chooses the smallest sufficient roll fitting the larger dimension.');
 $assert($selection['selection']['required_linear_ft'] === 6.0, 'The selected roll demand matches orientation and quantity.');
+$twoByTwo = printflow_tarpaulin_resolve_candidate([$roll(18, '5FT Tarpaulin', 2)], 2, 2, 1);
+$assert($twoByTwo['ok'] && $twoByTwo['selection']['required_linear_ft'] === 2.0,
+    'A valid 2x2 ft, quantity 1 request passes when the selected branch has sufficient 5FT roll stock.');
+$threeByFive = printflow_tarpaulin_resolve_candidate([$roll(19, '5FT Tarpaulin', 3)], 3, 5, 1);
+$assert($threeByFive['ok'] && $threeByFive['selection']['required_linear_ft'] === 3.0,
+    'A valid 3x5 ft, quantity 1 request uses the approved 5FT rotation and requires 3 linear feet.');
 $short = printflow_tarpaulin_resolve_candidate([$roll(15, '5FT Tarpaulin', 5)], 3, 5, 2);
 $assert(!$short['ok'] && $short['reason'] === 'insufficient', 'Insufficient branch roll stock fails validation.');
 $assert(($short['shortage']['id'] ?? 0) === 15
