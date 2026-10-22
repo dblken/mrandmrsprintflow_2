@@ -5282,7 +5282,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
                 const materials = Array.isArray(validation.materials) ? validation.materials : [];
                 const formatQty = value => String(Number(value || 0));
-                const indicator = materials.map(material => `${material.name}: ${formatQty(material.available)} ${material.uom || 'units'} available · ${formatQty(material.required)} required`).join(' | ');
+                const indicator = Number(serviceId) === 63 ? '' : materials.map(material => `${material.name}: ${formatQty(material.available)} ${material.uom || 'units'} available · ${formatQty(material.required)} required`).join(' | ');
                 const issues = Array.isArray(validation.issues) ? validation.issues : [];
                 if (!validation.ok || issues.length) {
                     const issue = issues[0] || {};
