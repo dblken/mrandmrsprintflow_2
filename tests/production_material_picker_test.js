@@ -215,6 +215,13 @@ const tarpInventory = [item('3ft Tarpaulin'), item('4ft Tarpaulin'), item('5ft T
 assert.strictEqual(picker.tarpaulinRollWidthFor(byName(tarpInventory, '4ft Tarpaulin')), 4);
 assert.strictEqual(picker.tarpaulinRollWidthFor(item('TARPAULIN 5FT')), 5);
 assert.strictEqual(picker.tarpaulinRollWidthFor(item('MUG')), null);
+assert.strictEqual(picker.calculateTarpaulinLinearLength(3, 5, 1, 3).required_linear_ft, 5);
+assert.strictEqual(picker.calculateTarpaulinLinearLength(3, 5, 1, 5).required_linear_ft, 3);
+assert.strictEqual(picker.calculateTarpaulinLinearLength(3, 5, 2, 5).required_linear_ft, 6);
+assert.strictEqual(picker.calculateTarpaulinLinearLength(4, 6, 1, 4).required_linear_ft, 6);
+assert.strictEqual(picker.calculateTarpaulinLinearLength(4, 6, 1, 6).required_linear_ft, 4);
+assert.strictEqual(picker.calculateTarpaulinLinearLength(3, 5, 1, 2), null);
+assert.strictEqual(picker.calculateTarpaulinLinearLength(3, 5, 1.5, 5), null, 'Finished quantity must be a positive whole number.');
 
 // Customer 2ft x 4ft: the 4ft roll fits one finished dimension exactly and is the
 // smallest such roll, so it must be the unambiguous auto-select.

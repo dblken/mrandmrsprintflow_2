@@ -22,7 +22,11 @@ const container = {
 buttons.forEach(button => {
     button.addEventListener = (name, callback) => { button.listeners[name] = callback; };
 });
-const fieldsBody = { contains(node) { return node === input; } };
+const fieldsBody = {
+    listeners: {},
+    contains(node) { return node === input; },
+    addEventListener(name, callback) { this.listeners[name] = callback; }
+};
 const elements = {
     'sm-fields-body': fieldsBody,
     'pos-service-stock-feedback': { style: {} },
@@ -43,6 +47,7 @@ const context = vm.createContext({
     clearTimeout() {},
     posServiceStockRequestTimer: null,
     posServiceStockBlocking: false,
+    posServiceStockRequestVersion: 0,
     isAddingToOrder: false
 });
 
@@ -61,5 +66,18 @@ input.listeners.input();
 assert.equal(timers.length, 1, 'typing continues to debounce stock validation');
 timers.shift()();
 assert.deepEqual(validations.shift(), [42, '4'], 'typed quantity validates through the existing request path');
+
+context.posBindServiceStockValidation(40);
+assert.deepEqual(validations.shift(), [40, '4'], 'Tarpaulin validates when the modal opens.');
+const widthField = { matches(selector) { return selector.includes('data-dimension-role="width"'); } };
+const versionBeforeDimensions = context.posServiceStockRequestVersion;
+fieldsBody.listeners.input({ target: widthField });
+assert.ok(context.posServiceStockRequestVersion > versionBeforeDimensions, 'Dimension edits invalidate in-flight validation responses immediately.');
+assert.equal(context.posServiceStockBlocking, true, 'Dimension edits keep Add to Order blocked while revalidation is pending.');
+timers.shift()();
+assert.deepEqual(validations.shift(), [40, '4'], 'Tarpaulin dimension edits trigger server stock revalidation without changing quantity.');
+
+assert.match(source, /requestVersion !== posServiceStockRequestVersion/,
+    'Outdated asynchronous stock responses cannot override the newest validation state.');
 
 console.log('POS service stock input validation tests passed.');

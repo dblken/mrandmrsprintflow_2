@@ -3485,7 +3485,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 price_set: item.price_set === true,
                 pending_order_id: item.pending_order_id || 0,
                 pending_customization_id: item.pending_customization_id || 0,
-                pending_order_item_id: item.pending_order_item_id || 0
+                pending_order_item_id: item.pending_order_item_id || 0,
+                pos_cart_line_id: item.pos_cart_line_id || null
             };
         }
 
@@ -5246,6 +5247,19 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             setServiceAddButtonBusy(isAddingToOrder);
         }
 
+        function posCollectTarpaulinStockCustomization() {
+            const body = document.getElementById('sm-fields-body');
+            const customization = {};
+            if (!body) return customization;
+            body.querySelectorAll('[data-dimension-role="width"], [data-dimension-role="height"]').forEach((field) => {
+                const role = String(field.dataset.dimensionRole || '').trim().toLowerCase();
+                if (role === 'width' || role === 'height') customization[role] = field.value;
+            });
+            const quantity = posServiceQuantityInput();
+            if (quantity) customization.quantity = quantity.value;
+            return customization;
+        }
+
         async function posValidateServiceStockNow(serviceId, quantityRaw) {
             const input = posServiceQuantityInput();
             const qty = posReadPositiveWholeQuantity(quantityRaw);
@@ -5265,6 +5279,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         action: 'validate_service_stock',
                         service_id: Number(serviceId),
                         qty,
+                        ...(Number(serviceId) === 40 ? { customization: posCollectTarpaulinStockCustomization() } : {}),
                         csrf_token: POS_CSRF_TOKEN
                     })
                 }, 12000);
@@ -5282,7 +5297,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
                 const materials = Array.isArray(validation.materials) ? validation.materials : [];
                 const formatQty = value => String(Number(value || 0));
-                const indicator = Number(serviceId) === 63 ? '' : materials.map(material => `${material.name}: ${formatQty(material.available)} ${material.uom || 'units'} available · ${formatQty(material.required)} required`).join(' | ');
+                const indicator = [40, 63].includes(Number(serviceId)) ? '' : materials.map(material => `${material.name}: ${formatQty(material.available)} ${material.uom || 'units'} available · ${formatQty(material.required)} required`).join(' | ');
                 const issues = Array.isArray(validation.issues) ? validation.issues : [];
                 if (!validation.ok || issues.length) {
                     const issue = issues[0] || {};
@@ -5302,11 +5317,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         function posBindServiceStockValidation(serviceId) {
             const input = posServiceQuantityInput();
+            const body = document.getElementById('sm-fields-body');
             if (input) {
                 input.min = '1';
                 input.step = '1';
                 input.addEventListener('input', () => {
                     if (posServiceStockRequestTimer) clearTimeout(posServiceStockRequestTimer);
+                    if (Number(serviceId) === 40) ++posServiceStockRequestVersion;
                     posServiceStockBlocking = true;
                     setServiceAddButtonBusy(isAddingToOrder);
                     const feedback = document.getElementById('pos-service-stock-feedback');
@@ -5330,12 +5347,34 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         button.addEventListener('click', () => {
                             setTimeout(() => {
                                 if (document.getElementById('sm-fields-body')?.contains(input)) {
+                                    if (Number(serviceId) === 40) ++posServiceStockRequestVersion;
                                     posValidateServiceStockNow(serviceId, input.value);
                                 }
                             }, 0);
                         });
                     });
                 }
+            }
+            if (Number(serviceId) === 40 && body) {
+                const revalidateDimensions = (event) => {
+                    if (!event.target.matches('[data-dimension-role="width"], [data-dimension-role="height"]')) return;
+                    if (posServiceStockRequestTimer) clearTimeout(posServiceStockRequestTimer);
+                    ++posServiceStockRequestVersion;
+                    posServiceStockBlocking = true;
+                    setServiceAddButtonBusy(isAddingToOrder);
+                    const feedback = document.getElementById('pos-service-stock-feedback');
+                    const indicator = document.getElementById('pos-service-stock-indicator');
+                    const warning = document.getElementById('pos-service-stock-warning');
+                    if (feedback) feedback.style.display = 'block';
+                    if (indicator) indicator.textContent = 'Checking current material stock…';
+                    if (warning) warning.textContent = '';
+                    posServiceStockRequestTimer = setTimeout(() => {
+                        const currentQty = posServiceQuantityInput();
+                        posValidateServiceStockNow(serviceId, currentQty ? currentQty.value : '');
+                    }, 180);
+                };
+                body.addEventListener('input', revalidateDimensions);
+                body.addEventListener('change', revalidateDimensions);
             }
             const pricing = resolveServiceModalPricing();
             const quantity = input ? input.value : pricing.quantity;
@@ -8189,7 +8228,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     name: item.name,
                     qty: item.qty,
                     customization: item.customization || null,
-                    is_service: item.is_service || false
+                    is_service: item.is_service || false,
+                    pos_cart_line_id: item.pos_cart_line_id || null
                 }
             };
 
