@@ -7,6 +7,7 @@
 require_once __DIR__ . '/InventoryManager.php';
 require_once __DIR__ . '/JobOrderService.php';
 require_once __DIR__ . '/pos_quantity_validation.php';
+require_once __DIR__ . '/pos_mugs_release_rule.php';
 
 function printflow_pos_service_required_material_quantity($serviceQuantity, $multiplier): float
 {
@@ -47,6 +48,16 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization)
         }
         $service = $productRows[0] ?? [];
     }
+    // The owner confirmed this active service/material pair and 1:1 rule.
+    // Resolve the live catalog item, then use the existing generic stock path.
+    if ($serviceId === 63) {
+        return printflow_pos_mugs_release_material_rule(
+            $serviceId,
+            (string)($service['name'] ?? ''),
+            InventoryManager::getItem(37)
+        ) ?? [];
+    }
+
 
     $serviceType = JobOrderService::inferServiceTypeFromProduct(
         (string)($service['category'] ?? ''),
