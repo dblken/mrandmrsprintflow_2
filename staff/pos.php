@@ -5255,12 +5255,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (typeof pfPrepareServiceFormDimensions === 'function') {
                 pfPrepareServiceFormDimensions(body);
             }
-            const visibleCustom = body.querySelector('.pf-custom-size-panel:not([hidden]) .custom-dim-width, .dim-others-inputs[style*="display: block"] .custom-dim-width');
-            const visibleCustomHeight = body.querySelector('.pf-custom-size-panel:not([hidden]) .custom-dim-height, .dim-others-inputs[style*="display: block"] .custom-dim-height');
-            if (visibleCustom && visibleCustomHeight && String(visibleCustom.value || '').trim() && String(visibleCustomHeight.value || '').trim()) {
-                customization.width = String(visibleCustom.value).trim();
-                customization.height = String(visibleCustomHeight.value).trim();
-            }
+            const dimensionSelect = body.querySelector('select[name="dimensions"]');
+            const dimensionControl = dimensionSelect
+                || body.querySelector('input[name="dimensions"]:not([type="hidden"]), textarea[name="dimensions"]')
+                || body.querySelector('select[name*="dimension" i], input:not([type="hidden"])[name*="dimension" i], textarea[name*="dimension" i]');
+            const customSizeSelected = !!(dimensionSelect
+                && dimensionSelect.classList.contains('pf-select-with-others')
+                && String(dimensionSelect.value || '') === String(dimensionSelect.dataset.otherOption || 'Others'));
+            const activeCustomChoice = !!body.querySelector('.shopee-opt-btn.active[data-dimension-others]');
+            const customSizeActive = customSizeSelected || activeCustomChoice;
+            const customWidth = body.querySelector('.pf-custom-size-panel:not([hidden]) .custom-dim-width, .dim-others-inputs[style*="display: block"] .custom-dim-width');
+            const customHeight = body.querySelector('.pf-custom-size-panel:not([hidden]) .custom-dim-height, .dim-others-inputs[style*="display: block"] .custom-dim-height');
             body.querySelectorAll('[data-dimension-role="width"], [data-dimension-role="height"]').forEach((field) => {
                 const role = String(field.dataset.dimensionRole || '').trim().toLowerCase();
                 if ((role === 'width' || role === 'height') && !customization[role]) customization[role] = field.value;
@@ -5269,15 +5274,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const match = String(raw || '').trim().match(/^\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(?:ft|feet|foot)?\s*$/i);
                 return match ? { width: match[1], height: match[2] } : null;
             };
-            const dimensionControl = body.querySelector('input[name="dimensions"], input[name*="dimension" i], select[name="dimensions"], select[name*="dimension" i], textarea[name*="dimension" i]');
             if (dimensionControl) {
                 customization.dimensions = String(dimensionControl.value || '').trim();
-                const isCustomActive = !!(visibleCustom && visibleCustomHeight);
+            }
+            if (customSizeActive) {
+                // A custom-size panel exists in the DOM even while its parent is
+                // hidden; only use its inputs when the user actually selected it.
+                customization.width = String(customWidth ? customWidth.value : '').trim();
+                customization.height = String(customHeight ? customHeight.value : '').trim();
+            } else {
                 const activePreset = body.querySelector('.shopee-opt-btn.active[data-width][data-height]');
                 const pair = activePreset
                     ? { width: activePreset.dataset.width, height: activePreset.dataset.height }
-                    : parsePair(dimensionControl.value);
-                if (!isCustomActive && pair) {
+                    : parsePair(dimensionControl ? dimensionControl.value : '');
+                if (pair) {
                     customization.width = pair.width;
                     customization.height = pair.height;
                 }

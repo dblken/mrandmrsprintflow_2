@@ -16,7 +16,14 @@ const heightHidden = { dataset: { dimensionRole: 'height' }, value: '' };
 const widthField = { value: '', matches(selector) { return selector.includes('.custom-dim-width'); }, closest() { return null; } };
 const heightField = { value: '', matches(selector) { return selector.includes('.custom-dim-height'); }, closest() { return null; } };
 let customSizeVisible = false;
-const dimensionsControl = { name: 'dimensions', value: '' };
+// Production places the custom-size hidden fields before the actual preset
+// select, so a broad name*=dimension selector can resolve the wrong control.
+const dimensionsControl = {
+    tagName: 'SELECT', name: 'dimensions', value: '',
+    classList: { contains(name) { return name === 'pf-select-with-others'; } },
+    dataset: { otherOption: 'Others' }
+};
+const unitControl = { name: 'dimensions_unit', type: 'hidden', value: 'ft' };
 const directionControl = { value: 'automatic' };
 const allowanceModeControl = { value: 'included' };
 const allowanceControl = { value: '0' };
@@ -40,9 +47,12 @@ const fieldsBody = {
         return [widthHidden, heightHidden];
     },
     querySelector(selector) {
-        if (selector.includes('.custom-dim-width')) return customSizeVisible ? widthField : null;
-        if (selector.includes('.custom-dim-height')) return customSizeVisible ? heightField : null;
-        if (selector.includes('input[name="dimensions"]')) return dimensionsControl;
+        // The renderer's custom-size nodes remain in the DOM while their
+        // wrapper is hidden; the selected option determines whether they apply.
+        if (selector.includes('.custom-dim-width')) return widthField;
+        if (selector.includes('.custom-dim-height')) return heightField;
+        if (selector === 'select[name="dimensions"]') return dimensionsControl;
+        if (selector.includes('input[name*="dimension" i]')) return unitControl;
         if (selector.includes('[name="joining_direction"]')) return directionControl;
         if (selector.includes('[name="joining_allowance_mode"]')) return allowanceModeControl;
         if (selector.includes('[name="joining_allowance_ft"]')) return allowanceControl;
@@ -147,6 +157,30 @@ timers.shift()();
 dimensionRequest = validations.shift();
 assert.equal(dimensionRequest[2].width, '3', 'The selected preset width reaches the stock request.');
 assert.equal(dimensionRequest[2].height, '5', 'The selected preset height reaches the stock request.');
+
+for (const [label, width, height] of [
+    ['2x2 Ft', '2', '2'], ['2x3 Ft', '2', '3'], ['2x4 Ft', '2', '4'],
+    ['3x4 Ft', '3', '4'], ['3x5 Ft', '3', '5'], ['3x6 Ft', '3', '6'],
+    ['3x7 Ft', '3', '7'], ['3x8 Ft', '3', '8']
+]) {
+    dimensionsControl.value = label;
+    customSizeVisible = false;
+    fieldsBody.listeners.change({ target: presetSelect, type: 'change' });
+    timers.shift()();
+    dimensionRequest = validations.shift();
+    assert.equal(dimensionRequest[2].width, width, `${label} width reaches validation despite blank hidden fields.`);
+    assert.equal(dimensionRequest[2].height, height, `${label} height reaches validation despite blank hidden fields.`);
+}
+
+dimensionsControl.value = 'Others';
+customSizeVisible = true;
+widthField.value = '4';
+heightField.value = '6';
+fieldsBody.listeners.change({ target: presetSelect, type: 'change' });
+timers.shift()();
+dimensionRequest = validations.shift();
+assert.equal(dimensionRequest[2].width, '4', 'Selected custom-size inputs continue to provide width.');
+assert.equal(dimensionRequest[2].height, '6', 'Selected custom-size inputs continue to provide height.');
 
 dimensionsControl.value = '0x2 Ft';
 customSizeVisible = false;
