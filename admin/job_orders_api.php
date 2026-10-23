@@ -3092,10 +3092,12 @@ try {
             $notes = sanitize($_POST['notes'] ?? '');
             $metadata = isset($_POST['metadata']) ? json_decode($_POST['metadata'], true) : null;
             if (!is_array($metadata)) $metadata = [];
+            require_once __DIR__ . '/../includes/tarpaulin_material_calculation.php';
             
             if (!$orderId || !$itemId) throw new Exception("Incomplete material data.");
-            $isVersionedTarpaulin = is_array($metadata)
-                && ($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_CALCULATION_VERSION;
+            $isVersionedTarpaulin = is_array($metadata) && function_exists('printflow_tarpaulin_is_versioned_metadata')
+                ? printflow_tarpaulin_is_versioned_metadata($metadata)
+                : (is_array($metadata) && ($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_CALCULATION_VERSION);
             if ((!$isVersionedTarpaulin && $qty < 1) || ($isVersionedTarpaulin && (!is_finite($qty) || $qty <= 0))) {
                 throw new Exception("Material quantity must be positive.");
             }
@@ -3142,11 +3144,10 @@ try {
             $isPosAssignment = $posJob !== null
                 && (in_array($posSource, ['pos', 'pos_draft', 'pos_merged', 'walk-in'], true) || $sessionMarksPos);
             if ($isVersionedTarpaulin) {
-                require_once __DIR__ . '/../includes/tarpaulin_material_calculation.php';
                 $rollItem = InventoryManager::getItem($itemId);
                 $rollWidth = is_array($rollItem) ? printflow_tarpaulin_parse_nominal_width($rollItem) : 0.0;
                 $jobId = (int)($posJob['job_id'] ?? ($orderType === 'JOB' ? $orderId : 0));
-                if ($jobId <= 0) throw new Exception('The linear_ft_v1 calculation requires a linked Tarpaulin service job.');
+                if ($jobId <= 0) throw new Exception('The versioned Tarpaulin calculation requires a linked Tarpaulin service job.');
                 printflow_tarpaulin_assert_versioned_job($metadata, $jobId);
                 $jobDimensions = $jobId > 0
                     ? (db_query('SELECT id, order_id, order_item_id, width_ft, height_ft, quantity FROM job_orders WHERE id = ? LIMIT 1', 'i', [$jobId])[0] ?? null)
@@ -3154,23 +3155,37 @@ try {
                 if ($rollWidth <= 0 || !$jobDimensions || strtoupper((string)($rollItem['status'] ?? '')) !== 'ACTIVE' || empty($rollItem['track_by_roll'])) {
                     throw new Exception('A valid active Tarpaulin roll and linked job dimensions are required.');
                 }
-                $calculation = printflow_tarpaulin_calculate_linear_length(
-                    $jobDimensions['width_ft'] ?? null,
-                    $jobDimensions['height_ft'] ?? null,
-                    $jobDimensions['quantity'] ?? null,
-                    $rollWidth
-                );
-                $qty = (float)$calculation['required_linear_ft'];
-                $metadata = array_merge($metadata, [
-                    'tarpaulin_calculation_version' => PRINTFLOW_TARPAULIN_CALCULATION_VERSION,
-                    'width_ft' => $calculation['width_ft'],
-                    'height_ft' => $calculation['height_ft'],
-                    'finished_quantity' => $calculation['finished_quantity'],
-                    'roll_width_ft' => $calculation['roll_width_ft'],
-                    'orientation' => $calculation['orientation'],
-                    'run_length_per_piece_ft' => $calculation['run_length_per_piece_ft'],
-                    'computed_required_length_ft' => $calculation['required_linear_ft'],
-                ]);
+                if (($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION) {
+                    $panelSelection = printflow_tarpaulin_saved_panel_selection_for_job($jobId, $jobDimensions);
+                    $submittedPanelPlan = $metadata['tarpaulin_panel_plan'] ?? null;
+                    if (!$panelSelection || (int)($panelSelection['item_id'] ?? 0) !== $itemId
+                        || (int)($panelSelection['branch_id'] ?? 0) !== (int)JobOrderService::getJobBranchIdPublic($jobId)
+                        || abs((float)($panelSelection['required_linear_ft'] ?? 0) - $qty) > 0.001
+                        || !is_array($submittedPanelPlan)
+                        || !printflow_tarpaulin_panel_plans_match($submittedPanelPlan, $panelSelection)) {
+                        throw new Exception('Set Price must preserve the current server-validated Tarpaulin panel plan and exact roll quantity.');
+                    }
+                    $qty = (float)$panelSelection['required_linear_ft'];
+                    $metadata = array_merge($metadata, [
+                        'width_ft' => (float)$panelSelection['width_ft'], 'height_ft' => (float)$panelSelection['height_ft'],
+                        'finished_quantity' => (int)$panelSelection['finished_quantity'], 'roll_width_ft' => $rollWidth,
+                        'orientation' => (string)$panelSelection['orientation'], 'run_length_per_piece_ft' => (float)$panelSelection['run_length_per_panel_ft'],
+                        'computed_required_length_ft' => $qty, 'tarpaulin_panel_plan' => $panelSelection,
+                    ]);
+                } else {
+                    $calculation = printflow_tarpaulin_calculate_linear_length(
+                        $jobDimensions['width_ft'] ?? null, $jobDimensions['height_ft'] ?? null,
+                        $jobDimensions['quantity'] ?? null, $rollWidth
+                    );
+                    $qty = (float)$calculation['required_linear_ft'];
+                    $metadata = array_merge($metadata, [
+                        'tarpaulin_calculation_version' => PRINTFLOW_TARPAULIN_CALCULATION_VERSION,
+                        'width_ft' => $calculation['width_ft'], 'height_ft' => $calculation['height_ft'],
+                        'finished_quantity' => $calculation['finished_quantity'], 'roll_width_ft' => $calculation['roll_width_ft'],
+                        'orientation' => $calculation['orientation'], 'run_length_per_piece_ft' => $calculation['run_length_per_piece_ft'],
+                        'computed_required_length_ft' => $calculation['required_linear_ft'],
+                    ]);
+                }
             }
             if ($isPosAssignment) {
                 require_once __DIR__ . '/../includes/pos_service_stock_validation.php';

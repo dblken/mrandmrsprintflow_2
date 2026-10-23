@@ -15,7 +15,11 @@ const widthHidden = { dataset: { dimensionRole: 'width' }, value: '' };
 const heightHidden = { dataset: { dimensionRole: 'height' }, value: '' };
 const widthField = { value: '', matches(selector) { return selector.includes('.custom-dim-width'); }, closest() { return null; } };
 const heightField = { value: '', matches(selector) { return selector.includes('.custom-dim-height'); }, closest() { return null; } };
-let presetDimensions = null;
+let customSizeVisible = false;
+const dimensionsControl = { name: 'dimensions', value: '' };
+const directionControl = { value: 'automatic' };
+const allowanceModeControl = { value: 'included' };
+const allowanceControl = { value: '0' };
 const input = {
     value: '1',
     addEventListener(name, callback) { (this.listeners ||= {})[name] = callback; },
@@ -34,6 +38,15 @@ const fieldsBody = {
     querySelectorAll(selector) {
         assert.match(selector, /data-dimension-role/);
         return [widthHidden, heightHidden];
+    },
+    querySelector(selector) {
+        if (selector.includes('.custom-dim-width')) return customSizeVisible ? widthField : null;
+        if (selector.includes('.custom-dim-height')) return customSizeVisible ? heightField : null;
+        if (selector.includes('input[name="dimensions"]')) return dimensionsControl;
+        if (selector.includes('[name="joining_direction"]')) return directionControl;
+        if (selector.includes('[name="joining_allowance_mode"]')) return allowanceModeControl;
+        if (selector.includes('[name="joining_allowance_ft"]')) return allowanceControl;
+        return null;
     }
 };
 const elements = {
@@ -56,8 +69,8 @@ context = vm.createContext({
         ]);
     },
     pfPrepareServiceFormDimensions() {
-        widthHidden.value = presetDimensions ? String(presetDimensions.width) : widthField.value;
-        heightHidden.value = presetDimensions ? String(presetDimensions.height) : heightField.value;
+        widthHidden.value = customSizeVisible ? widthField.value : '';
+        heightHidden.value = customSizeVisible ? heightField.value : '';
     },
     posReadPositiveWholeQuantity(value) { return /^[1-9]\d*$/.test(String(value)) ? Number(value) : null; },
     resolveServiceModalPricing() { return { quantity: 1 }; },
@@ -94,10 +107,11 @@ assert.deepEqual(validations.shift().slice(0, 2), [42, '4'], 'typed quantity val
 context.posBindServiceStockValidation(40);
 const initialTarpaulinRequest = validations.shift();
 assert.equal(initialTarpaulinRequest[0], 40, 'Tarpaulin validates when the modal opens.');
-assert.equal(initialTarpaulinRequest[2].width, '', 'The initial request has no width until a size is selected.');
-assert.equal(initialTarpaulinRequest[2].height, '', 'The initial request has no height until a size is selected.');
+assert.equal(initialTarpaulinRequest[2].width, '', 'The initial request preserves a blank width until a size is selected.');
+assert.equal(initialTarpaulinRequest[2].height, '', 'The initial request preserves a blank height until a size is selected.');
 assert.equal(initialTarpaulinRequest[2].quantity, '4', 'The initial dimensions request preserves service quantity.');
 const versionBeforeDimensions = context.posServiceStockRequestVersion;
+customSizeVisible = true;
 widthField.value = '2';
 heightField.value = '2';
 fieldsBody.listeners.input({ target: widthField });
@@ -109,11 +123,12 @@ assert.deepEqual(dimensionRequest.slice(0, 2), [40, '4'], 'Tarpaulin dimension e
 assert.equal(dimensionRequest[2].width, '2', 'The 2 ft visible custom width reaches the stock request.');
 assert.equal(dimensionRequest[2].height, '2', 'The 2 ft visible custom height reaches the stock request.');
 
+customSizeVisible = false;
+dimensionsControl.value = '3x5 Ft';
 const presetButton = {
     matches() { return false; },
     closest(selector) { return selector.includes('[data-dimension-choice]') ? this : null; }
 };
-presetDimensions = { width: 3, height: 5 };
 fieldsBody.listeners.click({ target: presetButton });
 assert.equal(timers.length, 1, 'Preset dimension selection schedules stock revalidation.');
 timers.shift()();
@@ -125,7 +140,7 @@ const presetSelect = {
     matches(selector) { return selector.includes('select.pf-select-with-others'); },
     closest() { return null; }
 };
-presetDimensions = { width: 3, height: 5 };
+dimensionsControl.value = '3x5 Ft';
 fieldsBody.listeners.change({ target: presetSelect, type: 'change' });
 assert.equal(timers.length, 1, 'Tarpaulin preset-size select changes schedule stock revalidation.');
 timers.shift()();
@@ -133,7 +148,8 @@ dimensionRequest = validations.shift();
 assert.equal(dimensionRequest[2].width, '3', 'The selected preset width reaches the stock request.');
 assert.equal(dimensionRequest[2].height, '5', 'The selected preset height reaches the stock request.');
 
-presetDimensions = null;
+dimensionsControl.value = '0x2 Ft';
+customSizeVisible = false;
 widthField.value = '0';
 heightField.value = '2';
 fieldsBody.listeners.input({ target: widthField });

@@ -228,6 +228,7 @@ function pos_cart_service_stock_message(array $validation): string
 {
     $issue = $validation['issues'][0] ?? null;
     if (!is_array($issue)) return 'Service material stock is unavailable for validation.';
+    if (trim((string)($issue['message'] ?? '')) !== '') return (string)$issue['message'];
     $format = static fn($value): string => rtrim(rtrim(number_format((float)$value, 3, '.', ''), '0'), '.');
     $uom = trim((string)($issue['uom'] ?? ''));
     return 'Insufficient ' . (string)($issue['name'] ?? 'material') . ' stock. Available: '
@@ -642,6 +643,9 @@ try {
                     }
                     
                     $item['qty'] += $qty;
+                    if ($is_service && $product_id === 40 && is_array($item['customization'] ?? null)) {
+                        unset($item['customization']['pos_tarpaulin_selection']);
+                    }
                     // Preserve service flag when legacy cart rows are missing it.
                     $item['is_service'] = $existingIsService;
                     if ($existingIsService) {
@@ -747,6 +751,9 @@ try {
                     $item['customization'] = (array)($updateOptionStock['customization'] ?? $itemCustomization);
                 } else {
                     $item['stock'] = null;
+                    if ((int)($item['product_id'] ?? 0) === 40 && is_array($item['customization'] ?? null)) {
+                        unset($item['customization']['pos_tarpaulin_selection']);
+                    }
                 }
                 $item['qty'] = $qty;
             }
@@ -773,6 +780,10 @@ try {
                     unset($incomingCustomization['pos_tarpaulin_selection'], $incomingCustomization['pos_cart_line_id']);
                 }
                 $_SESSION['pos_cart'][$index]['customization'] = array_merge($existing, $incomingCustomization);
+                if ((int)($_SESSION['pos_cart'][$index]['product_id'] ?? 0) === 40
+                    && is_array($_SESSION['pos_cart'][$index]['customization'] ?? null)) {
+                    unset($_SESSION['pos_cart'][$index]['customization']['pos_tarpaulin_selection']);
+                }
             }
             if ((int)($_SESSION['pos_cart'][$index]['product_id'] ?? 0) === 40
                 && pos_cart_item_is_service((array)$_SESSION['pos_cart'][$index])) {

@@ -4708,6 +4708,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
                 overlay.dataset.csrfToken = data.csrf_token;
                 body.innerHTML = data.fields_html;
+                if (Number(serviceId) === 40) posEnsureTarpaulinJoiningControls(body);
                 footerActions.style.display = 'block';
                 isAddingToOrder = false;
                 setServiceAddButtonBusy(false);
@@ -5254,16 +5255,63 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (typeof pfPrepareServiceFormDimensions === 'function') {
                 pfPrepareServiceFormDimensions(body);
             }
+            const visibleCustom = body.querySelector('.pf-custom-size-panel:not([hidden]) .custom-dim-width, .dim-others-inputs[style*="display: block"] .custom-dim-width');
+            const visibleCustomHeight = body.querySelector('.pf-custom-size-panel:not([hidden]) .custom-dim-height, .dim-others-inputs[style*="display: block"] .custom-dim-height');
+            if (visibleCustom && visibleCustomHeight && String(visibleCustom.value || '').trim() && String(visibleCustomHeight.value || '').trim()) {
+                customization.width = String(visibleCustom.value).trim();
+                customization.height = String(visibleCustomHeight.value).trim();
+            }
             body.querySelectorAll('[data-dimension-role="width"], [data-dimension-role="height"]').forEach((field) => {
                 const role = String(field.dataset.dimensionRole || '').trim().toLowerCase();
-                if (role === 'width' || role === 'height') customization[role] = field.value;
+                if ((role === 'width' || role === 'height') && !customization[role]) customization[role] = field.value;
             });
+            const parsePair = (raw) => {
+                const match = String(raw || '').trim().match(/^\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(?:ft|feet|foot)?\s*$/i);
+                return match ? { width: match[1], height: match[2] } : null;
+            };
+            const dimensionControl = body.querySelector('input[name="dimensions"], input[name*="dimension" i], select[name="dimensions"], select[name*="dimension" i], textarea[name*="dimension" i]');
+            if (dimensionControl) {
+                customization.dimensions = String(dimensionControl.value || '').trim();
+                const isCustomActive = !!(visibleCustom && visibleCustomHeight);
+                const activePreset = body.querySelector('.shopee-opt-btn.active[data-width][data-height]');
+                const pair = activePreset
+                    ? { width: activePreset.dataset.width, height: activePreset.dataset.height }
+                    : parsePair(dimensionControl.value);
+                if (!isCustomActive && pair) {
+                    customization.width = pair.width;
+                    customization.height = pair.height;
+                }
+            }
+            const joiningDirection = body.querySelector('[name="joining_direction"]');
+            const allowanceMode = body.querySelector('[name="joining_allowance_mode"]');
+            const allowance = body.querySelector('[name="joining_allowance_ft"]');
+            customization.joining_direction = joiningDirection ? joiningDirection.value : 'automatic';
+            customization.joining_allowance_mode = allowanceMode ? allowanceMode.value : 'included';
+            customization.joining_allowance_ft = allowance ? allowance.value : '0';
             const quantity = posServiceQuantityInput();
             if (quantity) customization.quantity = quantity.value;
             return customization;
         }
 
+        function posEnsureTarpaulinJoiningControls(body) {
+            if (!body || body.querySelector('.pos-tarpaulin-joining-controls')) return;
+            const wrap = document.createElement('div');
+            wrap.className = 'pos-tarpaulin-joining-controls';
+            wrap.style.cssText = 'display:grid;gap:10px;margin:12px 0;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc';
+            wrap.innerHTML = '<label style="display:grid;gap:5px;font-size:12px;font-weight:700;color:#334155">Joining Direction <select name="joining_direction" class="input-field"><option value="automatic">Automatic</option><option value="vertical">Vertical seams</option><option value="horizontal">Horizontal seams</option></select></label>'
+                + '<label style="display:grid;gap:5px;font-size:12px;font-weight:700;color:#334155">Joining Allowance <select name="joining_allowance_mode" class="input-field"><option value="included">Included in requested size</option><option value="additional">Additional allowance</option></select></label>'
+                + '<label data-tarp-allowance-wrap style="display:none;gap:5px;font-size:12px;font-weight:700;color:#334155">Additional Allowance (ft) <input name="joining_allowance_ft" type="number" min="0" step="any" value="0" class="input-field"><small style="font-weight:400">Total per finished Tarpaulin, not per seam.</small></label>';
+            const firstQuantity = body.querySelector('.quantity-container, input[name="quantity"]')?.closest('.shopee-form-row');
+            body.insertBefore(wrap, firstQuantity || null);
+            const mode = wrap.querySelector('[name="joining_allowance_mode"]');
+            const allowanceWrap = wrap.querySelector('[data-tarp-allowance-wrap]');
+            const syncAllowance = () => { allowanceWrap.style.display = mode.value === 'additional' ? 'grid' : 'none'; };
+            mode.addEventListener('change', syncAllowance);
+            syncAllowance();
+        }
+
         async function posValidateServiceStockNow(serviceId, quantityRaw) {
+            const requestVersion = ++posServiceStockRequestVersion;
             const input = posServiceQuantityInput();
             const qty = posReadPositiveWholeQuantity(quantityRaw);
             if (input) input.setCustomValidity(qty === null ? 'Enter a positive whole number.' : '');
@@ -5271,8 +5319,24 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 posSetServiceStockState(true, '', 'Enter a positive whole number.');
                 return { valid: false, message: 'Enter a positive whole number.' };
             }
+            if (Number(serviceId) === 40) {
+                const dims = posCollectTarpaulinStockCustomization();
+                const width = Number(dims.width);
+                const height = Number(dims.height);
+                const allowance = Number(dims.joining_allowance_ft);
+                const validDim = (value) => Number.isFinite(value) && value > 0 && value <= 100;
+                if (!validDim(width) || !validDim(height)) {
+                    const message = !validDim(width) ? 'Width must be greater than 0 and at most 100 feet.' : 'Height must be greater than 0 and at most 100 feet.';
+                    posSetServiceStockState(true, '', message);
+                    return { valid: false, message };
+                }
+                if (dims.joining_allowance_mode === 'additional' && (!Number.isFinite(allowance) || allowance < 0)) {
+                    const message = 'Additional allowance must be a finite nonnegative number of feet.';
+                    posSetServiceStockState(true, '', message);
+                    return { valid: false, message };
+                }
+            }
 
-            const requestVersion = ++posServiceStockRequestVersion;
             posSetServiceStockState(true, 'Checking current material stock…', '');
             try {
                 const response = await fetchWithTimeout(staffUrl('staff/api/pos_cart_handler.php'), {
@@ -5362,9 +5426,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const revalidateDimensions = (event) => {
                     const target = event.target;
                     const dimensionField = target && typeof target.matches === 'function'
-                        && target.matches('[data-dimension-role="width"], [data-dimension-role="height"], .custom-dim-width, .custom-dim-height');
+                        && target.matches('[data-dimension-role="width"], [data-dimension-role="height"], .custom-dim-width, .custom-dim-height, input[name="dimensions"], input[name*="dimension" i], textarea[name*="dimension" i], [name="joining_allowance_ft"]');
                     const dimensionSelect = event.type === 'change' && target && typeof target.matches === 'function'
-                        && target.matches('select.pf-select-with-others, select.pf-select-custom-size');
+                        && target.matches('select.pf-select-with-others, select.pf-select-custom-size, select[name="dimensions"], select[name*="dimension" i], [name="joining_direction"], [name="joining_allowance_mode"]');
                     const dimensionChoice = dimensionSelect || (target && typeof target.closest === 'function'
                         && target.closest('.shopee-opt-btn[data-dimension-choice], .shopee-opt-btn[data-dimension-others]'));
                     if (!dimensionField && !dimensionChoice) return;
@@ -5829,6 +5893,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             customization.branch_id = branchVal;
             customization.service_id = serviceId;
             customization.service_type = serviceName;
+            if (Number(serviceId) === 40) Object.assign(customization, posCollectTarpaulinStockCustomization());
 
             body.querySelectorAll('.shopee-form-row').forEach(row => {
                 if (!isServiceFieldActive(row)) return;

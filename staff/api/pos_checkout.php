@@ -1684,6 +1684,11 @@ $pos_branch_id = $checkout_branch_id;
 $serviceStockValidation = printflow_pos_validate_service_stock($items, $checkout_branch_id);
 if (empty($serviceStockValidation['ok'])) {
     $issue = $serviceStockValidation['issues'][0] ?? [];
+    if (trim((string)($issue['message'] ?? '')) !== '') {
+        http_response_code(409);
+        echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => (string)$issue['message']]);
+        exit;
+    }
     $uom = trim((string)($issue['uom'] ?? ''));
     $format = static fn($value): string => rtrim(rtrim(number_format((float)$value, 3, '.', ''), '0'), '.');
     $message = 'Insufficient ' . (string)($issue['name'] ?? 'service material') . ' stock. Available: '

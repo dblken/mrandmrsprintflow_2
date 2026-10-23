@@ -36,7 +36,7 @@ $assert($headRules !== '' && str_contains($headRules, 'function printflow_pos_se
 $assert(str_contains($rulesSource, 'if ($serviceId === 63)') && str_contains($rulesSource, 'printflow_pos_mugs_release_material_rule('), 'Only service ID 63 uses the confirmed Mugs rule.');
 $assert(str_contains($headRules, 'r.qty_multiplier') && str_contains($headRules, 'function printflow_pos_service_stock_rules(int $serviceId, array $customization)'), 'The six non-Mugs services retain the clean-main shared rules path.');
 $assert(!str_contains($rulesSource, '$earlyMappedServiceIds') && !str_contains($rulesSource, '$requiresEarlyMapping'), 'No broad fail-closed service mapping requirement was added.');
-$assert(str_contains($rulesSource, 'if ($serviceId === 40 && !$hasAssignedMaterials)') && str_contains($rulesSource, 'if ($serviceId !== 40) $assigned = printflow_pos_service_line_job_materials($line);'), 'Assigned-material requirements remain scoped to Tarpaulin; the other services keep the baseline assignment path.');
+$assert(str_contains($rulesSource, 'if ($serviceId === 40) {') && str_contains($rulesSource, 'if ($serviceId !== 40) $assigned = printflow_pos_service_line_job_materials($line);'), 'The new physical-panel path remains scoped to Tarpaulin; other services retain the baseline assignment path.');
 $assert(str_contains($rulesSource, 'InventoryManager::getStockOnHand((int)$itemId, $branchId)'), 'The existing selected-branch stock source remains authoritative.');
 $assert(str_contains($rulesSource, '$demand[$itemId][\'quantity\'] += $lineQty;'), 'The current generic validator retains baseline combined-demand aggregation.');
 $assert(str_contains($rulesSource, 'printflow_pos_validate_service_stock('), 'The backend validation entry point remains present.');
