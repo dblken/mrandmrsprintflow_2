@@ -26,7 +26,7 @@ require_once __DIR__ . '/../../includes/pos_branch_scope.php';
 
 function pos_checkout_parse_positive_quantity($value): int {
     try {
-        return printflow_pos_parse_positive_quantity($value);
+        return printflow_pos_parse_cart_quantity($value);
     } catch (InvalidArgumentException $error) {
         throw new RuntimeException($error->getMessage());
     }

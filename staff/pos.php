@@ -1280,7 +1280,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-qty-val {
-            width: 48px;
+            box-sizing: border-box;
+            width: 3ch;
+            min-width: 3ch;
+            max-width: 3ch;
+            flex: 0 0 3ch;
             text-align: center;
             font-size: 14px;
             font-weight: 600;
@@ -1289,7 +1293,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             background: transparent;
             color: #0f172a;
             outline: none;
-            padding: 3px 2px;
+            padding: 3px 0;
+            overflow: hidden;
+            text-overflow: clip;
+            white-space: nowrap;
         }
 
         .pos-qty-val:focus {
@@ -7125,34 +7132,84 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function addQuickService(serviceName) { }
 
         function posReadPositiveWholeQuantity(value) {
-            const raw = String(value ?? '').trim();
-            if (!/^[1-9]\d*$/.test(raw)) return null;
-            const parsed = Number(raw);
-            return Number.isSafeInteger(parsed) && parsed <= 2147483647 ? parsed : null;
+            const raw = String(value ?? '');
+            if (!/^[0-9]{1,64}$/.test(raw)) return null;
+            const canonical = raw.replace(/^0+/, '');
+            if (canonical === '' || canonical.length > 7) return null;
+            const parsed = Number(canonical);
+            return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 1000000 ? parsed : null;
+        }
+
+        function posShowCartQuantityMessage(index, input, message) {
+            const warning = document.getElementById(`pos-qty-warning-${index}`);
+            if (warning) warning.textContent = message;
+            if (input) input.setCustomValidity(message);
+            updateCheckoutState();
+        }
+
+        function posBindCartQuantityInput(index, input) {
+            const rejectNonDigits = event => {
+                if (event.data != null && !/^[0-9]*$/.test(event.data)) {
+                    event.preventDefault();
+                    posShowCartQuantityMessage(index, input, 'Use digits 0–9 only.');
+                }
+            };
+            input.addEventListener('keydown', event => {
+                if (event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1) return;
+                if (!/^[0-9]$/.test(event.key)) {
+                    event.preventDefault();
+                    posShowCartQuantityMessage(index, input, 'Use digits 0–9 only.');
+                }
+            });
+            input.addEventListener('beforeinput', rejectNonDigits);
+            input.addEventListener('paste', event => {
+                const pasted = event.clipboardData?.getData('text') ?? '';
+                if (!/^[0-9]*$/.test(pasted) || pasted.length > 64) {
+                    event.preventDefault();
+                    posShowCartQuantityMessage(index, input, 'Use digits 0–9 only.');
+                }
+            });
+            input.addEventListener('drop', event => {
+                const dropped = event.dataTransfer?.getData('text') ?? '';
+                if (!/^[0-9]*$/.test(dropped) || dropped.length > 64) {
+                    event.preventDefault();
+                    posShowCartQuantityMessage(index, input, 'Use digits 0–9 only.');
+                }
+            });
         }
 
         function validateCartQuantityInput(index, input) {
             const warning = document.getElementById(`pos-qty-warning-${index}`);
             const quantity = posReadPositiveWholeQuantity(input.value);
             const item = cart[index];
-            let message = quantity === null ? 'Enter a positive whole number.' : '';
+            let message = quantity === null ? 'Enter a whole number from 1 to 1,000,000 using digits 0–9 only.' : '';
             const available = Number(item?.stock);
             if (!message && item && !item.is_service && Number.isFinite(available) && quantity > available) {
                 message = `Only ${available} items are available.`;
             }
+            input.dataset.dirty = quantity !== null && Number(item?.qty) === quantity ? 'false' : 'true';
             if (warning) warning.textContent = message;
             input.setCustomValidity(message);
+            updateCheckoutState();
             return { quantity, message };
         }
 
         async function commitCartQuantityInput(index, input) {
             const result = validateCartQuantityInput(index, input);
+            if (result.quantity !== null) input.value = String(result.quantity);
             if (result.quantity === null || result.message) {
                 input.reportValidity();
                 return;
             }
-            if (result.quantity === Number(cart[index]?.qty)) return;
+            if (result.quantity === Number(cart[index]?.qty)) {
+                input.dataset.dirty = 'false';
+                updateCheckoutState();
+                return;
+            }
+            input.dataset.pending = 'true';
+            updateCheckoutState();
             const response = await syncedCartAction('update', { index, qty: result.quantity }, { silentErrors: true });
+            if (input.isConnected) input.dataset.pending = 'false';
             if (!response.success) {
                 if (input.isConnected) {
                     const warning = document.getElementById(`pos-qty-warning-${index}`);
@@ -7160,6 +7217,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     if (warning) warning.textContent = message;
                     input.setCustomValidity(message);
                 }
+                updateCheckoutState();
                 await showPOSAlert('Stock Validation', response.message || 'Unable to update quantity.', 'warning');
             }
         }
@@ -7167,9 +7225,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         async function updateQtyByCartIndex(index, delta) {
             const item = cart[index];
             if (!item) return;
-            let newQty = parseInt(item.qty) + delta;
-            if (newQty < 1) newQty = 1;
-            if (!Number.isSafeInteger(newQty) || newQty > 2147483647) return;
+            const input = document.querySelectorAll('.pos-cart-item')[index]?.querySelector('.pos-qty-val');
+            if (input?.dataset.pending === 'true') return;
+            const currentQty = posReadPositiveWholeQuantity(input ? input.value : item.qty);
+            if (currentQty === null) return;
+            const newQty = currentQty + delta;
+            if (newQty < 1 || newQty > 1000000) return;
             await syncedCartAction('update', { index, qty: newQty });
         }
 
@@ -7257,7 +7318,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     <div class="pos-item-action">${priceHtml}</div>
                     <div class="pos-item-controls">
                         <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, -1)" aria-label="Decrease quantity">&minus;</button>
-                        <input class="pos-qty-val" type="text" inputmode="numeric" autocomplete="off" value="${escapeHtml(String(item.qty))}" aria-label="Quantity" aria-describedby="pos-qty-warning-${index}" oninput="validateCartQuantityInput(${index}, this)" onblur="commitCartQuantityInput(${index}, this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
+                        <input class="pos-qty-val" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="64" autocomplete="off" value="${escapeHtml(String(item.qty))}" aria-label="Quantity" aria-describedby="pos-qty-warning-${index}" oninput="validateCartQuantityInput(${index}, this)" onblur="commitCartQuantityInput(${index}, this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
                         <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, 1)" aria-label="Increase quantity">&plus;</button>
                     </div>
                     <div class="pos-item-total">${totalDisplay}</div>
@@ -7265,6 +7326,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 <div class="pos-qty-warning" id="pos-qty-warning-${index}" role="status" aria-live="polite"></div>
             `;
                     cont.appendChild(div);
+                    posBindCartQuantityInput(index, div.querySelector('.pos-qty-val'));
                 });
             }
 
@@ -7583,6 +7645,27 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
+            const invalidCartQuantity = Array.from(document.querySelectorAll('.pos-cart-item')).some((row, index) => {
+                const input = row.querySelector('.pos-qty-val');
+                const quantity = posReadPositiveWholeQuantity(input ? input.value : '');
+                if (quantity === null || input?.dataset.pending === 'true') return true;
+                const item = cart[index];
+                const available = Number(item?.stock);
+                return !item
+                    || quantity !== Number(item.qty)
+                    || (!item.is_service && Number.isFinite(available) && quantity > available);
+            });
+            if (invalidCartQuantity) {
+                btn.disabled = true;
+                icon.className = 'fas fa-lock';
+                const hasMalformedQuantity = Array.from(document.querySelectorAll('.pos-cart-item')).some((row, index) => {
+                    const input = row.querySelector('.pos-qty-val');
+                    return !input || posReadPositiveWholeQuantity(input.value) === null;
+                });
+                text.textContent = hasMalformedQuantity ? 'Fix Quantity' : 'Update Quantity';
+                return;
+            }
+
             let canCheckout = true;
             let message = 'Complete Sale';
 
@@ -7641,6 +7724,25 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         async function processCheckout() {
             if (cart.length === 0 || posCheckoutRequestInFlight || posCheckoutConfirmOpen) return;
+
+            const invalidQuantityIndex = Array.from(document.querySelectorAll('.pos-cart-item')).findIndex((row, index) => {
+                const input = row.querySelector('.pos-qty-val');
+                const quantity = posReadPositiveWholeQuantity(input ? input.value : '');
+                const item = cart[index];
+                if (quantity === null || !item || input?.dataset.pending === 'true') return true;
+                if (quantity !== Number(item.qty)) return true;
+                const available = Number(item?.stock);
+                return !!item && !item.is_service && Number.isFinite(available) && quantity > available;
+            });
+            if (invalidQuantityIndex >= 0) {
+                const input = document.querySelectorAll('.pos-cart-item')[invalidQuantityIndex]?.querySelector('.pos-qty-val');
+                if (input) {
+                    validateCartQuantityInput(invalidQuantityIndex, input);
+                    input.reportValidity();
+                }
+                updateCheckoutState();
+                return;
+            }
 
             console.log('[POS CHECKOUT] started');
             console.log('[POS CHECKOUT] validating cart', { items: cart.length, total: currentTotal });
