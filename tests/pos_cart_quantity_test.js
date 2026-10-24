@@ -32,7 +32,10 @@ for (const raw of ['', '0', '000', '-1', '+1', '1.5', '1e3', '1E3', 'abc', '12ab
     assert.equal(readQuantity(raw), null, `Expected ${JSON.stringify(raw)} to be rejected`);
 }
 
-assert.match(pos, /\.pos-qty-val\s*\{[^}]*width:\s*3ch;[^}]*min-width:\s*3ch;[^}]*max-width:\s*3ch;[^}]*flex:\s*0 0 3ch;/s);
+assert.match(pos, /\.pos-qty-val\s*\{[^}]*width:\s*60px;[^}]*min-width:\s*60px;[^}]*max-width:\s*60px;[^}]*flex:\s*0 0 60px;/s);
+assert.match(pos, /\.pos-qty-val\s*\{[^}]*overflow-x:\s*auto;[^}]*overflow-y:\s*hidden;/s);
+assert.match(pos, /\.pos-qty-val\s*\{[^}]*color:\s*#0f172a;/s);
+assert.match(pos, /\.pos-item-controls\s*\{[^}]*width:\s*max-content;[^}]*max-width:\s*100%;[^}]*justify-self:\s*start;/s);
 assert.match(pos, /class="pos-qty-val" type="text" inputmode="numeric" pattern="\[0-9\]\*" maxlength="64"/);
 assert.match(pos, /text\.textContent = hasMalformedQuantity \? 'Fix Quantity' : 'Update Quantity';/);
 assert.match(pos, /const confirmedLineTotal = \(parseFloat\(item\.price\) \|\| 0\) \* \(item\.qty \|\| 1\);/);

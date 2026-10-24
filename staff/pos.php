@@ -1261,6 +1261,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             border-radius: 10px;
             overflow: hidden;
             flex-shrink: 0;
+            width: max-content;
+            max-width: 100%;
+            justify-self: start;
         }
 
         .pos-qty-btn {
@@ -1281,10 +1284,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         .pos-qty-val {
             box-sizing: border-box;
-            width: 3ch;
-            min-width: 3ch;
-            max-width: 3ch;
-            flex: 0 0 3ch;
+            width: 60px;
+            min-width: 60px;
+            max-width: 60px;
+            flex: 0 0 60px;
             text-align: center;
             font-size: 14px;
             font-weight: 600;
@@ -1293,10 +1296,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             background: transparent;
             color: #0f172a;
             outline: none;
-            padding: 3px 0;
-            overflow: hidden;
+            padding: 3px 4px;
+            overflow-x: auto;
+            overflow-y: hidden;
             text-overflow: clip;
             white-space: nowrap;
+            scrollbar-width: none;
         }
 
         .pos-qty-val:focus {
