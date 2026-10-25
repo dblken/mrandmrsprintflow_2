@@ -3379,6 +3379,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         const barcodeScanQueue = [];
         let posBarcodeDebugEnabled = false;
         let isAddingToOrder = false;
+        let isPreparingServiceOrder = false;
         let posServiceStockRequestVersion = 0;
         let posServiceStockRequestTimer = null;
         let posServiceStockBlocking = false;
@@ -5716,7 +5717,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (!isServiceFieldActive(row)) return;
                 const requiredInputs = Array.from(row.querySelectorAll('[required]')).filter(input => {
                     if (input.disabled) return false;
-                    const hiddenParent = input.closest('[style*="display:none"], [style*="display: none"]');
+                    // Service option radios are intentionally hidden inside their
+                    // visible option labels. Ignore fields hidden by an ancestor,
+                    // but do not discard an input merely because the input itself
+                    // is visually hidden.
+                    const hiddenParent = input.parentElement
+                        ? input.parentElement.closest('[style*="display:none"], [style*="display: none"]')
+                        : null;
                     return !hiddenParent;
                 });
                 if (requiredInputs.length === 0) return;
@@ -5863,7 +5870,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         async function confirmServiceModal() {
-            if (isAddingToOrder) return;
+            if (isAddingToOrder || isPreparingServiceOrder) return;
             const overlay = document.getElementById('service-modal-overlay');
             const serviceId = parseInt(overlay.dataset.serviceId);
             const serviceName = overlay.dataset.serviceName;
@@ -5875,6 +5882,26 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 focusFirstInvalidField(validationResult.errors);
                 return;
             }
+            const branchHidden = body.querySelector('input[type="hidden"][name="branch_id"]');
+            const branchSel = body.querySelector('select[name="branch_id"]');
+            const branchVal = (branchHidden && branchHidden.value) ? branchHidden.value : (branchSel ? branchSel.value : '');
+            if (!branchVal) {
+                const branchRow = Array.from(body.querySelectorAll('.shopee-form-row')).find(row => {
+                    return row.querySelector('[name="branch_id"]');
+                });
+                if (branchRow) {
+                    const branchError = { branch_id: { row: branchRow, message: 'Please select a branch.' } };
+                    showValidationErrors(branchError);
+                    focusFirstInvalidField(branchError);
+                } else {
+                    await showPOSAlert('Branch Required', 'Please select a branch.', 'warning');
+                }
+                return;
+            }
+            // Guard duplicate clicks while asynchronous stock/design validation
+            // runs, without changing the button to its loading state yet.
+            isPreparingServiceOrder = true;
+            try {
             const serviceQuantityInput = posServiceQuantityInput();
             const serviceStockCheck = await posValidateServiceStockNow(
                 serviceId,
@@ -5911,16 +5938,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             setServiceAddButtonBusy(true);
 
             const customization = {};
-            const branchHidden = body.querySelector('input[type="hidden"][name="branch_id"]');
-            const branchSel = body.querySelector('select[name="branch_id"]');
-            const branchVal = (branchHidden && branchHidden.value) ? branchHidden.value : (branchSel ? branchSel.value : '');
-            if (!branchVal) {
-                await showPOSAlert('Branch Required', 'Please select a branch.', 'warning');
-                if (branchSel) branchSel.focus();
-                isAddingToOrder = false;
-                setServiceAddButtonBusy(false);
-                return;
-            }
             customization.branch_id = branchVal;
             customization.service_id = serviceId;
             customization.service_type = serviceName;
@@ -6065,8 +6082,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 posStripInactiveDesignUploads(body, customization);
             } catch (uploadErr) {
                 await showPOSAlert('Upload Failed', uploadErr.message || 'Could not save the design file.', 'error');
-                isAddingToOrder = false;
-                setServiceAddButtonBusy(false);
                 return;
             }
 
@@ -6086,8 +6101,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (addBtn) addBtn.disabled = true;
                 const proceed = await confirmMissingEstimatedPrice();
                 if (!proceed) {
-                    isAddingToOrder = false;
-                    if (addBtn) addBtn.disabled = false;
                     return;
                 }
                 isAddingToOrder = true;
@@ -6131,6 +6144,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     errorDetail || result.message || 'Some required order details are missing.',
                     'warning'
                 );
+            }
+            } finally {
+                // Always restore the action state after an exception, failed
+                // request, or early return. The helper preserves stock blocking.
+                isPreparingServiceOrder = false;
                 isAddingToOrder = false;
                 setServiceAddButtonBusy(false);
             }
