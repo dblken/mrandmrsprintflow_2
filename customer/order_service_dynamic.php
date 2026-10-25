@@ -2075,7 +2075,8 @@ document.addEventListener('keydown', function(e) {
 });
 </script>
 
-<script src="<?php echo htmlspecialchars($base_path . '/public/assets/js/service_estimated_price.js'); ?>"></script>
+<?php $customer_estimated_price_ver = @filemtime(__DIR__ . '/../public/assets/js/service_estimated_price.js') ?: '1'; ?>
+<script src="<?php echo htmlspecialchars($base_path . '/public/assets/js/service_estimated_price.js'); ?>?v=<?php echo (int) $customer_estimated_price_ver; ?>"></script>
 <script>
 // Final Validation Script Update - v4.0.0
 document.addEventListener('DOMContentLoaded', function() {

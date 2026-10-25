@@ -32,6 +32,10 @@ $assert(str_contains($sharedJs, 'nested-fields-container'), 'Shared JS handles n
 $assert(str_contains($sharedJs, 'pf-service-quantity-input'), 'Shared JS multiplies by quantity input');
 $assert(str_contains($sharedJs, 'calculateDesignFee'), 'Shared JS calculates one-time layout fee separately');
 $assert(str_contains($sharedJs, 'estimatedTotal = Math.round((unitPrice * safeQty + designFee) * 100) / 100'), 'Shared estimate adds fee once after per-unit quantity calculation');
+$assert(str_contains($sharedJs, "key.includes('layout')"), 'Shared estimator excludes layout fields from per-unit option totals even if a renderer marker is missing');
+$assert(!str_contains($sharedJs, 'return 200;'), 'Shared estimator does not invent a hard-coded layout fee');
+$assert(str_contains($posSource, '$pos_estimated_price_ver') && str_contains($posSource, '?v='), 'POS cache-busts the shared estimator when its deployed file changes');
+$assert(str_contains($customerSource, '$customer_estimated_price_ver') && str_contains($customerSource, '?v='), 'Customer ordering cache-busts the shared estimator when its deployed file changes');
 
 $rendererSource = (string)file_get_contents(__DIR__ . '/../includes/service_field_renderer.php');
 $assert(str_contains($rendererSource, 'data-price'), 'Field renderer emits data-price on options');

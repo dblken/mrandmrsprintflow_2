@@ -18,6 +18,23 @@
         });
     }
 
+    function isDesignFeeField(field) {
+        if (!field) return false;
+        if (field.hasAttribute && field.hasAttribute('data-design-fee-field')) return true;
+
+        // The Admin field key/label is authoritative. Keep layout options out
+        // of per-unit option totals even if an older/custom renderer omitted
+        // the presentation marker.
+        const key = String(
+            (field.getAttribute && (field.getAttribute('data-field-key') || field.getAttribute('name'))) || ''
+        ).toLowerCase();
+        if (key.includes('layout')) return true;
+
+        const row = field.closest && field.closest('.shopee-form-row');
+        const label = row && row.querySelector && row.querySelector('.pf-field-label-text, .shopee-form-label');
+        return !!(label && String(label.textContent || label.innerText || '').toLowerCase().includes('layout'));
+    }
+
     function calculateOptionsTotal(scope) {
         let optionsTotal = 0;
         if (!scope) {
@@ -25,12 +42,12 @@
         }
 
         scope.querySelectorAll('input[type="radio"].pricing-field:checked').forEach(function (radio) {
-            if (radio.hasAttribute('data-design-fee-field')) return;
+            if (isDesignFeeField(radio)) return;
             optionsTotal += parsePrice(radio.getAttribute('data-price') || 0);
         });
 
         scope.querySelectorAll('select.pricing-field').forEach(function (select) {
-            if (select.hasAttribute('data-design-fee-field')) return;
+            if (isDesignFeeField(select)) return;
             const selectedOption = select.options[select.selectedIndex];
             if (selectedOption && selectedOption.value) {
                 optionsTotal += parsePrice(selectedOption.getAttribute('data-price') || 0);
@@ -52,12 +69,14 @@
             }
 
             container.querySelectorAll('select').forEach(function (sel) {
+                if (isDesignFeeField(sel)) return;
                 const opt = sel.options[sel.selectedIndex];
                 if (opt && opt.value) {
                     optionsTotal += parsePrice(opt.getAttribute('data-price') || 0);
                 }
             });
             container.querySelectorAll('input[type="radio"]:checked').forEach(function (radio) {
+                if (isDesignFeeField(radio)) return;
                 optionsTotal += parsePrice(radio.getAttribute('data-price') || 0);
             });
             container.querySelectorAll('.shopee-opt-group').forEach(function (grp) {
@@ -73,8 +92,9 @@
 
     function calculateDesignFee(scope) {
         if (!scope) return 0;
-        const fields = scope.querySelectorAll('[data-design-fee-field]');
+        const fields = scope.querySelectorAll('select, input[type="radio"]');
         for (const field of fields) {
+            if (!isDesignFeeField(field)) continue;
             let selectedValue = '';
             let selectedOption = null;
             if (field.matches('select')) {
@@ -88,10 +108,12 @@
             const normalized = selectedValue.toLowerCase().replace(/[^a-z0-9]+/g, '');
             if (normalized.includes('withlayout') && !normalized.includes('without')) return 0;
             if (!normalized.includes('withoutlayout')) continue;
-            if (selectedOption && selectedOption.hasAttribute('data-design-fee-configured')) {
-                return Math.max(0, parsePrice(selectedOption.getAttribute('data-price')));
-            }
-            return 200;
+            // A missing configured value is a zero fee. The server remains
+            // authoritative at cart/checkout; the browser never invents a
+            // fallback amount.
+            return selectedOption && selectedOption.hasAttribute('data-price')
+                ? Math.max(0, parsePrice(selectedOption.getAttribute('data-price')))
+                : 0;
         }
         return 0;
     }

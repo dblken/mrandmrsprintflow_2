@@ -3349,7 +3349,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
     echo get_service_field_scripts();
     ?>
 
-    <script src="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/js/service_estimated_price.js'); ?>"></script>
+    <?php $pos_estimated_price_ver = @filemtime(__DIR__ . '/../public/assets/js/service_estimated_price.js') ?: '1'; ?>
+    <script src="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/js/service_estimated_price.js'); ?>?v=<?php echo (int) $pos_estimated_price_ver; ?>"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <?php $pos_add_fx_ver = @filemtime(__DIR__ . '/../public/assets/js/add_to_cart_fx.js') ?: '1'; ?>
     <script src="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/js/add_to_cart_fx.js'); ?>?v=<?php echo (int) $pos_add_fx_ver; ?>"></script>
