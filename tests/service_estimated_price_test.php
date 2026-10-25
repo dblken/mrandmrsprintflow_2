@@ -30,6 +30,8 @@ $sharedJs = (string)file_get_contents(__DIR__ . '/../public/assets/js/service_es
 $assert(str_contains($sharedJs, 'pricing-field'), 'Shared JS reads pricing-field data-price attributes');
 $assert(str_contains($sharedJs, 'nested-fields-container'), 'Shared JS handles nested conditional fields');
 $assert(str_contains($sharedJs, 'pf-service-quantity-input'), 'Shared JS multiplies by quantity input');
+$assert(str_contains($sharedJs, 'calculateDesignFee'), 'Shared JS calculates one-time layout fee separately');
+$assert(str_contains($sharedJs, 'estimatedTotal = Math.round((unitPrice * safeQty + designFee) * 100) / 100'), 'Shared estimate adds fee once after per-unit quantity calculation');
 
 $rendererSource = (string)file_get_contents(__DIR__ . '/../includes/service_field_renderer.php');
 $assert(str_contains($rendererSource, 'data-price'), 'Field renderer emits data-price on options');

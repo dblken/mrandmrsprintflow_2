@@ -12,6 +12,7 @@ require_once __DIR__ . '/tarpaulin_material_calculation.php';
 require_once __DIR__ . '/RollService.php';
 require_once __DIR__ . '/NotificationService.php';
 require_once __DIR__ . '/revision_workflow.php';
+require_once __DIR__ . '/service_design_fee.php';
 
 class JobOrderService {
     private static array $columnExistsCache = [];
@@ -1078,8 +1079,11 @@ class JobOrderService {
         $notes = $order['notes'] ?? '';
         $branchId = (int)($order['branch_id'] ?? 0);
 
+        $productTypeSelect = self::tableHasColumn('products', 'product_type')
+            ? 'p.product_type'
+            : "''";
         $items = db_query(
-            "SELECT oi.*, p.name AS product_name, p.category AS product_category, p.product_type
+            "SELECT oi.*, p.name AS product_name, p.category AS product_category, {$productTypeSelect} AS product_type
              FROM order_items oi
              LEFT JOIN products p ON oi.product_id = p.product_id
              WHERE oi.order_id = ?
@@ -1131,6 +1135,7 @@ class JobOrderService {
             $job_title = get_service_name_from_customization($custom, $pname !== '' ? $pname : $service_type);
             $job_qty = (int)($item['quantity'] ?? 1);
             $unit_price = (float)($item['unit_price'] ?? 0);
+            $estimatedTotal = printflow_order_item_calculated_line_total($item);
 
             // Do not auto-assign production materials during store/POS job creation.
             // Materials must only be attached through explicit staff actions later.
@@ -1159,7 +1164,7 @@ class JobOrderService {
                     'total_sqft'      => $width_ft * $height_ft * $job_qty,
                     'price_per_sqft'  => null,
                     'price_per_piece' => null,
-                    'estimated_total' => $unit_price * $job_qty,
+                    'estimated_total' => $estimatedTotal,
                     'notes'           => $notes,
                     'due_date'        => null,
                     'priority'        => $jobPriority,

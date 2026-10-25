@@ -504,7 +504,7 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
     try {
         [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
         [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
-        $rows = db_query("SELECT 'Product' AS type, COALESCE(NULLIF(TRIM(p.name), ''), 'Product Order') AS item_name, COALESCE(SUM(oi.quantity), 0) AS quantity, COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS revenue FROM order_items oi JOIN orders o ON o.order_id = oi.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales} AND {$storeProductScope}{$do}{$bo} GROUP BY COALESCE(NULLIF(TRIM(p.name), ''), 'Product Order')", $dto . $bto, array_merge($dpo, $bpo)) ?: [];
+        $rows = db_query("SELECT 'Product' AS type, COALESCE(NULLIF(TRIM(p.name), ''), 'Product Order') AS item_name, COALESCE(SUM(oi.quantity), 0) AS quantity, COALESCE(SUM(COALESCE(oi.line_total_override, oi.quantity * oi.unit_price + COALESCE(oi.design_fee, 0))), 0) AS revenue FROM order_items oi JOIN orders o ON o.order_id = oi.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales} AND {$storeProductScope}{$do}{$bo} GROUP BY COALESCE(NULLIF(TRIM(p.name), ''), 'Product Order')", $dto . $bto, array_merge($dpo, $bpo)) ?: [];
         foreach ($rows as $r) {
             $byItem[] = ['type' => 'Product', 'item_name' => (string)($r['item_name'] ?? 'Product Order'), 'quantity' => (float)($r['quantity'] ?? 0), 'revenue' => round((float)($r['revenue'] ?? 0), 2)];
         }
@@ -513,7 +513,7 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
     try {
         [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
         [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
-        $rows = db_query("SELECT 'Service' AS type, COALESCE(NULLIF(TRIM(p.name), ''), 'Customization') AS item_name, COALESCE(SUM(oi.quantity), 0) AS quantity, COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS revenue FROM order_items oi JOIN orders o ON o.order_id = oi.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales} AND {$storeCustomScope}{$do}{$bo} GROUP BY COALESCE(NULLIF(TRIM(p.name), ''), 'Customization')", $dto . $bto, array_merge($dpo, $bpo)) ?: [];
+        $rows = db_query("SELECT 'Service' AS type, COALESCE(NULLIF(TRIM(p.name), ''), 'Customization') AS item_name, COALESCE(SUM(oi.quantity), 0) AS quantity, COALESCE(SUM(COALESCE(oi.line_total_override, oi.quantity * oi.unit_price + COALESCE(oi.design_fee, 0))), 0) AS revenue FROM order_items oi JOIN orders o ON o.order_id = oi.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales} AND {$storeCustomScope}{$do}{$bo} GROUP BY COALESCE(NULLIF(TRIM(p.name), ''), 'Customization')", $dto . $bto, array_merge($dpo, $bpo)) ?: [];
         foreach ($rows as $r) {
             $byItem[] = ['type' => 'Service', 'item_name' => (string)($r['item_name'] ?? 'Customization'), 'quantity' => (float)($r['quantity'] ?? 0), 'revenue' => round((float)($r['revenue'] ?? 0), 2)];
         }
@@ -883,7 +883,7 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
             "SELECT {$label} AS category,
                     MAX({$family}) AS family_category,
                     SUM(oi.quantity) AS items_sold,
-                    SUM(oi.quantity * oi.unit_price) AS total
+                    SUM(COALESCE(oi.line_total_override, oi.quantity * oi.unit_price + COALESCE(oi.design_fee, 0))) AS total
              FROM order_items oi
              JOIN products p
                ON p.product_id = oi.product_id
@@ -942,7 +942,7 @@ function pf_reports_sales_by_official_product(string $from, string $toEnd, $bran
             "SELECT p.product_id,
                     TRIM(p.name) AS category,
                     SUM(oi.quantity) AS items_sold,
-                    SUM(oi.quantity * oi.unit_price) AS total
+                    SUM(COALESCE(oi.line_total_override, oi.quantity * oi.unit_price + COALESCE(oi.design_fee, 0))) AS total
              FROM order_items oi
              JOIN products p
                ON p.product_id = oi.product_id
@@ -1174,7 +1174,7 @@ function pf_reports_dashboard_all_branches_product_service_slices(string $from, 
         $rows = db_query(
             "SELECT o.branch_id,
                     TRIM(p.name) AS category,
-                    SUM(oi.quantity * oi.unit_price) AS total
+                    SUM(COALESCE(oi.line_total_override, oi.quantity * oi.unit_price + COALESCE(oi.design_fee, 0))) AS total
              FROM order_items oi
              JOIN products p
                ON p.product_id = oi.product_id
@@ -1898,7 +1898,7 @@ function pf_reports_top_products_merged(string $from, string $toEnd, $branchId, 
         $rows = db_query(
             "SELECT p.product_id, p.name AS product_name,
                     SUM(oi.quantity) as qty_sold,
-                    SUM(oi.quantity * oi.unit_price) as revenue
+                    SUM(COALESCE(oi.line_total_override, oi.quantity * oi.unit_price + COALESCE(oi.design_fee, 0))) as revenue
              FROM order_items oi
              JOIN products p ON oi.product_id = p.product_id
              JOIN orders o ON oi.order_id = o.order_id
@@ -2796,16 +2796,16 @@ function pf_reports_estimated_gross_profit_analytics(string $from, string $toEnd
                 $prodRows = db_query(
                     "SELECT
                         COALESCE(NULLIF(TRIM(p.category), ''), 'Uncategorized product') AS category,
-                        SUM(oi.quantity * oi.unit_price) AS revenue,
-                        SUM(oi.quantity * oi.unit_price) AS alloc_basis,
+                        SUM(COALESCE(oi.line_total_override, oi.quantity * oi.unit_price + COALESCE(oi.design_fee, 0))) AS revenue,
+                        SUM(COALESCE(oi.line_total_override, oi.quantity * oi.unit_price + COALESCE(oi.design_fee, 0))) AS alloc_basis,
                         SUM(COALESCE(mc.order_material_cost, 0) * (
-                            (oi.quantity * oi.unit_price) / NULLIF(ov.order_revenue, 0)
+                            COALESCE(oi.line_total_override, oi.quantity * oi.unit_price + COALESCE(oi.design_fee, 0)) / NULLIF(ov.order_revenue, 0)
                         )) AS material_cost_alloc
                      FROM order_items oi
                      INNER JOIN orders o ON o.order_id = oi.order_id
                      INNER JOIN products p ON p.product_id = oi.product_id
                      INNER JOIN (
-                        SELECT o2.order_id, SUM(oi2.quantity * oi2.unit_price) AS order_revenue
+                        SELECT o2.order_id, SUM(COALESCE(oi2.line_total_override, oi2.quantity * oi2.unit_price + COALESCE(oi2.design_fee, 0))) AS order_revenue
                         FROM orders o2
                         INNER JOIN order_items oi2 ON oi2.order_id = o2.order_id
                         WHERE (" . pf_reports_store_order_paid_completed_expr('o2') . ")

@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/api_header.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/service_design_fee.php';
 
 function pf_order_details_json(array $payload, int $status = 200): void
 {
@@ -178,6 +179,7 @@ try {
 
         $quantity = (int) ($item['quantity'] ?? 0);
         $unit_price = (float) ($item['unit_price'] ?? 0);
+        $lineSubtotal = printflow_order_item_calculated_line_total((array)$item);
 
         $formatted_items[] = [
             'order_item_id' => (int) ($item['order_item_id'] ?? 0),
@@ -187,9 +189,9 @@ try {
             'category' => $item['category'] ?? '-',
             'quantity' => $quantity,
             'unit_price' => $unit_price,
-            'subtotal' => $quantity * $unit_price,
+            'subtotal' => $lineSubtotal,
             'unit_price_formatted' => format_currency($unit_price),
-            'subtotal_formatted' => format_currency($quantity * $unit_price),
+            'subtotal_formatted' => format_currency($lineSubtotal),
             'tarp_details' => $tarp_details
         ];
     }

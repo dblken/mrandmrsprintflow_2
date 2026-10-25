@@ -492,8 +492,9 @@ function jo_api_lock_editable_job_price(int $jobId): array {
         }
     }
 
+    $jobItemColumn = db_table_has_column('job_orders', 'order_item_id') ? ', order_item_id' : '';
     $rows = db_query(
-        'SELECT id, order_id, status, payment_status FROM job_orders WHERE id = ? LIMIT 1 FOR UPDATE',
+        'SELECT id, order_id, status, payment_status' . $jobItemColumn . ' FROM job_orders WHERE id = ? LIMIT 1 FOR UPDATE',
         'i',
         [$jobId]
     ) ?: [];
@@ -3036,6 +3037,44 @@ try {
             }
             $job = jo_api_lock_editable_job_price($id);
             jo_api_require_staff_branch($joStaffBranch, $id);
+            $linkedOrderId = (int)($job['order_id'] ?? 0);
+            $linkedOrderItemId = (int)($job['order_item_id'] ?? 0);
+            if ($linkedOrderId > 0) {
+                if (!printflow_order_items_has_line_total_override_column()) {
+                    if ($jobPriceTransactionStarted && printflow_db_in_transaction($conn)) {
+                        $conn->rollback();
+                    }
+                    jo_api_json_response([
+                        'success' => false,
+                        'error' => 'The exact service line pricing schema is not installed. Apply the approved order item pricing migration before using Set Price.',
+                    ], 503);
+                }
+                if ($linkedOrderItemId > 0) {
+                    $linkedLineRows = db_query(
+                        'SELECT order_item_id FROM order_items WHERE order_item_id = ? AND order_id = ? LIMIT 2',
+                        'ii',
+                        [$linkedOrderItemId, $linkedOrderId]
+                    ) ?: [];
+                } else {
+                    $linkedLineRows = db_query(
+                        'SELECT order_item_id FROM order_items WHERE order_id = ? ORDER BY order_item_id LIMIT 2',
+                        'i',
+                        [$linkedOrderId]
+                    ) ?: [];
+                    if (count($linkedLineRows) === 1) {
+                        $linkedOrderItemId = (int)($linkedLineRows[0]['order_item_id'] ?? 0);
+                    }
+                }
+                if (count($linkedLineRows) !== 1 || $linkedOrderItemId <= 0) {
+                    if ($jobPriceTransactionStarted && printflow_db_in_transaction($conn)) {
+                        $conn->rollback();
+                    }
+                    jo_api_json_response([
+                        'success' => false,
+                        'error' => 'The linked order line could not be identified uniquely. No final price was changed.',
+                    ], 409);
+                }
+            }
 
             // Deliberate-override safeguard: a Final Price below the order's Estimated
             // Price must be explicitly confirmed (the UI shows a warning modal). This
@@ -3068,9 +3107,16 @@ try {
                 'Unable to save the final production price.'
             );
             // Also update the orders table so the customer sees the correct price
-            $linkedOrderId = (int)($job['order_id'] ?? 0);
             if ($linkedOrderId > 0) {
                 jo_api_store_order_final_price($linkedOrderId, $price);
+                // Staff Set Price is the complete final amount for the linked
+                // design line, including any layout fee.
+                $savedLineTotal = db_execute(
+                    'UPDATE order_items SET line_total_override = ? WHERE order_item_id = ? AND order_id = ?',
+                    'dii',
+                    [$price, $linkedOrderItemId, $linkedOrderId]
+                );
+                jo_api_require_db_write($savedLineTotal, 'Unable to save the exact final service line total.');
             }
             if ($jobPriceTransactionStarted && !$conn->commit()) {
                 throw new JoApiPersistenceException('Unable to commit the price update.');

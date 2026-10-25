@@ -534,16 +534,10 @@ try {
                     throw new PosCartValidationException($serviceValidationErrors);
                 }
 
+                $linePricing = printflow_calculate_service_line_pricing($product_id, $serviceCustomization, $qty, $serviceFieldConfigs);
                 $priceCalc = printflow_calculate_service_unit_price($product_id, $serviceCustomization);
                 if (!$priceCalc['ok']) {
-                    $fallbackUnit = (float)($serviceCustomization['calculated_unit_price'] ?? $price ?? 0);
-                    if ($fallbackUnit > 0) {
-                        $priceCalc = [
-                            'ok' => true,
-                            'unit_price' => round($fallbackUnit, 2),
-                            'message' => '',
-                        ];
-                    } elseif (($priceCalc['reason'] ?? '') === 'unconfigured') {
+                    if (($priceCalc['reason'] ?? '') === 'unconfigured') {
                         $serviceCustomization['price_unconfigured'] = '1';
                         $priceCalc = [
                             'ok' => true,
@@ -557,10 +551,34 @@ try {
                     }
                 }
                 $price = (float)$priceCalc['unit_price'];
+                if (!empty($linePricing['ok'])) {
+                    $price = (float)$linePricing['unit_price'];
+                    $designFee = (float)$linePricing['design_fee'];
+                    $estimatedLineTotal = (float)$linePricing['line_total'];
+                } else {
+                    $layoutValues = printflow_service_field_values_from_customization($serviceCustomization, $serviceFieldConfigs);
+                    $layoutFee = printflow_design_fee_option($layoutValues, $serviceFieldConfigs);
+                    if (empty($layoutFee['ok'])) {
+                        throw new PosCartValidationException(['layout' => (string)($layoutFee['message'] ?? 'The selected layout fee could not be verified.')]);
+                    }
+                    $designFee = (int)$layoutFee['fee_cents'] / 100;
+                    $estimatedLineTotal = round($price * $qty + $designFee, 2);
+                }
+                if ($designFee > 0 && !printflow_order_items_has_design_fee_column()) {
+                    throw new PosCartValidationException(['layout' => 'The design-fee database migration is required before this layout can be ordered.']);
+                }
+                $serviceCustomization['design_fee'] = number_format($designFee, 2, '.', '');
+                $serviceCustomization['calculated_design_fee'] = number_format($designFee, 2, '.', '');
+                $serviceCustomization['calculated_unit_price'] = number_format($price, 2, '.', '');
+                $serviceCustomization['calculated_estimated_price'] = number_format($estimatedLineTotal, 2, '.', '');
+                $serviceCustomization['design_fee_version'] = 1;
+                // Every Add to Order is a distinct design line even when all
+                // visible selections match. Cart quantity edits keep this ID.
+                $serviceCustomization['pos_design_line_id'] = bin2hex(random_bytes(16));
                 service_order_persist_validated_design_links($serviceCustomization, $serviceFieldConfigs);
                 $preparedCustomization = $serviceCustomization;
                 $preparedCustomization['calculated_unit_price'] = number_format($price, 2, '.', '');
-                $preparedCustomization['calculated_estimated_price'] = number_format($price * $qty, 2, '.', '');
+                $preparedCustomization['calculated_estimated_price'] = number_format($estimatedLineTotal, 2, '.', '');
                 $customization = $preparedCustomization;
                 $custom_json = json_encode($customization);
             }
@@ -616,7 +634,7 @@ try {
                 }
                 $item_custom_json = $itemCustomizationForMerge !== [] ? json_encode($itemCustomizationForMerge) : null;
                 $merge_custom_json = $newCustomizationForMerge !== [] ? json_encode($newCustomizationForMerge) : null;
-                if ($item['product_id'] == $product_id && 
+                if (!$is_service && $item['product_id'] == $product_id &&
                     abs($item['price'] - $price) < 0.01 && 
                     $item_custom_json === $merge_custom_json &&
                     $item['name'] === $name) {
@@ -770,6 +788,8 @@ try {
                 throw new Exception($priceError->getMessage());
             }
             $_SESSION['pos_cart'][$index]['price'] = $price;
+            // Set Price is the complete final line total, not a unit price.
+            $_SESSION['pos_cart'][$index]['line_total_override'] = round($price, 2);
             $_SESSION['pos_cart'][$index]['price_set'] = true;
             if (!empty($data['customization']) && is_array($data['customization'])) {
                 $existing = is_array($_SESSION['pos_cart'][$index]['customization'] ?? null)

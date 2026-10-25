@@ -179,6 +179,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
     
     // Get the label to match against customization keys
     $field_label = $config['label'];
+    $is_design_fee_field = strpos(strtolower((string)$field_key), 'layout') !== false
+        || strpos(strtolower((string)$field_label), 'layout') !== false;
     
     // Try to find saved value
     $is_branch_field = printflow_service_field_is_branch_field((string)$field_key, (array)$config);
@@ -335,7 +337,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                     }
                 }
 
-                $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field pf-select-with-others' . (printflow_service_field_uses_custom_size_panel($field_key, $config) ? ' pf-select-custom-size' : '') . '" data-field-key="' . htmlspecialchars($field_key) . '" data-other-option="Others" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
+                $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field pf-select-with-others' . (printflow_service_field_uses_custom_size_panel($field_key, $config) ? ' pf-select-custom-size' : '') . '" data-field-key="' . htmlspecialchars($field_key) . '"' . ($is_design_fee_field ? ' data-design-fee-field="1"' : '') . ' data-other-option="Others" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
                 $placeholder = preg_match('/upload\s+design|design\s+upload/i', (string)$config['label'])
                     ? 'Choose an option'
                     : 'Select ' . $label;
@@ -351,7 +353,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                     $value = htmlspecialchars($optionValue);
                     $displayValue = htmlspecialchars(pf_service_option_label(printflow_service_custom_size_option_label((string)$optionValue, $field_key, $config)));
                     $selected = ($selectSaved === (string)$optionValue) ? ' selected' : '';
-                    $html .= '<option value="' . $value . '" data-price="' . htmlspecialchars((string)$optionPrice) . '"' . $selected . '>' . $displayValue . '</option>';
+                    $feeConfiguredAttr = $is_design_fee_field && is_array($option) && array_key_exists('price', $option) ? ' data-design-fee-configured="1"' : '';
+                    $html .= '<option value="' . $value . '" data-price="' . htmlspecialchars((string)$optionPrice) . '"' . $feeConfiguredAttr . $selected . '>' . $displayValue . '</option>';
                 }
                 $html .= '</select>';
 
@@ -419,7 +422,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                 $is_checked = ($radioSaved === (string)$optionValue) ? ' checked' : '';
                 $optionPrice = is_array($option) ? ($option['price'] ?? 0) : 0;
                 $html .= '<label class="shopee-opt-btn' . ($is_checked ? ' active' : '') . '">';
-                $html .= '<input type="radio" name="' . htmlspecialchars($field_key) . '" value="' . $value . '"' . $is_checked . ' style="display:none;" class="pricing-field" data-pf-radio-option-index="' . (int)$idx . '" data-price="' . htmlspecialchars((string)$optionPrice) . '" ' . $required_attr . '>';
+                $feeConfiguredAttr = $is_design_fee_field && is_array($option) && array_key_exists('price', $option) ? ' data-design-fee-configured="1"' : '';
+                $html .= '<input type="radio" name="' . htmlspecialchars($field_key) . '" value="' . $value . '"' . $is_checked . ' style="display:none;" class="pricing-field" data-pf-radio-option-index="' . (int)$idx . '" data-price="' . htmlspecialchars((string)$optionPrice) . '"' . ($is_design_fee_field ? ' data-design-fee-field="1"' : '') . $feeConfiguredAttr . ' ' . $required_attr . '>';
                 $html .= '<span>' . $displayValue . '</span>';
                 $html .= '</label>';
             }

@@ -4,6 +4,8 @@
  * PrintFlow - Neubrutalism Design System
  */
 
+require_once __DIR__ . '/service_design_fee.php';
+
 if (!function_exists('pf_order_ui_value_to_text')) {
     function pf_order_ui_value_to_text($value): string {
         if (is_array($value)) {
@@ -1454,6 +1456,11 @@ if (!function_exists('pf_order_ui_item_unit_price')) {
 
 if (!function_exists('pf_order_ui_item_estimated_total')) {
     function pf_order_ui_item_estimated_total(array $item, bool $is_cart_item = false): float {
+        if (array_key_exists('line_total_override', $item)
+            && $item['line_total_override'] !== null
+            && $item['line_total_override'] !== '') {
+            return printflow_order_item_calculated_line_total($item);
+        }
         $approved = (float)($item['approved_total'] ?? 0);
         if (!empty($item['price_is_final']) && $approved > 0) {
             return $approved;
@@ -1461,6 +1468,10 @@ if (!function_exists('pf_order_ui_item_estimated_total')) {
         $estimated = (float)($item['estimated_price'] ?? 0);
         if ($estimated > 0) {
             return $estimated;
+        }
+        if (!$is_cart_item && ((float)($item['design_fee'] ?? 0) > 0
+            || (isset($item['line_total_override']) && $item['line_total_override'] !== null))) {
+            return printflow_order_item_calculated_line_total($item);
         }
         $unit = (float)($item['unit_price'] ?? 0);
         if (!empty($item['price_is_final']) && $unit > 0) {
@@ -1494,7 +1505,12 @@ function render_order_item_neubrutalism($item, $is_cart_item = false, $show_pric
     $is_service_item = pf_order_ui_is_service_item($item, $is_cart_item);
     $unit_price = pf_order_ui_item_unit_price($item, $is_cart_item);
     $quantity = max(1, (int)($item['quantity'] ?? 1));
-    $subtotal = $unit_price * $quantity;
+    $hasLineTotalOverride = array_key_exists('line_total_override', $item)
+        && $item['line_total_override'] !== null
+        && $item['line_total_override'] !== '';
+    $subtotal = (!$is_cart_item || $hasLineTotalOverride)
+        ? printflow_order_item_calculated_line_total($item)
+        : (($unit_price * $quantity) + max(0.0, (float)($item['design_fee'] ?? 0)));
     $estimated_total = $is_service_item ? pf_order_ui_item_estimated_total($item, $is_cart_item) : $subtotal;
     $estimated_total_display = $estimated_total > 0 ? format_currency($estimated_total) : 'To Be Discussed';
     $service_price_label = pf_order_ui_service_price_label($item);
@@ -1648,7 +1664,12 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
     $is_service_item = pf_order_ui_is_service_item($item, $is_cart_item);
     $unit_price = pf_order_ui_item_unit_price($item, $is_cart_item);
     $quantity = max(1, (int)($item['quantity'] ?? 1));
-    $subtotal = $unit_price * $quantity;
+    $hasLineTotalOverride = array_key_exists('line_total_override', $item)
+        && $item['line_total_override'] !== null
+        && $item['line_total_override'] !== '';
+    $subtotal = (!$is_cart_item || $hasLineTotalOverride)
+        ? printflow_order_item_calculated_line_total($item)
+        : (($unit_price * $quantity) + max(0.0, (float)($item['design_fee'] ?? 0)));
     $estimated_total = $is_service_item ? pf_order_ui_item_estimated_total($item, $is_cart_item) : $subtotal;
     $estimated_total_display = $estimated_total > 0 ? format_currency($estimated_total) : 'To Be Discussed';
     $service_price_label = pf_order_ui_service_price_label($item);

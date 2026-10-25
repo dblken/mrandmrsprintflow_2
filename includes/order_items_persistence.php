@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/design_resolver.php';
+require_once __DIR__ . '/service_design_fee.php';
 
 if (!function_exists('printflow_ensure_order_items_columns')) {
     /**
@@ -667,7 +668,9 @@ if (!function_exists('printflow_order_items_insert_line')) {
         ?string $designMime = null,
         ?string $designName = null,
         ?string $designFilePath = null,
-        ?string $referenceFilePath = null
+        ?string $referenceFilePath = null,
+        float $designFee = 0.0,
+        ?float $lineTotalOverride = null
     ): int {
         printflow_ensure_order_items_columns();
 
@@ -675,6 +678,13 @@ if (!function_exists('printflow_order_items_insert_line')) {
         $productId = (int)$productId;
         $quantity = max(1, (int)$quantity);
         $unitPrice = (float)$unitPrice;
+        $designFee = round(max(0.0, $designFee), 2);
+        $hasDesignFee = printflow_order_items_has_design_fee_column();
+        $hasLineTotalOverride = printflow_order_items_has_line_total_override_column();
+        if (($designFee > 0 && !$hasDesignFee) || ($lineTotalOverride !== null && !$hasLineTotalOverride)) {
+            error_log('printflow_order_items_insert_line blocked: design fee schema is not ready');
+            return 0;
+        }
         $hasSpecs = function_exists('db_table_has_column') && db_table_has_column('order_items', 'specifications');
         $specJson = $customizationJson;
 
@@ -688,17 +698,33 @@ if (!function_exists('printflow_order_items_insert_line')) {
         global $conn;
 
         if ($designBinary !== null && $designBinary !== '' && $conn instanceof mysqli) {
-            $sql = $hasSpecs
-                ? 'INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data,
+            if ($hasDesignFee) {
+                $sql = $hasSpecs
+                    ? 'INSERT INTO order_items (order_id, product_id, quantity, unit_price, design_fee, customization_data,
+                    design_image, design_image_mime, design_image_name, design_file, reference_image_file, specifications)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                    : 'INSERT INTO order_items (order_id, product_id, quantity, unit_price, design_fee, customization_data,
+                    design_image, design_image_mime, design_image_name, design_file, reference_image_file)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            } else {
+                $sql = $hasSpecs
+                    ? 'INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data,
                     design_image, design_image_mime, design_image_name, design_file, reference_image_file, specifications)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-                : 'INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data,
+                    : 'INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data,
                     design_image, design_image_mime, design_image_name, design_file, reference_image_file)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            }
             $stmt = $conn->prepare($sql);
             if ($stmt) {
                 $blobPlaceholder = null;
-                if ($hasSpecs) {
+                if ($hasSpecs && $hasDesignFee) {
+                    $stmt->bind_param(
+                        'iiiddsbsssss',
+                        $orderId, $productId, $quantity, $unitPrice, $designFee, $customizationJson,
+                        $blobPlaceholder, $designMime, $designName, $designFilePath, $referenceFilePath, $specJson
+                    );
+                } elseif ($hasSpecs) {
                     $stmt->bind_param(
                         'iiidsbsssss',
                         $orderId,
@@ -712,6 +738,12 @@ if (!function_exists('printflow_order_items_insert_line')) {
                         $designFilePath,
                         $referenceFilePath,
                         $specJson
+                    );
+                } elseif ($hasDesignFee) {
+                    $stmt->bind_param(
+                        'iiiddsbssss',
+                        $orderId, $productId, $quantity, $unitPrice, $designFee, $customizationJson,
+                        $blobPlaceholder, $designMime, $designName, $designFilePath, $referenceFilePath
                     );
                 } else {
                     $stmt->bind_param(
@@ -733,6 +765,13 @@ if (!function_exists('printflow_order_items_insert_line')) {
                     $id = (int)$conn->insert_id;
                     $stmt->close();
                     if ($id > 0) {
+                        if ($lineTotalOverride !== null && db_table_has_column('order_items', 'line_total_override')) {
+                            $overrideOk = db_execute('UPDATE order_items SET line_total_override = ? WHERE order_item_id = ?', 'di', [round($lineTotalOverride, 2), $id]);
+                            if (!$overrideOk) {
+                                db_execute('DELETE FROM order_items WHERE order_item_id = ?', 'i', [$id]);
+                                return 0;
+                            }
+                        }
                         printflow_tag_order_item_identity($id, $productId, $customizationJson);
                         if ($designFilePath !== null && trim((string)$designFilePath) !== ''
                             && printflow_resolve_order_upload_disk_path((string)$designFilePath) === null
@@ -753,7 +792,21 @@ if (!function_exists('printflow_order_items_insert_line')) {
             }
         }
 
-        if ($hasSpecs) {
+        if ($hasSpecs && $hasDesignFee) {
+            $id = (int)db_execute(
+                'INSERT INTO order_items (order_id, product_id, quantity, unit_price, design_fee, customization_data, design_file, reference_image_file, specifications)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                'iiiddssss',
+                [$orderId, $productId, $quantity, $unitPrice, $designFee, $customizationJson, $designFilePath, $referenceFilePath, $specJson]
+            );
+        } elseif ($hasDesignFee) {
+            $id = (int)db_execute(
+                'INSERT INTO order_items (order_id, product_id, quantity, unit_price, design_fee, customization_data, design_file, reference_image_file)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                'iiiddsss',
+                [$orderId, $productId, $quantity, $unitPrice, $designFee, $customizationJson, $designFilePath, $referenceFilePath]
+            );
+        } elseif ($hasSpecs) {
             $id = (int)db_execute(
                 'INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file, reference_image_file, specifications)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -782,6 +835,13 @@ if (!function_exists('printflow_order_items_insert_line')) {
         }
 
         if ($id > 0) {
+            if ($lineTotalOverride !== null && db_table_has_column('order_items', 'line_total_override')) {
+                $overrideOk = db_execute('UPDATE order_items SET line_total_override = ? WHERE order_item_id = ?', 'di', [round($lineTotalOverride, 2), $id]);
+                if (!$overrideOk) {
+                    db_execute('DELETE FROM order_items WHERE order_item_id = ?', 'i', [$id]);
+                    return 0;
+                }
+            }
             printflow_tag_order_item_identity($id, $productId, $customizationJson);
         }
 

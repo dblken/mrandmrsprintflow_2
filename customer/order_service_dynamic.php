@@ -714,6 +714,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 }
             }
             printflow_merge_nested_service_fields_into_customization($field_configs, $customization, $_POST, $_FILES);
+            if (empty($error)) {
             printflow_apply_layout_canonical_to_customization($customization, $field_configs);
             if ($branch_id > 0) {
                 $branch_row = db_query('SELECT branch_name FROM branches WHERE id = ? LIMIT 1', 'i', [$branch_id]);
@@ -743,54 +744,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 $customization['_staff_priority_request'] = $prioritySnapshot;
             }
 
-            // Calculate estimated price dynamically based on selected options
-            $base_price = (float)($service['base_price'] ?? 0);
-            $options_total = 0;
-
-            foreach ($field_configs as $key => $config) {
-                if (!$config['visible']) continue;
-                if (!in_array($config['type'], ['radio', 'select', 'dimension'])) continue;
-                
-                $selected_value = $_POST[$key] ?? '';
-                
-                // Handle dimension fields
-                if ($config['type'] === 'dimension') {
-                    $width = trim($_POST[$key . '_width'] ?? $_POST['width'] ?? '');
-                    $height = trim($_POST[$key . '_height'] ?? $_POST['height'] ?? '');
-                    if (!empty($width) && !empty($height)) {
-                        $selected_value = $width . '×' . $height;
-                    }
+            // Recalculate from saved service configuration. Posted hidden price
+            // fields are presentation only and are never trusted as authority.
+            $linePricing = printflow_calculate_service_line_pricing(
+                $service_id,
+                $customization,
+                $quantity,
+                $field_configs
+            );
+            if (!empty($linePricing['ok'])) {
+                $unit_price = (float)$linePricing['unit_price'];
+                $design_fee = (float)$linePricing['design_fee'];
+                $estimated_price = (float)$linePricing['line_total'];
+            } else {
+                $layoutValues = printflow_service_field_values_from_customization($customization, $field_configs);
+                $layoutFee = printflow_design_fee_option($layoutValues, $field_configs);
+                if (empty($layoutFee['ok'])) {
+                    $error = (string)($layoutFee['message'] ?? 'The selected layout fee could not be verified.');
+                } else {
+                    $unit_price = 0.0;
+                    $design_fee = (int)$layoutFee['fee_cents'] / 100;
+                    $estimated_price = $design_fee;
                 }
-                
-                if (empty($selected_value) || $selected_value === 'Others') continue;
-                
-                if (!empty($config['options']) && is_array($config['options'])) {
-                    foreach ($config['options'] as $option) {
-                        $opt_value = is_array($option) ? ($option['value'] ?? '') : $option;
-                        $opt_price = is_array($option) ? ($option['price'] ?? 0) : 0;
-                        
-                        if ($opt_value === $selected_value) {
-                            $options_total += (float)$opt_price;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            $options_total += printflow_nested_service_options_price_total($_POST, $field_configs);
-
-            $unit_price = $base_price + $options_total;
-            $estimated_price = $unit_price * $quantity;
-            $posted_unit_price = isset($_POST['calculated_unit_price']) ? (float)$_POST['calculated_unit_price'] : null;
-            $posted_estimated_price = isset($_POST['calculated_estimated_price']) ? (float)$_POST['calculated_estimated_price'] : null;
-            if ($posted_unit_price !== null && $posted_unit_price >= 0) {
-                $unit_price = $posted_unit_price;
-            }
-            if ($posted_estimated_price !== null && $posted_estimated_price >= 0) {
-                $estimated_price = $posted_estimated_price;
             }
             
             printflow_apply_layout_canonical_to_customization($customization, $field_configs);
+            $customization['design_fee'] = number_format((float)($design_fee ?? 0), 2, '.', '');
+            $customization['design_fee_version'] = 1;
+            $customization['calculated_unit_price'] = number_format((float)$unit_price, 2, '.', '');
+            $customization['calculated_estimated_price'] = number_format((float)$estimated_price, 2, '.', '');
             $field_values_for_design = printflow_service_field_values_from_post($_POST);
             if (!printflow_service_design_upload_is_active($field_configs, $field_values_for_design)) {
                 $customization = printflow_customization_clear_ephemeral_design_media($customization);
@@ -823,6 +805,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 'name' => $service['name'],
                 'price' => $unit_price,  // FIXED: Store unit price per item, not total
                 'estimated_price' => $estimated_price,
+                'design_fee' => (float)($design_fee ?? 0),
                 'quantity' => $quantity,
                 'category' => $service['category'],
                 'branch_id' => $branch_id,
@@ -838,6 +821,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             } else {
                 // Add to cart action
                 pf_post_redirect('/customer/cart.php');
+            }
             }
         }
     }
@@ -1188,6 +1172,7 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                     <?php echo csrf_field(); ?>
                     <input type="hidden" name="calculated_unit_price" id="calculated-unit-price" value="0">
                     <input type="hidden" name="calculated_estimated_price" id="calculated-estimated-price" value="0">
+                    <input type="hidden" name="calculated_design_fee" id="calculated-design-fee" value="0">
                     
                     <!-- Estimated Price Display -->
                     <div id="estimated-price-display" style="position:sticky;top:80px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;z-index:10;">

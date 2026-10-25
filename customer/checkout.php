@@ -8,6 +8,8 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
+require_once __DIR__ . '/../includes/service_order_helper.php';
+require_once __DIR__ . '/../includes/service_design_fee.php';
 
 require_role('Customer');
 if (printflow_customer_exclusion_customer_is_active((int)(get_customer_id() ?? 0))) {
@@ -64,13 +66,31 @@ function checkout_item_customization(array $item): array {
 
 $cart_items = $_SESSION['cart'] ?? [];
 
+$servicePricingError = null;
+foreach ($cart_items as $cartKey => &$cartItem) {
+    if (!checkout_item_is_service((array)$cartItem)) continue;
+    $pricing = printflow_apply_service_line_pricing_to_cart_item($cartItem);
+    if (empty($pricing['ok'])) {
+        $servicePricingError = (string)($pricing['message'] ?? 'A service price could not be verified.');
+        break;
+    }
+    if ((float)$pricing['design_fee'] > 0 && !printflow_order_items_has_design_fee_column()) {
+        $servicePricingError = 'Checkout is temporarily unavailable until the approved design-fee database migration is applied.';
+        break;
+    }
+    $_SESSION['cart'][$cartKey] = $cartItem;
+}
+unset($cartItem);
+
 if (empty($cart_items)) {
     redirect('cart.php');
 }
 
 $total = 0;
 foreach ($cart_items as $item) {
-    $total += $item['price'] * $item['quantity'];
+    $total += checkout_item_is_service((array)$item)
+        ? (float)($item['estimated_price'] ?? 0)
+        : ((float)$item['price'] * (int)$item['quantity']);
 }
 
 $customer_id = get_user_id();
@@ -87,7 +107,9 @@ $customer_type = $customer['customer_type'] ?? 'new';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
     global $conn; // needed for send_long_data BLOB insertion
     
-    if (false) {
+    if ($servicePricingError !== null) {
+        $error = $servicePricingError;
+    } elseif (false) {
         $error = "🚫 Your account is restricted from placing new orders.";
     } elseif ($cart_requires_id_verification && empty($id_verification_state['verified'])) {
         printflow_redirect_customer_to_id_verification($customer, 'checkout.php');
@@ -228,7 +250,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
         $status = 'Pending';
         $order_id = $skip_order_insert
             ? 0
-            : db_execute($order_sql, 'iiiddssssss', [$customer_id, $branch_id, $reference_id, $total, $downpayment_amount, $status, $payment_status, $payment_type, $notes, $order_type]);
+            : db_execute($order_sql, 'iiiddsssss', [$customer_id, $branch_id, $reference_id, $total, $downpayment_amount, $status, $payment_status, $payment_type, $notes, $order_type]);
         
         if ($order_id) {
             $_SESSION['checkout_submit_guard']['order_id'] = (int)$order_id;
@@ -344,15 +366,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                 $custom_data = printflow_encode_customization_payload($custom);
                 $cart_items[$pid]['customization'] = $custom;
 
-                // Ensure unit_price is per item, not total
+                // Keep unit_price as the per-unit amount. Service line totals
+                // and one-time design fees are persisted separately.
                 $unit_price = (float)$item['price'];
                 $quantity_val = (int)$item['quantity'];
-                
-                // Safety check: if unit_price is suspiciously high (> 500) and quantity > 1,
-                // divide by quantity to get the correct unit price
-                if ($quantity_val > 1 && $unit_price > 500) {
-                    // Likely a total price, convert to unit price
-                    $unit_price = round($unit_price / $quantity_val, 2);
+                $design_fee = checkout_item_is_service((array)$item) ? max(0.0, (float)($item['design_fee'] ?? 0)) : 0.0;
+                if ($design_fee > 0 && !printflow_order_items_has_design_fee_column()) {
+                    throw new RuntimeException('Checkout is temporarily unavailable until the approved design-fee database migration is applied.');
                 }
 
                 $product_id = printflow_resolve_order_item_product_id($item, $custom);
@@ -377,7 +397,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                     $design_mime,
                     $design_name,
                     $design_file_path,
-                    $reference_file_path
+                    $reference_file_path,
+                    $design_fee,
+                    isset($item['line_total_override']) ? (float)$item['line_total_override'] : null
                 );
                 $inserted_order_item_ids[$pid] = $order_item_id;
 
@@ -492,7 +514,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                         'total_sqft'      => $width_ft * $height_ft * $job_qty,
                         'price_per_sqft'  => null,
                         'price_per_piece' => null,
-                        'estimated_total' => $item['price'] * $job_qty,
+                        'estimated_total' => (float)($item['estimated_price'] ?? (($item['price'] * $job_qty) + max(0.0, (float)($item['design_fee'] ?? 0)))),
                         'notes'           => $notes,
                         'due_date'        => null,
                         'priority'        => 'NORMAL',
@@ -577,7 +599,7 @@ require_once __DIR__ . '/../includes/header.php';
                     </h2>
                     <div style="margin-bottom:1rem; display:flex; flex-direction:column; gap:0.75rem;">
                         <?php foreach ($cart_items as $item):
-                            $item_total     = $item['price'] * $item['quantity'];
+                            $item_total     = ($item['price'] * $item['quantity']) + max(0.0, (float)($item['design_fee'] ?? 0));
                             $custom         = $item['customization'] ?? [];
                             $design_preview = null;
                             if (!empty($item['design_tmp_path']) && file_exists($item['design_tmp_path']) && !empty($item['design_mime'])) {

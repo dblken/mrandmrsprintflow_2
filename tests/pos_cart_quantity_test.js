@@ -38,7 +38,8 @@ assert.match(pos, /\.pos-qty-val\s*\{[^}]*color:\s*#0f172a;/s);
 assert.match(pos, /\.pos-item-controls\s*\{[^}]*width:\s*max-content;[^}]*max-width:\s*100%;[^}]*justify-self:\s*start;/s);
 assert.match(pos, /class="pos-qty-val" type="text" inputmode="numeric" pattern="\[0-9\]\*" maxlength="64"/);
 assert.match(pos, /text\.textContent = hasMalformedQuantity \? 'Fix Quantity' : 'Update Quantity';/);
-assert.match(pos, /const confirmedLineTotal = \(parseFloat\(item\.price\) \|\| 0\) \* \(item\.qty \|\| 1\);/);
+assert.match(pos, /const confirmedLineTotal = item\.line_total_override !== null && item\.line_total_override !== undefined/);
+assert.match(pos, /\(\(parseFloat\(item\.price\) \|\| 0\) \* \(item\.qty \|\| 1\)\) \+ Math\.max\(0, Number\(item\.design_fee \?\? item\.customization\?\.design_fee\) \|\| 0\)/);
 assert.match(pos, /currentTotal \+= confirmedLineTotal;/);
 
 const bindSource = extractFunction(

@@ -8,6 +8,8 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
+require_once __DIR__ . '/../includes/service_field_config_helper.php';
+require_once __DIR__ . '/../includes/service_design_fee.php';
 
 require_role('Customer');
 
@@ -44,11 +46,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $cart_items = $_SESSION['cart'] ?? [];
+$cart_design_fee_errors = [];
+foreach ($cart_items as $cartKey => &$cartItem) {
+    if (!is_array($cartItem) || strtolower(trim((string)($cartItem['source_page'] ?? ''))) !== 'services') {
+        continue;
+    }
+    $feeResult = printflow_apply_configured_layout_fee_to_cart_item($cartItem);
+    if (empty($feeResult['ok'])) {
+        $cart_design_fee_errors[$cartKey] = (string)($feeResult['message'] ?? 'Service layout pricing could not be verified.');
+    }
+    $_SESSION['cart'][$cartKey] = $cartItem;
+}
+unset($cartItem);
 $total = 0;
 $has_custom = false;
 foreach ($cart_items as $item) {
     $item_price = (float)($item['price'] ?? 0);
+    $design_fee = max(0.0, (float)($item['design_fee'] ?? 0));
     $is_unpriced_item = ($item_price <= 0);
+    if ($design_fee > 0) $total += $design_fee;
     if (!$is_unpriced_item) {
         $total += $item['price'] * $item['quantity'];
     } else {
@@ -799,7 +815,7 @@ require_once __DIR__ . '/../includes/header.php';
                                     $custom_keywords = ['tarpaulin', 't-shirt', 'shirt', 'sticker', 'decal', 'reflectorized', 'signage', 'glass', 'frosted', 'sintraboard', 'souvenir'];
                                     foreach($custom_keywords as $kw) { if(strpos($cat_lower, $kw) !== false) { $is_custom_row = true; break; } }
                                     $item_price = (float)($item['price'] ?? 0);
-                                    $is_unpriced_row = ($item_price <= 0);
+                                    $is_unpriced_row = ($item_price <= 0 && (float)($item['design_fee'] ?? 0) <= 0);
                                     $has_customization = !empty($item['customization']) && is_array($item['customization']);
                                     $has_service_artifacts = !empty($item['design_tmp_path']) || !empty($item['reference_tmp_path']);
                                     $explicit_service_type = (strcasecmp((string)($item['type'] ?? ''), 'Service') === 0);
@@ -816,6 +832,7 @@ require_once __DIR__ . '/../includes/header.php';
                                     $item_type_border = ($item_origin === 'Product') ? 'rgba(16, 185, 129, 0.5)' : 'rgba(168, 85, 247, 0.5)';
                                     $item_type_text = ($item_origin === 'Product') ? '#065f46' : '#581c87';
                                     $item_name = (string)($item['name'] ?? 'Unknown Product');
+                                    $design_fee_error = $cart_design_fee_errors[$pid] ?? '';
                                     $item_name_limit = 24;
                                     if (function_exists('mb_strlen') && function_exists('mb_substr')) {
                                         $item_display_name = mb_strlen($item_name) > $item_name_limit
@@ -895,7 +912,8 @@ require_once __DIR__ . '/../includes/header.php';
                                 ?>
                                     <tr class="cart-row" 
                                         data-id="<?php echo $pid; ?>" 
-                                        data-price="<?php echo $item['price']; ?>" 
+                                        data-price="<?php echo $item['price']; ?>"
+                                        data-design-fee="<?php echo (float)($item['design_fee'] ?? 0); ?>"
                                         data-custom="<?php echo $is_unpriced_row ? '1' : '0'; ?>" 
                                         data-product-id="<?php echo $data_product_id; ?>" 
                                         data-service-id="<?php echo $data_service_id; ?>" 
@@ -981,6 +999,9 @@ require_once __DIR__ . '/../includes/header.php';
                                                 <?php endif; ?>
                                                 <?php if (!empty($item['category'])): ?>
                                                     <div style="font-size:0.75rem; color:#64748b;"><?php echo htmlspecialchars($item['category']); ?></div>
+                                                <?php if ($design_fee_error !== ''): ?>
+                                                    <div role="alert" style="font-size:0.75rem; color:#b91c1c; margin-top:0.35rem;"><?php echo htmlspecialchars($design_fee_error); ?></div>
+                                                <?php endif; ?>
                                                 <?php endif; ?>
                                             </div>
                                             <span class="cart-item-type-badge" style="border:1px solid <?php echo $item_type_border; ?>; background:<?php echo $item_type_bg; ?>; color:<?php echo $item_type_text; ?>;">
@@ -993,6 +1014,9 @@ require_once __DIR__ . '/../includes/header.php';
                                                 <span style="font-size:0.75rem; color:#64748b; font-style:italic;">To be confirmed</span>
                                             <?php else: ?>
                                                 <span style="color:#0f172a; font-weight:600;"><?php echo str_replace('PHP', '₱', format_currency($item['price'])); ?></span>
+                                                <?php if ((float)($item['design_fee'] ?? 0) > 0): ?>
+                                                    <div style="font-size:0.75rem; color:#64748b;">+ <?php echo str_replace('PHP', '₱', format_currency((float)$item['design_fee'])); ?> design fee</div>
+                                                <?php endif; ?>
                                             <?php endif; ?>
                                         </td>
                                         <td style="padding:1rem; text-align:center;" onclick="event.stopPropagation();">
@@ -1010,7 +1034,7 @@ require_once __DIR__ . '/../includes/header.php';
                                                 <?php if ($is_unpriced_row): ?>
                                                     <span class="cart-line-total" style="font-size:0.75rem; color:#64748b; font-style:italic;">To be confirmed</span>
                                                 <?php else: ?>
-                                                    <span style="color:#0f172a; font-weight:600;"><?php echo str_replace('PHP', '₱', format_currency($item['price'] * $item['quantity'])); ?></span>
+                                                    <span style="color:#0f172a; font-weight:600;"><?php echo str_replace('PHP', '₱', format_currency(($item['price'] * $item['quantity']) + max(0.0, (float)($item['design_fee'] ?? 0)))); ?></span>
                                                 <?php endif; ?>
                                                 <button type="button" class="trash-btn cart-delete-mobile" onclick="confirmRemove('<?php echo $pid; ?>')" title="Remove">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -1051,7 +1075,7 @@ require_once __DIR__ . '/../includes/header.php';
                                 </div>
                             </div>
                             
-                            <button type="button" onclick="proceedToReview()" id="checkout-btn" class="btn-primary" style="padding:0.75rem 2rem; <?php echo $total <= 0 ? 'opacity: 0.5; pointer-events: none;' : ''; ?>">Proceed to Checkout</button>
+                            <button type="button" onclick="proceedToReview()" id="checkout-btn" class="btn-primary" style="padding:0.75rem 2rem; <?php echo ($total <= 0 || $cart_design_fee_errors !== []) ? 'opacity: 0.5; pointer-events: none;' : ''; ?>" <?php echo $cart_design_fee_errors !== [] ? 'disabled aria-disabled="true"' : ''; ?>>Proceed to Checkout</button>
                         </div>
                     </div>
                 </div>
@@ -1225,7 +1249,8 @@ function previewQty(row, quantity) {
     const price = parseFloat(row.dataset.price);
     const totalCell = document.getElementById(`total-${row.dataset.id}`);
     const lineTotalText = totalCell ? (totalCell.querySelector('.cart-line-total') || totalCell.querySelector('span')) : null;
-    if (lineTotalText && price > 0) lineTotalText.textContent = PHP(price * quantity);
+    const designFee = Math.max(0, parseFloat(row.dataset.designFee) || 0);
+    if (lineTotalText && price > 0) lineTotalText.textContent = PHP((price * quantity) + designFee);
     row.querySelector('.qty-btn:first-child').disabled = quantity <= 1;
     updateAllPlusBtns();
     recalculateTotal();
@@ -1430,7 +1455,7 @@ function recalculateTotal() {
                 const pid = row.dataset.id;
                 const price = parseFloat(row.dataset.price);
                 const qty = parseInt(document.getElementById(`qty-${pid}`).value, 10) || 0;
-                subtotal += price * qty;
+                subtotal += (price * qty) + Math.max(0, parseFloat(row.dataset.designFee) || 0);
             }
         }
     });

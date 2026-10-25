@@ -4653,18 +4653,22 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function resolveServiceModalPricing() {
             let unitPrice = 0;
             let quantity = 1;
+            let designFee = 0;
             if (posEstimatedPriceController && typeof posEstimatedPriceController.recalculate === 'function') {
                 const result = posEstimatedPriceController.recalculate();
                 unitPrice = Number(result.unitPrice);
                 quantity = Number(result.quantity);
+                designFee = Number(result.designFee || 0);
             } else if (typeof window.calculateEstimatedPrice === 'function') {
                 const result = window.calculateEstimatedPrice();
                 unitPrice = Number(result.unitPrice);
                 quantity = Number(result.quantity);
+                designFee = Number(result.designFee || 0);
             }
             if (!Number.isFinite(unitPrice)) unitPrice = 0;
             if (!Number.isFinite(quantity) || quantity < 1) quantity = 1;
-            return { unitPrice, quantity };
+            if (!Number.isFinite(designFee) || designFee < 0) designFee = 0;
+            return { unitPrice, quantity, designFee };
         }
 
         const POS_MISSING_ESTIMATE_MESSAGE = 'This specification does not have an estimated price yet. The final price will be set by Staff before payment or order completion. Do you want to continue?';
@@ -4673,18 +4677,22 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return showPOSConfirm('Estimated Price', POS_MISSING_ESTIMATE_MESSAGE, 'Continue', 'warning');
         }
 
-        function applyServicePricingToCustomization(customization, unitPrice, quantity) {
+        function applyServicePricingToCustomization(customization, unitPrice, quantity, designFee) {
             const safeUnit = Math.round(unitPrice * 100) / 100;
             const safeQty = Math.max(1, parseInt(String(quantity), 10) || 1);
+            const safeDesignFee = Math.max(0, Math.round((Number(designFee) || 0) * 100) / 100);
             customization.calculated_unit_price = safeUnit.toFixed(2);
-            customization.calculated_estimated_price = (safeUnit * safeQty).toFixed(2);
+            customization.calculated_design_fee = safeDesignFee.toFixed(2);
+            customization.design_fee = safeDesignFee.toFixed(2);
+            customization.design_fee_version = 1;
+            customization.calculated_estimated_price = (Math.round((safeUnit * safeQty + safeDesignFee) * 100) / 100).toFixed(2);
             customization.quantity = String(safeQty);
             if (safeUnit > 0) {
                 delete customization.price_unconfigured;
             } else {
                 customization.price_unconfigured = '1';
             }
-            return { unitPrice: safeUnit, quantity: safeQty };
+            return { unitPrice: safeUnit, quantity: safeQty, designFee: safeDesignFee };
         }
 
         async function openServiceModal(serviceId, serviceName) {
@@ -5215,7 +5223,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             // Add service to cart with calculated unit price from the modal estimator
             const pricing = resolveServiceModalPricing();
-            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization['quantity'] || pricing.quantity);
+            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization['quantity'] || pricing.quantity, pricing.designFee);
             if (priced.unitPrice <= 0) {
                 const proceed = await confirmMissingEstimatedPrice();
                 if (!proceed) return;
@@ -6062,7 +6070,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
 
             const pricing = resolveServiceModalPricing();
-            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization.quantity || pricing.quantity);
+            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization.quantity || pricing.quantity, pricing.designFee);
 
             body.querySelectorAll('input[type="radio"]:checked').forEach(radio => {
                 const row = radio.closest('.shopee-form-row');
@@ -7262,7 +7270,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const unitPrice = posCartItemEstimatedUnitPrice(item);
                     const pricingComplete = posCartItemStaffPricingComplete(item);
                     const countsInTotal = posCartItemCountsInCheckoutTotal(item);
-                    const confirmedLineTotal = (parseFloat(item.price) || 0) * (item.qty || 1);
+                    const confirmedLineTotal = item.line_total_override !== null && item.line_total_override !== undefined
+                        ? Math.max(0, Number(item.line_total_override) || 0)
+                        : ((parseFloat(item.price) || 0) * (item.qty || 1)) + Math.max(0, Number(item.design_fee ?? item.customization?.design_fee) || 0);
                     if (countsInTotal) {
                         currentTotal += confirmedLineTotal;
                     }
