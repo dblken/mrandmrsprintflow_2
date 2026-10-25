@@ -30,6 +30,8 @@ function runEstimate({ quantity, layout, fee, configured = true, marker = false 
   const qty = makeElement({ tag: 'input' }, String(quantity));
   const unitOut = makeElement();
   const totalOut = makeElement();
+  const estimatedInput = makeElement();
+  const qtyDisplay = makeElement();
   const feeOut = makeElement();
   const scope = {
     addEventListener() {},
@@ -51,9 +53,11 @@ function runEstimate({ quantity, layout, fee, configured = true, marker = false 
     basePrice: 120,
     unitPriceInputEl: unitOut,
     estimatedTotalEl: totalOut,
+    estimatedPriceInputEl: estimatedInput,
+    qtyDisplayEl: qtyDisplay,
     designFeeInputEl: feeOut,
   }).recalculate();
-  return { result, unitOut, totalOut, feeOut };
+  return { result, unitOut, totalOut, estimatedInput, qtyDisplay, feeOut, qty };
 }
 
 for (const quantity of [1, 3, 10]) {
@@ -75,5 +79,22 @@ assert.equal(missingPrice.result.estimatedTotal, 360, 'missing fee estimates bas
 const liveRegression = runEstimate({ quantity: 3, layout: 'Without Layout', fee: 200, marker: false });
 assert.equal(liveRegression.result.estimatedTotal, 560, 'Tarpaulin base 120 x qty 3 plus one 200 fee equals 560');
 assert.equal(liveRegression.totalOut.textContent, '₱560.00', 'POS/customer estimate displays the corrected live regression total');
+
+liveRegression.qty.value = '';
+const clearedEstimate = window.calculateEstimatedPrice();
+assert.equal(liveRegression.qty.value, '', 'clearing quantity remains an editable empty state');
+assert.equal(clearedEstimate.quantity, null, 'empty quantity is not silently priced as one');
+assert.equal(liveRegression.totalOut.textContent, '—', 'estimate indicates a pending quantity while the field is blank');
+assert.equal(liveRegression.estimatedInput.value, '', 'invalid quantity clears the submitted estimated total');
+liveRegression.qty.value = '5';
+const replacedEstimate = window.calculateEstimatedPrice();
+assert.equal(replacedEstimate.quantity, 5, 'typing a replacement quantity recalculates the estimate');
+assert.equal(replacedEstimate.estimatedTotal, 800, 'replacement quantity retains the one-time design fee');
+
+for (const quantity of [1, 5, 20, 100]) {
+  const manuallyEntered = runEstimate({ quantity, layout: 'Without Layout', fee: 200, marker: false });
+  assert.equal(manuallyEntered.result.quantity, quantity, `manual quantity ${quantity} reaches the estimator`);
+  assert.equal(manuallyEntered.result.estimatedTotal, 120 * quantity + 200, `manual quantity ${quantity} keeps the design fee one-time`);
+}
 
 console.log('Service estimated price design-fee quantity regression tests passed.');

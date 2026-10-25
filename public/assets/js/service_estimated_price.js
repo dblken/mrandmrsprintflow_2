@@ -138,9 +138,24 @@
             const optionsTotal = calculateOptionsTotal(scope);
             const designFee = calculateDesignFee(scope);
             const qtyInput = scope ? scope.querySelector('.pf-service-quantity-input') : null;
-            const quantity = parseInt(qtyInput && qtyInput.value ? qtyInput.value : '1', 10);
-            const safeQty = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+            const rawQuantity = qtyInput ? String(qtyInput.value) : '1';
+            const quantity = /^[0-9]+$/.test(rawQuantity) ? Number(rawQuantity) : NaN;
+            const quantityValid = Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= 100;
             const unitPrice = basePrice + optionsTotal;
+
+            if (!quantityValid) {
+                // An empty or malformed edit is temporary UI state, not quantity 1.
+                // Keep the estimate visibly pending and clear the submitted total
+                // until the user enters a valid quantity.
+                if (estimatedTotalEl) estimatedTotalEl.textContent = '—';
+                if (qtyDisplayEl) qtyDisplayEl.textContent = '';
+                if (unitPriceInputEl) unitPriceInputEl.value = unitPrice.toFixed(2);
+                if (estimatedPriceInputEl) estimatedPriceInputEl.value = '';
+                if (designFeeInputEl) designFeeInputEl.value = designFee.toFixed(2);
+                return { unitPrice: unitPrice, estimatedTotal: null, quantity: null, designFee: designFee };
+            }
+
+            const safeQty = quantity;
             const estimatedTotal = Math.round((unitPrice * safeQty + designFee) * 100) / 100;
 
             if (estimatedTotalEl) {
