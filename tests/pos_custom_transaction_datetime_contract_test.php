@@ -20,16 +20,19 @@ $assert = static function (bool $condition, string $message) use (&$passed): voi
 
 $assert(
     !str_contains($pos, 'Set Date &amp; Time')
+        && !str_contains($pos, 'Date/Time: Current server time')
         && !str_contains($pos, 'pos-open-transaction-datetime-btn')
-        && str_contains($pos, 'POS_CAN_CUSTOM_TRANSACTION_DATETIME')
-        && str_contains($pos, 'posCheckoutCustomTransactionPayload')
-        && str_contains($pos, 'validatePosCheckoutTransactionDateTime'),
-    'POS hides Set Date & Time button; checkout payload wiring retained for server time default'
+        && !str_contains($pos, 'pos-tx-datetime-modal')
+        && !str_contains($pos, 'posCustomTransactionState')
+        && !str_contains($pos, 'posCheckoutCustomTransactionPayload')
+        && !str_contains($pos, 'validatePosCheckoutTransactionDateTime')
+        && !str_contains($pos, 'resetPosCheckoutTransactionDateTime'),
+    'POS markup and JavaScript contain no Set Date & Time UI or checkout controls'
 );
 $assert(
     str_contains($pos, 'Needed date cannot be in the past.')
-        && str_contains($pos, 'posCustomTransactionState.enabled'),
-    'Needed Date stays validated unless custom business datetime mode is active'
+        && !str_contains($pos, 'posCustomTransactionState.enabled'),
+    'Needed Date keeps its normal past-date validation without transaction date mode'
 );
 $assert(
     str_contains($datetime, 'function printflow_pos_selected_transaction_datetime')
@@ -41,7 +44,14 @@ $assert(
     str_contains($checkout, 'printflow_pos_selected_transaction_datetime')
         && str_contains($checkout, 'pos_business_datetime')
         && str_contains($checkout, "'transaction_date' => \$selectedTransactionAt"),
-    'Checkout persists custom business datetime on orders, customizations, and inventory'
+    'Checkout keeps server-selected timestamps for orders, customizations, and inventory'
+);
+$assert(
+    !str_contains($pos, 'posCheckoutCustomTransactionPayload()')
+        && !str_contains($pos, 'custom_transaction_date')
+        && !str_contains($pos, 'custom_transaction_time')
+        && str_contains($datetime, "return printflow_pos_manila_now()->format('Y-m-d H:i:s')"),
+    'POS submits no custom transaction time and checkout defaults to current Manila server time'
 );
 $assert(
     str_contains($serviceFields, 'printflow_allow_past_needed_date')

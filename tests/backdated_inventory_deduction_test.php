@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/includes/inventory_business_datetime.php';
+require_once dirname(__DIR__) . '/includes/tarpaulin_material_calculation.php';
 
 $root = dirname(__DIR__);
 $passed = 0;

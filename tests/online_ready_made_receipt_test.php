@@ -12,7 +12,7 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
     if (!$condition) $failures[] = $message;
 };
 
-$assert(strpos($payment, 'receipt_order_id=') !== false && strpos($payment, 'Download Receipt') !== false, 'Paid ready-made payment confirmation links to the existing receipt download flow.');
+$assert(strpos($payment, 'receipt_download=1') !== false && strpos($payment, 'Download Receipt') !== false && strpos($payment, "href=\"<?php echo 'orders.php?receipt_order_id=") === false, 'Paid ready-made payment confirmation downloads through a hidden frame without navigating away.');
 $assert(strpos($itemsApi, '$is_ready_made_product') !== false && strpos($itemsApi, '? $provider_is_paid') !== false, 'Ready-made receipt eligibility requires the verified PayMongo ledger state.');
 $assert(strpos($itemsApi, "WHERE o.order_id = ? AND o.customer_id = ?") !== false, 'Receipt data remains scoped to the authenticated order owner.');
 $assert(strpos($itemsApi, "printflow_customer_receipt_is_available") !== false, 'Existing service receipt eligibility remains available.');

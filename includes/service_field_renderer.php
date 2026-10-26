@@ -179,6 +179,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
     
     // Get the label to match against customization keys
     $field_label = $config['label'];
+    $is_design_fee_field = strpos(strtolower((string)$field_key), 'layout') !== false
+        || strpos(strtolower((string)$field_label), 'layout') !== false;
     
     // Try to find saved value
     $is_branch_field = printflow_service_field_is_branch_field((string)$field_key, (array)$config);
@@ -335,7 +337,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                     }
                 }
 
-                $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field pf-select-with-others' . (printflow_service_field_uses_custom_size_panel($field_key, $config) ? ' pf-select-custom-size' : '') . '" data-field-key="' . htmlspecialchars($field_key) . '" data-other-option="Others" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
+                $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field pf-select-with-others' . (printflow_service_field_uses_custom_size_panel($field_key, $config) ? ' pf-select-custom-size' : '') . '" data-field-key="' . htmlspecialchars($field_key) . '"' . ($is_design_fee_field ? ' data-design-fee-field="1"' : '') . ' data-other-option="Others" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
                 $placeholder = preg_match('/upload\s+design|design\s+upload/i', (string)$config['label'])
                     ? 'Choose an option'
                     : 'Select ' . $label;
@@ -351,7 +353,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                     $value = htmlspecialchars($optionValue);
                     $displayValue = htmlspecialchars(pf_service_option_label(printflow_service_custom_size_option_label((string)$optionValue, $field_key, $config)));
                     $selected = ($selectSaved === (string)$optionValue) ? ' selected' : '';
-                    $html .= '<option value="' . $value . '" data-price="' . htmlspecialchars((string)$optionPrice) . '"' . $selected . '>' . $displayValue . '</option>';
+                    $feeConfiguredAttr = $is_design_fee_field && is_array($option) && array_key_exists('price', $option) ? ' data-design-fee-configured="1"' : '';
+                    $html .= '<option value="' . $value . '" data-price="' . htmlspecialchars((string)$optionPrice) . '"' . $feeConfiguredAttr . $selected . '>' . $displayValue . '</option>';
                 }
                 $html .= '</select>';
 
@@ -419,7 +422,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                 $is_checked = ($radioSaved === (string)$optionValue) ? ' checked' : '';
                 $optionPrice = is_array($option) ? ($option['price'] ?? 0) : 0;
                 $html .= '<label class="shopee-opt-btn' . ($is_checked ? ' active' : '') . '">';
-                $html .= '<input type="radio" name="' . htmlspecialchars($field_key) . '" value="' . $value . '"' . $is_checked . ' style="display:none;" class="pricing-field" data-pf-radio-option-index="' . (int)$idx . '" data-price="' . htmlspecialchars((string)$optionPrice) . '" ' . $required_attr . '>';
+                $feeConfiguredAttr = $is_design_fee_field && is_array($option) && array_key_exists('price', $option) ? ' data-design-fee-configured="1"' : '';
+                $html .= '<input type="radio" name="' . htmlspecialchars($field_key) . '" value="' . $value . '"' . $is_checked . ' style="display:none;" class="pricing-field" data-pf-radio-option-index="' . (int)$idx . '" data-price="' . htmlspecialchars((string)$optionPrice) . '"' . ($is_design_fee_field ? ' data-design-fee-field="1"' : '') . $feeConfiguredAttr . ' ' . $required_attr . '>';
                 $html .= '<span>' . $displayValue . '</span>';
                 $html .= '</label>';
             }
@@ -712,9 +716,9 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $qty_id = 'pf-qty-' . preg_replace('/[^a-zA-Z0-9_-]/', '_', (string)$field_key);
             $html .= '<div class="shopee-opt-group">';
             $html .= '<div class="quantity-container shopee-opt-btn" style="display: inline-flex; justify-content: space-between; gap: 1rem; width: 175px; cursor: default;">';
-            $html .= '<button type="button" class="qty-btn-minus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="const w=this.closest(\'.quantity-container\');const i=w?w.querySelector(\'.pf-service-quantity-input\'):null;if(i&&parseInt(i.value)>1){i.value=parseInt(i.value)-1;if(window.calculateEstimatedPrice)window.calculateEstimatedPrice();}">&minus;</button>';
-            $html .= '<input type="text" inputmode="numeric" id="' . htmlspecialchars($qty_id, ENT_QUOTES, 'UTF-8') . '" name="' . $qty_name . '" class="qty-input-field pf-service-quantity-input" style="border: none; text-align: center; width: 60px; font-size: 0.875rem; font-weight: 500; color: #374151; background: transparent; outline: none;" value="' . $saved_qty . '" oninput="if(window.validateQuantity)window.validateQuantity(this);" onkeydown="return event.key === \'Backspace\' || event.key === \'Delete\' || event.key === \'ArrowLeft\' || event.key === \'ArrowRight\' || event.key === \'Tab\' || (event.key >= \'0\' && event.key <= \'9\');">';
-            $html .= '<button type="button" class="qty-btn-plus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="const w=this.closest(\'.quantity-container\');const i=w?w.querySelector(\'.pf-service-quantity-input\'):null;if(i){const max=100;const v=parseInt(i.value)||1;if(v<max){i.value=v+1;if(window.calculateEstimatedPrice)window.calculateEstimatedPrice();}}">+</button>';
+            $html .= '<button type="button" class="qty-btn-minus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="window.pfChangeQty(this, -1)">&minus;</button>';
+            $html .= '<input type="text" inputmode="numeric" id="' . htmlspecialchars($qty_id, ENT_QUOTES, 'UTF-8') . '" name="' . $qty_name . '" class="qty-input-field pf-service-quantity-input" style="border: none; text-align: center; width: 60px; font-size: 0.875rem; font-weight: 500; color: #374151; background: transparent; outline: none;" value="' . $saved_qty . '">';
+            $html .= '<button type="button" class="qty-btn-plus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="window.pfChangeQty(this, 1)">+</button>';
             $html .= '</div>';
             $html .= '</div>';
             break;
@@ -1589,24 +1593,62 @@ function selectDimensionOthers(e) {
 
 function increaseQty() {
     const i = document.querySelector('#serviceForm .pf-service-quantity-input') || document.querySelector('.pf-service-quantity-input');
-    if (i) i.value = Math.min(100, (parseInt(i.value) || 1) + 1);
-    if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
+    if (!i) return;
+    const val = Number(i.value);
+    i.value = String(Math.min(100, (Number.isInteger(val) && val >= 1 ? val : 1) + 1));
+    validateQuantity(i);
 }
 
 function decreaseQty() {
     const i = document.querySelector('#serviceForm .pf-service-quantity-input') || document.querySelector('.pf-service-quantity-input');
-    if (i && parseInt(i.value) > 1) i.value = parseInt(i.value) - 1;
-    if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
+    if (!i) return;
+    const val = Number(i.value);
+    i.value = String(Math.max(1, (Number.isInteger(val) && val >= 1 ? val : 1) - 1));
+    validateQuantity(i);
 }
 
-function validateQuantity(input) {
-    let val = parseInt(input.value);
-    if (isNaN(val) || val < 1) {
-        input.value = 1;
-    } else if (val > 100) {
-        input.value = 100;
+function validateQuantity(input, commit = false) {
+    if (!input) return false;
+    const invalidMessage = 'Enter a whole number from 1 to 100.';
+    let raw = String(input.value ?? '');
+
+    // Keep the empty state while the user is selecting and replacing a value.
+    if (raw === '' && !commit) {
+        input.setCustomValidity(invalidMessage);
+        return false;
     }
+    if (raw === '' && commit) {
+        input.value = '1';
+        raw = '1';
+    }
+    if (!/^[0-9]+$/.test(raw)) {
+        input.setCustomValidity(invalidMessage);
+        return false;
+    }
+
+    let val = Number(raw);
+    if (!Number.isSafeInteger(val)) {
+        input.setCustomValidity(invalidMessage);
+        return false;
+    }
+    if (val < 1) {
+        if (!commit) {
+            input.setCustomValidity(invalidMessage);
+            return false;
+        }
+        val = 1;
+    } else if (val > 100) {
+        if (!commit) {
+            input.setCustomValidity(invalidMessage);
+            return false;
+        }
+        val = 100;
+    }
+
+    input.value = String(val);
+    input.setCustomValidity('');
     if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
+    return true;
 }
 
 function pfChangeQty(btn, delta) {
@@ -1614,13 +1656,10 @@ function pfChangeQty(btn, delta) {
     const container = btn.closest('.quantity-container') || btn.parentElement;
     const input = container ? container.querySelector('.pf-service-quantity-input') : (document.querySelector('#serviceForm .pf-service-quantity-input') || document.querySelector('.pf-service-quantity-input'));
     if (!input) return;
-    let val = parseInt(input.value);
-    if (isNaN(val) || val < 1) val = 1;
-    val = val + delta;
-    if (val < 1) val = 1;
-    if (val > 100) val = 100;
-    input.value = val;
-    if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
+    const current = Number(input.value);
+    const val = Number.isInteger(current) && current >= 1 ? current : 1;
+    input.value = String(Math.max(1, Math.min(100, val + delta)));
+    validateQuantity(input);
 }
 
 function serviceFieldEventProxy(method, target) {
@@ -1752,6 +1791,15 @@ if (!window.__pfServiceFieldDelegatesBound) {
             validateDimensionInput(e.target);
         } else if (e.target.matches('.pf-service-quantity-input')) {
             validateQuantity(e.target);
+        }
+    }, true);
+
+    document.addEventListener('focusout', function(e) {
+        if (!e.target.matches('.pf-service-quantity-input')) return;
+        const oldValue = e.target.value;
+        validateQuantity(e.target, true);
+        if (e.target.value !== oldValue) {
+            e.target.dispatchEvent(new Event('change', { bubbles: true }));
         }
     }, true);
 }

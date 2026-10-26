@@ -3207,8 +3207,8 @@ $online_closed_count = 0;
                                                         <div style="font-weight:600; color:#1e293b;" x-text="pm.name"></div>
                                                         <template x-if="isTarpaulin(pm.item_id)">
                                                             <div style="display:flex;flex-wrap:wrap;gap:8px;color:#64748b;font-size:11px;margin-top:5px;">
-                                                                <label>Width used:
-                                                                    <input type="number" min="1" step="any" x-model.number="pm.qty" aria-label="Material width used"
+                                                                <label>Linear Ft:
+                                                                    <input type="number" min="0.001" step="any" x-model.number="pm.qty" aria-label="Required linear feet"
                                                                            style="width:72px;margin-left:3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
                                                                 </label>
                                                                 <label>Height:
@@ -3257,14 +3257,20 @@ $online_closed_count = 0;
                                                placeholder="0.00"
                                                x-effect="if (showDetailsModal) syncJobPriceInputField()"
                                                x-on:input="
-                                                   let val = $event.target.value.replace(/[^0-9.]/g, '');
-                                                   let parts = val.split('.');
-                                                   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-                                                   $event.target.value = parts.join('.');
-                                                   jobPriceInput = $event.target.value.replace(/,/g, '');
+                                                   if (isPosSetPriceFlow()) {
+                                                       jobPriceInput = $event.target.value.replace(/,/g, '');
+                                                   } else {
+                                                       let val = $event.target.value.replace(/[^0-9.]/g, '');
+                                                       let parts = val.split('.');
+                                                       parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+                                                       $event.target.value = parts.join('.');
+                                                       jobPriceInput = $event.target.value.replace(/,/g, '');
+                                                   }
                                                "
                                                x-on:blur="
-                                                   if (jobPriceInput && String(jobPriceInput).trim() !== '') {
+                                                   if (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput)) {
+                                                       $event.target.value = jobPriceInput;
+                                                   } else if (jobPriceInput && String(jobPriceInput).trim() !== '') {
                                                        jobPriceInput = parseFloat(jobPriceInput).toFixed(2);
                                                        $event.target.value = Number(jobPriceInput).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                                                    } else {
@@ -3276,6 +3282,7 @@ $online_closed_count = 0;
                                                onfocus="this.style.borderColor='#0d9488'; this.style.boxShadow='0 0 0 3px rgba(6, 161, 161, 0.08)'"
                                                onblur="this.style.borderColor='#5eead4'; this.style.boxShadow='none'">
                                     </div>
+                                    <div x-show="isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput)" x-cloak style="margin-top:6px;font-size:12px;font-weight:700;color:#b91c1c;">Enter a positive final price with no more than two decimal places (maximum ₱9,999,999.99).</div>
                                     <div x-show="priceBelowEstimateLabel" x-cloak x-text="priceBelowEstimateLabel" style="margin-top:6px; font-size:11px; font-weight:700; color:#b45309;"></div>
                                 </div>
                                 <div x-show="approvalStockErrors.length > 0" style="margin-bottom:12px; padding:12px 14px; border-radius:10px; border:1px solid #fecaca; background:#fff1f2; color:#b91c1c; font-size:12px; font-weight:700; line-height:1.5;">
@@ -3760,13 +3767,13 @@ $online_closed_count = 0;
                                 <button type="button" @click="openRevisionModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Request Additional Details</button>
                             </div>
                             <div x-show="isPosPricingMode() && modalWorkflowStatus(currentJo) === 'APPROVED'" style="display:flex; gap:8px; flex-wrap:wrap;">
-                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Confirm Set Price</button>
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)) ? 'opacity:.6;cursor:not-allowed;' : ''">Confirm Set Price</button>
                             </div>
                             <div x-show="!isPosPricingMode() && modalWorkflowStatus(currentJo) === 'APPROVED' && (!isPosSimplifiedView || !isPosPricingReturnFlow(currentJo))" style="display:flex; gap:8px;">
-                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Set Price</button>
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))) ? 'opacity:.6;cursor:not-allowed;' : ''">Set Price</button>
                             </div>
                             <div x-show="!isPosPricingMode() && isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'APPROVED' && isPosPricingReturnFlow(currentJo)" style="display:flex; gap:8px;">
-                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Continue to POS Payment</button>
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))) ? 'opacity:.6;cursor:not-allowed;' : ''">Continue to POS Payment</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'PAYMENT_CONFIRMED' && canStartProduction(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="startProduction()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Proceed to Production</button>
@@ -4432,10 +4439,84 @@ window.pfServiceFieldCatalog = (() => {
             getInventoryItem(itemId) {
                 return this.allInventoryItems.find(i => String(i.id) === String(itemId)) || null;
             },
+            isCurrentTarpaulinService() {
+                const linkedId = Number(this.currentJo?.linked_order_item_id || this.currentJo?.order_item_id || 0);
+                const linkedItem = (Array.isArray(this.currentJo?.items) ? this.currentJo.items : [])
+                    .find(item => Number(item?.order_item_id || 0) === linkedId);
+                const serviceId = Number(this.currentJo?.service_id
+                    || linkedItem?.service_id
+                    || linkedItem?.customization?.service_id
+                    || 0);
+                return serviceId === 40;
+            },
+            isVersionedTarpaulinMaterial(itemId) {
+                return this.isCurrentTarpaulinService() && this.isTarpaulin(itemId);
+            },
             normalizeMaterialQtyValue(value, fallback = 1) {
                 const parsed = parseFloat(value);
                 if (!Number.isFinite(parsed)) return fallback;
                 return parsed < 1 ? 1 : parsed;
+            },
+            normalizeTarpaulinLength(value) {
+                const parsed = Number(value);
+                return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+            },
+            isValidPosMaterialQuantity(value, itemId = null) {
+                if (this.isVersionedTarpaulinMaterial(itemId || this.newMaterialId)) {
+                    const number = Number(String(value ?? '').trim());
+                    return Number.isFinite(number) && number > 0;
+                }
+                const raw = String(value ?? '').trim();
+                return /^[1-9][0-9]*$/.test(raw) && Number.isSafeInteger(Number(raw)) && Number(raw) <= 2147483647;
+            },
+            posMaterialQuantityError(materials = []) {
+                if (!this.isPosSetPriceFlow()) return '';
+                for (const material of materials) {
+                    const itemId = material && material.item_id;
+                    const amount = Number(material && (material.qty ?? material.quantity));
+                    if (this.isVersionedTarpaulinMaterial(itemId)) {
+                        if (!Number.isFinite(amount) || amount <= 0) return 'POS Tarpaulin lengths must be positive linear feet.';
+                        const meta = material && material.metadata && typeof material.metadata === 'object' ? material.metadata : {};
+                        if (meta.tarpaulin_calculation_version === 'linear_ft_v1') {
+                            const calculation = this.tarpaulinCalculationForItem(itemId, meta.width_ft, meta.height_ft, meta.finished_quantity);
+                            if (!calculation || Math.abs(amount - calculation.required_linear_ft) > 0.001) {
+                                return 'Tarpaulin material length must match the calculated roll length for its dimensions and quantity.';
+                            }
+                        }
+                        continue;
+                    }
+                    if (!this.isValidPosMaterialQuantity(amount, itemId)) {
+                        return this.isVersionedTarpaulinMaterial(material && material.item_id)
+                            ? 'POS Tarpaulin lengths must be positive linear feet.'
+                            : 'POS material quantities must be positive whole numbers.';
+                    }
+                }
+                return '';
+            },
+            tarpaulinCalculationForItem(itemId, width = null, height = null, quantity = null) {
+                const item = this.getInventoryItem(itemId);
+                const rollWidth = item && window.PrintFlowProductionMaterials
+                    ? window.PrintFlowProductionMaterials.tarpaulinRollWidthFor(item)
+                    : null;
+                const jobWidth = Number(width ?? this.currentJo?.width_ft ?? 0);
+                const jobHeight = Number(height ?? this.currentJo?.height_ft ?? 0);
+                const jobQuantity = Number(quantity ?? this.currentJo?.quantity ?? 0);
+                if (!rollWidth || !window.PrintFlowProductionMaterials?.calculateTarpaulinLinearLength) return null;
+                return window.PrintFlowProductionMaterials.calculateTarpaulinLinearLength(jobWidth, jobHeight, jobQuantity, rollWidth);
+            },
+            persistedPosTarpaulinSelection() {
+                const items = Array.isArray(this.currentJo?.items) ? this.currentJo.items : [];
+                const matching = items.find(item => Number(item?.service_id || item?.customization?.service_id || 0) === 40)
+                    || items.find(item => Number(item?.order_item_id || 0) === Number(this.currentJo?.linked_order_item_id || this.currentJo?.order_item_id || 0));
+                const raw = matching?.customization_data;
+                let details = matching?.customization && typeof matching.customization === 'object' ? matching.customization : {};
+                if (typeof raw === 'string' && raw.trim()) {
+                    try { details = { ...details, ...(JSON.parse(raw) || {}) }; } catch (error) {}
+                }
+                if (!details.pos_tarpaulin_selection && this.currentJo?.customization_details?.pos_tarpaulin_selection) {
+                    details = this.currentJo.customization_details;
+                }
+                return details.pos_tarpaulin_selection || null;
             },
             isPcsMaterial(itemId) {
                 const item = this.getInventoryItem(itemId);
@@ -4469,6 +4550,26 @@ window.pfServiceFieldCatalog = (() => {
                 if (Array.isArray(this.currentJo.materials) && this.currentJo.materials.length > 0) return;
                 if (this.pendingMaterials.length > 0) return;
                 if (!window.PrintFlowProductionMaterials || !Array.isArray(this.allInventoryItems) || !this.allInventoryItems.length) return;
+                if (Number(this.currentJo?.service_id || this.currentJo?.items?.[0]?.service_id || 0) === 40) {
+                    const savedSelection = this.persistedPosTarpaulinSelection();
+                    const savedItem = savedSelection && this.getInventoryItem(savedSelection.item_id);
+                    if (savedItem && ['linear_ft_v1', 'panel_joining_v2'].includes(savedSelection.version)) {
+                        this.handleMaterialSelection(savedItem.id);
+                        this.newMaterialQty = Number(savedSelection.required_linear_ft);
+                        this.newMaterialHeight = Number(savedSelection.height_ft);
+                        this.newMaterialMetadata = {
+                            ...(this.newMaterialMetadata || {}),
+                            tarpaulin_calculation_version: savedSelection.version,
+                            tarpaulin_orientation: savedSelection.orientation,
+                            tarpaulin_roll_width_ft: Number(savedSelection.roll_width_ft),
+                            tarpaulin_run_length_per_piece_ft: Number(savedSelection.run_length_per_panel_ft || savedSelection.run_length_per_piece_ft),
+                            tarpaulin_required_linear_ft: Number(savedSelection.required_linear_ft),
+                            panel_plan: savedSelection.version === 'panel_joining_v2' ? savedSelection : null,
+                        };
+                        if (!this.selectedMaterialStockError) this.addMaterialToQueue();
+                        return;
+                    }
+                }
                 const match = window.PrintFlowProductionMaterials.getAutoSelectCandidate(
                     this.allInventoryItems, this.materialCompatibilityContext, this.materialRules
                 );
@@ -4491,9 +4592,32 @@ window.pfServiceFieldCatalog = (() => {
                     const jH = dims.height;
                     const jQ = parseFloat(this.currentJo.quantity || 1);
                     
-                    if (this.isTarpaulin(selectedId)) {
-                        this.newMaterialQty = jW > 0 ? jW : 1;
-                        this.newMaterialHeight = jH > 0 ? jH : 1;
+                    if (this.isVersionedTarpaulinMaterial(selectedId)) {
+                        const savedSelection = this.persistedPosTarpaulinSelection();
+                        if (savedSelection?.version === 'panel_joining_v2') {
+                            if (Number(savedSelection.item_id) !== Number(selectedId)) {
+                                this.newMaterialMetadata = { ...(this.newMaterialMetadata || {}), tarpaulin_calculation_version: 'panel_joining_v2', panel_plan: savedSelection, tarpaulin_required_linear_ft: Number(savedSelection.required_linear_ft) };
+                                this.newMaterialQty = 0;
+                                this.newMaterialHeight = 0;
+                                return;
+                            }
+                            this.newMaterialQty = Number(savedSelection.required_linear_ft);
+                            this.newMaterialHeight = Number(savedSelection.run_length_per_panel_ft || 0);
+                            this.newMaterialMetadata = { ...(this.newMaterialMetadata || {}), tarpaulin_calculation_version: 'panel_joining_v2', panel_plan: savedSelection, tarpaulin_required_linear_ft: Number(savedSelection.required_linear_ft), tarpaulin_roll_width_ft: Number(savedSelection.roll_width_ft), tarpaulin_orientation: savedSelection.orientation };
+                            if (this.isRollTracked(selectedId)) this.loadAvailableRolls(selectedId);
+                            return;
+                        }
+                        const calculation = this.tarpaulinCalculationForItem(selectedId, jW, jH, jQ);
+                        this.newMaterialQty = calculation ? calculation.required_linear_ft : '';
+                        this.newMaterialHeight = jH > 0 ? jH : 0;
+                        this.newMaterialMetadata = {
+                            ...(this.newMaterialMetadata || {}),
+                            tarpaulin_calculation_version: 'linear_ft_v1',
+                            tarpaulin_orientation: calculation?.orientation || '',
+                            tarpaulin_roll_width_ft: calculation?.roll_width_ft || 0,
+                            tarpaulin_run_length_per_piece_ft: calculation?.run_length_per_piece_ft || 0,
+                            tarpaulin_required_linear_ft: calculation?.required_linear_ft || 0,
+                        };
                     } else if (this.isRollTracked(selectedId)) {
                         const longest = Math.max(jH, jW);
                         this.newMaterialQty = longest > 0 ? longest : 1;
@@ -4513,12 +4637,15 @@ window.pfServiceFieldCatalog = (() => {
             },
             handleMaterialQtyInput(value) {
                 this.materialQtyManuallyEdited = true;
-                this.newMaterialQty = this.normalizeMaterialQtyValue(value, 1);
+                this.newMaterialQty = this.isPosSetPriceFlow()
+                    ? String(value ?? '')
+                    : this.normalizeMaterialQtyValue(value, 1);
             },
-            getMaterialRequiredStock(itemId, qty = 0, height = 0) {
+            getMaterialRequiredStock(itemId, qty = 0, height = 0, metadata = {}) {
                 const parsedQty = parseFloat(qty || 0);
                 if (parsedQty <= 0) return 0;
-                if (this.isTarpaulin(itemId)) {
+                if (this.isVersionedTarpaulinMaterial(itemId)) {
+                    if (metadata && ['linear_ft_v1', 'panel_joining_v2'].includes(metadata.tarpaulin_calculation_version)) return parsedQty;
                     const parsedHeight = parseFloat(height || 0);
                     return parsedHeight > 0 ? parsedQty * parsedHeight : parsedQty;
                 }
@@ -4527,17 +4654,42 @@ window.pfServiceFieldCatalog = (() => {
             getQueuedMaterialRequiredStock(itemId) {
                 return this.pendingMaterials
                     .filter(m => String(m.item_id) === String(itemId))
-                    .reduce((sum, m) => sum + this.getMaterialRequiredStock(m.item_id, m.qty, m.metadata && m.metadata.height_ft ? m.metadata.height_ft : 0), 0);
+                    .reduce((sum, m) => sum + this.getMaterialRequiredStock(m.item_id, m.qty, m.metadata && m.metadata.height_ft ? m.metadata.height_ft : 0, m.metadata || {}), 0);
             },
             get selectedMaterialStockError() {
                 if (!this.newMaterialId) return '';
                 const item = this.getInventoryItem(this.newMaterialId);
                 if (!item) return '';
+                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) {
+                    return this.isVersionedTarpaulinMaterial(this.newMaterialId)
+                        ? 'POS Tarpaulin lengths must be positive linear feet.'
+                        : 'POS material quantities must be positive whole numbers.';
+                }
                 const available = parseFloat(item.current_stock || 0);
                 const queued = this.getQueuedMaterialRequiredStock(this.newMaterialId);
-                const needed = this.getMaterialRequiredStock(this.newMaterialId, this.newMaterialQty, this.newMaterialHeight);
-                if (parseFloat(this.newMaterialQty || 0) < 1) {
+                const savedPanelSelection = this.persistedPosTarpaulinSelection();
+                const calculation = this.isVersionedTarpaulinMaterial(this.newMaterialId)
+                    ? (this.newMaterialMetadata?.tarpaulin_calculation_version === 'panel_joining_v2'
+                        ? { required_linear_ft: Number(this.newMaterialMetadata.tarpaulin_required_linear_ft || 0) }
+                        : this.tarpaulinCalculationForItem(this.newMaterialId))
+                    : null;
+                if (this.isVersionedTarpaulinMaterial(this.newMaterialId) && !calculation) {
+                    return 'The selected Tarpaulin roll cannot fit these dimensions, including rotation.';
+                }
+                const needed = this.isVersionedTarpaulinMaterial(this.newMaterialId)
+                    ? Number(calculation.required_linear_ft)
+                    : this.getMaterialRequiredStock(this.newMaterialId, this.newMaterialQty, this.newMaterialHeight);
+                const enteredQty = Number(this.newMaterialQty);
+                if (this.isPosSetPriceFlow() && savedPanelSelection?.version === 'panel_joining_v2'
+                    && (Number(savedPanelSelection.item_id) !== Number(this.newMaterialId)
+                        || Math.abs(Number(savedPanelSelection.required_linear_ft) - enteredQty) > 0.001)) {
+                    return 'Use the roll material and exact length from the validated Tarpaulin panel plan.';
+                }
+                if (!Number.isFinite(enteredQty) || enteredQty <= 0) {
                     return 'Material quantity must be at least 1.';
+                }
+                if (this.isVersionedTarpaulinMaterial(this.newMaterialId) && Math.abs(enteredQty - needed) > 0.001) {
+                    return `Required Tarpaulin length for this roll is ${needed} Ft.`;
                 }
                 if (needed <= 0) return '';
                 const remaining = Math.max(0, available - queued);
@@ -4611,6 +4763,11 @@ window.pfServiceFieldCatalog = (() => {
             get approvalStockErrors() {
                 const errors = [];
                 if (this.selectedMaterialStockError) errors.push(this.selectedMaterialStockError);
+                if (this.isPosSetPriceFlow()) {
+                    const saved = Array.isArray(this.currentJo?.materials) ? this.currentJo.materials : [];
+                    const invalidSavedOrQueued = this.posMaterialQuantityError([...saved, ...this.pendingMaterials]);
+                    if (invalidSavedOrQueued && !errors.includes(invalidSavedOrQueued)) errors.push(invalidSavedOrQueued);
+                }
                 this.pendingMaterials.forEach(pm => {
                     const item = this.getInventoryItem(pm.item_id);
                     if (!item) return;
@@ -4723,6 +4880,18 @@ window.pfServiceFieldCatalog = (() => {
             },
             isPosPricingMode() {
                 return this.detailContextMode === 'pos_pricing';
+            },
+            isPosSetPriceFlow() {
+                if (this.isPosPricingMode() || this.isPosPricingReturnFlow(this.currentJo)) return true;
+                if (String(this.currentJo?.order_source || '').toLowerCase() === 'pos') return true;
+                const details = this.currentJo?.customization_details || {};
+                return String(details.source || '').toUpperCase() === 'POS';
+            },
+            isValidPosFinalPrice(value) {
+                const raw = String(value ?? '').trim().replace(/,/g, '');
+                if (!/^(?:0|[1-9]\d{0,6})(?:\.\d{1,2})?$/.test(raw)) return false;
+                const amount = Number(raw);
+                return Number.isFinite(amount) && amount >= 1 && amount <= 9999999.99;
             },
             modalWorkflowStatus(jo) {
                 if (!jo) return '';
@@ -9794,8 +9963,15 @@ window.pfServiceFieldCatalog = (() => {
                     this.showStaffAlert('Material Unavailable', 'This material is not available for a new assignment on the current service.');
                     return;
                 }
-                const normalizedQty = this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
-                if (normalizedQty < 1) {
+                const isTarpaulinMaterial = this.isVersionedTarpaulinMaterial(this.newMaterialId);
+                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) {
+                    this.showStaffAlert('Invalid Quantity', 'POS material quantities must be positive whole numbers.');
+                    return;
+                }
+                const normalizedQty = isTarpaulinMaterial
+                    ? Number(this.newMaterialQty)
+                    : (this.isPosSetPriceFlow() ? Number(this.newMaterialQty) : this.normalizeMaterialQtyValue(this.newMaterialQty, 1));
+                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && normalizedQty < 1)) {
                     this.showStaffAlert('Invalid Quantity', 'Material quantity must be at least 1.');
                     return;
                 }
@@ -9808,16 +9984,29 @@ window.pfServiceFieldCatalog = (() => {
                 // Check if already in pending queue
                 const existing = this.pendingMaterials.find(m => m.item_id == this.newMaterialId);
                 if (existing) {
-                    existing.qty = this.normalizeMaterialQtyValue((parseFloat(existing.qty) || 0) + normalizedQty, 1);
+                    existing.qty = isTarpaulinMaterial
+                        ? normalizedQty
+                        : this.normalizeMaterialQtyValue((parseFloat(existing.qty) || 0) + normalizedQty, 1);
+                    if (isTarpaulinMaterial) {
+                        existing.metadata = { ...existing.metadata, ...this.newMaterialMetadata, height_ft: this.newMaterialHeight };
+                    }
                     // Reset input
                     this.resetMaterialForm();
                     return;
                 }
 
                 let meta = {};
-                if (this.isTarpaulin(this.newMaterialId)) {
+                if (this.isVersionedTarpaulinMaterial(this.newMaterialId)) {
                     meta.height_ft = this.newMaterialHeight;
+                    meta.width_ft = Number(this.currentJo?.width_ft || 0);
+                    meta.finished_quantity = Number(this.currentJo?.quantity || 0);
                     meta.finishing = this.newMaterialMetadata.finishing || '';
+                    meta.tarpaulin_calculation_version = this.newMaterialMetadata.tarpaulin_calculation_version || 'linear_ft_v1';
+                    if (meta.tarpaulin_calculation_version === 'panel_joining_v2') meta.tarpaulin_panel_plan = this.newMaterialMetadata.panel_plan;
+                    meta.tarpaulin_orientation = this.newMaterialMetadata.tarpaulin_orientation || '';
+                    meta.tarpaulin_roll_width_ft = Number(this.newMaterialMetadata.tarpaulin_roll_width_ft || 0);
+                    meta.tarpaulin_run_length_per_piece_ft = Number(this.newMaterialMetadata.tarpaulin_run_length_per_piece_ft || 0);
+                    meta.tarpaulin_required_linear_ft = Number(this.newMaterialMetadata.tarpaulin_required_linear_ft || normalizedQty);
                 } else if (this.isSticker(this.newMaterialId)) {
                     meta.lamination = this.newMaterialMetadata.lamination || '';
                 }
@@ -9840,17 +10029,29 @@ window.pfServiceFieldCatalog = (() => {
             },
             buildCurrentMaterialPayload() {
                 if (!this.newMaterialId) return null;
-                const normalizedQty = this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
-                if (normalizedQty < 1) return null;
+                const isTarpaulinMaterial = this.isVersionedTarpaulinMaterial(this.newMaterialId);
+                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) return null;
+                const normalizedQty = isTarpaulinMaterial
+                    ? Number(this.newMaterialQty)
+                    : (this.isPosSetPriceFlow() ? Number(this.newMaterialQty) : this.normalizeMaterialQtyValue(this.newMaterialQty, 1));
+                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && normalizedQty < 1)) return null;
                 this.newMaterialQty = normalizedQty;
                 const item = this.allInventoryItems.find(i => i.id == this.newMaterialId);
                 if (!item) return null;
                 if (!this.materialClassification(item).selectable) return null;
 
                 let meta = {};
-                if (this.isTarpaulin(this.newMaterialId)) {
+                if (this.isVersionedTarpaulinMaterial(this.newMaterialId)) {
                     meta.height_ft = this.newMaterialHeight;
+                    meta.width_ft = Number(this.currentJo?.width_ft || 0);
+                    meta.finished_quantity = Number(this.currentJo?.quantity || 0);
                     meta.finishing = this.newMaterialMetadata.finishing || '';
+                    meta.tarpaulin_calculation_version = this.newMaterialMetadata.tarpaulin_calculation_version || 'linear_ft_v1';
+                    if (meta.tarpaulin_calculation_version === 'panel_joining_v2') meta.tarpaulin_panel_plan = this.newMaterialMetadata.panel_plan;
+                    meta.tarpaulin_orientation = this.newMaterialMetadata.tarpaulin_orientation || '';
+                    meta.tarpaulin_roll_width_ft = Number(this.newMaterialMetadata.tarpaulin_roll_width_ft || 0);
+                    meta.tarpaulin_run_length_per_piece_ft = Number(this.newMaterialMetadata.tarpaulin_run_length_per_piece_ft || 0);
+                    meta.tarpaulin_required_linear_ft = Number(this.newMaterialMetadata.tarpaulin_required_linear_ft || normalizedQty);
                 } else if (this.isSticker(this.newMaterialId)) {
                     const orderedHeight = parseFloat(this.currentJo.height_ft || 0) > 0 ? parseFloat(this.currentJo.height_ft || 0) : 1;
                     meta.waste_length_ft = Math.max(0, (parseFloat(this.newMaterialQty) || 0) - orderedHeight);
@@ -9895,8 +10096,9 @@ window.pfServiceFieldCatalog = (() => {
                 const errors = { material: '', ink_set: '', ink_consumption: '' };
                 const savedMaterials = Array.isArray(this.currentJo.materials) ? this.currentJo.materials : [];
                 const savedInks = Array.isArray(this.currentJo.ink_usage) ? this.currentJo.ink_usage : [];
+                errors.material = this.posMaterialQuantityError([...savedMaterials, ...this.pendingMaterials, ...extraMaterials]);
                 if (savedMaterials.length + extraMaterials.length <= 0) {
-                    errors.material = 'Please select and add a material.';
+                    errors.material = errors.material || 'Please select and add a material.';
                 }
                 if (this.requiresInk) {
                     if (!this.inkCategorySelected && savedInks.length === 0) {
@@ -10047,6 +10249,10 @@ window.pfServiceFieldCatalog = (() => {
             },
             async submitToPay() {
                 if (this.currentJo.order_type === 'CUSTOMIZATION') {
+                    if (this.isPosSetPriceFlow() && !this.isValidPosFinalPrice(this.jobPriceInput)) {
+                        this.setFooterActionError('Enter a positive final price with no more than two decimal places (maximum ₱9,999,999.99).');
+                        return;
+                    }
                     const priceValue = parseFloat(this.jobPriceInput);
                     if (!priceValue || priceValue <= 0 || isNaN(priceValue)) {
                         this.setFooterActionError('Please enter a valid final price before approving.');
@@ -10058,6 +10264,10 @@ window.pfServiceFieldCatalog = (() => {
                         this.setFooterActionError('No linked production job was found for this customization.');
                         return;
                     }
+                    const posDetails = this.currentJo.customization_details || {};
+                    const posUrlParams = new URLSearchParams(window.location.search);
+                    const posReturnToPOS = posUrlParams.get('return_to_pos') === '1';
+                    const isPosReturnFlow = this.isPosPricingMode() || posDetails.source === 'POS' || posReturnToPOS;
                     const materialsToSave = [...this.pendingMaterials];
                     const currentMaterial = this.buildCurrentMaterialPayload();
                     if (currentMaterial) {
@@ -10067,6 +10277,41 @@ window.pfServiceFieldCatalog = (() => {
                     if (!this.validateProductionAssignments(materialsToSave, inkPayload)) {
                         this.setFooterActionError(Object.values(this.productionErrors).find(Boolean));
                         return;
+                    }
+                    if (isPosReturnFlow) {
+                        const savedState = sessionStorage.getItem('pos_cart_state');
+                        let cartState = null;
+                        try { cartState = savedState ? JSON.parse(savedState) : null; } catch (_) {}
+                        const cartIndex = Number(cartState?.item_index);
+                        const pendingOrderId = parseInt(this.currentJo.order_id || this.deepLinkSourceOrderId || 0, 10) || 0;
+                        if (!Number.isInteger(cartIndex) || cartIndex < 0 || pendingOrderId <= 0) {
+                            this.setFooterActionError('The POS cart item could not be matched for material stock validation. Reopen Set Price from the cart.');
+                            return;
+                        }
+                        const allMaterialsForCheck = [
+                            ...(Array.isArray(this.currentJo.materials) ? this.currentJo.materials : []),
+                            ...materialsToSave,
+                        ].map(material => ({
+                            item_id: Number(material.item_id || material.id || 0),
+                            quantity: material.quantity ?? material.qty,
+                            metadata: material.metadata || {},
+                        }));
+                        const stockResponse = await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                            body: JSON.stringify({
+                                action: 'validate_service_materials',
+                                cart_index: cartIndex,
+                                pending_order_id: pendingOrderId,
+                                materials: allMaterialsForCheck,
+                                csrf_token: document.body.getAttribute('data-csrf') || ''
+                            })
+                        });
+                        const stockData = await this.parseJsonResponse(stockResponse);
+                        if (!stockResponse.ok || !stockData.success) {
+                            this.setFooterActionError(stockData.message || 'Assigned material stock changed. Review the quantities and try again.');
+                            return;
+                        }
                     }
                     for (const pm of materialsToSave) {
                         const fdMaterial = new FormData();
@@ -10099,10 +10344,6 @@ window.pfServiceFieldCatalog = (() => {
                         }
                     }
                     await this.refreshMaterials();
-                    const details = this.currentJo.customization_details || {};
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const returnToPOS = urlParams.get('return_to_pos') === '1';
-                    const isPosReturnFlow = this.isPosPricingMode() || details.source === 'POS' || returnToPOS;
                     if (!this.beginModalAction()) return;
                     try {
                         if (isPosReturnFlow) {
@@ -10184,6 +10425,10 @@ window.pfServiceFieldCatalog = (() => {
                     return;
                 }
                 const jid = target.jobId;
+                if (this.isPosSetPriceFlow() && !this.isValidPosFinalPrice(this.jobPriceInput)) {
+                    this.setFooterActionError('Enter a positive final price with no more than two decimal places (maximum ₱9,999,999.99).');
+                    return;
+                }
                 const userEnteredPrice = parseFloat(this.jobPriceInput);
                 if (!Number.isFinite(userEnteredPrice) || userEnteredPrice <= 0) {
                     this.setFooterActionError('Please enter a valid final price before submitting.');
@@ -10205,6 +10450,41 @@ window.pfServiceFieldCatalog = (() => {
                 if (!this.validateProductionAssignments(materialsToSave, inkPayload)) {
                     this.setFooterActionError(Object.values(this.productionErrors).find(Boolean));
                     return;
+                }
+                if (fromPOS) {
+                    const savedState = sessionStorage.getItem('pos_cart_state');
+                    let cartState = null;
+                    try { cartState = savedState ? JSON.parse(savedState) : null; } catch (_) {}
+                    const cartIndex = Number(cartState?.item_index);
+                    const pendingOrderId = parseInt(this.currentJo.order_id || this.deepLinkSourceOrderId || 0, 10) || 0;
+                    if (!Number.isInteger(cartIndex) || cartIndex < 0 || pendingOrderId <= 0) {
+                        this.setFooterActionError('The POS cart item could not be matched for material stock validation. Reopen Set Price from the cart.');
+                        return;
+                    }
+                    const allMaterialsForCheck = [
+                        ...(Array.isArray(this.currentJo.materials) ? this.currentJo.materials : []),
+                        ...materialsToSave,
+                    ].map(material => ({
+                        item_id: Number(material.item_id || material.id || 0),
+                        quantity: material.quantity ?? material.qty,
+                        metadata: material.metadata || {},
+                    }));
+                    const stockResponse = await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                        body: JSON.stringify({
+                            action: 'validate_service_materials',
+                            cart_index: cartIndex,
+                            pending_order_id: pendingOrderId,
+                            materials: allMaterialsForCheck,
+                            csrf_token: document.body.getAttribute('data-csrf') || ''
+                        })
+                    });
+                    const stockData = await this.parseJsonResponse(stockResponse);
+                    if (!stockResponse.ok || !stockData.success) {
+                        this.setFooterActionError(stockData.message || 'Assigned material stock changed. Review the quantities and try again.');
+                        return;
+                    }
                 }
                 for (const pm of materialsToSave) {
                     const fd = new FormData();
@@ -11213,8 +11493,11 @@ window.pfServiceFieldCatalog = (() => {
             },
             async addMaterial() {
                 if(!this.newMaterialId) return;
-                const normalizedQty = this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
-                if (normalizedQty < 1) {
+                const isTarpaulinMaterial = this.isVersionedTarpaulinMaterial(this.newMaterialId);
+                const normalizedQty = isTarpaulinMaterial
+                    ? Number(this.newMaterialQty)
+                    : this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
+                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && normalizedQty < 1)) {
                     this.showStaffAlert('Invalid Quantity', 'Material quantity must be at least 1.');
                     return;
                 }
@@ -11242,9 +11525,17 @@ window.pfServiceFieldCatalog = (() => {
                 
                 // Construct metadata based on category
                 let meta = {};
-                if (this.isTarpaulin(this.newMaterialId)) {
+                if (this.isVersionedTarpaulinMaterial(this.newMaterialId)) {
                     meta.height_ft = this.newMaterialHeight;
+                    meta.width_ft = Number(this.currentJo?.width_ft || 0);
+                    meta.finished_quantity = Number(this.currentJo?.quantity || 0);
                     meta.finishing = this.newMaterialMetadata.finishing || '';
+                    meta.tarpaulin_calculation_version = this.newMaterialMetadata.tarpaulin_calculation_version || 'linear_ft_v1';
+                    if (meta.tarpaulin_calculation_version === 'panel_joining_v2') meta.tarpaulin_panel_plan = this.newMaterialMetadata.panel_plan;
+                    meta.tarpaulin_orientation = this.newMaterialMetadata.tarpaulin_orientation || '';
+                    meta.tarpaulin_roll_width_ft = Number(this.newMaterialMetadata.tarpaulin_roll_width_ft || 0);
+                    meta.tarpaulin_run_length_per_piece_ft = Number(this.newMaterialMetadata.tarpaulin_run_length_per_piece_ft || 0);
+                    meta.tarpaulin_required_linear_ft = Number(this.newMaterialMetadata.tarpaulin_required_linear_ft || normalizedQty);
                 } else if (this.isSticker(this.newMaterialId)) {
                     // STICKER LOGIC
                     let orderedHeight = this.currentJo.height_ft > 0 ? this.currentJo.height_ft : 1;

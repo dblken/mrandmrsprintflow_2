@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/customer_paid_order_status.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/change_item_workflow.php';
@@ -362,7 +363,13 @@ foreach ($orders as &$order) {
     $order['_financial_snapshot'] = $financial;
     $order['_price_is_final'] = !empty($financial['price_is_final']);
     $order['_payment_received'] = $paymentReceived;
-    $order['_awaiting_production'] = $paymentReceived && !$hasDownstreamStatus;
+    $waitingLabel = printflow_customer_paid_order_waiting_label(
+        (string)($order['status'] ?? ''),
+        $paymentReceived,
+        printflow_is_ready_made_product_order($order)
+    );
+    $order['_awaiting_production'] = $waitingLabel === 'Payment Received / Awaiting Production';
+    $order['_paid_waiting_label'] = $waitingLabel;
     $order['_payment_method_display'] = trim((string)(
         ($providerPublic['payment_method_label'] ?? '')
         ?: ($order['payment_method'] ?? '')
@@ -2765,8 +2772,8 @@ require_once __DIR__ . '/../includes/header.php';
                         <?php 
                             // ... (logic remains same)
                             $display_status = customer_orders_display_status((string)$order['status'], (string)($order['order_type'] ?? ''));
-                            if (!empty($order['_awaiting_production'])) {
-                                $display_status = 'Payment Received / Awaiting Production';
+                            if (!empty($order['_paid_waiting_label'])) {
+                                $display_status = (string)$order['_paid_waiting_label'];
                             }
                             $s = strtolower($display_status);
                             $st_cls = 'st-pending';
@@ -2801,7 +2808,7 @@ require_once __DIR__ . '/../includes/header.php';
                                 $changeItemSubtitle = format_datetime($changeItemMeta['latest_requested_at']);
                             }
                         ?>
-                        <div class="ct-order-card" id="order-card-<?php echo $order['order_id']; ?>" data-order-id="<?php echo $order['order_id']; ?>" data-status="<?php echo htmlspecialchars($order['status']); ?>" data-order-type="<?php echo htmlspecialchars((string)($order['order_type'] ?? '')); ?>" data-payment-received="<?php echo !empty($order['_payment_received']) ? '1' : '0'; ?>" onclick="openItemsModal(<?php echo $order['order_id']; ?>)">
+                        <div class="ct-order-card" id="order-card-<?php echo $order['order_id']; ?>" data-order-id="<?php echo $order['order_id']; ?>" data-status="<?php echo htmlspecialchars($order['status']); ?>" data-order-type="<?php echo htmlspecialchars((string)($order['order_type'] ?? '')); ?>" data-payment-received="<?php echo !empty($order['_payment_received']) ? '1' : '0'; ?>" data-paid-waiting-label="<?php echo htmlspecialchars((string)($order['_paid_waiting_label'] ?? ''), ENT_QUOTES); ?>" onclick="openItemsModal(<?php echo $order['order_id']; ?>)">
                             <div class="card-top-row">
                                 <span class="order-id-chip"><?php echo htmlspecialchars($order['order_code']); ?></span>
                                 <div class="card-top-badges">
@@ -2926,10 +2933,11 @@ window.addEventListener('DOMContentLoaded', () => {
     const highlightIdRaw = params.get('receipt_order_id') || params.get('highlight');
     const highlightId = highlightIdRaw ? parseInt(highlightIdRaw, 10) : 0;
     const openReceiptOnLoad = params.get('receipt_order_id') === String(highlightId);
+    const autoDownloadReceipt = openReceiptOnLoad && params.get('receipt_download') === '1';
     if (highlightId > 0) {
         // Open the details modal immediately for maximum responsiveness
         if (typeof openItemsModal === 'function') {
-            openItemsModal(highlightId, null, { openReceiptOnLoad });
+            openItemsModal(highlightId, null, { openReceiptOnLoad, autoDownloadReceipt });
         }
 
         const card = document.querySelector(`[data-order-id="${highlightId}"]`);
@@ -3778,6 +3786,9 @@ async function downloadReceiptPdf() {
 
         failureStage = 'download';
         pdf.save(`${receiptData.receipt_number || 'receipt'}.pdf`);
+        if (window.parent !== window) {
+            window.parent.postMessage({ type: 'printflow-receipt-download', success: true }, window.location.origin);
+        }
     } catch (error) {
         console.error('Receipt PDF download failed.', {
             stage: failureStage,
@@ -3785,6 +3796,9 @@ async function downloadReceiptPdf() {
             message: error instanceof Error ? error.message : 'Unknown receipt PDF error',
             qrMetrics: error && typeof error === 'object' && 'qrMetrics' in error ? error.qrMetrics : null
         });
+        if (window.parent !== window) {
+            window.parent.postMessage({ type: 'printflow-receipt-download', success: false, message: 'Unable to download the receipt PDF right now. Please try again.' }, window.location.origin);
+        }
         if (typeof showToast === 'function') {
             const message = error instanceof Error ? error.message : '';
             showToast(failureStage === 'asset-preparation' && /receipt QR/i.test(message)
@@ -3885,6 +3899,11 @@ function openItemsModal(orderId, event, options = {}) {
         document.getElementById('imSubtitle').textContent = data.order_code + ' • Order placed on ' + data.order_date;
         if (options.openReceiptOnLoad && data.receipt_available && data.receipt) {
             openReceiptModal(data.receipt);
+            if (options.autoDownloadReceipt) {
+                window.setTimeout(() => downloadReceiptPdf(), 250);
+            }
+        } else if (options.autoDownloadReceipt) {
+            window.parent.postMessage({ type: 'printflow-receipt-download', success: false, message: 'This paid receipt is not available for this order.' }, window.location.origin);
         }
 
         // Safety check for items
@@ -4095,7 +4114,7 @@ function openItemsModal(orderId, event, options = {}) {
                     <div class="im-sec-card accent">
                         <div class="im-label" style="margin-bottom: 12px;">Payment information</div>
                         <div class="space-y-4">
-                            ${paymentReceived ? `<div style="padding:0.65rem 0.75rem;border-radius:8px;background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;font-size:0.78rem;font-weight:800;">${escIM(data.awaiting_production ? 'Payment Received / Awaiting Production' : 'Payment Received')}</div>` : ''}
+                            ${paymentReceived ? `<div style="padding:0.65rem 0.75rem;border-radius:8px;background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;font-size:0.78rem;font-weight:800;">${escIM(data.awaiting_production ? 'Payment Received / Awaiting Production' : (data.awaiting_fulfillment ? 'Paid / Awaiting Fulfillment' : 'Payment Received'))}</div>` : ''}
                             <div><div class="im-label" style="margin-bottom: 4px;">Method</div><div class="im-val">${escIM(paymentMethod)}</div></div>
                             <div><div class="im-label" style="margin-bottom: 4px;">Status</div><div>${imBadge(data.payment_status)}</div></div>
                             ${data.is_service_order ? `
@@ -5106,7 +5125,7 @@ async function refreshOrdersList() {
                     const isPaidAwaitingProduction = card.dataset.paymentReceived === '1'
                         && !/production|processing|printing|ready|pickup|completed|rated|to rate|cancelled|rejected/i.test(String(order.status || ''));
                     const displayStatus = isPaidAwaitingProduction
-                        ? 'Payment Received / Awaiting Production'
+                        ? (card.dataset.paidWaitingLabel || 'Payment Received / Awaiting Production')
                         : normalizeDisplayStatus(order.status, orderType);
                     pill.textContent = displayStatus;
                     pill.className = 'status-pill ' + statusClassFor(displayStatus);

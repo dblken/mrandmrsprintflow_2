@@ -15,6 +15,8 @@ require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_field_config_helper.php';
 require_once __DIR__ . '/../includes/ensure_customer_checkout_idempotency_schema.php';
 require_once __DIR__ . '/../includes/product_order_notice.php';
+require_once __DIR__ . '/../includes/service_order_helper.php';
+require_once __DIR__ . '/../includes/service_design_fee.php';
 
 printflow_ensure_customer_checkout_idempotency_schema();
 printflow_ensure_product_order_notice_schema();
@@ -488,14 +490,38 @@ if (!$needs_branch_selection) {
 }
 
 $checkout_fingerprint_payload = [];
+$serviceDesignPricingError = null;
 foreach ($items_to_review as $key => $checkoutItem) {
+    if (review_item_is_service($checkoutItem)) {
+        $pricingItem = $checkoutItem;
+        $pricing = printflow_apply_service_line_pricing_to_cart_item($pricingItem);
+        if (!empty($pricing['ok'])) {
+            $items_to_review[$key] = array_merge($checkoutItem, $pricingItem);
+            $_SESSION['cart'][$key] = array_merge($_SESSION['cart'][$key] ?? [], $pricingItem);
+        } else {
+            $serviceDesignPricingError = (string)($pricing['message'] ?? 'A service price could not be verified.');
+        }
+    }
     $checkout_fingerprint_payload[$key] = [
         'product_id' => (int)($checkoutItem['product_id'] ?? 0),
         'variant_id' => (int)($checkoutItem['variant_id'] ?? 0),
         'quantity' => review_item_quantity($checkoutItem),
         'branch_id' => (int)($checkoutItem['branch_id'] ?? 0),
+        'unit_price' => (int)round(review_item_unit_price($checkoutItem) * 100),
+        'design_fee' => (int)round((float)($checkoutItem['design_fee'] ?? 0) * 100),
+        'line_total' => (int)round(review_item_estimated_total($checkoutItem) * 100),
         'customization' => review_item_customization($checkoutItem),
     ];
+}
+if ($serviceDesignPricingError === null) {
+    foreach ($items_to_review as $checkoutItem) {
+        if (review_item_is_service($checkoutItem)
+            && (float)($checkoutItem['design_fee'] ?? 0) > 0
+            && !printflow_order_items_has_design_fee_column()) {
+            $serviceDesignPricingError = 'Checkout is temporarily unavailable until the approved design-fee database migration is applied.';
+            break;
+        }
+    }
 }
 $checkout_fingerprint = hash('sha256', json_encode([
     'customer_id' => (int)$customer_id,
@@ -516,7 +542,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
         ? printflow_db_error_reference()
         : substr(hash('sha256', uniqid('', true)), 0, 12);
     error_log('[order_review] confirmation_received ref=' . $request_reference . ' customer=' . (int)$customer_id);
-    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+    if ($serviceDesignPricingError !== null) {
+        $order_error = $serviceDesignPricingError;
+    } elseif (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $order_error = 'Invalid request. Please try again.';
         if (review_is_ajax_confirm_request()) {
             review_json_confirm_response(false, ['error' => $order_error]);
@@ -905,6 +933,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                         // FIXED: Save estimated price to order_items so it displays correctly
                         $unit_price = review_item_unit_price($item);
                         $quantity_val = review_item_quantity($item);
+                        $design_fee = review_item_is_service($item) ? max(0.0, (float)($item['design_fee'] ?? 0)) : 0.0;
+                        if ($design_fee > 0 && !printflow_order_items_has_design_fee_column()) {
+                            throw new RuntimeException('Checkout is temporarily unavailable until the approved design-fee database migration is applied.');
+                        }
+                        $line_total_override = isset($item['line_total_override']) ? (float)$item['line_total_override'] : null;
 
                         // Backup customization BEFORE insert so specs are never lost.
                         if (review_item_is_service($item)) {
@@ -927,7 +960,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             $design_mime,
                             $design_name,
                             $design_file_path,
-                            $reference_file_path
+                            $reference_file_path,
+                            $design_fee,
+                            $line_total_override
                         );
 
                         if ($order_item_id > 0) {

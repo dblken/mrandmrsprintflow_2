@@ -83,7 +83,7 @@ $assert(strpos($apiSource, '$countRowsByKey') !== false, 'count candidates must 
 $assert(strpos($apiSource, 'jo_api_attach_provider_payments($countRows)') !== false, 'counts must apply the same provider-payment status adjustment as rows');
 
 $swSource = (string)file_get_contents(__DIR__ . '/../public/sw.php');
-$assert(strpos($swSource, "const CACHE_VERSION = 'v19'") !== false, 'service-worker cache policy change must invalidate old caches');
+$assert(strpos($swSource, "const CACHE_VERSION = 'v20'") !== false, 'service-worker cache policy change must invalidate old caches');
 $assert(strpos($swSource, 'isTrustedStaticAsset(url)') !== false, 'service worker must use an explicit static-asset allowlist');
 $assert(strpos($swSource, "url.pathname.startsWith(assetRoot + 'uploads/')") !== false, 'uploaded media must be excluded from the shell cache');
 $assert(strpos($swSource, 'isCachePutEligible(request, response)') !== false, 'Cache.put must be guarded by request and response eligibility');

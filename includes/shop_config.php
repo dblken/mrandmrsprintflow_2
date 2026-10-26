@@ -18,6 +18,18 @@ $_shop_cfg = printflow_load_runtime_config('shop', $_shop_cfg_path);
 $shop_name = !empty($_shop_cfg['name']) ? htmlspecialchars($_shop_cfg['name']) : 'Mr. and Mrs. Print';
 $shop_logo_file = $_shop_cfg['logo'] ?? '';
 
+// Runtime configuration can outlive an uploaded logo file. Do not emit broken
+// image URLs when that happens; callers already provide a text/icon fallback.
+if (!is_string($shop_logo_file) || trim($shop_logo_file) === '') {
+    $shop_logo_file = '';
+} else {
+    $shop_logo_file = basename(str_replace(['\\', "\0"], '/', $shop_logo_file));
+    $shop_logo_path = __DIR__ . '/../public/assets/uploads/' . $shop_logo_file;
+    if (!is_file($shop_logo_path) || !is_readable($shop_logo_path)) {
+        $shop_logo_file = '';
+    }
+}
+
 // Use dynamic base path
 $base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 $shop_logo_url  = !empty($shop_logo_file)

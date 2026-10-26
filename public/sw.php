@@ -7,8 +7,8 @@ require_once __DIR__ . '/../includes/shop_config.php';
 
 $base_path = defined('BASE_PATH') ? BASE_PATH : '';
 $logo_version = rawurlencode(printflow_logo_version());
-$app_icon = $base_path . '/public/assets/images/icon-512.png?v=' . $logo_version;
-$app_badge = $base_path . '/public/assets/images/icon-72.png';
+$app_icon = $base_path . '/public/app-icon.php?v=' . $logo_version;
+$app_badge = $base_path . '/public/app-icon.php?v=' . $logo_version;
 
 header('Content-Type: application/javascript');
 header('Service-Worker-Allowed: /');
@@ -23,7 +23,7 @@ header('X-Content-Type-Options: nosniff');
  */
 
 const BASE_PATH = '<?php echo $base_path; ?>';
-const CACHE_VERSION = 'v19';
+const CACHE_VERSION = 'v20';
 const SHELL_CACHE = 'printflow-shell-' + CACHE_VERSION;
 const PAGE_CACHE = 'printflow-pages-' + CACHE_VERSION;
 const IMG_CACHE = 'printflow-img-' + CACHE_VERSION;

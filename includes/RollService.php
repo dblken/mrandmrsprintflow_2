@@ -271,6 +271,58 @@ class RollService {
             throw $e;
         }
     }
+
+    /** Tarpaulin panel deduction: lock FIFO rolls and allocate each whole panel to one roll. */
+    public static function deductWholePanelsFIFO($itemId, array $plan, $refType = 'JOB_ORDER', $refId = null, $notes = '', $branchId = null, $transactionDate = null) {
+        global $conn;
+        require_once __DIR__ . '/tarpaulin_material_calculation.php';
+        $itemId = (int)$itemId;
+        $panelCount = (int)($plan['panel_count_per_piece'] ?? 0) * (int)($plan['finished_quantity'] ?? 0);
+        $panelLength = (float)($plan['run_length_per_panel_ft'] ?? 0);
+        if ($itemId <= 0 || $panelCount < 1 || $panelCount > 100000 || !is_finite($panelLength) || $panelLength <= 0) {
+            throw new InvalidArgumentException('The saved Tarpaulin panel plan is invalid.');
+        }
+        $wasInTransaction = printflow_db_in_transaction($conn);
+        if (!$wasInTransaction && !$conn->begin_transaction()) throw new RuntimeException('Unable to start the Tarpaulin roll deduction transaction.');
+        try {
+            // branchClause may inspect/ensure schema. Call it only after a transaction
+            // starts so missing branch columns fail safely instead of running DDL.
+            [$branchSql, $branchTypes, $branchParams] = InventoryManager::branchClause('branch_id', $branchId);
+            $rolls = db_query(
+                "SELECT id, roll_code, remaining_length_ft, received_at, status FROM inv_rolls WHERE item_id = ? AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC, id ASC FOR UPDATE",
+                'i' . $branchTypes,
+                array_merge([$itemId], $branchParams)
+            );
+            if (!is_array($rolls)) throw new RuntimeException('Open Tarpaulin rolls could not be locked for completion.');
+            $allocation = printflow_tarpaulin_allocate_whole_panels($rolls, $plan);
+            if (($allocation['reason'] ?? '') === 'search_limit') throw new RuntimeException('Safe Tarpaulin roll allocation reached its calculation limit; no inventory was deducted. Retry with a smaller job quantity.');
+            if (empty($allocation['ok'])) throw new RuntimeException('Current open rolls cannot supply every Tarpaulin panel as one continuous piece.');
+            $rollById = [];
+            foreach ($rolls as $roll) $rollById[(int)$roll['id']] = $roll;
+            $deductions = [];
+            foreach ($allocation['allocations'] as $entry) {
+                $rollId = (int)$entry['roll_id'];
+                $roll = $rollById[$rollId] ?? null;
+                $deduct = (float)$entry['length_ft'];
+                if (!$roll || $deduct <= 0 || $deduct > (float)$roll['remaining_length_ft'] + 1.0e-9) throw new RuntimeException('The locked Tarpaulin roll allocation is no longer valid.');
+                $newRemaining = max(0.0, (float)$roll['remaining_length_ft'] - $deduct);
+                $newStatus = $newRemaining <= 0.01 ? 'FINISHED' : 'OPEN';
+                $finishedAt = $newStatus === 'FINISHED' ? date('Y-m-d H:i:s') : null;
+                $update = $conn->prepare("UPDATE inv_rolls SET remaining_length_ft = ?, status = ?, finished_at = ? WHERE id = ? AND status = 'OPEN'");
+                if (!$update) throw new RuntimeException('Unable to prepare the Tarpaulin roll update.');
+                $update->bind_param('dssi', $newRemaining, $newStatus, $finishedAt, $rollId);
+                if (!$update->execute() || $update->affected_rows !== 1) { $error = $update->error; $update->close(); throw new RuntimeException('Unable to update the locked Tarpaulin roll: ' . $error); }
+                $update->close();
+                InventoryManager::recordTransaction($itemId, 'OUT', $deduct, 'ft', $refType, $refId, $rollId, ($notes ?: 'Tarpaulin panel material') . ' (Roll: ' . ($roll['roll_code'] ?? ('Roll #' . $rollId)) . ')', null, $transactionDate, $branchId);
+                $deductions[] = ['roll_id' => $rollId, 'roll_code' => (string)($roll['roll_code'] ?? ('Roll #' . $rollId)), 'panels' => (int)$entry['panels'], 'deducted' => $deduct, 'was' => (float)$roll['remaining_length_ft'], 'now' => $newRemaining, 'status' => $newStatus];
+            }
+            if (!$wasInTransaction && !$conn->commit()) throw new RuntimeException('Unable to commit the Tarpaulin panel deduction.');
+            return $deductions;
+        } catch (Throwable $error) {
+            if (!$wasInTransaction && printflow_db_in_transaction($conn)) $conn->rollback();
+            throw $error;
+        }
+    }
     
     /**
      * Mark a roll as void.

@@ -17,7 +17,9 @@ header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, must-revalidate');
 
 require_once __DIR__ . '/../includes/receipt_access.php';
+require_once __DIR__ . '/../includes/customer_paid_order_status.php';
 require_once __DIR__ . '/../includes/pos_receipt_format.php';
+require_once __DIR__ . '/../includes/service_design_fee.php';
 
 function customer_order_items_json_flags(): int {
     $flags = JSON_UNESCAPED_SLASHES;
@@ -1160,7 +1162,7 @@ foreach ($items as $lineIndex => $item) {
 
     $raw_quantity = max(1, (int)($item['quantity'] ?? 0));
     $raw_unit_price = (float)($item['unit_price'] ?? 0);
-    $raw_subtotal = $raw_quantity * $raw_unit_price;
+    $raw_subtotal = printflow_order_item_calculated_line_total((array)$item);
 
     // Some single-item custom/service orders store the final amount only on orders.total_amount.
     if ($raw_subtotal <= 0 && $item_count === 1 && $order_total_amount > 0) {
@@ -1372,6 +1374,16 @@ if (in_array($order['status'], ['Completed', 'To Rate', 'Rated'], true)) {
 $order['_receipt_paid_at'] = $payment_paid_at_raw;
 $order['_receipt_payment_method'] = $payment_method_display;
 $is_ready_made_product = !$is_service_order && printflow_is_ready_made_product_order($order);
+$paid_waiting_label = printflow_customer_paid_order_waiting_label(
+    (string)($order['status'] ?? ''),
+    $payment_received,
+    $is_ready_made_product
+);
+$awaiting_production = $paid_waiting_label === 'Payment Received / Awaiting Production';
+$awaiting_fulfillment = $paid_waiting_label === 'Paid / Awaiting Fulfillment';
+if ($paid_waiting_label !== '') {
+    $display_status = $paid_waiting_label;
+}
 // The PayMongo ledger is the source of truth. Ready-made products are
 // claimable immediately after provider-confirmed payment; they do not wait
 // for a production status transition.
@@ -1409,6 +1421,7 @@ customer_order_items_json([
     'payment_method'   => $payment_method_display,
     'payment_received' => $payment_received,
     'awaiting_production' => $awaiting_production,
+    'awaiting_fulfillment' => $awaiting_fulfillment,
     'payment_reference' => $payment_reference,
     'payment_paid_at' => $payment_paid_at_display,
     'payment_proof_status' => $latest_payment_proof_status,

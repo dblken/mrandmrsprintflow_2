@@ -15,7 +15,7 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
 };
 
 $assert(strpos($paymentPage, "'Payment Successful'") !== false, 'Paid ready-made orders must render Payment Successful.');
-$assert(strpos($paymentPage, "'Awaiting Production'") !== false, 'Service payment copy must remain available.');
+$assert(strpos((string)file_get_contents($root . '/includes/customer_paid_order_status.php'), 'Payment Received / Awaiting Production') !== false, 'Service payment status copy must remain available.');
 $assert(strpos($paymentPage, "'Your payment has been received successfully.") !== false, 'Paid ready-made orders must receive claim guidance.');
 $assert(strpos($ordersPage, "'TO_PICK_UP': 'TO PICK UP'") === false, 'Ready-made staff tabs must not expose To Pick Up.');
 $assert(strpos($ordersPage, "'CANCELLED': 'CANCELLED'") === false, 'Ready-made staff tabs must not expose Cancelled.');
