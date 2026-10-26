@@ -1,0 +1,41 @@
+.pf-dashboard-notification-bell {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 38px;
+    width: 38px;
+    height: 38px;
+    box-sizing: border-box;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+    color: #00232b;
+    text-decoration: none;
+    transition: background .15s, border-color .15s;
+}
+.pf-dashboard-notification-bell:hover {
+    border-color: #53c5e0;
+    background: #ecf8fb;
+}
+.pf-dashboard-notification-bell:focus-visible {
+    outline: 2px solid #00232b;
+    outline-offset: 3px;
+}
+.pf-dashboard-notification-count {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 4px;
+    box-sizing: border-box;
+    border: 2px solid #fff;
+    border-radius: 999px;
+    background: #00232b;
+    color: #fff;
+    font: 700 10px/1 Inter, sans-serif;
+    pointer-events: none;
+}

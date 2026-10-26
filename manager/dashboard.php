@@ -451,6 +451,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $page_title; ?></title>
     <link rel="stylesheet" href="<?php echo (defined('BASE_PATH') ? BASE_PATH : ''); ?>/public/assets/css/output.css">
+    <link rel="stylesheet" href="<?php echo htmlspecialchars($basePath); ?>/public/assets/css/dashboard-notifications.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -732,6 +733,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     <span id="pf-dashboard-toolbar-summary-text"><?php echo htmlspecialchars($dashboard_context_label); ?></span>
                 </div>
                 <div style="display:flex;align-items:center;gap:10px;position:relative;">
+                    <?php include __DIR__ . '/../includes/dashboard_notification_bell.php'; ?>
                     <button class="toolbar-btn" :class="{active: filterOpen}" @click="filterOpen = !filterOpen" style="height:38px;">
                         <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 01.8 1.6L14 13.5V20a1 1 0 01-1.447.894l-2-1A1 1 0 0110 19v-5.5L3.2 4.6A1 1 0 013 4z"/></svg>
                         Filter
