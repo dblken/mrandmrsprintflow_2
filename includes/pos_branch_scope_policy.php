@@ -14,6 +14,7 @@ function printflow_pos_branch_from_authorized_context(array $context): int
     return $branchId;
 }
 
+<<<<<<< HEAD
 function printflow_pos_assert_cart_branch(int $branchId, bool $allowEmptyCart = false): void
 {
     $cart = is_array($_SESSION['pos_cart'] ?? null) ? $_SESSION['pos_cart'] : [];
@@ -27,3 +28,5 @@ function printflow_pos_assert_cart_branch(int $branchId, bool $allowEmptyCart = 
         $_SESSION['pos_cart_branch_id'] = $branchId;
     }
 }
+=======
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78

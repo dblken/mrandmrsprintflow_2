@@ -6,6 +6,7 @@ function pf_reports_store_order_revenue_expr($a) { return "$a.total_amount"; }
 function pf_reports_job_order_sales_expr($a) { return '1=1'; }
 function pf_reports_job_order_revenue_expr($a) { return "$a.estimated_total"; }
 function pf_reports_job_order_sales_date_expr($a) { return "$a.created_at"; }
+function pf_reports_job_order_sales_date_join_parts($jobAlias, $orderAlias) { return ['', "$jobAlias.created_at"]; }
 function pf_reports_job_exclude_linked_custom_store_sale_sql($a) { return ''; }
 function pf_reports_store_product_order_scope_sql($a) { return '1=1'; }
 function pf_reports_store_custom_order_scope_sql($a) { return '1=1'; }

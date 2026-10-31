@@ -1,5 +1,5 @@
 <?php
-/** Shared positive whole-number validation for POS cart and checkout quantities. */
+/** General positive whole-number validation for measured material quantities. */
 function printflow_pos_parse_positive_quantity($value): int
 {
     if (!is_int($value) && !is_string($value)) {
@@ -10,6 +10,27 @@ function printflow_pos_parse_positive_quantity($value): int
         throw new InvalidArgumentException('Quantity must be a positive whole number.');
     }
     return (int)$raw;
+}
+
+/** Strict cart-item quantity parser used by POS add/update/checkout requests. */
+function printflow_pos_parse_cart_quantity($value): int
+{
+    if (!is_int($value) && !is_string($value)) {
+        throw new InvalidArgumentException('Quantity must be a whole number from 1 to 1,000,000 using digits 0–9 only.');
+    }
+    $raw = (string)$value;
+    if ($raw === '' || strlen($raw) > 64 || !preg_match('/\A[0-9]+\z/', $raw)) {
+        throw new InvalidArgumentException('Quantity must be a whole number from 1 to 1,000,000 using digits 0–9 only.');
+    }
+    $canonical = ltrim($raw, '0');
+    if ($canonical === '' || strlen($canonical) > 7) {
+        throw new InvalidArgumentException('Quantity must be between 1 and 1,000,000.');
+    }
+    $quantity = (int)$canonical;
+    if ($quantity < 1 || $quantity > 1000000) {
+        throw new InvalidArgumentException('Quantity must be between 1 and 1,000,000.');
+    }
+    return $quantity;
 }
 
 /** Strict POS service selling price: exact positive cents within DECIMAL(9,2). */

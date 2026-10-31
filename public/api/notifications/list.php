@@ -80,7 +80,7 @@ try {
                 ? ($base . '/customer/notifications.php?mark_read=' . (int)($row['notification_id'] ?? $row['id'] ?? 0) . '&next=' . urlencode($target))
                 : $target;
         } else {
-            $fallback = (defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/images/services/default.png';
+            $fallback = printflow_notification_normalize_media_url('/public/assets/images/services/catalog-placeholder.svg');
             $row['message'] = printflow_notification_display_message($row);
             $row['item_kind'] = printflow_notification_item_kind($row);
             $row['image'] = staff_admin_notification_image_url($row, $fallback);

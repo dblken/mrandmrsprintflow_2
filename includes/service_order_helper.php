@@ -9,6 +9,7 @@
  */
 
 if (!defined('BASE_URL')) define('BASE_URL', '/printflow');
+require_once __DIR__ . '/service_design_fee.php';
 
 // Allowed MIME types for design uploads (images, PDF, AI/PSD)
 define('SERVICE_ORDER_ALLOWED_MIME', [
@@ -883,6 +884,12 @@ function printflow_calculate_service_unit_price(int $serviceId, array $customiza
         }
 
         $selectedValue = trim((string)($fieldValues[$key] ?? ''));
+        // Layout prices are per-design fees, not per-unit option prices. The
+        // canonical line-pricing helper adds the selected fee exactly once.
+        $fieldLabel = strtolower(trim((string)($config['label'] ?? $key)));
+        if (strpos(strtolower((string)$key), 'layout') !== false || strpos($fieldLabel, 'layout') !== false) {
+            continue;
+        }
 
         if ($type === 'dimension') {
             $width = trim((string)($fieldValues[$key . '_width'] ?? $fieldValues['width'] ?? $customization[$key . '_width'] ?? ''));

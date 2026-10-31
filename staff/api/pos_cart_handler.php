@@ -77,6 +77,42 @@ function pos_cart_ensure_tarpaulin_line_ids(): void
     }
     unset($item);
 }
+
+function pos_cart_new_tarpaulin_line_id(array $cart): string
+{
+    $existing = [];
+    foreach ($cart as $line) {
+        $id = trim((string)($line['pos_cart_line_id'] ?? ''));
+        if ($id !== '') $existing[$id] = true;
+    }
+    do { $id = bin2hex(random_bytes(16)); } while (isset($existing[$id]));
+    return $id;
+}
+
+function pos_cart_ensure_tarpaulin_line_ids(): void
+{
+    $seen = [];
+    foreach ($_SESSION['pos_cart'] as &$item) {
+        if (!is_array($item) || (int)($item['product_id'] ?? 0) !== 40 || !pos_cart_item_is_service($item)) continue;
+        $id = trim((string)($item['pos_cart_line_id'] ?? ''));
+        if ($id === '' || isset($seen[$id])) $id = pos_cart_new_tarpaulin_line_id($_SESSION['pos_cart']);
+        $item['pos_cart_line_id'] = $id;
+        $seen[$id] = true;
+    }
+    unset($item);
+}
+
+function pos_cart_service_validation_branch_id(array $cart, int $serviceId = 0): int
+{
+    $hasTarpaulin = $serviceId === 40;
+    foreach ($cart as $line) {
+        if (is_array($line) && (int)($line['product_id'] ?? 0) === 40 && pos_cart_item_is_service($line)) {
+            $hasTarpaulin = true;
+            break;
+        }
+    }
+    return $hasTarpaulin ? printflow_pos_authorized_branch_id() : pos_cart_branch_id();
+}
 function pos_cart_effective_product_stock(int $productId, int $branchId): int
 {
     if ($productId <= 0) {
@@ -95,7 +131,7 @@ function pos_cart_effective_product_stock(int $productId, int $branchId): int
 function pos_cart_parse_positive_quantity($value): int
 {
     try {
-        return printflow_pos_parse_positive_quantity($value);
+        return printflow_pos_parse_cart_quantity($value);
     } catch (InvalidArgumentException $error) {
         throw new Exception($error->getMessage());
     }
@@ -203,6 +239,7 @@ function pos_cart_service_stock_message(array $validation): string
 {
     $issue = $validation['issues'][0] ?? null;
     if (!is_array($issue)) return 'Service material stock is unavailable for validation.';
+    if (trim((string)($issue['message'] ?? '')) !== '') return (string)$issue['message'];
     $format = static fn($value): string => rtrim(rtrim(number_format((float)$value, 3, '.', ''), '0'), '.');
     $uom = trim((string)($issue['uom'] ?? ''));
     return 'Insufficient ' . (string)($issue['name'] ?? 'material') . ' stock. Available: '
@@ -356,7 +393,7 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
         ] as $key => [$label, $type]) {
             $value = $key === 'quantity' ? (string)$qty : pos_cart_custom_value($customization, $key, $label);
             if ($key === 'quantity') {
-                try { printflow_pos_parse_positive_quantity($value); }
+                try { printflow_pos_parse_cart_quantity($value); }
                 catch (InvalidArgumentException $error) { $errors[$key] = $error->getMessage(); }
             } elseif ($value === '') {
                 $errors[$key] = pos_cart_required_message($key, $label, $type);
@@ -395,7 +432,7 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
         } elseif ($type === 'date' && $value !== '' && pos_cart_is_needed_date_field((string)$fieldKey, $label) && !pos_cart_date_value_not_before_today($value)) {
             $errors[(string)$fieldKey] = 'Needed date cannot be in the past.';
         } elseif ($type === 'quantity') {
-            try { printflow_pos_parse_positive_quantity($value !== '' ? $value : $qty); }
+            try { printflow_pos_parse_cart_quantity($value !== '' ? $value : $qty); }
             catch (InvalidArgumentException $error) { $errors[(string)$fieldKey] = $error->getMessage(); }
         } elseif ($type === 'file') {
             $designMode = service_order_design_input_mode_from_customization($customization, (string) $fieldKey);
@@ -486,7 +523,7 @@ try {
                 throw new Exception('Product ID is required.');
             }
             $product_id = (int)$data['product_id'];
-            $qty = pos_cart_parse_positive_quantity($data['qty'] ?? 1);
+            $qty = pos_cart_parse_positive_quantity(array_key_exists('qty', $data) ? $data['qty'] : 1);
             
             $price = isset($data['price']) ? (float)$data['price'] : null;
             $name = $data['name'] ?? null;
@@ -498,11 +535,15 @@ try {
             if ($is_service) {
                 $serviceCustomization = is_array($customization) ? $customization : [];
                 unset($serviceCustomization['pos_cart_line_id']);
+<<<<<<< HEAD
                 if ($product_id === 40) {
                     // The selection is produced by this server after validation,
                     // never accepted from a browser cart payload.
                     unset($serviceCustomization['pos_tarpaulin_selection']);
                 }
+=======
+                if ($product_id === 40) unset($serviceCustomization['pos_tarpaulin_selection']);
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                 $serviceFieldConfigs = function_exists('get_service_field_config')
                     ? get_service_field_config($product_id)
                     : [];
@@ -514,16 +555,10 @@ try {
                     throw new PosCartValidationException($serviceValidationErrors);
                 }
 
+                $linePricing = printflow_calculate_service_line_pricing($product_id, $serviceCustomization, $qty, $serviceFieldConfigs);
                 $priceCalc = printflow_calculate_service_unit_price($product_id, $serviceCustomization);
                 if (!$priceCalc['ok']) {
-                    $fallbackUnit = (float)($serviceCustomization['calculated_unit_price'] ?? $price ?? 0);
-                    if ($fallbackUnit > 0) {
-                        $priceCalc = [
-                            'ok' => true,
-                            'unit_price' => round($fallbackUnit, 2),
-                            'message' => '',
-                        ];
-                    } elseif (($priceCalc['reason'] ?? '') === 'unconfigured') {
+                    if (($priceCalc['reason'] ?? '') === 'unconfigured') {
                         $serviceCustomization['price_unconfigured'] = '1';
                         $priceCalc = [
                             'ok' => true,
@@ -537,10 +572,34 @@ try {
                     }
                 }
                 $price = (float)$priceCalc['unit_price'];
+                if (!empty($linePricing['ok'])) {
+                    $price = (float)$linePricing['unit_price'];
+                    $designFee = (float)$linePricing['design_fee'];
+                    $estimatedLineTotal = (float)$linePricing['line_total'];
+                } else {
+                    $layoutValues = printflow_service_field_values_from_customization($serviceCustomization, $serviceFieldConfigs);
+                    $layoutFee = printflow_design_fee_option($layoutValues, $serviceFieldConfigs);
+                    if (empty($layoutFee['ok'])) {
+                        throw new PosCartValidationException(['layout' => (string)($layoutFee['message'] ?? 'The selected layout fee could not be verified.')]);
+                    }
+                    $designFee = (int)$layoutFee['fee_cents'] / 100;
+                    $estimatedLineTotal = round($price * $qty + $designFee, 2);
+                }
+                if ($designFee > 0 && !printflow_order_items_has_design_fee_column()) {
+                    throw new PosCartValidationException(['layout' => 'The design-fee database migration is required before this layout can be ordered.']);
+                }
+                $serviceCustomization['design_fee'] = number_format($designFee, 2, '.', '');
+                $serviceCustomization['calculated_design_fee'] = number_format($designFee, 2, '.', '');
+                $serviceCustomization['calculated_unit_price'] = number_format($price, 2, '.', '');
+                $serviceCustomization['calculated_estimated_price'] = number_format($estimatedLineTotal, 2, '.', '');
+                $serviceCustomization['design_fee_version'] = 1;
+                // Every Add to Order is a distinct design line even when all
+                // visible selections match. Cart quantity edits keep this ID.
+                $serviceCustomization['pos_design_line_id'] = bin2hex(random_bytes(16));
                 service_order_persist_validated_design_links($serviceCustomization, $serviceFieldConfigs);
                 $preparedCustomization = $serviceCustomization;
                 $preparedCustomization['calculated_unit_price'] = number_format($price, 2, '.', '');
-                $preparedCustomization['calculated_estimated_price'] = number_format($price * $qty, 2, '.', '');
+                $preparedCustomization['calculated_estimated_price'] = number_format($estimatedLineTotal, 2, '.', '');
                 $customization = $preparedCustomization;
                 $custom_json = json_encode($customization);
             }
@@ -596,7 +655,11 @@ try {
                 }
                 $item_custom_json = $itemCustomizationForMerge !== [] ? json_encode($itemCustomizationForMerge) : null;
                 $merge_custom_json = $newCustomizationForMerge !== [] ? json_encode($newCustomizationForMerge) : null;
+<<<<<<< HEAD
                 if ($item['product_id'] == $product_id && 
+=======
+                if (!$is_service && $item['product_id'] == $product_id &&
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                     abs($item['price'] - $price) < 0.01 && 
                     $item_custom_json === $merge_custom_json &&
                     $item['name'] === $name) {
@@ -623,6 +686,9 @@ try {
                     }
                     
                     $item['qty'] += $qty;
+                    if ($is_service && $product_id === 40 && is_array($item['customization'] ?? null)) {
+                        unset($item['customization']['pos_tarpaulin_selection']);
+                    }
                     // Preserve service flag when legacy cart rows are missing it.
                     $item['is_service'] = $existingIsService;
                     if ($existingIsService) {
@@ -671,7 +737,7 @@ try {
             ];
             $validation = printflow_pos_validate_service_stock(
                 array_merge(array_values($_SESSION['pos_cart'] ?? []), [$candidate]),
-                pos_cart_branch_id()
+                pos_cart_service_validation_branch_id(array_values($_SESSION['pos_cart'] ?? []), $serviceId)
             );
             $serviceStockValidation = $validation;
             break;
@@ -692,7 +758,10 @@ try {
             $cartItem['pos_material_assignments'] = $materials;
             $candidateCart = array_values($_SESSION['pos_cart']);
             $candidateCart[$index] = $cartItem;
-            $serviceStockValidation = printflow_pos_validate_service_stock($candidateCart, pos_cart_branch_id());
+            $serviceStockValidation = printflow_pos_validate_service_stock(
+                $candidateCart,
+                pos_cart_service_validation_branch_id($candidateCart, $productId === 40 ? 40 : 0)
+            );
             if (empty($serviceStockValidation['ok'])) {
                 throw new Exception(pos_cart_service_stock_message($serviceStockValidation));
             }
@@ -725,6 +794,9 @@ try {
                     $item['customization'] = (array)($updateOptionStock['customization'] ?? $itemCustomization);
                 } else {
                     $item['stock'] = null;
+                    if ((int)($item['product_id'] ?? 0) === 40 && is_array($item['customization'] ?? null)) {
+                        unset($item['customization']['pos_tarpaulin_selection']);
+                    }
                 }
                 $item['qty'] = $qty;
             }
@@ -741,12 +813,38 @@ try {
                 throw new Exception($priceError->getMessage());
             }
             $_SESSION['pos_cart'][$index]['price'] = $price;
+            // Set Price is the complete final line total, not a unit price.
+            $_SESSION['pos_cart'][$index]['line_total_override'] = round($price, 2);
             $_SESSION['pos_cart'][$index]['price_set'] = true;
             if (!empty($data['customization']) && is_array($data['customization'])) {
                 $existing = is_array($_SESSION['pos_cart'][$index]['customization'] ?? null)
                     ? $_SESSION['pos_cart'][$index]['customization']
                     : [];
-                $_SESSION['pos_cart'][$index]['customization'] = array_merge($existing, $data['customization']);
+                $incomingCustomization = $data['customization'];
+                if ((int)($_SESSION['pos_cart'][$index]['product_id'] ?? 0) === 40) {
+                    unset($incomingCustomization['pos_tarpaulin_selection'], $incomingCustomization['pos_cart_line_id']);
+                }
+                $_SESSION['pos_cart'][$index]['customization'] = array_merge($existing, $incomingCustomization);
+                if ((int)($_SESSION['pos_cart'][$index]['product_id'] ?? 0) === 40
+                    && is_array($_SESSION['pos_cart'][$index]['customization'] ?? null)) {
+                    unset($_SESSION['pos_cart'][$index]['customization']['pos_tarpaulin_selection']);
+                }
+            }
+            if ((int)($_SESSION['pos_cart'][$index]['product_id'] ?? 0) === 40
+                && pos_cart_item_is_service((array)$_SESSION['pos_cart'][$index])) {
+                $candidateCart = array_values($_SESSION['pos_cart']);
+                $validation = printflow_pos_validate_service_stock(
+                    $candidateCart,
+                    pos_cart_service_validation_branch_id($candidateCart, 40)
+                );
+                if (empty($validation['ok'])) throw new Exception(pos_cart_service_stock_message($validation));
+                foreach ((array)($validation['tarpaulin_selections'] ?? []) as $lineIndex => $selection) {
+                    if (!is_array($selection) || !isset($_SESSION['pos_cart'][$lineIndex])) continue;
+                    $lineCustomization = is_array($_SESSION['pos_cart'][$lineIndex]['customization'] ?? null)
+                        ? $_SESSION['pos_cart'][$lineIndex]['customization'] : [];
+                    $lineCustomization['pos_tarpaulin_selection'] = $selection;
+                    $_SESSION['pos_cart'][$lineIndex]['customization'] = $lineCustomization;
+                }
             }
             break;
 
@@ -827,7 +925,7 @@ try {
         pos_cart_validate_product_demand($_SESSION['pos_cart'], pos_cart_branch_id());
         $serviceStockValidation = printflow_pos_validate_service_stock(
             array_values($_SESSION['pos_cart']),
-            pos_cart_branch_id()
+            pos_cart_service_validation_branch_id(array_values($_SESSION['pos_cart']))
         );
         foreach ((array)($serviceStockValidation['tarpaulin_selections'] ?? []) as $lineIndex => $selection) {
             if (!is_array($selection) || !isset($_SESSION['pos_cart'][$lineIndex])) continue;
@@ -840,8 +938,23 @@ try {
         if (empty($serviceStockValidation['ok'])) {
             throw new Exception(pos_cart_service_stock_message($serviceStockValidation));
         }
+        foreach ((array)($serviceStockValidation['tarpaulin_selections'] ?? []) as $lineIndex => $selection) {
+            if (!is_array($selection) || !isset($_SESSION['pos_cart'][$lineIndex])) continue;
+            $lineCustomization = is_array($_SESSION['pos_cart'][$lineIndex]['customization'] ?? null)
+                ? $_SESSION['pos_cart'][$lineIndex]['customization'] : [];
+            $lineCustomization['pos_tarpaulin_selection'] = $selection;
+            $_SESSION['pos_cart'][$lineIndex]['customization'] = $lineCustomization;
+        }
         foreach ($_SESSION['pos_cart'] as $cartItem) {
             pos_cart_validate_assigned_service_stock((array)$cartItem);
+        }
+        foreach ((array)($serviceStockValidation['tarpaulin_selections'] ?? []) as $lineIndex => $selection) {
+            if (!is_array($selection) || !isset($_SESSION['pos_cart'][$lineIndex])) continue;
+            $customization = is_array($_SESSION['pos_cart'][$lineIndex]['customization'] ?? null)
+                ? $_SESSION['pos_cart'][$lineIndex]['customization']
+                : [];
+            $customization['pos_tarpaulin_selection'] = $selection;
+            $_SESSION['pos_cart'][$lineIndex]['customization'] = $customization;
         }
     }
 

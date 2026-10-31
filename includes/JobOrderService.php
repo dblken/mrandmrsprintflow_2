@@ -12,6 +12,7 @@ require_once __DIR__ . '/tarpaulin_material_calculation.php';
 require_once __DIR__ . '/RollService.php';
 require_once __DIR__ . '/NotificationService.php';
 require_once __DIR__ . '/revision_workflow.php';
+require_once __DIR__ . '/service_design_fee.php';
 
 class JobOrderService {
     private static array $columnExistsCache = [];
@@ -1078,8 +1079,11 @@ class JobOrderService {
         $notes = $order['notes'] ?? '';
         $branchId = (int)($order['branch_id'] ?? 0);
 
+        $productTypeSelect = self::tableHasColumn('products', 'product_type')
+            ? 'p.product_type'
+            : "''";
         $items = db_query(
-            "SELECT oi.*, p.name AS product_name, p.category AS product_category, p.product_type
+            "SELECT oi.*, p.name AS product_name, p.category AS product_category, {$productTypeSelect} AS product_type
              FROM order_items oi
              LEFT JOIN products p ON oi.product_id = p.product_id
              WHERE oi.order_id = ?
@@ -1131,6 +1135,7 @@ class JobOrderService {
             $job_title = get_service_name_from_customization($custom, $pname !== '' ? $pname : $service_type);
             $job_qty = (int)($item['quantity'] ?? 1);
             $unit_price = (float)($item['unit_price'] ?? 0);
+            $estimatedTotal = printflow_order_item_calculated_line_total($item);
 
             // Do not auto-assign production materials during store/POS job creation.
             // Materials must only be attached through explicit staff actions later.
@@ -1159,7 +1164,7 @@ class JobOrderService {
                     'total_sqft'      => $width_ft * $height_ft * $job_qty,
                     'price_per_sqft'  => null,
                     'price_per_piece' => null,
-                    'estimated_total' => $unit_price * $job_qty,
+                    'estimated_total' => $estimatedTotal,
                     'notes'           => $notes,
                     'due_date'        => null,
                     'priority'        => $jobPriority,
@@ -1245,8 +1250,12 @@ class JobOrderService {
             $orderType = (!empty($isJob)) ? 'JOB' : 'ORDER';
         }
         $qty = (float)$qty;
+<<<<<<< HEAD
         $isVersionedTarpaulin = is_array($metadata)
             && ($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_CALCULATION_VERSION;
+=======
+        $isVersionedTarpaulin = is_array($metadata) && printflow_tarpaulin_is_versioned_metadata($metadata);
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
         if (($isVersionedTarpaulin && (!is_finite($qty) || $qty <= 0)) || (!$isVersionedTarpaulin && $qty < 1)) {
             throw new Exception("Material quantity must be at least 1.");
         }
@@ -1307,6 +1316,7 @@ class JobOrderService {
                 if ($rollWidth <= 0 || $jobRowForLength === null) {
                     throw new RuntimeException('The versioned Tarpaulin assignment is missing a valid roll width or linked job dimensions.');
                 }
+<<<<<<< HEAD
                 $calculation = printflow_tarpaulin_calculate_linear_length(
                     $jobRowForLength['width_ft'] ?? null,
                     $jobRowForLength['height_ft'] ?? null,
@@ -1325,6 +1335,43 @@ class JobOrderService {
                     'run_length_per_piece_ft' => $calculation['run_length_per_piece_ft'],
                     'computed_required_length_ft' => $calculation['required_linear_ft'],
                 ]);
+=======
+                if (($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION) {
+                    $selection = printflow_tarpaulin_saved_panel_selection_for_job((int)$jobLookupId, $jobRowForLength);
+                    $submittedPanelPlan = $metadata['tarpaulin_panel_plan'] ?? null;
+                    if (!$selection || (int)($selection['item_id'] ?? 0) !== (int)$itemId
+                        || (int)($selection['branch_id'] ?? 0) !== (int)JobOrderService::getJobBranchIdPublic((int)$jobLookupId)
+                        || abs((float)($selection['required_linear_ft'] ?? 0) - $qty) > 0.001
+                        || !is_array($submittedPanelPlan)
+                        || !printflow_tarpaulin_panel_plans_match($submittedPanelPlan, $selection)) {
+                        throw new RuntimeException('The Set Price Tarpaulin assignment does not match the saved POS panel plan. Reopen Set Price and use the validated material and quantity.');
+                    }
+                    $qty = (float)$selection['required_linear_ft'];
+                    $computed_len = $qty;
+                    $metadata = array_merge($metadata, [
+                        'width_ft' => (float)$selection['width_ft'], 'height_ft' => (float)$selection['height_ft'],
+                        'finished_quantity' => (int)$selection['finished_quantity'], 'roll_width_ft' => $rollWidth,
+                        'orientation' => (string)$selection['orientation'], 'run_length_per_piece_ft' => (float)$selection['run_length_per_panel_ft'],
+                        'computed_required_length_ft' => $qty, 'tarpaulin_panel_plan' => $selection,
+                    ]);
+                } else {
+                    $calculation = printflow_tarpaulin_calculate_linear_length(
+                        $jobRowForLength['width_ft'] ?? null,
+                        $jobRowForLength['height_ft'] ?? null,
+                        $jobRowForLength['quantity'] ?? null,
+                        $rollWidth
+                    );
+                    $qty = (float)$calculation['required_linear_ft'];
+                    $computed_len = $qty;
+                    $metadata = array_merge($metadata, [
+                        'tarpaulin_calculation_version' => PRINTFLOW_TARPAULIN_CALCULATION_VERSION,
+                        'width_ft' => $calculation['width_ft'], 'height_ft' => $calculation['height_ft'],
+                        'finished_quantity' => $calculation['finished_quantity'], 'roll_width_ft' => $calculation['roll_width_ft'],
+                        'orientation' => $calculation['orientation'], 'run_length_per_piece_ft' => $calculation['run_length_per_piece_ft'],
+                        'computed_required_length_ft' => $calculation['required_linear_ft'],
+                    ]);
+                }
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
             }
             if ($computed_len <= 0 && $jobRowForLength !== null) {
                 $jH = (float)($jobRowForLength['height_ft'] ?? 0);
@@ -1873,7 +1920,7 @@ class JobOrderService {
         }
         $materials = $processMaterials ? self::getScopedMaterials((int)$orderId, true, true) : $pendingMaterials;
         $jobDimensionRows = db_query(
-            'SELECT height_ft, width_ft, quantity FROM job_orders WHERE id = ? LIMIT 1',
+            'SELECT id, order_id, order_item_id, height_ft, width_ft, quantity FROM job_orders WHERE id = ? LIMIT 1',
             'i',
             [(int)$orderId]
         ) ?: [];
@@ -1962,16 +2009,30 @@ class JobOrderService {
                     }
 
                     try {
-                        // Use unified FIFO deduction logic
-                        $deductionResult = RollService::deductFIFO(
-                            $m['item_id'],
-                            $lengthNeeded,
-                            'JOB_ORDER',
-                            $orderId,
-                            "Deducted for {$jobLabel}",
-                            $branchId,
-                            $ledgerTransactionDate
-                        );
+                        $rollMetadata = self::decodeMaterialMetadata($m['metadata'] ?? null);
+                        if (($rollMetadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION) {
+                            $savedPanelPlan = $rollMetadata['tarpaulin_panel_plan'] ?? null;
+                            $authoritativePanelPlan = $jobDimensionRow
+                                ? printflow_tarpaulin_saved_panel_selection_for_job((int)$orderId, $jobDimensionRow)
+                                : null;
+                            if (!is_array($savedPanelPlan) || abs((float)($savedPanelPlan['required_linear_ft'] ?? 0) - $lengthNeeded) > 0.001
+                                || (int)($savedPanelPlan['item_id'] ?? 0) !== $itemId
+                                || (int)($savedPanelPlan['branch_id'] ?? 0) !== $branchId
+                                || !is_array($authoritativePanelPlan)
+                                || !printflow_tarpaulin_panel_plans_match($savedPanelPlan, $authoritativePanelPlan)) {
+                                throw new RuntimeException('The saved Tarpaulin panel plan is incomplete or no longer matches this job and branch.');
+                            }
+                            $deductionResult = RollService::deductWholePanelsFIFO(
+                                $m['item_id'], $savedPanelPlan, 'JOB_ORDER', $orderId,
+                                "Tarpaulin whole-panel cuts deducted for {$jobLabel}", $branchId, $ledgerTransactionDate
+                            );
+                        } else {
+                            // Historical and linear_ft_v1 assignments retain aggregate FIFO behavior.
+                            $deductionResult = RollService::deductFIFO(
+                                $m['item_id'], $lengthNeeded, 'JOB_ORDER', $orderId,
+                                "Deducted for {$jobLabel}", $branchId, $ledgerTransactionDate
+                            );
+                        }
                         $debugLog('roll_material_deducted', [
                             'deduction_path' => 'job_order_roll',
                             'order_id' => $storeOrderId,

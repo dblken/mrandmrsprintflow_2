@@ -1261,6 +1261,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             border-radius: 10px;
             overflow: hidden;
             flex-shrink: 0;
+            width: max-content;
+            max-width: 100%;
+            justify-self: start;
         }
 
         .pos-qty-btn {
@@ -1280,7 +1283,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-qty-val {
-            width: 48px;
+            box-sizing: border-box;
+            width: 60px;
+            min-width: 60px;
+            max-width: 60px;
+            flex: 0 0 60px;
             text-align: center;
             font-size: 14px;
             font-weight: 600;
@@ -1289,7 +1296,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             background: transparent;
             color: #0f172a;
             outline: none;
-            padding: 3px 2px;
+            padding: 3px 4px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            text-overflow: clip;
+            white-space: nowrap;
+            scrollbar-width: none;
         }
 
         .pos-qty-val:focus {
@@ -3337,7 +3349,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
     echo get_service_field_scripts();
     ?>
 
-    <script src="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/js/service_estimated_price.js'); ?>"></script>
+    <?php $pos_estimated_price_ver = @filemtime(__DIR__ . '/../public/assets/js/service_estimated_price.js') ?: '1'; ?>
+    <script src="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/js/service_estimated_price.js'); ?>?v=<?php echo (int) $pos_estimated_price_ver; ?>"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <?php $pos_add_fx_ver = @filemtime(__DIR__ . '/../public/assets/js/add_to_cart_fx.js') ?: '1'; ?>
     <script src="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/js/add_to_cart_fx.js'); ?>?v=<?php echo (int) $pos_add_fx_ver; ?>"></script>
@@ -3366,6 +3379,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         const barcodeScanQueue = [];
         let posBarcodeDebugEnabled = false;
         let isAddingToOrder = false;
+        let isPreparingServiceOrder = false;
         let posServiceStockRequestVersion = 0;
         let posServiceStockRequestTimer = null;
         let posServiceStockBlocking = false;
@@ -4641,18 +4655,22 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function resolveServiceModalPricing() {
             let unitPrice = 0;
             let quantity = 1;
+            let designFee = 0;
             if (posEstimatedPriceController && typeof posEstimatedPriceController.recalculate === 'function') {
                 const result = posEstimatedPriceController.recalculate();
                 unitPrice = Number(result.unitPrice);
                 quantity = Number(result.quantity);
+                designFee = Number(result.designFee || 0);
             } else if (typeof window.calculateEstimatedPrice === 'function') {
                 const result = window.calculateEstimatedPrice();
                 unitPrice = Number(result.unitPrice);
                 quantity = Number(result.quantity);
+                designFee = Number(result.designFee || 0);
             }
             if (!Number.isFinite(unitPrice)) unitPrice = 0;
             if (!Number.isFinite(quantity) || quantity < 1) quantity = 1;
-            return { unitPrice, quantity };
+            if (!Number.isFinite(designFee) || designFee < 0) designFee = 0;
+            return { unitPrice, quantity, designFee };
         }
 
         const POS_MISSING_ESTIMATE_MESSAGE = 'This specification does not have an estimated price yet. The final price will be set by Staff before payment or order completion. Do you want to continue?';
@@ -4661,18 +4679,22 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return showPOSConfirm('Estimated Price', POS_MISSING_ESTIMATE_MESSAGE, 'Continue', 'warning');
         }
 
-        function applyServicePricingToCustomization(customization, unitPrice, quantity) {
+        function applyServicePricingToCustomization(customization, unitPrice, quantity, designFee) {
             const safeUnit = Math.round(unitPrice * 100) / 100;
             const safeQty = Math.max(1, parseInt(String(quantity), 10) || 1);
+            const safeDesignFee = Math.max(0, Math.round((Number(designFee) || 0) * 100) / 100);
             customization.calculated_unit_price = safeUnit.toFixed(2);
-            customization.calculated_estimated_price = (safeUnit * safeQty).toFixed(2);
+            customization.calculated_design_fee = safeDesignFee.toFixed(2);
+            customization.design_fee = safeDesignFee.toFixed(2);
+            customization.design_fee_version = 1;
+            customization.calculated_estimated_price = (Math.round((safeUnit * safeQty + safeDesignFee) * 100) / 100).toFixed(2);
             customization.quantity = String(safeQty);
             if (safeUnit > 0) {
                 delete customization.price_unconfigured;
             } else {
                 customization.price_unconfigured = '1';
             }
-            return { unitPrice: safeUnit, quantity: safeQty };
+            return { unitPrice: safeUnit, quantity: safeQty, designFee: safeDesignFee };
         }
 
         async function openServiceModal(serviceId, serviceName) {
@@ -4708,6 +4730,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
                 overlay.dataset.csrfToken = data.csrf_token;
                 body.innerHTML = data.fields_html;
+                if (Number(serviceId) === 40) posEnsureTarpaulinJoiningControls(body);
                 footerActions.style.display = 'block';
                 isAddingToOrder = false;
                 setServiceAddButtonBusy(false);
@@ -5202,7 +5225,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             // Add service to cart with calculated unit price from the modal estimator
             const pricing = resolveServiceModalPricing();
-            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization['quantity'] || pricing.quantity);
+            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization['quantity'] || pricing.quantity, pricing.designFee);
             if (priced.unitPrice <= 0) {
                 const proceed = await confirmMissingEstimatedPrice();
                 if (!proceed) return;
@@ -5247,6 +5270,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             setServiceAddButtonBusy(isAddingToOrder);
         }
 
+<<<<<<< HEAD
         function posCollectServiceStockCustomization() {
             const body = document.getElementById('sm-fields-body');
             const customization = {};
@@ -5267,12 +5291,86 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
             const branch = body.querySelector('[name="branch_id"]');
             if (branch) customization.branch_id = branch.value;
+=======
+        function posCollectTarpaulinStockCustomization() {
+            const body = document.getElementById('sm-fields-body');
+            const customization = {};
+            if (!body) return customization;
+            if (typeof pfPrepareServiceFormDimensions === 'function') {
+                pfPrepareServiceFormDimensions(body);
+            }
+            const dimensionSelect = body.querySelector('select[name="dimensions"]');
+            const dimensionControl = dimensionSelect
+                || body.querySelector('input[name="dimensions"]:not([type="hidden"]), textarea[name="dimensions"]')
+                || body.querySelector('select[name*="dimension" i], input:not([type="hidden"])[name*="dimension" i], textarea[name*="dimension" i]');
+            const customSizeSelected = !!(dimensionSelect
+                && dimensionSelect.classList.contains('pf-select-with-others')
+                && String(dimensionSelect.value || '') === String(dimensionSelect.dataset.otherOption || 'Others'));
+            const activeCustomChoice = !!body.querySelector('.shopee-opt-btn.active[data-dimension-others]');
+            const customSizeActive = customSizeSelected || activeCustomChoice;
+            const customWidth = body.querySelector('.pf-custom-size-panel:not([hidden]) .custom-dim-width, .dim-others-inputs[style*="display: block"] .custom-dim-width');
+            const customHeight = body.querySelector('.pf-custom-size-panel:not([hidden]) .custom-dim-height, .dim-others-inputs[style*="display: block"] .custom-dim-height');
+            body.querySelectorAll('[data-dimension-role="width"], [data-dimension-role="height"]').forEach((field) => {
+                const role = String(field.dataset.dimensionRole || '').trim().toLowerCase();
+                if ((role === 'width' || role === 'height') && !customization[role]) customization[role] = field.value;
+            });
+            const parsePair = (raw) => {
+                const match = String(raw || '').trim().match(/^\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(?:ft|feet|foot)?\s*$/i);
+                return match ? { width: match[1], height: match[2] } : null;
+            };
+            if (dimensionControl) {
+                customization.dimensions = String(dimensionControl.value || '').trim();
+            }
+            if (customSizeActive) {
+                // A custom-size panel exists in the DOM even while its parent is
+                // hidden; only use its inputs when the user actually selected it.
+                customization.width = String(customWidth ? customWidth.value : '').trim();
+                customization.height = String(customHeight ? customHeight.value : '').trim();
+            } else {
+                const activePreset = body.querySelector('.shopee-opt-btn.active[data-width][data-height]');
+                const pair = activePreset
+                    ? { width: activePreset.dataset.width, height: activePreset.dataset.height }
+                    : parsePair(dimensionControl ? dimensionControl.value : '');
+                if (pair) {
+                    customization.width = pair.width;
+                    customization.height = pair.height;
+                }
+            }
+            const joiningDirection = body.querySelector('[name="joining_direction"]');
+            const allowanceMode = body.querySelector('[name="joining_allowance_mode"]');
+            const allowance = body.querySelector('[name="joining_allowance_ft"]');
+            customization.joining_direction = joiningDirection ? joiningDirection.value : 'automatic';
+            customization.joining_allowance_mode = allowanceMode ? allowanceMode.value : 'included';
+            customization.joining_allowance_ft = allowance ? allowance.value : '0';
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
             const quantity = posServiceQuantityInput();
             if (quantity) customization.quantity = quantity.value;
             return customization;
         }
 
+<<<<<<< HEAD
         async function posValidateServiceStockNow(serviceId, quantityRaw, customization = null) {
+=======
+        function posEnsureTarpaulinJoiningControls(body) {
+            if (!body || body.querySelector('.pos-tarpaulin-joining-controls')) return;
+            const wrap = document.createElement('div');
+            wrap.className = 'pos-tarpaulin-joining-controls';
+            wrap.style.cssText = 'display:grid;gap:10px;margin:12px 0;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc';
+            wrap.innerHTML = '<label style="display:grid;gap:5px;font-size:12px;font-weight:700;color:#334155">Joining Direction <select name="joining_direction" class="input-field"><option value="automatic">Automatic</option><option value="vertical">Vertical seams</option><option value="horizontal">Horizontal seams</option></select></label>'
+                + '<label style="display:grid;gap:5px;font-size:12px;font-weight:700;color:#334155">Joining Allowance <select name="joining_allowance_mode" class="input-field"><option value="included">Included in requested size</option><option value="additional">Additional allowance</option></select></label>'
+                + '<label data-tarp-allowance-wrap style="display:none;gap:5px;font-size:12px;font-weight:700;color:#334155">Additional Allowance (ft) <input name="joining_allowance_ft" type="number" min="0" step="any" value="0" class="input-field"><small style="font-weight:400">Total per finished Tarpaulin, not per seam.</small></label>';
+            const firstQuantity = body.querySelector('.quantity-container, input[name="quantity"]')?.closest('.shopee-form-row');
+            body.insertBefore(wrap, firstQuantity || null);
+            const mode = wrap.querySelector('[name="joining_allowance_mode"]');
+            const allowanceWrap = wrap.querySelector('[data-tarp-allowance-wrap]');
+            const syncAllowance = () => { allowanceWrap.style.display = mode.value === 'additional' ? 'grid' : 'none'; };
+            mode.addEventListener('change', syncAllowance);
+            syncAllowance();
+        }
+
+        async function posValidateServiceStockNow(serviceId, quantityRaw) {
+            const requestVersion = ++posServiceStockRequestVersion;
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
             const input = posServiceQuantityInput();
             const qty = posReadPositiveWholeQuantity(quantityRaw);
             if (input) input.setCustomValidity(qty === null ? 'Enter a positive whole number.' : '');
@@ -5280,8 +5378,24 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 posSetServiceStockState(true, '', 'Enter a positive whole number.');
                 return { valid: false, message: 'Enter a positive whole number.' };
             }
+            if (Number(serviceId) === 40) {
+                const dims = posCollectTarpaulinStockCustomization();
+                const width = Number(dims.width);
+                const height = Number(dims.height);
+                const allowance = Number(dims.joining_allowance_ft);
+                const validDim = (value) => Number.isFinite(value) && value > 0 && value <= 100;
+                if (!validDim(width) || !validDim(height)) {
+                    const message = !validDim(width) ? 'Width must be greater than 0 and at most 100 feet.' : 'Height must be greater than 0 and at most 100 feet.';
+                    posSetServiceStockState(true, '', message);
+                    return { valid: false, message };
+                }
+                if (dims.joining_allowance_mode === 'additional' && (!Number.isFinite(allowance) || allowance < 0)) {
+                    const message = 'Additional allowance must be a finite nonnegative number of feet.';
+                    posSetServiceStockState(true, '', message);
+                    return { valid: false, message };
+                }
+            }
 
-            const requestVersion = ++posServiceStockRequestVersion;
             posSetServiceStockState(true, 'Checking current material stock…', '');
             try {
                 const response = await fetchWithTimeout(staffUrl('staff/api/pos_cart_handler.php'), {
@@ -5291,9 +5405,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         action: 'validate_service_stock',
                         service_id: Number(serviceId),
                         qty,
+<<<<<<< HEAD
                         customization: customization && typeof customization === 'object'
                             ? customization
                             : posCollectServiceStockCustomization(),
+=======
+                        ...(Number(serviceId) === 40 ? { customization: posCollectTarpaulinStockCustomization() } : {}),
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                         csrf_token: POS_CSRF_TOKEN
                     })
                 }, 12000);
@@ -5310,6 +5428,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     return { valid: true, tracked: false };
                 }
                 const formatQty = value => String(Number(value || 0));
+<<<<<<< HEAD
+=======
+                const indicator = [40, 63].includes(Number(serviceId)) ? '' : materials.map(material => `${material.name}: ${formatQty(material.available)} ${material.uom || 'units'} available · ${formatQty(material.required)} required`).join(' | ');
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                 const issues = Array.isArray(validation.issues) ? validation.issues : [];
                 if (!validation.ok || issues.length) {
                     const issue = issues[0] || {};
@@ -5332,6 +5454,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function posBindServiceStockValidation(serviceId) {
             const input = posServiceQuantityInput();
             const body = document.getElementById('sm-fields-body');
+<<<<<<< HEAD
             const scheduleValidation = () => {
                 if (posServiceStockRequestTimer) clearTimeout(posServiceStockRequestTimer);
                 // Invalidate any in-flight response as soon as the inputs
@@ -5355,6 +5478,27 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 input.step = '1';
                 input.addEventListener('input', scheduleValidation);
                 input.addEventListener('change', scheduleValidation);
+=======
+            if (input) {
+                input.min = '1';
+                input.step = '1';
+                input.addEventListener('input', () => {
+                    if (posServiceStockRequestTimer) clearTimeout(posServiceStockRequestTimer);
+                    if (Number(serviceId) === 40) ++posServiceStockRequestVersion;
+                    posServiceStockBlocking = true;
+                    setServiceAddButtonBusy(isAddingToOrder);
+                    const feedback = document.getElementById('pos-service-stock-feedback');
+                    const warning = document.getElementById('pos-service-stock-warning');
+                    const indicator = document.getElementById('pos-service-stock-indicator');
+                    if (feedback) feedback.style.display = 'block';
+                    if (indicator) indicator.textContent = 'Checking current material stock…';
+                    if (warning) warning.textContent = '';
+                    posServiceStockRequestTimer = setTimeout(() => {
+                        posValidateServiceStockNow(serviceId, input.value);
+                    }, 180);
+                });
+                input.addEventListener('change', () => posValidateServiceStockNow(serviceId, input.value));
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
 
                 // The service quantity +/- controls update the input value from
                 // inline handlers and do not dispatch input/change events.
@@ -5365,13 +5509,19 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         button.addEventListener('click', () => {
                             setTimeout(() => {
                                 if (document.getElementById('sm-fields-body')?.contains(input)) {
+<<<<<<< HEAD
                                     scheduleValidation();
+=======
+                                    if (Number(serviceId) === 40) ++posServiceStockRequestVersion;
+                                    posValidateServiceStockNow(serviceId, input.value);
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                                 }
                             }, 0);
                         });
                     });
                 }
             }
+<<<<<<< HEAD
             if (body) {
                 // Options and dimension fields affect material resolution even
                 // when quantity stays unchanged. Delegate to cover dynamic fields.
@@ -5381,6 +5531,36 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 body.addEventListener('change', (event) => {
                     if (event.target !== input && event.target.matches('input, select, textarea')) scheduleValidation();
                 });
+=======
+            if (Number(serviceId) === 40 && body) {
+                const revalidateDimensions = (event) => {
+                    const target = event.target;
+                    const dimensionField = target && typeof target.matches === 'function'
+                        && target.matches('[data-dimension-role="width"], [data-dimension-role="height"], .custom-dim-width, .custom-dim-height, input[name="dimensions"], input[name*="dimension" i], textarea[name*="dimension" i], [name="joining_allowance_ft"]');
+                    const dimensionSelect = event.type === 'change' && target && typeof target.matches === 'function'
+                        && target.matches('select.pf-select-with-others, select.pf-select-custom-size, select[name="dimensions"], select[name*="dimension" i], [name="joining_direction"], [name="joining_allowance_mode"]');
+                    const dimensionChoice = dimensionSelect || (target && typeof target.closest === 'function'
+                        && target.closest('.shopee-opt-btn[data-dimension-choice], .shopee-opt-btn[data-dimension-others]'));
+                    if (!dimensionField && !dimensionChoice) return;
+                    if (posServiceStockRequestTimer) clearTimeout(posServiceStockRequestTimer);
+                    ++posServiceStockRequestVersion;
+                    posServiceStockBlocking = true;
+                    setServiceAddButtonBusy(isAddingToOrder);
+                    const feedback = document.getElementById('pos-service-stock-feedback');
+                    const indicator = document.getElementById('pos-service-stock-indicator');
+                    const warning = document.getElementById('pos-service-stock-warning');
+                    if (feedback) feedback.style.display = 'block';
+                    if (indicator) indicator.textContent = 'Checking current material stock…';
+                    if (warning) warning.textContent = '';
+                    posServiceStockRequestTimer = setTimeout(() => {
+                        const currentQty = posServiceQuantityInput();
+                        posValidateServiceStockNow(serviceId, currentQty ? currentQty.value : '');
+                    }, 180);
+                };
+                body.addEventListener('input', revalidateDimensions);
+                body.addEventListener('change', revalidateDimensions);
+                body.addEventListener('click', revalidateDimensions);
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
             }
             const pricing = resolveServiceModalPricing();
             const quantity = input ? input.value : pricing.quantity;
@@ -5616,7 +5796,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (!isServiceFieldActive(row)) return;
                 const requiredInputs = Array.from(row.querySelectorAll('[required]')).filter(input => {
                     if (input.disabled) return false;
-                    const hiddenParent = input.closest('[style*="display:none"], [style*="display: none"]');
+                    // Service option radios are intentionally hidden inside their
+                    // visible option labels. Ignore fields hidden by an ancestor,
+                    // but do not discard an input merely because the input itself
+                    // is visually hidden.
+                    const hiddenParent = input.parentElement
+                        ? input.parentElement.closest('[style*="display:none"], [style*="display: none"]')
+                        : null;
                     return !hiddenParent;
                 });
                 if (requiredInputs.length === 0) return;
@@ -5763,7 +5949,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         async function confirmServiceModal() {
-            if (isAddingToOrder) return;
+            if (isAddingToOrder || isPreparingServiceOrder) return;
             const overlay = document.getElementById('service-modal-overlay');
             const serviceId = parseInt(overlay.dataset.serviceId);
             const serviceName = overlay.dataset.serviceName;
@@ -5775,6 +5961,26 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 focusFirstInvalidField(validationResult.errors);
                 return;
             }
+            const branchHidden = body.querySelector('input[type="hidden"][name="branch_id"]');
+            const branchSel = body.querySelector('select[name="branch_id"]');
+            const branchVal = (branchHidden && branchHidden.value) ? branchHidden.value : (branchSel ? branchSel.value : '');
+            if (!branchVal) {
+                const branchRow = Array.from(body.querySelectorAll('.shopee-form-row')).find(row => {
+                    return row.querySelector('[name="branch_id"]');
+                });
+                if (branchRow) {
+                    const branchError = { branch_id: { row: branchRow, message: 'Please select a branch.' } };
+                    showValidationErrors(branchError);
+                    focusFirstInvalidField(branchError);
+                } else {
+                    await showPOSAlert('Branch Required', 'Please select a branch.', 'warning');
+                }
+                return;
+            }
+            // Guard duplicate clicks while asynchronous stock/design validation
+            // runs, without changing the button to its loading state yet.
+            isPreparingServiceOrder = true;
+            try {
             const serviceQuantityInput = posServiceQuantityInput();
             const serviceStockCheck = await posValidateServiceStockNow(
                 serviceId,
@@ -5811,19 +6017,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             setServiceAddButtonBusy(true);
 
             const customization = {};
-            const branchHidden = body.querySelector('input[type="hidden"][name="branch_id"]');
-            const branchSel = body.querySelector('select[name="branch_id"]');
-            const branchVal = (branchHidden && branchHidden.value) ? branchHidden.value : (branchSel ? branchSel.value : '');
-            if (!branchVal) {
-                await showPOSAlert('Branch Required', 'Please select a branch.', 'warning');
-                if (branchSel) branchSel.focus();
-                isAddingToOrder = false;
-                setServiceAddButtonBusy(false);
-                return;
-            }
             customization.branch_id = branchVal;
             customization.service_id = serviceId;
             customization.service_type = serviceName;
+            if (Number(serviceId) === 40) Object.assign(customization, posCollectTarpaulinStockCustomization());
 
             body.querySelectorAll('.shopee-form-row').forEach(row => {
                 if (!isServiceFieldActive(row)) return;
@@ -5964,13 +6161,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 posStripInactiveDesignUploads(body, customization);
             } catch (uploadErr) {
                 await showPOSAlert('Upload Failed', uploadErr.message || 'Could not save the design file.', 'error');
-                isAddingToOrder = false;
-                setServiceAddButtonBusy(false);
                 return;
             }
 
             const pricing = resolveServiceModalPricing();
-            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization.quantity || pricing.quantity);
+            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization.quantity || pricing.quantity, pricing.designFee);
 
             body.querySelectorAll('input[type="radio"]:checked').forEach(radio => {
                 const row = radio.closest('.shopee-form-row');
@@ -5985,8 +6180,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (addBtn) addBtn.disabled = true;
                 const proceed = await confirmMissingEstimatedPrice();
                 if (!proceed) {
-                    isAddingToOrder = false;
-                    if (addBtn) addBtn.disabled = false;
                     return;
                 }
                 isAddingToOrder = true;
@@ -6030,6 +6223,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     errorDetail || result.message || 'Some required order details are missing.',
                     'warning'
                 );
+            }
+            } finally {
+                // Always restore the action state after an exception, failed
+                // request, or early return. The helper preserves stock blocking.
+                isPreparingServiceOrder = false;
                 isAddingToOrder = false;
                 setServiceAddButtonBusy(false);
             }
@@ -7045,34 +7243,84 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function addQuickService(serviceName) { }
 
         function posReadPositiveWholeQuantity(value) {
-            const raw = String(value ?? '').trim();
-            if (!/^[1-9]\d*$/.test(raw)) return null;
-            const parsed = Number(raw);
-            return Number.isSafeInteger(parsed) && parsed <= 2147483647 ? parsed : null;
+            const raw = String(value ?? '');
+            if (!/^[0-9]{1,64}$/.test(raw)) return null;
+            const canonical = raw.replace(/^0+/, '');
+            if (canonical === '' || canonical.length > 7) return null;
+            const parsed = Number(canonical);
+            return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 1000000 ? parsed : null;
+        }
+
+        function posShowCartQuantityMessage(index, input, message) {
+            const warning = document.getElementById(`pos-qty-warning-${index}`);
+            if (warning) warning.textContent = message;
+            if (input) input.setCustomValidity(message);
+            updateCheckoutState();
+        }
+
+        function posBindCartQuantityInput(index, input) {
+            const rejectNonDigits = event => {
+                if (event.data != null && !/^[0-9]*$/.test(event.data)) {
+                    event.preventDefault();
+                    posShowCartQuantityMessage(index, input, 'Use digits 0–9 only.');
+                }
+            };
+            input.addEventListener('keydown', event => {
+                if (event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1) return;
+                if (!/^[0-9]$/.test(event.key)) {
+                    event.preventDefault();
+                    posShowCartQuantityMessage(index, input, 'Use digits 0–9 only.');
+                }
+            });
+            input.addEventListener('beforeinput', rejectNonDigits);
+            input.addEventListener('paste', event => {
+                const pasted = event.clipboardData?.getData('text') ?? '';
+                if (!/^[0-9]*$/.test(pasted) || pasted.length > 64) {
+                    event.preventDefault();
+                    posShowCartQuantityMessage(index, input, 'Use digits 0–9 only.');
+                }
+            });
+            input.addEventListener('drop', event => {
+                const dropped = event.dataTransfer?.getData('text') ?? '';
+                if (!/^[0-9]*$/.test(dropped) || dropped.length > 64) {
+                    event.preventDefault();
+                    posShowCartQuantityMessage(index, input, 'Use digits 0–9 only.');
+                }
+            });
         }
 
         function validateCartQuantityInput(index, input) {
             const warning = document.getElementById(`pos-qty-warning-${index}`);
             const quantity = posReadPositiveWholeQuantity(input.value);
             const item = cart[index];
-            let message = quantity === null ? 'Enter a positive whole number.' : '';
+            let message = quantity === null ? 'Enter a whole number from 1 to 1,000,000 using digits 0–9 only.' : '';
             const available = Number(item?.stock);
             if (!message && item && !item.is_service && Number.isFinite(available) && quantity > available) {
                 message = `Only ${available} items are available.`;
             }
+            input.dataset.dirty = quantity !== null && Number(item?.qty) === quantity ? 'false' : 'true';
             if (warning) warning.textContent = message;
             input.setCustomValidity(message);
+            updateCheckoutState();
             return { quantity, message };
         }
 
         async function commitCartQuantityInput(index, input) {
             const result = validateCartQuantityInput(index, input);
+            if (result.quantity !== null) input.value = String(result.quantity);
             if (result.quantity === null || result.message) {
                 input.reportValidity();
                 return;
             }
-            if (result.quantity === Number(cart[index]?.qty)) return;
+            if (result.quantity === Number(cart[index]?.qty)) {
+                input.dataset.dirty = 'false';
+                updateCheckoutState();
+                return;
+            }
+            input.dataset.pending = 'true';
+            updateCheckoutState();
             const response = await syncedCartAction('update', { index, qty: result.quantity }, { silentErrors: true });
+            if (input.isConnected) input.dataset.pending = 'false';
             if (!response.success) {
                 if (input.isConnected) {
                     const warning = document.getElementById(`pos-qty-warning-${index}`);
@@ -7080,6 +7328,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     if (warning) warning.textContent = message;
                     input.setCustomValidity(message);
                 }
+                updateCheckoutState();
                 await showPOSAlert('Stock Validation', response.message || 'Unable to update quantity.', 'warning');
             }
         }
@@ -7087,9 +7336,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         async function updateQtyByCartIndex(index, delta) {
             const item = cart[index];
             if (!item) return;
-            let newQty = parseInt(item.qty) + delta;
-            if (newQty < 1) newQty = 1;
-            if (!Number.isSafeInteger(newQty) || newQty > 2147483647) return;
+            const input = document.querySelectorAll('.pos-cart-item')[index]?.querySelector('.pos-qty-val');
+            if (input?.dataset.pending === 'true') return;
+            const currentQty = posReadPositiveWholeQuantity(input ? input.value : item.qty);
+            if (currentQty === null) return;
+            const newQty = currentQty + delta;
+            if (newQty < 1 || newQty > 1000000) return;
             await syncedCartAction('update', { index, qty: newQty });
         }
 
@@ -7116,7 +7368,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const unitPrice = posCartItemEstimatedUnitPrice(item);
                     const pricingComplete = posCartItemStaffPricingComplete(item);
                     const countsInTotal = posCartItemCountsInCheckoutTotal(item);
-                    const confirmedLineTotal = (parseFloat(item.price) || 0) * (item.qty || 1);
+                    const confirmedLineTotal = item.line_total_override !== null && item.line_total_override !== undefined
+                        ? Math.max(0, Number(item.line_total_override) || 0)
+                        : ((parseFloat(item.price) || 0) * (item.qty || 1)) + Math.max(0, Number(item.design_fee ?? item.customization?.design_fee) || 0);
                     if (countsInTotal) {
                         currentTotal += confirmedLineTotal;
                     }
@@ -7177,7 +7431,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     <div class="pos-item-action">${priceHtml}</div>
                     <div class="pos-item-controls">
                         <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, -1)" aria-label="Decrease quantity">&minus;</button>
-                        <input class="pos-qty-val" type="text" inputmode="numeric" autocomplete="off" value="${escapeHtml(String(item.qty))}" aria-label="Quantity" aria-describedby="pos-qty-warning-${index}" oninput="validateCartQuantityInput(${index}, this)" onblur="commitCartQuantityInput(${index}, this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
+                        <input class="pos-qty-val" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="64" autocomplete="off" value="${escapeHtml(String(item.qty))}" aria-label="Quantity" aria-describedby="pos-qty-warning-${index}" oninput="validateCartQuantityInput(${index}, this)" onblur="commitCartQuantityInput(${index}, this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
                         <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, 1)" aria-label="Increase quantity">&plus;</button>
                     </div>
                     <div class="pos-item-total">${totalDisplay}</div>
@@ -7185,6 +7439,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 <div class="pos-qty-warning" id="pos-qty-warning-${index}" role="status" aria-live="polite"></div>
             `;
                     cont.appendChild(div);
+                    posBindCartQuantityInput(index, div.querySelector('.pos-qty-val'));
                 });
             }
 
@@ -7503,6 +7758,27 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
 
+            const invalidCartQuantity = Array.from(document.querySelectorAll('.pos-cart-item')).some((row, index) => {
+                const input = row.querySelector('.pos-qty-val');
+                const quantity = posReadPositiveWholeQuantity(input ? input.value : '');
+                if (quantity === null || input?.dataset.pending === 'true') return true;
+                const item = cart[index];
+                const available = Number(item?.stock);
+                return !item
+                    || quantity !== Number(item.qty)
+                    || (!item.is_service && Number.isFinite(available) && quantity > available);
+            });
+            if (invalidCartQuantity) {
+                btn.disabled = true;
+                icon.className = 'fas fa-lock';
+                const hasMalformedQuantity = Array.from(document.querySelectorAll('.pos-cart-item')).some((row, index) => {
+                    const input = row.querySelector('.pos-qty-val');
+                    return !input || posReadPositiveWholeQuantity(input.value) === null;
+                });
+                text.textContent = hasMalformedQuantity ? 'Fix Quantity' : 'Update Quantity';
+                return;
+            }
+
             let canCheckout = true;
             let message = 'Complete Sale';
 
@@ -7561,6 +7837,25 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         async function processCheckout() {
             if (cart.length === 0 || posCheckoutRequestInFlight || posCheckoutConfirmOpen) return;
+
+            const invalidQuantityIndex = Array.from(document.querySelectorAll('.pos-cart-item')).findIndex((row, index) => {
+                const input = row.querySelector('.pos-qty-val');
+                const quantity = posReadPositiveWholeQuantity(input ? input.value : '');
+                const item = cart[index];
+                if (quantity === null || !item || input?.dataset.pending === 'true') return true;
+                if (quantity !== Number(item.qty)) return true;
+                const available = Number(item?.stock);
+                return !!item && !item.is_service && Number.isFinite(available) && quantity > available;
+            });
+            if (invalidQuantityIndex >= 0) {
+                const input = document.querySelectorAll('.pos-cart-item')[invalidQuantityIndex]?.querySelector('.pos-qty-val');
+                if (input) {
+                    validateCartQuantityInput(invalidQuantityIndex, input);
+                    input.reportValidity();
+                }
+                updateCheckoutState();
+                return;
+            }
 
             console.log('[POS CHECKOUT] started');
             console.log('[POS CHECKOUT] validating cart', { items: cart.length, total: currentTotal });

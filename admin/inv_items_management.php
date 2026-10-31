@@ -1516,6 +1516,34 @@ if (isset($_GET['ajax'])) {
                 <div id="itemThresholdResetRow" class="item-modal-edit-only">
                     <button type="button" id="btnResetSuggestedThresholds" onclick="resetSuggestedThresholds()">Reset to Suggested Values</button>
                 </div>
+                <div class="modal-section" id="materialUsageConfiguration">
+                    <p class="section-header">Size &amp; Usage Configuration <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#64748b;">(Optional; does not change stock units)</span></p>
+                    <div class="form-row-grid">
+                        <div class="form-group"><label for="itemSizeVariant">Size / Variant</label><input type="text" id="itemSizeVariant" name="size_variant" maxlength="100" placeholder="e.g. A4, 11 oz, 36-inch"></div>
+                        <div class="form-group"><label for="itemMaterialFormat">Material Format</label>
+                            <select id="itemMaterialFormat" name="material_format" class="w-100" onchange="syncMaterialUsageFields()"><option value="">Not specified</option><option value="piece">Piece</option><option value="sheet">Sheet</option><option value="roll">Roll</option><option value="liquid_other">Liquid / Other</option></select>
+                        </div>
+                    </div>
+                    <div class="form-row-grid" id="materialDimensionFields" style="display:none;">
+                        <div class="form-group"><label id="itemMaterialWidthLabel" for="itemMaterialWidth">Width</label><input type="number" id="itemMaterialWidth" name="material_width" min="0" step="0.001" placeholder="Width"></div>
+                        <div class="form-group" id="itemMaterialHeightGroup"><label for="itemMaterialHeight">Height</label><input type="number" id="itemMaterialHeight" name="material_height" min="0" step="0.001" placeholder="Height"></div>
+                        <div class="form-group"><label id="itemDimensionUnitLabel" for="itemDimensionUnit">Dimension Unit</label><select id="itemDimensionUnit" name="material_dimension_unit" class="w-100"><option value="">Select unit</option><option value="mm">mm</option><option value="cm">cm</option><option value="in">in</option><option value="ft">ft</option></select></div>
+                    </div>
+                    <div class="form-row-grid">
+                        <div class="form-group"><label for="itemConsumptionMethod">Consumption Method</label>
+                            <select id="itemConsumptionMethod" name="consumption_method" class="w-100" onchange="syncMaterialUsageFields()"><option value="">Manual confirmation (default)</option><option value="per_piece">Per Piece</option><option value="sheet_yield">Per Sheet / Sheet Yield</option><option value="dimension_sheet">Dimension-Based Sheet Fit</option><option value="by_length">By Length (requires verified length)</option><option value="by_area">By Area (manual unless stock UOM supports it)</option><option value="manual">Manual Confirmation</option></select>
+                        </div>
+                        <div class="form-group" id="designYieldField" style="display:none;"><label for="itemDesignsPerUnit">Designs per Sheet / Unit</label><input type="number" id="itemDesignsPerUnit" name="designs_per_unit" min="1" step="1" placeholder="Set only when verified"></div>
+                    </div>
+                    <div class="form-row-grid" id="materialMarginFields" style="display:none;">
+                        <div class="form-group"><label for="itemUsableMarginWidth">Margin on each side (width)</label><input type="number" id="itemUsableMarginWidth" name="usable_margin_width" min="0" step="0.001" value="0"></div>
+                        <div class="form-group"><label for="itemUsableMarginHeight">Margin on each side (height)</label><input type="number" id="itemUsableMarginHeight" name="usable_margin_height" min="0" step="0.001" value="0"></div>
+                    </div>
+                    <div class="form-row-grid">
+                        <div class="form-group"><label for="itemWastagePercent">Optional wastage (%)</label><input type="number" id="itemWastagePercent" name="wastage_percent" min="0" max="100" step="0.001" placeholder="0"></div>
+                        <div class="field-hint" style="align-self:center;">Estimates are suggestions. Staff confirms the actual quantity before assignment and deduction.</div>
+                    </div>
+                </div>
                 <div class="item-modal-rows-2 item-modal-row-preview">
                     <div id="previewStatusSection" class="item-modal-field" style="grid-column: span 2;">
                         <label>Stock Status Preview</label>
@@ -1627,6 +1655,18 @@ if (isset($_GET['ajax'])) {
         if (itemCategory) itemCategory.value = item.category_id != null ? String(item.category_id) : '';
         if (itemUnit) itemUnit.value = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
         if (itemUnitCost) itemUnitCost.value = item.unit_cost != null ? String(item.unit_cost) : '0.00';
+        var usageFields = {
+            itemSizeVariant: item.size_variant || '', itemMaterialFormat: item.material_format || '',
+            itemMaterialWidth: item.material_width ?? '', itemMaterialHeight: item.material_height ?? '',
+            itemDimensionUnit: item.material_dimension_unit || '', itemConsumptionMethod: item.consumption_method || '',
+            itemDesignsPerUnit: item.designs_per_unit ?? '', itemUsableMarginWidth: item.usable_margin_width ?? '',
+            itemUsableMarginHeight: item.usable_margin_height ?? '', itemWastagePercent: item.wastage_percent ?? ''
+        };
+        Object.keys(usageFields).forEach(function (id) {
+            var field = document.getElementById(id);
+            if (field) field.value = String(usageFields[id]);
+        });
+        syncMaterialUsageFields();
         if (trackEl) trackEl.value = item.track_by_roll != null ? String(item.track_by_roll) : '0';
         if (statusEl) statusEl.value = item.status || 'ACTIVE';
         if (startingStockEl) {
@@ -2916,6 +2956,23 @@ if (isset($_GET['ajax'])) {
         updateSaveButtonState();
     }
 
+    function syncMaterialUsageFields() {
+        var format = String(document.getElementById('itemMaterialFormat')?.value || '').toLowerCase();
+        var method = String(document.getElementById('itemConsumptionMethod')?.value || '').toLowerCase();
+        var dimensionFields = document.getElementById('materialDimensionFields');
+        var yieldField = document.getElementById('designYieldField');
+        var marginFields = document.getElementById('materialMarginFields');
+        var heightGroup = document.getElementById('itemMaterialHeightGroup');
+        var widthLabel = document.getElementById('itemMaterialWidthLabel');
+        var unitLabel = document.getElementById('itemDimensionUnitLabel');
+        if (dimensionFields) dimensionFields.style.display = (format === 'sheet' || format === 'roll' || method === 'dimension_sheet') ? 'grid' : 'none';
+        if (heightGroup) heightGroup.style.display = format === 'roll' ? 'none' : 'block';
+        if (widthLabel) widthLabel.textContent = format === 'roll' ? 'Roll Width' : 'Width';
+        if (unitLabel) unitLabel.textContent = format === 'roll' ? 'Roll Width Unit' : 'Dimension Unit';
+        if (yieldField) yieldField.style.display = (method === 'sheet_yield' || method === 'dimension_sheet') ? 'block' : 'none';
+        if (marginFields) marginFields.style.display = method === 'dimension_sheet' ? 'grid' : 'none';
+    }
+
     function setItemModalMode(mode) {
         const form = document.getElementById('itemForm');
         if (!form) return;
@@ -2962,6 +3019,7 @@ if (isset($_GET['ajax'])) {
             const archiveBtn = document.getElementById('archiveItemBtn');
             if (archiveBtn) archiveBtn.style.display = 'none';
             applySmartUomRules();
+            syncMaterialUsageFields();
             pfConfigureThresholdFieldsForMode(false);
             pfApplySuggestedThresholds();
             pfSyncAutoFieldLockStates();
@@ -2973,6 +3031,7 @@ if (isset($_GET['ajax'])) {
             selectedItemForStockCard = item;
             editItemOriginalValues = {};
             applySmartUomRules();
+            syncMaterialUsageFields();
             pfConfigureThresholdFieldsForMode(true);
             pfSyncAutoFieldLockStates();
             updateItemModalSaveButtonLabel();

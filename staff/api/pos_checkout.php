@@ -26,7 +26,7 @@ require_once __DIR__ . '/../../includes/pos_branch_scope.php';
 
 function pos_checkout_parse_positive_quantity($value): int {
     try {
-        return printflow_pos_parse_positive_quantity($value);
+        return printflow_pos_parse_cart_quantity($value);
     } catch (InvalidArgumentException $error) {
         throw new RuntimeException($error->getMessage());
     }
@@ -410,13 +410,63 @@ function pos_checkout_capture_session_context(): array {
         'pos_pending_orders' => is_array($_SESSION['pos_pending_orders'] ?? null)
             ? $_SESSION['pos_pending_orders']
             : [],
+<<<<<<< HEAD
         // Preserve the server-authored cart selection for Tarpaulin. Checkout
         // must not trust a client-submitted material ID or calculated length.
+=======
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
         'pos_cart' => is_array($_SESSION['pos_cart'] ?? null) ? array_values($_SESSION['pos_cart']) : [],
         'user_id' => (int)($_SESSION['user_id'] ?? 0),
         'branch_id' => $branchId,
         'user_name' => trim((string)($_SESSION['user_name'] ?? 'Staff')),
     ];
+}
+
+function pos_checkout_pair_tarpaulin_cart_lines(array &$items, array $sessionCart, int $branchId): ?string
+{
+    $result = printflow_tarpaulin_pair_cart_lines($items, $sessionCart, $branchId);
+    if (empty($result['ok'])) return (string)($result['error'] ?? 'Tarpaulin checkout cart lines could not be verified.');
+    $items = (array)$result['items'];
+    return null;
+}
+
+function pos_checkout_pair_design_fee_lines(array &$items, array $sessionCart): ?string
+{
+    foreach ($items as $index => $item) {
+        if (!is_array($item) || !pos_payload_item_is_service($item)) continue;
+        $custom = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+        $lineId = trim((string)($custom['pos_design_line_id'] ?? ''));
+        if ($lineId === '') continue;
+        $matches = [];
+        foreach ($sessionCart as $sessionItem) {
+            if (!is_array($sessionItem) || !pos_payload_item_is_service($sessionItem)) continue;
+            $sessionCustom = is_array($sessionItem['customization'] ?? null) ? $sessionItem['customization'] : [];
+            if (hash_equals((string)($sessionCustom['pos_design_line_id'] ?? ''), $lineId)) $matches[] = $sessionItem;
+        }
+        if (count($matches) !== 1) return 'A service cart line could not be matched to its server-side pricing. Refresh the POS cart and try again.';
+        $sessionItem = $matches[0];
+        $clientQty = pos_checkout_parse_positive_quantity($item['qty'] ?? null);
+        $sessionQty = pos_checkout_parse_positive_quantity($sessionItem['qty'] ?? null);
+        if ($clientQty !== $sessionQty || (int)($item['id'] ?? 0) !== (int)($sessionItem['product_id'] ?? 0)) {
+            return 'A service quantity or identity changed. Refresh the POS cart and try again.';
+        }
+        $items[$index]['price'] = (float)($sessionItem['price'] ?? 0);
+        $items[$index]['price_set'] = !empty($sessionItem['price_set']);
+        $items[$index]['line_total_override'] = $sessionItem['line_total_override'] ?? null;
+        $items[$index]['customization'] = is_array($sessionItem['customization'] ?? null) ? $sessionItem['customization'] : [];
+    }
+    return null;
+}
+
+function pos_checkout_contains_tarpaulin(array $items): bool
+{
+    foreach ($items as $item) {
+        if (!is_array($item)) continue;
+        $customization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+        if (((int)($item['id'] ?? $item['product_id'] ?? 0) === 40 || (int)($customization['service_id'] ?? 0) === 40)
+            && (!empty($item['is_service']) || !empty($customization['service_id']))) return true;
+    }
+    return false;
 }
 
 function pos_checkout_verify_csrf(string $token, array $sessionContext): bool {
@@ -990,9 +1040,9 @@ function pos_extract_order_item_display_name(array $item): string {
 /**
  * Recompute service line prices from specifications; reject tampered or missing pricing.
  */
-function pos_checkout_validate_service_item_prices(array $items): ?string
+function pos_checkout_validate_service_item_prices(array &$items): ?string
 {
-    foreach ($items as $item) {
+    foreach ($items as $itemIndex => $item) {
         if (!pos_payload_item_is_service((array)$item)) {
             continue;
         }
@@ -1022,6 +1072,7 @@ function pos_checkout_validate_service_item_prices(array $items): ?string
             }
             try { printflow_pos_parse_final_price($itemRow['price'] ?? null); }
             catch (InvalidArgumentException $priceError) { return $priceError->getMessage(); }
+            $items[$itemIndex]['line_total_override'] = (float)($itemRow['line_total_override'] ?? $itemRow['price']);
             continue;
         }
 
@@ -1030,7 +1081,9 @@ function pos_checkout_validate_service_item_prices(array $items): ?string
             return (string)($calc['message'] ?? 'Service price could not be validated.');
         }
 
-        $expectedUnit = (float)$calc['unit_price'];
+        $linePricing = printflow_calculate_service_line_pricing($serviceId, $customization, $qty);
+        if (empty($linePricing['ok'])) return (string)($linePricing['message'] ?? 'Service line price could not be validated.');
+        $expectedUnit = (float)$linePricing['unit_price'];
         if ($cartUnit <= 0) {
             return 'A service item has no valid price. Remove it and add it again with complete specifications.';
         }
@@ -1038,6 +1091,13 @@ function pos_checkout_validate_service_item_prices(array $items): ?string
             $label = trim((string)($itemRow['name'] ?? 'Service'));
             return 'Cart price for "' . $label . '" does not match the selected options. Refresh the page and try again.';
         }
+        if (abs((float)($customization['design_fee'] ?? 0) - (float)$linePricing['design_fee']) > 0.001) {
+            $label = trim((string)($itemRow['name'] ?? 'Service'));
+            return 'Design fee for "' . $label . '" changed. Reopen the service options and try again.';
+        }
+        $customization['design_fee'] = number_format((float)$linePricing['design_fee'], 2, '.', '');
+        $customization['calculated_estimated_price'] = number_format((float)$linePricing['line_total'], 2, '.', '');
+        $items[$itemIndex]['customization'] = $customization;
 
     }
 
@@ -1055,7 +1115,10 @@ function pos_checkout_group_total(array $groupItems, array $products_cache): flo
         $price = $is_service
             ? (float)($item['price'] ?? ($p['price'] ?? 0))
             : (float)($p['price'] ?? 0);
-        $total += $price * $qty;
+        $customization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+        $total += isset($item['line_total_override'])
+            ? max(0.0, (float)$item['line_total_override'])
+            : ($price * $qty) + ($is_service ? max(0.0, (float)($customization['design_fee'] ?? 0)) : 0.0);
     }
 
     return round($total, 2);
@@ -1280,6 +1343,7 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         $customization = [];
     }
 
+<<<<<<< HEAD
     try {
         $posBranchId = printflow_pos_authorized_branch_id();
         printflow_pos_assert_cart_branch($posBranchId);
@@ -1318,6 +1382,31 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
             if (!is_array($selection)) {
                 throw new RuntimeException('The server-validated Tarpaulin roll selection could not be matched to this Set Price item.', 409);
             }
+=======
+    $tarpaulinBranchId = 0;
+    if ($product_id === 40) {
+        try {
+            $tarpaulinBranchId = printflow_pos_authorized_branch_id();
+            $cartLines = array_values((array)($_SESSION['pos_cart'] ?? []));
+            $validation = printflow_pos_validate_service_stock($cartLines, $tarpaulinBranchId);
+            if (empty($validation['ok'])) throw new RuntimeException('Tarpaulin stock could not be verified. Return to the POS cart and validate again.', 409);
+            $targetId = trim((string)($item['pos_cart_line_id'] ?? ''));
+            $matches = [];
+            foreach ($cartLines as $cartIndex => $cartLine) {
+                if ((int)($cartLine['product_id'] ?? 0) === 40 && hash_equals((string)($cartLine['pos_cart_line_id'] ?? ''), $targetId)) $matches[] = $cartIndex;
+            }
+            if ($targetId === '' || count($matches) !== 1) throw new RuntimeException('The Tarpaulin cart line could not be uniquely verified.', 409);
+            $targetIndex = $matches[0];
+            $cartLine = $cartLines[$targetIndex];
+            $cartCustomization = is_array($cartLine['customization'] ?? null) ? $cartLine['customization'] : [];
+            if ((int)($cartLine['qty'] ?? 0) !== $qty
+                || abs((float)($cartCustomization['width'] ?? 0) - (float)($customization['width'] ?? 0)) >= 0.000001
+                || abs((float)($cartCustomization['height'] ?? 0) - (float)($customization['height'] ?? 0)) >= 0.000001) {
+                throw new RuntimeException('Tarpaulin dimensions or quantity no longer match the validated cart line.', 409);
+            }
+            $selection = $validation['tarpaulin_selections'][$targetIndex] ?? null;
+            if (!is_array($selection)) throw new RuntimeException('The server-validated Tarpaulin roll selection is missing.', 409);
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
             $customization['pos_tarpaulin_selection'] = $selection;
         } catch (Throwable $tarpaulinError) {
             http_response_code((int)$tarpaulinError->getCode() === 409 ? 409 : 400);
@@ -1337,7 +1426,12 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         $conn->begin_transaction();
         $transaction_open = true;
         
+<<<<<<< HEAD
         $branch_id = $posBranchId;
+=======
+        $branch_id = $product_id === 40 ? $tarpaulinBranchId : (int)($_SESSION['branch_id'] ?? 1);
+        if ($branch_id < 1) $branch_id = 1;
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
 
         $pending_item_product_id = pos_get_service_placeholder_product_id();
         if ($pending_item_product_id <= 0) {
@@ -1389,6 +1483,7 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
             echo json_encode(['success' => false, 'message' => 'Failed to create draft order item.']);
             exit;
         }
+
         $order_item_id = $conn->insert_id;
         $storedMedia = pos_store_order_item_inline_media($order_item_id, $draftDesignPayload, $draftReferencePayload);
         pos_apply_stored_media_to_customization($customization, $storedMedia);
@@ -1502,6 +1597,14 @@ foreach ($items as $itemIndex => $item) {
     }
 }
 
+$pricingSessionCart = array_values((array)($sessionContext['pos_cart'] ?? []));
+$designLinePairingError = pos_checkout_pair_design_fee_lines($items, $pricingSessionCart);
+if ($designLinePairingError !== null) {
+    http_response_code(409);
+    echo json_encode(['success' => false, 'stage' => 'service_pricing_validation', 'message' => $designLinePairingError]);
+    exit;
+}
+
 $unconfiguredPriceError = printflow_checkout_unconfigured_price_message(is_array($items) ? $items : []);
 if ($unconfiguredPriceError !== null) {
     http_response_code(400);
@@ -1514,6 +1617,21 @@ if ($servicePriceError !== null) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => $servicePriceError]);
     exit;
+}
+foreach ($items as $item) {
+    if (!is_array($item) || !pos_payload_item_is_service($item)) continue;
+    $custom = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+    $fee = max(0.0, (float)($custom['design_fee'] ?? 0));
+    if ($fee > 0 && !printflow_order_items_has_design_fee_column()) {
+        http_response_code(503);
+        echo json_encode(['success' => false, 'stage' => 'schema', 'message' => 'Checkout is temporarily unavailable until the approved design-fee database migration is applied.']);
+        exit;
+    }
+    if (!empty($item['price_set']) && !printflow_order_items_has_line_total_override_column()) {
+        http_response_code(503);
+        echo json_encode(['success' => false, 'stage' => 'schema', 'message' => 'Checkout is temporarily unavailable until the approved exact line-total migration is applied.']);
+        exit;
+    }
 }
 
 $pm_lc = preg_replace('/\s+/', ' ', strtolower(trim($payment_method)));
@@ -1613,6 +1731,20 @@ if (!empty($sessionContext['pos_checkout_orders'][$checkoutToken])) {
 }
 if ($isPayMongo && !empty($sessionContext['pos_paymongo_checkouts'][$checkoutToken])) {
     $existingOrderId = (int)$sessionContext['pos_paymongo_checkouts'][$checkoutToken];
+    if (pos_checkout_contains_tarpaulin($items) || pos_checkout_contains_tarpaulin((array)($sessionContext['pos_cart'] ?? []))) {
+        try {
+            $tarpaulinBranchId = printflow_pos_authorized_branch_id();
+            $tarpaulinCart = array_values((array)($sessionContext['pos_cart'] ?? []));
+            $pairingError = pos_checkout_pair_tarpaulin_cart_lines($items, $tarpaulinCart, $tarpaulinBranchId);
+            if ($pairingError !== null) throw new RuntimeException($pairingError);
+            $retryValidation = printflow_pos_validate_service_stock($items, $tarpaulinBranchId);
+            if (empty($retryValidation['ok'])) throw new RuntimeException('Tarpaulin stock changed or could not be verified. Revalidate the cart before retrying QR Ph.');
+        } catch (Throwable $tarpaulinRetryError) {
+            http_response_code(409);
+            echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => $tarpaulinRetryError->getMessage()]);
+            exit;
+        }
+    }
     $preparedOrder = pos_prepare_order_for_paymongo_checkout(
         $existingOrderId,
         (int)$sessionContext['user_id'],
@@ -1665,6 +1797,54 @@ if ($checkout_branch_id < 1) {
     echo json_encode(['success' => false, 'message' => 'The authorized POS branch could not be identified.']);
     exit;
 }
+$sessionCart = array_values((array)($sessionContext['pos_cart'] ?? []));
+$designLinePairingError = pos_checkout_pair_design_fee_lines($items, $sessionCart);
+if ($designLinePairingError !== null) {
+    http_response_code(409);
+    echo json_encode(['success' => false, 'stage' => 'service_pricing_validation', 'message' => $designLinePairingError]);
+    exit;
+}
+$unconfiguredPriceError = printflow_checkout_unconfigured_price_message($items);
+if ($unconfiguredPriceError !== null) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => $unconfiguredPriceError]);
+    exit;
+}
+$servicePriceError = pos_checkout_validate_service_item_prices($items);
+if ($servicePriceError !== null) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => $servicePriceError]);
+    exit;
+}
+foreach ($items as $item) {
+    if (!is_array($item) || !pos_payload_item_is_service($item)) continue;
+    $custom = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+    if (max(0.0, (float)($custom['design_fee'] ?? 0)) > 0 && !printflow_order_items_has_design_fee_column()) {
+        http_response_code(503);
+        echo json_encode(['success' => false, 'stage' => 'schema', 'message' => 'Checkout is temporarily unavailable until the approved design-fee database migration is applied.']);
+        exit;
+    }
+    if (!empty($item['price_set']) && !printflow_order_items_has_line_total_override_column()) {
+        http_response_code(503);
+        echo json_encode(['success' => false, 'stage' => 'schema', 'message' => 'Checkout is temporarily unavailable until the approved exact line-total migration is applied.']);
+        exit;
+    }
+}
+if (pos_checkout_contains_tarpaulin($items) || pos_checkout_contains_tarpaulin($sessionCart)) {
+    try {
+        $checkout_branch_id = printflow_pos_authorized_branch_id();
+    } catch (Throwable $branchError) {
+        http_response_code(409);
+        echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => $branchError->getMessage()]);
+        exit;
+    }
+    $pairingError = pos_checkout_pair_tarpaulin_cart_lines($items, $sessionCart, $checkout_branch_id);
+    if ($pairingError !== null) {
+        http_response_code(409);
+        echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => $pairingError]);
+        exit;
+    }
+}
 $pos_branch_id = $checkout_branch_id;
 
 // Replace Tarpaulin's client-supplied selection with the server-authored
@@ -1681,6 +1861,11 @@ if ($tarpaulinPairingError !== null) {
 $serviceStockValidation = printflow_pos_validate_service_stock($items, $checkout_branch_id);
 if (empty($serviceStockValidation['ok'])) {
     $issue = $serviceStockValidation['issues'][0] ?? [];
+    if (trim((string)($issue['message'] ?? '')) !== '') {
+        http_response_code(409);
+        echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => (string)$issue['message']]);
+        exit;
+    }
     $uom = trim((string)($issue['uom'] ?? ''));
     $format = static fn($value): string => rtrim(rtrim(number_format((float)$value, 3, '.', ''), '0'), '.');
     $message = 'Insufficient ' . (string)($issue['name'] ?? 'service material') . ' stock. Available: '
@@ -1731,7 +1916,10 @@ foreach ($items as $itemIndex => $item) {
         if ($is_service_item) {
             // Service IDs may not exist in products table — use name/price from payload
             $products_cache[$product_id] = ['name' => $item['name'] ?? 'Service', 'price' => (float)($item['price'] ?? 0)];
-            $total_amount += (float)($item['price'] ?? 0) * $qty;
+            $custom = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+            $total_amount += isset($item['line_total_override'])
+                ? max(0.0, (float)$item['line_total_override'])
+                : ((float)($item['price'] ?? 0) * $qty) + max(0.0, (float)($custom['design_fee'] ?? 0));
             continue;
         }
         echo json_encode(['success' => false, 'message' => 'Product not found: ' . $product_id]);
@@ -1787,7 +1975,10 @@ foreach ($items as $itemIndex => $item) {
     $price = $is_service_item
         ? (float)($item['price'] ?? $p['price'])
         : (float)$p['price'];
-    $total_amount += $price * $qty;
+    $custom = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+    $total_amount += isset($item['line_total_override'])
+        ? max(0.0, (float)$item['line_total_override'])
+        : ($price * $qty) + ($is_service_item ? max(0.0, (float)($custom['design_fee'] ?? 0)) : 0.0);
 }
 foreach ($baseStockDemand as $productId => $requiredQty) {
     [$effStock] = printflow_product_effective_stock((int)$productId, $pos_branch_id);
@@ -1947,6 +2138,9 @@ try {
         $price = $is_service
             ? (float)($item['price'] ?? ($p['price'] ?? 0))
             : (float)($p['price'] ?? 0);
+        if ($is_service && isset($item['line_total_override'])) {
+            $price = round(max(0.0, (float)$item['line_total_override']) / max(1, $qty), 2);
+        }
         
         $custom_details = $item['customization'] ?? [];
         if (!is_array($custom_details)) $custom_details = [];
@@ -2025,6 +2219,26 @@ try {
         }
         
         $order_item_id = $conn->insert_id;
+        $designFee = $is_service ? max(0.0, (float)($custom_details['design_fee'] ?? 0)) : 0.0;
+        $lineTotalOverride = !empty($item['price_set'])
+            ? max(0.0, (float)($item['line_total_override'] ?? $item['price'] ?? 0))
+            : null;
+        if ($designFee > 0) {
+            $savedFee = db_execute('UPDATE order_items SET design_fee = ? WHERE order_item_id = ?', 'di', [$designFee, (int)$order_item_id]);
+            if (!$savedFee) {
+                $conn->rollback();
+                echo json_encode(['success' => false, 'message' => 'Could not persist the verified design fee. No checkout was completed.']);
+                exit;
+            }
+        }
+        if ($lineTotalOverride !== null) {
+            $savedOverride = db_execute('UPDATE order_items SET line_total_override = ? WHERE order_item_id = ?', 'di', [$lineTotalOverride, (int)$order_item_id]);
+            if (!$savedOverride) {
+                $conn->rollback();
+                echo json_encode(['success' => false, 'message' => 'Could not persist the exact Set Price line total. No checkout was completed.']);
+                exit;
+            }
+        }
         $checkout_stage = 'items_inserting';
         $storedMedia = pos_store_order_item_inline_media($order_item_id, $designPayload, $referencePayload);
         pos_apply_stored_media_to_customization($custom_details, $storedMedia);

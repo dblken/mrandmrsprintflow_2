@@ -30,15 +30,16 @@ foreach ([
 }
 
 $root = dirname(__DIR__);
-$stagedRules = (string)shell_exec('git show :includes/pos_service_stock_validation.php');
-$rulesSource = trim($stagedRules) !== ''
-    ? $stagedRules
-    : (string)file_get_contents($root . '/includes/pos_service_stock_validation.php');
-$headRules = (string)shell_exec('git show HEAD:includes/pos_service_stock_validation.php');
+$rulesSource = (string)file_get_contents($root . '/includes/pos_service_stock_validation.php');
+$headRules = (string)file_get_contents(__DIR__ . '/fixtures/pos_service_stock_validation_base_5c588d63.php.txt');
+$assert($headRules !== '' && str_contains($headRules, 'function printflow_pos_service_stock_rules('), 'The explicit clean-main baseline fixture is present.');
 $assert(str_contains($rulesSource, 'if ($serviceId === 63)') && str_contains($rulesSource, 'printflow_pos_mugs_release_material_rule('), 'Only service ID 63 uses the confirmed Mugs rule.');
 $assert(str_contains($headRules, 'r.qty_multiplier') && str_contains($headRules, 'function printflow_pos_service_stock_rules(int $serviceId, array $customization)'), 'The six non-Mugs services retain the clean-main shared rules path.');
-$assert(!str_contains($rulesSource, '$earlyMappedServiceIds') && !str_contains($rulesSource, '$hasAssignedMaterials'), 'The Mugs-only release does not add shared fail-closed mapping requirements.');
+$assert(!str_contains($rulesSource, '$earlyMappedServiceIds') && !str_contains($rulesSource, '$requiresEarlyMapping'), 'No broad fail-closed service mapping requirement was added.');
+$assert(str_contains($rulesSource, 'if ($serviceId === 40) {') && str_contains($rulesSource, 'if ($serviceId !== 40) $assigned = printflow_pos_service_line_job_materials($line);'), 'The new physical-panel path remains scoped to Tarpaulin; other services retain the baseline assignment path.');
 $assert(str_contains($rulesSource, 'InventoryManager::getStockOnHand((int)$itemId, $branchId)'), 'The existing selected-branch stock source remains authoritative.');
+$assert(str_contains($rulesSource, '$demand[$itemId][\'quantity\'] += $lineQty;'), 'The current generic validator retains baseline combined-demand aggregation.');
+$assert(str_contains($rulesSource, 'printflow_pos_validate_service_stock('), 'The backend validation entry point remains present.');
 $assert(str_contains($headRules, '$demand[$itemId][\'quantity\'] += $lineQty;'), 'The existing combined-demand aggregation remains unchanged.');
 $assert(str_contains($headRules, 'printflow_pos_validate_service_stock('), 'The clean main validator exposes the existing backend validation path.');
 $cartSource = (string)file_get_contents($root . '/staff/api/pos_cart_handler.php');

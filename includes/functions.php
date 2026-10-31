@@ -7037,7 +7037,7 @@ function printflow_service_name_aliases(string $name): array
     $alias_map = [
         'Tarpaulin Printing' => ['Tarpaulin', 'Tarp'],
         'T-Shirt Printing' => ['T-Shirt', 'Tshirt', 'Tshirt Printing'],
-        'Decals/Stickers (Print/Cut)' => ['Sticker', 'Stickers', 'Decal', 'Decals'],
+        'Decals/Stickers (Print/Cut)' => ['Sticker', 'Stickers', 'Decal', 'Decals', 'Decals / Stickers', 'Decals & Stickers', 'Stickers /Decals'],
         'Sintraboard Standees' => ['Sintraboard', 'Sintra Board', 'Standee', 'Standees'],
         'Glass/Wall Stickers' => ['Glass Stickers / Wall / Frosted Stickers', 'Glass Sticker', 'Wall Sticker', 'Frosted Sticker'],
         'Transparent Stickers' => ['Transparent Sticker'],

@@ -303,7 +303,7 @@ if (!empty($order_result)) {
     // display mirrors only and must not override the immutable amount charged.
     $calculated_total = 0;
     foreach ($items as $item) {
-        $calculated_total += (float)$item['unit_price'] * (int)$item['quantity'];
+        $calculated_total += printflow_order_item_calculated_line_total((array)$item);
     }
 
     $total_amount = (float)($order['total_amount'] ?? 0);

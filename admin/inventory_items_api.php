@@ -13,6 +13,7 @@ require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/inventory_stock_status.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
+require_once __DIR__ . '/../includes/inventory_material_configuration.php';
 
 printflow_ensure_inv_items_threshold_schema();
 printflow_ensure_inv_item_branch_thresholds_table();
@@ -196,6 +197,10 @@ try {
                 $errors['roll_length_ft'] = 'Standard Roll Length must be between 1 and 1000 ft.';
             }
 
+            $usageResult = printflow_inventory_material_configuration($_POST);
+            $usageConfig = $usageResult['config'];
+            $errors = array_merge($errors, $usageResult['errors']);
+
             if (!empty($errors)) {
                 http_response_code(400);
                 echo json_encode(['success' => false, 'errors' => $errors]);
@@ -220,15 +225,21 @@ try {
 
                 if ($branchId > 0) {
                     printflow_item_branch_thresholds_upsert($id, $branchId, $reorderLevel, $criticalLevel);
-                    $sql = "UPDATE inv_items SET category_id=?, sku=?, name=?, unit_of_measure=?, track_by_roll=?, default_roll_length_ft=?, status=?, unit_cost=? WHERE id=?";
+                    $sql = "UPDATE inv_items SET category_id=?, sku=?, name=?, unit_of_measure=?, track_by_roll=?, default_roll_length_ft=?, size_variant=?, material_format=?, material_width=?, material_height=?, material_dimension_unit=?, consumption_method=?, designs_per_unit=?, usable_margin_width=?, usable_margin_height=?, wastage_percent=?, status=?, unit_cost=? WHERE id=?";
                     global $conn;
                     $stmt = $conn->prepare($sql);
-                    $stmt->bind_param("isssidsdi", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $status, $unit_cost, $id);
+                    $stmt->bind_param("isssidsssssssssssdi", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length,
+                        $usageConfig['size_variant'], $usageConfig['material_format'], $usageConfig['material_width'], $usageConfig['material_height'],
+                        $usageConfig['material_dimension_unit'], $usageConfig['consumption_method'], $usageConfig['designs_per_unit'],
+                        $usageConfig['usable_margin_width'], $usageConfig['usable_margin_height'], $usageConfig['wastage_percent'], $status, $unit_cost, $id);
                 } else {
-                    $sql = "UPDATE inv_items SET category_id=?, sku=?, name=?, unit_of_measure=?, track_by_roll=?, default_roll_length_ft=?, reorder_level=?, critical_level=?, status=?, unit_cost=? WHERE id=?";
+                    $sql = "UPDATE inv_items SET category_id=?, sku=?, name=?, unit_of_measure=?, track_by_roll=?, default_roll_length_ft=?, reorder_level=?, critical_level=?, size_variant=?, material_format=?, material_width=?, material_height=?, material_dimension_unit=?, consumption_method=?, designs_per_unit=?, usable_margin_width=?, usable_margin_height=?, wastage_percent=?, status=?, unit_cost=? WHERE id=?";
                     global $conn;
                     $stmt = $conn->prepare($sql);
-                    $stmt->bind_param("isssidddsdi", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $reorderLevel, $criticalLevel, $status, $unit_cost, $id);
+                    $stmt->bind_param("isssidddsssssssssssdi", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $reorderLevel, $criticalLevel,
+                        $usageConfig['size_variant'], $usageConfig['material_format'], $usageConfig['material_width'], $usageConfig['material_height'],
+                        $usageConfig['material_dimension_unit'], $usageConfig['consumption_method'], $usageConfig['designs_per_unit'],
+                        $usageConfig['usable_margin_width'], $usageConfig['usable_margin_height'], $usageConfig['wastage_percent'], $status, $unit_cost, $id);
                 }
                 if (!$stmt->execute()) throw new Exception("Update failed: " . $stmt->error);
                 $stmt->close();
@@ -256,10 +267,13 @@ try {
                 $thresholds = printflow_thresholds_for_quantity($starting_stock);
                 $min_stock = $thresholds['reorder'];
                 $critical_stock = $thresholds['critical'];
-                $sql = "INSERT INTO inv_items (category_id, sku, name, unit_of_measure, track_by_roll, default_roll_length_ft, reorder_level, critical_level, unit_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                $sql = "INSERT INTO inv_items (category_id, sku, name, unit_of_measure, track_by_roll, default_roll_length_ft, size_variant, material_format, material_width, material_height, material_dimension_unit, consumption_method, designs_per_unit, usable_margin_width, usable_margin_height, wastage_percent, reorder_level, critical_level, unit_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 global $conn;
                 $stmt = $conn->prepare($sql);
-                $stmt->bind_param("isssidddd", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $min_stock, $critical_stock, $unit_cost);
+                $stmt->bind_param("isssidssssssssssddd", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length,
+                    $usageConfig['size_variant'], $usageConfig['material_format'], $usageConfig['material_width'], $usageConfig['material_height'],
+                    $usageConfig['material_dimension_unit'], $usageConfig['consumption_method'], $usageConfig['designs_per_unit'],
+                    $usageConfig['usable_margin_width'], $usageConfig['usable_margin_height'], $usageConfig['wastage_percent'], $min_stock, $critical_stock, $unit_cost);
                 if (!$stmt->execute()) throw new Exception("Create failed: " . $stmt->error);
                 $itemId = $stmt->insert_id;
                 $stmt->close();

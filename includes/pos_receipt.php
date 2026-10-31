@@ -3,6 +3,7 @@
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/runtime_config.php';
 require_once __DIR__ . '/pos_customer_helpers.php';
+require_once __DIR__ . '/service_design_fee.php';
 
 /** @return array{name:string,email:string,phone:string} */
 function printflow_pos_receipt_customer_fields(array $order): array {
@@ -83,7 +84,9 @@ function printflow_pos_build_receipt(int $orderId, float $amountTendered = 0.0, 
     $providerPayment = $providerRows[0] ?? null;
     $placeholders = implode(',', array_fill(0, count($linkedOrderIds), '?'));
     $rows = db_query(
-        "SELECT oi.quantity, oi.unit_price, oi.customization_data, p.name AS product_name
+        "SELECT oi.quantity, oi.unit_price, oi.customization_data, p.name AS product_name,
+                " . (printflow_order_items_has_design_fee_column() ? 'oi.design_fee' : '0 AS design_fee') . ",
+                " . (printflow_order_items_has_line_total_override_column() ? 'oi.line_total_override' : 'NULL AS line_total_override') . "
          FROM order_items oi
          JOIN orders o ON o.order_id = oi.order_id
          LEFT JOIN products p ON p.product_id = oi.product_id
@@ -97,7 +100,7 @@ function printflow_pos_build_receipt(int $orderId, float $amountTendered = 0.0, 
     foreach ($rows as $row) {
         $quantity = (int)$row['quantity'];
         $unitPrice = (float)$row['unit_price'];
-        $lineTotal = $quantity * $unitPrice;
+        $lineTotal = printflow_order_item_calculated_line_total($row);
         $customization = json_decode((string)($row['customization_data'] ?? ''), true);
         $customization = printflow_customization_display_specs(is_array($customization) ? $customization : [], [
             'include_service' => false, 'include_design' => true, 'include_notes' => true, 'include_quantity' => false

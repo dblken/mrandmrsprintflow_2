@@ -8,7 +8,7 @@
     var LAST_TOAST_ID_KEY      = 'pf_last_toast_notification_id';
     var AUTO_RESTORE_KEY       = 'pf_push_autorestore_attempted';
     var PROMPT_DISMISSED_KEY   = 'pf_push_prompt_dismissed';
-    var BADGE_SELECTOR         = '#sidebar-notif-badge, #nav-notif-badge';
+    var BADGE_SELECTOR         = '#sidebar-notif-badge, #nav-notif-badge, #dashboard-notif-badge';
 
     function normalizeBasePath(rawBase) {
         var base = String(rawBase || '').trim();
@@ -984,6 +984,11 @@
         var els = document.querySelectorAll(BADGE_SELECTOR);
         for (var i = 0; i < els.length; i++) {
             var el = els[i];
+            if (el.id === 'dashboard-notif-badge') {
+                var label = count > 0 ? 'Notifications, ' + count + ' unread' : 'Notifications, no unread notifications';
+                el.parentElement.setAttribute('aria-label', label);
+                el.parentElement.setAttribute('title', label);
+            }
             if (count > 0) {
                 el.textContent = count > 99 ? '99+' : count;
                 el.style.display = el.getAttribute('data-badge-display') || (el.id === 'nav-notif-badge' ? 'flex' : 'inline-flex');

@@ -19,6 +19,7 @@ header('Cache-Control: no-cache, must-revalidate');
 require_once __DIR__ . '/../includes/receipt_access.php';
 require_once __DIR__ . '/../includes/customer_paid_order_status.php';
 require_once __DIR__ . '/../includes/pos_receipt_format.php';
+require_once __DIR__ . '/../includes/service_design_fee.php';
 
 function customer_order_items_json_flags(): int {
     $flags = JSON_UNESCAPED_SLASHES;
@@ -1161,7 +1162,7 @@ foreach ($items as $lineIndex => $item) {
 
     $raw_quantity = max(1, (int)($item['quantity'] ?? 0));
     $raw_unit_price = (float)($item['unit_price'] ?? 0);
-    $raw_subtotal = $raw_quantity * $raw_unit_price;
+    $raw_subtotal = printflow_order_item_calculated_line_total((array)$item);
 
     // Some single-item custom/service orders store the final amount only on orders.total_amount.
     if ($raw_subtotal <= 0 && $item_count === 1 && $order_total_amount > 0) {

@@ -15,7 +15,11 @@ $assert($calc(4, 6, 1, 4)['required_linear_ft'] === 6.0, '4x6 on 4FT uses 6 line
 $assert($calc(4, 6, 1, 6)['required_linear_ft'] === 4.0, '4x6 on 6FT rotates and uses 4 linear feet.');
 $assert($calc(3, 5, 1, 5)['print_area_sqft'] === 15.0, 'Print area is reported separately in square feet.');
 
+<<<<<<< HEAD
 foreach ([[0, 5, 1, 5], [3, null, 1, 5], [3, 5, 0, 5], [3, 5, 1, 0]] as $invalid) {
+=======
+foreach ([[0, 5, 1, 5], [null, 5, 1, 5], [3, null, 1, 5], [3, 5, 0, 5], [3, 5, 1, 0]] as $invalid) {
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
     try {
         $calc(...$invalid);
         throw new RuntimeException('Missing, zero, or invalid dimensions and quantity must be rejected.');
@@ -40,6 +44,15 @@ $selection = printflow_tarpaulin_resolve_candidate([
 ], 3, 5, 2);
 $assert($selection['ok'] && $selection['selection']['item_id'] === 15, 'The picker preference chooses the smallest sufficient roll fitting the larger dimension.');
 $assert($selection['selection']['required_linear_ft'] === 6.0, 'The selected roll demand matches orientation and quantity.');
+<<<<<<< HEAD
+=======
+$twoByTwo = printflow_tarpaulin_resolve_candidate([$roll(18, '5FT Tarpaulin', 2)], 2, 2, 1);
+$assert($twoByTwo['ok'] && $twoByTwo['selection']['required_linear_ft'] === 2.0,
+    'A valid 2x2 ft, quantity 1 request passes when the selected branch has sufficient 5FT roll stock.');
+$threeByFive = printflow_tarpaulin_resolve_candidate([$roll(19, '5FT Tarpaulin', 3)], 3, 5, 1);
+$assert($threeByFive['ok'] && $threeByFive['selection']['required_linear_ft'] === 3.0,
+    'A valid 3x5 ft, quantity 1 request uses the approved 5FT rotation and requires 3 linear feet.');
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
 $short = printflow_tarpaulin_resolve_candidate([$roll(15, '5FT Tarpaulin', 5)], 3, 5, 2);
 $assert(!$short['ok'] && $short['reason'] === 'insufficient', 'Insufficient branch roll stock fails validation.');
 $assert(($short['shortage']['id'] ?? 0) === 15
@@ -75,6 +88,12 @@ $assert(!$removedLine['ok'], 'A checkout payload missing a removed/reordered car
 $forgedId = $sameRollItems;
 $forgedId[0]['pos_cart_line_id'] = 'forged';
 $assert(!printflow_tarpaulin_pair_cart_lines($forgedId, $sameRollLines, 2)['ok'], 'A forged line identifier is rejected.');
+<<<<<<< HEAD
+=======
+$wrongProduct = $sameRollItems;
+$wrongProduct[0]['id'] = 64;
+$assert(!printflow_tarpaulin_pair_cart_lines($wrongProduct, $sameRollLines, 2)['ok'], 'A Tarpaulin line identifier cannot be reused for a different service.');
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
 $combined = printflow_tarpaulin_resolve_candidate([$roll(15, '5FT Tarpaulin', 10)], 3, 5, 1, [15 => 8]);
 $assert(!$combined['ok'] && $combined['reason'] === 'insufficient', 'Existing cart demand is subtracted from available roll feet.');
 $firstLine = printflow_tarpaulin_resolve_candidate([$roll(15, '5FT Tarpaulin', 5)], 3, 5, 1);
@@ -93,14 +112,24 @@ $checkout = (string)file_get_contents($root . '/staff/api/pos_checkout.php');
 $customizations = (string)file_get_contents($root . '/staff/customizations.php');
 $jobService = (string)file_get_contents($root . '/includes/JobOrderService.php');
 $jobApi = (string)file_get_contents($root . '/admin/job_orders_api.php');
+<<<<<<< HEAD
 $assert(str_contains($validation, 'InventoryManager::getStockOnHand((int)$row[\'id\'], $branchId)'), 'Availability uses branch-scoped open-roll stock.');
+=======
+$assert(str_contains($validation, 'printflow_pos_tarpaulin_open_rolls((int)$row[\'id\'], $branchId)'), 'Availability uses open rolls scoped to the selected branch without schema side effects.');
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
 $assert(str_contains($validation, 'tarpaulin_selections') && str_contains($cart, "['pos_tarpaulin_selection'] = \$selection"), 'The server stores its resolved selection in the POS session cart.');
 $assert(str_contains($checkout, 'pos_checkout_pair_tarpaulin_cart_lines') && str_contains($checkout, 'pos_cart_line_id'), 'Checkout uses unique server-generated cart line IDs.');
 $assert(strpos($checkout, 'pos_checkout_pair_tarpaulin_cart_lines($items') < strpos($checkout, 'printflow_pos_validate_service_stock($items, $checkout_branch_id)'), 'Checkout pairs lines before revalidating combined branch stock.');
 $assert(str_contains($checkout, 'pos_checkout_parse_positive_quantity($item[\'qty\']') && str_contains($checkout, 'printflow_pos_authorized_branch_id'), 'Checkout quantity and authorized cart branch are validated server-side.');
+<<<<<<< HEAD
 $assert(str_contains($customizations, 'persistedPosTarpaulinSelection') && str_contains($customizations, 'linear_ft_v1'), 'Set Price reuses the saved selection and calculation marker.');
 $assert(str_contains($customizations, 'isVersionedTarpaulinMaterial(itemId)') && str_contains($customizations, 'return serviceId === 40;'), 'Set Price creates the new calculation marker only for linked Tarpaulin service 40.');
 $assert(str_contains($jobApi, 'printflow_tarpaulin_calculate_linear_length('), 'Set Price recalculates from server-side job dimensions and selected item.');
+=======
+$assert(str_contains($customizations, 'persistedPosTarpaulinSelection') && str_contains($customizations, 'panel_joining_v2'), 'Set Price reuses the saved panel plan and calculation marker.');
+$assert(str_contains($customizations, 'isVersionedTarpaulinMaterial(itemId)') && str_contains($customizations, 'return serviceId === 40;'), 'Set Price creates the new calculation marker only for linked Tarpaulin service 40.');
+$assert(str_contains($jobApi, 'printflow_tarpaulin_saved_panel_selection_for_job('), 'Set Price preserves the server-saved panel plan and selected item.');
+>>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
 $assert(str_contains($jobService, 'tarpaulin_calculation_version') && str_contains($jobService, 'legacy manual-assignment heuristic away'), 'New versioned assignments bypass legacy heuristics while legacy metadata remains on the old path.');
 $assert(str_contains($jobApi, 'printflow_tarpaulin_assert_versioned_job') && str_contains($jobService, 'printflow_tarpaulin_assert_versioned_job'), 'The material-assignment API and deduction service require persisted Tarpaulin job identity before accepting the marker.');
 
