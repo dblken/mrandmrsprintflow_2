@@ -8,6 +8,7 @@
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/branch_context.php';
+require_once __DIR__ . '/../../includes/pos_branch_scope.php';
 require_once __DIR__ . '/../../includes/product_branch_stock.php';
 require_once __DIR__ . '/../../includes/product_option_stock.php';
 require_once __DIR__ . '/../../includes/service_field_config_helper.php';
@@ -50,20 +51,31 @@ function pos_cart_item_is_service(array $item): bool
 
 function pos_cart_branch_id(): int
 {
-    $branchId = 0;
-    if (function_exists('printflow_branch_filter_for_user')) {
-        $branchId = (int)(printflow_branch_filter_for_user() ?? 0);
+    return printflow_pos_authorized_branch_id();
+}
+
+function pos_cart_new_tarpaulin_line_id(array $cart): string
+{
+    $existing = [];
+    foreach ($cart as $line) {
+        $id = trim((string)($line['pos_cart_line_id'] ?? ''));
+        if ($id !== '') $existing[$id] = true;
     }
-    if ($branchId <= 0) {
-        $selectedBranch = $_SESSION['selected_branch_id'] ?? null;
-        if ($selectedBranch !== null && $selectedBranch !== 'all') {
-            $branchId = (int)$selectedBranch;
-        }
+    do { $id = bin2hex(random_bytes(16)); } while (isset($existing[$id]));
+    return $id;
+}
+
+function pos_cart_ensure_tarpaulin_line_ids(): void
+{
+    $seen = [];
+    foreach ($_SESSION['pos_cart'] as &$item) {
+        if (!is_array($item) || (int)($item['product_id'] ?? 0) !== 40 || !pos_cart_item_is_service($item)) continue;
+        $id = trim((string)($item['pos_cart_line_id'] ?? ''));
+        if ($id === '' || isset($seen[$id])) $id = pos_cart_new_tarpaulin_line_id($_SESSION['pos_cart']);
+        $item['pos_cart_line_id'] = $id;
+        $seen[$id] = true;
     }
-    if ($branchId <= 0) {
-        $branchId = (int)($_SESSION['branch_id'] ?? 0);
-    }
-    return $branchId;
+    unset($item);
 }
 function pos_cart_effective_product_stock(int $productId, int $branchId): int
 {
@@ -464,7 +476,10 @@ if ($action !== 'get' && !verify_csrf_token((string)($data['csrf_token'] ?? ''))
 }
 
 try {
+    pos_cart_ensure_tarpaulin_line_ids();
     $cartBeforeAction = array_values($_SESSION['pos_cart'] ?? []);
+    $posBranchId = printflow_pos_authorized_branch_id();
+    if ($action !== 'clear') printflow_pos_assert_cart_branch($posBranchId);
     switch ($action) {
         case 'add':
             if (empty($data['product_id'])) {
@@ -482,6 +497,12 @@ try {
 
             if ($is_service) {
                 $serviceCustomization = is_array($customization) ? $customization : [];
+                unset($serviceCustomization['pos_cart_line_id']);
+                if ($product_id === 40) {
+                    // The selection is produced by this server after validation,
+                    // never accepted from a browser cart payload.
+                    unset($serviceCustomization['pos_tarpaulin_selection']);
+                }
                 $serviceFieldConfigs = function_exists('get_service_field_config')
                     ? get_service_field_config($product_id)
                     : [];
@@ -568,10 +589,16 @@ try {
             // Check if item already exists in cart (match product_id, price, and customization)
             $found = false;
             foreach ($_SESSION['pos_cart'] as &$item) {
-                $item_custom_json = isset($item['customization']) ? json_encode($item['customization']) : null;
+                $itemCustomizationForMerge = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+                $newCustomizationForMerge = is_array($preparedCustomization ?? $customization) ? ($preparedCustomization ?? $customization) : [];
+                if ($is_service && $product_id === 40) {
+                    unset($itemCustomizationForMerge['pos_tarpaulin_selection'], $newCustomizationForMerge['pos_tarpaulin_selection']);
+                }
+                $item_custom_json = $itemCustomizationForMerge !== [] ? json_encode($itemCustomizationForMerge) : null;
+                $merge_custom_json = $newCustomizationForMerge !== [] ? json_encode($newCustomizationForMerge) : null;
                 if ($item['product_id'] == $product_id && 
                     abs($item['price'] - $price) < 0.01 && 
-                    $item_custom_json === $custom_json &&
+                    $item_custom_json === $merge_custom_json &&
                     $item['name'] === $name) {
                     
                     // Stock check
@@ -626,6 +653,7 @@ try {
                     'stock' => $stock,
                     'customization' => $preparedCustomization,
                     'is_service' => $is_service,
+                    'pos_cart_line_id' => $is_service && $product_id === 40 ? pos_cart_new_tarpaulin_line_id($_SESSION['pos_cart']) : null,
                     'price_set' => pos_cart_resolve_price_set_on_add($is_service, $data, $cartSeed),
                 ];
             }
@@ -776,6 +804,7 @@ try {
                 }
             }
             $_SESSION['pos_cart'] = [];
+            unset($_SESSION['pos_cart_branch_id']);
             pos_void_unfinalized_drafts($draftOrderIds);
             pos_void_session_pending_paymongo_checkouts();
             break;
@@ -800,6 +829,14 @@ try {
             array_values($_SESSION['pos_cart']),
             pos_cart_branch_id()
         );
+        foreach ((array)($serviceStockValidation['tarpaulin_selections'] ?? []) as $lineIndex => $selection) {
+            if (!is_array($selection) || !isset($_SESSION['pos_cart'][$lineIndex])) continue;
+            $customization = is_array($_SESSION['pos_cart'][$lineIndex]['customization'] ?? null)
+                ? $_SESSION['pos_cart'][$lineIndex]['customization']
+                : [];
+            $customization['pos_tarpaulin_selection'] = $selection;
+            $_SESSION['pos_cart'][$lineIndex]['customization'] = $customization;
+        }
         if (empty($serviceStockValidation['ok'])) {
             throw new Exception(pos_cart_service_stock_message($serviceStockValidation));
         }

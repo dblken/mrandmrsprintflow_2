@@ -3207,8 +3207,8 @@ $online_closed_count = 0;
                                                         <div style="font-weight:600; color:#1e293b;" x-text="pm.name"></div>
                                                         <template x-if="isTarpaulin(pm.item_id)">
                                                             <div style="display:flex;flex-wrap:wrap;gap:8px;color:#64748b;font-size:11px;margin-top:5px;">
-                                                                <label>Width used:
-                                                                    <input type="number" min="1" step="any" x-model.number="pm.qty" aria-label="Material width used"
+                                                                <label>Linear Ft:
+                                                                    <input type="number" min="0.001" step="any" x-model.number="pm.qty" aria-label="Required linear feet"
                                                                            style="width:72px;margin-left:3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
                                                                 </label>
                                                                 <label>Height:
@@ -4439,23 +4439,84 @@ window.pfServiceFieldCatalog = (() => {
             getInventoryItem(itemId) {
                 return this.allInventoryItems.find(i => String(i.id) === String(itemId)) || null;
             },
+            isCurrentTarpaulinService() {
+                const linkedId = Number(this.currentJo?.linked_order_item_id || this.currentJo?.order_item_id || 0);
+                const linkedItem = (Array.isArray(this.currentJo?.items) ? this.currentJo.items : [])
+                    .find(item => Number(item?.order_item_id || 0) === linkedId);
+                const serviceId = Number(this.currentJo?.service_id
+                    || linkedItem?.service_id
+                    || linkedItem?.customization?.service_id
+                    || 0);
+                return serviceId === 40;
+            },
+            isVersionedTarpaulinMaterial(itemId) {
+                return this.isCurrentTarpaulinService() && this.isTarpaulin(itemId);
+            },
             normalizeMaterialQtyValue(value, fallback = 1) {
                 const parsed = parseFloat(value);
                 if (!Number.isFinite(parsed)) return fallback;
                 return parsed < 1 ? 1 : parsed;
             },
-            isValidPosMaterialQuantity(value) {
+            normalizeTarpaulinLength(value) {
+                const parsed = Number(value);
+                return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+            },
+            isValidPosMaterialQuantity(value, itemId = null) {
+                if (this.isVersionedTarpaulinMaterial(itemId || this.newMaterialId)) {
+                    const number = Number(String(value ?? '').trim());
+                    return Number.isFinite(number) && number > 0;
+                }
                 const raw = String(value ?? '').trim();
                 return /^[1-9][0-9]*$/.test(raw) && Number.isSafeInteger(Number(raw)) && Number(raw) <= 2147483647;
             },
             posMaterialQuantityError(materials = []) {
                 if (!this.isPosSetPriceFlow()) return '';
                 for (const material of materials) {
-                    if (!this.isValidPosMaterialQuantity(material && (material.qty ?? material.quantity))) {
-                        return 'POS material quantities must be positive whole numbers.';
+                    const itemId = material && material.item_id;
+                    const amount = Number(material && (material.qty ?? material.quantity));
+                    if (this.isVersionedTarpaulinMaterial(itemId)) {
+                        if (!Number.isFinite(amount) || amount <= 0) return 'POS Tarpaulin lengths must be positive linear feet.';
+                        const meta = material && material.metadata && typeof material.metadata === 'object' ? material.metadata : {};
+                        if (meta.tarpaulin_calculation_version === 'linear_ft_v1') {
+                            const calculation = this.tarpaulinCalculationForItem(itemId, meta.width_ft, meta.height_ft, meta.finished_quantity);
+                            if (!calculation || Math.abs(amount - calculation.required_linear_ft) > 0.001) {
+                                return 'Tarpaulin material length must match the calculated roll length for its dimensions and quantity.';
+                            }
+                        }
+                        continue;
+                    }
+                    if (!this.isValidPosMaterialQuantity(amount, itemId)) {
+                        return this.isVersionedTarpaulinMaterial(material && material.item_id)
+                            ? 'POS Tarpaulin lengths must be positive linear feet.'
+                            : 'POS material quantities must be positive whole numbers.';
                     }
                 }
                 return '';
+            },
+            tarpaulinCalculationForItem(itemId, width = null, height = null, quantity = null) {
+                const item = this.getInventoryItem(itemId);
+                const rollWidth = item && window.PrintFlowProductionMaterials
+                    ? window.PrintFlowProductionMaterials.tarpaulinRollWidthFor(item)
+                    : null;
+                const jobWidth = Number(width ?? this.currentJo?.width_ft ?? 0);
+                const jobHeight = Number(height ?? this.currentJo?.height_ft ?? 0);
+                const jobQuantity = Number(quantity ?? this.currentJo?.quantity ?? 0);
+                if (!rollWidth || !window.PrintFlowProductionMaterials?.calculateTarpaulinLinearLength) return null;
+                return window.PrintFlowProductionMaterials.calculateTarpaulinLinearLength(jobWidth, jobHeight, jobQuantity, rollWidth);
+            },
+            persistedPosTarpaulinSelection() {
+                const items = Array.isArray(this.currentJo?.items) ? this.currentJo.items : [];
+                const matching = items.find(item => Number(item?.service_id || item?.customization?.service_id || 0) === 40)
+                    || items.find(item => Number(item?.order_item_id || 0) === Number(this.currentJo?.linked_order_item_id || this.currentJo?.order_item_id || 0));
+                const raw = matching?.customization_data;
+                let details = matching?.customization && typeof matching.customization === 'object' ? matching.customization : {};
+                if (typeof raw === 'string' && raw.trim()) {
+                    try { details = { ...details, ...(JSON.parse(raw) || {}) }; } catch (error) {}
+                }
+                if (!details.pos_tarpaulin_selection && this.currentJo?.customization_details?.pos_tarpaulin_selection) {
+                    details = this.currentJo.customization_details;
+                }
+                return details.pos_tarpaulin_selection || null;
             },
             isPcsMaterial(itemId) {
                 const item = this.getInventoryItem(itemId);
@@ -4489,6 +4550,25 @@ window.pfServiceFieldCatalog = (() => {
                 if (Array.isArray(this.currentJo.materials) && this.currentJo.materials.length > 0) return;
                 if (this.pendingMaterials.length > 0) return;
                 if (!window.PrintFlowProductionMaterials || !Array.isArray(this.allInventoryItems) || !this.allInventoryItems.length) return;
+                if (Number(this.currentJo?.service_id || this.currentJo?.items?.[0]?.service_id || 0) === 40) {
+                    const savedSelection = this.persistedPosTarpaulinSelection();
+                    const savedItem = savedSelection && this.getInventoryItem(savedSelection.item_id);
+                    if (savedItem && savedSelection.version === 'linear_ft_v1') {
+                        this.handleMaterialSelection(savedItem.id);
+                        this.newMaterialQty = Number(savedSelection.required_linear_ft);
+                        this.newMaterialHeight = Number(savedSelection.height_ft);
+                        this.newMaterialMetadata = {
+                            ...(this.newMaterialMetadata || {}),
+                            tarpaulin_calculation_version: 'linear_ft_v1',
+                            tarpaulin_orientation: savedSelection.orientation,
+                            tarpaulin_roll_width_ft: Number(savedSelection.roll_width_ft),
+                            tarpaulin_run_length_per_piece_ft: Number(savedSelection.run_length_per_piece_ft),
+                            tarpaulin_required_linear_ft: Number(savedSelection.required_linear_ft),
+                        };
+                        if (!this.selectedMaterialStockError) this.addMaterialToQueue();
+                        return;
+                    }
+                }
                 const match = window.PrintFlowProductionMaterials.getAutoSelectCandidate(
                     this.allInventoryItems, this.materialCompatibilityContext, this.materialRules
                 );
@@ -4511,9 +4591,18 @@ window.pfServiceFieldCatalog = (() => {
                     const jH = dims.height;
                     const jQ = parseFloat(this.currentJo.quantity || 1);
                     
-                    if (this.isTarpaulin(selectedId)) {
-                        this.newMaterialQty = jW > 0 ? jW : 1;
-                        this.newMaterialHeight = jH > 0 ? jH : 1;
+                    if (this.isVersionedTarpaulinMaterial(selectedId)) {
+                        const calculation = this.tarpaulinCalculationForItem(selectedId, jW, jH, jQ);
+                        this.newMaterialQty = calculation ? calculation.required_linear_ft : '';
+                        this.newMaterialHeight = jH > 0 ? jH : 0;
+                        this.newMaterialMetadata = {
+                            ...(this.newMaterialMetadata || {}),
+                            tarpaulin_calculation_version: 'linear_ft_v1',
+                            tarpaulin_orientation: calculation?.orientation || '',
+                            tarpaulin_roll_width_ft: calculation?.roll_width_ft || 0,
+                            tarpaulin_run_length_per_piece_ft: calculation?.run_length_per_piece_ft || 0,
+                            tarpaulin_required_linear_ft: calculation?.required_linear_ft || 0,
+                        };
                     } else if (this.isRollTracked(selectedId)) {
                         const longest = Math.max(jH, jW);
                         this.newMaterialQty = longest > 0 ? longest : 1;
@@ -4537,10 +4626,11 @@ window.pfServiceFieldCatalog = (() => {
                     ? String(value ?? '')
                     : this.normalizeMaterialQtyValue(value, 1);
             },
-            getMaterialRequiredStock(itemId, qty = 0, height = 0) {
+            getMaterialRequiredStock(itemId, qty = 0, height = 0, metadata = {}) {
                 const parsedQty = parseFloat(qty || 0);
                 if (parsedQty <= 0) return 0;
-                if (this.isTarpaulin(itemId)) {
+                if (this.isVersionedTarpaulinMaterial(itemId)) {
+                    if (metadata && metadata.tarpaulin_calculation_version === 'linear_ft_v1') return parsedQty;
                     const parsedHeight = parseFloat(height || 0);
                     return parsedHeight > 0 ? parsedQty * parsedHeight : parsedQty;
                 }
@@ -4549,20 +4639,34 @@ window.pfServiceFieldCatalog = (() => {
             getQueuedMaterialRequiredStock(itemId) {
                 return this.pendingMaterials
                     .filter(m => String(m.item_id) === String(itemId))
-                    .reduce((sum, m) => sum + this.getMaterialRequiredStock(m.item_id, m.qty, m.metadata && m.metadata.height_ft ? m.metadata.height_ft : 0), 0);
+                    .reduce((sum, m) => sum + this.getMaterialRequiredStock(m.item_id, m.qty, m.metadata && m.metadata.height_ft ? m.metadata.height_ft : 0, m.metadata || {}), 0);
             },
             get selectedMaterialStockError() {
                 if (!this.newMaterialId) return '';
                 const item = this.getInventoryItem(this.newMaterialId);
                 if (!item) return '';
-                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty)) {
-                    return 'POS material quantities must be positive whole numbers.';
+                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) {
+                    return this.isVersionedTarpaulinMaterial(this.newMaterialId)
+                        ? 'POS Tarpaulin lengths must be positive linear feet.'
+                        : 'POS material quantities must be positive whole numbers.';
                 }
                 const available = parseFloat(item.current_stock || 0);
                 const queued = this.getQueuedMaterialRequiredStock(this.newMaterialId);
-                const needed = this.getMaterialRequiredStock(this.newMaterialId, this.newMaterialQty, this.newMaterialHeight);
-                if (parseFloat(this.newMaterialQty || 0) < 1) {
+                const calculation = this.isVersionedTarpaulinMaterial(this.newMaterialId)
+                    ? this.tarpaulinCalculationForItem(this.newMaterialId)
+                    : null;
+                if (this.isVersionedTarpaulinMaterial(this.newMaterialId) && !calculation) {
+                    return 'The selected Tarpaulin roll cannot fit these dimensions, including rotation.';
+                }
+                const needed = this.isVersionedTarpaulinMaterial(this.newMaterialId)
+                    ? Number(calculation.required_linear_ft)
+                    : this.getMaterialRequiredStock(this.newMaterialId, this.newMaterialQty, this.newMaterialHeight);
+                const enteredQty = Number(this.newMaterialQty);
+                if (!Number.isFinite(enteredQty) || enteredQty <= 0) {
                     return 'Material quantity must be at least 1.';
+                }
+                if (this.isVersionedTarpaulinMaterial(this.newMaterialId) && Math.abs(enteredQty - needed) > 0.001) {
+                    return `Required Tarpaulin length for this roll is ${needed} Ft.`;
                 }
                 if (needed <= 0) return '';
                 const remaining = Math.max(0, available - queued);
@@ -9836,14 +9940,15 @@ window.pfServiceFieldCatalog = (() => {
                     this.showStaffAlert('Material Unavailable', 'This material is not available for a new assignment on the current service.');
                     return;
                 }
-                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty)) {
+                const isTarpaulinMaterial = this.isVersionedTarpaulinMaterial(this.newMaterialId);
+                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) {
                     this.showStaffAlert('Invalid Quantity', 'POS material quantities must be positive whole numbers.');
                     return;
                 }
-                const normalizedQty = this.isPosSetPriceFlow()
+                const normalizedQty = isTarpaulinMaterial
                     ? Number(this.newMaterialQty)
-                    : this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
-                if (normalizedQty < 1) {
+                    : (this.isPosSetPriceFlow() ? Number(this.newMaterialQty) : this.normalizeMaterialQtyValue(this.newMaterialQty, 1));
+                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && normalizedQty < 1)) {
                     this.showStaffAlert('Invalid Quantity', 'Material quantity must be at least 1.');
                     return;
                 }
@@ -9856,16 +9961,28 @@ window.pfServiceFieldCatalog = (() => {
                 // Check if already in pending queue
                 const existing = this.pendingMaterials.find(m => m.item_id == this.newMaterialId);
                 if (existing) {
-                    existing.qty = this.normalizeMaterialQtyValue((parseFloat(existing.qty) || 0) + normalizedQty, 1);
+                    existing.qty = isTarpaulinMaterial
+                        ? normalizedQty
+                        : this.normalizeMaterialQtyValue((parseFloat(existing.qty) || 0) + normalizedQty, 1);
+                    if (isTarpaulinMaterial) {
+                        existing.metadata = { ...existing.metadata, ...this.newMaterialMetadata, height_ft: this.newMaterialHeight };
+                    }
                     // Reset input
                     this.resetMaterialForm();
                     return;
                 }
 
                 let meta = {};
-                if (this.isTarpaulin(this.newMaterialId)) {
+                if (this.isVersionedTarpaulinMaterial(this.newMaterialId)) {
                     meta.height_ft = this.newMaterialHeight;
+                    meta.width_ft = Number(this.currentJo?.width_ft || 0);
+                    meta.finished_quantity = Number(this.currentJo?.quantity || 0);
                     meta.finishing = this.newMaterialMetadata.finishing || '';
+                    meta.tarpaulin_calculation_version = 'linear_ft_v1';
+                    meta.tarpaulin_orientation = this.newMaterialMetadata.tarpaulin_orientation || '';
+                    meta.tarpaulin_roll_width_ft = Number(this.newMaterialMetadata.tarpaulin_roll_width_ft || 0);
+                    meta.tarpaulin_run_length_per_piece_ft = Number(this.newMaterialMetadata.tarpaulin_run_length_per_piece_ft || 0);
+                    meta.tarpaulin_required_linear_ft = Number(this.newMaterialMetadata.tarpaulin_required_linear_ft || normalizedQty);
                 } else if (this.isSticker(this.newMaterialId)) {
                     meta.lamination = this.newMaterialMetadata.lamination || '';
                 }
@@ -9888,20 +10005,28 @@ window.pfServiceFieldCatalog = (() => {
             },
             buildCurrentMaterialPayload() {
                 if (!this.newMaterialId) return null;
-                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty)) return null;
-                const normalizedQty = this.isPosSetPriceFlow()
+                const isTarpaulinMaterial = this.isVersionedTarpaulinMaterial(this.newMaterialId);
+                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) return null;
+                const normalizedQty = isTarpaulinMaterial
                     ? Number(this.newMaterialQty)
-                    : this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
-                if (normalizedQty < 1) return null;
+                    : (this.isPosSetPriceFlow() ? Number(this.newMaterialQty) : this.normalizeMaterialQtyValue(this.newMaterialQty, 1));
+                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && normalizedQty < 1)) return null;
                 this.newMaterialQty = normalizedQty;
                 const item = this.allInventoryItems.find(i => i.id == this.newMaterialId);
                 if (!item) return null;
                 if (!this.materialClassification(item).selectable) return null;
 
                 let meta = {};
-                if (this.isTarpaulin(this.newMaterialId)) {
+                if (this.isVersionedTarpaulinMaterial(this.newMaterialId)) {
                     meta.height_ft = this.newMaterialHeight;
+                    meta.width_ft = Number(this.currentJo?.width_ft || 0);
+                    meta.finished_quantity = Number(this.currentJo?.quantity || 0);
                     meta.finishing = this.newMaterialMetadata.finishing || '';
+                    meta.tarpaulin_calculation_version = 'linear_ft_v1';
+                    meta.tarpaulin_orientation = this.newMaterialMetadata.tarpaulin_orientation || '';
+                    meta.tarpaulin_roll_width_ft = Number(this.newMaterialMetadata.tarpaulin_roll_width_ft || 0);
+                    meta.tarpaulin_run_length_per_piece_ft = Number(this.newMaterialMetadata.tarpaulin_run_length_per_piece_ft || 0);
+                    meta.tarpaulin_required_linear_ft = Number(this.newMaterialMetadata.tarpaulin_required_linear_ft || normalizedQty);
                 } else if (this.isSticker(this.newMaterialId)) {
                     const orderedHeight = parseFloat(this.currentJo.height_ft || 0) > 0 ? parseFloat(this.currentJo.height_ft || 0) : 1;
                     meta.waste_length_ft = Math.max(0, (parseFloat(this.newMaterialQty) || 0) - orderedHeight);
@@ -11343,8 +11468,11 @@ window.pfServiceFieldCatalog = (() => {
             },
             async addMaterial() {
                 if(!this.newMaterialId) return;
-                const normalizedQty = this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
-                if (normalizedQty < 1) {
+                const isTarpaulinMaterial = this.isVersionedTarpaulinMaterial(this.newMaterialId);
+                const normalizedQty = isTarpaulinMaterial
+                    ? Number(this.newMaterialQty)
+                    : this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
+                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && normalizedQty < 1)) {
                     this.showStaffAlert('Invalid Quantity', 'Material quantity must be at least 1.');
                     return;
                 }
@@ -11372,9 +11500,16 @@ window.pfServiceFieldCatalog = (() => {
                 
                 // Construct metadata based on category
                 let meta = {};
-                if (this.isTarpaulin(this.newMaterialId)) {
+                if (this.isVersionedTarpaulinMaterial(this.newMaterialId)) {
                     meta.height_ft = this.newMaterialHeight;
+                    meta.width_ft = Number(this.currentJo?.width_ft || 0);
+                    meta.finished_quantity = Number(this.currentJo?.quantity || 0);
                     meta.finishing = this.newMaterialMetadata.finishing || '';
+                    meta.tarpaulin_calculation_version = 'linear_ft_v1';
+                    meta.tarpaulin_orientation = this.newMaterialMetadata.tarpaulin_orientation || '';
+                    meta.tarpaulin_roll_width_ft = Number(this.newMaterialMetadata.tarpaulin_roll_width_ft || 0);
+                    meta.tarpaulin_run_length_per_piece_ft = Number(this.newMaterialMetadata.tarpaulin_run_length_per_piece_ft || 0);
+                    meta.tarpaulin_required_linear_ft = Number(this.newMaterialMetadata.tarpaulin_required_linear_ft || normalizedQty);
                 } else if (this.isSticker(this.newMaterialId)) {
                     // STICKER LOGIC
                     let orderedHeight = this.currentJo.height_ft > 0 ? this.currentJo.height_ft : 1;

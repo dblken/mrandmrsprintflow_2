@@ -427,6 +427,26 @@
         return Number.isFinite(width) && width > 0 ? width : null;
     }
 
+    function calculateTarpaulinLinearLength(width, height, finishedQuantity, rollWidth) {
+        const w = Number(width);
+        const h = Number(height);
+        const q = Number(finishedQuantity);
+        const r = Number(rollWidth);
+        if (![w, h, q, r].every(Number.isFinite) || w <= 0 || h <= 0 || !Number.isInteger(q) || q <= 0 || r <= 0) return null;
+        const orientations = [];
+        if (w <= r) orientations.push({ orientation: 'original', run: h });
+        if (h <= r) orientations.push({ orientation: 'rotated', run: w });
+        if (!orientations.length) return null;
+        orientations.sort((a, b) => a.run - b.run);
+        const chosen = orientations[0];
+        return {
+            version: 'linear_ft_v1', width_ft: w, height_ft: h, finished_quantity: q,
+            print_area_sqft: w * h * q, roll_width_ft: r, orientation: chosen.orientation,
+            run_length_per_piece_ft: chosen.run,
+            required_linear_ft: Math.ceil((chosen.run * q - 1e-10) * 1000) / 1000
+        };
+    }
+
     /**
      * Deterministically ranks in-stock tarpaulin candidates against the customer's
      * finished width/height. Production can rotate artwork, so either finished
@@ -494,6 +514,6 @@
 
     return {
         normalize, materialText, familyFor, canonicalCategoryKind, classifyServiceFromName, classifyService, classifyItem,
-        descriptionFor, searchScore, rankItems, inkModeFor, tarpaulinRollWidthFor, getAutoSelectCandidate
+        descriptionFor, searchScore, rankItems, inkModeFor, tarpaulinRollWidthFor, calculateTarpaulinLinearLength, getAutoSelectCandidate
     };
 });

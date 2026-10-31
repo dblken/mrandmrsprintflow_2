@@ -8,6 +8,7 @@
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/InventoryManager.php';
+require_once __DIR__ . '/tarpaulin_material_calculation.php';
 require_once __DIR__ . '/RollService.php';
 require_once __DIR__ . '/NotificationService.php';
 require_once __DIR__ . '/revision_workflow.php';
@@ -441,6 +442,12 @@ class JobOrderService {
         $computed = (float)($material['computed_required_length_ft'] ?? 0);
         $quantity = (float)($material['quantity'] ?? 0);
         $meta = self::decodeMaterialMetadata($material['metadata'] ?? null);
+        $jobId = (int)($jobRow['id'] ?? $material['job_order_id'] ?? 0);
+        if (printflow_tarpaulin_assert_versioned_job($meta, $jobId, $jobRow)) {
+            // Versioned assignments already store the authoritative linear-ft
+            // calculation. Keep the legacy manual-assignment heuristic away.
+            return $computed > 0 ? $computed : 0.0;
+        }
         $manual = !empty($meta['manual_assignment']);
 
         if (!$manual) {
@@ -1238,7 +1245,9 @@ class JobOrderService {
             $orderType = (!empty($isJob)) ? 'JOB' : 'ORDER';
         }
         $qty = (float)$qty;
-        if ($qty < 1) {
+        $isVersionedTarpaulin = is_array($metadata)
+            && ($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_CALCULATION_VERSION;
+        if (($isVersionedTarpaulin && (!is_finite($qty) || $qty <= 0)) || (!$isVersionedTarpaulin && $qty < 1)) {
             throw new Exception("Material quantity must be at least 1.");
         }
         
@@ -1276,6 +1285,13 @@ class JobOrderService {
             $liveJobId = (int)$orderId;
         }
 
+        if ($isVersionedTarpaulin) {
+            if (!$track_by_roll || (int)($liveJobId ?? 0) <= 0) {
+                throw new RuntimeException('The linear_ft_v1 calculation can only be assigned to a linked Tarpaulin job and active roll material.');
+            }
+            printflow_tarpaulin_assert_versioned_job($metadata, (int)$liveJobId);
+        }
+
         if ($track_by_roll) {
             $jobLookupId = (int)($liveJobId ?? 0);
             if ($jobLookupId <= 0 && $orderType === 'JOB') {
@@ -1283,8 +1299,32 @@ class JobOrderService {
             }
             $jobRowForLength = null;
             if ($jobLookupId > 0) {
-                $job = db_query('SELECT height_ft, width_ft, quantity FROM job_orders WHERE id = ? LIMIT 1', 'i', [$jobLookupId]);
+                $job = db_query('SELECT id, order_id, order_item_id, height_ft, width_ft, quantity FROM job_orders WHERE id = ? LIMIT 1', 'i', [$jobLookupId]);
                 $jobRowForLength = $job[0] ?? null;
+            }
+            if ($isVersionedTarpaulin) {
+                $rollWidth = printflow_tarpaulin_parse_nominal_width($item);
+                if ($rollWidth <= 0 || $jobRowForLength === null) {
+                    throw new RuntimeException('The versioned Tarpaulin assignment is missing a valid roll width or linked job dimensions.');
+                }
+                $calculation = printflow_tarpaulin_calculate_linear_length(
+                    $jobRowForLength['width_ft'] ?? null,
+                    $jobRowForLength['height_ft'] ?? null,
+                    $jobRowForLength['quantity'] ?? null,
+                    $rollWidth
+                );
+                $qty = (float)$calculation['required_linear_ft'];
+                $computed_len = $qty;
+                $metadata = array_merge($metadata, [
+                    'tarpaulin_calculation_version' => PRINTFLOW_TARPAULIN_CALCULATION_VERSION,
+                    'width_ft' => $calculation['width_ft'],
+                    'height_ft' => $calculation['height_ft'],
+                    'finished_quantity' => $calculation['finished_quantity'],
+                    'roll_width_ft' => $calculation['roll_width_ft'],
+                    'orientation' => $calculation['orientation'],
+                    'run_length_per_piece_ft' => $calculation['run_length_per_piece_ft'],
+                    'computed_required_length_ft' => $calculation['required_linear_ft'],
+                ]);
             }
             if ($computed_len <= 0 && $jobRowForLength !== null) {
                 $jH = (float)($jobRowForLength['height_ft'] ?? 0);

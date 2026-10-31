@@ -7,22 +7,91 @@
 require_once __DIR__ . '/InventoryManager.php';
 require_once __DIR__ . '/JobOrderService.php';
 require_once __DIR__ . '/pos_quantity_validation.php';
+require_once __DIR__ . '/pos_service_stock_helpers.php';
 require_once __DIR__ . '/pos_mugs_release_rule.php';
+require_once __DIR__ . '/tarpaulin_material_calculation.php';
 
-function printflow_pos_service_required_material_quantity($serviceQuantity, $multiplier): float
+function printflow_pos_tarpaulin_candidates(int $branchId): array
 {
-    $qty = printflow_pos_parse_positive_quantity($serviceQuantity);
-    if (!is_numeric($multiplier) || !is_finite((float)$multiplier) || (float)$multiplier <= 0) {
-        throw new InvalidArgumentException('A required material consumption ratio is not configured.');
+    static $cache = [];
+    if (isset($cache[$branchId])) return $cache[$branchId];
+    $rows = db_query(
+        "SELECT i.id, i.name, i.status, i.track_by_roll, i.unit_of_measure,
+                c.name AS category_name
+         FROM inv_items i
+         LEFT JOIN inv_categories c ON c.id = i.category_id
+         WHERE UPPER(TRIM(COALESCE(i.status, ''))) = 'ACTIVE'
+           AND COALESCE(i.track_by_roll, 0) = 1
+         ORDER BY i.name ASC, i.id ASC"
+    );
+    if ($rows === false) throw new RuntimeException('Tarpaulin roll materials could not be loaded.');
+    $candidates = [];
+    foreach ($rows as $row) {
+        if (printflow_tarpaulin_parse_nominal_width($row) <= 0) continue;
+        $row['available_ft'] = (float)InventoryManager::getStockOnHand((int)$row['id'], $branchId);
+        $row['branch_id'] = $branchId;
+        $candidates[] = $row;
     }
-    $required = $qty * (float)$multiplier;
-    if (!is_finite($required) || $required <= 0) {
-        throw new InvalidArgumentException('The required material quantity could not be calculated.');
-    }
-    return $required;
+    $cache[$branchId] = $candidates;
+    return $candidates;
 }
 
-function printflow_pos_service_stock_rules(int $serviceId, array $customization): array
+function printflow_pos_tarpaulin_dimensions(array $customization): array
+{
+    $width = $customization['width'] ?? $customization['width_ft'] ?? $customization['Width'] ?? null;
+    $height = $customization['height'] ?? $customization['height_ft'] ?? $customization['Height'] ?? null;
+    if (($width === null || $height === null) && isset($customization['dimensions'])) {
+        $dimensions = trim((string)$customization['dimensions']);
+        if (preg_match('/^\s*(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(?:ft)?\s*$/i', $dimensions, $match)) {
+            $width ??= $match[1];
+            $height ??= $match[2];
+        }
+    }
+    return [
+        printflow_tarpaulin_positive_number($width, 'Width'),
+        printflow_tarpaulin_positive_number($height, 'Height'),
+    ];
+}
+
+/** Resolve a first POS roll or verify a previously server-resolved cart selection. */
+function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $demand): array
+{
+    $customization = is_array($line['customization'] ?? null) ? $line['customization'] : [];
+    [$width, $height] = printflow_pos_tarpaulin_dimensions($customization);
+    $quantity = printflow_pos_parse_positive_quantity($line['qty'] ?? null);
+    $requestedBranch = (int)($customization['branch_id'] ?? 0);
+    if ($requestedBranch > 0 && $requestedBranch !== $branchId) {
+        throw new RuntimeException('Tarpaulin stock must be validated for the selected POS branch. Reopen the service and try again.');
+    }
+    $candidates = printflow_pos_tarpaulin_candidates($branchId);
+    $stored = $customization['pos_tarpaulin_selection'] ?? null;
+    if (is_array($stored) && !empty($stored['item_id'])) {
+        $itemId = (int)$stored['item_id'];
+        $candidate = null;
+        foreach ($candidates as $row) if ((int)$row['id'] === $itemId) { $candidate = $row; break; }
+        if ($candidate === null) throw new RuntimeException('The selected Tarpaulin roll is no longer active or available for this branch. Reopen the service and validate again.');
+        $rollWidth = printflow_tarpaulin_parse_nominal_width($candidate);
+        $calc = printflow_tarpaulin_calculate_linear_length($width, $height, $quantity, $rollWidth);
+        if ((int)($stored['branch_id'] ?? 0) !== $branchId
+            || abs((float)($stored['width_ft'] ?? 0) - $width) > 0.000001
+            || abs((float)($stored['height_ft'] ?? 0) - $height) > 0.000001) {
+            throw new RuntimeException('The Tarpaulin roll selection no longer matches the service dimensions. Reopen the service and validate again.');
+        }
+        $remaining = (float)$candidate['available_ft'] - (float)($demand[$itemId] ?? 0);
+        if ($remaining + 1.0e-9 < (float)$calc['required_linear_ft']) {
+            return ['ok' => false, 'reason' => 'insufficient', 'selection' => $stored, 'shortage' => [
+                'id' => $itemId, 'name' => $candidate['name'], 'uom' => 'Ft', 'available_ft' => max(0, $remaining),
+                'required_ft' => (float)$calc['required_linear_ft'],
+            ]];
+        }
+        return ['ok' => true, 'selection' => array_merge($stored, $calc, ['item_id' => $itemId, 'item_name' => $candidate['name'], 'branch_id' => $branchId])];
+    }
+    $resolved = printflow_tarpaulin_resolve_candidate($candidates, $width, $height, $quantity, $demand);
+    if (empty($resolved['ok'])) return $resolved;
+    return $resolved;
+}
+
+function printflow_pos_service_stock_rules(int $serviceId, array $customization, bool $hasAssignedMaterials = false): array
 {
     if ($serviceId <= 0) {
         throw new RuntimeException('The POS service could not be identified for stock validation.');
@@ -48,8 +117,10 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization)
         }
         $service = $productRows[0] ?? [];
     }
-    // The owner confirmed this active service/material pair and 1:1 rule.
-    // Resolve the live catalog item, then use the existing generic stock path.
+
+    // The owner has explicitly confirmed this exact active service/material
+    // rule. It is validated against the live catalog item and then consumed
+    // through the same generic branch-stock aggregation as all assignments.
     if ($serviceId === 63) {
         return printflow_pos_mugs_release_material_rule(
             $serviceId,
@@ -57,7 +128,9 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization)
             InventoryManager::getItem(37)
         ) ?? [];
     }
-
+    // Tarpaulin consumption is resolved from dimensions and a compatible roll,
+    // not from the incomplete service_material_rules multiplier schema.
+    if ($serviceId === 40) return [];
 
     $serviceType = JobOrderService::inferServiceTypeFromProduct(
         (string)($service['category'] ?? ''),
@@ -77,13 +150,21 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization)
             if ($knownTypes !== []) $serviceType = $requestedType;
         }
     }
+    // These are the active, physical customizable services offered through
+    // the Counter Staff POS. Missing rules must not silently classify them as
+    // non-stock-tracked: that would let Add to Order bypass validation.
+    $earlyMappedServiceIds = [36, 39, 40, 63, 64, 67, 71];
+    $requiresEarlyMapping = in_array($serviceId, $earlyMappedServiceIds, true);
     if ($serviceType === '') {
+        if ($requiresEarlyMapping && !$hasAssignedMaterials) {
+            throw new RuntimeException('A required material mapping for this service could not be resolved. Contact an administrator before adding this service.');
+        }
         return [];
     }
 
     $errorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
     $rules = db_query(
-        "SELECT r.item_id, r.rule_type, r.qty_multiplier,
+        "SELECT r.item_id, r.rule_type,
                 i.name AS item_name, i.unit_of_measure, i.track_by_roll, i.status AS item_status
          FROM service_material_rules r
          LEFT JOIN inv_items i ON i.id = r.item_id
@@ -100,28 +181,35 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization)
     foreach ($rules ?: [] as $rule) {
         if (strtoupper(trim((string)($rule['rule_type'] ?? 'REQUIRED'))) !== 'REQUIRED') continue;
         $itemId = (int)($rule['item_id'] ?? 0);
-        $multiplier = $rule['qty_multiplier'] ?? null;
-        if ($itemId <= 0 || trim((string)($rule['item_status'] ?? '')) !== 'ACTIVE'
-            || $multiplier === null || !is_numeric($multiplier) || (float)$multiplier <= 0) {
+        if ($itemId <= 0 || trim((string)($rule['item_status'] ?? '')) !== 'ACTIVE') {
             throw new RuntimeException('A required material mapping for ' . $serviceType . ' is incomplete. Contact an administrator before adding this service.');
         }
-        $required[] = [
-            'item_id' => $itemId,
-            'name' => (string)($rule['item_name'] ?? ('Material #' . $itemId)),
-            'uom' => (string)($rule['unit_of_measure'] ?? 'pcs'),
-            'track_by_roll' => !empty($rule['track_by_roll']),
-            'multiplier' => (float)$multiplier,
-            'service_type' => $serviceType,
-        ];
+        // service_material_rules currently defines the candidate item and
+        // REQUIRED/OPTIONAL role only. It has no authoritative consumption
+        // quantity. Compatibility recommendations and availability are not
+        // consumption rules, so early validation must fail closed instead of
+        // assuming 1 unit/order. Once staff has explicitly assigned material,
+        // the assignment's actual quantity is validated below.
+        if (!$hasAssignedMaterials) {
+            throw new RuntimeException('Material consumption for ' . $serviceType . ' cannot be calculated from the configured rules. Confirm its material quantity before adding this service.');
+        }
+        return [];
     }
 
-    // Existing service availability semantics treat a service without rules as
-    // not inventory-tracked. Optional rules alone do not make a service tracked.
+    if ($requiresEarlyMapping && $required === [] && !$hasAssignedMaterials) {
+        throw new RuntimeException('A required material mapping for ' . $serviceType . ' could not be resolved. Contact an administrator before adding this service.');
+    }
+
+    // For services outside the active customizable POS set, preserve the
+    // existing no-rules/non-tracked behavior. The seven target services above
+    // fail closed when their required plan is absent.
     return $required;
 }
 
 function printflow_pos_service_line_job_materials(array $line): array
 {
+    $lineCustomization = is_array($line['customization'] ?? null) ? $line['customization'] : [];
+    $lineServiceId = (int)($lineCustomization['service_id'] ?? $line['product_id'] ?? $line['id'] ?? 0);
     if (array_key_exists('pos_material_assignments', $line)) {
         $candidate = $line['pos_material_assignments'];
         if (!is_array($candidate) || count($candidate) > 100) {
@@ -131,10 +219,42 @@ function printflow_pos_service_line_job_materials(array $line): array
         foreach ($candidate as $material) {
             if (!is_array($material)) throw new RuntimeException('A Set Price material entry is invalid.');
             $itemId = (int)($material['item_id'] ?? 0);
-            try {
-                $quantity = printflow_pos_parse_positive_quantity($material['quantity'] ?? $material['qty'] ?? null);
-            } catch (InvalidArgumentException $error) {
-                throw new RuntimeException('Material quantities must be positive whole numbers.');
+            $metadata = $material['metadata'] ?? [];
+            if (is_string($metadata)) $metadata = json_decode($metadata, true);
+            $isVersionedTarpaulin = is_array($metadata)
+                && ($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_CALCULATION_VERSION;
+            if ($isVersionedTarpaulin) {
+                $pendingOrderId = (int)($line['pending_order_id'] ?? 0);
+                $pendingItemId = (int)($line['pending_order_item_id'] ?? 0);
+                if ($lineServiceId !== 40 || $pendingOrderId <= 0) {
+                    throw new RuntimeException('A versioned Tarpaulin material assignment is valid only for its linked Tarpaulin POS job.');
+                }
+                $jobSql = 'SELECT id, order_id, order_item_id FROM job_orders WHERE order_id = ?';
+                $jobTypes = 'i';
+                $jobParams = [$pendingOrderId];
+                if ($pendingItemId > 0 && db_table_has_column('job_orders', 'order_item_id')) {
+                    $jobSql .= ' AND order_item_id = ?';
+                    $jobTypes .= 'i';
+                    $jobParams[] = $pendingItemId;
+                }
+                $linkedJobs = db_query($jobSql . ' ORDER BY id ASC LIMIT 2', $jobTypes, $jobParams);
+                if (!is_array($linkedJobs) || count($linkedJobs) !== 1
+                    || !printflow_tarpaulin_job_is_authoritative_service((int)$linkedJobs[0]['id'], $linkedJobs[0])) {
+                    throw new RuntimeException('The versioned Tarpaulin material assignment has missing or ambiguous service identity.');
+                }
+            }
+            if ($isVersionedTarpaulin) {
+                try {
+                    $quantity = printflow_tarpaulin_positive_number($material['quantity'] ?? $material['qty'] ?? null, 'Material length');
+                } catch (InvalidArgumentException $error) {
+                    throw new RuntimeException('Tarpaulin roll length must be a positive number of feet.');
+                }
+            } else {
+                try {
+                    $quantity = printflow_pos_parse_positive_quantity($material['quantity'] ?? $material['qty'] ?? null);
+                } catch (InvalidArgumentException $error) {
+                    throw new RuntimeException('Material quantities must be positive whole numbers.');
+                }
             }
             $item = InventoryManager::getItem($itemId);
             if ($itemId <= 0 || !$item || strtoupper((string)($item['status'] ?? 'ACTIVE')) !== 'ACTIVE') {
@@ -146,8 +266,6 @@ function printflow_pos_service_line_job_materials(array $line): array
                 'name' => (string)$item['name'],
                 'uom' => (string)($item['unit_of_measure'] ?? ''),
             ];
-            $metadata = $material['metadata'] ?? [];
-            if (is_string($metadata)) $metadata = json_decode($metadata, true);
             if (is_array($metadata)) {
                 $laminationId = (int)($metadata['lamination_item_id'] ?? 0);
                 if ($laminationId > 0) {
@@ -191,6 +309,9 @@ function printflow_pos_service_line_job_materials(array $line): array
     $jobs = db_query($sql . ' ORDER BY id ASC LIMIT 1', $types, $params);
     if ($jobs === false || $jobs === []) return [];
     $job = $jobs[0];
+    if ($lineServiceId === 40 && !printflow_tarpaulin_job_is_authoritative_service((int)$job['id'], $job)) {
+        throw new RuntimeException('The Tarpaulin material assignment has missing or ambiguous service identity.');
+    }
     $assignments = JobOrderService::getScopedMaterialsPublic((int)$job['id'], false, false);
     $resolved = [];
     foreach ($assignments as $assignment) {
@@ -199,6 +320,10 @@ function printflow_pos_service_line_job_materials(array $line): array
         $metadata = $assignment['metadata'] ?? null;
         if (is_string($metadata)) $metadata = json_decode($metadata, true);
         if (is_array($metadata) && ($metadata['inventory_skip_reason'] ?? '') === 'superseded_by_wider_roll_material') continue;
+        if (is_array($metadata) && ($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_CALCULATION_VERSION
+            && ($lineServiceId !== 40 || !printflow_tarpaulin_job_is_authoritative_service((int)$job['id'], $job))) {
+            throw new RuntimeException('A versioned Tarpaulin calculation is valid only for a uniquely linked Tarpaulin service job.');
+        }
         $item = InventoryManager::getItem($itemId);
         if (!$item || strtoupper((string)($item['status'] ?? 'ACTIVE')) !== 'ACTIVE') {
             throw new RuntimeException('An assigned POS material is no longer available. Reopen Set Price and review the assignment.');
@@ -231,7 +356,8 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
     if ($branchId <= 0) throw new RuntimeException('The POS branch could not be identified for stock validation.');
     $demand = [];
     $tracked = false;
-    foreach ($lines as $line) {
+    $tarpaulinSelections = [];
+    foreach (array_values($lines) as $lineIndex => $line) {
         if (!is_array($line)) continue;
         $customization = is_array($line['customization'] ?? null) ? $line['customization'] : [];
         $isService = !empty($line['is_service'])
@@ -240,7 +366,48 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
         if (!$isService) continue;
         $serviceId = (int)($customization['service_id'] ?? $line['product_id'] ?? $line['id'] ?? 0);
         $quantity = printflow_pos_parse_positive_quantity($line['qty'] ?? null);
-        $rules = printflow_pos_service_stock_rules($serviceId, $customization);
+        $assigned = printflow_pos_service_line_job_materials($line);
+        $hasAssignedMaterials = $assigned !== [];
+        if ($serviceId === 40 && !$hasAssignedMaterials) {
+            $committedTarpaulinDemand = [];
+            foreach ($demand as $demandItemId => $demandEntry) {
+                $committedTarpaulinDemand[(int)$demandItemId] = (float)($demandEntry['quantity'] ?? 0);
+            }
+            $resolved = printflow_pos_tarpaulin_selection($line, $branchId, $committedTarpaulinDemand);
+            if (empty($resolved['ok'])) {
+                if (($resolved['reason'] ?? '') === 'insufficient') {
+                    $tracked = true;
+                    $shortage = $resolved['shortage'] ?? [];
+                    $itemId = (int)($shortage['id'] ?? 0);
+                    $required = (float)($shortage['required_ft'] ?? $shortage['calculation']['required_linear_ft'] ?? 0);
+                    $available = (float)($shortage['available_ft'] ?? $shortage['remaining_ft'] ?? 0);
+                    $name = (string)($shortage['name'] ?? 'Tarpaulin roll');
+                    $entry = ['item_id' => $itemId, 'name' => $name, 'uom' => 'Ft', 'required' => $required, 'available' => $available];
+                    $demand[$itemId] ??= ['quantity' => 0.0, 'name' => $name, 'uom' => 'Ft'];
+                    $demand[$itemId]['quantity'] += $required;
+                    $tarpaulinSelections[$lineIndex] = $resolved['selection'] ?? null;
+                    continue;
+                }
+                if (($resolved['reason'] ?? '') === 'ambiguous') {
+                    throw new RuntimeException('More than one Tarpaulin roll is equally suitable. Ask an administrator to clarify the material selection.');
+                }
+                if (($resolved['reason'] ?? '') === 'incompatible') {
+                    throw new RuntimeException('No active Tarpaulin roll width can fit these dimensions, including rotation.');
+                }
+                throw new RuntimeException('Tarpaulin material could not be safely resolved for the selected branch.');
+            }
+            $selection = $resolved['selection'];
+            $tarpaulinSelections[$lineIndex] = $selection;
+            $itemId = (int)$selection['item_id'];
+            $item = InventoryManager::getItem($itemId);
+            if (!$item || strtoupper((string)($item['status'] ?? '')) !== 'ACTIVE' || empty($item['track_by_roll'])) {
+                throw new RuntimeException('The selected Tarpaulin roll is no longer active. Reopen the service and try again.');
+            }
+            $tracked = true;
+            printflow_pos_service_stock_add_demand($demand, $itemId, (float)$selection['required_linear_ft'], (string)$item['name'], 'Ft');
+            continue;
+        }
+        $rules = printflow_pos_service_stock_rules($serviceId, $customization, $hasAssignedMaterials);
         if ($rules !== []) $tracked = true;
 
         $lineMinimums = [];
@@ -254,7 +421,6 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
             $lineMinimums[$itemId] = ['quantity' => $required, 'name' => $rule['name'], 'uom' => $rule['uom']];
         }
 
-        $assigned = printflow_pos_service_line_job_materials($line);
         $assignedById = [];
         foreach ($assigned as $material) {
             $itemId = (int)$material['item_id'];
@@ -281,10 +447,13 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
         foreach ($lineMinimums as $itemId => $minimum) {
             $lineQty = max((float)$minimum['quantity'], (float)($assignedById[$itemId] ?? 0));
             if ($lineQty <= 0) continue;
-            if (!isset($demand[$itemId])) {
-                $demand[$itemId] = ['quantity' => 0.0, 'name' => $minimum['name'], 'uom' => $minimum['uom']];
-            }
-            $demand[$itemId]['quantity'] += $lineQty;
+            printflow_pos_service_stock_add_demand(
+                $demand,
+                (int)$itemId,
+                $lineQty,
+                (string)$minimum['name'],
+                (string)$minimum['uom']
+            );
         }
     }
 
@@ -304,8 +473,14 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
             'available' => $available,
         ];
         $materials[] = $entry;
-        if ((float)$required['quantity'] > $available) $issues[] = $entry;
+        if (printflow_pos_service_stock_exceeds_available((float)$required['quantity'], $available)) $issues[] = $entry;
     }
-    return ['ok' => $issues === [], 'tracked' => $tracked || $demand !== [], 'materials' => $materials, 'issues' => $issues];
+    return [
+        'ok' => $issues === [],
+        'tracked' => $tracked || $demand !== [],
+        'materials' => $materials,
+        'issues' => $issues,
+        'tarpaulin_selections' => $tarpaulinSelections,
+    ];
 }
 

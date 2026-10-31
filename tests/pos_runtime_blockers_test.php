@@ -4,19 +4,26 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $read = static fn(string $path): string => (string)file_get_contents($root . '/' . $path);
 
-$migration = $read('database/migrate_service_material_rule_multiplier_20261022.php');
 $rules = $read('includes/pos_service_stock_validation.php');
+$inventoryApi = $read('admin/inventory_items_api.php');
 $sw = $read('public/sw.php');
 $manifest = $read('public/manifest.php');
 $shopConfig = $read('includes/shop_config.php');
 
-if (strpos($migration, "PHP_SAPI !== 'cli'") === false
-    || strpos($migration, "ADD COLUMN `qty_multiplier` DECIMAL(10,2) DEFAULT '1.00'") === false
-    || strpos($migration, "db_table_has_column('service_material_rules', 'qty_multiplier'") === false) {
-    throw new RuntimeException('The targeted, idempotent service-rule schema migration contract is missing.');
+if (strpos($rules, 'r.qty_multiplier') !== false
+    || strpos($rules, 'cannot be calculated from the configured rules') === false
+    || strpos($rules, 'A required material mapping for this service could not be resolved.') === false) {
+    throw new RuntimeException('POS stock validation must avoid the absent multiplier column and fail closed when authoritative requirements are missing.');
 }
-if (strpos($rules, 'r.qty_multiplier') === false) {
-    throw new RuntimeException('POS service stock validation must continue using the configured multiplier.');
+foreach ([36, 39, 40, 63, 64, 67, 71] as $serviceId) {
+    if (strpos($rules, (string)$serviceId) === false) {
+        throw new RuntimeException('A physical customizable POS service is missing its fail-closed mapping guard: ' . $serviceId);
+    }
+}
+if (strpos($inventoryApi, 'r.qty_multiplier') !== false
+    || strpos($inventoryApi, "'Service material mappings could not be loaded.'") === false
+    || strpos($inventoryApi, "'material_rules' => " . '$materialRules') === false) {
+    throw new RuntimeException('The Set Price inventory API must avoid the absent multiplier column and report mapping-query failures instead of returning an empty mapping list.');
 }
 if (strpos($sw, '/public/app-icon.php?v=') === false
     || strpos($manifest, '/public/app-icon.php?v=') === false

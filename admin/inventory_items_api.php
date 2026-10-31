@@ -125,7 +125,7 @@ try {
             }
             unset($item);
             $materialRules = db_query(
-                "SELECT r.service_type, r.item_id, r.rule_type, r.qty_multiplier,
+                "SELECT r.service_type, r.item_id, r.rule_type,
                         i.name AS item_name, c.name AS category_name
                  FROM service_material_rules r
                  JOIN inv_items i ON i.id = r.item_id
@@ -137,7 +137,12 @@ try {
                    )
                  ORDER BY r.service_type ASC, r.rule_type DESC, r.item_id ASC"
                 , 'i', [$production_picker]
-            ) ?: [];
+            );
+            if ($materialRules === false) {
+                http_response_code(500);
+                echo json_encode(['success' => false, 'error' => 'Service material mappings could not be loaded.']);
+                exit;
+            }
             $activeServices = db_query(
                 "SELECT service_id, name, category
                  FROM services
