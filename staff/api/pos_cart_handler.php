@@ -78,30 +78,6 @@ function pos_cart_ensure_tarpaulin_line_ids(): void
     unset($item);
 }
 
-function pos_cart_new_tarpaulin_line_id(array $cart): string
-{
-    $existing = [];
-    foreach ($cart as $line) {
-        $id = trim((string)($line['pos_cart_line_id'] ?? ''));
-        if ($id !== '') $existing[$id] = true;
-    }
-    do { $id = bin2hex(random_bytes(16)); } while (isset($existing[$id]));
-    return $id;
-}
-
-function pos_cart_ensure_tarpaulin_line_ids(): void
-{
-    $seen = [];
-    foreach ($_SESSION['pos_cart'] as &$item) {
-        if (!is_array($item) || (int)($item['product_id'] ?? 0) !== 40 || !pos_cart_item_is_service($item)) continue;
-        $id = trim((string)($item['pos_cart_line_id'] ?? ''));
-        if ($id === '' || isset($seen[$id])) $id = pos_cart_new_tarpaulin_line_id($_SESSION['pos_cart']);
-        $item['pos_cart_line_id'] = $id;
-        $seen[$id] = true;
-    }
-    unset($item);
-}
-
 function pos_cart_service_validation_branch_id(array $cart, int $serviceId = 0): int
 {
     $hasTarpaulin = $serviceId === 40;
@@ -535,15 +511,11 @@ try {
             if ($is_service) {
                 $serviceCustomization = is_array($customization) ? $customization : [];
                 unset($serviceCustomization['pos_cart_line_id']);
-<<<<<<< HEAD
                 if ($product_id === 40) {
                     // The selection is produced by this server after validation,
                     // never accepted from a browser cart payload.
                     unset($serviceCustomization['pos_tarpaulin_selection']);
                 }
-=======
-                if ($product_id === 40) unset($serviceCustomization['pos_tarpaulin_selection']);
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                 $serviceFieldConfigs = function_exists('get_service_field_config')
                     ? get_service_field_config($product_id)
                     : [];
@@ -655,11 +627,7 @@ try {
                 }
                 $item_custom_json = $itemCustomizationForMerge !== [] ? json_encode($itemCustomizationForMerge) : null;
                 $merge_custom_json = $newCustomizationForMerge !== [] ? json_encode($newCustomizationForMerge) : null;
-<<<<<<< HEAD
-                if ($item['product_id'] == $product_id && 
-=======
                 if (!$is_service && $item['product_id'] == $product_id &&
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                     abs($item['price'] - $price) < 0.01 && 
                     $item_custom_json === $merge_custom_json &&
                     $item['name'] === $name) {

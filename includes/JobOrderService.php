@@ -1250,12 +1250,7 @@ class JobOrderService {
             $orderType = (!empty($isJob)) ? 'JOB' : 'ORDER';
         }
         $qty = (float)$qty;
-<<<<<<< HEAD
-        $isVersionedTarpaulin = is_array($metadata)
-            && ($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_CALCULATION_VERSION;
-=======
         $isVersionedTarpaulin = is_array($metadata) && printflow_tarpaulin_is_versioned_metadata($metadata);
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
         if (($isVersionedTarpaulin && (!is_finite($qty) || $qty <= 0)) || (!$isVersionedTarpaulin && $qty < 1)) {
             throw new Exception("Material quantity must be at least 1.");
         }
@@ -1316,26 +1311,6 @@ class JobOrderService {
                 if ($rollWidth <= 0 || $jobRowForLength === null) {
                     throw new RuntimeException('The versioned Tarpaulin assignment is missing a valid roll width or linked job dimensions.');
                 }
-<<<<<<< HEAD
-                $calculation = printflow_tarpaulin_calculate_linear_length(
-                    $jobRowForLength['width_ft'] ?? null,
-                    $jobRowForLength['height_ft'] ?? null,
-                    $jobRowForLength['quantity'] ?? null,
-                    $rollWidth
-                );
-                $qty = (float)$calculation['required_linear_ft'];
-                $computed_len = $qty;
-                $metadata = array_merge($metadata, [
-                    'tarpaulin_calculation_version' => PRINTFLOW_TARPAULIN_CALCULATION_VERSION,
-                    'width_ft' => $calculation['width_ft'],
-                    'height_ft' => $calculation['height_ft'],
-                    'finished_quantity' => $calculation['finished_quantity'],
-                    'roll_width_ft' => $calculation['roll_width_ft'],
-                    'orientation' => $calculation['orientation'],
-                    'run_length_per_piece_ft' => $calculation['run_length_per_piece_ft'],
-                    'computed_required_length_ft' => $calculation['required_linear_ft'],
-                ]);
-=======
                 if (($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION) {
                     $selection = printflow_tarpaulin_saved_panel_selection_for_job((int)$jobLookupId, $jobRowForLength);
                     $submittedPanelPlan = $metadata['tarpaulin_panel_plan'] ?? null;
@@ -1371,7 +1346,6 @@ class JobOrderService {
                         'computed_required_length_ft' => $calculation['required_linear_ft'],
                     ]);
                 }
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
             }
             if ($computed_len <= 0 && $jobRowForLength !== null) {
                 $jH = (float)($jobRowForLength['height_ft'] ?? 0);

@@ -4,10 +4,7 @@
 require_once __DIR__ . '/pos_quantity_validation.php';
 
 const PRINTFLOW_TARPAULIN_CALCULATION_VERSION = 'linear_ft_v1';
-<<<<<<< HEAD
-=======
 const PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION = 'panel_joining_v2';
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
 
 /** Resolve service identity through the persisted job -> order-item link only. */
 function printflow_tarpaulin_authoritative_job_service_id(int $jobId, ?array $knownJob = null): int
@@ -53,12 +50,6 @@ function printflow_tarpaulin_job_is_authoritative_service(int $jobId, ?array $kn
     return printflow_tarpaulin_authoritative_job_service_id($jobId, $knownJob) === 40;
 }
 
-<<<<<<< HEAD
-/** Validate the one recognized calculation marker against persisted service identity. */
-function printflow_tarpaulin_assert_versioned_job(array $metadata, int $jobId, ?array $knownJob = null): bool
-{
-    if (($metadata['tarpaulin_calculation_version'] ?? '') !== PRINTFLOW_TARPAULIN_CALCULATION_VERSION) return false;
-=======
 /** Load the server-validated POS selection through the unique job/order-item link. */
 function printflow_tarpaulin_saved_panel_selection_for_job(int $jobId, ?array $knownJob = null): ?array
 {
@@ -83,21 +74,17 @@ function printflow_tarpaulin_saved_panel_selection_for_job(int $jobId, ?array $k
 function printflow_tarpaulin_assert_versioned_job(array $metadata, int $jobId, ?array $knownJob = null): bool
 {
     if (!printflow_tarpaulin_is_versioned_metadata($metadata)) return false;
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
     if (!printflow_tarpaulin_job_is_authoritative_service($jobId, $knownJob)) {
         throw new RuntimeException('The linear_ft_v1 calculation is valid only for a uniquely linked Tarpaulin service job.');
     }
     return true;
 }
 
-<<<<<<< HEAD
-=======
 function printflow_tarpaulin_is_versioned_metadata(array $metadata): bool
 {
     return in_array((string)($metadata['tarpaulin_calculation_version'] ?? ''), [PRINTFLOW_TARPAULIN_CALCULATION_VERSION, PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION], true);
 }
 
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
 /** Pure one-to-one pairing used to bind checkout payloads to session cart lines. */
 function printflow_tarpaulin_pair_cart_lines(array $items, array $sessionCart, int $branchId): array
 {
@@ -119,10 +106,6 @@ function printflow_tarpaulin_pair_cart_lines(array $items, array $sessionCart, i
         if ($id === '' || isset($seen[$id]) || !isset($sessionById[$id])) return ['ok' => false, 'error' => 'Each Tarpaulin checkout item must match one unique POS cart line.'];
         $seen[$id] = true;
         $line = $sessionById[$id];
-<<<<<<< HEAD
-        $lineCustomization = is_array($line['customization'] ?? null) ? $line['customization'] : [];
-        if ((int)($line['qty'] ?? 0) !== (int)($item['qty'] ?? 0)
-=======
         if ((int)($item['id'] ?? $item['product_id'] ?? 0) !== (int)($line['product_id'] ?? 0)
             || empty($item['is_service'])) {
             return ['ok' => false, 'error' => 'The Tarpaulin checkout item no longer matches its server cart service.'];
@@ -130,13 +113,10 @@ function printflow_tarpaulin_pair_cart_lines(array $items, array $sessionCart, i
         $lineCustomization = is_array($line['customization'] ?? null) ? $line['customization'] : [];
         if ((int)($line['qty'] ?? 0) !== (int)($item['qty'] ?? 0)
             || ((int)($customization['service_id'] ?? 40) !== 40)
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
             || abs((float)($lineCustomization['width'] ?? 0) - (float)($customization['width'] ?? 0)) >= 0.000001
             || abs((float)($lineCustomization['height'] ?? 0) - (float)($customization['height'] ?? 0)) >= 0.000001) {
             return ['ok' => false, 'error' => 'Tarpaulin cart quantity or dimensions changed after stock validation.'];
         }
-<<<<<<< HEAD
-=======
         foreach (['joining_direction', 'joining_allowance_mode'] as $key) {
             $sessionValue = strtolower(trim((string)($lineCustomization[$key] ?? 'automatic')));
             $checkoutValue = strtolower(trim((string)($customization[$key] ?? 'automatic')));
@@ -145,7 +125,6 @@ function printflow_tarpaulin_pair_cart_lines(array $items, array $sessionCart, i
         if (abs((float)($lineCustomization['joining_allowance_ft'] ?? 0) - (float)($customization['joining_allowance_ft'] ?? 0)) >= 0.000001) {
             return ['ok' => false, 'error' => 'Tarpaulin allowance changed after stock validation.'];
         }
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
         $selection = $lineCustomization['pos_tarpaulin_selection'] ?? null;
         if (!is_array($selection) || (int)($selection['branch_id'] ?? 0) !== $branchId) {
             return ['ok' => false, 'error' => 'The server-validated Tarpaulin material selection is missing for the selected branch.'];
@@ -165,8 +144,6 @@ function printflow_tarpaulin_positive_number($value, string $label): float
     return (float)$value;
 }
 
-<<<<<<< HEAD
-=======
 function printflow_tarpaulin_dimension($value, string $label): float
 {
     $number = printflow_tarpaulin_positive_number($value, $label);
@@ -192,7 +169,6 @@ function printflow_tarpaulin_normalize_dimensions(array $customization): array
     ];
 }
 
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
 function printflow_tarpaulin_parse_nominal_width(array $item): float
 {
     if (empty($item['track_by_roll'])) return 0.0;
@@ -318,8 +294,6 @@ function printflow_tarpaulin_resolve_candidate(array $candidates, $width, $heigh
     return ['ok' => true, 'reason' => '', 'selection' => $selection, 'candidates' => $fits];
 }
 
-<<<<<<< HEAD
-=======
 
 /** Tarpaulin panel plan, v2. A single inventory item/nominal width is used for every panel. */
 function printflow_tarpaulin_panel_plan($width, $height, $quantity, $rollWidth, string $direction = 'automatic', string $allowanceMode = 'included', $allowance = 0): array
@@ -555,4 +529,3 @@ function printflow_tarpaulin_resolve_panel_candidate(array $candidates, $width, 
         'roll_allocations' => $winner['allocation']['allocations'],
     ]), 'candidates' => $fits];
 }
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
