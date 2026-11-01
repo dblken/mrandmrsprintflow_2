@@ -15,6 +15,7 @@ $optionStock = $read('includes/product_option_stock.php');
 $rolls = $read('includes/RollService.php');
 $variants = $read('includes/variant_functions.php');
 $staffStatus = $read('staff/update_order_status_process.php');
+$staffStatusMutation = $read('includes/order_status_mutation.php');
 $posCheckout = $read('staff/api/pos_checkout.php');
 $providerPayments = $read('includes/provider_payments.php');
 $adminStatus = $read('admin/api_update_order_status.php');
@@ -35,13 +36,15 @@ $assert(str_contains($optionStock, 'A valid stock option must be selected for th
 $assert(str_contains($optionStock, '$affected === 1'), 'option deductions reject concurrent lost updates');
 
 foreach ([
-    'online completion' => $staffStatus,
     'cash POS' => $posCheckout,
     'PayMongo POS' => $providerPayments,
     'admin completion' => $adminStatus,
 ] as $flow => $source) {
     $assert(str_contains($source, 'printflow_apply_product_order_item_inventory('), "{$flow} uses shared product movement");
 }
+$assert(str_contains($staffStatus, 'printflow_staff_mutate_order_status(')
+    && str_contains($staffStatusMutation, 'printflow_apply_product_order_item_inventory('),
+    'online completion delegates to the shared status mutation and product movement helper');
 $assert(str_contains($providerPayments, "customization['service_id']") && str_contains($providerPayments, "customization['service_type']"), 'PayMongo POS excludes service placeholder lines from product stock');
 $assert(str_contains($posCheckout, 'printflow_product_option_stock_prepare_cart_customization('), 'POS normalizes and validates selected option stock');
 $assert(str_contains($optionStock, 'function printflow_product_option_stock_prepare_cart_customization('), 'shared helper can auto-select a single in-stock option');

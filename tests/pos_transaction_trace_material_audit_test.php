@@ -14,8 +14,10 @@ $assert = static function (bool $condition, string $message) use (&$passed): voi
 
 $assert(
     str_contains($trace, 'printflow_store_order_ledger_date($orderId)')
-        && str_contains($trace, "substr((string)\$expectedLedgerDateRaw, 0, 10)"),
-    'trace audit compares ledger business date to order date portion'
+        && str_contains($trace, "printflow_normalize_business_datetime((string)\$expectedLedgerDateRaw)")
+        && str_contains($trace, "printflow_normalize_business_datetime((string)\$movement['transaction_date'])")
+        && str_contains($trace, '$movementBusinessDate !== $expectedLedgerDate'),
+    'trace audit compares normalized ledger business datetime with the order business datetime'
 );
 $assert(
     str_contains($trace, "'expected_ledger_date'")

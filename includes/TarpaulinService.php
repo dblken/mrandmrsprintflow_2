@@ -5,6 +5,8 @@
  */
 
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/InventoryManager.php';
+require_once __DIR__ . '/roll_branch_scope.php';
 
 class TarpaulinService {
 
@@ -40,9 +42,13 @@ class TarpaulinService {
     /**
      * Get available rolls for a given width
      */
-    public static function getAvailableRolls($width) {
-        // Query from common inv_rolls table
-        return db_query("SELECT id, roll_code, remaining_length_ft FROM inv_rolls WHERE width_ft = ? AND status = 'OPEN' ORDER BY received_at ASC", 'i', [$width]) ?: [];
+    public static function getAvailableRolls($width, int $branchId) {
+        [$branchSql, $branchTypes, $branchParams] = printflow_roll_branch_sql('branch_id', $branchId);
+        return db_query(
+            "SELECT id, roll_code, remaining_length_ft FROM inv_rolls WHERE width_ft = ? AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC",
+            'i' . $branchTypes,
+            array_merge([(int)$width], $branchParams)
+        ) ?: [];
     }
 
     /**

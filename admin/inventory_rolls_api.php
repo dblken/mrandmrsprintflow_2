@@ -30,6 +30,7 @@ try {
             $branchId = null;
             if (is_staff() || get_user_type() === 'Manager') {
                 $branchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 0);
+                if ((int)$branchId <= 0) throw new RuntimeException('Your assigned branch could not be verified; no unscoped roll list was returned.');
             }
 
             if ($itemId > 0) {
@@ -49,7 +50,7 @@ try {
                     $types .= 's';
                     $params[] = $status;
                 }
-                if ($branchId !== null && $branchId > 0) {
+                if ($branchId !== null) {
                     $where[] = 'r.branch_id = ?';
                     $types .= 'i';
                     $params[] = $branchId;

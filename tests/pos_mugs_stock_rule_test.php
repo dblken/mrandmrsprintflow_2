@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 // Load pure validation helpers without requiring a configured local database.
 require_once dirname(__DIR__) . '/includes/pos_service_stock_helpers.php';
+require_once dirname(__DIR__) . '/includes/pos_mugs_release_rule.php';
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -18,6 +19,8 @@ $mug = [
 $rules = printflow_pos_confirmed_mugs_material_rule(63, 'Mugs', $mug);
 $assert(is_array($rules) && count($rules) === 1, 'Mugs has exactly the confirmed blank-Mug rule.');
 $assert((int)$rules[0]['item_id'] === 37 && (float)$rules[0]['multiplier'] === 1.0, 'One Mug requires one unit of item 37.');
+$canonicalRules = printflow_pos_mugs_release_material_rule(63, 'Mugs', $mug);
+$assert($rules === $canonicalRules, 'The compatibility helper delegates to the one canonical owner-confirmed Mugs rule.');
 $assert(printflow_pos_confirmed_mugs_material_rule(40, 'Tarpaulin', $mug) === null, 'The Mugs rule does not leak to another service.');
 
 foreach ([1 => true, 36 => true, 100 => false] as $quantity => $shouldFit) {

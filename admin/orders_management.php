@@ -928,7 +928,7 @@ if (isset($_GET['ajax'])) {
 
                     fetchRolls(item) {
                         if (!item.tempWidth || item.tempWidth <= 0) return;
-                        fetch('<?php echo $base_path; ?>/admin/api_tarp_rolls.php?action=list_available&width=' + item.tempWidth)
+                        fetch('<?php echo $base_path; ?>/admin/api_tarp_rolls.php?action=list_available&width=' + encodeURIComponent(item.tempWidth) + '&order_id=' + encodeURIComponent(this.order?.order_id || ''))
                             .then(r => r.json())
                             .then(data => { if (data.success) item.availableRolls = data.rolls; });
                     },

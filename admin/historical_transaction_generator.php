@@ -13,6 +13,7 @@ require_once __DIR__ . '/../includes/service_field_config_helper.php';
 require_once __DIR__ . '/../includes/production_material_compatibility.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/historical_generator_removal.php';
+require_once __DIR__ . '/../includes/service_material_rule_assignments.php';
 require_role('Admin');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
@@ -315,8 +316,39 @@ function htg_prime_service_generator_lookups(array $services): void {
     if ($serviceTypes) {
         $types = array_keys($serviceTypes);
         $placeholders = implode(',', array_fill(0, count($types), '?'));
+        foreach ($types as $serviceType) $GLOBALS['htg_service_material_rules_cache'][$serviceType] = [];
+        $baseRows = db_query(
+            "SELECT service_type, item_id, rule_type FROM service_material_rules WHERE service_type IN ({$placeholders}) ORDER BY service_type, item_id",
+            str_repeat('s', count($types)),
+            $types
+        );
+        if ($baseRows === false) {
+            foreach ($types as $serviceType) $GLOBALS['htg_service_material_rules_cache'][$serviceType] = ['__load_error' => true];
+            return;
+        }
+        $hasRequired = false;
+        foreach ($baseRows as $row) {
+            $GLOBALS['htg_service_material_rules_cache'][(string)$row['service_type']][] = $row;
+            if (strtoupper(trim((string)($row['rule_type'] ?? ''))) === 'REQUIRED') $hasRequired = true;
+        }
+        if (!$hasRequired) return;
+
+        $hasMultiplier = db_table_has_column('service_material_rules', 'qty_multiplier', true);
+        $hasApproval = db_table_has_column('service_material_rules', 'qty_multiplier_approved', true);
+        $hasApprover = db_table_has_column('service_material_rules', 'qty_multiplier_approved_by', true);
+        $hasApprovalTimestamp = db_table_has_column('service_material_rules', 'qty_multiplier_approved_at', true);
+        if (!$hasMultiplier || !$hasApproval || !$hasApprover || !$hasApprovalTimestamp) {
+            foreach ($baseRows as $row) {
+                if (strtoupper(trim((string)($row['rule_type'] ?? ''))) === 'REQUIRED') {
+                    $type = (string)$row['service_type'];
+                    $GLOBALS['htg_service_material_rules_cache'][$type] = ['__approval_schema_missing' => true];
+                }
+            }
+            return;
+        }
         $rows = db_query(
-            "SELECT r.service_type, r.item_id, r.rule_type, i.*, c.name AS category_name
+            "SELECT r.service_type, r.item_id, r.rule_type, r.qty_multiplier, r.qty_multiplier_approved,
+                    r.qty_multiplier_approved_by, r.qty_multiplier_approved_at, i.*, c.name AS category_name
              FROM service_material_rules r
              JOIN inv_items i ON i.id = r.item_id
              LEFT JOIN inv_categories c ON c.id = i.category_id
@@ -324,7 +356,11 @@ function htg_prime_service_generator_lookups(array $services): void {
              ORDER BY r.service_type, r.item_id",
             str_repeat('s', count($types)),
             $types
-        ) ?: [];
+        );
+        if ($rows === false) {
+            foreach ($types as $serviceType) $GLOBALS['htg_service_material_rules_cache'][$serviceType] = ['__load_error' => true];
+            return;
+        }
         foreach ($types as $serviceType) $GLOBALS['htg_service_material_rules_cache'][$serviceType] = [];
         foreach ($rows as $row) {
             $GLOBALS['htg_service_material_rules_cache'][(string)$row['service_type']][] = $row;
@@ -378,11 +414,26 @@ function htg_material_plan(string $serviceType, int $quantity, int $serviceId = 
     if (array_key_exists($serviceType, $GLOBALS['htg_service_material_rules_cache'] ?? [])) {
         $rules = $GLOBALS['htg_service_material_rules_cache'][$serviceType];
     } else {
-        $rules = db_query("SELECT r.item_id, r.rule_type, i.*, c.name AS category_name
+        $rules = db_query("SELECT r.item_id, r.rule_type, r.qty_multiplier, r.qty_multiplier_approved,
+                                  r.qty_multiplier_approved_by, r.qty_multiplier_approved_at, i.*, c.name AS category_name
                            FROM service_material_rules r
                            JOIN inv_items i ON i.id = r.item_id
                            LEFT JOIN inv_categories c ON c.id = i.category_id
                            WHERE r.service_type = ? ORDER BY r.item_id", 's', [$serviceType]) ?: [];
+    }
+    if (isset($rules['__load_error'])) {
+        return ['supported' => false, 'warning' => 'Service material rules could not be loaded safely.', 'materials' => [], 'dimensions' => null, 'label' => 'Skipped: rule lookup failed'];
+    }
+    if (isset($rules['__approval_schema_missing'])) {
+        return ['supported' => false, 'warning' => 'Required service material approval columns are missing. Review and apply the approved multiplier schema before generating this service.', 'materials' => [], 'dimensions' => null, 'label' => 'Skipped: multiplier approval schema missing'];
+    }
+    if ($rules === false) {
+        return ['supported' => false, 'warning' => 'Service material rules could not be loaded safely.', 'materials' => [], 'dimensions' => null, 'label' => 'Skipped: rule lookup failed'];
+    }
+    try {
+        $rules = printflow_filter_approved_required_material_rules($rules ?: [], $displayName !== '' ? $displayName : $serviceType);
+    } catch (RuntimeException $error) {
+        return ['supported' => false, 'warning' => $error->getMessage(), 'materials' => [], 'dimensions' => null, 'label' => 'Skipped: required multiplier not approved'];
     }
     $materials = [];
     $dimensions = htg_dimension_options($serviceId);
@@ -403,7 +454,7 @@ function htg_material_plan(string $serviceType, int $quantity, int $serviceId = 
         if ((int)($rule['track_by_roll'] ?? 0) === 1) {
             if (!$dimensions) return ['supported' => false, 'warning' => 'Service "' . ($displayName !== '' ? $displayName : $serviceType) . '" was skipped because no valid configured dimensions were found.', 'materials' => [], 'dimensions' => null, 'label' => 'Skipped: no configured dimensions'];
             [$width, $height] = array_map('floatval', preg_split('/\s*x\s*/i', (string)$dimensions[0]));
-            $rollLength = max(0.01, $height * max(1, $quantity));
+            $rollLength = max(0.01, $height * max(1, $quantity) * (float)$rule['approved_multiplier']);
         } else {
             $rollLength = 0;
         }
@@ -412,7 +463,7 @@ function htg_material_plan(string $serviceType, int $quantity, int $serviceId = 
             'name' => trim((string)($rule['name'] ?? '')) ?: ('Inventory item #' . (int)$rule['item_id']),
             'category_name' => trim((string)($rule['category_name'] ?? '')) ?: 'Uncategorized',
             'rule_type' => trim((string)($rule['rule_type'] ?? '')),
-            'quantity' => max(1, $quantity),
+            'quantity' => max(1, $quantity) * (float)$rule['approved_multiplier'],
             'uom' => ((int)($rule['track_by_roll'] ?? 0) === 1) ? 'ft' : (string)($rule['unit_of_measure'] ?? 'pcs'),
             'computed_len' => $rollLength,
             'track_by_roll' => (int)($rule['track_by_roll'] ?? 0),
@@ -422,10 +473,22 @@ function htg_material_plan(string $serviceType, int $quantity, int $serviceId = 
 }
 function htg_insert(array $r, string $token, string $reason): int {
     global $conn;
-    $guest = printflow_pos_resolve_checkout_customer_context(['customer_id'=>'guest','guest_display_name'=>'Historical Walk-in','customer_email'=>'']);
-    $total = round((float)$r['unit_price'] * (int)$r['quantity'], 2);
     $generatorReference = 'HGEN-' . $token;
     if (!preg_match('/^HGEN-[a-f0-9]{48}-\d+$/i', $generatorReference)) throw new RuntimeException('Historical generator reference marker is invalid.');
+    // A retried confirmation for the same preview line reuses its existing
+    // completed order instead of creating another job or material deduction.
+    $existing = db_query('SELECT order_id FROM orders WHERE reference_id = ? LIMIT 1 FOR UPDATE', 's', [$generatorReference]);
+    if ($existing === false) throw new RuntimeException('Could not verify the historical generator idempotency reference.');
+    if ($existing !== []) return (int)($existing[0]['order_id'] ?? 0);
+    $materialPlan = null;
+    if (($r['type'] ?? '') === 'custom') {
+        $materialPlan = htg_material_plan((string)$r['service_type'], (int)$r['quantity'], (int)($r['service_id'] ?? 0), (string)($r['service_name'] ?? ''));
+        if (empty($materialPlan['supported'])) {
+            throw new RuntimeException("Unable to generate '{$r['service_name']}': " . (string)($materialPlan['warning'] ?? 'required material approval is unavailable.'));
+        }
+    }
+    $guest = printflow_pos_resolve_checkout_customer_context(['customer_id'=>'guest','guest_display_name'=>'Historical Walk-in','customer_email'=>'']);
+    $total = round((float)$r['unit_price'] * (int)$r['quantity'], 2);
     // Historical generated transactions do not add synthetic customer/order notes.
     $note = '';
     $cols=['customer_id','pos_guest_display_name','pos_guest_email','branch_id','reference_id','total_amount','status','payment_status','payment_method','payment_reference','order_date','notes'];
@@ -444,8 +507,7 @@ function htg_insert(array $r, string $token, string $reason): int {
     $jobNotes = '';
     $job=JobOrderService::createOrder(['order_id'=>$oid,'order_item_id'=>$item,'customer_id'=>(int)$guest['customer_id'],'branch_id'=>(int)$r['branch_id'],'job_title'=>$r['service_name'],'service_type'=>$r['service_type'],'quantity'=>(int)$r['quantity'],'estimated_total'=>$total,'notes'=>$jobNotes,'priority'=>'NORMAL','created_by'=>(int)get_user_id()],[]);
     if ((int)$job<=0) throw new RuntimeException('Generated production job creation failed.');
-    $materialPlan = htg_material_plan((string)$r['service_type'], (int)$r['quantity'], (int)($r['service_id'] ?? 0), (string)($r['service_name'] ?? ''));
-    foreach ($materialPlan['materials'] as $material) {
+    foreach (($materialPlan['materials'] ?? []) as $material) {
         JobOrderService::addMaterial((int)$job, (int)$material['item_id'], (float)$material['quantity'], (string)$material['uom'], null, 'Historical generator assignment', null, 'JOB');
     }
     try {

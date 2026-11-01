@@ -410,24 +410,13 @@ function pos_checkout_capture_session_context(): array {
         'pos_pending_orders' => is_array($_SESSION['pos_pending_orders'] ?? null)
             ? $_SESSION['pos_pending_orders']
             : [],
-<<<<<<< HEAD
         // Preserve the server-authored cart selection for Tarpaulin. Checkout
         // must not trust a client-submitted material ID or calculated length.
-=======
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
         'pos_cart' => is_array($_SESSION['pos_cart'] ?? null) ? array_values($_SESSION['pos_cart']) : [],
         'user_id' => (int)($_SESSION['user_id'] ?? 0),
         'branch_id' => $branchId,
         'user_name' => trim((string)($_SESSION['user_name'] ?? 'Staff')),
     ];
-}
-
-function pos_checkout_pair_tarpaulin_cart_lines(array &$items, array $sessionCart, int $branchId): ?string
-{
-    $result = printflow_tarpaulin_pair_cart_lines($items, $sessionCart, $branchId);
-    if (empty($result['ok'])) return (string)($result['error'] ?? 'Tarpaulin checkout cart lines could not be verified.');
-    $items = (array)$result['items'];
-    return null;
 }
 
 function pos_checkout_pair_design_fee_lines(array &$items, array $sessionCart): ?string
@@ -1272,6 +1261,7 @@ function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0, ar
 }
 // Require staff or admin role
 if (!has_role(['Admin', 'Staff'])) {
+    http_response_code(403);
     header('Content-Type: application/json');
     echo json_encode(['success' => false, 'message' => 'Unauthorized access.']);
     exit;
@@ -1289,6 +1279,7 @@ $json = file_get_contents('php://input');
 $data = json_decode($json, true);
 
 if (!$data) {
+    http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'Invalid JSON data.']);
     exit;
 }
@@ -1308,9 +1299,31 @@ if (isset($data['action']) && $data['action'] === 'void_pos_draft') {
 
 // Handle create_pending_customization action
 if (isset($data['action']) && $data['action'] === 'create_pending_customization') {
-    pos_checkout_reopen_session();
-    printflow_ensure_order_items_columns();
-    pos_ensure_customizations_table();
+    if (!pos_checkout_verify_csrf((string)($data['csrf_token'] ?? ''), $sessionContext)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Invalid security token. Refresh the POS page and try again.']);
+        exit;
+    }
+
+    if (!isset($data['item']) || !is_array($data['item'])) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'stage' => 'request_validation', 'message' => 'The POS item data is missing or invalid.']);
+        exit;
+    }
+
+    try {
+        pos_checkout_reopen_session();
+        printflow_ensure_order_items_columns();
+        pos_ensure_customizations_table();
+    } catch (Throwable $initializationError) {
+        pos_checkout_log_stage('create_pending_customization_initialization_failed', [
+            'exception' => get_class($initializationError),
+            'message' => $initializationError->getMessage(),
+        ]);
+        http_response_code(500);
+        echo json_encode(['success' => false, 'stage' => 'draft_initialization', 'message' => 'The POS pricing draft could not be initialized. Contact an administrator if this continues.']);
+        exit;
+    }
 
     $transaction_open = false;
 
@@ -1329,8 +1342,13 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
     }
     
     $item = $data['item'];
-    $product_id = (int)$item['id'];
-    $name = $item['name'] ?? 'Service';
+    $product_id = (int)($item['id'] ?? 0);
+    $name = is_scalar($item['name'] ?? null) ? trim((string)$item['name']) : '';
+    if ($product_id <= 0 || $name === '' || strlen($name) > 100) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'stage' => 'request_validation', 'message' => 'The POS item identity is invalid. Refresh the cart and try again.']);
+        exit;
+    }
     try {
         $qty = pos_checkout_parse_positive_quantity($item['qty'] ?? null);
     } catch (RuntimeException $quantityError) {
@@ -1343,7 +1361,6 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         $customization = [];
     }
 
-<<<<<<< HEAD
     try {
         $posBranchId = printflow_pos_authorized_branch_id();
         printflow_pos_assert_cart_branch($posBranchId);
@@ -1382,31 +1399,6 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
             if (!is_array($selection)) {
                 throw new RuntimeException('The server-validated Tarpaulin roll selection could not be matched to this Set Price item.', 409);
             }
-=======
-    $tarpaulinBranchId = 0;
-    if ($product_id === 40) {
-        try {
-            $tarpaulinBranchId = printflow_pos_authorized_branch_id();
-            $cartLines = array_values((array)($_SESSION['pos_cart'] ?? []));
-            $validation = printflow_pos_validate_service_stock($cartLines, $tarpaulinBranchId);
-            if (empty($validation['ok'])) throw new RuntimeException('Tarpaulin stock could not be verified. Return to the POS cart and validate again.', 409);
-            $targetId = trim((string)($item['pos_cart_line_id'] ?? ''));
-            $matches = [];
-            foreach ($cartLines as $cartIndex => $cartLine) {
-                if ((int)($cartLine['product_id'] ?? 0) === 40 && hash_equals((string)($cartLine['pos_cart_line_id'] ?? ''), $targetId)) $matches[] = $cartIndex;
-            }
-            if ($targetId === '' || count($matches) !== 1) throw new RuntimeException('The Tarpaulin cart line could not be uniquely verified.', 409);
-            $targetIndex = $matches[0];
-            $cartLine = $cartLines[$targetIndex];
-            $cartCustomization = is_array($cartLine['customization'] ?? null) ? $cartLine['customization'] : [];
-            if ((int)($cartLine['qty'] ?? 0) !== $qty
-                || abs((float)($cartCustomization['width'] ?? 0) - (float)($customization['width'] ?? 0)) >= 0.000001
-                || abs((float)($cartCustomization['height'] ?? 0) - (float)($customization['height'] ?? 0)) >= 0.000001) {
-                throw new RuntimeException('Tarpaulin dimensions or quantity no longer match the validated cart line.', 409);
-            }
-            $selection = $validation['tarpaulin_selections'][$targetIndex] ?? null;
-            if (!is_array($selection)) throw new RuntimeException('The server-validated Tarpaulin roll selection is missing.', 409);
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
             $customization['pos_tarpaulin_selection'] = $selection;
         } catch (Throwable $tarpaulinError) {
             http_response_code((int)$tarpaulinError->getCode() === 409 ? 409 : 400);
@@ -1426,12 +1418,7 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         $conn->begin_transaction();
         $transaction_open = true;
         
-<<<<<<< HEAD
         $branch_id = $posBranchId;
-=======
-        $branch_id = $product_id === 40 ? $tarpaulinBranchId : (int)($_SESSION['branch_id'] ?? 1);
-        if ($branch_id < 1) $branch_id = 1;
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
 
         $pending_item_product_id = pos_get_service_placeholder_product_id();
         if ($pending_item_product_id <= 0) {
@@ -1449,6 +1436,7 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         );
         if (!$order_result) {
             $conn->rollback();
+            http_response_code(500);
             echo json_encode([
                 'success' => false,
                 'stage' => 'draft_order_insert',
@@ -1480,6 +1468,7 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         );
         if (!$item_result) {
             $conn->rollback();
+            http_response_code(500);
             echo json_encode(['success' => false, 'message' => 'Failed to create draft order item.']);
             exit;
         }
@@ -1507,6 +1496,7 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         
         if (!$customization_result) {
             $conn->rollback();
+            http_response_code(500);
             echo json_encode(['success' => false, 'message' => 'Failed to create customization entry.']);
             exit;
         }
@@ -1541,11 +1531,23 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         ]);
         exit;
         
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         if ($transaction_open && isset($conn)) {
-            $conn->rollback();
+            try {
+                $conn->rollback();
+            } catch (Throwable $rollbackError) {
+                pos_checkout_log_stage('create_pending_customization_rollback_failed', [
+                    'exception' => get_class($rollbackError),
+                    'message' => $rollbackError->getMessage(),
+                ]);
+            }
         }
-        echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
+        pos_checkout_log_stage('create_pending_customization_failed', [
+            'exception' => get_class($e),
+            'message' => $e->getMessage(),
+        ]);
+        http_response_code(500);
+        echo json_encode(['success' => false, 'stage' => 'draft_creation', 'message' => 'The POS pricing draft could not be saved. Refresh the POS and retry; contact an administrator if this continues.']);
         exit;
     }
 }

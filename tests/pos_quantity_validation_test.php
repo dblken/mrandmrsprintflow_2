@@ -27,6 +27,41 @@ foreach (['', '0', '-1', '1.5', 'abc', 1.5, null, true] as $input) {
     throw new RuntimeException('Invalid general quantity was accepted: ' . var_export($input, true));
 }
 
+$measuredFt = ['unit_of_measure' => 'ft', 'consumption_method' => 'by_length'];
+if (printflow_pos_parse_positive_material_quantity('0.25', $measuredFt) !== 0.25
+    || printflow_pos_parse_positive_material_quantity('7.50', $measuredFt) !== 7.5
+    || printflow_pos_parse_positive_material_quantity('2', $measuredFt) !== 2.0
+    || printflow_pos_parse_positive_material_quantity(2.0, ['unit_of_measure' => 'pcs', 'consumption_method' => 'per_piece']) !== 2.0) {
+    throw new RuntimeException('Configured linear-foot material quantities must preserve valid measured fractions.');
+}
+foreach ([['pcs', 'by_length'], ['ft', 'per_piece'], ['pcs', 'manual']] as [$uom, $method]) {
+    try {
+        printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => $uom, 'consumption_method' => $method]);
+    } catch (InvalidArgumentException $error) {
+        continue;
+    }
+    throw new RuntimeException('A fractional material quantity was accepted without a matching measured UOM and method.');
+}
+foreach (['0', '-0.25', '0.001', '1.234', '1e-1', '100000000.00'] as $invalid) {
+    try {
+        printflow_pos_parse_positive_material_quantity($invalid, $measuredFt);
+    } catch (InvalidArgumentException $error) {
+        continue;
+    }
+    throw new RuntimeException('An invalid measured material quantity was accepted: ' . $invalid);
+}
+$wholeRangeRejected = false;
+try {
+    printflow_pos_parse_positive_material_quantity('100000000', ['unit_of_measure' => 'pcs', 'consumption_method' => 'per_piece']);
+} catch (InvalidArgumentException $error) {
+    // The material assignment and ledger storage are DECIMAL(10,2).
+    $wholeRangeRejected = true;
+}
+if (!$wholeRangeRejected) throw new RuntimeException('Material quantity above the DECIMAL(10,2) storage range was accepted.');
+if (printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => 'ft', 'consumption_method' => 'manual']) !== 0.25) {
+    throw new RuntimeException('Manually confirmed configured linear-foot usage must accept a fraction below one foot.');
+}
+
 $cartValid = ['1' => 1, '999' => 999, '1000' => 1000, '999999' => 999999, '1000000' => 1000000, '0001' => 1, '0001000000' => 1000000, 1000000 => 1000000];
 foreach ($cartValid as $input => $expected) {
     if (printflow_pos_parse_cart_quantity($input) !== $expected) {

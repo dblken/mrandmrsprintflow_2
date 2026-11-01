@@ -4445,8 +4445,6 @@ window.pfServiceFieldCatalog = (() => {
             getInventoryItem(itemId) {
                 return this.allInventoryItems.find(i => String(i.id) === String(itemId)) || null;
             },
-<<<<<<< HEAD
-=======
             estimateMaterialUsage(item, order = null) {
                 if (!item || !window.PrintFlowMaterialConsumption || this.isVersionedTarpaulinMaterial(item.id)) return { status: 'manual', quantity: null, reason: 'Use the existing verified Tarpaulin calculation or confirm actual usage.' };
                 const dims = this.currentJo ? this.resolveOrderDimensions(this.currentJo) : { width: 0, height: 0 };
@@ -4518,7 +4516,6 @@ window.pfServiceFieldCatalog = (() => {
                     material.usage_estimate_reason = estimate.reason || 'No reliable estimate is configured.';
                 }
             },
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
             isCurrentTarpaulinService() {
                 const linkedId = Number(this.currentJo?.linked_order_item_id || this.currentJo?.order_item_id || 0);
                 const linkedItem = (Array.isArray(this.currentJo?.items) ? this.currentJo.items : [])
@@ -4546,8 +4543,15 @@ window.pfServiceFieldCatalog = (() => {
                     const number = Number(String(value ?? '').trim());
                     return Number.isFinite(number) && number > 0;
                 }
-                const raw = String(value ?? '').trim();
-                return /^[1-9][0-9]*$/.test(raw) && Number.isSafeInteger(Number(raw)) && Number(raw) <= 2147483647;
+                const item = this.getInventoryItem(itemId || this.newMaterialId);
+                return !!(item && window.PrintFlowMaterialConsumption
+                    && window.PrintFlowMaterialConsumption.parseMaterialQuantity(value, item) !== null);
+            },
+            normalizePosMaterialQuantity(value, itemId = null) {
+                const item = this.getInventoryItem(itemId || this.newMaterialId);
+                if (!item || !window.PrintFlowMaterialConsumption) return null;
+                const parsed = window.PrintFlowMaterialConsumption.parseMaterialQuantity(value, item);
+                return parsed === null ? null : Number(parsed.toFixed(2));
             },
             posMaterialQuantityError(materials = []) {
                 if (!this.isPosSetPriceFlow()) return '';
@@ -4568,7 +4572,7 @@ window.pfServiceFieldCatalog = (() => {
                     if (!this.isValidPosMaterialQuantity(amount, itemId)) {
                         return this.isVersionedTarpaulinMaterial(material && material.item_id)
                             ? 'POS Tarpaulin lengths must be positive linear feet.'
-                            : 'POS material quantities must be positive whole numbers.';
+                            : 'A POS material quantity does not match its configured unit and consumption method.';
                     }
                 }
                 return '';
@@ -4609,9 +4613,6 @@ window.pfServiceFieldCatalog = (() => {
                 if (this.isRollTracked(itemId)) {
                     return item.unit_of_measure || 'ft';
                 }
-                if (this.isSticker(itemId)) {
-                    return 'pcs';
-                }
                 return item.unit_of_measure || 'pcs';
             },
             getDefaultMaterialQty(itemId) {
@@ -4633,30 +4634,18 @@ window.pfServiceFieldCatalog = (() => {
                 if (Number(this.currentJo?.service_id || this.currentJo?.items?.[0]?.service_id || 0) === 40) {
                     const savedSelection = this.persistedPosTarpaulinSelection();
                     const savedItem = savedSelection && this.getInventoryItem(savedSelection.item_id);
-<<<<<<< HEAD
-                    if (savedItem && savedSelection.version === 'linear_ft_v1') {
-=======
                     if (savedItem && ['linear_ft_v1', 'panel_joining_v2'].includes(savedSelection.version)) {
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                         this.handleMaterialSelection(savedItem.id);
                         this.newMaterialQty = Number(savedSelection.required_linear_ft);
                         this.newMaterialHeight = Number(savedSelection.height_ft);
                         this.newMaterialMetadata = {
                             ...(this.newMaterialMetadata || {}),
-<<<<<<< HEAD
-                            tarpaulin_calculation_version: 'linear_ft_v1',
-                            tarpaulin_orientation: savedSelection.orientation,
-                            tarpaulin_roll_width_ft: Number(savedSelection.roll_width_ft),
-                            tarpaulin_run_length_per_piece_ft: Number(savedSelection.run_length_per_piece_ft),
-                            tarpaulin_required_linear_ft: Number(savedSelection.required_linear_ft),
-=======
                             tarpaulin_calculation_version: savedSelection.version,
                             tarpaulin_orientation: savedSelection.orientation,
                             tarpaulin_roll_width_ft: Number(savedSelection.roll_width_ft),
                             tarpaulin_run_length_per_piece_ft: Number(savedSelection.run_length_per_panel_ft || savedSelection.run_length_per_piece_ft),
                             tarpaulin_required_linear_ft: Number(savedSelection.required_linear_ft),
                             panel_plan: savedSelection.version === 'panel_joining_v2' ? savedSelection : null,
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                         };
                         if (!this.selectedMaterialStockError) this.addMaterialToQueue();
                         return;
@@ -4691,8 +4680,6 @@ window.pfServiceFieldCatalog = (() => {
                     const jQ = parseFloat(this.currentJo.quantity || 1);
                     
                     if (this.isVersionedTarpaulinMaterial(selectedId)) {
-<<<<<<< HEAD
-=======
                         const savedSelection = this.persistedPosTarpaulinSelection();
                         if (savedSelection?.version === 'panel_joining_v2') {
                             if (Number(savedSelection.item_id) !== Number(selectedId)) {
@@ -4707,7 +4694,6 @@ window.pfServiceFieldCatalog = (() => {
                             if (this.isRollTracked(selectedId)) this.loadAvailableRolls(selectedId);
                             return;
                         }
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                         const calculation = this.tarpaulinCalculationForItem(selectedId, jW, jH, jQ);
                         this.newMaterialQty = calculation ? calculation.required_linear_ft : '';
                         this.newMaterialHeight = jH > 0 ? jH : 0;
@@ -4755,11 +4741,7 @@ window.pfServiceFieldCatalog = (() => {
                 const parsedQty = parseFloat(qty || 0);
                 if (parsedQty <= 0) return 0;
                 if (this.isVersionedTarpaulinMaterial(itemId)) {
-<<<<<<< HEAD
-                    if (metadata && metadata.tarpaulin_calculation_version === 'linear_ft_v1') return parsedQty;
-=======
                     if (metadata && ['linear_ft_v1', 'panel_joining_v2'].includes(metadata.tarpaulin_calculation_version)) return parsedQty;
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                     const parsedHeight = parseFloat(height || 0);
                     return parsedHeight > 0 ? parsedQty * parsedHeight : parsedQty;
                 }
@@ -4777,20 +4759,15 @@ window.pfServiceFieldCatalog = (() => {
                 if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) {
                     return this.isVersionedTarpaulinMaterial(this.newMaterialId)
                         ? 'POS Tarpaulin lengths must be positive linear feet.'
-                        : 'POS material quantities must be positive whole numbers.';
+                        : 'Enter a positive quantity that matches the selected material unit and configured consumption method.';
                 }
                 const available = parseFloat(item.current_stock || 0);
                 const queued = this.getQueuedMaterialRequiredStock(this.newMaterialId);
-<<<<<<< HEAD
-                const calculation = this.isVersionedTarpaulinMaterial(this.newMaterialId)
-                    ? this.tarpaulinCalculationForItem(this.newMaterialId)
-=======
                 const savedPanelSelection = this.persistedPosTarpaulinSelection();
                 const calculation = this.isVersionedTarpaulinMaterial(this.newMaterialId)
                     ? (this.newMaterialMetadata?.tarpaulin_calculation_version === 'panel_joining_v2'
                         ? { required_linear_ft: Number(this.newMaterialMetadata.tarpaulin_required_linear_ft || 0) }
                         : this.tarpaulinCalculationForItem(this.newMaterialId))
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                     : null;
                 if (this.isVersionedTarpaulinMaterial(this.newMaterialId) && !calculation) {
                     return 'The selected Tarpaulin roll cannot fit these dimensions, including rotation.';
@@ -4799,14 +4776,11 @@ window.pfServiceFieldCatalog = (() => {
                     ? Number(calculation.required_linear_ft)
                     : this.getMaterialRequiredStock(this.newMaterialId, this.newMaterialQty, this.newMaterialHeight);
                 const enteredQty = Number(this.newMaterialQty);
-<<<<<<< HEAD
-=======
                 if (this.isPosSetPriceFlow() && savedPanelSelection?.version === 'panel_joining_v2'
                     && (Number(savedPanelSelection.item_id) !== Number(this.newMaterialId)
                         || Math.abs(Number(savedPanelSelection.required_linear_ft) - enteredQty) > 0.001)) {
                     return 'Use the roll material and exact length from the validated Tarpaulin panel plan.';
                 }
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                 if (!Number.isFinite(enteredQty) || enteredQty <= 0) {
                     return 'Material quantity must be at least 1.';
                 }
@@ -10087,14 +10061,14 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 const isTarpaulinMaterial = this.isVersionedTarpaulinMaterial(this.newMaterialId);
                 if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) {
-                    this.showStaffAlert('Invalid Quantity', 'POS material quantities must be positive whole numbers.');
+                    this.showStaffAlert('Invalid Quantity', 'Enter a positive quantity that matches the selected material unit and configured consumption method.');
                     return;
                 }
                 const normalizedQty = isTarpaulinMaterial
                     ? Number(this.newMaterialQty)
-                    : (this.isPosSetPriceFlow() ? Number(this.newMaterialQty) : this.normalizeMaterialQtyValue(this.newMaterialQty, 1));
-                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && normalizedQty < 1)) {
-                    this.showStaffAlert('Invalid Quantity', 'Material quantity must be at least 1.');
+                    : (this.isPosSetPriceFlow() ? this.normalizePosMaterialQuantity(this.newMaterialQty, this.newMaterialId) : this.normalizeMaterialQtyValue(this.newMaterialQty, 1));
+                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && !this.isPosSetPriceFlow() && normalizedQty < 1)) {
+                    this.showStaffAlert('Invalid Quantity', 'Material quantity must be positive.');
                     return;
                 }
                 this.newMaterialQty = normalizedQty;
@@ -10108,15 +10082,14 @@ window.pfServiceFieldCatalog = (() => {
                 if (existing) {
                     existing.qty = isTarpaulinMaterial
                         ? normalizedQty
-                        : this.normalizeMaterialQtyValue((parseFloat(existing.qty) || 0) + normalizedQty, 1);
+                        : (this.isPosSetPriceFlow()
+                            ? Number(((parseFloat(existing.qty) || 0) + normalizedQty).toFixed(2))
+                            : this.normalizeMaterialQtyValue((parseFloat(existing.qty) || 0) + normalizedQty, 1));
                     if (isTarpaulinMaterial) {
                         existing.metadata = { ...existing.metadata, ...this.newMaterialMetadata, height_ft: this.newMaterialHeight };
-<<<<<<< HEAD
-=======
                     } else if (existing.metadata && existing.metadata.material_usage) {
                         existing.metadata.material_usage.actual = existing.qty;
                         existing.metadata.material_usage.staff_confirmed = existing.manual_quantity_confirmed === true;
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                     }
                     // Reset input
                     this.resetMaterialForm();
@@ -10129,12 +10102,8 @@ window.pfServiceFieldCatalog = (() => {
                     meta.width_ft = Number(this.currentJo?.width_ft || 0);
                     meta.finished_quantity = Number(this.currentJo?.quantity || 0);
                     meta.finishing = this.newMaterialMetadata.finishing || '';
-<<<<<<< HEAD
-                    meta.tarpaulin_calculation_version = 'linear_ft_v1';
-=======
                     meta.tarpaulin_calculation_version = this.newMaterialMetadata.tarpaulin_calculation_version || 'linear_ft_v1';
                     if (meta.tarpaulin_calculation_version === 'panel_joining_v2') meta.tarpaulin_panel_plan = this.newMaterialMetadata.panel_plan;
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                     meta.tarpaulin_orientation = this.newMaterialMetadata.tarpaulin_orientation || '';
                     meta.tarpaulin_roll_width_ft = Number(this.newMaterialMetadata.tarpaulin_roll_width_ft || 0);
                     meta.tarpaulin_run_length_per_piece_ft = Number(this.newMaterialMetadata.tarpaulin_run_length_per_piece_ft || 0);
@@ -10183,8 +10152,8 @@ window.pfServiceFieldCatalog = (() => {
                 if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) return null;
                 const normalizedQty = isTarpaulinMaterial
                     ? Number(this.newMaterialQty)
-                    : (this.isPosSetPriceFlow() ? Number(this.newMaterialQty) : this.normalizeMaterialQtyValue(this.newMaterialQty, 1));
-                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && normalizedQty < 1)) return null;
+                    : (this.isPosSetPriceFlow() ? this.normalizePosMaterialQuantity(this.newMaterialQty, this.newMaterialId) : this.normalizeMaterialQtyValue(this.newMaterialQty, 1));
+                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && !this.isPosSetPriceFlow() && normalizedQty < 1)) return null;
                 this.newMaterialQty = normalizedQty;
                 const item = this.allInventoryItems.find(i => i.id == this.newMaterialId);
                 if (!item) return null;
@@ -10196,12 +10165,8 @@ window.pfServiceFieldCatalog = (() => {
                     meta.width_ft = Number(this.currentJo?.width_ft || 0);
                     meta.finished_quantity = Number(this.currentJo?.quantity || 0);
                     meta.finishing = this.newMaterialMetadata.finishing || '';
-<<<<<<< HEAD
-                    meta.tarpaulin_calculation_version = 'linear_ft_v1';
-=======
                     meta.tarpaulin_calculation_version = this.newMaterialMetadata.tarpaulin_calculation_version || 'linear_ft_v1';
                     if (meta.tarpaulin_calculation_version === 'panel_joining_v2') meta.tarpaulin_panel_plan = this.newMaterialMetadata.panel_plan;
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                     meta.tarpaulin_orientation = this.newMaterialMetadata.tarpaulin_orientation || '';
                     meta.tarpaulin_roll_width_ft = Number(this.newMaterialMetadata.tarpaulin_roll_width_ft || 0);
                     meta.tarpaulin_run_length_per_piece_ft = Number(this.newMaterialMetadata.tarpaulin_run_length_per_piece_ft || 0);
@@ -11713,12 +11678,8 @@ window.pfServiceFieldCatalog = (() => {
                     meta.width_ft = Number(this.currentJo?.width_ft || 0);
                     meta.finished_quantity = Number(this.currentJo?.quantity || 0);
                     meta.finishing = this.newMaterialMetadata.finishing || '';
-<<<<<<< HEAD
-                    meta.tarpaulin_calculation_version = 'linear_ft_v1';
-=======
                     meta.tarpaulin_calculation_version = this.newMaterialMetadata.tarpaulin_calculation_version || 'linear_ft_v1';
                     if (meta.tarpaulin_calculation_version === 'panel_joining_v2') meta.tarpaulin_panel_plan = this.newMaterialMetadata.panel_plan;
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                     meta.tarpaulin_orientation = this.newMaterialMetadata.tarpaulin_orientation || '';
                     meta.tarpaulin_roll_width_ft = Number(this.newMaterialMetadata.tarpaulin_roll_width_ft || 0);
                     meta.tarpaulin_run_length_per_piece_ft = Number(this.newMaterialMetadata.tarpaulin_run_length_per_piece_ft || 0);

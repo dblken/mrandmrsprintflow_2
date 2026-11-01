@@ -18,6 +18,20 @@
         return Math.ceil(value * 100 - 1e-9) / 100;
     }
 
+    function parseMaterialQuantity(value, item) {
+        const uom = String(item && item.unit_of_measure || '').trim().toLowerCase();
+        const method = String(item && item.consumption_method || '').trim().toLowerCase();
+        const raw = String(value ?? '').trim();
+        const measuredFeet = uom === 'ft' && ['by_length', 'manual'].includes(method);
+        const pattern = measuredFeet
+            ? /^(?:0|[1-9][0-9]{0,7})(?:\.[0-9]{1,2})?$/
+            : /^(?:[1-9][0-9]{0,7})$/;
+        if (!pattern.test(raw)) return null;
+        const quantity = Number(raw);
+        if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 99999999.99) return null;
+        return quantity;
+    }
+
     function manual(reason) {
         return { status: 'manual', quantity: null, reason };
     }
@@ -65,6 +79,9 @@
             return { status: 'estimated', quantity: Math.ceil((orderQty * factor) / perSheet - 1e-9), method, designs_per_sheet: perSheet };
         }
         if (method === 'BY_LENGTH') {
+            if (String(item && item.unit_of_measure || '').trim().toLowerCase() !== 'ft') {
+                return manual('By Length estimates require inventory UOM = ft; enter and confirm actual usage after the item is configured.');
+            }
             const measured = finitePositive(order.required_material_length);
             return measured
                 ? { status: 'estimated', quantity: roundUpForUom(measured * factor, item.unit_of_measure), method }
@@ -74,5 +91,5 @@
         return manual('Area usage cannot be converted to this material UOM; confirm the actual quantity.');
     }
 
-    return { estimate, SUPPORTED_METHODS: Array.from(SUPPORTED_METHODS) };
+    return { estimate, parseMaterialQuantity, SUPPORTED_METHODS: Array.from(SUPPORTED_METHODS) };
 });

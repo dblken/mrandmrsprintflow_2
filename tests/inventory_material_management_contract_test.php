@@ -16,7 +16,7 @@ $checks = [
         }
         return true;
     })(),
-    'configuration migration is additive and checks existing columns' => str_contains($migration, 'SHOW COLUMNS FROM `inv_items` LIKE') && str_contains($migration, 'ADD COLUMN `designs_per_unit`'),
+    'configuration migration is additive and verifies exact existing column names' => str_contains($migration, 'SHOW COLUMNS FROM `inv_items`') && !str_contains($migration, 'SHOW COLUMNS FROM `inv_items` LIKE') && str_contains($migration, "\$field = (string)(\$row['Field'] ?? '');") && str_contains($migration, 'ADD COLUMN `designs_per_unit`'),
     'nullable SQL defaults are verified as explicit NULL values' => str_contains($migration, 'array_key_exists(\'Default\', $row)'),
     'edit form exposes optional material configuration' => str_contains($form, 'id="materialUsageConfiguration"') && str_contains($form, 'name="designs_per_unit"'),
     'staff sees estimate and actual usage separately' => str_contains($staff, 'Estimated Usage:') && str_contains($staff, 'Actual Usage:'),

@@ -12,6 +12,41 @@ function printflow_pos_parse_positive_quantity($value): int
     return (int)$raw;
 }
 
+/**
+ * Parse a production material quantity using the inventory item's configured
+ * UOM and consumption method. Fractional values are allowed only for the
+ * already-supported, explicitly measured linear-foot workflow.
+ */
+function printflow_pos_parse_positive_material_quantity($value, array $item): float
+{
+    $uom = strtolower(trim((string)($item['unit_of_measure'] ?? '')));
+    $method = strtolower(trim((string)($item['consumption_method'] ?? '')));
+    $allowsMeasuredFeet = $uom === 'ft' && in_array($method, ['by_length', 'manual'], true);
+    if (!$allowsMeasuredFeet) {
+        if (is_float($value) && is_finite($value) && floor($value) === $value) {
+            $value = sprintf('%.0f', $value);
+        }
+        $quantity = (float)printflow_pos_parse_positive_quantity($value);
+        if ($quantity > 99999999.99) {
+            throw new InvalidArgumentException('Material quantity exceeds the supported DECIMAL(10,2) range.');
+        }
+        return $quantity;
+    }
+
+    if (!is_string($value) && !is_int($value) && !is_float($value)) {
+        throw new InvalidArgumentException('Measured material quantity must be a positive number of feet with at most two decimal places.');
+    }
+    $raw = trim((string)$value);
+    if (!preg_match('/^(?:0|[1-9][0-9]{0,7})(?:\.[0-9]{1,2})?$/', $raw)) {
+        throw new InvalidArgumentException('Measured material quantity must be a positive number of feet with at most two decimal places.');
+    }
+    $quantity = (float)$raw;
+    if (!is_finite($quantity) || $quantity <= 0 || $quantity > 99999999.99) {
+        throw new InvalidArgumentException('Measured material quantity must be a positive number of feet with at most two decimal places.');
+    }
+    return $quantity;
+}
+
 /** Strict cart-item quantity parser used by POS add/update/checkout requests. */
 function printflow_pos_parse_cart_quantity($value): int
 {

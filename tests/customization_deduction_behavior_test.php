@@ -36,6 +36,11 @@ class InventoryManager {
     }
 }
 function printflow_db_in_transaction($conn): bool { return $conn->active; }
+function printflow_db_transaction_depth_bump($conn = null): bool { return $conn instanceof TestConnection && $conn->begin_transaction(); }
+function printflow_db_transaction_depth_pop($conn = null, bool $commit = true): void {
+    if (!$conn instanceof TestConnection || !$conn->active) return;
+    if ($commit) $conn->commit(); else $conn->rollback();
+}
 function printflow_store_order_ledger_date($id): string { return '2026-09-07 14:30:00'; }
 function printflow_get_job_inventory_reference($id): array { return ['label' => 'Test job']; }
 function db_query($sql, $types = null, $params = []): array {

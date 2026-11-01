@@ -3351,6 +3351,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
     <?php $pos_estimated_price_ver = @filemtime(__DIR__ . '/../public/assets/js/service_estimated_price.js') ?: '1'; ?>
     <script src="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/js/service_estimated_price.js'); ?>?v=<?php echo (int) $pos_estimated_price_ver; ?>"></script>
+    <?php $pos_api_response_ver = @filemtime(__DIR__ . '/../public/assets/js/pos_api_response.js') ?: time(); ?>
+    <script src="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/js/pos_api_response.js'); ?>?v=<?php echo (int)$pos_api_response_ver; ?>"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <?php $pos_add_fx_ver = @filemtime(__DIR__ . '/../public/assets/js/add_to_cart_fx.js') ?: '1'; ?>
     <script src="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/js/add_to_cart_fx.js'); ?>?v=<?php echo (int) $pos_add_fx_ver; ?>"></script>
@@ -5297,9 +5299,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         function posCollectTarpaulinStockCustomization() {
             const body = document.getElementById('sm-fields-body');
-            const customization = posCollectServiceStockCustomization();
-            if (!body) return customization;
+            if (!body) return {};
             if (typeof pfPrepareServiceFormDimensions === 'function') pfPrepareServiceFormDimensions(body);
+            // The renderer synchronizes preset/custom dimensions into hidden
+            // inputs. Collect after that sync so a reused modal cannot carry
+            // width/height from the previously selected service.
+            const customization = posCollectServiceStockCustomization();
 
             const dimensionSelect = body.querySelector('select[name="dimensions"]');
             const dimensionControl = dimensionSelect
@@ -8458,13 +8463,19 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
             };
 
+            let requestReachedServer = false;
             try {
                 const res = await fetch(staffUrl('staff/api/pos_checkout.php'), {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                const data = await res.json();
+                requestReachedServer = true;
+                if (!window.PrintFlowPOSApiResponse) {
+                    throw new Error('The POS response handler did not load. Refresh the page and try again.');
+                }
+                const data = await window.PrintFlowPOSApiResponse.readJsonResponse(res, 'Set Price');
                 if (data.success && data.order_id) {
                     await syncedCartAction('update_service_link', {
                         index,
@@ -8485,11 +8496,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     redirectUrl.searchParams.set('return_to_pos', '1');
                     window.location.href = redirectUrl.toString();
                 } else {
-                    await showPOSAlert('Error', 'Failed to create customization: ' + (data.message || 'Unknown error'), 'error');
+                    await showPOSAlert('Set Price Failed', 'The server response did not include a draft order ID. Refresh the POS and try again.', 'error');
                 }
             } catch (e) {
                 console.error('Error:', e);
-                await showPOSAlert('Network Error', 'Network error. Please try again.', 'error');
+                if (e && e.kind === 'api_response') {
+                    await showPOSAlert('Set Price Failed', e.message || 'The POS API rejected the request.', 'error');
+                } else if (!requestReachedServer) {
+                    await showPOSAlert('Network Error', 'The POS could not reach the server. Check your connection and try again.', 'error');
+                } else {
+                    await showPOSAlert('Set Price Failed', e && e.message ? e.message : 'The POS request failed after reaching the server.', 'error');
+                }
             }
         }
 

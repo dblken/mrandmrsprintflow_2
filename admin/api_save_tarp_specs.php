@@ -34,19 +34,34 @@ if (!$order_item_id || !$roll_id || $width_ft <= 0 || $height_ft <= 0) {
 }
 
 // Get item quantity to calculate total required length
-$item = db_query("SELECT quantity, order_id FROM order_items WHERE order_item_id = ?", 'i', [$order_item_id]);
+$item = db_query(
+    'SELECT oi.quantity, oi.order_id, o.branch_id FROM order_items oi JOIN orders o ON o.order_id = oi.order_id WHERE oi.order_item_id = ? LIMIT 1',
+    'i',
+    [$order_item_id]
+);
 if (empty($item)) {
     echo json_encode(['success' => false, 'error' => 'Order item not found']);
     exit;
 }
 printflow_assert_order_branch_access((int)$item[0]['order_id']);
+$order_branch_id = (int)($item[0]['branch_id'] ?? 0);
+if ($order_branch_id <= 0) {
+    http_response_code(409);
+    echo json_encode(['success' => false, 'error' => 'The order branch could not be verified. No roll was assigned.']);
+    exit;
+}
 $qty = (int)$item[0]['quantity'];
 $required_length = $height_ft * $qty;
 
-// Check if roll matches width (optional but recommended)
-$roll = db_query("SELECT width_ft FROM inv_rolls WHERE id = ?", 'i', [$roll_id]);
+// Require an open, branch-owned roll; NULL/zero ownership is not inferred.
+$roll = db_query(
+    "SELECT width_ft FROM inv_rolls WHERE id = ? AND branch_id = ? AND status = 'OPEN' AND remaining_length_ft > 0 LIMIT 1",
+    'ii',
+    [$roll_id, $order_branch_id]
+);
 if (empty($roll)) {
-    echo json_encode(['success' => false, 'error' => 'Roll not found']);
+    http_response_code(409);
+    echo json_encode(['success' => false, 'error' => 'The selected roll is not open and assigned to this order branch. No roll was assigned.']);
     exit;
 }
 // if ((int)$roll[0]['width_ft'] !== (int)$width_ft) {

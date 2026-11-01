@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(require('node:path').join(__dirname, '../staff/pos.php'), 'utf8');
 assert.match(source, /posSetServiceStockState\(false, '', ''\)/, 'a successful validation displays no material list or stock quantities');
-assert.doesNotMatch(source, /posSetServiceStockState\(true, indicator, message\)/, 'validation warnings do not include a separate material inventory list');
+assert.match(source, /posSetServiceStockState\(true, indicator, message\)/, 'a stock warning retains the material availability details needed to explain the block');
 const collectStart = source.indexOf('        function posCollectServiceStockCustomization() {');
 const validateStart = source.indexOf('        async function posValidateServiceStockNow(', collectStart);
 const bindStart = source.indexOf('        function posBindServiceStockValidation(serviceId) {', validateStart);
@@ -15,10 +15,10 @@ assert.ok(collectStart >= 0 && validateStart > collectStart && bindStart > valid
 
 const callbacks = {};
 const buttons = [{ listeners: {} }, { listeners: {} }];
-const widthHidden = { dataset: { dimensionRole: 'width' }, value: '' };
-const heightHidden = { dataset: { dimensionRole: 'height' }, value: '' };
-const widthField = { value: '', matches(selector) { return selector.includes('.custom-dim-width'); }, closest() { return null; } };
-const heightField = { value: '', matches(selector) { return selector.includes('.custom-dim-height'); }, closest() { return null; } };
+const widthHidden = { name: 'width', type: 'hidden', dataset: { dimensionRole: 'width' }, value: '3' };
+const heightHidden = { name: 'height', type: 'hidden', dataset: { dimensionRole: 'height' }, value: '4' };
+const widthField = { value: '', matches(selector) { return selector === 'input, select, textarea' || selector.includes('.custom-dim-width'); }, closest() { return null; } };
+const heightField = { value: '', matches(selector) { return selector === 'input, select, textarea' || selector.includes('.custom-dim-height'); }, closest() { return null; } };
 let customSizeVisible = false;
 // Production places the custom-size hidden fields before the actual preset
 // select, so a broad name*=dimension selector can resolve the wrong control.
@@ -46,27 +46,20 @@ const container = {
 buttons.forEach(button => {
     button.addEventListener = (name, callback) => { button.listeners[name] = callback; };
 });
-<<<<<<< HEAD
-const fieldsBody = { contains(node) { return node === input; } };
 const dimensionWidth = { name: 'width', value: '3', type: 'number', dataset: { dimensionRole: 'width', fieldName: 'width' } };
 const dimensionHeight = { name: 'height', value: '4', type: 'number', dataset: { dimensionRole: 'height', fieldName: 'height' } };
 const finishOption = { name: 'finish', value: 'Matte', type: 'select-one', dataset: { fieldName: 'finish' } };
 const branchField = { name: 'branch_id', value: '5', type: 'hidden', dataset: {} };
-fieldsBody.querySelectorAll = selector => selector.includes('data-dimension-role')
-    ? [dimensionWidth, dimensionHeight]
-    : [input, dimensionWidth, dimensionHeight, finishOption, branchField];
-fieldsBody.querySelector = selector => selector === '[name="branch_id"]' ? branchField : null;
-fieldsBody.addEventListener = (name, callback) => { (fieldsBody.listeners ||= {})[name] = callback; };
-=======
 const fieldsBody = {
     listeners: {},
     contains(node) { return node === input; },
     addEventListener(name, callback) { this.listeners[name] = callback; },
     querySelectorAll(selector) {
-        assert.match(selector, /data-dimension-role/);
-        return [widthHidden, heightHidden];
+        if (selector.includes('data-dimension-role')) return [widthHidden, heightHidden];
+        return [input, dimensionWidth, dimensionHeight, finishOption, branchField, widthHidden, heightHidden];
     },
     querySelector(selector) {
+        if (selector === '[name="branch_id"]') return branchField;
         // The renderer's custom-size nodes remain in the DOM while their
         // wrapper is hidden; the selected option determines whether they apply.
         if (selector.includes('.custom-dim-width')) return widthField;
@@ -79,7 +72,6 @@ const fieldsBody = {
         return null;
     }
 };
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
 const elements = {
     'sm-fields-body': fieldsBody,
     'pos-service-stock-feedback': { style: {} },
@@ -116,7 +108,6 @@ context = vm.createContext({
     isAddingToOrder: false
 });
 
-<<<<<<< HEAD
 vm.runInContext(source.slice(collectStart, validateStart) + source.slice(bindStart, end), context);
 const customization = context.posCollectServiceStockCustomization();
 assert.equal(customization.width, '3', 'stock preview captures current width');
@@ -124,13 +115,6 @@ assert.equal(customization.height, '4', 'stock preview captures current height')
 assert.equal(customization.finish, 'Matte', 'stock preview captures selected service options');
 assert.equal(customization.branch_id, '5', 'stock preview captures the assigned branch');
 assert.equal(customization.quantity, '1', 'stock preview captures requested quantity');
-=======
-const collectStart = source.indexOf('        function posCollectTarpaulinStockCustomization() {');
-const collectEnd = source.indexOf('        async function posValidateServiceStockNow(', collectStart);
-assert.ok(collectStart >= 0 && collectEnd > collectStart, 'Tarpaulin payload collector is present');
-vm.runInContext(source.slice(collectStart, collectEnd), context);
-vm.runInContext(source.slice(start, end), context);
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
 context.posBindServiceStockValidation(42);
 assert.equal(validations.shift()[0], 42, 'opening a non-Tarpaulin service validates its initial quantity');
 
@@ -138,13 +122,9 @@ input.value = '2';
 buttons[1].listeners.click();
 assert.equal(timers.length, 1, 'plus/minus click schedules validation after its inline value update');
 timers.shift()();
-<<<<<<< HEAD
 assert.equal(timers.length, 1, 'quantity button validation is debounced after the control updates');
 timers.shift()();
-assert.deepEqual(validations.shift(), [42, '2'], 'button-driven quantity change validates the updated value');
-=======
 assert.deepEqual(validations.shift().slice(0, 2), [42, '2'], 'button-driven quantity change validates the updated value');
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
 
 input.value = '4';
 input.listeners.input();
@@ -185,7 +165,7 @@ assert.equal(dimensionRequest[2].width, '3', 'A 3 ft preset width reaches the st
 assert.equal(dimensionRequest[2].height, '5', 'A 5 ft preset height reaches the stock request.');
 
 const presetSelect = {
-    matches(selector) { return selector.includes('select.pf-select-with-others'); },
+    matches(selector) { return selector === 'input, select, textarea' || selector.includes('select.pf-select-with-others'); },
     closest() { return null; }
 };
 dimensionsControl.value = '3x5 Ft';
@@ -232,23 +212,23 @@ assert.equal(dimensionRequest[2].height, '2', 'The valid height is preserved whe
 
 assert.match(source, /requestVersion !== posServiceStockRequestVersion/,
     'Outdated asynchronous stock responses cannot override the newest validation state.');
-assert.match(source, /body\.addEventListener\('click', revalidateDimensions\)/,
+assert.match(source, /body\.addEventListener\('click', \(event\) =>/,
     'Preset and custom-size choice clicks trigger Tarpaulin revalidation.');
-assert.match(source, /event\.type === 'change'.*select\.pf-select-with-others/s,
-    'Preset-size select changes trigger Tarpaulin revalidation after the renderer syncs hidden dimensions.');
+assert.match(source, /body\.addEventListener\('change', \(event\) =>/,
+    'Preset-size select changes trigger the shared service stock revalidation handler.');
 
 let optionValidationTimer;
 fieldsBody.listeners.change({ target: { matches: () => true } });
 assert.equal(timers.length, 1, 'changing a service option schedules stock revalidation');
 optionValidationTimer = timers.shift();
 optionValidationTimer();
-assert.deepEqual(validations.shift(), [42, '4'], 'service option revalidation uses the current quantity');
+assert.deepEqual(validations.shift().slice(0, 2), [40, '4'], 'Tarpaulin option revalidation uses the current quantity.');
 
 let versionBeforeDimensionChange = context.posServiceStockRequestVersion;
 fieldsBody.listeners.input({ target: { matches: () => true } });
 assert.ok(context.posServiceStockRequestVersion > versionBeforeDimensionChange, 'dimension changes immediately invalidate stale validations');
 assert.equal(timers.length, 1, 'changing a dimension schedules stock revalidation');
 timers.shift()();
-assert.deepEqual(validations.shift(), [42, '4'], 'dimension revalidation uses the current quantity');
+assert.deepEqual(validations.shift().slice(0, 2), [40, '4'], 'Tarpaulin dimension revalidation uses the current quantity.');
 
 console.log('POS service stock input validation tests passed.');

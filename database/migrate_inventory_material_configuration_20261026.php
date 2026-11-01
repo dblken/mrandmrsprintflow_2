@@ -18,13 +18,23 @@ if (!$conn instanceof mysqli) {
     exit(1);
 }
 
-$table = $conn->query("SHOW TABLES LIKE 'inv_items'");
-if (!$table || $table->num_rows !== 1) {
-    if ($table instanceof mysqli_result) $table->free();
+$table = @$conn->query('SHOW TABLES');
+if (!$table) {
+    fwrite(STDERR, "Could not inspect the database tables. No schema was changed.\n");
+    exit(1);
+}
+$tableFound = false;
+while ($row = $table->fetch_row()) {
+    if ((string)($row[0] ?? '') === 'inv_items') {
+        $tableFound = true;
+        break;
+    }
+}
+$table->free();
+if (!$tableFound) {
     fwrite(STDERR, "Required inv_items table is unavailable. No schema was changed.\n");
     exit(1);
 }
-$table->free();
 
 $columns = [
     'size_variant' => ['VARCHAR(100)', "ALTER TABLE `inv_items` ADD COLUMN `size_variant` VARCHAR(100) NULL DEFAULT NULL AFTER `name`"],
@@ -39,11 +49,25 @@ $columns = [
     'wastage_percent' => ['DECIMAL(6,3)', "ALTER TABLE `inv_items` ADD COLUMN `wastage_percent` DECIMAL(6,3) NULL DEFAULT NULL AFTER `usable_margin_height`"],
 ];
 
+$readColumns = static function () use ($conn): array {
+    $result = @$conn->query('SHOW COLUMNS FROM `inv_items`');
+    if (!$result) {
+        fwrite(STDERR, "Could not inspect inv_items columns; no further schema changes were made.\n");
+        exit(1);
+    }
+    $found = [];
+    while ($row = $result->fetch_assoc()) {
+        $field = (string)($row['Field'] ?? '');
+        if ($field !== '') $found[$field] = $row;
+    }
+    $result->free();
+    return $found;
+};
+
 foreach ($columns as $column => [$expectedType, $sql]) {
-    $check = $conn->query("SHOW COLUMNS FROM `inv_items` LIKE '" . $conn->real_escape_string($column) . "'");
-    if ($check instanceof mysqli_result && $check->num_rows > 0) {
-        $row = $check->fetch_assoc();
-        $check->free();
+    $found = $readColumns();
+    if (array_key_exists($column, $found)) {
+        $row = $found[$column];
         if (strtolower((string)($row['Type'] ?? '')) !== strtolower($expectedType)
             || strtoupper((string)($row['Null'] ?? '')) !== 'YES'
             || !array_key_exists('Default', $row) || $row['Default'] !== null) {
@@ -52,7 +76,6 @@ foreach ($columns as $column => [$expectedType, $sql]) {
         }
         continue;
     }
-    if ($check instanceof mysqli_result) $check->free();
     if (!$conn->query($sql)) {
         fwrite(STDERR, "Could not add inv_items.{$column}; inspect schema before rerunning.\n");
         exit(1);
@@ -60,9 +83,8 @@ foreach ($columns as $column => [$expectedType, $sql]) {
 }
 
 foreach ($columns as $column => [$expectedType]) {
-    $verify = $conn->query("SHOW COLUMNS FROM `inv_items` LIKE '" . $conn->real_escape_string($column) . "'");
-    $row = ($verify instanceof mysqli_result && $verify->num_rows === 1) ? $verify->fetch_assoc() : null;
-    if ($verify instanceof mysqli_result) $verify->free();
+    $verifiedColumns = $readColumns();
+    $row = $verifiedColumns[$column] ?? null;
     if (!$row || strtolower((string)($row['Type'] ?? '')) !== strtolower($expectedType)
         || strtoupper((string)($row['Null'] ?? '')) !== 'YES'
         || !array_key_exists('Default', $row) || $row['Default'] !== null) {

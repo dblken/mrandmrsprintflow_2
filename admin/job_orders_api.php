@@ -3138,20 +3138,13 @@ try {
             $notes = sanitize($_POST['notes'] ?? '');
             $metadata = isset($_POST['metadata']) ? json_decode($_POST['metadata'], true) : null;
             if (!is_array($metadata)) $metadata = [];
-<<<<<<< HEAD
-            
-            if (!$orderId || !$itemId) throw new Exception("Incomplete material data.");
-            $isVersionedTarpaulin = is_array($metadata)
-                && ($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_CALCULATION_VERSION;
-=======
             require_once __DIR__ . '/../includes/tarpaulin_material_calculation.php';
-            
+
             if (!$orderId || !$itemId) throw new Exception("Incomplete material data.");
             $isVersionedTarpaulin = is_array($metadata) && function_exists('printflow_tarpaulin_is_versioned_metadata')
                 ? printflow_tarpaulin_is_versioned_metadata($metadata)
                 : (is_array($metadata) && ($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_CALCULATION_VERSION);
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
-            if ((!$isVersionedTarpaulin && $qty < 1) || ($isVersionedTarpaulin && (!is_finite($qty) || $qty <= 0))) {
+            if (!is_finite($qty) || $qty <= 0) {
                 throw new Exception("Material quantity must be positive.");
             }
             $materialCategory = db_query(
@@ -3196,19 +3189,27 @@ try {
             );
             $isPosAssignment = $posJob !== null
                 && (in_array($posSource, ['pos', 'pos_draft', 'pos_merged', 'walk-in'], true) || $sessionMarksPos);
+            if (!$isVersionedTarpaulin) {
+                $quantityItem = InventoryManager::getItem($itemId);
+                if (!$quantityItem || strtoupper((string)($quantityItem['status'] ?? 'ACTIVE')) !== 'ACTIVE') {
+                    throw new Exception('The selected material is no longer active. Refresh and try again.');
+                }
+                $rawQuantity = trim((string)($_POST['quantity'] ?? ''));
+                try {
+                    $qty = printflow_pos_parse_positive_material_quantity($rawQuantity, $quantityItem);
+                } catch (InvalidArgumentException $quantityError) {
+                    throw new Exception($isPosAssignment
+                        ? 'Material quantity must match its configured unit and consumption method.'
+                        : 'Material quantity must be a positive whole number unless configured for measured linear feet.');
+                }
+                $uom = (string)($quantityItem['unit_of_measure'] ?? $uom);
+            }
             if ($isVersionedTarpaulin) {
-<<<<<<< HEAD
                 require_once __DIR__ . '/../includes/tarpaulin_material_calculation.php';
                 $rollItem = InventoryManager::getItem($itemId);
                 $rollWidth = is_array($rollItem) ? printflow_tarpaulin_parse_nominal_width($rollItem) : 0.0;
                 $jobId = (int)($posJob['job_id'] ?? ($orderType === 'JOB' ? $orderId : 0));
-                if ($jobId <= 0) throw new Exception('The linear_ft_v1 calculation requires a linked Tarpaulin service job.');
-=======
-                $rollItem = InventoryManager::getItem($itemId);
-                $rollWidth = is_array($rollItem) ? printflow_tarpaulin_parse_nominal_width($rollItem) : 0.0;
-                $jobId = (int)($posJob['job_id'] ?? ($orderType === 'JOB' ? $orderId : 0));
                 if ($jobId <= 0) throw new Exception('The versioned Tarpaulin calculation requires a linked Tarpaulin service job.');
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
                 printflow_tarpaulin_assert_versioned_job($metadata, $jobId);
                 $jobDimensions = $jobId > 0
                     ? (db_query('SELECT id, order_id, order_item_id, width_ft, height_ft, quantity FROM job_orders WHERE id = ? LIMIT 1', 'i', [$jobId])[0] ?? null)
@@ -3216,25 +3217,6 @@ try {
                 if ($rollWidth <= 0 || !$jobDimensions || strtoupper((string)($rollItem['status'] ?? '')) !== 'ACTIVE' || empty($rollItem['track_by_roll'])) {
                     throw new Exception('A valid active Tarpaulin roll and linked job dimensions are required.');
                 }
-<<<<<<< HEAD
-                $calculation = printflow_tarpaulin_calculate_linear_length(
-                    $jobDimensions['width_ft'] ?? null,
-                    $jobDimensions['height_ft'] ?? null,
-                    $jobDimensions['quantity'] ?? null,
-                    $rollWidth
-                );
-                $qty = (float)$calculation['required_linear_ft'];
-                $metadata = array_merge($metadata, [
-                    'tarpaulin_calculation_version' => PRINTFLOW_TARPAULIN_CALCULATION_VERSION,
-                    'width_ft' => $calculation['width_ft'],
-                    'height_ft' => $calculation['height_ft'],
-                    'finished_quantity' => $calculation['finished_quantity'],
-                    'roll_width_ft' => $calculation['roll_width_ft'],
-                    'orientation' => $calculation['orientation'],
-                    'run_length_per_piece_ft' => $calculation['run_length_per_piece_ft'],
-                    'computed_required_length_ft' => $calculation['required_linear_ft'],
-                ]);
-=======
                 if (($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION) {
                     $panelSelection = printflow_tarpaulin_saved_panel_selection_for_job($jobId, $jobDimensions);
                     $submittedPanelPlan = $metadata['tarpaulin_panel_plan'] ?? null;
@@ -3254,30 +3236,33 @@ try {
                     ]);
                 } else {
                     $calculation = printflow_tarpaulin_calculate_linear_length(
-                        $jobDimensions['width_ft'] ?? null, $jobDimensions['height_ft'] ?? null,
-                        $jobDimensions['quantity'] ?? null, $rollWidth
+                        $jobDimensions['width_ft'] ?? null,
+                        $jobDimensions['height_ft'] ?? null,
+                        $jobDimensions['quantity'] ?? null,
+                        $rollWidth
                     );
                     $qty = (float)$calculation['required_linear_ft'];
                     $metadata = array_merge($metadata, [
                         'tarpaulin_calculation_version' => PRINTFLOW_TARPAULIN_CALCULATION_VERSION,
-                        'width_ft' => $calculation['width_ft'], 'height_ft' => $calculation['height_ft'],
-                        'finished_quantity' => $calculation['finished_quantity'], 'roll_width_ft' => $calculation['roll_width_ft'],
-                        'orientation' => $calculation['orientation'], 'run_length_per_piece_ft' => $calculation['run_length_per_piece_ft'],
+                        'width_ft' => $calculation['width_ft'],
+                        'height_ft' => $calculation['height_ft'],
+                        'finished_quantity' => $calculation['finished_quantity'],
+                        'roll_width_ft' => $calculation['roll_width_ft'],
+                        'orientation' => $calculation['orientation'],
+                        'run_length_per_piece_ft' => $calculation['run_length_per_piece_ft'],
                         'computed_required_length_ft' => $calculation['required_linear_ft'],
                     ]);
                 }
->>>>>>> ae7544cddefcae1f0a01208cf60d4e9786fd9b78
             }
             if ($isPosAssignment) {
                 require_once __DIR__ . '/../includes/pos_service_stock_validation.php';
-                $rawQuantity = trim((string)($_POST['quantity'] ?? ''));
                 if ($isVersionedTarpaulin) {
                     $posMaterialQty = $qty;
                 } else {
                     try {
-                        $posMaterialQty = printflow_pos_parse_positive_quantity($rawQuantity);
+                        $posMaterialQty = printflow_pos_parse_positive_material_quantity($rawQuantity, $quantityItem);
                     } catch (InvalidArgumentException $quantityError) {
-                        throw new Exception('POS material quantities must be positive whole numbers.');
+                        throw new Exception('POS material quantity must match its configured unit and consumption method.');
                     }
                 }
                 $jobId = (int)$posJob['job_id'];
