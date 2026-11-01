@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/InventoryManager.php';
+require_once __DIR__ . '/roll_branch_scope.php';
 require_once __DIR__ . '/JobOrderService.php';
 require_once __DIR__ . '/pos_quantity_validation.php';
 require_once __DIR__ . '/pos_service_stock_helpers.php';
@@ -18,11 +19,7 @@ function printflow_pos_tarpaulin_open_rolls(int $itemId, int $branchId): array
         || !db_table_has_column('inv_rolls', 'branch_id')) {
         throw new RuntimeException('Branch-scoped Tarpaulin roll inventory is unavailable; no schema changes were attempted.');
     }
-    if (InventoryManager::isMainBranch($branchId)) {
-        $branchSql = ' AND (branch_id = ? OR branch_id IS NULL OR branch_id <= 0)';
-    } else {
-        $branchSql = ' AND branch_id = ?';
-    }
+    [$branchSql] = printflow_roll_branch_sql('branch_id', $branchId);
     $rows = db_query(
         "SELECT id, roll_code, remaining_length_ft, received_at, status FROM inv_rolls WHERE item_id = ? AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC, id ASC",
         'ii',
@@ -170,43 +167,72 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
             if ($knownTypes !== []) $serviceType = $requestedType;
         }
     }
+    $canonicalServiceType = printflow_pos_canonical_service_material_type($serviceId, $serviceType);
+    if ($canonicalServiceType !== null) $serviceType = $canonicalServiceType;
+    printflow_pos_assert_service_material_type($serviceId, $serviceType);
     if ($serviceType === '') {
         return [];
     }
 
+    $hasMultiplierColumn = function_exists('db_table_has_column')
+        && db_table_has_column('service_material_rules', 'qty_multiplier', true);
+    $hasMultiplierApprovalColumn = function_exists('db_table_has_column')
+        && db_table_has_column('service_material_rules', 'qty_multiplier_approved', true);
+    $hasApproverColumn = function_exists('db_table_has_column')
+        && db_table_has_column('service_material_rules', 'qty_multiplier_approved_by', true);
+    $hasApprovalTimestampColumn = function_exists('db_table_has_column')
+        && db_table_has_column('service_material_rules', 'qty_multiplier_approved_at', true);
+    printflow_pos_assert_service_stock_multiplier_schema(
+        $hasMultiplierColumn,
+        $hasMultiplierApprovalColumn,
+        $hasApproverColumn,
+        $hasApprovalTimestampColumn
+    );
+
     $errorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+    $ruleTypes = printflow_pos_service_material_type_aliases($serviceId);
+    if ($ruleTypes === []) $ruleTypes = [$serviceType];
+    $placeholders = implode(',', array_fill(0, count($ruleTypes), '?'));
     $rules = db_query(
-        "SELECT r.item_id, r.rule_type, r.qty_multiplier,
+        "SELECT r.item_id, r.rule_type, r.qty_multiplier, r.qty_multiplier_approved,
+                r.qty_multiplier_approved_by, r.qty_multiplier_approved_at, r.service_type,
                 i.name AS item_name, i.unit_of_measure, i.track_by_roll, i.status AS item_status
          FROM service_material_rules r
          LEFT JOIN inv_items i ON i.id = r.item_id
-         WHERE r.service_type = ?
-         ORDER BY r.item_id ASC",
-        's',
-        [$serviceType]
+         WHERE r.service_type IN ({$placeholders})
+         ORDER BY r.service_type ASC, r.item_id ASC",
+        str_repeat('s', count($ruleTypes)),
+        $ruleTypes
     );
     if ($rules === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $errorCount)) {
         throw new RuntimeException('The POS service material rules could not be loaded.');
     }
+    $rules = printflow_pos_select_service_material_rule_set($serviceId, $rules ?: []);
 
     $required = [];
     foreach ($rules ?: [] as $rule) {
         if (strtoupper(trim((string)($rule['rule_type'] ?? 'REQUIRED'))) !== 'REQUIRED') continue;
         $itemId = (int)($rule['item_id'] ?? 0);
-        $multiplier = $rule['qty_multiplier'] ?? null;
-        if ($itemId <= 0 || trim((string)($rule['item_status'] ?? '')) !== 'ACTIVE'
-            || $multiplier === null || !is_numeric($multiplier) || !is_finite((float)$multiplier) || (float)$multiplier <= 0) {
+        if ($itemId <= 0 || trim((string)($rule['item_status'] ?? '')) !== 'ACTIVE') {
             throw new RuntimeException('A required material mapping for ' . $serviceType . ' is incomplete. Contact an administrator before adding this service.');
         }
+        $multiplier = printflow_pos_approved_service_multiplier(
+            $rule['qty_multiplier'] ?? null,
+            $rule['qty_multiplier_approved'] ?? null,
+            $rule['qty_multiplier_approved_by'] ?? null,
+            $rule['qty_multiplier_approved_at'] ?? null
+        );
         $required[] = [
             'item_id' => $itemId,
             'name' => (string)($rule['item_name'] ?? ('Material #' . $itemId)),
             'uom' => (string)($rule['unit_of_measure'] ?? 'pcs'),
             'track_by_roll' => !empty($rule['track_by_roll']),
-            'multiplier' => (float)$multiplier,
+            'multiplier' => $multiplier,
             'service_type' => $serviceType,
         ];
     }
+
+    printflow_pos_assert_required_service_material_rule($serviceId, $serviceType, $required !== []);
 
     // Existing behavior treats a service without required material rules as
     // not inventory-tracked; configured required rules are validated above.

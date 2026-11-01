@@ -858,6 +858,24 @@ if (isset($_GET['ajax'])) {
         </header>
 
         <main>
+            <?php if (is_admin()): ?>
+            <section class="card" id="serviceMaterialApprovalPanel" style="margin-bottom:20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+                    <div>
+                        <h2 style="font-size:16px;margin:0;color:#1f2937;">Service Material Rules</h2>
+                        <p style="font-size:12px;color:#64748b;margin:5px 0 0;">Only an Admin can save multipliers or approve REQUIRED rules. Changing a multiplier clears its approval and requires a new approval.</p>
+                    </div>
+                    <button type="button" class="toolbar-btn" onclick="pfLoadServiceMaterialRules()">Refresh rules</button>
+                </div>
+                <div id="serviceMaterialRuleFeedback" role="status" aria-live="polite" style="font-size:13px;margin:0 0 10px;color:#334155;"></div>
+                <div style="overflow-x:auto;">
+                    <table class="inv-table" style="min-width:900px;">
+                        <thead><tr><th>Service</th><th>Material</th><th>Inventory UOM</th><th>Rule Type</th><th>Multiplier</th><th>Approval</th><th>Action</th></tr></thead>
+                        <tbody id="serviceMaterialRuleRows"><tr><td colspan="7" style="padding:16px;">Loading service material rules…</td></tr></tbody>
+                    </table>
+                </div>
+            </section>
+            <?php endif; ?>
             <!-- Items Card -->
             <div class="card">
                 <?php if ($inventory_read_only): ?>
@@ -1604,6 +1622,58 @@ if (isset($_GET['ajax'])) {
     /* var: Turbo re-executes this block; let/const would throw "already been declared". */
     window.PF_INVENTORY_CSRF = <?php echo json_encode(generate_csrf_token(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
     var ADMIN_API_BASE = '<?php echo $base_path; ?>/admin/';
+    <?php if (is_admin()): ?>
+    window.pfLoadServiceMaterialRules = async function () {
+        var body = document.getElementById('serviceMaterialRuleRows');
+        var feedback = document.getElementById('serviceMaterialRuleFeedback');
+        if (!body) return;
+        body.innerHTML = '<tr><td colspan="7" style="padding:16px;">Loading…</td></tr>';
+        try {
+            var response = await fetch(ADMIN_API_BASE + 'service_material_rules_api.php', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+            var data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.error || 'Could not load rules.');
+            if (!data.data.length) { body.innerHTML = '<tr><td colspan="7" style="padding:16px;">No service material rules are configured.</td></tr>'; return; }
+            body.innerHTML = data.data.map(function (rule) {
+                var required = String(rule.rule_type || '').toUpperCase() === 'REQUIRED';
+                var approved = String(rule.qty_multiplier_approved) === '1';
+                var auditPresent = rule.qty_multiplier_approved_by && rule.qty_multiplier_approved_at;
+                var status = approved && auditPresent ? 'Approved by Admin #' + escapeHtml(rule.qty_multiplier_approved_by) + ' at ' + escapeHtml(rule.qty_multiplier_approved_at) : (approved ? 'Approval audit incomplete; reapproval required' : 'Not approved');
+                var multiplier = rule.qty_multiplier == null ? '' : String(rule.qty_multiplier);
+                var actions = '<button type="button" class="toolbar-btn" onclick="pfSaveServiceMaterialMultiplier(' + Number(rule.id) + ')">Save multiplier</button>';
+                if (required) actions += ' <button type="button" class="toolbar-btn" onclick="pfApproveServiceMaterialRule(' + Number(rule.id) + ')">Approve REQUIRED</button>';
+                return '<tr><td>' + escapeHtml(rule.service_name || rule.service_type) + '</td><td>' + escapeHtml(rule.material_name || ('Inventory item #' + rule.item_id)) + '</td><td>' + escapeHtml(rule.inventory_uom || '—') + '</td><td>' + escapeHtml(rule.rule_type || '') + '</td><td><input id="serviceMaterialMultiplier-' + Number(rule.id) + '" type="number" min="0.01" max="99999999.99" step="0.01" value="' + escapeHtml(multiplier) + '" aria-label="Multiplier for rule ' + Number(rule.id) + '" style="width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;"></td><td>' + status + '</td><td style="white-space:nowrap;">' + actions + '</td></tr>';
+            }).join('');
+            if (feedback) feedback.textContent = '';
+        } catch (error) {
+            body.innerHTML = '<tr><td colspan="7" style="padding:16px;color:#b91c1c;">' + escapeHtml(error.message) + '</td></tr>';
+        }
+    };
+    window.pfMutateServiceMaterialRule = async function (ruleId, action, multiplier) {
+        var feedback = document.getElementById('serviceMaterialRuleFeedback');
+        var form = new FormData();
+        form.set('csrf_token', window.PF_INVENTORY_CSRF || '');
+        form.set('rule_id', String(ruleId));
+        form.set('action', action);
+        if (multiplier != null) form.set('qty_multiplier', multiplier);
+        if (feedback) feedback.textContent = 'Saving…';
+        try {
+            var response = await fetch(ADMIN_API_BASE + 'service_material_rules_api.php', { method: 'POST', body: form, credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+            var data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.error || 'The rule could not be saved.');
+            if (feedback) feedback.textContent = action === 'approve' ? 'Approval recorded with Admin ID and timestamp.' : (data.approval_required ? 'Multiplier saved. This REQUIRED rule must be explicitly approved again.' : 'Multiplier saved.');
+            await window.pfLoadServiceMaterialRules();
+        } catch (error) {
+            if (feedback) feedback.textContent = error.message;
+        }
+    };
+    window.pfSaveServiceMaterialMultiplier = function (ruleId) {
+        var input = document.getElementById('serviceMaterialMultiplier-' + ruleId);
+        if (input) window.pfMutateServiceMaterialRule(ruleId, 'update_multiplier', input.value);
+    };
+    window.pfApproveServiceMaterialRule = function (ruleId) { window.pfMutateServiceMaterialRule(ruleId, 'approve', null); };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', window.pfLoadServiceMaterialRules);
+    else window.pfLoadServiceMaterialRules();
+    <?php endif; ?>
     var currentItems = <?php echo $items_js; ?>;
     var usageChart = null;
     var selectedItemForStockCard = null;
