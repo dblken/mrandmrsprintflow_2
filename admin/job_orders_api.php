@@ -82,6 +82,7 @@ require_once __DIR__ . '/../includes/change_item_workflow.php';
 require_once __DIR__ . '/../includes/service_field_priority_helper.php';
 require_once __DIR__ . '/../includes/pos_set_price_helpers.php';
 require_once __DIR__ . '/../includes/job_order_list_helpers.php';
+require_once __DIR__ . '/../includes/admin_transaction_visibility.php';
 
 function jo_api_attach_change_item_rows(array &$rows): void
 {
@@ -993,7 +994,11 @@ try {
                 jo_api_json_response(['success' => false, 'error' => 'Forbidden'], 403);
             }
             require_once __DIR__ . '/../includes/staff_customization_counts.php';
-            $countRows = printflow_staff_customization_count_rows($joStaffBranch, $listSource);
+            $countRows = printflow_staff_customization_count_rows(
+                $joStaffBranch,
+                $listSource,
+                (get_user_type() ?? '') === 'Admin'
+            );
             $counts = printflow_staff_customization_bucket_counts($countRows);
             $countResponse = ['success' => true, 'data' => $counts];
             if (in_array(strtolower((string)($_GET['debug'] ?? '')), ['1', 'true', 'yes'], true)) {
@@ -1047,6 +1052,9 @@ try {
                     WHERE 1=1 AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
                       AND " . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
             $params = []; $types = '';
+            if ((get_user_type() ?? '') === 'Admin') {
+                $sql .= ' AND ' . printflow_admin_job_transaction_visible_sql('jo');
+            }
             if ($status) {
                 $sql .= " AND jo.status = ?";
                 $params[] = $status; $types .= 's';
@@ -1734,6 +1742,16 @@ try {
         case 'get_order':
             $id = (int)($_GET['id'] ?? 0);
             jo_api_require_staff_branch($joStaffBranch, $id);
+            if ((get_user_type() ?? '') === 'Admin') {
+                $visibleJob = db_query(
+                    'SELECT jo.id FROM job_orders jo WHERE jo.id = ? AND ' . printflow_admin_job_transaction_visible_sql('jo'),
+                    'i',
+                    [$id]
+                ) ?: [];
+                if ($visibleJob === []) {
+                    jo_api_json_response(['success' => false, 'message' => 'Order not found.'], 404);
+                }
+            }
             $order = JobOrderService::getOrder($id);
             if (!$order) throw new Exception("Order not found.");
             if (printflow_customer_exclusion_customer_is_active((int)($order['customer_id'] ?? 0))) {

@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/admin_transaction_visibility.php';
 
 require_role(['Admin', 'Manager']);
 
@@ -21,7 +22,7 @@ try {
     $period = $_GET['period'] ?? 'monthly';
     
     // Build branch filter
-    $branchSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
+    $branchSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . ' AND ' . printflow_admin_job_transaction_visible_sql('jo');
     $branchTypes = '';
     $branchParams = [];
     
@@ -40,7 +41,7 @@ try {
             $sql = "SELECT DATE(jo.created_at) as period_key,
                            COUNT(*) as total_orders,
                            COUNT(CASE WHEN jo.status = 'COMPLETED' THEN 1 END) as completed_orders,
-                           SUM(CASE WHEN jo.payment_status = 'PAID' THEN COALESCE(jo.amount_paid, jo.estimated_total, 0) ELSE 0 END) as revenue
+                           SUM(COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0)) as revenue
                     FROM job_orders jo 
                     WHERE jo.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
                     {$branchSql}
@@ -77,7 +78,7 @@ try {
             $sql = "SELECT YEARWEEK(jo.created_at, 1) as period_key,
                            COUNT(*) as total_orders,
                            COUNT(CASE WHEN jo.status = 'COMPLETED' THEN 1 END) as completed_orders,
-                           SUM(CASE WHEN jo.payment_status = 'PAID' THEN COALESCE(jo.amount_paid, jo.estimated_total, 0) ELSE 0 END) as revenue
+                           SUM(COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0)) as revenue
                     FROM job_orders jo 
                     WHERE jo.created_at >= DATE_SUB(CURDATE(), INTERVAL 12 WEEK)
                     {$branchSql}
@@ -116,7 +117,7 @@ try {
             $sql = "SELECT DATE_FORMAT(jo.created_at, '%Y-%m') as period_key,
                            COUNT(*) as total_orders,
                            COUNT(CASE WHEN jo.status = 'COMPLETED' THEN 1 END) as completed_orders,
-                           SUM(CASE WHEN jo.payment_status = 'PAID' THEN COALESCE(jo.amount_paid, jo.estimated_total, 0) ELSE 0 END) as revenue
+                           SUM(COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0)) as revenue
                     FROM job_orders jo 
                     WHERE jo.created_at >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
                     {$branchSql}

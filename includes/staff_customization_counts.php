@@ -12,6 +12,7 @@ require_once __DIR__ . '/change_item_workflow.php';
 require_once __DIR__ . '/service_order_helper.php';
 require_once __DIR__ . '/service_field_priority_helper.php';
 require_once __DIR__ . '/job_order_list_helpers.php';
+require_once __DIR__ . '/admin_transaction_visibility.php';
 
 if (!defined('PRINTFLOW_CUSTOMIZATION_COUNTS_QUERY_VERSION')) {
     define('PRINTFLOW_CUSTOMIZATION_COUNTS_QUERY_VERSION', 'staff_customizations_status_authority_20261016');
@@ -23,7 +24,7 @@ if (!function_exists('printflow_staff_customization_count_rows')) {
      *
      * @return list<array<string,mixed>>
      */
-    function printflow_staff_customization_count_rows(?int $branchId, string $listSource = 'pos'): array
+    function printflow_staff_customization_count_rows(?int $branchId, string $listSource = 'pos', bool $successfulTransactionsOnly = false): array
     {
         $listSource = strtolower(trim($listSource));
         if (!in_array($listSource, ['all', 'online', 'pos'], true)) {
@@ -46,6 +47,9 @@ if (!function_exists('printflow_staff_customization_count_rows')) {
                                 'Processing', 'In Production', 'Printing', 'Paid – In Process',
                                 'Paid - In Process', 'Ready for Pickup', 'Completed', 'Rejected', 'Cancelled'
                             )";
+        if ($successfulTransactionsOnly) {
+            $orderCountSql .= ' AND ' . printflow_admin_order_transaction_visible_sql('o');
+        }
         $countTypes = '';
         $countParams = [];
         if ($branchId !== null && $branchId > 0) {
@@ -89,6 +93,9 @@ if (!function_exists('printflow_staff_customization_count_rows')) {
                                      OR EXISTS (SELECT 1 FROM order_items oi_seed WHERE oi_seed.order_id = cust.order_id AND oi_seed.customization_data LIKE '%\"_seed_batch_id\"%')
                                  )"
                                  . jo_api_sql_exclude_unfinalized_pos_drafts('o', 'cust');
+            if ($successfulTransactionsOnly) {
+                $customCountSql .= ' AND ' . printflow_admin_order_transaction_visible_sql('o');
+            }
             $customCountTypes = '';
             $customCountParams = [];
             if ($branchId !== null && $branchId > 0) {
@@ -104,6 +111,9 @@ if (!function_exists('printflow_staff_customization_count_rows')) {
 
         $jobCountSql = "SELECT id, NULL AS order_id, status, updated_at, 'JOB' AS order_type
                         FROM job_orders WHERE order_id IS NULL AND " . printflow_customer_exclusion_customer_scope_sql('job_orders.customer_id');
+        if ($successfulTransactionsOnly) {
+            $jobCountSql .= ' AND ' . printflow_admin_job_transaction_visible_sql('job_orders');
+        }
         $jobCountTypes = '';
         $jobCountParams = [];
         if ($branchId !== null && $branchId > 0) {
@@ -127,6 +137,9 @@ if (!function_exists('printflow_staff_customization_count_rows')) {
                                     'Approved', 'Processing', 'Ready for Pickup', 'Ready For Pickup',
                                     'Completed', 'Rejected', 'Cancelled'
                                   )";
+            if ($successfulTransactionsOnly) {
+                $serviceCountSql .= ' AND ' . printflow_admin_success_order_sql('service_orders.status');
+            }
             $serviceCountTypes = '';
             $serviceCountParams = [];
             if ($branchId !== null && $branchId > 0) {

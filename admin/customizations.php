@@ -10,6 +10,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/job_order_summary.php';
+require_once __DIR__ . '/../includes/admin_transaction_visibility.php';
 
 require_role(['Admin', 'Manager']);
 // Ensure $base_path is defined
@@ -108,7 +109,7 @@ $per_page       = 15;
 $branchCtx = init_branch_context(false); // analytics-style — allow All
 $branchId  = $branchCtx['selected_branch_id'];
 // Keep dataset aligned with staff/customizations.php
-$jobCustomizationScopeSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . " AND (
+$jobCustomizationScopeSql = ' AND ' . printflow_order_archive_exclusion_sql('jo.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('jo.customer_id') . ' AND ' . printflow_admin_job_transaction_visible_sql('jo') . " AND (
     jo.order_id IS NULL
     OR EXISTS (
         SELECT 1

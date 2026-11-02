@@ -52,7 +52,7 @@ try {
     } elseif ($section === 'status') {
         [$b,$bt,$bp]=branch_where_parts('o',$branchId); $dw='';$dt='';$dp=[]; if($from!==''&&$toEnd!==''){ $dw=' AND o.order_date BETWEEN ? AND ?';$dt='ss';$dp=[$from,$toEnd]; }
         $draft=" AND NOT (LOWER(TRIM(COALESCE(o.payment_status,'')))='unpaid' AND LOWER(TRIM(COALESCE(o.status,'')))='draft' AND LOWER(TRIM(COALESCE(o.order_source,''))) IN ('pos_draft',''))";
-        $rows=db_query('SELECT o.status, COUNT(*) cnt FROM orders o WHERE '.printflow_order_archive_scope_sql('o').$draft.$dw.$b.' GROUP BY o.status ORDER BY cnt DESC',$dt.$bt,array_merge($dp,$bp)); $html=$table(['Status','Orders'],array_map(static fn($r)=>[$r['status']??'Unknown',(int)$r['cnt']],$rows));
+        $rows=db_query('SELECT o.status, COUNT(*) cnt FROM orders o WHERE '.printflow_order_archive_scope_sql('o').' AND '.printflow_admin_order_transaction_visible_sql('o').$draft.$dw.$b.' GROUP BY o.status ORDER BY cnt DESC',$dt.$bt,array_merge($dp,$bp)); $html=$table(['Status','Orders'],array_map(static fn($r)=>[$r['status']??'Unknown',(int)$r['cnt']],$rows));
     } elseif ($section === 'products') {
         $rows=pf_reports_sales_by_official_product($from,$toEnd,$branchId); $html=$table(['Product','Revenue','Units'],array_map(static fn($r)=>[$r['name']??$r['product_name']??'Unknown',$r['total']??$r['revenue']??0,$r['items_sold']??$r['qty_sold']??0],array_slice($rows,0,10)));
     } elseif ($section === 'services') {

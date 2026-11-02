@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
+require_once __DIR__ . '/../includes/admin_transaction_visibility.php';
 
 require_role(['Admin', 'Manager']);
 ob_end_clean();
@@ -90,6 +91,9 @@ try {
                     LEFT JOIN users u ON t.created_by = u.user_id
                     LEFT JOIN inv_rolls r ON t.roll_id = r.id
                     WHERE 1=1 AND " . printflow_customer_exclusion_inventory_scope_sql('t', 'inventory_transactions');
+            if (($user['role'] ?? '') === 'Admin') {
+                $sql .= ' AND ' . printflow_admin_inventory_transaction_visible_sql('t');
+            }
             $params = [];
             $types = '';
             if ($branchId > 0) {

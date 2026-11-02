@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/admin_transaction_visibility.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 
 require_role(['Admin', 'Manager']);
@@ -62,7 +63,7 @@ if (isset($_GET['action'])) {
     if ($action === 'mark_all_read') {
         if ($viewer_role === 'Manager' && $viewer_branch_id > 0) {
             $rows = db_query(
-                "SELECT * FROM notifications WHERE user_id = ? AND type != 'Message' AND is_read = 0",
+                "SELECT * FROM notifications n WHERE n.user_id = ? AND n.type != 'Message' AND n.is_read = 0 AND " . printflow_admin_notification_transaction_visible_sql('n'),
                 'i',
                 [$admin_id]
             ) ?: [];
@@ -91,7 +92,7 @@ if (isset($_GET['action'])) {
 
     if ($action === 'get_unread_count') {
         $visible_notifications = db_query(
-            "SELECT * FROM notifications WHERE user_id = ? AND type != 'Message' ORDER BY created_at DESC",
+            "SELECT * FROM notifications n WHERE n.user_id = ? AND n.type != 'Message' AND " . printflow_admin_notification_transaction_visible_sql('n') . " ORDER BY n.created_at DESC",
             'i',
             [$admin_id]
         ) ?: [];
@@ -147,7 +148,7 @@ if (!empty($search)) {
     $params[] = "%$search%";
     $types .= 's';
 }
-$where .= ' AND ' . printflow_order_archive_notification_exclusion_sql('n');
+$where .= ' AND ' . printflow_order_archive_notification_exclusion_sql('n') . ' AND ' . printflow_admin_notification_transaction_visible_sql('n');
 
 // Sort order
 $order_clause = match($sort_by) {

@@ -301,7 +301,7 @@ if (!$gaBranchEmpty && $total_orders > 0) {
             "SELECT p.name, SUM(oi.quantity) as qty FROM order_items oi
              JOIN products p ON oi.product_id=p.product_id
              JOIN orders o ON oi.order_id=o.order_id
-             WHERE " . printflow_order_archive_scope_sql('o') . " {$dw} {$b}
+             WHERE " . printflow_order_archive_scope_sql('o') . " AND " . printflow_admin_order_transaction_visible_sql('o') . " {$dw} {$b}
              GROUP BY p.product_id ORDER BY qty DESC LIMIT 1",
             $dt . $bt, array_merge($dp, $bp)
         )[0] ?? null;
@@ -568,7 +568,7 @@ if (!$gaBranchEmpty) {
         )";
         $status_data = db_query(
             "SELECT o.status, COUNT(*) as cnt FROM orders o
-             WHERE " . printflow_order_archive_scope_sql('o') . " {$statusDraftExclusion} {$dw} {$b}
+             WHERE " . printflow_order_archive_scope_sql('o') . " AND " . printflow_admin_order_transaction_visible_sql('o') . " {$statusDraftExclusion} {$dw} {$b}
              GROUP BY o.status ORDER BY cnt DESC",
             $dt . $bt, array_merge($dp, $bp)
         ) ?: [];
@@ -583,7 +583,7 @@ if (!$gaBranchEmpty) {
                 [$bdw,$bdt,$bdp] = $getDateWhere('o', 'order_date');
                 $branchStatusRows = db_query(
                     "SELECT o.status, COUNT(*) as cnt FROM orders o
-                     WHERE " . printflow_order_archive_scope_sql('o') . " {$statusDraftExclusion} {$bdw} {$bb}
+                     WHERE " . printflow_order_archive_scope_sql('o') . " AND " . printflow_admin_order_transaction_visible_sql('o') . " {$statusDraftExclusion} {$bdw} {$bb}
                      GROUP BY o.status ORDER BY cnt DESC",
                     $bdt . $bbt,
                     array_merge($bdp, $bbp)
@@ -660,7 +660,7 @@ if (!$gaBranchEmpty) {
                  FROM order_designs
                  GROUP BY order_id
              ) dc ON dc.order_id = o.order_id
-             WHERE " . printflow_order_archive_scope_sql('o') . " {$dw} {$b}
+             WHERE " . printflow_order_archive_scope_sql('o') . " AND " . printflow_admin_order_transaction_visible_sql('o') . " {$dw} {$b}
              GROUP BY p.product_id, p.name
              HAVING (
                  SUM(CASE WHEN COALESCE(dc.has_upload, 0) = 1 THEN oi.quantity ELSE 0 END) +

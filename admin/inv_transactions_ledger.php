@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
+require_once __DIR__ . '/../includes/admin_transaction_visibility.php';
 
 require_role(['Admin', 'Manager']);
 $current_user = get_logged_in_user();
@@ -217,6 +218,9 @@ $sql = "SELECT t.*,
         WHERE 1=1 AND " . printflow_customer_exclusion_inventory_scope_sql('t', 'inventory_transactions');
 $params = [];
 $types = '';
+if (!$is_manager) {
+    $sql .= ' AND ' . printflow_admin_inventory_transaction_visible_sql('t');
+}
 
 // Display-only snapshot: hide the ledger rows that existed through TX-39424
 // on October 15-16, 2026. New rows on those dates remain visible.

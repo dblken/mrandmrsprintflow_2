@@ -5,6 +5,7 @@ $testCacheDir = sys_get_temp_dir() . '/pf_admin_progressive_' . bin2hex(random_b
 mkdir($testCacheDir);
 function printflow_staff_dashboard_cache_dir(): string { return $GLOBALS['testCacheDir']; }
 require_once dirname(__DIR__) . '/includes/admin_dashboard_cache.php';
+require_once dirname(__DIR__) . '/includes/admin_transaction_visibility.php';
 function printflow_order_archive_exclusion_sql($v) { return '1=1'; }
 function printflow_customer_exclusion_customer_scope_sql($v) { return '1=1'; }
 function printflow_pos_sql_exclude_placeholder_customers($v) { return ''; }
@@ -38,11 +39,11 @@ try {
         $queries = [];
         eval($computation);
         expect_progressive($queries === [], 'Warm summary reuses cache without querying.');
-        $secondaryKey = printflow_admin_dashboard_cache_key($branchId, $dashFromDate, $dashToDate, 'v3-secondary');
-        $summaryKey = printflow_admin_dashboard_cache_key($branchId, $dashFromDate, $dashToDate, 'v3-summary');
+        $secondaryKey = printflow_admin_dashboard_cache_key($branchId, $dashFromDate, $dashToDate, 'v4-secondary');
+        $summaryKey = printflow_admin_dashboard_cache_key($branchId, $dashFromDate, $dashToDate, 'v4-summary');
         expect_progressive($secondaryKey !== $summaryKey, 'Summary and secondary entries are distinct.');
         printflow_admin_dashboard_cache_set($secondaryKey, ['test' => true, '_branch_id' => $branchId]);
-        $otherBranchKey = printflow_admin_dashboard_cache_key(2, $dashFromDate, $dashToDate, 'v3-summary');
+        $otherBranchKey = printflow_admin_dashboard_cache_key(2, $dashFromDate, $dashToDate, 'v4-summary');
         printflow_admin_dashboard_cache_set($otherBranchKey, ['_branch_id' => 2]);
         printflow_staff_dashboard_cache_invalidate_branch(1);
         expect_progressive(printflow_admin_dashboard_cache_get($summaryKey) === null && printflow_admin_dashboard_cache_get($secondaryKey) === null, 'Existing mutation hook invalidates both new cache sections.');

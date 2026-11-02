@@ -6,6 +6,7 @@ require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
 require_once __DIR__ . '/../includes/job_order_summary.php';
+require_once __DIR__ . '/../includes/admin_transaction_visibility.php';
 
 require_role(['Admin', 'Manager']);
 
@@ -127,6 +128,7 @@ if (printflow_provider_payments_ready()) {
             LEFT JOIN customers c ON c.customer_id = pp.customer_id
             LEFT JOIN branches b ON b.id = COALESCE(NULLIF(pp.branch_id, 0), o.branch_id)
             WHERE 1=1 AND " . printflow_customer_exclusion_payment_scope_sql('provider_payments', 'pp', 'pp.id', 'pp.order_id', 'pp.customer_id');
+    $sql .= ' AND ' . printflow_admin_provider_payment_visible_sql('pp', 'o');
     $types = '';
     $params = [];
 
@@ -207,6 +209,7 @@ $sql = "SELECT o.order_id, o.reference_id, o.order_type, o.total_amount, o.order
           AND LOWER(TRIM(COALESCE(o.payment_method, ''))) = 'cash'
           AND LOWER(TRIM(o.payment_status)) = 'paid'
           AND " . printflow_order_archive_scope_sql('o');
+$sql .= ' AND ' . printflow_admin_order_transaction_visible_sql('o');
 $types = '';
 $params = [];
 

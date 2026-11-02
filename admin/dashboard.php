@@ -210,7 +210,7 @@ $dashCacheVars = match ($dashSection) {
     'branch_charts' => $dashBranchChartsVars,
     default => $dashSecondaryVars,
 };
-$dashCacheKey = printflow_admin_dashboard_cache_key($branchId, $dashFromDate, $dashToDate, 'v3-' . $dashSection);
+$dashCacheKey = printflow_admin_dashboard_cache_key($branchId, $dashFromDate, $dashToDate, 'v4-' . $dashSection);
 $dashCacheHit = false;
 $dashCached = printflow_admin_dashboard_cache_get($dashCacheKey);
 if (printflow_admin_dashboard_cache_bypass_requested()) {
@@ -285,7 +285,7 @@ try {
     } else {
         $customOrderBranchSql = " AND ({$customOrderBranch} IS NULL OR {$customOrderBranch} IN (SELECT id FROM branches WHERE status != 'Archived'))";
     }
-    $customOrderScope = ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id') . " AND (
+    $customOrderScope = ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id') . ' AND ' . printflow_admin_job_transaction_visible_sql('j') . " AND (
         j.order_id IS NULL
         OR EXISTS (
             SELECT 1 FROM orders custom_scope_order
@@ -309,7 +309,7 @@ try {
 
 // ── KPI: Pending Custom Orders (branch-filtered) ─────
 try {
-    $pendingJobScope = ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id') . " AND (
+    $pendingJobScope = ' AND ' . printflow_order_archive_exclusion_sql('j.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('j.customer_id') . ' AND ' . printflow_admin_job_transaction_visible_sql('j') . " AND (
         j.order_id IS NULL
         OR EXISTS (
             SELECT 1
@@ -442,7 +442,7 @@ if ($branchId === 'all') {
 
         try {
             [$statusBranchSql, $statusBranchTypes, $statusBranchParams] = branch_where_parts('o', $chartBranchId);
-            $statusBranchSql .= ' AND ' . printflow_order_archive_scope_sql('o');
+            $statusBranchSql .= ' AND ' . printflow_order_archive_scope_sql('o') . ' AND ' . printflow_admin_order_transaction_visible_sql('o');
             $statusRows = db_query(
                 "SELECT o.status, COUNT(*) AS cnt
                  FROM orders o
@@ -496,7 +496,7 @@ $dashMark('per_branch_charts');
 // ── Recent Orders (last 5, branch-filtered) ──────────
 try {
     [$bSqlFrag3, $bT3, $bP3] = branch_where_parts('o', $branchId);
-    $bSqlFrag3 .= ' AND ' . printflow_order_archive_scope_sql('o');
+    $bSqlFrag3 .= ' AND ' . printflow_order_archive_scope_sql('o') . ' AND ' . printflow_admin_order_transaction_visible_sql('o');
     $recent_orders = db_query(
         "SELECT o.order_id, CONCAT(c.first_name, ' ', c.last_name) as customer_name,
                 o.order_date, o.total_amount, o.payment_status, o.status, b.branch_name
