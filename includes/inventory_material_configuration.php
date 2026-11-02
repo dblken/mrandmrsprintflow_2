@@ -63,6 +63,9 @@ function printflow_inventory_material_configuration(array $input): array
     if (in_array($config['consumption_method'], ['sheet_yield', 'dimension_sheet'], true) && $config['material_format'] !== 'sheet') {
         $errors['material_format'] = 'Sheet consumption methods require Material Format = Sheet.';
     }
+    if (in_array(strtolower(trim((string)($input['unit'] ?? ''))), ['sheet', 'sheets'], true) && $config['material_format'] !== 'sheet') {
+        $errors['material_format'] = 'Inventory UOM = Sheet requires Material Format = Sheet.';
+    }
     if ($config['consumption_method'] === 'by_length' && strtolower(trim((string)($input['unit'] ?? ''))) !== 'ft') {
         $errors['consumption_method'] = 'By Length estimates require inventory UOM = ft.';
     }

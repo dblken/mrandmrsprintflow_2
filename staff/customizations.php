@@ -4509,7 +4509,7 @@ window.pfServiceFieldCatalog = (() => {
                     this.clearPendingMaterialQtyPointerEdit(input);
                 }
                 material.qty = raw === '' ? '' : qty;
-                const wholeUnit = ['pcs', 'pc', 'piece', 'pieces'].includes(String(material.uom || '').toLowerCase());
+                const wholeUnit = ['pcs', 'pc', 'piece', 'pieces', 'sheet', 'sheets'].includes(String(material.uom || '').toLowerCase());
                 material.manual_quantity_confirmed = explicitEdit && Number.isFinite(qty) && qty > 0 && (!wholeUnit || Number.isInteger(qty));
                 material.actual_usage_overridden = material.estimated_qty !== null && material.estimated_qty !== undefined;
                 if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
@@ -4536,7 +4536,7 @@ window.pfServiceFieldCatalog = (() => {
             },
             confirmPendingMaterialUsage(material) {
                 const qty = Number(material && material.qty);
-                if (!Number.isFinite(qty) || qty <= 0 || (['pcs', 'pc', 'piece', 'pieces'].includes(String(material.uom).toLowerCase()) && !Number.isInteger(qty))) {
+                if (!Number.isFinite(qty) || qty <= 0 || (['pcs', 'pc', 'piece', 'pieces', 'sheet', 'sheets'].includes(String(material.uom).toLowerCase()) && !Number.isInteger(qty))) {
                     this.productionErrors.material = 'Enter a valid positive actual material quantity before confirming.';
                     return;
                 }
@@ -4665,7 +4665,7 @@ window.pfServiceFieldCatalog = (() => {
             isPcsMaterial(itemId) {
                 const item = this.getInventoryItem(itemId);
                 const uom = String(item && item.unit_of_measure ? item.unit_of_measure : '').trim().toLowerCase();
-                return uom === 'pcs' || uom === 'pc' || uom === 'piece' || uom === 'pieces';
+                return uom === 'pcs' || uom === 'pc' || uom === 'piece' || uom === 'pieces' || uom === 'sheet' || uom === 'sheets';
             },
             getMaterialEntryUom(itemId) {
                 const item = this.getInventoryItem(itemId);
@@ -10386,7 +10386,7 @@ window.pfServiceFieldCatalog = (() => {
                     if (!material) return false;
                     const qty = Number(material.qty ?? material.quantity);
                     if (!Number.isFinite(qty) || qty <= 0) return true;
-                    const wholeUnit = ['pcs', 'pc', 'piece', 'pieces'].includes(String(material.uom || '').toLowerCase());
+                    const wholeUnit = ['pcs', 'pc', 'piece', 'pieces', 'sheet', 'sheets'].includes(String(material.uom || '').toLowerCase());
                     if (wholeUnit && !Number.isInteger(qty)) return true;
                     return false;
                 });

@@ -38,7 +38,7 @@ if (!$item) {
 }
 
 $uom = strtolower($item['unit_of_measure'] ?? 'pcs');
-$isPcs = ($uom === 'pcs');
+$isPcs = in_array($uom, ['pcs', 'sheet'], true);
 
 function fmtQty($val, $isPcs) {
     return $isPcs ? (string)(int)$val : number_format((float)$val, 2);
