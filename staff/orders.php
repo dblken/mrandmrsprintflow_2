@@ -27,6 +27,19 @@ $staffOrderScopeSql = printflow_staff_order_source_sql('o');
 $staffAccessMeta = printflow_get_staff_access_meta();
 $is_pos_staff = ($staffAccessMeta['key'] ?? '') === 'pos';
 
+// Backstop the scheduled cleanup for Online Operational Staff page visits.
+// This runs before the archive AJAX shortcut, order list, search, pagination,
+// and counters. The scheduled CLI task handles all branches when nobody is
+// viewing the page.
+if (!$is_pos_staff
+    && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
+    && $staffBranchId > 0) {
+    $retentionCleanup = printflow_expired_product_order_cleanup($staffBranchId, 100);
+    if (empty($retentionCleanup['ok'])) {
+        error_log('[staff/orders.php] unpaid product order cleanup failed; overdue rows remain filtered from the list.');
+    }
+}
+
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'archived' && !$is_pos_staff) {
     require_once __DIR__ . '/../includes/staff_orders_archived_json.php';
     header('Content-Type: application/json; charset=utf-8');
@@ -466,6 +479,9 @@ unset($order);
 // Note: o.order_type = 'product' filter from line 108 is preserved in $sql_conditions
 $kpi_conditions = " AND o.order_type = 'product' AND {$staffOrderScopeSql}";
 $kpi_conditions .= ' AND ' . printflow_order_archive_scope_sql('o');
+if (!$is_pos_staff) {
+    $kpi_conditions .= ' AND ' . printflow_expired_product_order_exclude_archived_sql('o');
+}
 $kpi_types = '';
 $kpi_params = [];
 $kpi_conditions .= branch_where('o', $staffBranchId, $kpi_types, $kpi_params);
@@ -3462,7 +3478,7 @@ $page_title = 'Product Orders - PrintFlow';
         </div>
         <div id="archivedOrdersModalBody" style="padding:16px 20px;overflow:auto;flex:1;"></div>
         <div style="padding:12px 20px;border-top:1px solid #e5e7eb;font-size:12px;color:#64748b;">
-            Unpaid QRPH orders expired for more than 7 days. They remain here until an Admin clears them from Products Management.
+            Expired unpaid orders are removed automatically after 24 hours. Overdue orders are excluded from this page even if a cleanup run is delayed.
         </div>
     </div>
 </div>

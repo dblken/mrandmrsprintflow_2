@@ -25,6 +25,12 @@ if (($staffAccessMeta['key'] ?? '') === 'pos') {
 $branch_ctx = init_branch_context(false);
 $staffBranchId = (int)$branch_ctx['selected_branch_id'];
 $staffOrderScopeSql = printflow_staff_order_source_sql('o');
+$retentionCleanup = $staffBranchId > 0
+    ? printflow_expired_product_order_cleanup($staffBranchId, 100)
+    : ['ok' => false];
+if ($staffBranchId > 0 && empty($retentionCleanup['ok'])) {
+    error_log('[archived_expired_product_orders] unpaid product order cleanup failed; overdue rows remain filtered from this response.');
+}
 
 try {
     $payload = printflow_staff_archived_expired_orders_payload($staffBranchId, $staffOrderScopeSql, 200);
