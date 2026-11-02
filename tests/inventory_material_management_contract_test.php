@@ -21,6 +21,10 @@ $checks = [
     'edit form exposes optional material configuration' => str_contains($form, 'id="materialUsageConfiguration"') && str_contains($form, 'name="designs_per_unit"'),
     'staff sees estimate and actual usage separately' => str_contains($staff, 'Estimated Usage:') && str_contains($staff, 'Actual Usage:'),
     'manual assignment confirmation gates saving' => str_contains($staff, 'manual_confirmation_required && !material.manual_quantity_confirmed'),
+    'actual usage input is wired to its confirmation-state handler' => str_contains($staff, '@input="handlePendingMaterialQtyInput(pm, $event.target.value)"'),
+    'manual usage is confirmed only for a valid positive quantity in its unit' => str_contains($staff, "material.manual_quantity_confirmed = Number.isFinite(qty) && qty > 0 && (!wholeUnit || Number.isInteger(qty));") && str_contains($staff, 'staff_confirmed: material.manual_quantity_confirmed'),
+    'editing valid usage clears only its matching stale confirmation warning' => str_contains($staff, 'if (material.manual_quantity_confirmed) this.clearPendingMaterialConfirmationError(material);') && str_contains($staff, 'if (this.productionErrors.material === expected) this.productionErrors.material = \'\';'),
+    'explicit confirmation button remains available for untouched manual quantities' => str_contains($staff, '@click="confirmPendingMaterialUsage(pm)"') && str_contains($staff, 'material.manual_quantity_confirmed = false'),
     'final usage remains posted as assignment quantity' => str_contains($staff, "fd.append('quantity', pm.qty)"),
 ];
 

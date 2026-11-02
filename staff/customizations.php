@@ -4453,18 +4453,25 @@ window.pfServiceFieldCatalog = (() => {
             },
             handlePendingMaterialQtyInput(material, value) {
                 const raw = String(value ?? '').trim();
-                material.qty = raw === '' ? '' : Number(raw);
-                material.manual_quantity_confirmed = true;
+                const qty = raw === '' ? NaN : Number(raw);
+                material.qty = raw === '' ? '' : qty;
+                const wholeUnit = ['pcs', 'pc', 'piece', 'pieces'].includes(String(material.uom || '').toLowerCase());
+                material.manual_quantity_confirmed = Number.isFinite(qty) && qty > 0 && (!wholeUnit || Number.isInteger(qty));
                 material.actual_usage_overridden = material.estimated_qty !== null && material.estimated_qty !== undefined;
                 if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
                 material.metadata.material_usage = {
                     ...(material.metadata.material_usage || {}),
                     estimate: material.estimated_qty,
-                    actual: raw === '' ? null : Number(raw),
+                    actual: Number.isFinite(qty) ? qty : null,
                     method: material.usage_method || 'manual',
-                    staff_confirmed: true,
+                    staff_confirmed: material.manual_quantity_confirmed,
                     overridden: material.actual_usage_overridden
                 };
+                if (material.manual_quantity_confirmed) this.clearPendingMaterialConfirmationError(material);
+            },
+            clearPendingMaterialConfirmationError(material) {
+                const expected = `Confirm the actual usage for ${material?.name || 'the selected material'} before saving.`;
+                if (this.productionErrors.material === expected) this.productionErrors.material = '';
             },
             confirmPendingMaterialUsage(material) {
                 const qty = Number(material && material.qty);
@@ -4479,7 +4486,7 @@ window.pfServiceFieldCatalog = (() => {
                     actual: qty, method: material.usage_method || 'manual', staff_confirmed: true,
                     overridden: material.actual_usage_overridden === true
                 };
-                this.productionErrors.material = '';
+                this.clearPendingMaterialConfirmationError(material);
             },
             recalculatePendingMaterial(index) {
                 const material = this.pendingMaterials[index];
@@ -10309,7 +10316,8 @@ window.pfServiceFieldCatalog = (() => {
                     if (!material) return false;
                     const qty = Number(material.qty ?? material.quantity);
                     if (!Number.isFinite(qty) || qty <= 0) return true;
-                    if (String(material.uom || '').toLowerCase() === 'pcs' && !Number.isInteger(qty)) return true;
+                    const wholeUnit = ['pcs', 'pc', 'piece', 'pieces'].includes(String(material.uom || '').toLowerCase());
+                    if (wholeUnit && !Number.isInteger(qty)) return true;
                     return false;
                 });
                 if (invalidPending) errors.material = errors.material || 'Material usage must be a positive quantity in the material inventory unit.';
