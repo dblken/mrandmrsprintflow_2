@@ -3258,35 +3258,18 @@ $online_closed_count = 0;
                                         <span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); font-weight:800; color:#0f766e; font-size:20px;">₱</span>
                                         <input type="text" 
                                                x-ref="jobPriceInput"
+                                               inputmode="decimal"
+                                               autocomplete="off"
+                                               aria-describedby="job-price-input-error"
                                                placeholder="0.00"
                                                x-effect="if (showDetailsModal) syncJobPriceInputField()"
-                                               x-on:input="
-                                                   if (isPosSetPriceFlow()) {
-                                                       jobPriceInput = $event.target.value.replace(/,/g, '');
-                                                   } else {
-                                                       let val = $event.target.value.replace(/[^0-9.]/g, '');
-                                                       let parts = val.split('.');
-                                                       parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-                                                       $event.target.value = parts.join('.');
-                                                       jobPriceInput = $event.target.value.replace(/,/g, '');
-                                                   }
-                                               "
-                                               x-on:blur="
-                                                   if (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput)) {
-                                                       $event.target.value = jobPriceInput;
-                                                   } else if (jobPriceInput && String(jobPriceInput).trim() !== '') {
-                                                       jobPriceInput = parseFloat(jobPriceInput).toFixed(2);
-                                                       $event.target.value = Number(jobPriceInput).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-                                                   } else {
-                                                       jobPriceInput = '';
-                                                       $event.target.value = '';
-                                                   }
-                                               "
+                                               x-on:input="handleJobPriceInput($event)"
+                                               x-on:blur="formatJobPriceInputOnBlur($event)"
                                                style="width:100%; height:42px; padding:0 12px 0 42px; border:1px solid #5eead4; border-radius:10px; font-size:18px; font-weight:700; color:#0f766e; outline:none; background:#ffffff; transition:all 0.2s;"
                                                onfocus="this.style.borderColor='#0d9488'; this.style.boxShadow='0 0 0 3px rgba(6, 161, 161, 0.08)'"
                                                onblur="this.style.borderColor='#5eead4'; this.style.boxShadow='none'">
                                     </div>
-                                    <div x-show="isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput)" x-cloak style="margin-top:6px;font-size:12px;font-weight:700;color:#b91c1c;">Enter a positive final price with no more than two decimal places (maximum ₱9,999,999.99).</div>
+                                    <div id="job-price-input-error" x-show="!isValidPosFinalPrice(jobPriceInput)" x-cloak x-text="finalPriceValidationMessage()" style="margin-top:6px;font-size:12px;font-weight:700;color:#b91c1c;"></div>
                                     <div x-show="priceBelowEstimateLabel" x-cloak x-text="priceBelowEstimateLabel" style="margin-top:6px; font-size:11px; font-weight:700; color:#b45309;"></div>
                                 </div>
                                 <div x-show="approvalStockErrors.length > 0" style="margin-bottom:12px; padding:12px 14px; border-radius:10px; border:1px solid #fecaca; background:#fff1f2; color:#b91c1c; font-size:12px; font-weight:700; line-height:1.5;">
@@ -3774,10 +3757,10 @@ $online_closed_count = 0;
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)) ? 'opacity:.6;cursor:not-allowed;' : ''">Confirm Set Price</button>
                             </div>
                             <div x-show="!isPosPricingMode() && modalWorkflowStatus(currentJo) === 'APPROVED' && (!isPosSimplifiedView || !isPosPricingReturnFlow(currentJo))" style="display:flex; gap:8px;">
-                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))) ? 'opacity:.6;cursor:not-allowed;' : ''">Set Price</button>
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)) ? 'opacity:.6;cursor:not-allowed;' : ''">Set Price</button>
                             </div>
                             <div x-show="!isPosPricingMode() && isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'APPROVED' && isPosPricingReturnFlow(currentJo)" style="display:flex; gap:8px;">
-                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))) ? 'opacity:.6;cursor:not-allowed;' : ''">Continue to POS Payment</button>
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)) ? 'opacity:.6;cursor:not-allowed;' : ''">Continue to POS Payment</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'PAYMENT_CONFIRMED' && canStartProduction(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="startProduction()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Proceed to Production</button>
@@ -4984,10 +4967,73 @@ window.pfServiceFieldCatalog = (() => {
                 return String(details.source || '').toUpperCase() === 'POS';
             },
             isValidPosFinalPrice(value) {
-                const raw = String(value ?? '').trim().replace(/,/g, '');
-                if (!/^(?:0|[1-9]\d{0,6})(?:\.\d{1,2})?$/.test(raw)) return false;
-                const amount = Number(raw);
-                return Number.isFinite(amount) && amount >= 1 && amount <= 9999999.99;
+                return this.parseFinalPriceCentavos(value) !== null;
+            },
+            parseFinalPriceCentavos(value) {
+                const raw = String(value ?? '').trim();
+                if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(raw)) return null;
+                const normalized = raw.replace(/,/g, '');
+                const [wholeRaw, fractionRaw = ''] = normalized.split('.', 2);
+                const whole = wholeRaw.replace(/^0+(?=\d)/, '');
+                if (whole.length > 7) return null;
+                const centavos = (Number(whole) * 100) + Number((fractionRaw + '00').slice(0, 2));
+                return Number.isSafeInteger(centavos) && centavos > 0 && centavos <= 999999999
+                    ? centavos
+                    : null;
+            },
+            finalPriceDecimalFromCentavos(cents) {
+                const whole = Math.floor(cents / 100);
+                const fraction = String(cents % 100).padStart(2, '0');
+                return `${whole}.${fraction}`;
+            },
+            formatFinalPriceCentavos(cents) {
+                const whole = Math.floor(cents / 100).toLocaleString('en-US');
+                const fraction = String(cents % 100).padStart(2, '0');
+                return `${whole}.${fraction}`;
+            },
+            finalPriceValidationMessage() {
+                return 'Enter a final price from ₱0.01 to ₱9,999,999.99 with no more than two decimal places.';
+            },
+            handleJobPriceInput(event) {
+                const input = event && event.target;
+                if (!input) return;
+                const value = String(input.value ?? '');
+                const oldCursor = Number.isInteger(input.selectionStart) ? input.selectionStart : value.length;
+                const unitsBeforeCursor = value.slice(0, oldCursor).replace(/,/g, '').length;
+                if (!/^[\d.,]*$/.test(value)) {
+                    this.jobPriceInput = value;
+                    return;
+                }
+                const ungrouped = value.replace(/,/g, '');
+                if (!/^\d*(?:\.\d*)?$/.test(ungrouped)) {
+                    this.jobPriceInput = value;
+                    return;
+                }
+                if (value.includes(',') && !/^\d{1,3}(?:,\d{3})+(?:\.\d*)?$/.test(value)) {
+                    this.jobPriceInput = value;
+                    return;
+                }
+
+                const [whole, fraction] = ungrouped.split('.', 2);
+                const groupedWhole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+                const formatted = fraction === undefined ? groupedWhole : groupedWhole + '.' + fraction;
+                input.value = formatted;
+                this.jobPriceInput = ungrouped;
+
+                let newCursor = 0;
+                let units = 0;
+                while (newCursor < formatted.length && units < unitsBeforeCursor) {
+                    if (formatted[newCursor] !== ',') units += 1;
+                    newCursor += 1;
+                }
+                try { input.setSelectionRange(newCursor, newCursor); } catch (_) {}
+            },
+            formatJobPriceInputOnBlur(event) {
+                const input = event && event.target;
+                if (!input || !this.isValidPosFinalPrice(this.jobPriceInput)) return;
+                const cents = this.parseFinalPriceCentavos(this.jobPriceInput);
+                this.jobPriceInput = this.finalPriceDecimalFromCentavos(cents);
+                input.value = this.formatFinalPriceCentavos(cents);
             },
             modalWorkflowStatus(jo) {
                 if (!jo) return '';
@@ -5073,8 +5119,10 @@ window.pfServiceFieldCatalog = (() => {
                 this.$nextTick(() => {
                     const input = this.$refs.jobPriceInput;
                     if (!input) return;
-                    let raw = String(this.jobPriceInput ?? '').trim().replace(/,/g, '');
-                    if (raw === '' || !Number.isFinite(parseFloat(raw)) || parseFloat(raw) <= 0) {
+                    // The active input handler owns formatting and caret placement while typing.
+                    if (document.activeElement === input) return;
+                    let raw = String(this.jobPriceInput ?? '').trim();
+                    if (raw === '') {
                         const fallback = this.resolveJobPriceInputDefault(this.currentJo);
                         if (fallback !== '') {
                             this.jobPriceInput = fallback;
@@ -5085,10 +5133,12 @@ window.pfServiceFieldCatalog = (() => {
                         input.value = '';
                         return;
                     }
-                    const numeric = parseFloat(raw);
-                    input.value = Number.isFinite(numeric)
-                        ? numeric.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                        : raw;
+                    const cents = this.parseFinalPriceCentavos(raw);
+                    if (cents === null) {
+                        input.value = raw;
+                        return;
+                    }
+                    input.value = this.formatFinalPriceCentavos(cents);
                 });
             },
             finishDetailLoadWith(data, orderType, cacheKey) {
@@ -10001,8 +10051,12 @@ window.pfServiceFieldCatalog = (() => {
                 }
             },
             async setJobPrice(id) {
-                if(this.jobPriceInput < 0) return;
-                const priceValue = parseFloat(this.jobPriceInput);
+                const cents = this.parseFinalPriceCentavos(this.jobPriceInput);
+                if (cents === null) {
+                    this.setFooterActionError(this.finalPriceValidationMessage());
+                    return false;
+                }
+                const priceValue = cents / 100;
                 if (!await this.confirmFinalPriceIfBelowEstimate(priceValue)) return;
                 let jid = id != null ? id : await this.resolveEffectiveJobId();
                 if (!jid) {
@@ -10013,7 +10067,7 @@ window.pfServiceFieldCatalog = (() => {
                 fd.append('action', 'set_price');
                 fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                 fd.append('id', jid);
-                fd.append('price', this.jobPriceInput);
+                fd.append('price', priceValue.toFixed(2));
                 if (this.lastPriceOverrideConfirmed) fd.append('price_override_confirmed', '1');
                 const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                 if(!res.success) {
@@ -10029,7 +10083,8 @@ window.pfServiceFieldCatalog = (() => {
             // Inline "₱X.XX below estimated price" indicator for the Final Price field.
             get priceBelowEstimateLabel() {
                 const estimate = this.currentEstimatedPrice;
-                const entered = parseFloat(this.jobPriceInput);
+                const cents = this.parseFinalPriceCentavos(this.jobPriceInput);
+                const entered = cents === null ? NaN : cents / 100;
                 if (!(estimate > 0) || !Number.isFinite(entered) || !(entered < estimate)) return '';
                 const diff = estimate - entered;
                 return `₱${diff.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} below estimated price`;
@@ -10414,15 +10469,11 @@ window.pfServiceFieldCatalog = (() => {
             },
             async submitToPay() {
                 if (this.currentJo.order_type === 'CUSTOMIZATION') {
-                    if (this.isPosSetPriceFlow() && !this.isValidPosFinalPrice(this.jobPriceInput)) {
-                        this.setFooterActionError('Enter a positive final price with no more than two decimal places (maximum ₱9,999,999.99).');
+                    if (!this.isValidPosFinalPrice(this.jobPriceInput)) {
+                        this.setFooterActionError(this.finalPriceValidationMessage());
                         return;
                     }
-                    const priceValue = parseFloat(this.jobPriceInput);
-                    if (!priceValue || priceValue <= 0 || isNaN(priceValue)) {
-                        this.setFooterActionError('Please enter a valid final price before approving.');
-                        return;
-                    }
+                    const priceValue = this.parseFinalPriceCentavos(this.jobPriceInput) / 100;
                     if (!await this.confirmFinalPriceIfBelowEstimate(priceValue)) return;
                     const target = await this.getProductionAssignmentTarget();
                     if (!target.jobId) {
@@ -10558,7 +10609,7 @@ window.pfServiceFieldCatalog = (() => {
                         fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                         fd.append('id', this.currentJo.id);
                         fd.append('status', 'TO_PAY');
-                        fd.append('price', this.jobPriceInput);
+                        fd.append('price', priceValue.toFixed(2));
                         if (this.lastPriceOverrideConfirmed) fd.append('price_override_confirmed', '1');
                         const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
                         if (res.success) {
@@ -10590,15 +10641,11 @@ window.pfServiceFieldCatalog = (() => {
                     return;
                 }
                 const jid = target.jobId;
-                if (this.isPosSetPriceFlow() && !this.isValidPosFinalPrice(this.jobPriceInput)) {
-                    this.setFooterActionError('Enter a positive final price with no more than two decimal places (maximum ₱9,999,999.99).');
+                if (!this.isValidPosFinalPrice(this.jobPriceInput)) {
+                    this.setFooterActionError(this.finalPriceValidationMessage());
                     return;
                 }
-                const userEnteredPrice = parseFloat(this.jobPriceInput);
-                if (!Number.isFinite(userEnteredPrice) || userEnteredPrice <= 0) {
-                    this.setFooterActionError('Please enter a valid final price before submitting.');
-                    return;
-                }
+                const userEnteredPrice = this.parseFinalPriceCentavos(this.jobPriceInput) / 100;
                 if (!await this.confirmFinalPriceIfBelowEstimate(userEnteredPrice)) return;
                 const urlParams = new URLSearchParams(window.location.search);
                 const returnToPOS = urlParams.get('return_to_pos') === '1';
@@ -10823,14 +10870,14 @@ window.pfServiceFieldCatalog = (() => {
                 if (this._priceSaveInFlight) {
                     return false;
                 }
-                const jid = this.effectiveJobId();
-                const oid = this.currentJo.order_id || this.currentJo.id;
-                const price = parseFloat(this.jobPriceInput);
-                
-                if (!price || price <= 0) {
-                    this.showStaffAlert('Invalid Price', 'Please enter a valid price greater than 0.');
+                const cents = this.parseFinalPriceCentavos(this.jobPriceInput);
+                if (cents === null) {
+                    this.setFooterActionError(this.finalPriceValidationMessage());
                     return false;
                 }
+                const jid = this.effectiveJobId();
+                const oid = this.currentJo.order_id || this.currentJo.id;
+                const price = cents / 100;
                 if (!await this.confirmFinalPriceIfBelowEstimate(price)) return false;
                 const priceOverrideFlag = this.lastPriceOverrideConfirmed;
 
@@ -10841,7 +10888,7 @@ window.pfServiceFieldCatalog = (() => {
                        fd.append('action', 'update_order_price');
                        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                        fd.append('order_id', oid);
-                       fd.append('price', price);
+                       fd.append('price', price.toFixed(2));
                        if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
                        const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                        if (!res.success) {
@@ -10862,7 +10909,7 @@ window.pfServiceFieldCatalog = (() => {
                        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                        fd.append('id', oid);
                        fd.append('status', 'APPROVED');
-                       fd.append('price', price);
+                       fd.append('price', price.toFixed(2));
                        if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
                        const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                        if (!res.success) {
@@ -10892,14 +10939,18 @@ window.pfServiceFieldCatalog = (() => {
 
             async setJobPrice(jid) {
                 if (!jid) return false;
-                const price = parseFloat(this.jobPriceInput);
-                if (!price || price <= 0) return false;
+                const cents = this.parseFinalPriceCentavos(this.jobPriceInput);
+                if (cents === null) {
+                    this.setFooterActionError(this.finalPriceValidationMessage());
+                    return false;
+                }
+                const price = cents / 100;
                 
                 const fd = new FormData();
                 fd.append('action', 'set_price');
                 fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                 fd.append('id', jid);
-                fd.append('price', price);
+                fd.append('price', price.toFixed(2));
                 const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                 if (res.success) {
                     this.currentJo.final_price = price;

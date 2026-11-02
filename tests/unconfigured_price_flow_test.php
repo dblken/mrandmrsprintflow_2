@@ -86,6 +86,6 @@ $check(strpos($customerOrder, 'pf-missing-estimate-continue') === false, 'custom
 $check(!str_contains($estimator, 'no configured price yet') && !str_contains($cart, 'no configured price yet') && !str_contains($pos, 'pos-unconfigured-price-note'), 'the ordering page no longer shows an inline missing-price message');
 $check(str_contains($customerOrder, 'specificationHasEstimatedPrice') && str_contains($customerOrder, 'syncCustomerZeroPriceNote'), 'customer page shows guidance when estimated price is 0 without blocking submit');
 $check(str_contains($payment, 'total_to_pay <= 0'), 'payment stays blocked while the order total is not a valid price');
-$check(str_contains($priceApi, 'Price must be a valid amount of at least PHP 1.00'), 'Staff cannot save a zero or negative final price');
+$check(str_contains($priceApi, 'PHP 0.01 to PHP 9,999,999.99') && str_contains($priceApi, 'two decimal places'), 'Staff final-price mutations enforce the positive range and two-decimal limit');
 
 echo "Unconfigured price flow: {$passed} assertions passed.\n";

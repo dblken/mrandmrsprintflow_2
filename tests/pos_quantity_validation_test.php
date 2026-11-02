@@ -79,13 +79,23 @@ foreach (['', ' ', ' 2 ', "2\n", '0', '000', '-1', '+1', '1.5', '1e3', '1E3', 'a
 
 echo "POS quantity validation tests passed.\n";
 
-$validPrices = ['100' => 100.0, '200.50' => 200.5, '1500.99' => 1500.99, 100 => 100.0];
+$validPrices = [
+    '0.01' => 0.01,
+    '100' => 100.0,
+    '200.50' => 200.5,
+    '1,000.00' => 1000.0,
+    '10,000.00' => 10000.0,
+    '250,000.50' => 250000.5,
+    '1,000,000.00' => 1000000.0,
+    '9,999,999.99' => 9999999.99,
+    100 => 100.0,
+];
 foreach ($validPrices as $input => $expected) {
     if (printflow_pos_parse_final_price($input) !== $expected) {
         throw new RuntimeException('A valid final price was rejected or changed.');
     }
 }
-foreach (['', '0', '-100', 'abc', '200.999', '10000000', '1e2', NAN, INF, null, true] as $input) {
+foreach (['', '0', '0.00', '-100', '-0.01', 'abc', '200.999', '200.000', '10000000', '10,000,000.00', '1,00', '1,,000', '1e2', NAN, INF, null, true] as $input) {
     try {
         printflow_pos_parse_final_price($input);
     } catch (InvalidArgumentException $error) {

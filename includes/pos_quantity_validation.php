@@ -68,20 +68,25 @@ function printflow_pos_parse_cart_quantity($value): int
     return $quantity;
 }
 
-/** Strict POS service selling price: exact positive cents within DECIMAL(9,2). */
+/** Strict final selling price: exact positive cents within DECIMAL(9,2). */
 function printflow_pos_parse_final_price($value): float
 {
     if (!is_string($value) && !is_int($value) && !is_float($value)) {
-        throw new InvalidArgumentException('Enter a valid final price with no more than two decimal places.');
+        throw new InvalidArgumentException('Enter a final price from PHP 0.01 to PHP 9,999,999.99 with no more than two decimal places.');
     }
     $raw = trim((string)$value);
-    if (!preg_match('/^(?:0|[1-9][0-9]{0,6})(?:\.[0-9]{1,2})?$/', $raw)) {
-        throw new InvalidArgumentException('Enter a valid final price with no more than two decimal places.');
+    $error = 'Enter a final price from PHP 0.01 to PHP 9,999,999.99 with no more than two decimal places.';
+    if (!preg_match('/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/', $raw)) {
+        throw new InvalidArgumentException($error);
     }
-    [$whole, $fraction] = array_pad(explode('.', $raw, 2), 2, '');
+    $normalized = str_replace(',', '', $raw);
+    [$whole, $fraction] = array_pad(explode('.', $normalized, 2), 2, '');
+    $whole = ltrim($whole, '0');
+    if ($whole === '') $whole = '0';
+    if (strlen($whole) > 7) throw new InvalidArgumentException($error);
     $centavos = ((int)$whole * 100) + (int)str_pad($fraction, 2, '0');
-    if ($centavos < 100) {
-        throw new InvalidArgumentException('Final price must be at least PHP 1.00.');
+    if ($centavos < 1 || $centavos > 999999999) {
+        throw new InvalidArgumentException($error);
     }
     return $centavos / 100;
 }

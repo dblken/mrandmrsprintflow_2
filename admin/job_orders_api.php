@@ -338,9 +338,22 @@ function jo_api_require_staff_mutation(): void {
 
 /** Convert a staff-entered decimal amount to an exact two-decimal value. */
 function jo_api_parse_final_price($rawPrice): float {
-    $centavos = printflow_money_to_centavos($rawPrice);
-    if ($centavos < 100) {
-        throw new InvalidArgumentException('Price must be a valid amount of at least PHP 1.00 with no more than two decimal places.');
+    $error = 'Enter a final price from PHP 0.01 to PHP 9,999,999.99 with no more than two decimal places.';
+    if (!is_scalar($rawPrice)) {
+        throw new InvalidArgumentException($error);
+    }
+    $raw = trim((string)$rawPrice);
+    if (!preg_match('/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/', $raw)) {
+        throw new InvalidArgumentException($error);
+    }
+    $normalized = str_replace(',', '', $raw);
+    [$whole, $fraction] = array_pad(explode('.', $normalized, 2), 2, null);
+    $whole = ltrim($whole, '0');
+    if ($whole === '') $whole = '0';
+    $normalized = $whole . ($fraction !== null ? '.' . $fraction : '');
+    $centavos = printflow_money_to_centavos($normalized);
+    if ($centavos < 1 || $centavos > 999999999) {
+        throw new InvalidArgumentException($error);
     }
     return $centavos / 100;
 }

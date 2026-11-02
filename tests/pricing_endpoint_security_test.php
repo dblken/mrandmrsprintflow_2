@@ -55,8 +55,10 @@ pricing_security_assert(
     'customization mutations enforce linked-order branch ownership'
 );
 pricing_security_assert(
-    strpos($api, 'printflow_money_to_centavos($rawPrice)') !== false,
-    'final prices are parsed as exact centavos instead of permissive floats'
+    strpos($api, 'printflow_money_to_centavos($normalized)') !== false
+        && strpos($api, "(?:\\d+|\\d{1,3}(?:,\\d{3})+)") !== false
+        && strpos($api, '$centavos > 999999999') !== false,
+    'final prices validate comma grouping and bounds before exact-centavo parsing'
 );
 pricing_security_assert(
     strpos($api, 'printflow_paymongo_online_payment_enabled()') !== false
