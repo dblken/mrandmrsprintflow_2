@@ -90,7 +90,8 @@ function pf_ledger_normalize_uom(?string $uom, ?string $categoryName = null): st
     }
 
     if ($normalized === 'btl') return 'l';
-    if (in_array($normalized, ['pcs', 'ft', 'l'], true)) return $normalized;
+    if ($normalized === 'sheets') $normalized = 'sheet';
+    if (in_array($normalized, ['pcs', 'sheet', 'ft', 'l'], true)) return $normalized;
     return 'pcs';
 }
 
@@ -99,6 +100,7 @@ function pf_ledger_uom_label(string $uom): string {
         'ft' => 'Feet (ft)',
         'l' => 'Liters (L)',
         'pcs' => 'Pieces (pcs)',
+        'sheet' => 'Sheet',
         default => strtoupper($uom),
     };
 }

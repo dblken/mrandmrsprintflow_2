@@ -63,7 +63,8 @@ function normalize_inventory_api_uom(string $unit, int $categoryId = 0): string 
         }
     }
 
-    return in_array($normalized, ['pcs', 'ft', 'l'], true) ? $normalized : 'pcs';
+    if ($normalized === 'sheets') $normalized = 'sheet';
+    return in_array($normalized, ['pcs', 'sheet', 'ft', 'l'], true) ? $normalized : 'pcs';
 }
 
 try {

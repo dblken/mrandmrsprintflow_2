@@ -883,7 +883,7 @@ $completed_jobs = db_query("SELECT COUNT(*) as count FROM job_orders jo WHERE st
                     item_id: this.newMaterialId,
                     name: item.name,
                     qty: this.newMaterialQty,
-                    uom: this.isSticker(this.newMaterialId) ? 'pcs' : (item.unit_of_measure || 'pcs'),
+                    uom: item.unit_of_measure || 'pcs',
                     roll_id: this.newMaterialRollId || '',
                     notes: this.newMaterialNotes,
                     metadata: meta
@@ -944,7 +944,7 @@ $completed_jobs = db_query("SELECT COUNT(*) as count FROM job_orders jo WHERE st
                 fd.append('order_id', this.currentJo.id);
                 fd.append('item_id', this.newMaterialId);
                 fd.append('quantity', this.newMaterialQty);
-                fd.append('uom', this.isSticker(this.newMaterialId) ? 'pcs' : (item.unit_of_measure || 'pcs'));
+                fd.append('uom', item.unit_of_measure || 'pcs');
                 fd.append('roll_id', this.newMaterialRollId);
                 fd.append('notes', this.newMaterialNotes);
                 
