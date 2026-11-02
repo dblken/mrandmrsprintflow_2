@@ -1,15 +1,21 @@
 # Unpaid Product Order Retention
 
-`cron/cleanup_expired_product_orders.php` permanently removes only online
-product orders which remain unpaid and have been in **Awaiting Payment** for
-24 hours, or have been **Expired** for 24 hours. The cleanup rechecks the
-current order and payment ledger while holding row locks immediately before
-deleting. Paid/active orders, payment submissions, and orders with product
-stock-out movements are protected.
+`cron/cleanup_expired_product_orders.php` permanently removes online product
+orders that remain unpaid and have been in **Awaiting Payment** or **Expired**
+for **more than 24 hours**. The cleanup rechecks the current order and payment
+ledger while holding row locks immediately before deleting. Payment status
+values indicating success and active/successful order statuses are protected.
+Payment submissions, linked job records, and inventory movement rows do not
+block removal of an otherwise eligible order. The cleanup deletes the order
+and its existing order-owned rows handled by `printflow_expired_product_order_delete_single()`;
+separately stored payment-submission, job-order, and inventory-ledger rows are
+retained as records and are not themselves deleted by this cleanup.
 
 ## Clock and timestamps
 
-Age comparisons use MySQL `NOW()` and `DATE_SUB(..., INTERVAL 24 HOUR)`. The
+Age comparisons use MySQL `NOW()` and a strict `< DATE_SUB(..., INTERVAL 24 HOUR)`
+condition: an order is retained at exactly 24 hours and becomes eligible after
+it is older than 24 hours. The
 application DB connection sets the MySQL session timezone to `+08:00`
 (Asia/Manila). Awaiting Payment age is measured from `orders.order_date`,
 which online order creation writes with `NOW()`. Expired age uses the payment
@@ -40,9 +46,9 @@ if deletion is delayed or fails.
 ## Review and verification
 
 Before production rollout, verify the live columns and table engines for
-`orders`, `provider_payments`, `provider_payment_status_history`,
-`inventory_transactions`, and `payment_submissions`. The deletion transaction
-requires transactional tables for all dependent order rows that it removes.
+`orders`, `provider_payments`, and `provider_payment_status_history`. The
+deletion transaction requires transactional tables for all dependent order
+rows that it removes.
 After deployment, run the scheduled command manually once, inspect its
 database clock and counts, and confirm a disposable test order at each time
 boundary before enabling the recurring schedule. Do not use a real customer

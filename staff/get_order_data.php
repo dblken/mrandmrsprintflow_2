@@ -166,7 +166,7 @@ $branchFilter = printflow_branch_filter_for_user();
 $staffOrderScopeSql = (get_user_type() === 'Staff') ? printflow_staff_order_source_sql('o') : '1=1';
 $retentionOnlineScopeSql = printflow_staff_order_source_sql('o', 'online');
 $overdueProductOrderSql = "(o.order_type = 'product' AND {$retentionOnlineScopeSql} AND "
-    . printflow_expired_product_order_retention_eligible_sql('o') . ')';
+    . printflow_expired_product_order_overdue_for_display_sql('o') . ')';
 $customerColumns = staff_order_data_columns('customers');
 $productColumns = staff_order_data_columns('products');
 

@@ -5,8 +5,8 @@
  *
  * All deadlines are evaluated by MySQL NOW(). includes/db.php configures the
  * database session to +08:00 (Asia/Manila), so the cron and page fallback use
- * the same clock. Paid, active, payment-review, fulfilled, or stock-issued
- * orders are never eligible for removal.
+ * the same clock. Only verified successful payments and active/successful
+ * order statuses protect an overdue unpaid order from removal.
  */
 
 require_once __DIR__ . '/provider_payments.php';
@@ -114,19 +114,10 @@ function printflow_expired_product_order_retention_schema_safe(): bool
             return false;
         }
     }
-    foreach (['ref_type', 'ref_id', 'direction'] as $column) {
-        if (!db_table_has_column('inventory_transactions', $column)) {
-            return false;
-        }
-    }
     if (!printflow_expired_product_order_provider_schema_safe()) {
         return false;
     }
     if (!printflow_expired_product_order_transactional_tables_safe()) {
-        return false;
-    }
-    if (!empty(db_query("SHOW TABLES LIKE 'payment_submissions'"))
-        && !db_table_has_column('payment_submissions', 'order_id')) {
         return false;
     }
     $hasExpiredTimestamp = db_table_has_column('orders', 'updated_at')
@@ -183,36 +174,20 @@ function printflow_expired_product_order_paid_protection_sql(string $oAlias = 'o
         SELECT 1 FROM provider_payments pp_paid
         WHERE pp_paid.subject_type = 'order'
           AND pp_paid.subject_id = {$oAlias}.order_id
-          AND pp_paid.status = 'paid'
+          AND LOWER(TRIM(COALESCE(pp_paid.status, ''))) = 'paid'
     )";
 }
 
-function printflow_expired_product_order_payment_proof_protection_sql(string $oAlias = 'o'): string
-{
-    static $tableExists = null;
-    if ($tableExists === null) {
-        $tableExists = !empty(db_query("SHOW TABLES LIKE 'payment_submissions'"));
-    }
-    if ($tableExists
-        && !db_table_has_column('payment_submissions', 'order_id')) {
-        return '0=1';
-    }
-    if (!db_table_has_column('payment_submissions', 'order_id')) {
-        return '1=1';
-    }
-    return "NOT EXISTS (
-        SELECT 1 FROM payment_submissions ps_protect
-        WHERE ps_protect.order_id = {$oAlias}.order_id
-    )";
-}
-
-/** Payment state that qualifies for the grace period; this does not include failed/cancelled attempts. */
-function printflow_expired_product_order_unpaid_expired_sql(string $oAlias = 'o'): string
+/**
+ * Payment/order states that can age out of staff-facing lists. This predicate
+ * deliberately excludes successful payments, but does not include payment
+ * submissions, linked job records, or inventory movement rows as blockers.
+ */
+function printflow_expired_product_order_unpaid_expired_state_sql(string $oAlias = 'o'): string
 {
     if (!db_table_has_column('orders', 'order_date')
-        || !db_table_has_column('inventory_transactions', 'ref_type')
-        || !db_table_has_column('inventory_transactions', 'ref_id')
-        || !db_table_has_column('inventory_transactions', 'direction')
+        || !db_table_has_column('orders', 'status')
+        || !db_table_has_column('orders', 'payment_status')
         || !printflow_expired_product_order_provider_schema_safe()) {
         return '0=1';
     }
@@ -222,50 +197,45 @@ function printflow_expired_product_order_unpaid_expired_sql(string $oAlias = 'o'
     $providerStatus = $hasProviderTable
         ? "({$latestStatus})"
         : 'NULL';
-    $expiredState = "(
-        LOWER(TRIM(COALESCE({$oAlias}.status, ''))) = 'expired'
-        OR {$providerStatus} = 'expired'
+    $rawStatus = "LOWER(TRIM(COALESCE({$oAlias}.status, '')))";
+    // Successful/ongoing order states always win over a stale payment ledger.
+    $activeOrderStatus = "{$rawStatus} NOT IN (
+        'paid', 'payment confirmed', 'processing', 'in production', 'printing',
+        'approved', 'approved design', 'ready for pickup', 'to pickup',
+        'to pick up', 'completed', 'delivered', 'cancelled'
     )";
+    $latestId = printflow_expired_product_order_latest_payment_expr($oAlias, 'id');
+    $expiredState = $hasProviderTable
+        ? "(({$latestStatus}) = 'expired' OR (({$latestId}) IS NULL AND {$rawStatus} = 'expired'))"
+        : "({$rawStatus} = 'expired')";
     $latestProviderAbsent = $hasProviderTable
-        ? "{$latestStatus} IS NULL"
+        ? "({$latestId}) IS NULL"
         : '1=1';
     $awaitingState = "(
         {$providerStatus} = 'awaiting_payment'
         OR ({$latestProviderAbsent}
-            AND LOWER(TRIM(COALESCE({$oAlias}.status, ''))) IN ('to pay', 'awaiting payment'))
+            AND {$rawStatus} IN ('to pay', 'awaiting payment'))
     )";
 
-    // Allowlist the only raw order states known to represent unpaid checkout.
-    // Unknown/new statuses remain protected by default.
-    $eligibleOrderStatuses = "LOWER(TRIM(COALESCE({$oAlias}.status, ''))) IN (
-        'pending', 'to pay', 'awaiting payment', 'expired'
-    )";
-    $unpaidOrder = "LOWER(TRIM(COALESCE({$oAlias}.payment_status, ''))) NOT IN ('paid', 'fully paid')";
-    $noInventoryOut = "NOT EXISTS (
-        SELECT 1 FROM inventory_transactions it
-        WHERE UPPER(TRIM(COALESCE(it.ref_type, ''))) IN ('ORDER', 'ORDER_PRODUCT')
-          AND it.ref_id = {$oAlias}.order_id
-          AND UPPER(TRIM(COALESCE(it.direction, ''))) = 'OUT'
-    )";
-    $noJobOrders = db_table_has_column('job_orders', 'order_id')
-        ? "NOT EXISTS (SELECT 1 FROM job_orders jo_protect WHERE jo_protect.order_id = {$oAlias}.order_id)"
-        : '1=1';
+    $unpaidOrder = "LOWER(TRIM(COALESCE({$oAlias}.payment_status, ''))) NOT IN ('paid', 'fully paid', 'success', 'successful', 'succeeded')";
     $noPaidLedger = printflow_expired_product_order_paid_protection_sql($oAlias);
-    $noPaymentProof = printflow_expired_product_order_payment_proof_protection_sql($oAlias);
 
-    return "({$eligibleOrderStatuses})
+    return "({$activeOrderStatus})
         AND ({$unpaidOrder})
-        AND ({$noInventoryOut})
-        AND ({$noJobOrders})
         AND ({$noPaidLedger})
-        AND ({$noPaymentProof})
         AND (({$expiredState}) OR ({$awaitingState}))";
+}
+
+/** Payment/order state that qualifies for physical deletion after its grace period. */
+function printflow_expired_product_order_unpaid_expired_sql(string $oAlias = 'o'): string
+{
+    return printflow_expired_product_order_unpaid_expired_state_sql($oAlias);
 }
 
 /** Awaiting Payment ages from the DATETIME order_date set with NOW() at online order creation. */
 function printflow_expired_product_order_awaiting_age_sql(string $oAlias = 'o'): string
 {
-    return "{$oAlias}.order_date <= DATE_SUB(NOW(), INTERVAL 24 HOUR)";
+    return "{$oAlias}.order_date < DATE_SUB(NOW(), INTERVAL 24 HOUR)";
 }
 
 /**
@@ -300,7 +270,7 @@ function printflow_expired_product_order_expired_age_sql(string $oAlias = 'o'): 
         THEN {$providerExpiredAt}
         ELSE {$rawOrderExpiredAt}
     END";
-    return "{$expiredAt} <= DATE_SUB(NOW(), INTERVAL 24 HOUR)";
+    return "{$expiredAt} < DATE_SUB(NOW(), INTERVAL 24 HOUR)";
 }
 
 /** Orders eligible for permanent cleanup after 24 hours in Awaiting Payment or Expired. */
@@ -311,11 +281,14 @@ function printflow_expired_product_order_retention_eligible_sql(string $oAlias =
     $expiredDue = '(' . printflow_expired_product_order_expired_age_sql($oAlias) . ')';
     $latestStatus = printflow_expired_product_order_latest_payment_expr($oAlias, 'status');
     $hasProviderTable = printflow_expired_product_order_provider_table_exists();
-    $expiredState = "(LOWER(TRIM(COALESCE({$oAlias}.status, ''))) = 'expired'"
-        . ($hasProviderTable ? " OR ({$latestStatus}) = 'expired'" : '') . ')';
+    $rawStatus = "LOWER(TRIM(COALESCE({$oAlias}.status, '')))";
+    $latestId = printflow_expired_product_order_latest_payment_expr($oAlias, 'id');
+    $expiredState = $hasProviderTable
+        ? "(({$latestStatus}) = 'expired' OR (({$latestId}) IS NULL AND {$rawStatus} = 'expired'))"
+        : "({$rawStatus} = 'expired')";
     $awaitingState = $hasProviderTable
-        ? "(({$latestStatus}) = 'awaiting_payment' OR (({$latestStatus}) IS NULL AND LOWER(TRIM(COALESCE({$oAlias}.status, ''))) IN ('to pay', 'awaiting payment')))"
-        : "(LOWER(TRIM(COALESCE({$oAlias}.status, ''))) IN ('to pay', 'awaiting payment'))";
+        ? "(({$latestStatus}) = 'awaiting_payment' OR (({$latestId}) IS NULL AND {$rawStatus} IN ('to pay', 'awaiting payment')))"
+        : "({$rawStatus} IN ('to pay', 'awaiting payment'))";
 
     return "({$state}) AND (
         (({$expiredState}) AND {$expiredDue})
@@ -337,9 +310,31 @@ function printflow_expired_product_order_archived_sql(string $oAlias = 'o'): str
 }
 
 /** Prevent overdue unpaid orders from appearing if deletion is delayed or fails. */
+function printflow_expired_product_order_overdue_for_display_sql(string $oAlias = 'o'): string
+{
+    $state = printflow_expired_product_order_unpaid_expired_state_sql($oAlias);
+    if ($state === '0=1') {
+        return '0=1';
+    }
+
+    $latestStatus = printflow_expired_product_order_latest_payment_expr($oAlias, 'status');
+    $hasProviderTable = printflow_expired_product_order_provider_table_exists();
+    $expiredState = "(LOWER(TRIM(COALESCE({$oAlias}.status, ''))) = 'expired'"
+        . ($hasProviderTable ? " OR ({$latestStatus}) = 'expired'" : '') . ')';
+    $awaitingState = $hasProviderTable
+        ? "(({$latestStatus}) = 'awaiting_payment' OR (({$latestStatus}) IS NULL AND LOWER(TRIM(COALESCE({$oAlias}.status, ''))) IN ('to pay', 'awaiting payment')))"
+        : "(LOWER(TRIM(COALESCE({$oAlias}.status, ''))) IN ('to pay', 'awaiting payment'))";
+
+    return "({$state}) AND (
+        (({$expiredState}) AND (" . printflow_expired_product_order_expired_age_sql($oAlias) . "))
+        OR (({$awaitingState}) AND (" . printflow_expired_product_order_awaiting_age_sql($oAlias) . "))
+    )";
+}
+
+/** Hide overdue unpaid orders from active lists even when deletion is guarded. */
 function printflow_expired_product_order_exclude_archived_sql(string $oAlias = 'o'): string
 {
-    return 'NOT (' . printflow_expired_product_order_retention_eligible_sql($oAlias) . ')';
+    return 'NOT (' . printflow_expired_product_order_overdue_for_display_sql($oAlias) . ')';
 }
 
 /** Expired unpaid orders remain visible only during their first 24 hours expired. */
@@ -539,7 +534,7 @@ function printflow_expired_product_order_cleanup(?int $branchId = null, int $lim
     $schemaErrorsBefore = printflow_expired_product_order_db_error_count();
     if (!printflow_expired_product_order_retention_schema_safe()
         || printflow_expired_product_order_db_error_count() > $schemaErrorsBefore) {
-        error_log('[expired_product_order_retention] required order/payment/inventory timestamp schema is incomplete; cleanup failed closed.');
+        error_log('[expired_product_order_retention] required order/payment timestamp schema is incomplete; cleanup failed closed.');
         return ['ok' => false, 'eligible_count' => 0, 'deleted_count' => 0, 'skipped_count' => 0, 'failed_count' => 0, 'order_ids' => []];
     }
 

@@ -18,7 +18,7 @@ $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_i
 $staffOrderScopeSql = printflow_staff_order_source_sql('o');
 $retentionOnlineScopeSql = printflow_staff_order_source_sql('o', 'online');
 $overdueProductOrderSql = "(o.order_type = 'product' AND {$retentionOnlineScopeSql} AND "
-    . printflow_expired_product_order_retention_eligible_sql('o') . ')';
+    . printflow_expired_product_order_overdue_for_display_sql('o') . ')';
 $staffAccessMeta = printflow_get_staff_access_meta();
 if (($staffAccessMeta['key'] ?? '') === 'online'
     && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
