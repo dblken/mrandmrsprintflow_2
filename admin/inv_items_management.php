@@ -1431,7 +1431,7 @@ if (isset($_GET['ajax'])) {
                 <div class="form-row-grid">
                     <div class="form-group" id="fg-itemUnit">
                         <label for="itemUnit">Unit of Measure (UOM) <span id="autoTagUom" style="font-size:10px; color:#9ca3af; font-weight:normal;">(Auto-generated)</span></label>
-                        <select id="itemUnit" name="unit" onchange="handleUomChange()" class="w-100 locked-select pf-field-auto" disabled aria-readonly="true" tabindex="-1">
+                        <select id="itemUnit" name="unit" onchange="handleUomChange()" class="w-100">
                             <option value="">Select Category First</option>
                             <option value="pcs">Pieces (pcs)</option>
                             <option value="ft">Feet (ft)</option>
@@ -1794,9 +1794,9 @@ if (isset($_GET['ajax'])) {
             }
         }
 
-        applyLocked(uomEl, true);
+        applyLocked(uomEl, false);
         applyLocked(trackEl, true);
-        applyLocked(catEl, isEdit);
+        applyLocked(catEl, false);
         if (minEl) minEl.classList.add('pf-field-auto');
         if (critEl) critEl.classList.add('pf-field-auto');
     }
