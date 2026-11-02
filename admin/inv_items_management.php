@@ -3881,6 +3881,17 @@ if (isset($_GET['ajax'])) {
             return;
         }
 
+        const isEdit = document.getElementById('actionType')?.value === 'update_item';
+        const stockDisplay = document.getElementById('itemCurrentStock')?.value || '';
+        const originalUomMatch = stockDisplay.match(/\s(PCS|FT|L)$/i);
+        const currentUom = String(document.getElementById('itemUnit')?.value || '').toUpperCase();
+        if (isEdit && originalUomMatch && originalUomMatch[1].toUpperCase() !== currentUom) {
+            const confirmed = window.confirm(
+                'Change this item\'s UOM? Existing stock quantities and ledger history will keep their numeric values and will be displayed using the new UOM. Confirm only if that is intended.'
+            );
+            if (!confirmed) return;
+        }
+
         const btn = document.getElementById('saveBtn');
         const originalText = btn.textContent;
         btn.disabled = true;

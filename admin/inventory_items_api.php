@@ -224,18 +224,15 @@ try {
                 $existingItem = InventoryManager::getItem($id) ?: [];
                 $existingUnit = normalize_inventory_api_uom((string)($existingItem['unit_of_measure'] ?? ''), (int)($existingItem['category_id'] ?? 0));
                 if ($existingItem && $unit !== $existingUnit) {
-                    // UOM changes reinterpret all existing quantities and ledger entries.
-                    // Check every branch so a branch-scoped admin cannot change units
-                    // while another branch still holds stock for this item.
-                    if (!empty($existingItem['track_by_roll'])) {
-                        $stockRows = db_query("SELECT COALESCE(SUM(remaining_length_ft), 0) AS stock FROM inv_rolls WHERE item_id = ? AND status = 'OPEN'", 'i', [$id]);
-                    } else {
-                        $stockRows = db_query("SELECT COALESCE(SUM(IF(direction='IN', quantity, -quantity)), 0) AS stock FROM inventory_transactions WHERE item_id = ? AND UPPER(COALESCE(ref_type, '')) NOT IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT', 'ORDER')", 'i', [$id]);
-                    }
-                    if ((float)($stockRows[0]['stock'] ?? 0) > 0) {
-                        http_response_code(400);
-                        echo json_encode(['success' => false, 'errors' => ['unit' => 'UOM cannot be changed while stock exists in any branch. Receive out or use up all stock first.']]);
-                        exit;
+                    // Keep the existing tracking model when stock exists. Switching
+                    // pcs/liter ledger items to roll tracking (or back) would orphan
+                    // their existing stock records. The UI asks for confirmation
+                    // because quantities and history will be shown in the new UOM.
+                    $allBranchStockRows = !empty($existingItem['track_by_roll'])
+                        ? db_query("SELECT COALESCE(SUM(remaining_length_ft), 0) AS stock FROM inv_rolls WHERE item_id = ? AND status = 'OPEN'", 'i', [$id])
+                        : db_query("SELECT COALESCE(SUM(IF(direction='IN', quantity, -quantity)), 0) AS stock FROM inventory_transactions WHERE item_id = ? AND UPPER(COALESCE(ref_type, '')) NOT IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT', 'ORDER')", 'i', [$id]);
+                    if ((float)($allBranchStockRows[0]['stock'] ?? 0) > 0) {
+                        $track_by_roll = (int)($existingItem['track_by_roll'] ?? 0);
                     }
                 }
                 $status = in_array(sanitize($_POST['status'] ?? ''), ['ACTIVE', 'INACTIVE']) ? sanitize($_POST['status']) : 'ACTIVE';
