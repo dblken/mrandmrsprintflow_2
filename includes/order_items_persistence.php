@@ -619,9 +619,17 @@ if (!function_exists('printflow_tag_order_item_identity')) {
         if (!is_array($custom)) {
             $custom = [];
         }
-        $catalogProduct = function_exists('customer_orders_custom_order_is_catalog_product')
-            && customer_orders_custom_order_is_catalog_product($custom);
         $sourcePage = strtolower(trim((string)($custom['source_page'] ?? '')));
+        $source = strtolower(trim((string)($custom['source'] ?? '')));
+        // Checkout stores the originating catalog page on the order line.
+        // That persisted source is more reliable than a legacy service_type
+        // display label which may also appear in a product's option data.
+        $catalogProduct = in_array($sourcePage, ['products', 'product'], true)
+            && !in_array($source, ['service', 'services', 'pos'], true);
+        if (!$catalogProduct) {
+            $catalogProduct = function_exists('customer_orders_custom_order_is_catalog_product')
+                && customer_orders_custom_order_is_catalog_product($custom);
+        }
         $isService = !$catalogProduct && (
             in_array($sourcePage, ['service', 'services'], true)
             || strtolower(trim((string)($custom['source'] ?? ''))) === 'service'
