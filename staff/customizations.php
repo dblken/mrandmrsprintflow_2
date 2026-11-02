@@ -8351,11 +8351,12 @@ window.pfServiceFieldCatalog = (() => {
             },
             materialStatusLabel(item) {
                 const state = item.compatibility || this.materialClassification(item);
-                if (!state.inStock && (state.tier === 'recommended' || state.tier === 'optional')) return 'Out of stock';
                 const stockStatus = item.stock_status && String(item.stock_status.label || '').trim();
                 const stockSuffix = stockStatus && !['In Stock', 'Out of Stock'].includes(stockStatus) ? ` · ${stockStatus}` : '';
-                if (state.tier === 'recommended') return `Recommended${stockSuffix}`;
-                if (state.tier === 'optional') return `Optional${stockSuffix}`;
+                const classificationLabel = window.PrintFlowProductionMaterials
+                    ? window.PrintFlowProductionMaterials.statusLabel(state)
+                    : '';
+                if (classificationLabel) return `${classificationLabel}${stockSuffix}`;
                 if (state.tier === 'unverified') return 'Usage not verified';
                 return state.reason || 'Not applicable';
             },

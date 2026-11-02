@@ -8,6 +8,22 @@
     const COLORS = '(?:BLACK|BLUE|GOLD|GREEN|ORANGE|PINK|RED|SILVER|WHITE|YELLOW)';
     const PLATE_VARIANTS = '(?:EURO|HOME|MC|NMC|PH|THAI)';
     const TIER_ORDER = { recommended: 0, optional: 1, unrelated: 2, unverified: 3 };
+    const SERVICE_RULE_TYPE_ALIASES = {
+        36: [
+            'Decals/Stickers (Print/Cut)',
+            'Decals / Stickers (Print/Cut)',
+            'Decals / Stickers (Print & Cut)',
+            'Stickers/Decals'
+        ]
+    };
+    const SERVICE_RULE_IDENTITY_ALIASES = {
+        36: [
+            'Decals/Stickers (Print/Cut)',
+            'Decals / Stickers (Print/Cut)',
+            'Decals / Stickers (Print & Cut)',
+            'Stickers/Decals', 'Stickers /Decals'
+        ]
+    };
     const HTV_NAMES = new Set([
         'HOLOGRAPHIC', 'MATTE BLACK', 'MAROON', 'CREAM', 'BROWN', 'DARK BROWN',
         'GOLD CHROME', 'GOLD', 'SILVER CHROME', 'SILVER', 'GRAY', 'RASPBERRY',
@@ -223,17 +239,37 @@
     }
 
     function matchingContextRule(item, context, rules) {
-        const candidates = [
+        let candidates = [
             context && context.serviceType,
             context && context.serviceName,
             context && context.serviceLabel,
             context && context.serviceCategory
         ].map(normalize).filter(Boolean);
+        const serviceId = Number(context && context.serviceId);
+        if (serviceId === 36) {
+            const identityValues = [context && context.serviceType, context && context.serviceName]
+                .map(normalize).filter(Boolean);
+            const knownIdentities = (SERVICE_RULE_IDENTITY_ALIASES[serviceId] || []).map(normalize);
+            if (!identityValues.length || identityValues.some(identity => !knownIdentities.includes(identity))) return null;
+            // Prefer canonical service-specific rows and avoid generic category
+            // labels that can collide with rules belonging to other services.
+            candidates = [...(SERVICE_RULE_TYPE_ALIASES[serviceId] || []).map(normalize), ...identityValues];
+        }
         for (const candidate of candidates) {
             const rule = matchingRule(item, candidate, rules);
             if (rule) return rule;
         }
         return null;
+    }
+
+    function statusLabel(state) {
+        if (!state || !['recommended', 'optional'].includes(state.tier)) return '';
+        const classification = state.ruleType === 'REQUIRED'
+            ? 'Required'
+            : state.ruleType === 'OPTIONAL' || state.tier === 'optional'
+                ? 'Optional'
+                : 'Recommended';
+        return state.inStock === false ? classification + ' · Out of stock' : classification;
     }
 
     function classifyItem(item, context, rules) {
@@ -250,7 +286,7 @@
         if (serviceKind === 'sintraboard' && (normalizedItemName === 'AC MC' || normalizedItemName === 'SP MC')) {
             return {
                 tier: 'unrelated', family, selectable: false, directSelectable: false,
-                overrideable: false, inStock: Number.parseFloat(item && item.current_stock) > 0,
+                overrideable: false, inStock: Number.parseFloat(item && item.current_stock) > 0, ruleType: '',
                 reason: 'This material is configured for Plates, not Sintraboard Standees.', serviceKind
             };
         }
@@ -324,7 +360,10 @@
             : tier === 'unrelated'
                 ? 'Not suggested for ' + serviceLabel
                 : tier === 'optional' ? 'Optional / related material' : 'Recommended for this job';
-        return { tier, family, selectable, directSelectable, overrideable, inStock, reason, serviceKind };
+        return {
+            tier, family, selectable, directSelectable, overrideable, inStock, reason, serviceKind,
+            ruleType: exactRuleType === 'REQUIRED' || exactRuleType === 'OPTIONAL' ? exactRuleType : ''
+        };
     }
 
     function descriptionFor(item) {
@@ -521,7 +560,7 @@
     }
 
     return {
-        normalize, materialText, familyFor, canonicalCategoryKind, classifyServiceFromName, classifyService, classifyItem,
+        normalize, materialText, familyFor, canonicalCategoryKind, classifyServiceFromName, classifyService, classifyItem, statusLabel,
         descriptionFor, searchScore, rankItems, inkModeFor, tarpaulinRollWidthFor, calculateTarpaulinLinearLength, getAutoSelectCandidate
     };
 });
