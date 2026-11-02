@@ -7304,6 +7304,9 @@ window.pfServiceFieldCatalog = (() => {
                     ? normalized
                     : this.staffFilterSpecsByServiceForm(normalized, item);
                 specs = this.staffDeduplicateDisplaySpecRows(specs);
+                if (isDetail) {
+                    specs = this.staffHideOrderDetailDesignFeeSpecs(specs);
+                }
 
                 const entries = Object.entries(specs).filter(([k, v]) => {
                     if (this.staffCustomizationIsInternalKey(k)) return false;
@@ -7323,6 +7326,20 @@ window.pfServiceFieldCatalog = (() => {
                 });
 
                 return { source: sourceCustom, enriched: enrichedCustom, normalized: specs, entries };
+            },
+            staffHideOrderDetailDesignFeeSpecs(specs) {
+                if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return {};
+                const hiddenFeeTokens = new Set([
+                    'calculated_design_fee', 'calculateddesignfee',
+                    'design_fee', 'designfee',
+                    'design_fee_version', 'designfeeversion'
+                ]);
+                Object.keys(specs).forEach((label) => {
+                    if (hiddenFeeTokens.has(this.staffCustomizationKeyToken(label))) {
+                        delete specs[label];
+                    }
+                });
+                return specs;
             },
             getDisplayableCustom(custom, item = null) {
                 return this.staffBuildItemDisplaySpecs(custom, item).entries;

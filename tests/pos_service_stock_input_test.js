@@ -12,13 +12,28 @@ assert.match(source, /Number\(serviceId\) === 36\s*\?\s*'Insufficient material s
     'Sticker/Decals stock failures remain blocking without exposing available or required quantities');
 assert.match(source, /Insufficient \$\{issue\.name \|\| 'material'\} stock\. Available:/,
     'Other services keep their existing material availability warning');
+assert.match(source, /<div class="sm-footer-inner">[\s\S]*?<div class="sm-footer-buttons">[\s\S]*?<\/div>\s*<\/div>\s*<div id="pos-service-stock-feedback"/,
+    'stock feedback is outside the stable Estimated Price and button row');
+const footerCssStart = source.indexOf('#service-modal-overlay .sm-footer-inner {');
+const footerCssEnd = source.indexOf('\n        }', footerCssStart);
+assert.ok(footerCssStart >= 0 && footerCssEnd > footerCssStart, 'footer layout rule exists');
+assert.doesNotMatch(source.slice(footerCssStart, footerCssEnd), /flex-wrap/,
+    'stock feedback visibility cannot cause the price and action row to flex-wrap');
 const collectStart = source.indexOf('        function posCollectServiceStockCustomization() {');
 const validateStart = source.indexOf('        async function posValidateServiceStockNow(', collectStart);
 const bindStart = source.indexOf('        function posBindServiceStockValidation(serviceId) {', validateStart);
+const disposeStart = source.indexOf('        function posDisposeServiceStockValidationListeners() {');
 const end = source.indexOf('        function pfLayoutOptionCanonical(', bindStart);
-assert.ok(collectStart >= 0 && validateStart > collectStart && bindStart > validateStart && end > bindStart, 'service stock collection and binding functions are present');
+assert.ok(collectStart >= 0 && validateStart > collectStart && bindStart > validateStart && disposeStart >= 0 && end > bindStart, 'service stock collection, cleanup, and binding functions are present');
 
 const callbacks = {};
+const listenerOptions = {};
+const listenerCounts = {};
+const validationControllers = [];
+class TestAbortController {
+    constructor() { this.signal = {}; this.aborted = false; validationControllers.push(this); }
+    abort() { this.aborted = true; }
+}
 const buttons = [{ listeners: {} }, { listeners: {} }];
 const widthHidden = { name: 'width', type: 'hidden', dataset: { dimensionRole: 'width' }, value: '3' };
 const heightHidden = { name: 'height', type: 'hidden', dataset: { dimensionRole: 'height' }, value: '4' };
@@ -58,7 +73,11 @@ const branchField = { name: 'branch_id', value: '5', type: 'hidden', dataset: {}
 const fieldsBody = {
     listeners: {},
     contains(node) { return node === input; },
-    addEventListener(name, callback) { this.listeners[name] = callback; },
+    addEventListener(name, callback, options) {
+        this.listeners[name] = callback;
+        listenerOptions[name] = options;
+        listenerCounts[name] = (listenerCounts[name] || 0) + 1;
+    },
     querySelectorAll(selector) {
         if (selector.includes('data-dimension-role')) return [widthHidden, heightHidden];
         return [input, dimensionWidth, dimensionHeight, finishOption, branchField, widthHidden, heightHidden];
@@ -108,12 +127,14 @@ context = vm.createContext({
     clearTimeout() {},
     posServiceStockRequestTimer: null,
     posServiceStockRequestVersion: 0,
+    posServiceStockValidationController: null,
     posServiceStockBlocking: false,
+    AbortController: TestAbortController,
     posServiceStockRequestVersion: 0,
     isAddingToOrder: false
 });
 
-vm.runInContext(source.slice(collectStart, validateStart) + source.slice(bindStart, end), context);
+vm.runInContext(source.slice(disposeStart, collectStart) + source.slice(collectStart, validateStart) + source.slice(bindStart, end), context);
 const customization = context.posCollectServiceStockCustomization();
 assert.equal(customization.width, '3', 'stock preview captures current width');
 assert.equal(customization.height, '4', 'stock preview captures current height');
@@ -138,6 +159,10 @@ timers.shift()();
 assert.deepEqual(validations.shift().slice(0, 2), [42, '4'], 'typed quantity validates through the existing request path');
 
 context.posBindServiceStockValidation(40);
+assert.equal(listenerCounts.input, 2, 'each service modal opening registers one delegated stock input handler');
+assert.equal(listenerCounts.change, 2, 'each service modal opening registers one delegated stock change handler');
+assert.equal(validationControllers[0].aborted, true, 'opening another service modal aborts the prior delegated validation listeners');
+assert.equal(listenerOptions.input.signal, listenerOptions.change.signal, 'input and change handlers share the current modal listener lifetime');
 const initialTarpaulinRequest = validations.shift();
 assert.equal(initialTarpaulinRequest[0], 40, 'Tarpaulin validates when the modal opens.');
 assert.equal(initialTarpaulinRequest[2].width, '', 'The initial request preserves a blank width until a size is selected.');

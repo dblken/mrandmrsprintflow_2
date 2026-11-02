@@ -355,7 +355,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             justify-content: space-between;
             gap: 16px;
             width: 100%;
-            flex-wrap: wrap;
         }
 
         #service-modal-overlay .pos-estimated-price-display {
@@ -444,7 +443,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             outline-offset: 2px;
         }
 
-        @media (max-width: 560px) {
+        @media (max-width: 600px) {
             #service-modal-overlay .sm-footer-inner {
                 flex-direction: column;
                 align-items: stretch;
@@ -3137,14 +3136,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         <div id="pos-estimated-total" class="pos-est-price-amount">₱0.00</div>
                         <div class="pos-est-price-meta">Based on selected options · Qty <span id="pos-qty-display">1</span></div>
                     </div>
-                    <div id="pos-service-stock-feedback" style="display:none; flex:1 0 100%; margin-top:8px; font-size:12px; line-height:1.4;" aria-live="polite">
-                        <div id="pos-service-stock-indicator" style="color:#475569;font-weight:700;"></div>
-                        <div id="pos-service-stock-warning" style="color:#b91c1c;font-weight:700;"></div>
-                    </div>
                     <div class="sm-footer-buttons">
                         <button type="button" class="sm-btn-cancel" onclick="closeServiceModal()">Cancel</button>
                         <button type="button" id="sm-add-to-order-btn" class="sm-btn-add" onclick="confirmServiceModal()">Add to Order</button>
                     </div>
+                </div>
+                <div id="pos-service-stock-feedback" style="display:none; margin-top:8px; font-size:12px; line-height:1.4;" aria-live="polite">
+                    <div id="pos-service-stock-indicator" style="color:#475569;font-weight:700;"></div>
+                    <div id="pos-service-stock-warning" style="color:#b91c1c;font-weight:700;"></div>
                 </div>
             </div>
         </div>
@@ -3384,6 +3383,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         let isPreparingServiceOrder = false;
         let posServiceStockRequestVersion = 0;
         let posServiceStockRequestTimer = null;
+        let posServiceStockValidationController = null;
         let posServiceStockBlocking = false;
         let posEstimatedPriceController = null;
         const STAFF_BASE_PATH = <?php echo json_encode(BASE_PATH); ?>;
@@ -4706,6 +4706,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const body = document.getElementById('sm-fields-body');
             const footerActions = document.getElementById('sm-footer-actions');
 
+            posDisposeServiceStockValidationListeners();
             destroyPosEstimatedPrice();
             posServiceStockBlocking = true;
             const stockFeedback = document.getElementById('pos-service-stock-feedback');
@@ -4791,6 +4792,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function closeServiceModal() {
             isAddingToOrder = false;
             setServiceAddButtonBusy(false);
+            posDisposeServiceStockValidationListeners();
             destroyPosEstimatedPrice();
             const body = document.getElementById('sm-fields-body');
             if (body) body.innerHTML = '';
@@ -5272,6 +5274,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             setServiceAddButtonBusy(isAddingToOrder);
         }
 
+        function posDisposeServiceStockValidationListeners() {
+            if (posServiceStockValidationController) {
+                posServiceStockValidationController.abort();
+                posServiceStockValidationController = null;
+            }
+            if (posServiceStockRequestTimer) {
+                clearTimeout(posServiceStockRequestTimer);
+                posServiceStockRequestTimer = null;
+            }
+            posServiceStockRequestVersion += 1;
+        }
+
         function posCollectServiceStockCustomization() {
             const body = document.getElementById('sm-fields-body');
             const customization = {};
@@ -5444,6 +5458,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         function posBindServiceStockValidation(serviceId) {
+            posDisposeServiceStockValidationListeners();
+            posServiceStockValidationController = new AbortController();
             const input = posServiceQuantityInput();
             const body = document.getElementById('sm-fields-body');
             const scheduleValidation = () => {
@@ -5481,10 +5497,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (body) {
                 body.addEventListener('input', (event) => {
                     if (event.target !== input && event.target.matches('input, select, textarea')) scheduleValidation();
-                });
+                }, { signal: posServiceStockValidationController.signal });
                 body.addEventListener('change', (event) => {
                     if (event.target !== input && event.target.matches('input, select, textarea')) scheduleValidation();
-                });
+                }, { signal: posServiceStockValidationController.signal });
                 if (Number(serviceId) === 40) {
                     body.addEventListener('click', (event) => {
                         const target = event.target;
@@ -5492,7 +5508,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             && target.closest('.shopee-opt-btn[data-dimension-choice], .shopee-opt-btn[data-dimension-others]')) {
                             scheduleValidation();
                         }
-                    });
+                    }, { signal: posServiceStockValidationController.signal });
                 }
             }
             const pricing = resolveServiceModalPricing();

@@ -93,6 +93,30 @@ assert(adminPage.includes("item?.display_dimensions"), 'Admin modal dimensions m
 assert(!adminPage.includes("const hideMaterial = new Set(['Material', 'Material Type', 'Temp Plate Material']);"), 'Admin preserves explicit submitted material fields');
 const displayBuilder = extractMethod('staffBuildItemDisplaySpecs', 'custom, item = null, options = {}');
 assert(!/currentJo\.status|COMPLETED|PENDING/.test(displayBuilder), 'pending and completed rows use the same specification path');
+assert.match(page, /specs = this\.staffDeduplicateDisplaySpecRows\(specs\);\s*if \(isDetail\)\s*\{\s*specs = this\.staffHideOrderDetailDesignFeeSpecs\(specs\);/,
+    'design fee fields are filtered only in the Custom Orders detail specification path');
+const hideDesignFeeMethod = extractMethod('staffHideOrderDetailDesignFeeSpecs', 'specs');
+const staffHideOrderDetailDesignFeeSpecs = new Function(`return ({${hideDesignFeeMethod}}).staffHideOrderDetailDesignFeeSpecs`)();
+const feeSpecHelpers = {
+    staffCustomizationKeyToken(value) { return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''); }
+};
+const feeSpecs = {
+    'Calculated Design Fee': '200.00',
+    'Design Fee': '200.00',
+    'Design Fee Version': '1',
+    Quantity: '2',
+    Layout: 'without_layout',
+    Dimensions: '2 x 3 ft',
+    'Needed Date': 'Nov 2, 2026',
+    'Order Priority': 'Urgent'
+};
+const feeSpecsAfterDetailFilter = staffHideOrderDetailDesignFeeSpecs.call(feeSpecHelpers, feeSpecs);
+for (const feeLabel of ['Calculated Design Fee', 'Design Fee', 'Design Fee Version']) {
+    assert(!Object.hasOwn(feeSpecsAfterDetailFilter, feeLabel), `${feeLabel} is hidden from Order Details`);
+}
+for (const detailLabel of ['Quantity', 'Layout', 'Dimensions', 'Needed Date', 'Order Priority']) {
+    assert(Object.hasOwn(feeSpecsAfterDetailFilter, detailLabel), `${detailLabel} remains visible in Order Details`);
+}
 assert(page.includes('const submittedSpecs = {') && page.includes('const submittedTokens = new Set(Object.keys(submittedSpecs)'), 'staff specifications only retain material from the selected item payload');
 assert(orderModalApi.includes("'linked_order_item_id' => $displayOrderItemId > 0 ? $displayOrderItemId : null"), 'API returns the item identity used to bind its service and specs');
 
