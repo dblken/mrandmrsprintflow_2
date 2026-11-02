@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const source = fs.readFileSync(path.join(__dirname, '../staff/customizations.php'), 'utf8');
+assert.match(source, /Number\(currentJo\.estimated_total \|\| 0\)\.toLocaleString\('en-US', \{minimumFractionDigits: 2, maximumFractionDigits: 2\}\)/,
+    'estimated total display is fixed to two decimal places');
 const scripts = [...source.matchAll(/<script>([\s\S]*?)<\/script>/g)];
 assert.ok(scripts.length >= 2, 'Staff Custom Orders main script exists');
 const script = scripts[1][1].replace(/<\?php[\s\S]*?\?>/g, 'null');
@@ -63,8 +65,21 @@ assert.equal(input.selectionStart, 5, 'the caret follows the same significant ch
 input.value = '1,00';
 input.selectionStart = 4;
 priceUi.handleJobPriceInput({ target: input });
-assert.equal(input.value, '1,00', 'incorrect comma grouping remains visible instead of being reinterpreted');
-assert.equal(priceUi.isValidPosFinalPrice(priceUi.jobPriceInput), false, 'incorrect comma grouping remains invalid');
+assert.equal(input.value, '100', 'editing a grouped value normalizes leftover commas');
+assert.equal(priceUi.jobPriceInput, '100', 'the normalized model contains no grouping characters');
+assert.equal(priceUi.isValidPosFinalPrice(priceUi.jobPriceInput), true, 'the edited numeric value remains valid');
+
+input.value = '1,24';
+input.selectionStart = 3;
+priceUi.handleJobPriceInput({ target: input });
+assert.equal(input.value, '124', 'deleting a digit next to an inserted comma does not strand malformed grouping');
+assert.equal(input.selectionStart, 2, 'the caret remains after the same significant digits after normalization');
+
+const integerBlurInput = { value: '400' };
+priceUi.jobPriceInput = '400';
+priceUi.formatJobPriceInputOnBlur({ target: integerBlurInput });
+assert.equal(integerBlurInput.value, '400.00', 'blur formats an integer price to two decimal places');
+assert.equal(priceUi.jobPriceInput, '400.00', 'formatted integer remains the same numeric amount');
 
 const blurInput = { value: '250000.5' };
 priceUi.jobPriceInput = '250000.5';

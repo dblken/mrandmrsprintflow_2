@@ -3287,7 +3287,7 @@ $online_closed_count = 0;
                             <label style="font-size:11px;font-weight:700;color:#1e40af;text-transform:uppercase;display:block;margin-bottom:12px;">Step 3: Awaiting Payment</label>
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
                                 <div style="font-size:14px; font-weight:500; color:#1e40af;">Total Outstanding:</div>
-                                <div style="font-size:20px; font-weight:800; color:#1e40af;" x-text="'₱' + Number(currentJo.estimated_total || 0).toLocaleString()"></div>
+                                <div style="font-size:20px; font-weight:800; color:#1e40af;" x-text="'₱' + Number(currentJo.estimated_total || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></div>
                             </div>
                             <div style="font-size:13px; color:#1e40af; line-height:1.5;"><?php echo htmlspecialchars($staffOnlinePaymentMessage, ENT_QUOTES, 'UTF-8'); ?></div>
                             <?php if ($paymongoOnlineEnabled): ?>
@@ -5009,11 +5009,6 @@ window.pfServiceFieldCatalog = (() => {
                     this.jobPriceInput = value;
                     return;
                 }
-                if (value.includes(',') && !/^\d{1,3}(?:,\d{3})+(?:\.\d*)?$/.test(value)) {
-                    this.jobPriceInput = value;
-                    return;
-                }
-
                 const [whole, fraction] = ungrouped.split('.', 2);
                 const groupedWhole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
                 const formatted = fraction === undefined ? groupedWhole : groupedWhole + '.' + fraction;
