@@ -1373,7 +1373,7 @@ if (in_array($order['status'], ['Completed', 'To Rate', 'Rated'], true)) {
 
 $order['_receipt_paid_at'] = $payment_paid_at_raw;
 $order['_receipt_payment_method'] = $payment_method_display;
-$is_ready_made_product = !$is_service_order && printflow_is_ready_made_product_order($order);
+$is_ready_made_product = printflow_is_ready_made_product_order($order);
 $paid_waiting_label = printflow_customer_paid_order_waiting_label(
     (string)($order['status'] ?? ''),
     $payment_received,
@@ -1388,7 +1388,7 @@ if ($paid_waiting_label !== '') {
 // claimable immediately after provider-confirmed payment; they do not wait
 // for a production status transition.
 $receipt_available = $is_ready_made_product
-    ? $provider_is_paid
+    ? printflow_customer_ready_made_receipt_is_available($order, $provider_payment, $items)
     : printflow_customer_receipt_is_available((string)($order['status'] ?? ''), $payment_status);
 $receipt_payload = $receipt_available
     ? customer_receipt_build_payload($order, $items_out, $payment_status)

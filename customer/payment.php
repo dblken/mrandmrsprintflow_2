@@ -455,7 +455,9 @@ $paid_waiting_label = printflow_customer_paid_order_waiting_label(
     true,
     $is_ready_made_product
 );
-$paid_status_label = $paid_waiting_label !== '' ? $paid_waiting_label : (string)$order_status;
+$paid_status_label = ($is_ready_made_product && $is_paid_ui)
+    ? 'Paid'
+    : ($paid_waiting_label !== '' ? $paid_waiting_label : (string)$order_status);
 $paymongo_public = !empty($paymongo_payment)
     ? printflow_provider_payment_public($paymongo_payment, true)
     : [];
@@ -1094,6 +1096,10 @@ if (!function_exists('pf_payment_qr_url')) {
                             <div style="font-size:1.45rem;font-weight:900;color:#eaf6fb;margin:10px 0;">Amount Paid: <?php echo format_currency($total_amount); ?></div>
                             <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Payment method: <?php echo htmlspecialchars((string)($order['payment_method'] ?? 'GCash')); ?></p>
                             <p style="color:#9fc4d4;font-size:.875rem;"><strong style="color:#eaf6fb;">Status: Payment Approved.</strong><br>Your order is proceeding through production.</p>
+                            <div class="payment-confirmed-actions">
+                                <?php if ($is_ready_made_product): ?><button type="button" id="payment-download-receipt" class="paymongo-action paymongo-action-secondary" onclick="downloadPaymentReceipt()">Download Receipt</button><?php endif; ?>
+                                <a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="paymongo-action paymongo-action-secondary">View Order Details</a>
+                            </div>
                         <?php endif; ?>
                         <?php if (($paymongo_payment['status'] ?? '') !== 'paid'): ?><a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="paymongo-action paymongo-action-secondary" style="margin-top:1rem;">View Order Details</a><?php endif; ?>
                     </div>
