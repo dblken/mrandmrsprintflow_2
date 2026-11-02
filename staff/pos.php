@@ -5422,11 +5422,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
                 const materials = Array.isArray(validation.materials) ? validation.materials : [];
                 const formatQty = value => String(Number(value || 0));
-                const indicator = [40, 63].includes(Number(serviceId)) ? '' : materials.map(material => `${material.name}: ${formatQty(material.available)} ${material.uom || 'units'} available · ${formatQty(material.required)} required`).join(' | ');
+                const hideMaterialAvailability = [36, 40, 63].includes(Number(serviceId));
+                const indicator = hideMaterialAvailability ? '' : materials.map(material => `${material.name}: ${formatQty(material.available)} ${material.uom || 'units'} available · ${formatQty(material.required)} required`).join(' | ');
                 const issues = Array.isArray(validation.issues) ? validation.issues : [];
                 if (!validation.ok || issues.length) {
                     const issue = issues[0] || {};
-                    const message = `Insufficient ${issue.name || 'material'} stock. Available: ${formatQty(issue.available)} ${issue.uom || 'units'}. Required: ${formatQty(issue.required)} ${issue.uom || 'units'}.`;
+                    const message = Number(serviceId) === 36
+                        ? 'Insufficient material stock for this quantity. Reduce the quantity or contact an administrator.'
+                        : `Insufficient ${issue.name || 'material'} stock. Available: ${formatQty(issue.available)} ${issue.uom || 'units'}. Required: ${formatQty(issue.required)} ${issue.uom || 'units'}.`;
                     posSetServiceStockState(true, indicator, message);
                     return { valid: false, message };
                 }

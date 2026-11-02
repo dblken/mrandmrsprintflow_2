@@ -6,7 +6,12 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(require('node:path').join(__dirname, '../staff/pos.php'), 'utf8');
 assert.match(source, /posSetServiceStockState\(false, '', ''\)/, 'a successful validation displays no material list or stock quantities');
-assert.match(source, /posSetServiceStockState\(true, indicator, message\)/, 'a stock warning retains the material availability details needed to explain the block');
+assert.match(source, /posSetServiceStockState\(true, indicator, message\)/, 'a stock warning still uses the stock validation result and service-scoped message');
+assert.match(source, /const hideMaterialAvailability = \[36, 40, 63\]\.includes\(Number\(serviceId\)\);/, 'availability text is suppressed only for Sticker/Decals (36) and existing special cases (40, 63)');
+assert.match(source, /Number\(serviceId\) === 36\s*\?\s*'Insufficient material stock for this quantity\. Reduce the quantity or contact an administrator\.'/,
+    'Sticker/Decals stock failures remain blocking without exposing available or required quantities');
+assert.match(source, /Insufficient \$\{issue\.name \|\| 'material'\} stock\. Available:/,
+    'Other services keep their existing material availability warning');
 const collectStart = source.indexOf('        function posCollectServiceStockCustomization() {');
 const validateStart = source.indexOf('        async function posValidateServiceStockNow(', collectStart);
 const bindStart = source.indexOf('        function posBindServiceStockValidation(serviceId) {', validateStart);
