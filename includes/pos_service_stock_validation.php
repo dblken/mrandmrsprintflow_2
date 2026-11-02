@@ -5,33 +5,12 @@
  */
 
 require_once __DIR__ . '/InventoryManager.php';
+require_once __DIR__ . '/roll_branch_scope.php';
 require_once __DIR__ . '/JobOrderService.php';
 require_once __DIR__ . '/pos_quantity_validation.php';
+require_once __DIR__ . '/pos_service_stock_helpers.php';
 require_once __DIR__ . '/pos_mugs_release_rule.php';
 require_once __DIR__ . '/tarpaulin_material_calculation.php';
-
-/** Aggregate demand without allowing a malformed Tarpaulin length to pass. */
-function printflow_pos_service_stock_add_demand(array &$demand, int $itemId, float $quantity, string $name, string $uom): void
-{
-    if ($itemId <= 0 || !is_finite($quantity) || $quantity <= 0) {
-        throw new RuntimeException('The required POS service material quantity could not be accumulated.');
-    }
-    if (!isset($demand[$itemId])) $demand[$itemId] = ['quantity' => 0.0, 'name' => $name, 'uom' => $uom];
-    $demand[$itemId]['quantity'] += $quantity;
-}
-
-function printflow_pos_service_required_material_quantity($serviceQuantity, $multiplier): float
-{
-    $qty = printflow_pos_parse_positive_quantity($serviceQuantity);
-    if (!is_numeric($multiplier) || !is_finite((float)$multiplier) || (float)$multiplier <= 0) {
-        throw new InvalidArgumentException('A required material consumption ratio is not configured.');
-    }
-    $required = $qty * (float)$multiplier;
-    if (!is_finite($required) || $required <= 0) {
-        throw new InvalidArgumentException('The required material quantity could not be calculated.');
-    }
-    return $required;
-}
 
 /** Read open rolls without invoking InventoryManager's schema-ensure helper. */
 function printflow_pos_tarpaulin_open_rolls(int $itemId, int $branchId): array
@@ -40,11 +19,7 @@ function printflow_pos_tarpaulin_open_rolls(int $itemId, int $branchId): array
         || !db_table_has_column('inv_rolls', 'branch_id')) {
         throw new RuntimeException('Branch-scoped Tarpaulin roll inventory is unavailable; no schema changes were attempted.');
     }
-    if (InventoryManager::isMainBranch($branchId)) {
-        $branchSql = ' AND (branch_id = ? OR branch_id IS NULL OR branch_id <= 0)';
-    } else {
-        $branchSql = ' AND branch_id = ?';
-    }
+    [$branchSql] = printflow_roll_branch_sql('branch_id', $branchId);
     $rows = db_query(
         "SELECT id, roll_code, remaining_length_ft, received_at, status FROM inv_rolls WHERE item_id = ? AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC, id ASC",
         'ii',
@@ -133,7 +108,7 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
     return $resolved;
 }
 
-function printflow_pos_service_stock_rules(int $serviceId, array $customization): array
+function printflow_pos_service_stock_rules(int $serviceId, array $customization, bool $hasAssignedMaterials = false): array
 {
     if ($serviceId <= 0) {
         throw new RuntimeException('The POS service could not be identified for stock validation.');
@@ -159,8 +134,10 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization)
         }
         $service = $productRows[0] ?? [];
     }
-    // The owner confirmed this active service/material pair and 1:1 rule.
-    // Resolve the live catalog item, then use the existing generic stock path.
+
+    // The owner has explicitly confirmed this exact active service/material
+    // rule. It is validated against the live catalog item and then consumed
+    // through the same generic branch-stock aggregation as all assignments.
     if ($serviceId === 63) {
         return printflow_pos_mugs_release_material_rule(
             $serviceId,
@@ -168,6 +145,8 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization)
             InventoryManager::getItem(37)
         ) ?? [];
     }
+    // Tarpaulin consumption is resolved from dimensions and a compatible roll,
+    // not from the incomplete service_material_rules multiplier schema.
     if ($serviceId === 40) return [];
 
     $serviceType = JobOrderService::inferServiceTypeFromProduct(
@@ -188,46 +167,80 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization)
             if ($knownTypes !== []) $serviceType = $requestedType;
         }
     }
+    $canonicalServiceType = printflow_pos_canonical_service_material_type($serviceId, $serviceType);
+    if ($canonicalServiceType !== null) $serviceType = $canonicalServiceType;
+    printflow_pos_assert_service_material_type($serviceId, $serviceType);
     if ($serviceType === '') {
         return [];
     }
 
+    $hasMultiplierColumn = function_exists('db_table_has_column')
+        && db_table_has_column('service_material_rules', 'qty_multiplier', true);
+    $hasMultiplierApprovalColumn = function_exists('db_table_has_column')
+        && db_table_has_column('service_material_rules', 'qty_multiplier_approved', true);
+    $hasApproverColumn = function_exists('db_table_has_column')
+        && db_table_has_column('service_material_rules', 'qty_multiplier_approved_by', true);
+    $hasApprovalTimestampColumn = function_exists('db_table_has_column')
+        && db_table_has_column('service_material_rules', 'qty_multiplier_approved_at', true);
+    printflow_pos_assert_service_stock_multiplier_schema(
+        $hasMultiplierColumn,
+        $hasMultiplierApprovalColumn,
+        $hasApproverColumn,
+        $hasApprovalTimestampColumn
+    );
+
     $errorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+    $ruleTypes = printflow_pos_service_material_type_aliases($serviceId);
+    if ($ruleTypes === []) $ruleTypes = [$serviceType];
+    $placeholders = implode(',', array_fill(0, count($ruleTypes), '?'));
     $rules = db_query(
-        "SELECT r.item_id, r.rule_type, r.qty_multiplier,
+        "SELECT r.item_id, r.rule_type, r.qty_multiplier, r.qty_multiplier_approved,
+                r.qty_multiplier_approved_by, r.qty_multiplier_approved_at, r.service_type,
                 i.name AS item_name, i.unit_of_measure, i.track_by_roll, i.status AS item_status
          FROM service_material_rules r
          LEFT JOIN inv_items i ON i.id = r.item_id
-         WHERE r.service_type = ?
-         ORDER BY r.item_id ASC",
-        's',
-        [$serviceType]
+         WHERE r.service_type IN ({$placeholders})
+         ORDER BY r.service_type ASC, r.item_id ASC",
+        str_repeat('s', count($ruleTypes)),
+        $ruleTypes
     );
     if ($rules === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $errorCount)) {
         throw new RuntimeException('The POS service material rules could not be loaded.');
     }
+    $rules = printflow_pos_select_service_material_rule_set($serviceId, $rules ?: []);
 
     $required = [];
     foreach ($rules ?: [] as $rule) {
         if (strtoupper(trim((string)($rule['rule_type'] ?? 'REQUIRED'))) !== 'REQUIRED') continue;
+        $conflict = printflow_pos_known_service_material_conflict(
+            (string)($rule['service_type'] ?? $serviceType),
+            (string)($rule['item_name'] ?? '')
+        );
+        if ($conflict !== null) throw new RuntimeException($conflict);
         $itemId = (int)($rule['item_id'] ?? 0);
-        $multiplier = $rule['qty_multiplier'] ?? null;
-        if ($itemId <= 0 || trim((string)($rule['item_status'] ?? '')) !== 'ACTIVE'
-            || $multiplier === null || !is_numeric($multiplier) || (float)$multiplier <= 0) {
+        if ($itemId <= 0 || trim((string)($rule['item_status'] ?? '')) !== 'ACTIVE') {
             throw new RuntimeException('A required material mapping for ' . $serviceType . ' is incomplete. Contact an administrator before adding this service.');
         }
+        $multiplier = printflow_pos_approved_service_multiplier(
+            $rule['qty_multiplier'] ?? null,
+            $rule['qty_multiplier_approved'] ?? null,
+            $rule['qty_multiplier_approved_by'] ?? null,
+            $rule['qty_multiplier_approved_at'] ?? null
+        );
         $required[] = [
             'item_id' => $itemId,
             'name' => (string)($rule['item_name'] ?? ('Material #' . $itemId)),
             'uom' => (string)($rule['unit_of_measure'] ?? 'pcs'),
             'track_by_roll' => !empty($rule['track_by_roll']),
-            'multiplier' => (float)$multiplier,
+            'multiplier' => $multiplier,
             'service_type' => $serviceType,
         ];
     }
 
-    // Existing service availability semantics treat a service without rules as
-    // not inventory-tracked. Optional rules alone do not make a service tracked.
+    printflow_pos_assert_required_service_material_rule($serviceId, $serviceType, $required !== []);
+
+    // Existing behavior treats a service without required material rules as
+    // not inventory-tracked; configured required rules are validated above.
     return $required;
 }
 
@@ -268,6 +281,10 @@ function printflow_pos_service_line_job_materials(array $line): array
                     throw new RuntimeException('The versioned Tarpaulin material assignment has missing or ambiguous service identity.');
                 }
             }
+            $item = InventoryManager::getItem($itemId);
+            if ($itemId <= 0 || !$item || strtoupper((string)($item['status'] ?? 'ACTIVE')) !== 'ACTIVE') {
+                throw new RuntimeException('A selected POS material is no longer active. Refresh Set Price and try again.');
+            }
             if ($isVersionedTarpaulin) {
                 try {
                     $quantity = printflow_tarpaulin_positive_number($material['quantity'] ?? $material['qty'] ?? null, 'Material length');
@@ -276,14 +293,10 @@ function printflow_pos_service_line_job_materials(array $line): array
                 }
             } else {
                 try {
-                    $quantity = printflow_pos_parse_positive_quantity($material['quantity'] ?? $material['qty'] ?? null);
+                    $quantity = printflow_pos_parse_positive_material_quantity($material['quantity'] ?? $material['qty'] ?? null, $item);
                 } catch (InvalidArgumentException $error) {
-                    throw new RuntimeException('Material quantities must be positive whole numbers.');
+                    throw new RuntimeException('Material quantity must match its configured unit and consumption method.');
                 }
-            }
-            $item = InventoryManager::getItem($itemId);
-            if ($itemId <= 0 || !$item || strtoupper((string)($item['status'] ?? 'ACTIVE')) !== 'ACTIVE') {
-                throw new RuntimeException('A selected POS material is no longer active. Refresh Set Price and try again.');
             }
             $resolved[] = [
                 'item_id' => $itemId,
@@ -294,14 +307,14 @@ function printflow_pos_service_line_job_materials(array $line): array
             if (is_array($metadata)) {
                 $laminationId = (int)($metadata['lamination_item_id'] ?? 0);
                 if ($laminationId > 0) {
-                    try {
-                        $laminationQuantity = printflow_pos_parse_positive_quantity($metadata['lamination_length_ft'] ?? null);
-                    } catch (InvalidArgumentException $error) {
-                        throw new RuntimeException('Lamination material quantity must be a positive whole number.');
-                    }
                     $lamination = InventoryManager::getItem($laminationId);
                     if (!$lamination || strtoupper((string)($lamination['status'] ?? 'ACTIVE')) !== 'ACTIVE') {
                         throw new RuntimeException('The selected lamination material is no longer active.');
+                    }
+                    try {
+                        $laminationQuantity = printflow_pos_parse_positive_material_quantity($metadata['lamination_length_ft'] ?? null, $lamination);
+                    } catch (InvalidArgumentException $error) {
+                        throw new RuntimeException('Lamination material quantity must match its configured unit and consumption method.');
                     }
                     $resolved[] = [
                         'item_id' => $laminationId,
@@ -398,12 +411,8 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
         }
         $serviceId = $lineProductId === 40 ? 40 : (int)($customization['service_id'] ?? $lineProductId);
         $quantity = printflow_pos_parse_positive_quantity($line['qty'] ?? null);
-        $assigned = [];
-        $hasAssignedMaterials = false;
-        if ($serviceId === 40) {
-            $assigned = printflow_pos_service_line_job_materials($line);
-            $hasAssignedMaterials = $assigned !== [];
-        }
+        $assigned = printflow_pos_service_line_job_materials($line);
+        $hasAssignedMaterials = $assigned !== [];
         if ($serviceId === 40) {
             $resolved = printflow_pos_tarpaulin_selection($line, $branchId);
             if (empty($resolved['ok'])) {
@@ -465,7 +474,7 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
             printflow_pos_service_stock_add_demand($demand, $itemId, (float)$selection['required_linear_ft'], (string)$item['name'], 'Ft');
             continue;
         }
-        $rules = printflow_pos_service_stock_rules($serviceId, $customization);
+        $rules = printflow_pos_service_stock_rules($serviceId, $customization, $hasAssignedMaterials);
         if ($rules !== []) $tracked = true;
         if ($serviceId !== 40) $assigned = printflow_pos_service_line_job_materials($line);
 
@@ -506,10 +515,13 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
         foreach ($lineMinimums as $itemId => $minimum) {
             $lineQty = max((float)$minimum['quantity'], (float)($assignedById[$itemId] ?? 0));
             if ($lineQty <= 0) continue;
-            if (!isset($demand[$itemId])) {
-                $demand[$itemId] = ['quantity' => 0.0, 'name' => $minimum['name'], 'uom' => $minimum['uom']];
-            }
-            $demand[$itemId]['quantity'] += $lineQty;
+            printflow_pos_service_stock_add_demand(
+                $demand,
+                (int)$itemId,
+                $lineQty,
+                (string)$minimum['name'],
+                (string)$minimum['uom']
+            );
         }
     }
 
@@ -565,7 +577,7 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
             'available' => $available,
         ];
         $materials[] = $entry;
-        if (((float)$required['quantity'] > $available)) $issues[] = $entry;
+        if (printflow_pos_service_stock_exceeds_available((float)$required['quantity'], $available)) $issues[] = $entry;
     }
     return [
         'ok' => $issues === [],

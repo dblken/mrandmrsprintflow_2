@@ -6,6 +6,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
+require_once __DIR__ . '/../includes/service_material_rule_assignments.php';
 
 require_role(['Customer', 'Staff', 'Admin', 'Manager']); 
 header('Content-Type: application/json');
@@ -47,19 +48,42 @@ try {
 
             // 2. Map Service to Materials (using existing logic from admin API)
             require_once __DIR__ . '/../includes/ServiceAvailabilityChecker.php';
-            $materials_rules = db_query(
+            $materialRuleRows = db_query(
                 "SELECT item_id, rule_type FROM service_material_rules WHERE service_type = ?",
                 's', [$service]
-            ) ?: [];
-            
+            );
+            if ($materialRuleRows === false) throw new RuntimeException('Service material rules could not be loaded. No order was created.');
+            $hasRequiredRules = false;
+            $requiredRuleCount = 0;
+            foreach ($materialRuleRows as $rule) {
+                $ruleType = strtoupper(trim((string)($rule['rule_type'] ?? '')));
+                if ($ruleType === 'REQUIRED') { $hasRequiredRules = true; $requiredRuleCount++; }
+                elseif ($ruleType !== 'OPTIONAL') throw new RuntimeException('Service material configuration contains an unsupported rule type. No order was created.');
+            }
             $orderMaterials = [];
-            foreach ($materials_rules as $rule) {
-                $orderMaterials[] = [
-                    'item_id' => $rule['item_id'],
-                    'quantity' => $qty,
-                    'uom' => ($height > 0) ? 'ft' : 'pcs',
-                    'computed_len' => ($height > 0) ? ($height * $qty) : 0
-                ];
+            if ($hasRequiredRules) {
+                $hasMultiplier = function_exists('db_table_has_column') && db_table_has_column('service_material_rules', 'qty_multiplier', true);
+                $hasApproval = function_exists('db_table_has_column') && db_table_has_column('service_material_rules', 'qty_multiplier_approved', true);
+                $hasApprover = function_exists('db_table_has_column') && db_table_has_column('service_material_rules', 'qty_multiplier_approved_by', true);
+                $hasApprovalTimestamp = function_exists('db_table_has_column') && db_table_has_column('service_material_rules', 'qty_multiplier_approved_at', true);
+                printflow_pos_assert_service_stock_multiplier_schema(
+                    $hasMultiplier,
+                    $hasApproval,
+                    $hasApprover,
+                    $hasApprovalTimestamp
+                );
+                $requiredRules = db_query(
+                    "SELECT r.item_id, r.rule_type, r.qty_multiplier, r.qty_multiplier_approved,
+                            r.qty_multiplier_approved_by, r.qty_multiplier_approved_at,
+                            i.status AS item_status, i.name AS name
+                     FROM service_material_rules r
+                     LEFT JOIN inv_items i ON i.id = r.item_id
+                     WHERE r.service_type = ? AND UPPER(TRIM(r.rule_type)) = 'REQUIRED'",
+                    's', [$service]
+                );
+                if ($requiredRules === false) throw new RuntimeException('Required service material configuration could not be loaded. No order was created.');
+                if (count($requiredRules) !== $requiredRuleCount) throw new RuntimeException('Required service material configuration changed during validation. Refresh and retry; no order was created.');
+                $orderMaterials = printflow_build_approved_service_material_assignments($requiredRules, $qty, $height, $service);
             }
 
             // 3. Create Job Order

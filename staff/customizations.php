@@ -3204,7 +3204,8 @@ $online_closed_count = 0;
                                             <template x-for="(pm, idx) in pendingMaterials" :key="idx">
                                                 <div style="display:flex; align-items:center; justify-content:space-between; background:#f1f5f9; border-radius:8px; padding:8px 12px; font-size:12px; border:1px solid #e2e8f0; gap:10px;">
                                                     <div style="min-width:0;">
-                                                        <div style="font-weight:600; color:#1e293b;" x-text="pm.name"></div>
+                                                        <div style="font-weight:600; color:#1e293b;" x-text="pm.name + (pm.size_variant ? ' · ' + pm.size_variant : '')"></div>
+                                                        <div style="margin-top:3px;color:#64748b;font-size:11px;" x-text="materialUsageSummary(pm)"></div>
                                                         <template x-if="isTarpaulin(pm.item_id)">
                                                             <div style="display:flex;flex-wrap:wrap;gap:8px;color:#64748b;font-size:11px;margin-top:5px;">
                                                                 <label>Linear Ft:
@@ -3218,11 +3219,14 @@ $online_closed_count = 0;
                                                             </div>
                                                         </template>
                                                         <template x-if="!isTarpaulin(pm.item_id)">
-                                                            <label style="display:block;color:#64748b;font-size:11px;margin-top:5px;">Qty:
-                                                                <input type="number" min="1" step="any" x-model.number="pm.qty" aria-label="Material quantity"
+                                                            <label style="display:block;color:#334155;font-size:11px;margin-top:5px;font-weight:700;">Actual Usage:
+                                                                <input type="number" min="1" step="any" :value="pm.qty" @beforeinput="markPendingMaterialQtyEdit(pm, $event.target, $event)" @keydown="markPendingMaterialQtyKeyEdit(pm, $event.target, $event)" @keyup="clearPendingMaterialQtyKeyEdit($event.target)" @pointerdown="markPendingMaterialQtyPointerEdit(pm, $event.target, $event)" @pointerup="clearPendingMaterialQtyPointerEdit($event.target)" @pointercancel="clearPendingMaterialQtyPointerEdit($event.target)" @input="handlePendingMaterialQtyInput(pm, $event.target.value, $event.target, $event)" @blur="handlePendingMaterialQtyBlur(pm, $event.target, $event)" aria-label="Actual material usage quantity"
                                                                        style="width:72px;margin:0 3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
                                                                 <span x-text="pm.uom"></span>
                                                             </label>
+                                                            <div x-show="pm.manual_confirmation_required && !pm.manual_quantity_confirmed" style="margin-top:5px;color:#b45309;font-weight:700;">Review the actual usage, then confirm before saving.</div>
+                                                            <button type="button" x-show="pm.manual_confirmation_required && !pm.manual_quantity_confirmed" @click="confirmPendingMaterialUsage(pm)" style="margin-top:5px;border:1px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer;">Confirm Actual Usage</button>
+                                                            <button type="button" x-show="pm.estimated_qty !== null && pm.estimated_qty !== undefined" @click="recalculatePendingMaterial(idx)" style="margin:5px 0 0 5px;border:1px solid #cbd5e1;background:#fff;color:#475569;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;">Recalculate Estimate</button>
                                                         </template>
                                                     </div>
                                                     <button type="button" @click="removePendingMaterial(idx)" title="Remove material" aria-label="Remove material"
@@ -3254,35 +3258,18 @@ $online_closed_count = 0;
                                         <span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); font-weight:800; color:#0f766e; font-size:20px;">₱</span>
                                         <input type="text" 
                                                x-ref="jobPriceInput"
+                                               inputmode="decimal"
+                                               autocomplete="off"
+                                               aria-describedby="job-price-input-error"
                                                placeholder="0.00"
                                                x-effect="if (showDetailsModal) syncJobPriceInputField()"
-                                               x-on:input="
-                                                   if (isPosSetPriceFlow()) {
-                                                       jobPriceInput = $event.target.value.replace(/,/g, '');
-                                                   } else {
-                                                       let val = $event.target.value.replace(/[^0-9.]/g, '');
-                                                       let parts = val.split('.');
-                                                       parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-                                                       $event.target.value = parts.join('.');
-                                                       jobPriceInput = $event.target.value.replace(/,/g, '');
-                                                   }
-                                               "
-                                               x-on:blur="
-                                                   if (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput)) {
-                                                       $event.target.value = jobPriceInput;
-                                                   } else if (jobPriceInput && String(jobPriceInput).trim() !== '') {
-                                                       jobPriceInput = parseFloat(jobPriceInput).toFixed(2);
-                                                       $event.target.value = Number(jobPriceInput).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-                                                   } else {
-                                                       jobPriceInput = '';
-                                                       $event.target.value = '';
-                                                   }
-                                               "
+                                               x-on:input="handleJobPriceInput($event)"
+                                               x-on:blur="formatJobPriceInputOnBlur($event)"
                                                style="width:100%; height:42px; padding:0 12px 0 42px; border:1px solid #5eead4; border-radius:10px; font-size:18px; font-weight:700; color:#0f766e; outline:none; background:#ffffff; transition:all 0.2s;"
                                                onfocus="this.style.borderColor='#0d9488'; this.style.boxShadow='0 0 0 3px rgba(6, 161, 161, 0.08)'"
                                                onblur="this.style.borderColor='#5eead4'; this.style.boxShadow='none'">
                                     </div>
-                                    <div x-show="isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput)" x-cloak style="margin-top:6px;font-size:12px;font-weight:700;color:#b91c1c;">Enter a positive final price with no more than two decimal places (maximum ₱9,999,999.99).</div>
+                                    <div id="job-price-input-error" x-show="!isValidPosFinalPrice(jobPriceInput)" x-cloak x-text="finalPriceValidationMessage()" style="margin-top:6px;font-size:12px;font-weight:700;color:#b91c1c;"></div>
                                     <div x-show="priceBelowEstimateLabel" x-cloak x-text="priceBelowEstimateLabel" style="margin-top:6px; font-size:11px; font-weight:700; color:#b45309;"></div>
                                 </div>
                                 <div x-show="approvalStockErrors.length > 0" style="margin-bottom:12px; padding:12px 14px; border-radius:10px; border:1px solid #fecaca; background:#fff1f2; color:#b91c1c; font-size:12px; font-weight:700; line-height:1.5;">
@@ -3300,7 +3287,7 @@ $online_closed_count = 0;
                             <label style="font-size:11px;font-weight:700;color:#1e40af;text-transform:uppercase;display:block;margin-bottom:12px;">Step 3: Awaiting Payment</label>
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
                                 <div style="font-size:14px; font-weight:500; color:#1e40af;">Total Outstanding:</div>
-                                <div style="font-size:20px; font-weight:800; color:#1e40af;" x-text="'₱' + Number(currentJo.estimated_total || 0).toLocaleString()"></div>
+                                <div style="font-size:20px; font-weight:800; color:#1e40af;" x-text="'₱' + Number(currentJo.estimated_total || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></div>
                             </div>
                             <div style="font-size:13px; color:#1e40af; line-height:1.5;"><?php echo htmlspecialchars($staffOnlinePaymentMessage, ENT_QUOTES, 'UTF-8'); ?></div>
                             <?php if ($paymongoOnlineEnabled): ?>
@@ -3770,10 +3757,10 @@ $online_closed_count = 0;
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)) ? 'opacity:.6;cursor:not-allowed;' : ''">Confirm Set Price</button>
                             </div>
                             <div x-show="!isPosPricingMode() && modalWorkflowStatus(currentJo) === 'APPROVED' && (!isPosSimplifiedView || !isPosPricingReturnFlow(currentJo))" style="display:flex; gap:8px;">
-                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))) ? 'opacity:.6;cursor:not-allowed;' : ''">Set Price</button>
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)) ? 'opacity:.6;cursor:not-allowed;' : ''">Set Price</button>
                             </div>
                             <div x-show="!isPosPricingMode() && isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'APPROVED' && isPosPricingReturnFlow(currentJo)" style="display:flex; gap:8px;">
-                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || (isPosSetPriceFlow() && !isValidPosFinalPrice(jobPriceInput))) ? 'opacity:.6;cursor:not-allowed;' : ''">Continue to POS Payment</button>
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0 || !isValidPosFinalPrice(jobPriceInput)) ? 'opacity:.6;cursor:not-allowed;' : ''">Continue to POS Payment</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'PAYMENT_CONFIRMED' && canStartProduction(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="startProduction()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Proceed to Production</button>
@@ -4139,6 +4126,7 @@ $online_closed_count = 0;
 <script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/pf-order-item-design-files.js?v=' . (int) @filemtime(__DIR__ . '/../public/assets/js/pf-order-item-design-files.js')); ?>"></script>
 <script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/staff_service_order_modal.js'); ?>"></script>
 <script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/production_material_picker.js?v=' . (int) @filemtime(__DIR__ . '/../public/assets/js/production_material_picker.js')); ?>"></script>
+<script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/material_consumption_estimator.js?v=' . (int) @filemtime(__DIR__ . '/../public/assets/js/material_consumption_estimator.js')); ?>"></script>
 <?php
 $preloaded_customization_rows_json = json_encode(
     $preloaded_customization_rows,
@@ -4341,6 +4329,7 @@ window.pfServiceFieldCatalog = (() => {
             newMaterialId: '',
             newMaterialQty: 1,
             materialQtyManuallyEdited: false,
+            newMaterialUsageEstimate: null,
             newMaterialHeight: 0,
             newMaterialRollId: '',
             newMaterialNotes: '',
@@ -4439,6 +4428,154 @@ window.pfServiceFieldCatalog = (() => {
             getInventoryItem(itemId) {
                 return this.allInventoryItems.find(i => String(i.id) === String(itemId)) || null;
             },
+            estimateMaterialUsage(item, order = null) {
+                if (!item || !window.PrintFlowMaterialConsumption || this.isVersionedTarpaulinMaterial(item.id)) return { status: 'manual', quantity: null, reason: 'Use the existing verified Tarpaulin calculation or confirm actual usage.' };
+                const dims = this.currentJo ? this.resolveOrderDimensions(this.currentJo) : { width: 0, height: 0 };
+                const source = order || {};
+                return window.PrintFlowMaterialConsumption.estimate(item, {
+                    quantity: Number(source.quantity ?? this.currentJo?.quantity ?? 0),
+                    width_ft: Number(source.width_ft ?? dims.width ?? 0),
+                    height_ft: Number(source.height_ft ?? dims.height ?? 0),
+                    required_material_length: source.required_material_length
+                        ?? this.currentJo?.required_material_length_ft
+                        ?? this.currentJo?.verified_material_length_ft
+                });
+            },
+            materialUsageSummary(material) {
+                const item = this.getInventoryItem(material.item_id) || material;
+                const stock = Number(item.current_stock || 0);
+                const stockLabel = `Available: ${stock} ${item.unit_of_measure || material.uom || 'pcs'}`;
+                const format = item.material_format ? ` · ${String(item.material_format).replace('_', ' ')}` : '';
+                if (material.estimated_qty !== null && material.estimated_qty !== undefined) {
+                    return `${stockLabel}${format} · Estimated Usage: ${material.estimated_qty} ${material.uom}`;
+                }
+                return `${stockLabel}${format} · ${material.usage_estimate_reason || 'Manual confirmation required.'}`;
+            },
+            markPendingMaterialQtyEdit(material, input, event) {
+                const allowedEditTypes = new Set(['insertText', 'insertFromPaste', 'insertFromDrop', 'insertCompositionText', 'deleteContentBackward', 'deleteContentForward', 'deleteByCut', 'deleteByDrag', 'historyUndo', 'historyRedo']);
+                if (event?.isTrusted !== true || !input?.dataset || !allowedEditTypes.has(String(event.inputType || ''))) return;
+                input.dataset.actualUsageEditPending = '1';
+                input.dataset.actualUsageEditStartValue = String(input.value ?? '');
+                input.dataset.actualUsageEditInputType = String(event.inputType);
+            },
+            markPendingMaterialQtyKeyEdit(material, input, event) {
+                const editKeys = new Set(['Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'Decimal', '.', ',', '-', '+', 'e', 'E']);
+                if (event?.isTrusted !== true || !input?.dataset) return;
+                if (!/^\d$/.test(String(event.key || '')) && !editKeys.has(String(event.key || ''))) return;
+                input.dataset.actualUsageKeyEditPending = '1';
+                input.dataset.actualUsageKeyEditAt = String(Date.now());
+            },
+            clearPendingMaterialQtyKeyEdit(input) {
+                if (!input?.dataset) return;
+                delete input.dataset.actualUsageKeyEditPending;
+                delete input.dataset.actualUsageKeyEditAt;
+            },
+            markPendingMaterialQtyPointerEdit(material, input, event) {
+                if (event?.isTrusted !== true || event.pointerType !== 'mouse' || !input?.dataset) return;
+                const bounds = input.getBoundingClientRect();
+                if (Number(event.clientX) < bounds.right - 18) return;
+                input.dataset.actualUsagePointerEditPending = '1';
+                input.dataset.actualUsagePointerQty = String(material.qty ?? '');
+                input.dataset.actualUsagePointerEditAt = String(Date.now());
+            },
+            clearPendingMaterialQtyPointerEdit(input) {
+                if (!input?.dataset) return;
+                delete input.dataset.actualUsagePointerEditPending;
+                delete input.dataset.actualUsagePointerQty;
+                delete input.dataset.actualUsagePointerEditAt;
+            },
+            handlePendingMaterialQtyInput(material, value, input = null, event = null) {
+                const raw = String(value ?? '').trim();
+                const qty = raw === '' ? NaN : Number(raw);
+                const dataset = input?.dataset || {};
+                const trustedInput = event?.isTrusted === true;
+                const beforeInputIntent = dataset.actualUsageEditPending === '1';
+                const keyEditFresh = dataset.actualUsageKeyEditPending === '1'
+                    && Date.now() - Number(dataset.actualUsageKeyEditAt || 0) <= 250
+                    && String(value ?? '') !== String(material.qty ?? '');
+                const pointerEditFresh = dataset.actualUsagePointerEditPending === '1'
+                    && Date.now() - Number(dataset.actualUsagePointerEditAt || 0) <= 250
+                    && String(value ?? '') !== String(dataset.actualUsagePointerQty ?? '');
+                const matchingBeforeInput = beforeInputIntent
+                    && ((event?.type === 'blur' && String(value ?? '') === String(dataset.actualUsageEditStartValue ?? ''))
+                        || String(event?.inputType || '') === String(dataset.actualUsageEditInputType || ''));
+                const explicitEdit = trustedInput && (matchingBeforeInput || keyEditFresh || pointerEditFresh);
+                if (input && input.dataset) {
+                    delete input.dataset.actualUsageEditPending;
+                    delete input.dataset.actualUsageEditStartValue;
+                    delete input.dataset.actualUsageEditInputType;
+                    delete input.dataset.actualUsageKeyEditPending;
+                    delete input.dataset.actualUsageKeyEditAt;
+                    this.clearPendingMaterialQtyPointerEdit(input);
+                }
+                material.qty = raw === '' ? '' : qty;
+                const wholeUnit = ['pcs', 'pc', 'piece', 'pieces'].includes(String(material.uom || '').toLowerCase());
+                material.manual_quantity_confirmed = explicitEdit && Number.isFinite(qty) && qty > 0 && (!wholeUnit || Number.isInteger(qty));
+                material.actual_usage_overridden = material.estimated_qty !== null && material.estimated_qty !== undefined;
+                if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
+                material.metadata.material_usage = {
+                    ...(material.metadata.material_usage || {}),
+                    estimate: material.estimated_qty,
+                    actual: Number.isFinite(qty) ? qty : null,
+                    method: material.usage_method || 'manual',
+                    staff_confirmed: material.manual_quantity_confirmed,
+                    overridden: material.actual_usage_overridden
+                };
+                if (material.manual_quantity_confirmed) this.clearPendingMaterialConfirmationError(material);
+            },
+            handlePendingMaterialQtyBlur(material, input, event) {
+                if (event?.isTrusted !== true || !input?.dataset || input.dataset.actualUsageEditPending !== '1') return;
+                const unchangedSinceEditIntent = String(input.value ?? '') === String(input.dataset.actualUsageEditStartValue ?? '');
+                if (!unchangedSinceEditIntent) delete input.dataset.actualUsageEditPending;
+                this.handlePendingMaterialQtyInput(material, input.value, input, event);
+            },
+            clearPendingMaterialConfirmationError(material) {
+                const expected = `Confirm the actual usage for ${material?.name || 'the selected material'} before saving.`;
+                if (this.productionErrors.material === expected) this.productionErrors.material = '';
+                if (this.footerActionError === expected) this.footerActionError = '';
+            },
+            confirmPendingMaterialUsage(material) {
+                const qty = Number(material && material.qty);
+                if (!Number.isFinite(qty) || qty <= 0 || (['pcs', 'pc', 'piece', 'pieces'].includes(String(material.uom).toLowerCase()) && !Number.isInteger(qty))) {
+                    this.productionErrors.material = 'Enter a valid positive actual material quantity before confirming.';
+                    return;
+                }
+                material.manual_quantity_confirmed = true;
+                if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
+                material.metadata.material_usage = {
+                    ...(material.metadata.material_usage || {}), estimate: material.estimated_qty ?? null,
+                    actual: qty, method: material.usage_method || 'manual', staff_confirmed: true,
+                    overridden: material.actual_usage_overridden === true
+                };
+                this.clearPendingMaterialConfirmationError(material);
+            },
+            recalculatePendingMaterial(index) {
+                const material = this.pendingMaterials[index];
+                const item = material && this.getInventoryItem(material.item_id);
+                if (!material || !item) return;
+                const estimate = this.estimateMaterialUsage(item);
+                material.estimated_qty = estimate.status === 'estimated' ? estimate.quantity : null;
+                material.usage_estimate_reason = estimate.reason || '';
+                material.usage_method = estimate.method || item.consumption_method || 'manual';
+                if (estimate.status === 'estimated') {
+                    material.qty = estimate.quantity;
+                    material.manual_quantity_confirmed = true;
+                    material.actual_usage_overridden = false;
+                    material.metadata = { ...(material.metadata || {}), material_usage: { estimate: estimate.quantity, actual: estimate.quantity, method: material.usage_method, staff_confirmed: true, overridden: false } };
+                } else {
+                    material.manual_quantity_confirmed = false;
+                    if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
+                    material.metadata.material_usage = {
+                        ...(material.metadata.material_usage || {}),
+                        estimate: null,
+                        actual: material.qty !== '' && material.qty !== null && material.qty !== undefined && Number.isFinite(Number(material.qty)) ? Number(material.qty) : null,
+                        method: material.usage_method || 'manual',
+                        staff_confirmed: false,
+                        overridden: material.actual_usage_overridden === true
+                    };
+                    material.usage_estimate_reason = estimate.reason || 'No reliable estimate is configured.';
+                }
+            },
             isCurrentTarpaulinService() {
                 const linkedId = Number(this.currentJo?.linked_order_item_id || this.currentJo?.order_item_id || 0);
                 const linkedItem = (Array.isArray(this.currentJo?.items) ? this.currentJo.items : [])
@@ -4466,8 +4603,15 @@ window.pfServiceFieldCatalog = (() => {
                     const number = Number(String(value ?? '').trim());
                     return Number.isFinite(number) && number > 0;
                 }
-                const raw = String(value ?? '').trim();
-                return /^[1-9][0-9]*$/.test(raw) && Number.isSafeInteger(Number(raw)) && Number(raw) <= 2147483647;
+                const item = this.getInventoryItem(itemId || this.newMaterialId);
+                return !!(item && window.PrintFlowMaterialConsumption
+                    && window.PrintFlowMaterialConsumption.parseMaterialQuantity(value, item) !== null);
+            },
+            normalizePosMaterialQuantity(value, itemId = null) {
+                const item = this.getInventoryItem(itemId || this.newMaterialId);
+                if (!item || !window.PrintFlowMaterialConsumption) return null;
+                const parsed = window.PrintFlowMaterialConsumption.parseMaterialQuantity(value, item);
+                return parsed === null ? null : Number(parsed.toFixed(2));
             },
             posMaterialQuantityError(materials = []) {
                 if (!this.isPosSetPriceFlow()) return '';
@@ -4488,7 +4632,7 @@ window.pfServiceFieldCatalog = (() => {
                     if (!this.isValidPosMaterialQuantity(amount, itemId)) {
                         return this.isVersionedTarpaulinMaterial(material && material.item_id)
                             ? 'POS Tarpaulin lengths must be positive linear feet.'
-                            : 'POS material quantities must be positive whole numbers.';
+                            : 'A POS material quantity does not match its configured unit and consumption method.';
                     }
                 }
                 return '';
@@ -4528,9 +4672,6 @@ window.pfServiceFieldCatalog = (() => {
                 if (!item) return 'pcs';
                 if (this.isRollTracked(itemId)) {
                     return item.unit_of_measure || 'ft';
-                }
-                if (this.isSticker(itemId)) {
-                    return 'pcs';
                 }
                 return item.unit_of_measure || 'pcs';
             },
@@ -4575,8 +4716,13 @@ window.pfServiceFieldCatalog = (() => {
                 );
                 if (!match) return;
                 this.handleMaterialSelection(match.id);
-                if (!this.selectedMaterialStockError) {
-                    this.addMaterialToQueue();
+                if (this.isVersionedTarpaulinMaterial(match.id)) {
+                    if (!this.selectedMaterialStockError) this.addMaterialToQueue();
+                } else {
+                    // Queue the suggestion even when its current quantity exceeds stock;
+                    // the editable actual-usage field and blocking stock validation let
+                    // staff correct it before saving without bypassing validation.
+                    this.addMaterialToQueue({ allowQuantityAdjustment: true });
                 }
             },
             handleMaterialSelection(selectedId) {
@@ -4584,6 +4730,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.newMaterialRollId = '';
                 this.availableRollsList = [];
                 this.materialQtyManuallyEdited = false;
+                this.newMaterialUsageEstimate = null;
                 
                 // Auto-fill from canonical order dimensions when available.
                 if (this.currentJo && selectedId) {
@@ -4631,6 +4778,15 @@ window.pfServiceFieldCatalog = (() => {
                     this.newMaterialHeight = 0;
                 }
 
+                const selectedItem = this.getInventoryItem(selectedId);
+                if (selectedItem && !this.isVersionedTarpaulinMaterial(selectedId)) {
+                    const estimate = this.estimateMaterialUsage(selectedItem);
+                    this.newMaterialUsageEstimate = estimate;
+                    if (estimate.status === 'estimated') this.newMaterialQty = estimate.quantity;
+                } else {
+                    this.newMaterialUsageEstimate = null;
+                }
+
                 if (this.isRollTracked(selectedId)) {
                     this.loadAvailableRolls(selectedId);
                 }
@@ -4663,7 +4819,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) {
                     return this.isVersionedTarpaulinMaterial(this.newMaterialId)
                         ? 'POS Tarpaulin lengths must be positive linear feet.'
-                        : 'POS material quantities must be positive whole numbers.';
+                        : 'Enter a positive quantity that matches the selected material unit and configured consumption method.';
                 }
                 const available = parseFloat(item.current_stock || 0);
                 const queued = this.getQueuedMaterialRequiredStock(this.newMaterialId);
@@ -4888,10 +5044,68 @@ window.pfServiceFieldCatalog = (() => {
                 return String(details.source || '').toUpperCase() === 'POS';
             },
             isValidPosFinalPrice(value) {
-                const raw = String(value ?? '').trim().replace(/,/g, '');
-                if (!/^(?:0|[1-9]\d{0,6})(?:\.\d{1,2})?$/.test(raw)) return false;
-                const amount = Number(raw);
-                return Number.isFinite(amount) && amount >= 1 && amount <= 9999999.99;
+                return this.parseFinalPriceCentavos(value) !== null;
+            },
+            parseFinalPriceCentavos(value) {
+                const raw = String(value ?? '').trim();
+                if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(raw)) return null;
+                const normalized = raw.replace(/,/g, '');
+                const [wholeRaw, fractionRaw = ''] = normalized.split('.', 2);
+                const whole = wholeRaw.replace(/^0+(?=\d)/, '');
+                if (whole.length > 7) return null;
+                const centavos = (Number(whole) * 100) + Number((fractionRaw + '00').slice(0, 2));
+                return Number.isSafeInteger(centavos) && centavos > 0 && centavos <= 999999999
+                    ? centavos
+                    : null;
+            },
+            finalPriceDecimalFromCentavos(cents) {
+                const whole = Math.floor(cents / 100);
+                const fraction = String(cents % 100).padStart(2, '0');
+                return `${whole}.${fraction}`;
+            },
+            formatFinalPriceCentavos(cents) {
+                const whole = Math.floor(cents / 100).toLocaleString('en-US');
+                const fraction = String(cents % 100).padStart(2, '0');
+                return `${whole}.${fraction}`;
+            },
+            finalPriceValidationMessage() {
+                return 'Enter a final price from ₱0.01 to ₱9,999,999.99 with no more than two decimal places.';
+            },
+            handleJobPriceInput(event) {
+                const input = event && event.target;
+                if (!input) return;
+                const value = String(input.value ?? '');
+                const oldCursor = Number.isInteger(input.selectionStart) ? input.selectionStart : value.length;
+                const unitsBeforeCursor = value.slice(0, oldCursor).replace(/,/g, '').length;
+                if (!/^[\d.,]*$/.test(value)) {
+                    this.jobPriceInput = value;
+                    return;
+                }
+                const ungrouped = value.replace(/,/g, '');
+                if (!/^\d*(?:\.\d*)?$/.test(ungrouped)) {
+                    this.jobPriceInput = value;
+                    return;
+                }
+                const [whole, fraction] = ungrouped.split('.', 2);
+                const groupedWhole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+                const formatted = fraction === undefined ? groupedWhole : groupedWhole + '.' + fraction;
+                input.value = formatted;
+                this.jobPriceInput = ungrouped;
+
+                let newCursor = 0;
+                let units = 0;
+                while (newCursor < formatted.length && units < unitsBeforeCursor) {
+                    if (formatted[newCursor] !== ',') units += 1;
+                    newCursor += 1;
+                }
+                try { input.setSelectionRange(newCursor, newCursor); } catch (_) {}
+            },
+            formatJobPriceInputOnBlur(event) {
+                const input = event && event.target;
+                if (!input || !this.isValidPosFinalPrice(this.jobPriceInput)) return;
+                const cents = this.parseFinalPriceCentavos(this.jobPriceInput);
+                this.jobPriceInput = this.finalPriceDecimalFromCentavos(cents);
+                input.value = this.formatFinalPriceCentavos(cents);
             },
             modalWorkflowStatus(jo) {
                 if (!jo) return '';
@@ -4977,8 +5191,10 @@ window.pfServiceFieldCatalog = (() => {
                 this.$nextTick(() => {
                     const input = this.$refs.jobPriceInput;
                     if (!input) return;
-                    let raw = String(this.jobPriceInput ?? '').trim().replace(/,/g, '');
-                    if (raw === '' || !Number.isFinite(parseFloat(raw)) || parseFloat(raw) <= 0) {
+                    // The active input handler owns formatting and caret placement while typing.
+                    if (document.activeElement === input) return;
+                    let raw = String(this.jobPriceInput ?? '').trim();
+                    if (raw === '') {
                         const fallback = this.resolveJobPriceInputDefault(this.currentJo);
                         if (fallback !== '') {
                             this.jobPriceInput = fallback;
@@ -4989,10 +5205,12 @@ window.pfServiceFieldCatalog = (() => {
                         input.value = '';
                         return;
                     }
-                    const numeric = parseFloat(raw);
-                    input.value = Number.isFinite(numeric)
-                        ? numeric.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                        : raw;
+                    const cents = this.parseFinalPriceCentavos(raw);
+                    if (cents === null) {
+                        input.value = raw;
+                        return;
+                    }
+                    input.value = this.formatFinalPriceCentavos(cents);
                 });
             },
             finishDetailLoadWith(data, orderType, cacheKey) {
@@ -7208,6 +7426,9 @@ window.pfServiceFieldCatalog = (() => {
                     ? normalized
                     : this.staffFilterSpecsByServiceForm(normalized, item);
                 specs = this.staffDeduplicateDisplaySpecRows(specs);
+                if (isDetail) {
+                    specs = this.staffHideOrderDetailDesignFeeSpecs(specs);
+                }
 
                 const entries = Object.entries(specs).filter(([k, v]) => {
                     if (this.staffCustomizationIsInternalKey(k)) return false;
@@ -7227,6 +7448,20 @@ window.pfServiceFieldCatalog = (() => {
                 });
 
                 return { source: sourceCustom, enriched: enrichedCustom, normalized: specs, entries };
+            },
+            staffHideOrderDetailDesignFeeSpecs(specs) {
+                if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return {};
+                const hiddenFeeTokens = new Set([
+                    'calculated_design_fee', 'calculateddesignfee',
+                    'design_fee', 'designfee',
+                    'design_fee_version', 'designfeeversion'
+                ]);
+                Object.keys(specs).forEach((label) => {
+                    if (hiddenFeeTokens.has(this.staffCustomizationKeyToken(label))) {
+                        delete specs[label];
+                    }
+                });
+                return specs;
             },
             getDisplayableCustom(custom, item = null) {
                 return this.staffBuildItemDisplaySpecs(custom, item).entries;
@@ -8193,11 +8428,12 @@ window.pfServiceFieldCatalog = (() => {
             },
             materialStatusLabel(item) {
                 const state = item.compatibility || this.materialClassification(item);
-                if (!state.inStock && (state.tier === 'recommended' || state.tier === 'optional')) return 'Out of stock';
                 const stockStatus = item.stock_status && String(item.stock_status.label || '').trim();
                 const stockSuffix = stockStatus && !['In Stock', 'Out of Stock'].includes(stockStatus) ? ` · ${stockStatus}` : '';
-                if (state.tier === 'recommended') return `Recommended${stockSuffix}`;
-                if (state.tier === 'optional') return `Optional${stockSuffix}`;
+                const classificationLabel = window.PrintFlowProductionMaterials
+                    ? window.PrintFlowProductionMaterials.statusLabel(state)
+                    : '';
+                if (classificationLabel) return `${classificationLabel}${stockSuffix}`;
                 if (state.tier === 'unverified') return 'Usage not verified';
                 return state.reason || 'Not applicable';
             },
@@ -9888,8 +10124,12 @@ window.pfServiceFieldCatalog = (() => {
                 }
             },
             async setJobPrice(id) {
-                if(this.jobPriceInput < 0) return;
-                const priceValue = parseFloat(this.jobPriceInput);
+                const cents = this.parseFinalPriceCentavos(this.jobPriceInput);
+                if (cents === null) {
+                    this.setFooterActionError(this.finalPriceValidationMessage());
+                    return false;
+                }
+                const priceValue = cents / 100;
                 if (!await this.confirmFinalPriceIfBelowEstimate(priceValue)) return;
                 let jid = id != null ? id : await this.resolveEffectiveJobId();
                 if (!jid) {
@@ -9900,7 +10140,7 @@ window.pfServiceFieldCatalog = (() => {
                 fd.append('action', 'set_price');
                 fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                 fd.append('id', jid);
-                fd.append('price', this.jobPriceInput);
+                fd.append('price', priceValue.toFixed(2));
                 if (this.lastPriceOverrideConfirmed) fd.append('price_override_confirmed', '1');
                 const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                 if(!res.success) {
@@ -9916,7 +10156,8 @@ window.pfServiceFieldCatalog = (() => {
             // Inline "₱X.XX below estimated price" indicator for the Final Price field.
             get priceBelowEstimateLabel() {
                 const estimate = this.currentEstimatedPrice;
-                const entered = parseFloat(this.jobPriceInput);
+                const cents = this.parseFinalPriceCentavos(this.jobPriceInput);
+                const entered = cents === null ? NaN : cents / 100;
                 if (!(estimate > 0) || !Number.isFinite(entered) || !(entered < estimate)) return '';
                 const diff = estimate - entered;
                 return `₱${diff.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} below estimated price`;
@@ -9965,14 +10206,14 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 const isTarpaulinMaterial = this.isVersionedTarpaulinMaterial(this.newMaterialId);
                 if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) {
-                    this.showStaffAlert('Invalid Quantity', 'POS material quantities must be positive whole numbers.');
+                    this.showStaffAlert('Invalid Quantity', 'Enter a positive quantity that matches the selected material unit and configured consumption method.');
                     return;
                 }
                 const normalizedQty = isTarpaulinMaterial
                     ? Number(this.newMaterialQty)
-                    : (this.isPosSetPriceFlow() ? Number(this.newMaterialQty) : this.normalizeMaterialQtyValue(this.newMaterialQty, 1));
-                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && normalizedQty < 1)) {
-                    this.showStaffAlert('Invalid Quantity', 'Material quantity must be at least 1.');
+                    : (this.isPosSetPriceFlow() ? this.normalizePosMaterialQuantity(this.newMaterialQty, this.newMaterialId) : this.normalizeMaterialQtyValue(this.newMaterialQty, 1));
+                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && !this.isPosSetPriceFlow() && normalizedQty < 1)) {
+                    this.showStaffAlert('Invalid Quantity', 'Material quantity must be positive.');
                     return;
                 }
                 this.newMaterialQty = normalizedQty;
@@ -9986,9 +10227,14 @@ window.pfServiceFieldCatalog = (() => {
                 if (existing) {
                     existing.qty = isTarpaulinMaterial
                         ? normalizedQty
-                        : this.normalizeMaterialQtyValue((parseFloat(existing.qty) || 0) + normalizedQty, 1);
+                        : (this.isPosSetPriceFlow()
+                            ? Number(((parseFloat(existing.qty) || 0) + normalizedQty).toFixed(2))
+                            : this.normalizeMaterialQtyValue((parseFloat(existing.qty) || 0) + normalizedQty, 1));
                     if (isTarpaulinMaterial) {
                         existing.metadata = { ...existing.metadata, ...this.newMaterialMetadata, height_ft: this.newMaterialHeight };
+                    } else if (existing.metadata && existing.metadata.material_usage) {
+                        existing.metadata.material_usage.actual = existing.qty;
+                        existing.metadata.material_usage.staff_confirmed = existing.manual_quantity_confirmed === true;
                     }
                     // Reset input
                     this.resetMaterialForm();
@@ -10010,14 +10256,32 @@ window.pfServiceFieldCatalog = (() => {
                 } else if (this.isSticker(this.newMaterialId)) {
                     meta.lamination = this.newMaterialMetadata.lamination || '';
                 }
+                const usageEstimate = isTarpaulinMaterial ? null : (this.newMaterialUsageEstimate || this.estimateMaterialUsage(item));
+                const hasReliableEstimate = !!(usageEstimate && usageEstimate.status === 'estimated');
+                if (!isTarpaulinMaterial) {
+                    meta.material_usage = {
+                        estimate: hasReliableEstimate ? usageEstimate.quantity : null,
+                        actual: normalizedQty,
+                        method: hasReliableEstimate ? usageEstimate.method : (item.consumption_method || 'manual'),
+                        staff_confirmed: hasReliableEstimate,
+                        overridden: false
+                    };
+                }
                 this.pendingMaterials.push({
                     item_id: this.newMaterialId,
                     name: item.name,
+                    size_variant: item.size_variant || '',
                     qty: normalizedQty,
                     uom: this.getMaterialEntryUom(this.newMaterialId),
                     roll_id: this.newMaterialRollId || '',
                     notes: this.newMaterialNotes,
-                    metadata: meta
+                    metadata: meta,
+                    estimated_qty: hasReliableEstimate ? usageEstimate.quantity : null,
+                    usage_method: hasReliableEstimate ? usageEstimate.method : (item.consumption_method || 'manual'),
+                    usage_estimate_reason: hasReliableEstimate ? '' : (usageEstimate?.reason || 'No reliable estimate is configured; confirm actual usage.'),
+                    manual_confirmation_required: !isTarpaulinMaterial && !hasReliableEstimate,
+                    manual_quantity_confirmed: isTarpaulinMaterial || hasReliableEstimate,
+                    actual_usage_overridden: false
                 });
                 // Reset form
                 this.resetMaterialForm();
@@ -10033,8 +10297,8 @@ window.pfServiceFieldCatalog = (() => {
                 if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) return null;
                 const normalizedQty = isTarpaulinMaterial
                     ? Number(this.newMaterialQty)
-                    : (this.isPosSetPriceFlow() ? Number(this.newMaterialQty) : this.normalizeMaterialQtyValue(this.newMaterialQty, 1));
-                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && normalizedQty < 1)) return null;
+                    : (this.isPosSetPriceFlow() ? this.normalizePosMaterialQuantity(this.newMaterialQty, this.newMaterialId) : this.normalizeMaterialQtyValue(this.newMaterialQty, 1));
+                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && !this.isPosSetPriceFlow() && normalizedQty < 1)) return null;
                 this.newMaterialQty = normalizedQty;
                 const item = this.allInventoryItems.find(i => i.id == this.newMaterialId);
                 if (!item) return null;
@@ -10061,6 +10325,17 @@ window.pfServiceFieldCatalog = (() => {
                         meta.lamination_length_ft = this.newMaterialQty;
                     }
                 }
+                const usageEstimate = isTarpaulinMaterial ? null : (this.newMaterialUsageEstimate || this.estimateMaterialUsage(item));
+                const hasReliableEstimate = !!(usageEstimate && usageEstimate.status === 'estimated');
+                if (!isTarpaulinMaterial) {
+                    meta.material_usage = {
+                        estimate: hasReliableEstimate ? usageEstimate.quantity : null,
+                        actual: normalizedQty,
+                        method: hasReliableEstimate ? usageEstimate.method : (item.consumption_method || 'manual'),
+                        staff_confirmed: hasReliableEstimate,
+                        overridden: false
+                    };
+                }
 
                 return {
                     item_id: this.newMaterialId,
@@ -10068,7 +10343,13 @@ window.pfServiceFieldCatalog = (() => {
                     uom: this.getMaterialEntryUom(this.newMaterialId),
                     roll_id: this.newMaterialRollId || '',
                     notes: this.newMaterialNotes || '',
-                    metadata: meta
+                    metadata: meta,
+                    estimated_qty: hasReliableEstimate ? usageEstimate.quantity : null,
+                    usage_method: hasReliableEstimate ? usageEstimate.method : (item.consumption_method || 'manual'),
+                    usage_estimate_reason: hasReliableEstimate ? '' : (usageEstimate?.reason || 'No reliable estimate is configured.'),
+                    manual_confirmation_required: !isTarpaulinMaterial && !hasReliableEstimate,
+                    manual_quantity_confirmed: isTarpaulinMaterial || hasReliableEstimate,
+                    actual_usage_overridden: false
                 };
             },
             buildInkPayload() {
@@ -10097,6 +10378,19 @@ window.pfServiceFieldCatalog = (() => {
                 const savedMaterials = Array.isArray(this.currentJo.materials) ? this.currentJo.materials : [];
                 const savedInks = Array.isArray(this.currentJo.ink_usage) ? this.currentJo.ink_usage : [];
                 errors.material = this.posMaterialQuantityError([...savedMaterials, ...this.pendingMaterials, ...extraMaterials]);
+                const pendingToConfirm = [...this.pendingMaterials, ...extraMaterials].find(material => material && material.manual_confirmation_required && !material.manual_quantity_confirmed);
+                if (pendingToConfirm) {
+                    errors.material = errors.material || `Confirm the actual usage for ${pendingToConfirm.name || 'the selected material'} before saving.`;
+                }
+                const invalidPending = [...this.pendingMaterials, ...extraMaterials].find(material => {
+                    if (!material) return false;
+                    const qty = Number(material.qty ?? material.quantity);
+                    if (!Number.isFinite(qty) || qty <= 0) return true;
+                    const wholeUnit = ['pcs', 'pc', 'piece', 'pieces'].includes(String(material.uom || '').toLowerCase());
+                    if (wholeUnit && !Number.isInteger(qty)) return true;
+                    return false;
+                });
+                if (invalidPending) errors.material = errors.material || 'Material usage must be a positive quantity in the material inventory unit.';
                 if (savedMaterials.length + extraMaterials.length <= 0) {
                     errors.material = errors.material || 'Please select and add a material.';
                 }
@@ -10119,6 +10413,14 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 this.productionErrors = errors;
                 return !Object.values(errors).some(Boolean);
+            },
+            setProductionValidationFeedback() {
+                const message = [this.productionErrors.ink_set, this.productionErrors.ink_consumption].find(Boolean) || '';
+                if (message) {
+                    this.setFooterActionError(message);
+                } else if (this.footerActionError === this.productionErrors.material) {
+                    this.setFooterActionError('');
+                }
             },
             hasProductionAssignments(extraMaterials = [], extraInks = []) {
                 const savedMaterials = Array.isArray(this.currentJo.materials) ? this.currentJo.materials.length : 0;
@@ -10249,15 +10551,11 @@ window.pfServiceFieldCatalog = (() => {
             },
             async submitToPay() {
                 if (this.currentJo.order_type === 'CUSTOMIZATION') {
-                    if (this.isPosSetPriceFlow() && !this.isValidPosFinalPrice(this.jobPriceInput)) {
-                        this.setFooterActionError('Enter a positive final price with no more than two decimal places (maximum ₱9,999,999.99).');
+                    if (!this.isValidPosFinalPrice(this.jobPriceInput)) {
+                        this.setFooterActionError(this.finalPriceValidationMessage());
                         return;
                     }
-                    const priceValue = parseFloat(this.jobPriceInput);
-                    if (!priceValue || priceValue <= 0 || isNaN(priceValue)) {
-                        this.setFooterActionError('Please enter a valid final price before approving.');
-                        return;
-                    }
+                    const priceValue = this.parseFinalPriceCentavos(this.jobPriceInput) / 100;
                     if (!await this.confirmFinalPriceIfBelowEstimate(priceValue)) return;
                     const target = await this.getProductionAssignmentTarget();
                     if (!target.jobId) {
@@ -10275,7 +10573,7 @@ window.pfServiceFieldCatalog = (() => {
                     }
                     const inkPayload = this.buildInkPayload();
                     if (!this.validateProductionAssignments(materialsToSave, inkPayload)) {
-                        this.setFooterActionError(Object.values(this.productionErrors).find(Boolean));
+                        this.setProductionValidationFeedback();
                         return;
                     }
                     if (isPosReturnFlow) {
@@ -10393,7 +10691,7 @@ window.pfServiceFieldCatalog = (() => {
                         fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                         fd.append('id', this.currentJo.id);
                         fd.append('status', 'TO_PAY');
-                        fd.append('price', this.jobPriceInput);
+                        fd.append('price', priceValue.toFixed(2));
                         if (this.lastPriceOverrideConfirmed) fd.append('price_override_confirmed', '1');
                         const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
                         if (res.success) {
@@ -10425,15 +10723,11 @@ window.pfServiceFieldCatalog = (() => {
                     return;
                 }
                 const jid = target.jobId;
-                if (this.isPosSetPriceFlow() && !this.isValidPosFinalPrice(this.jobPriceInput)) {
-                    this.setFooterActionError('Enter a positive final price with no more than two decimal places (maximum ₱9,999,999.99).');
+                if (!this.isValidPosFinalPrice(this.jobPriceInput)) {
+                    this.setFooterActionError(this.finalPriceValidationMessage());
                     return;
                 }
-                const userEnteredPrice = parseFloat(this.jobPriceInput);
-                if (!Number.isFinite(userEnteredPrice) || userEnteredPrice <= 0) {
-                    this.setFooterActionError('Please enter a valid final price before submitting.');
-                    return;
-                }
+                const userEnteredPrice = this.parseFinalPriceCentavos(this.jobPriceInput) / 100;
                 if (!await this.confirmFinalPriceIfBelowEstimate(userEnteredPrice)) return;
                 const urlParams = new URLSearchParams(window.location.search);
                 const returnToPOS = urlParams.get('return_to_pos') === '1';
@@ -10448,7 +10742,7 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 const inkPayload = this.buildInkPayload();
                 if (!this.validateProductionAssignments(materialsToSave, inkPayload)) {
-                    this.setFooterActionError(Object.values(this.productionErrors).find(Boolean));
+                    this.setProductionValidationFeedback();
                     return;
                 }
                 if (fromPOS) {
@@ -10658,14 +10952,14 @@ window.pfServiceFieldCatalog = (() => {
                 if (this._priceSaveInFlight) {
                     return false;
                 }
-                const jid = this.effectiveJobId();
-                const oid = this.currentJo.order_id || this.currentJo.id;
-                const price = parseFloat(this.jobPriceInput);
-                
-                if (!price || price <= 0) {
-                    this.showStaffAlert('Invalid Price', 'Please enter a valid price greater than 0.');
+                const cents = this.parseFinalPriceCentavos(this.jobPriceInput);
+                if (cents === null) {
+                    this.setFooterActionError(this.finalPriceValidationMessage());
                     return false;
                 }
+                const jid = this.effectiveJobId();
+                const oid = this.currentJo.order_id || this.currentJo.id;
+                const price = cents / 100;
                 if (!await this.confirmFinalPriceIfBelowEstimate(price)) return false;
                 const priceOverrideFlag = this.lastPriceOverrideConfirmed;
 
@@ -10676,7 +10970,7 @@ window.pfServiceFieldCatalog = (() => {
                        fd.append('action', 'update_order_price');
                        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                        fd.append('order_id', oid);
-                       fd.append('price', price);
+                       fd.append('price', price.toFixed(2));
                        if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
                        const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                        if (!res.success) {
@@ -10697,7 +10991,7 @@ window.pfServiceFieldCatalog = (() => {
                        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                        fd.append('id', oid);
                        fd.append('status', 'APPROVED');
-                       fd.append('price', price);
+                       fd.append('price', price.toFixed(2));
                        if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
                        const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                        if (!res.success) {
@@ -10727,14 +11021,18 @@ window.pfServiceFieldCatalog = (() => {
 
             async setJobPrice(jid) {
                 if (!jid) return false;
-                const price = parseFloat(this.jobPriceInput);
-                if (!price || price <= 0) return false;
+                const cents = this.parseFinalPriceCentavos(this.jobPriceInput);
+                if (cents === null) {
+                    this.setFooterActionError(this.finalPriceValidationMessage());
+                    return false;
+                }
+                const price = cents / 100;
                 
                 const fd = new FormData();
                 fd.append('action', 'set_price');
                 fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                 fd.append('id', jid);
-                fd.append('price', price);
+                fd.append('price', price.toFixed(2));
                 const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                 if (res.success) {
                     this.currentJo.final_price = price;
@@ -11561,6 +11859,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.newMaterialId = '';
                 this.newMaterialQty = 1;
                 this.materialQtyManuallyEdited = false;
+                this.newMaterialUsageEstimate = null;
                 this.newMaterialHeight = 0;
                 this.newMaterialRollId = '';
                 this.newMaterialNotes = '';

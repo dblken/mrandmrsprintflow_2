@@ -9,15 +9,14 @@ $assert = static function (bool $ok, string $message): void { if (!$ok) throw ne
 $assert(str_contains($validator, "if ($" . "serviceId === 63)") && str_contains($validator, 'printflow_pos_mugs_release_material_rule'), 'Deployed Mugs service branch remains present.');
 $assert(str_contains($validator, "if ($" . "serviceId === 40) return [];") && str_contains($validator, 'printflow_pos_tarpaulin_selection'), 'The new validator branch is scoped to Tarpaulin service 40.');
 $assert(!str_contains($validator, 'earlyMappedServiceIds') && !str_contains($validator, 'requiresEarlyMapping'), 'No broad fail-closed service list was imported.');
-$assert(!str_contains($validator, '$hasMultiplierColumn')
-    && !str_contains($validator, 'No default consumption quantity can be assumed.')
-    && str_contains($validator, 'SELECT r.item_id, r.rule_type, r.qty_multiplier'), 'Tarpaulin-only validation adds no generic missing-column guard and preserves baseline generic rule-query behavior.');
+$assert(str_contains($validator, 'db_table_has_column(\'service_material_rules\', \'qty_multiplier\', true)')
+    && str_contains($validator, 'SELECT r.item_id, r.rule_type, r.qty_multiplier'), 'Generic service validation verifies the multiplier schema before querying it.');
 $tarpGuard = strpos($validator, 'if ($serviceId === 40) return [];');
+$schemaGuard = strpos($validator, 'db_table_has_column(\'service_material_rules\', \'qty_multiplier\', true)');
 $genericRuleQuery = strpos($validator, 'SELECT r.item_id, r.rule_type, r.qty_multiplier');
-$assert($tarpGuard !== false && $genericRuleQuery !== false && $tarpGuard < $genericRuleQuery, 'Tarpaulin exits before the legacy generic multiplier query.');
-foreach ([36, 39, 64, 67, 71] as $serviceId) {
-    $assert(!str_contains($validator, "serviceId === $serviceId") && !str_contains($validator, "serviceId, $serviceId"), "Service $serviceId has no new special-case validation.");
-}
+$assert($tarpGuard !== false && $schemaGuard !== false && $genericRuleQuery !== false
+    && $tarpGuard < $schemaGuard && $schemaGuard < $genericRuleQuery,
+    'Tarpaulin exits before the schema guard and generic multiplier query.');
 $assert(str_contains($validator, 'printflow_pos_tarpaulin_open_rolls((int)$row[\'id\'], $branchId)')
     && str_contains($validator, 'no schema changes were attempted'), 'Tarpaulin availability uses branch-scoped open rolls without schema side effects.');
 $assert(str_contains($validator, 'printflow_tarpaulin_panel_plan') && str_contains($validator, 'printflow_tarpaulin_allocate_whole_panels'), 'Tarpaulin demand uses the shared panel plan and physical-roll allocator.');

@@ -14,3 +14,16 @@ function printflow_pos_branch_from_authorized_context(array $context): int
     return $branchId;
 }
 
+function printflow_pos_assert_cart_branch(int $branchId, bool $allowEmptyCart = false): void
+{
+    $cart = is_array($_SESSION['pos_cart'] ?? null) ? $_SESSION['pos_cart'] : [];
+    $locked = (int)($_SESSION['pos_cart_branch_id'] ?? 0);
+    if ($locked > 0 && $locked !== $branchId && $cart !== []) {
+        throw new RuntimeException('The selected branch changed while this cart was open. Clear the cart and add the items again for the selected branch.');
+    }
+    if ($cart !== []) {
+        $_SESSION['pos_cart_branch_id'] = $branchId;
+    } elseif (!$allowEmptyCart || $locked <= 0) {
+        $_SESSION['pos_cart_branch_id'] = $branchId;
+    }
+}

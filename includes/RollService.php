@@ -7,6 +7,7 @@
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/roll_branch_scope.php';
 
 class RollService {
 
@@ -19,6 +20,7 @@ class RollService {
         require_once __DIR__ . '/InventoryManager.php';
         InventoryManager::ensureBranchScopedSchema();
         $branchId = $branchId ?: InventoryManager::getCurrentBranchId();
+        if ((int)$branchId <= 0) throw new RuntimeException('A positive branch must be selected before receiving a roll.');
 
         $sql = "INSERT INTO inv_rolls (item_id, branch_id, roll_code, width_ft, total_length_ft, remaining_length_ft, status, supplier, received_at) 
                 VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, NOW())";
@@ -45,7 +47,7 @@ class RollService {
      * @param int|null $jobOrderMaterialId To mark as deducted (idempotency)
      * @return bool
      */
-    public static function deductFromRoll($rollId, $lengthToDeduct, $jobOrderId, $jobOrderMaterialId = null, $transactionDate = null) {
+    public static function deductFromRoll($rollId, $lengthToDeduct, $jobOrderId, $jobOrderMaterialId = null, $transactionDate = null, $branchId = null) {
         global $conn;
         $wasInTransaction = printflow_db_in_transaction($conn);
         if (!$wasInTransaction) {
@@ -75,6 +77,9 @@ class RollService {
 
         if (!$roll) throw new Exception("Roll ID #{$rollId} not found.");
         if ($roll['status'] !== 'OPEN') throw new Exception("Roll is no longer open.");
+        if ((int)$branchId <= 0 || !printflow_roll_belongs_to_branch($roll['branch_id'] ?? null, (int)$branchId)) {
+            throw new RuntimeException('The selected roll is not assigned to this order branch. No roll stock was deducted.');
+        }
         
         if ($roll['remaining_length_ft'] < $lengthToDeduct) {
             throw new Exception("Insufficient length in roll. Available: {$roll['remaining_length_ft']}ft, Requested: {$lengthToDeduct}ft");
@@ -136,7 +141,8 @@ class RollService {
     public static function getAvailableRolls($itemId, $branchId = null) {
         require_once __DIR__ . '/InventoryManager.php';
         InventoryManager::ensureBranchScopedSchema();
-        [$branchSql, $branchTypes, $branchParams] = InventoryManager::branchClause('branch_id', $branchId);
+        $branchId = $branchId !== null ? (int)$branchId : InventoryManager::getCurrentBranchId();
+        [$branchSql, $branchTypes, $branchParams] = printflow_roll_branch_sql('branch_id', $branchId);
         return db_query(
             "SELECT * FROM inv_rolls WHERE item_id = ? AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC",
             'i' . $branchTypes,
@@ -158,6 +164,9 @@ class RollService {
      */
     public static function deductFIFO($itemId, $totalLength, $refType = 'ADJUSTMENT', $refId = null, $notes = '', $branchId = null, $transactionDate = null) {
         global $conn;
+        require_once __DIR__ . '/InventoryManager.php';
+        $branchId = $branchId !== null ? (int)$branchId : InventoryManager::getCurrentBranchId();
+        if ($branchId <= 0) throw new RuntimeException('A positive authorized branch is required before roll deduction.');
 
         $totalLength = abs((float)$totalLength);
         if ($totalLength <= 0) {
@@ -198,13 +207,16 @@ class RollService {
                 if ($deductAmt <= 0) continue;
 
                 // Lock the roll row for safe concurrent access
-                $stmt = $conn->prepare("SELECT remaining_length_ft, status FROM inv_rolls WHERE id = ? FOR UPDATE");
+                $stmt = $conn->prepare("SELECT branch_id, remaining_length_ft, status FROM inv_rolls WHERE id = ? FOR UPDATE");
                 $stmt->bind_param("i", $rollId);
                 $stmt->execute();
                 $locked = $stmt->get_result()->fetch_assoc();
                 $stmt->close();
 
                 if (!$locked || $locked['status'] !== 'OPEN') continue;
+                if (!printflow_roll_belongs_to_branch($locked['branch_id'] ?? null, $branchId)) {
+                    throw new RuntimeException('A locked roll is no longer assigned to the requested branch. No roll stock was deducted.');
+                }
 
                 // Re-check with locked data
                 $lockedAvailable = (float)$locked['remaining_length_ft'];
@@ -277,6 +289,9 @@ class RollService {
         global $conn;
         require_once __DIR__ . '/tarpaulin_material_calculation.php';
         $itemId = (int)$itemId;
+        require_once __DIR__ . '/InventoryManager.php';
+        $branchId = $branchId !== null ? (int)$branchId : InventoryManager::getCurrentBranchId();
+        [$branchSql, $branchTypes, $branchParams] = printflow_roll_branch_sql('branch_id', $branchId);
         $panelCount = (int)($plan['panel_count_per_piece'] ?? 0) * (int)($plan['finished_quantity'] ?? 0);
         $panelLength = (float)($plan['run_length_per_panel_ft'] ?? 0);
         if ($itemId <= 0 || $panelCount < 1 || $panelCount > 100000 || !is_finite($panelLength) || $panelLength <= 0) {
@@ -285,9 +300,7 @@ class RollService {
         $wasInTransaction = printflow_db_in_transaction($conn);
         if (!$wasInTransaction && !$conn->begin_transaction()) throw new RuntimeException('Unable to start the Tarpaulin roll deduction transaction.');
         try {
-            // branchClause may inspect/ensure schema. Call it only after a transaction
-            // starts so missing branch columns fail safely instead of running DDL.
-            [$branchSql, $branchTypes, $branchParams] = InventoryManager::branchClause('branch_id', $branchId);
+            // The branch column must already exist; never broaden to unassigned rolls.
             $rolls = db_query(
                 "SELECT id, roll_code, remaining_length_ft, received_at, status FROM inv_rolls WHERE item_id = ? AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC, id ASC FOR UPDATE",
                 'i' . $branchTypes,

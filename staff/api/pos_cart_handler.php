@@ -51,20 +51,7 @@ function pos_cart_item_is_service(array $item): bool
 
 function pos_cart_branch_id(): int
 {
-    $branchId = 0;
-    if (function_exists('printflow_branch_filter_for_user')) {
-        $branchId = (int)(printflow_branch_filter_for_user() ?? 0);
-    }
-    if ($branchId <= 0) {
-        $selectedBranch = $_SESSION['selected_branch_id'] ?? null;
-        if ($selectedBranch !== null && $selectedBranch !== 'all') {
-            $branchId = (int)$selectedBranch;
-        }
-    }
-    if ($branchId <= 0) {
-        $branchId = (int)($_SESSION['branch_id'] ?? 0);
-    }
-    return $branchId;
+    return printflow_pos_authorized_branch_id();
 }
 
 function pos_cart_new_tarpaulin_line_id(array $cart): string
@@ -504,6 +491,8 @@ if ($action !== 'get' && !verify_csrf_token((string)($data['csrf_token'] ?? ''))
 try {
     pos_cart_ensure_tarpaulin_line_ids();
     $cartBeforeAction = array_values($_SESSION['pos_cart'] ?? []);
+    $posBranchId = printflow_pos_authorized_branch_id();
+    if ($action !== 'clear') printflow_pos_assert_cart_branch($posBranchId);
     switch ($action) {
         case 'add':
             if (empty($data['product_id'])) {
@@ -522,7 +511,11 @@ try {
             if ($is_service) {
                 $serviceCustomization = is_array($customization) ? $customization : [];
                 unset($serviceCustomization['pos_cart_line_id']);
-                if ($product_id === 40) unset($serviceCustomization['pos_tarpaulin_selection']);
+                if ($product_id === 40) {
+                    // The selection is produced by this server after validation,
+                    // never accepted from a browser cart payload.
+                    unset($serviceCustomization['pos_tarpaulin_selection']);
+                }
                 $serviceFieldConfigs = function_exists('get_service_field_config')
                     ? get_service_field_config($product_id)
                     : [];
@@ -877,6 +870,7 @@ try {
                 }
             }
             $_SESSION['pos_cart'] = [];
+            unset($_SESSION['pos_cart_branch_id']);
             pos_void_unfinalized_drafts($draftOrderIds);
             pos_void_session_pending_paymongo_checkouts();
             break;
@@ -901,6 +895,14 @@ try {
             array_values($_SESSION['pos_cart']),
             pos_cart_service_validation_branch_id(array_values($_SESSION['pos_cart']))
         );
+        foreach ((array)($serviceStockValidation['tarpaulin_selections'] ?? []) as $lineIndex => $selection) {
+            if (!is_array($selection) || !isset($_SESSION['pos_cart'][$lineIndex])) continue;
+            $customization = is_array($_SESSION['pos_cart'][$lineIndex]['customization'] ?? null)
+                ? $_SESSION['pos_cart'][$lineIndex]['customization']
+                : [];
+            $customization['pos_tarpaulin_selection'] = $selection;
+            $_SESSION['pos_cart'][$lineIndex]['customization'] = $customization;
+        }
         if (empty($serviceStockValidation['ok'])) {
             throw new Exception(pos_cart_service_stock_message($serviceStockValidation));
         }

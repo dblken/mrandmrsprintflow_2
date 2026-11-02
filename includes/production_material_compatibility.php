@@ -143,12 +143,38 @@ function pfpm_classify_service(array $context): string
 
 function pfpm_matching_context_rule(array $item, array $context, array $rules): ?array
 {
-    $candidates = array_filter(array_map('pfpm_normalize', [
+    $baseCandidates = array_filter(array_map('pfpm_normalize', [
         $context['serviceType'] ?? '',
         $context['serviceName'] ?? '',
         $context['serviceLabel'] ?? '',
         $context['serviceCategory'] ?? '',
     ]));
+    $candidates = $baseCandidates;
+    if ((int)($context['serviceId'] ?? 0) === 36) {
+        // The numeric ID alone is not enough to apply aliases: stale or
+        // conflicting order data must fail closed instead of inheriting rules.
+        $identityValues = array_values(array_filter(array_map('pfpm_normalize', [
+            $context['serviceType'] ?? '',
+            $context['serviceName'] ?? '',
+        ])));
+        $knownIdentities = array_map('pfpm_normalize', [
+            'Decals/Stickers (Print/Cut)',
+            'Decals / Stickers (Print/Cut)',
+            'Decals / Stickers (Print & Cut)',
+            'Stickers/Decals', 'Stickers /Decals',
+        ]);
+        if (!$identityValues || array_diff($identityValues, $knownIdentities)) return null;
+
+        // Only canonical, service-specific aliases are added. Generic words
+        // such as "Stickers" or "Decals" can collide with other rule rows.
+        $canonicalAliases = array_map('pfpm_normalize', [
+            'Decals/Stickers (Print/Cut)',
+            'Decals / Stickers (Print/Cut)',
+            'Decals / Stickers (Print & Cut)',
+            'Stickers/Decals',
+        ]);
+        $candidates = array_values(array_unique(array_merge($canonicalAliases, $identityValues)));
+    }
     foreach ($rules as $rule) {
         if ((string)($rule['item_id'] ?? '') !== (string)($item['id'] ?? '')) continue;
         if (in_array(pfpm_normalize($rule['service_type'] ?? ''), $candidates, true)) return $rule;
@@ -177,6 +203,10 @@ function pfpm_classify_item(array $item, array $context, array $rules = []): arr
     $family = pfpm_material_family($item);
     if (in_array($family, ['excluded', 'ink'], true)) return ['tier' => 'excluded', 'family' => $family, 'applicable' => false];
     $serviceKind = pfpm_classify_service($context);
+    $itemName = pfpm_normalize($item['name'] ?? '');
+    if ($serviceKind === 'sintraboard' && in_array($itemName, ['AC MC', 'SP MC'], true)) {
+        return ['tier' => 'unrelated', 'family' => $family, 'serviceKind' => $serviceKind, 'applicable' => false];
+    }
     $tier = 'unrelated';
     $rule = pfpm_matching_context_rule($item, $context, $rules);
     $ruleType = pfpm_normalize($rule['rule_type'] ?? '');

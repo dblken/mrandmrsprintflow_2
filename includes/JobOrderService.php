@@ -13,6 +13,7 @@ require_once __DIR__ . '/RollService.php';
 require_once __DIR__ . '/NotificationService.php';
 require_once __DIR__ . '/revision_workflow.php';
 require_once __DIR__ . '/service_design_fee.php';
+require_once __DIR__ . '/pos_quantity_validation.php';
 
 class JobOrderService {
     private static array $columnExistsCache = [];
@@ -1251,12 +1252,17 @@ class JobOrderService {
         }
         $qty = (float)$qty;
         $isVersionedTarpaulin = is_array($metadata) && printflow_tarpaulin_is_versioned_metadata($metadata);
-        if (($isVersionedTarpaulin && (!is_finite($qty) || $qty <= 0)) || (!$isVersionedTarpaulin && $qty < 1)) {
-            throw new Exception("Material quantity must be at least 1.");
-        }
-        
         $item = InventoryManager::getItem($itemId);
         if (!$item) throw new Exception("Item not found.");
+        if ($isVersionedTarpaulin) {
+            if (!is_finite($qty) || $qty <= 0) throw new Exception("Material quantity must be positive.");
+        } else {
+            try {
+                $qty = printflow_pos_parse_positive_material_quantity($qty, $item);
+            } catch (InvalidArgumentException $quantityError) {
+                throw new Exception('Material quantity must match its configured unit and consumption method.');
+            }
+        }
         
         $cost = $item['unit_cost'] ?? 0;
         $track_by_roll = $item['track_by_roll'];

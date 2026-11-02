@@ -46,6 +46,7 @@ $checkout = (string)file_get_contents($root . '/staff/api/pos_checkout.php');
 $cartApi = (string)file_get_contents($root . '/staff/api/pos_cart_handler.php');
 $jobs = (string)file_get_contents($root . '/includes/JobOrderService.php');
 $status = (string)file_get_contents($root . '/staff/update_order_status_process.php');
+$statusMutation = (string)file_get_contents($root . '/includes/order_status_mutation.php');
 $cart = (string)file_get_contents($root . '/customer/cart.php');
 $estimator = (string)file_get_contents($root . '/public/assets/js/service_estimated_price.js');
 $customerOrder = (string)file_get_contents($root . '/customer/order_service_dynamic.php');
@@ -60,7 +61,7 @@ $check(str_contains($checkout, 'printflow_checkout_unconfigured_price_message'),
 $check(str_contains($cartApi, "=== 'unconfigured'") && str_contains($cartApi, "price_unconfigured"), 'the cart accepts a specification that has no configured price');
 $check(str_contains($jobs, 'order_total_not_configured'), 'inventory deduction waits until the order has a valid price');
 $check(str_contains($jobs, 'Set a valid price before completing this order.'), 'job completion waits for a valid price');
-$check(str_contains($status, 'Set a valid price before completing this order.'), 'order completion waits for a valid price');
+$check(str_contains($status, 'printflow_staff_mutate_order_status') && str_contains($statusMutation, 'Set a valid price before completing this order.'), 'order completion endpoint delegates to the shared valid-price guard');
 $servicesViewStart = strpos($pos, 'id="services-view"');
 $servicesViewEnd = strpos($pos, 'RIGHT: CART');
 $servicesView = ($servicesViewStart !== false && $servicesViewEnd !== false)
@@ -85,6 +86,6 @@ $check(strpos($customerOrder, 'pf-missing-estimate-continue') === false, 'custom
 $check(!str_contains($estimator, 'no configured price yet') && !str_contains($cart, 'no configured price yet') && !str_contains($pos, 'pos-unconfigured-price-note'), 'the ordering page no longer shows an inline missing-price message');
 $check(str_contains($customerOrder, 'specificationHasEstimatedPrice') && str_contains($customerOrder, 'syncCustomerZeroPriceNote'), 'customer page shows guidance when estimated price is 0 without blocking submit');
 $check(str_contains($payment, 'total_to_pay <= 0'), 'payment stays blocked while the order total is not a valid price');
-$check(str_contains($priceApi, 'Price must be a valid amount of at least PHP 1.00'), 'Staff cannot save a zero or negative final price');
+$check(str_contains($priceApi, 'PHP 0.01 to PHP 9,999,999.99') && str_contains($priceApi, 'two decimal places'), 'Staff final-price mutations enforce the positive range and two-decimal limit');
 
 echo "Unconfigured price flow: {$passed} assertions passed.\n";

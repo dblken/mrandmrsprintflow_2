@@ -122,6 +122,15 @@ assert.strictEqual(byName(sintraRows, 'Sintra 5mm').compatibility.tier, 'recomme
 assert.strictEqual(byName(sintraRows, 'SP HOME'), undefined);
 assert.strictEqual(picker.classifyItem(byName(inventory, 'SP HOME'), context('Sintraboard Standees'), []).directSelectable, false);
 assert.strictEqual(picker.classifyItem(byName(inventory, 'SP HOME'), context('Sintraboard Standees'), []).overrideable, true);
+for (const plateMaterial of ['AC MC', 'SP MC']) {
+    const itemRow = { id: plateMaterial === 'AC MC' ? 9001 : 9002, name: plateMaterial, current_stock: 10 };
+    const incorrectRule = [{ service_type: 'Sintraboard Standees', item_id: itemRow.id, rule_type: 'REQUIRED' }];
+    const sintraClassification = picker.classifyItem(itemRow, context('Sintraboard Standees'), incorrectRule);
+    assert.strictEqual(sintraClassification.directSelectable, false, `${plateMaterial} is not directly selectable for Sintraboard Standees`);
+    assert.strictEqual(sintraClassification.overrideable, false, `${plateMaterial} cannot be manually overridden for Sintraboard Standees`);
+    const plateRule = [{ service_type: 'Plates', item_id: itemRow.id, rule_type: 'REQUIRED' }];
+    assert.strictEqual(picker.classifyItem(itemRow, context('Plates'), plateRule).tier, 'recommended', `${plateMaterial} remains recommended for Plates`);
+}
 assert.strictEqual(picker.inkModeFor(byName(sintraRows, 'Sintra 3mm 32')), 'none');
 
 const brochureRows = picker.rankItems(inventory, context('Brochure'), [], '');
@@ -269,6 +278,56 @@ assert.strictEqual(byName(adminStickerRows, 'NEXJET').compatibility.tier, 'recom
 ['STICKER BLACK', 'STICKER SILVER'].forEach(name => {
     assert.strictEqual(byName(adminStickerRows, name).compatibility.tier, 'recommended');
 });
+
+const stickerRuleContext = {
+    ...categoryContext('Stickers', 'Stickers /Decals'),
+    serviceId: 36,
+    serviceType: 'Stickers /Decals'
+};
+const stickerRuleInventory = [
+    { id: 18, name: 'Nextjet', current_stock: 2003, unit_of_measure: 'pcs', category_name: 'MATERIALS' },
+    { id: 22, name: 'Hologram', current_stock: 2003, unit_of_measure: 'pcs', category_name: 'MATERIALS' }
+];
+const stickerRules = [
+    { service_type: 'Decals/Stickers (Print/Cut)', item_id: 18, rule_type: 'REQUIRED' },
+    { service_type: 'Decals/Stickers (Print/Cut)', item_id: 22, rule_type: 'OPTIONAL' }
+];
+const stickerRuleRows = picker.rankItems(stickerRuleInventory, stickerRuleContext, stickerRules, '');
+assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.ruleType, 'REQUIRED', 'service ID 36 resolves its canonical REQUIRED rule despite a UI service-label alias');
+assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.tier, 'recommended', 'required rule remains selectable in the recommendation-ranked list');
+assert.strictEqual(byName(stickerRuleRows, 'Hologram').compatibility.ruleType, 'OPTIONAL', 'Hologram retains its explicit OPTIONAL rule');
+assert.strictEqual(byName(stickerRuleRows, 'Hologram').compatibility.tier, 'optional');
+const canonicalSticker = picker.rankItems(stickerRuleInventory, {
+    serviceId: 36, serviceType: 'Decals/Stickers (Print/Cut)'
+}, stickerRules, '');
+assert.strictEqual(byName(canonicalSticker, 'Nextjet').compatibility.ruleType, 'REQUIRED', 'canonical Decals identity resolves the required rule');
+const validStickerAlias = picker.rankItems(stickerRuleInventory, {
+    serviceId: 36, serviceType: 'Stickers /Decals'
+}, stickerRules, '');
+assert.strictEqual(byName(validStickerAlias, 'Nextjet').compatibility.ruleType, 'REQUIRED', 'known Decals alias resolves the canonical required rule');
+const conflictingSticker = picker.rankItems(stickerRuleInventory, {
+    serviceId: 36, serviceType: 'Poster Printing', serviceLabel: 'Poster Printing', serviceCategory: 'Print'
+}, stickerRules, '');
+assert.strictEqual(byName(conflictingSticker, 'Nextjet'), undefined, 'conflicting Poster identity does not inherit Decals aliases');
+const incompleteSticker = picker.rankItems(stickerRuleInventory, {
+    serviceId: 36, serviceCategory: 'Stickers'
+}, stickerRules, '');
+assert.strictEqual(byName(incompleteSticker, 'Nextjet'), undefined, 'incomplete service identity cannot match a generic Decals rule');
+const posterWithRules = picker.rankItems(stickerRuleInventory, {
+    serviceId: 64, serviceType: 'Poster Printing'
+}, [...stickerRules, { service_type: 'Poster Printing', item_id: 18, rule_type: 'OPTIONAL' }], '');
+assert.strictEqual(byName(posterWithRules, 'Nextjet').compatibility.ruleType, 'OPTIONAL', 'valid Poster identity resolves only its own rule');
+const zeroStockRequired = picker.classifyItem({ ...stickerRuleInventory[0], current_stock: 0 }, stickerRuleContext, stickerRules);
+const zeroStockOptional = picker.classifyItem({ ...stickerRuleInventory[1], current_stock: 0 }, stickerRuleContext, stickerRules);
+const zeroStockRecommended = picker.classifyItem({ id: 80, name: 'Sticker Paper', current_stock: 0, category_name: 'MATERIALS' }, stickerRuleContext, []);
+assert.strictEqual(picker.statusLabel(zeroStockRequired), 'Required · Out of stock');
+assert.strictEqual(picker.statusLabel(zeroStockOptional), 'Optional · Out of stock');
+assert.strictEqual(picker.statusLabel(zeroStockRecommended), 'Recommended · Out of stock');
+assert.strictEqual(zeroStockRequired.selectable, false, 'out-of-stock REQUIRED material remains unselectable');
+assert.strictEqual(zeroStockOptional.selectable, false, 'out-of-stock OPTIONAL material remains unselectable');
+const customOrdersSource = require('fs').readFileSync(require('path').join(__dirname, '../staff/customizations.php'), 'utf8');
+assert.match(customOrdersSource, /PrintFlowProductionMaterials\.statusLabel\(state\)/,
+    'the picker uses the shared rule-type status label, including for out-of-stock entries');
 
 const adminSignageRows = picker.rankItems(inventory, categoryContext('Signage', 'Custom Signage'), [], '');
 assert.strictEqual(byName(adminSignageRows, 'Sintra 3mm 32').compatibility.tier, 'recommended');

@@ -354,6 +354,8 @@ if (isset($_GET['ajax'])) {
         .inv-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: auto; }
         .inv-table th { padding: 12px 16px; font-size: 13px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         .inv-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; color: #374151; max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #serviceMaterialApprovalPanel .inv-table td.service-material-rule-actions { min-width: 280px; max-width: none; overflow: visible; text-overflow: clip; }
+        #serviceMaterialApprovalPanel .service-material-rule-actions button { min-height: 36px; cursor: pointer; }
         .no-truncate { max-width: none !important; overflow: visible !important; white-space: nowrap !important; text-overflow: clip !important; }
         .inv-table tbody tr { cursor: pointer; transition: background 0.1s; }
         .inv-table tbody tr:hover td { background: #f9fafb; }
@@ -858,6 +860,24 @@ if (isset($_GET['ajax'])) {
         </header>
 
         <main>
+            <?php if (is_admin()): ?>
+            <section class="card" id="serviceMaterialApprovalPanel" style="margin-bottom:20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+                    <div>
+                        <h2 style="font-size:16px;margin:0;color:#1f2937;">Service Material Rules</h2>
+                        <p style="font-size:12px;color:#64748b;margin:5px 0 0;">Only an Admin can save multipliers or approve REQUIRED rules. Changing a multiplier clears its approval and requires a new approval.</p>
+                    </div>
+                    <button type="button" class="toolbar-btn" onclick="pfLoadServiceMaterialRules()">Refresh rules</button>
+                </div>
+                <div id="serviceMaterialRuleFeedback" role="status" aria-live="polite" style="font-size:13px;margin:0 0 10px;color:#334155;"></div>
+                <div style="overflow-x:auto;">
+                    <table class="inv-table" style="min-width:900px;">
+                        <thead><tr><th>Service</th><th>Material</th><th>Inventory UOM</th><th>Rule Type</th><th>Multiplier</th><th>Approval</th><th>Action</th></tr></thead>
+                        <tbody id="serviceMaterialRuleRows"><tr><td colspan="7" style="padding:16px;">Loading service material rules…</td></tr></tbody>
+                    </table>
+                </div>
+            </section>
+            <?php endif; ?>
             <!-- Items Card -->
             <div class="card">
                 <?php if ($inventory_read_only): ?>
@@ -1516,6 +1536,34 @@ if (isset($_GET['ajax'])) {
                 <div id="itemThresholdResetRow" class="item-modal-edit-only">
                     <button type="button" id="btnResetSuggestedThresholds" onclick="resetSuggestedThresholds()">Reset to Suggested Values</button>
                 </div>
+                <div class="modal-section" id="materialUsageConfiguration">
+                    <p class="section-header">Size &amp; Usage Configuration <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#64748b;">(Optional; does not change stock units)</span></p>
+                    <div class="form-row-grid">
+                        <div class="form-group"><label for="itemSizeVariant">Size / Variant</label><input type="text" id="itemSizeVariant" name="size_variant" maxlength="100" placeholder="e.g. A4, 11 oz, 36-inch"></div>
+                        <div class="form-group"><label for="itemMaterialFormat">Material Format</label>
+                            <select id="itemMaterialFormat" name="material_format" class="w-100" onchange="syncMaterialUsageFields()"><option value="">Not specified</option><option value="piece">Piece</option><option value="sheet">Sheet</option><option value="roll">Roll</option><option value="liquid_other">Liquid / Other</option></select>
+                        </div>
+                    </div>
+                    <div class="form-row-grid" id="materialDimensionFields" style="display:none;">
+                        <div class="form-group"><label id="itemMaterialWidthLabel" for="itemMaterialWidth">Width</label><input type="number" id="itemMaterialWidth" name="material_width" min="0" step="0.001" placeholder="Width"></div>
+                        <div class="form-group" id="itemMaterialHeightGroup"><label for="itemMaterialHeight">Height</label><input type="number" id="itemMaterialHeight" name="material_height" min="0" step="0.001" placeholder="Height"></div>
+                        <div class="form-group"><label id="itemDimensionUnitLabel" for="itemDimensionUnit">Dimension Unit</label><select id="itemDimensionUnit" name="material_dimension_unit" class="w-100"><option value="">Select unit</option><option value="mm">mm</option><option value="cm">cm</option><option value="in">in</option><option value="ft">ft</option></select></div>
+                    </div>
+                    <div class="form-row-grid">
+                        <div class="form-group"><label for="itemConsumptionMethod">Consumption Method</label>
+                            <select id="itemConsumptionMethod" name="consumption_method" class="w-100" onchange="syncMaterialUsageFields()"><option value="">Manual confirmation (default)</option><option value="per_piece">Per Piece</option><option value="sheet_yield">Per Sheet / Sheet Yield</option><option value="dimension_sheet">Dimension-Based Sheet Fit</option><option value="by_length">By Length (requires verified length)</option><option value="by_area">By Area (manual unless stock UOM supports it)</option><option value="manual">Manual Confirmation</option></select>
+                        </div>
+                        <div class="form-group" id="designYieldField" style="display:none;"><label for="itemDesignsPerUnit">Designs per Sheet / Unit</label><input type="number" id="itemDesignsPerUnit" name="designs_per_unit" min="1" step="1" placeholder="Set only when verified"></div>
+                    </div>
+                    <div class="form-row-grid" id="materialMarginFields" style="display:none;">
+                        <div class="form-group"><label for="itemUsableMarginWidth">Margin on each side (width)</label><input type="number" id="itemUsableMarginWidth" name="usable_margin_width" min="0" step="0.001" value="0"></div>
+                        <div class="form-group"><label for="itemUsableMarginHeight">Margin on each side (height)</label><input type="number" id="itemUsableMarginHeight" name="usable_margin_height" min="0" step="0.001" value="0"></div>
+                    </div>
+                    <div class="form-row-grid">
+                        <div class="form-group"><label for="itemWastagePercent">Optional wastage (%)</label><input type="number" id="itemWastagePercent" name="wastage_percent" min="0" max="100" step="0.001" placeholder="0"></div>
+                        <div class="field-hint" style="align-self:center;">Estimates are suggestions. Staff confirms the actual quantity before assignment and deduction.</div>
+                    </div>
+                </div>
                 <div class="item-modal-rows-2 item-modal-row-preview">
                     <div id="previewStatusSection" class="item-modal-field" style="grid-column: span 2;">
                         <label>Stock Status Preview</label>
@@ -1576,6 +1624,58 @@ if (isset($_GET['ajax'])) {
     /* var: Turbo re-executes this block; let/const would throw "already been declared". */
     window.PF_INVENTORY_CSRF = <?php echo json_encode(generate_csrf_token(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
     var ADMIN_API_BASE = '<?php echo $base_path; ?>/admin/';
+    <?php if (is_admin()): ?>
+    window.pfLoadServiceMaterialRules = async function () {
+        var body = document.getElementById('serviceMaterialRuleRows');
+        var feedback = document.getElementById('serviceMaterialRuleFeedback');
+        if (!body) return;
+        body.innerHTML = '<tr><td colspan="7" style="padding:16px;">Loading…</td></tr>';
+        try {
+            var response = await fetch(ADMIN_API_BASE + 'service_material_rules_api.php', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+            var data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.error || 'Could not load rules.');
+            if (!data.data.length) { body.innerHTML = '<tr><td colspan="7" style="padding:16px;">No service material rules are configured.</td></tr>'; return; }
+            body.innerHTML = data.data.map(function (rule) {
+                var required = String(rule.rule_type || '').toUpperCase() === 'REQUIRED';
+                var approved = String(rule.qty_multiplier_approved) === '1';
+                var auditPresent = rule.qty_multiplier_approved_by && rule.qty_multiplier_approved_at;
+                var status = approved && auditPresent ? 'Approved by Admin #' + escapeHtml(rule.qty_multiplier_approved_by) + ' at ' + escapeHtml(rule.qty_multiplier_approved_at) : (approved ? 'Approval audit incomplete; reapproval required' : 'Not approved');
+                var multiplier = rule.qty_multiplier == null ? '' : String(rule.qty_multiplier);
+                var actions = '<button type="button" class="toolbar-btn" onclick="pfSaveServiceMaterialMultiplier(' + Number(rule.id) + ')">Save multiplier</button>';
+                if (required) actions += ' <button type="button" class="toolbar-btn" onclick="pfApproveServiceMaterialRule(' + Number(rule.id) + ')">Approve REQUIRED</button>';
+                return '<tr><td>' + escapeHtml(rule.service_name || rule.service_type) + '</td><td>' + escapeHtml(rule.material_name || ('Inventory item #' + rule.item_id)) + '</td><td>' + escapeHtml(rule.inventory_uom || '—') + '</td><td>' + escapeHtml(rule.rule_type || '') + '</td><td><input id="serviceMaterialMultiplier-' + Number(rule.id) + '" type="number" min="0.01" max="99999999.99" step="0.01" value="' + escapeHtml(multiplier) + '" aria-label="Multiplier for rule ' + Number(rule.id) + '" style="width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;"></td><td>' + status + '</td><td class="service-material-rule-actions" style="white-space:nowrap;">' + actions + '</td></tr>';
+            }).join('');
+            if (feedback) feedback.textContent = '';
+        } catch (error) {
+            body.innerHTML = '<tr><td colspan="7" style="padding:16px;color:#b91c1c;">' + escapeHtml(error.message) + '</td></tr>';
+        }
+    };
+    window.pfMutateServiceMaterialRule = async function (ruleId, action, multiplier) {
+        var feedback = document.getElementById('serviceMaterialRuleFeedback');
+        var form = new FormData();
+        form.set('csrf_token', window.PF_INVENTORY_CSRF || '');
+        form.set('rule_id', String(ruleId));
+        form.set('action', action);
+        if (multiplier != null) form.set('qty_multiplier', multiplier);
+        if (feedback) feedback.textContent = 'Saving…';
+        try {
+            var response = await fetch(ADMIN_API_BASE + 'service_material_rules_api.php', { method: 'POST', body: form, credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+            var data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.error || 'The rule could not be saved.');
+            if (feedback) feedback.textContent = action === 'approve' ? 'Approval recorded with Admin ID and timestamp.' : (data.approval_required ? 'Multiplier saved. This REQUIRED rule must be explicitly approved again.' : 'Multiplier saved.');
+            await window.pfLoadServiceMaterialRules();
+        } catch (error) {
+            if (feedback) feedback.textContent = error.message;
+        }
+    };
+    window.pfSaveServiceMaterialMultiplier = function (ruleId) {
+        var input = document.getElementById('serviceMaterialMultiplier-' + ruleId);
+        if (input) window.pfMutateServiceMaterialRule(ruleId, 'update_multiplier', input.value);
+    };
+    window.pfApproveServiceMaterialRule = function (ruleId) { window.pfMutateServiceMaterialRule(ruleId, 'approve', null); };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', window.pfLoadServiceMaterialRules);
+    else window.pfLoadServiceMaterialRules();
+    <?php endif; ?>
     var currentItems = <?php echo $items_js; ?>;
     var usageChart = null;
     var selectedItemForStockCard = null;
@@ -1627,6 +1727,18 @@ if (isset($_GET['ajax'])) {
         if (itemCategory) itemCategory.value = item.category_id != null ? String(item.category_id) : '';
         if (itemUnit) itemUnit.value = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
         if (itemUnitCost) itemUnitCost.value = item.unit_cost != null ? String(item.unit_cost) : '0.00';
+        var usageFields = {
+            itemSizeVariant: item.size_variant || '', itemMaterialFormat: item.material_format || '',
+            itemMaterialWidth: item.material_width ?? '', itemMaterialHeight: item.material_height ?? '',
+            itemDimensionUnit: item.material_dimension_unit || '', itemConsumptionMethod: item.consumption_method || '',
+            itemDesignsPerUnit: item.designs_per_unit ?? '', itemUsableMarginWidth: item.usable_margin_width ?? '',
+            itemUsableMarginHeight: item.usable_margin_height ?? '', itemWastagePercent: item.wastage_percent ?? ''
+        };
+        Object.keys(usageFields).forEach(function (id) {
+            var field = document.getElementById(id);
+            if (field) field.value = String(usageFields[id]);
+        });
+        syncMaterialUsageFields();
         if (trackEl) trackEl.value = item.track_by_roll != null ? String(item.track_by_roll) : '0';
         if (statusEl) statusEl.value = item.status || 'ACTIVE';
         if (startingStockEl) {
@@ -2916,6 +3028,23 @@ if (isset($_GET['ajax'])) {
         updateSaveButtonState();
     }
 
+    function syncMaterialUsageFields() {
+        var format = String(document.getElementById('itemMaterialFormat')?.value || '').toLowerCase();
+        var method = String(document.getElementById('itemConsumptionMethod')?.value || '').toLowerCase();
+        var dimensionFields = document.getElementById('materialDimensionFields');
+        var yieldField = document.getElementById('designYieldField');
+        var marginFields = document.getElementById('materialMarginFields');
+        var heightGroup = document.getElementById('itemMaterialHeightGroup');
+        var widthLabel = document.getElementById('itemMaterialWidthLabel');
+        var unitLabel = document.getElementById('itemDimensionUnitLabel');
+        if (dimensionFields) dimensionFields.style.display = (format === 'sheet' || format === 'roll' || method === 'dimension_sheet') ? 'grid' : 'none';
+        if (heightGroup) heightGroup.style.display = format === 'roll' ? 'none' : 'block';
+        if (widthLabel) widthLabel.textContent = format === 'roll' ? 'Roll Width' : 'Width';
+        if (unitLabel) unitLabel.textContent = format === 'roll' ? 'Roll Width Unit' : 'Dimension Unit';
+        if (yieldField) yieldField.style.display = (method === 'sheet_yield' || method === 'dimension_sheet') ? 'block' : 'none';
+        if (marginFields) marginFields.style.display = method === 'dimension_sheet' ? 'grid' : 'none';
+    }
+
     function setItemModalMode(mode) {
         const form = document.getElementById('itemForm');
         if (!form) return;
@@ -2962,6 +3091,7 @@ if (isset($_GET['ajax'])) {
             const archiveBtn = document.getElementById('archiveItemBtn');
             if (archiveBtn) archiveBtn.style.display = 'none';
             applySmartUomRules();
+            syncMaterialUsageFields();
             pfConfigureThresholdFieldsForMode(false);
             pfApplySuggestedThresholds();
             pfSyncAutoFieldLockStates();
@@ -2973,6 +3103,7 @@ if (isset($_GET['ajax'])) {
             selectedItemForStockCard = item;
             editItemOriginalValues = {};
             applySmartUomRules();
+            syncMaterialUsageFields();
             pfConfigureThresholdFieldsForMode(true);
             pfSyncAutoFieldLockStates();
             updateItemModalSaveButtonLabel();

@@ -6,6 +6,8 @@ require_once __DIR__ . '/../includes/api_header.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/TarpaulinService.php';
+require_once __DIR__ . '/../includes/RollService.php';
+require_once __DIR__ . '/../includes/branch_context.php';
 
 require_role(['Admin', 'Staff']);
 
@@ -14,16 +16,40 @@ $action = $_GET['action'] ?? '';
 switch ($action) {
     case 'list_available':
         $width = (int)($_GET['width'] ?? 0);
-        if (!$width) {
-            echo json_encode(['success' => false, 'error' => 'Width required']);
+        $orderId = (int)($_GET['order_id'] ?? 0);
+        if (!$width || $orderId <= 0) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Order and width are required']);
             break;
         }
-        $rolls = TarpaulinService::getAvailableRolls($width);
+        printflow_assert_order_branch_access($orderId);
+        $orderRows = db_query('SELECT branch_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]) ?: [];
+        $orderBranchId = (int)($orderRows[0]['branch_id'] ?? 0);
+        if ($orderBranchId <= 0) {
+            http_response_code(409);
+            echo json_encode(['success' => false, 'error' => 'The order branch is unavailable; no branch-wide roll list was returned.']);
+            break;
+        }
+        $rolls = TarpaulinService::getAvailableRolls($width, $orderBranchId);
         echo json_encode(['success' => true, 'rolls' => $rolls]);
         break;
 
     case 'list_all':
-        $rolls = db_query("SELECT r.*, i.name as item_name FROM inv_rolls r JOIN inv_items i ON r.item_id = i.id ORDER BY r.received_at DESC");
+        if (get_user_type() === 'Admin') {
+            $rolls = db_query("SELECT r.*, i.name as item_name FROM inv_rolls r JOIN inv_items i ON r.item_id = i.id ORDER BY r.received_at DESC");
+        } else {
+            $branchId = (int)(printflow_branch_filter_for_user() ?? ($_SESSION['branch_id'] ?? 0));
+            if ($branchId <= 0) {
+                http_response_code(409);
+                echo json_encode(['success' => false, 'error' => 'Your assigned branch could not be verified; no unscoped roll list was returned.']);
+                break;
+            }
+            $rolls = db_query(
+                'SELECT r.*, i.name AS item_name FROM inv_rolls r JOIN inv_items i ON r.item_id = i.id WHERE r.branch_id = ? ORDER BY r.received_at DESC',
+                'i',
+                [$branchId]
+            );
+        }
         echo json_encode(['success' => true, 'rolls' => $rolls]);
         break;
 
@@ -39,23 +65,18 @@ switch ($action) {
             break;
         }
         
-        $item_id = (int)$input['item_id'];
-        $roll_code = sanitize($input['roll_code']);
-        $width = (int)$input['width_ft'];
-        $length = (float)$input['total_length_ft'];
+        $item_id = (int)($input['item_id'] ?? 0);
+        $roll_code = sanitize($input['roll_code'] ?? '');
+        $width = (int)($input['width_ft'] ?? 0);
+        $length = (float)($input['total_length_ft'] ?? 0);
         // Note: unit_cost/supplier columns are optional but supported in Unified inv_rolls
         $cost = (float)($input['unit_cost'] ?? 0);
         $supplier = sanitize($input['supplier'] ?? '');
 
         try {
-            global $conn;
-            $stmt = $conn->prepare("INSERT INTO inv_rolls (item_id, roll_code, width_ft, total_length_ft, remaining_length_ft) VALUES (?, ?, ?, ?, ?)");
-            $stmt->bind_param("isidd", $item_id, $roll_code, $width, $length, $length);
-            if ($stmt->execute()) {
-                echo json_encode(['success' => true, 'message' => 'Roll added']);
-            } else {
-                echo json_encode(['success' => false, 'error' => $conn->error]);
-            }
+            if ($item_id <= 0 || $width <= 0 || !is_finite($length) || $length <= 0) throw new InvalidArgumentException('Valid material, width, and length are required.');
+            $rollId = RollService::createRoll($item_id, $length, $roll_code, $supplier, $width);
+            echo json_encode(['success' => true, 'message' => 'Roll added', 'roll_id' => (int)$rollId]);
         } catch (Exception $e) {
             echo json_encode(['success' => false, 'error' => $e->getMessage()]);
         }

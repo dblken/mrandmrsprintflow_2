@@ -7,6 +7,7 @@
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/inventory_stock_status.php';
+require_once __DIR__ . '/roll_branch_scope.php';
 
 class InventoryManager {
     private static $branchSchemaEnsured = false;
@@ -290,8 +291,10 @@ class InventoryManager {
         }
 
         if ($item['track_by_roll']) {
-            // Stock is the sum of remaining lengths of all OPEN rolls
-            [$branchSql, $branchTypes, $branchParams] = self::branchClause('branch_id', $branchId);
+            // Unassigned (NULL/0) rolls are not branch stock. Legacy ownership
+            // must be verified before those rolls can be counted or consumed.
+            if ((int)$branchId <= 0) return 0.0;
+            [$branchSql, $branchTypes, $branchParams] = printflow_roll_branch_sql('branch_id', (int)$branchId);
             $sql = "SELECT SUM(remaining_length_ft) as soh FROM inv_rolls WHERE item_id = ? AND status = 'OPEN'{$branchSql}";
             $res = db_query($sql, 'i' . $branchTypes, array_merge([$itemId], $branchParams));
             return (float)($res[0]['soh'] ?? 0);
@@ -344,12 +347,13 @@ class InventoryManager {
 
         [$branchSql, $branchTypes, $branchParams] = self::branchClause('branch_id', $branchId);
 
-        if ($rollIds !== []) {
+        if ($rollIds !== [] && (int)$branchId > 0) {
+            [$rollBranchSql, $rollBranchTypes, $rollBranchParams] = printflow_roll_branch_sql('branch_id', (int)$branchId);
             $ph = implode(',', array_fill(0, count($rollIds), '?'));
             $rows = db_query(
-                "SELECT item_id, SUM(remaining_length_ft) AS soh FROM inv_rolls WHERE item_id IN ({$ph}) AND status = 'OPEN'{$branchSql} GROUP BY item_id",
-                str_repeat('i', count($rollIds)) . $branchTypes,
-                array_merge($rollIds, $branchParams)
+                "SELECT item_id, SUM(remaining_length_ft) AS soh FROM inv_rolls WHERE item_id IN ({$ph}) AND status = 'OPEN'{$rollBranchSql} GROUP BY item_id",
+                str_repeat('i', count($rollIds)) . $rollBranchTypes,
+                array_merge($rollIds, $rollBranchParams)
             ) ?: [];
             foreach ($rows as $row) {
                 $result[(int)$row['item_id']] = (float)($row['soh'] ?? 0);
@@ -385,12 +389,20 @@ class InventoryManager {
     public static function deductRollMaterial($orderItemId, $rollId, $requiredLength) {
         require_once __DIR__ . '/RollService.php';
         // We use orderItemId as the jobOrderId for now, or we might need to look up the order_id
-        $item = db_query("SELECT order_id FROM order_items WHERE order_item_id = ?", 'i', [$orderItemId]);
+        $item = db_query(
+            'SELECT o.order_id, o.branch_id FROM order_items oi JOIN orders o ON o.order_id = oi.order_id WHERE oi.order_item_id = ? LIMIT 1',
+            'i',
+            [$orderItemId]
+        );
         $orderId = (int)($item[0]['order_id'] ?? 0);
+        $branchId = (int)($item[0]['branch_id'] ?? 0);
+        if ($orderId <= 0 || $branchId <= 0) {
+            throw new RuntimeException('The Tarpaulin order branch could not be verified; no roll stock was deducted.');
+        }
         $transactionDate = ($orderId > 0 && function_exists('printflow_store_order_ledger_date'))
             ? printflow_store_order_ledger_date($orderId)
             : null;
 
-        return RollService::deductFromRoll($rollId, $requiredLength, $orderId, null, $transactionDate);
+        return RollService::deductFromRoll($rollId, $requiredLength, $orderId, null, $transactionDate, $branchId);
     }
 }

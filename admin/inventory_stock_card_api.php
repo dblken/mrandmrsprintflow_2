@@ -5,6 +5,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
+require_once __DIR__ . '/../includes/roll_branch_scope.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/inventory_stock_status.php';
 
@@ -139,15 +140,19 @@ if ($branchId <= 0) {
 // Rolls (for roll-based items)
 $rolls = [];
 if ($item['track_by_roll']) {
-    [$rollBranchSql, $rollBranchTypes, $rollBranchParams] = InventoryManager::branchClause('branch_id', $branchId);
-    $rollRows = db_query(
-        "SELECT id, roll_code, total_length_ft as original_length, remaining_length_ft as current_length
-         FROM inv_rolls
-         WHERE item_id = ? AND status = 'OPEN'{$rollBranchSql}
-         ORDER BY received_at ASC",
-        'i' . $rollBranchTypes,
-        array_merge([$item_id], $rollBranchParams)
-    );
+    if ($branchId > 0) {
+        [$rollBranchSql, $rollBranchTypes, $rollBranchParams] = printflow_roll_branch_sql('branch_id', $branchId);
+        $rollRows = db_query(
+            "SELECT id, roll_code, total_length_ft as original_length, remaining_length_ft as current_length
+             FROM inv_rolls
+             WHERE item_id = ? AND status = 'OPEN'{$rollBranchSql}
+             ORDER BY received_at ASC",
+            'i' . $rollBranchTypes,
+            array_merge([$item_id], $rollBranchParams)
+        );
+    } else {
+        $rollRows = [];
+    }
     foreach ($rollRows ?: [] as $r) {
         $rolls[] = [
             'roll_code'       => $r['roll_code'],

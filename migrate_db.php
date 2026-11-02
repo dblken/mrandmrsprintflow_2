@@ -186,7 +186,10 @@ $tables = [
       `service_type` varchar(100) NOT NULL,
       `item_id` int(11) NOT NULL,
       `rule_type` varchar(50) DEFAULT 'REQUIRED',
-      `qty_multiplier` decimal(10,2) DEFAULT '1.00',
+      `qty_multiplier` decimal(10,2) DEFAULT NULL,
+      `qty_multiplier_approved` tinyint(1) NOT NULL DEFAULT 0,
+      `qty_multiplier_approved_by` int(11) DEFAULT NULL,
+      `qty_multiplier_approved_at` datetime DEFAULT NULL,
       `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (`id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"
