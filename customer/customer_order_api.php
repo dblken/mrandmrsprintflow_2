@@ -74,7 +74,8 @@ try {
                 );
                 $requiredRules = db_query(
                     "SELECT r.item_id, r.rule_type, r.qty_multiplier, r.qty_multiplier_approved,
-                            r.qty_multiplier_approved_by, r.qty_multiplier_approved_at, i.status AS item_status
+                            r.qty_multiplier_approved_by, r.qty_multiplier_approved_at,
+                            i.status AS item_status, i.name AS name
                      FROM service_material_rules r
                      LEFT JOIN inv_items i ON i.id = r.item_id
                      WHERE r.service_type = ? AND UPPER(TRIM(r.rule_type)) = 'REQUIRED'",

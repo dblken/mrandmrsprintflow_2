@@ -354,6 +354,8 @@ if (isset($_GET['ajax'])) {
         .inv-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: auto; }
         .inv-table th { padding: 12px 16px; font-size: 13px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         .inv-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; color: #374151; max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #serviceMaterialApprovalPanel .inv-table td.service-material-rule-actions { min-width: 280px; max-width: none; overflow: visible; text-overflow: clip; }
+        #serviceMaterialApprovalPanel .service-material-rule-actions button { min-height: 36px; cursor: pointer; }
         .no-truncate { max-width: none !important; overflow: visible !important; white-space: nowrap !important; text-overflow: clip !important; }
         .inv-table tbody tr { cursor: pointer; transition: background 0.1s; }
         .inv-table tbody tr:hover td { background: #f9fafb; }
@@ -1641,7 +1643,7 @@ if (isset($_GET['ajax'])) {
                 var multiplier = rule.qty_multiplier == null ? '' : String(rule.qty_multiplier);
                 var actions = '<button type="button" class="toolbar-btn" onclick="pfSaveServiceMaterialMultiplier(' + Number(rule.id) + ')">Save multiplier</button>';
                 if (required) actions += ' <button type="button" class="toolbar-btn" onclick="pfApproveServiceMaterialRule(' + Number(rule.id) + ')">Approve REQUIRED</button>';
-                return '<tr><td>' + escapeHtml(rule.service_name || rule.service_type) + '</td><td>' + escapeHtml(rule.material_name || ('Inventory item #' + rule.item_id)) + '</td><td>' + escapeHtml(rule.inventory_uom || '—') + '</td><td>' + escapeHtml(rule.rule_type || '') + '</td><td><input id="serviceMaterialMultiplier-' + Number(rule.id) + '" type="number" min="0.01" max="99999999.99" step="0.01" value="' + escapeHtml(multiplier) + '" aria-label="Multiplier for rule ' + Number(rule.id) + '" style="width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;"></td><td>' + status + '</td><td style="white-space:nowrap;">' + actions + '</td></tr>';
+                return '<tr><td>' + escapeHtml(rule.service_name || rule.service_type) + '</td><td>' + escapeHtml(rule.material_name || ('Inventory item #' + rule.item_id)) + '</td><td>' + escapeHtml(rule.inventory_uom || '—') + '</td><td>' + escapeHtml(rule.rule_type || '') + '</td><td><input id="serviceMaterialMultiplier-' + Number(rule.id) + '" type="number" min="0.01" max="99999999.99" step="0.01" value="' + escapeHtml(multiplier) + '" aria-label="Multiplier for rule ' + Number(rule.id) + '" style="width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;"></td><td>' + status + '</td><td class="service-material-rule-actions" style="white-space:nowrap;">' + actions + '</td></tr>';
             }).join('');
             if (feedback) feedback.textContent = '';
         } catch (error) {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/service_material_rule_approval.php';
+require_once __DIR__ . '/../includes/pos_service_stock_helpers.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -61,9 +62,9 @@ if (!$ruleId || !in_array($action, ['update_multiplier', 'approve'], true)) {
 try {
     if (!$conn->begin_transaction()) throw new RuntimeException('Could not start approval transaction.');
     $select = $conn->prepare(
-        "SELECT rule_type, qty_multiplier, qty_multiplier_approved, qty_multiplier_approved_by,
-                qty_multiplier_approved_at
-         FROM service_material_rules WHERE id = ? FOR UPDATE"
+        "SELECT r.service_type, r.rule_type, r.qty_multiplier, r.qty_multiplier_approved,
+                r.qty_multiplier_approved_by, r.qty_multiplier_approved_at, i.name AS material_name
+         FROM service_material_rules r LEFT JOIN inv_items i ON i.id = r.item_id WHERE r.id = ? FOR UPDATE"
     );
     if (!$select) throw new RuntimeException('Could not inspect the selected service material rule.');
     $select->bind_param('i', $ruleId);
@@ -73,6 +74,10 @@ try {
     $select->close();
     if (!$rule) throw new InvalidArgumentException('The selected service material rule no longer exists.');
     $ruleType = strtoupper(trim((string)$rule['rule_type']));
+    if ($action === 'approve') {
+        $conflict = printflow_pos_known_service_material_conflict((string)$rule['service_type'], (string)($rule['material_name'] ?? ''));
+        if ($conflict !== null) throw new InvalidArgumentException($conflict);
+    }
     if ($action === 'approve' && $ruleType !== 'REQUIRED') {
         throw new InvalidArgumentException('Only REQUIRED service material rules can be approved. OPTIONAL rules remain in their existing selection workflow.');
     }

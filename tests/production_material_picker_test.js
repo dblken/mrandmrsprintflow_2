@@ -122,6 +122,15 @@ assert.strictEqual(byName(sintraRows, 'Sintra 5mm').compatibility.tier, 'recomme
 assert.strictEqual(byName(sintraRows, 'SP HOME'), undefined);
 assert.strictEqual(picker.classifyItem(byName(inventory, 'SP HOME'), context('Sintraboard Standees'), []).directSelectable, false);
 assert.strictEqual(picker.classifyItem(byName(inventory, 'SP HOME'), context('Sintraboard Standees'), []).overrideable, true);
+for (const plateMaterial of ['AC MC', 'SP MC']) {
+    const itemRow = { id: plateMaterial === 'AC MC' ? 9001 : 9002, name: plateMaterial, current_stock: 10 };
+    const incorrectRule = [{ service_type: 'Sintraboard Standees', item_id: itemRow.id, rule_type: 'REQUIRED' }];
+    const sintraClassification = picker.classifyItem(itemRow, context('Sintraboard Standees'), incorrectRule);
+    assert.strictEqual(sintraClassification.directSelectable, false, `${plateMaterial} is not directly selectable for Sintraboard Standees`);
+    assert.strictEqual(sintraClassification.overrideable, false, `${plateMaterial} cannot be manually overridden for Sintraboard Standees`);
+    const plateRule = [{ service_type: 'Plates', item_id: itemRow.id, rule_type: 'REQUIRED' }];
+    assert.strictEqual(picker.classifyItem(itemRow, context('Plates'), plateRule).tier, 'recommended', `${plateMaterial} remains recommended for Plates`);
+}
 assert.strictEqual(picker.inkModeFor(byName(sintraRows, 'Sintra 3mm 32')), 'none');
 
 const brochureRows = picker.rankItems(inventory, context('Brochure'), [], '');

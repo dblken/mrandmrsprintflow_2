@@ -13,6 +13,13 @@ $assert(count($customerAssignments) === 1 && $customerAssignments[0]['item_id'] 
 $assert($customerAssignments[0]['quantity'] === 6.0 && $customerAssignments[0]['uom'] === 'ft' && $customerAssignments[0]['computed_len'] === 15.0,
     'Approved multiplier scales the existing quantity and height-based length demand.');
 $assert(printflow_build_approved_service_material_assignments([$optional], 4, 0, 'Test Service') === [], 'OPTIONAL-only configuration creates no automatic assignment.');
+$conflictingPlateRule = $required + ['name' => 'AC MC'];
+try {
+    printflow_build_approved_service_material_assignments([$conflictingPlateRule], 1, 0, 'Sintraboard Standees');
+    throw new RuntimeException('A Plates-only material unexpectedly assigned to Sintraboard Standees.');
+} catch (RuntimeException $error) {
+    if (!str_contains($error->getMessage(), 'configured for Plates')) throw $error;
+}
 
 foreach ([
     ['item_id' => 301, 'rule_type' => 'REQUIRED', 'qty_multiplier' => null, 'qty_multiplier_approved' => 0],

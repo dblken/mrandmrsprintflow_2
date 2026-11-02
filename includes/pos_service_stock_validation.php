@@ -212,6 +212,11 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
     $required = [];
     foreach ($rules ?: [] as $rule) {
         if (strtoupper(trim((string)($rule['rule_type'] ?? 'REQUIRED'))) !== 'REQUIRED') continue;
+        $conflict = printflow_pos_known_service_material_conflict(
+            (string)($rule['service_type'] ?? $serviceType),
+            (string)($rule['item_name'] ?? '')
+        );
+        if ($conflict !== null) throw new RuntimeException($conflict);
         $itemId = (int)($rule['item_id'] ?? 0);
         if ($itemId <= 0 || trim((string)($rule['item_status'] ?? '')) !== 'ACTIVE') {
             throw new RuntimeException('A required material mapping for ' . $serviceType . ' is incomplete. Contact an administrator before adding this service.');

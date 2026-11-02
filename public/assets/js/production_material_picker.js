@@ -246,6 +246,14 @@
         }
 
         const serviceKind = classifyService(context || {});
+        const normalizedItemName = normalize(item && item.name);
+        if (serviceKind === 'sintraboard' && (normalizedItemName === 'AC MC' || normalizedItemName === 'SP MC')) {
+            return {
+                tier: 'unrelated', family, selectable: false, directSelectable: false,
+                overrideable: false, inStock: Number.parseFloat(item && item.current_stock) > 0,
+                reason: 'This material is configured for Plates, not Sintraboard Standees.', serviceKind
+            };
+        }
         let tier = 'unrelated';
         const exactRule = matchingContextRule(item, context || {}, rules);
         const exactRuleType = normalize(exactRule && exactRule.rule_type);

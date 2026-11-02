@@ -177,6 +177,10 @@ function pfpm_classify_item(array $item, array $context, array $rules = []): arr
     $family = pfpm_material_family($item);
     if (in_array($family, ['excluded', 'ink'], true)) return ['tier' => 'excluded', 'family' => $family, 'applicable' => false];
     $serviceKind = pfpm_classify_service($context);
+    $itemName = pfpm_normalize($item['name'] ?? '');
+    if ($serviceKind === 'sintraboard' && in_array($itemName, ['AC MC', 'SP MC'], true)) {
+        return ['tier' => 'unrelated', 'family' => $family, 'serviceKind' => $serviceKind, 'applicable' => false];
+    }
     $tier = 'unrelated';
     $rule = pfpm_matching_context_rule($item, $context, $rules);
     $ruleType = pfpm_normalize($rule['rule_type'] ?? '');

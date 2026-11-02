@@ -5,6 +5,17 @@ require_once __DIR__ . '/pos_quantity_validation.php';
 require_once __DIR__ . '/service_material_rule_approval.php';
 require_once __DIR__ . '/pos_mugs_release_rule.php';
 
+/** Reject the two confirmed Plates media when a rule maps them to Sintraboard Standees. */
+function printflow_pos_known_service_material_conflict(string $serviceType, string $materialName): ?string
+{
+    $service = strtoupper(trim(preg_replace('/\\s+/', ' ', $serviceType) ?? $serviceType));
+    $material = strtoupper(trim(preg_replace('/\\s+/', ' ', $materialName) ?? $materialName));
+    if (in_array($material, ['AC MC', 'SP MC'], true) && str_contains($service, 'SINTRABOARD STANDEE')) {
+        return 'Material ' . $material . ' is configured for Plates and cannot be assigned to Sintraboard Standees. Correct the service material mapping before approving or consuming it.';
+    }
+    return null;
+}
+
 /** Canonical service_type values for the POS service IDs checked by configuration. */
 function printflow_pos_service_material_expected_type(int $serviceId): ?string
 {

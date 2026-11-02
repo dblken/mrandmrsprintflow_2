@@ -45,4 +45,16 @@ $legacyItem = ['id' => 99, 'name' => 'Legacy Material', 'category_name' => 'Mate
 $rules = [['service_type' => 'Verified Legacy Service', 'item_id' => 99, 'rule_type' => 'REQUIRED']];
 assert_same_value(pfpm_classify_item($legacyItem, $legacyContext, $rules)['tier'], 'recommended', 'service_material_rules still override unknown services');
 
+$sintraContext = ['serviceType' => 'Sintraboard Standees', 'serviceCategory' => 'Signage', 'customization' => []];
+$platesContext = ['serviceType' => 'Plates', 'serviceCategory' => 'Print', 'customization' => []];
+foreach (['AC MC', 'SP MC'] as $plateMaterial) {
+    $item = ['id' => 500, 'name' => $plateMaterial, 'category_name' => 'Materials'];
+    $badSintraRule = [['service_type' => 'Sintraboard Standees', 'item_id' => 500, 'rule_type' => 'REQUIRED']];
+    assert_same_value(pfpm_classify_item($item, $sintraContext, $badSintraRule)['applicable'], false,
+        $plateMaterial . ' cannot be made selectable for Sintraboard Standees by a conflicting rule');
+    $plateRule = [['service_type' => 'Plates', 'item_id' => 500, 'rule_type' => 'REQUIRED']];
+    assert_same_value(pfpm_classify_item($item, $platesContext, $plateRule)['tier'], 'recommended',
+        $plateMaterial . ' remains selectable for Plates');
+}
+
 echo "production_material_compatibility_test: PASS\n";

@@ -42,6 +42,10 @@ $assert(str_contains($api, 'Only REQUIRED service material rules can be approved
 $assert(str_contains($api, 'qty_multiplier_approved = 0') && str_contains($api, 'qty_multiplier_approved_by = NULL, qty_multiplier_approved_at = NULL'), 'Multiplier changes clear approval and require an explicit separate approval action.');
 $assert(str_contains($ui, 'service_name') && str_contains($ui, 'material_name') && str_contains($ui, 'inventory_uom') && str_contains($ui, 'rule_type') && str_contains($ui, 'qty_multiplier_approved'), 'Admin UI shows service, material, UOM, rule type, multiplier, and approval status.');
 $assert(str_contains($ui, 'if (is_admin())') && !str_contains((string)file_get_contents(dirname(__DIR__) . '/admin/inventory_management.php'), 'serviceMaterialApprovalPanel'), 'Approval UI is rendered only in the Admin view; redirect stub remains untouched.');
-$assert(str_contains($api, 'WHERE id = ? FOR UPDATE'), 'Mutations lock the existing rule and preserve its ID and inventory mapping.');
+$assert(str_contains($api, 'WHERE r.id = ? FOR UPDATE'), 'Mutations lock the selected rule and preserve its ID and inventory mapping.');
+$assert(str_contains($api, 'printflow_pos_known_service_material_conflict') && str_contains($api, 'if ($action === \'approve\')'),
+    'Known Plates-only materials cannot be Admin-approved against Sintraboard Standees.');
+$assert(str_contains($ui, 'service-material-rule-actions') && str_contains($ui, 'overflow: visible'),
+    'Approval action cell escapes the generic clipped inventory table cell styling.');
 
 echo "Service material approval workflow tests passed.\n";

@@ -16,6 +16,8 @@ function printflow_filter_approved_required_material_rules(array $rules, string 
         }
         $itemId = (int)($rule['item_id'] ?? 0);
         if ($itemId <= 0) throw new RuntimeException('A REQUIRED material rule for ' . $serviceLabel . ' has no valid inventory item.');
+        $conflict = printflow_pos_known_service_material_conflict($serviceLabel, (string)($rule['name'] ?? $rule['item_name'] ?? ''));
+        if ($conflict !== null) throw new RuntimeException($conflict);
         if (array_key_exists('item_status', $rule) && strtoupper(trim((string)$rule['item_status'])) !== 'ACTIVE') {
             throw new RuntimeException('REQUIRED material item #' . $itemId . ' for ' . $serviceLabel . ' is not active in inventory. No automatic assignment was created.');
         }
