@@ -4114,7 +4114,7 @@ function openItemsModal(orderId, event, options = {}) {
                     <div class="im-sec-card accent">
                         <div class="im-label" style="margin-bottom: 12px;">Payment information</div>
                         <div class="space-y-4">
-                            ${paymentReceived ? `<div style="padding:0.65rem 0.75rem;border-radius:8px;background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;font-size:0.78rem;font-weight:800;">${escIM(data.awaiting_production ? 'Payment Received / Awaiting Production' : (data.awaiting_fulfillment ? 'Paid / Awaiting Fulfillment' : 'Payment Received'))}</div>` : ''}
+                            ${paymentReceived ? `<div style="padding:0.65rem 0.75rem;border-radius:8px;background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;font-size:0.78rem;font-weight:800;">${escIM(data.awaiting_production ? 'Payment Received / Awaiting Production' : (data.awaiting_fulfillment ? 'Paid' : 'Payment Received'))}</div>` : ''}
                             <div><div class="im-label" style="margin-bottom: 4px;">Method</div><div class="im-val">${escIM(paymentMethod)}</div></div>
                             <div><div class="im-label" style="margin-bottom: 4px;">Status</div><div>${imBadge(data.payment_status)}</div></div>
                             ${data.is_service_order ? `

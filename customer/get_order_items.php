@@ -1437,8 +1437,7 @@ if ($is_ready_made_product && $payment_received && $paid_waiting_label !== '') {
 }
 $awaiting_production = !$is_ready_made_product
     && $paid_waiting_label === 'Payment Received / Awaiting Production';
-$awaiting_fulfillment = !$is_ready_made_product
-    && $paid_waiting_label === 'Paid / Awaiting Fulfillment';
+$awaiting_fulfillment = false;
 if ($paid_waiting_label !== '') {
     $display_status = $paid_waiting_label;
 }
