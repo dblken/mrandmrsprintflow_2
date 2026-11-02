@@ -99,6 +99,14 @@ foreach ($contracts as $path => $needles) {
         }
     }
 }
+$adminProductSource = file_get_contents(__DIR__ . '/../admin/products_management.php');
+pricing_assert(strpos($adminProductSource, 'printflow_product_catalog_display_price_map($products)') !== false, 'Admin option mode is based on validated saved options and variants.');
+pricing_assert(strpos($adminProductSource, "product-form-validation.js?v=<?php echo (int)(@filemtime") !== false, 'Admin validator cache version changes with its file timestamp.');
+pricing_assert(strpos($adminProductSource, "if (optionBased) input.value = '';") !== false, 'Option-based Admin price input is empty rather than submitting helper text or a base value.');
+pricing_assert(strpos($adminProductSource, "strcasecmp(trim(\$priceInput), 'N/A')") !== false, 'N/A is normalized before server-side price validation.');
+$adminValidationJs = file_get_contents(__DIR__ . '/../public/assets/js/product-form-validation.js');
+pricing_assert(strpos($adminValidationJs, "dataset.priceOptional === '1'") !== false, 'Client validation reads the per-product optional pricing mode.');
+pricing_assert(strpos($adminValidationJs, "if (optional && (!v || v.toUpperCase() === 'N/A')) return '';") !== false, 'Client validation accepts blank or N/A only when the product has valid option pricing.');
 $apiCartSource = file_get_contents(__DIR__ . '/../customer/api_cart.php');
 pricing_assert(strpos($apiCartSource, 'ORDER BY variant_id ASC LIMIT 1') === false, 'Cart API does not silently choose the first price variant.');
 

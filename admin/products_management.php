@@ -994,6 +994,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $order_information_notice = $order_notice_result['value'];
         $order_information_notice_enabled = isset($_POST['order_information_notice_enabled']) ? 1 : 0;
         $priceInput = $_POST['price'] ?? null;
+        if (is_string($priceInput) && strcasecmp(trim($priceInput), 'N/A') === 0) {
+            $priceInput = null;
+        }
         $pricingConfig = printflow_product_catalog_display_price($product_id, $priceInput);
         $priceMode = in_array((string)($pricingConfig['mode'] ?? ''), ['base', 'option', 'variant'], true)
             ? (string)$pricingConfig['mode']
@@ -1002,6 +1005,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             ? ['ok' => false, 'stored' => null, 'message' => 'Product option pricing must be corrected before saving.']
             : printflow_product_validate_admin_price($priceInput, $priceMode === 'base' ? 'base' : 'option');
         $price = (float)($priceValidation['stored'] ?? 0);
+        if ($priceValidation['ok'] && $priceMode !== 'base' && ($priceInput === null || trim((string)$priceInput) === '')) {
+            // A blank option-mode field means no base-price edit; retain the stored value.
+            $existingPriceRows = db_query(
+                "SELECT price FROM products WHERE product_id = ? AND status != 'Archived' LIMIT 1",
+                'i',
+                [$product_id]
+            ) ?: [];
+            if (!empty($existingPriceRows)) {
+                $price = (float)$existingPriceRows[0]['price'];
+            }
+        }
         $posted_stock_quantity = max(0, (int)($_POST['stock_quantity'] ?? 0));
         $thresholds = printflow_product_thresholds_from_post($posted_stock_quantity);
         $low_stock_level = $thresholds['reorder'];
@@ -1484,15 +1498,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$hasProductFieldConfigTable = db_table_has_column('product_field_configs', 'product_id');
-$hasProductVariantTable = db_table_has_column('product_variants', 'variant_id');
-$fieldPricingExistsSql = $hasProductFieldConfigTable
-    ? "EXISTS (SELECT 1 FROM product_field_configs pfc WHERE pfc.product_id = p.product_id AND pfc.is_visible = 1 AND pfc.field_type IN ('select','radio','dimension') AND JSON_LENGTH(pfc.field_options) > 0)"
-    : '0';
-$variantPricingExistsSql = $hasProductVariantTable
-    ? "EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.product_id AND pv.status = 'Active')"
-    : '0';
-$sql    = "SELECT p.*, ({$fieldPricingExistsSql} OR {$variantPricingExistsSql}) AS has_option_pricing, {$stockExpr} AS eff_stock_qty, {$lowExpr} AS eff_low_stock, {$criticalExpr} AS eff_critical FROM products p {$branchJoin} WHERE p.status != 'Archived'";
+$sql    = "SELECT p.*, {$stockExpr} AS eff_stock_qty, {$lowExpr} AS eff_low_stock, {$criticalExpr} AS eff_critical FROM products p {$branchJoin} WHERE p.status != 'Archived'";
 $params = $sqlParams;
 $types  = $sqlTypes;
 
@@ -1547,6 +1553,7 @@ $order_clause = match($sort_by) {
 };
 $sql .= " ORDER BY $order_clause LIMIT $per_page OFFSET $offset";
 $products = db_query($sql, $types ?: null, $params ?: null) ?: [];
+$catalogPricingMap = printflow_product_catalog_display_price_map($products);
 
 $catalog_member_map = [];
 foreach (db_query("SELECT product_id, group_id FROM product_catalog_group_members") ?: [] as $cm) {
@@ -1562,6 +1569,10 @@ $product_notice_picker = db_query(
 ) ?: [];
 
 foreach ($products as &$pfProduct) {
+    $pricingDisplay = $catalogPricingMap[(int)($pfProduct['product_id'] ?? 0)] ?? ['ok' => false, 'mode' => 'invalid'];
+    $pfProduct['has_option_pricing'] = !empty($pricingDisplay['ok'])
+        && in_array((string)($pricingDisplay['mode'] ?? ''), ['option', 'variant'], true);
+    $pfProduct['pricing_mode'] = (string)($pricingDisplay['mode'] ?? 'invalid');
     $effectiveStock = printflow_get_branch_product_stock(
         (int)($pfProduct['product_id'] ?? 0),
         $product_stock_branch_id > 0 ? $product_stock_branch_id : 1
@@ -4299,7 +4310,7 @@ function pfSetProductModalPriceMode(optionBased) {
     var label = document.getElementById('modal-price-label');
     if (!input || !label) return;
     input.dataset.priceOptional = optionBased ? '1' : '0';
-    if (optionBased && Number(input.value) === 0) input.value = '';
+    if (optionBased) input.value = '';
     input.placeholder = optionBased ? 'Optional for option-based pricing' : '0.00';
     label.innerHTML = 'Price (₱)' + (optionBased ? ' <span style="font-weight:500;color:#6b7280">(optional — option prices apply)</span>' : ' <span style="color:red">*</span>');
 }
@@ -4828,7 +4839,7 @@ window.openProductModal = function openProductModal(mode, product) {
             }
             var priceEl = document.getElementById('modal-price');
             if (priceEl) priceEl.value = product.price != null ? String(product.price) : '';
-            pfSetProductModalPriceMode(String(product.has_option_pricing) === '1');
+            pfSetProductModalPriceMode(product.has_option_pricing === true || String(product.has_option_pricing) === '1');
             var descEl = document.getElementById('modal-description');
             if (descEl) descEl.value = product.description || '';
             var orderNoticeEl = document.getElementById('modal-order-information-notice');
@@ -5596,7 +5607,7 @@ if (document.readyState === 'loading') {
 }
 document.addEventListener('printflow:page-init', printflowInitProductsPage);
 </script>
-<script src="<?php echo $base_path; ?>/public/assets/js/product-form-validation.js?v=2.4"></script>
+<script src="<?php echo $base_path; ?>/public/assets/js/product-form-validation.js?v=<?php echo (int)(@filemtime(__DIR__ . '/../public/assets/js/product-form-validation.js') ?: 1); ?>"></script>
 
 <?php if ($is_admin): ?>
 <style>
