@@ -11,10 +11,19 @@ const validationStart = page.indexOf('            validateProductionAssignments(
 const validationEnd = page.indexOf('            hasProductionAssignments(extraMaterials = [], extraInks = []) {', validationStart);
 assert(validationStart >= 0 && validationEnd > validationStart, 'Production assignment validator is present in the staff page.');
 const validationMethod = new Function(`return ({${page.slice(validationStart, validationEnd)}\n});`)().validateProductionAssignments;
+const feedbackStart = page.indexOf('            setProductionValidationFeedback() {');
+const feedbackEnd = page.indexOf('            hasProductionAssignments(extraMaterials = [], extraInks = []) {', feedbackStart);
+assert(feedbackStart >= 0 && feedbackEnd > feedbackStart, 'Production validation feedback method is present in the staff page.');
+const feedbackMethods = new Function(`return ({${page.slice(feedbackStart, feedbackEnd)}\n});`)();
+assert.equal((page.match(/this\.setProductionValidationFeedback\(\);/g) || []).length, 2,
+    'Both Set Final Price submission branches route validation feedback through the deduplicating helper.');
+assert.equal((page.match(/x-show="productionErrors\.material"/g) || []).length, 1,
+    'The material validation error has a single inline renderer.');
 
 function context(error) {
     return {
         productionErrors: { material: error },
+        footerActionError: error,
         clearPendingMaterialConfirmationError: methods.clearPendingMaterialConfirmationError
     };
 }
@@ -39,6 +48,7 @@ assert.equal(item.manual_quantity_confirmed, true, 'A valid edited actual quanti
 assert.equal(item.metadata.material_usage.actual, 1, 'The entered quantity is retained without conversion.');
 assert.equal(item.metadata.material_usage.staff_confirmed, true, 'Confirmation metadata follows the state.');
 assert.equal(inputContext.productionErrors.material, '', 'Editing valid usage clears its stale confirmation warning.');
+assert.equal(inputContext.footerActionError, '', 'Editing valid usage clears its matching stale footer copy.');
 
 const invalidItem = { ...item, metadata: {}, manual_quantity_confirmed: true };
 const invalidContext = context(confirmationError);
@@ -46,6 +56,7 @@ methods.handlePendingMaterialQtyInput.call(invalidContext, invalidItem, '0');
 assert.equal(invalidItem.manual_quantity_confirmed, false, 'Zero usage cannot confirm a manual quantity.');
 assert.equal(invalidItem.metadata.material_usage.staff_confirmed, false, 'Invalid usage is not marked staff-confirmed.');
 assert.equal(invalidContext.productionErrors.material, confirmationError, 'Invalid input retains the confirmation warning.');
+assert.equal(invalidContext.footerActionError, confirmationError, 'Invalid input retains the matching footer warning.');
 
 const negativeItem = { ...item, metadata: {}, manual_quantity_confirmed: true };
 methods.handlePendingMaterialQtyInput.call(context(confirmationError), negativeItem, '-1');
@@ -88,6 +99,38 @@ for (const uom of ['pcs', 'pc', 'piece', 'pieces']) {
 
 assert.equal(validateEstimatedMaterial({ ...fractionalFeet, estimated_qty: 1, manual_confirmation_required: false }), true,
     'Final assignment validator permits fractional feet when otherwise valid.');
+
+for (const material of [
+    { ...item, name: 'Nextjet', item_id: 18, uom: 'pcs', estimated_qty: null, manual_confirmation_required: true, manual_quantity_confirmed: false },
+    { ...item, name: 'Sticker Blue', item_id: 31, uom: 'ft', estimated_qty: null, manual_confirmation_required: true, manual_quantity_confirmed: false },
+    { ...item, name: 'Hologram Roll', item_id: 44, uom: 'ft', qty: 1.5, estimated_qty: 1, manual_confirmation_required: false }
+]) {
+    const materialContext = context(`Confirm the actual usage for ${material.name} before saving.`);
+    methods.handlePendingMaterialQtyInput.call(materialContext, material, String(material.qty));
+    assert.equal(material.manual_quantity_confirmed, true, `${material.name} accepts a valid actual quantity in its unit.`);
+    assert.equal(materialContext.productionErrors.material, '', `${material.name} clears its own confirmation message.`);
+    assert.equal(materialContext.footerActionError, '', `${material.name} clears its duplicate footer message.`);
+}
+
+const otherMaterialWarning = context('Confirm the actual usage for Nextjet before saving.');
+methods.handlePendingMaterialQtyInput.call(otherMaterialWarning, { ...item, name: 'Sticker Blue', metadata: {} }, '2');
+assert.equal(otherMaterialWarning.productionErrors.material, 'Confirm the actual usage for Nextjet before saving.', 'Editing another material does not clear its warning.');
+assert.equal(otherMaterialWarning.footerActionError, 'Confirm the actual usage for Nextjet before saving.', 'Editing another material does not clear its footer warning.');
+
+const duplicateFeedbackContext = {
+    productionErrors: { material: confirmationError, ink_set: '', ink_consumption: '' },
+    footerActionError: '',
+    setFooterActionError(message) { this.footerActionError = message; }
+};
+feedbackMethods.setProductionValidationFeedback.call(duplicateFeedbackContext);
+assert.equal(duplicateFeedbackContext.footerActionError, '', 'Material confirmation stays in the inline error slot without a duplicate footer copy.');
+duplicateFeedbackContext.productionErrors.ink_set = 'Please select an ink set.';
+feedbackMethods.setProductionValidationFeedback.call(duplicateFeedbackContext);
+assert.equal(duplicateFeedbackContext.footerActionError, 'Please select an ink set.', 'Non-material validation errors remain visible in the footer.');
+duplicateFeedbackContext.productionErrors.ink_set = '';
+duplicateFeedbackContext.footerActionError = 'A separate stock validation error.';
+feedbackMethods.setProductionValidationFeedback.call(duplicateFeedbackContext);
+assert.equal(duplicateFeedbackContext.footerActionError, 'A separate stock validation error.', 'A different existing footer error is preserved.');
 
 const unrelatedErrorContext = context('Insufficient stock for this material.');
 methods.handlePendingMaterialQtyInput.call(unrelatedErrorContext, { ...item, metadata: {} }, '2');

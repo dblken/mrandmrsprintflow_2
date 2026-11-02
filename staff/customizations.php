@@ -4472,6 +4472,7 @@ window.pfServiceFieldCatalog = (() => {
             clearPendingMaterialConfirmationError(material) {
                 const expected = `Confirm the actual usage for ${material?.name || 'the selected material'} before saving.`;
                 if (this.productionErrors.material === expected) this.productionErrors.material = '';
+                if (this.footerActionError === expected) this.footerActionError = '';
             },
             confirmPendingMaterialUsage(material) {
                 const qty = Number(material && material.qty);
@@ -10344,6 +10345,14 @@ window.pfServiceFieldCatalog = (() => {
                 this.productionErrors = errors;
                 return !Object.values(errors).some(Boolean);
             },
+            setProductionValidationFeedback() {
+                const message = [this.productionErrors.ink_set, this.productionErrors.ink_consumption].find(Boolean) || '';
+                if (message) {
+                    this.setFooterActionError(message);
+                } else if (this.footerActionError === this.productionErrors.material) {
+                    this.setFooterActionError('');
+                }
+            },
             hasProductionAssignments(extraMaterials = [], extraInks = []) {
                 const savedMaterials = Array.isArray(this.currentJo.materials) ? this.currentJo.materials.length : 0;
                 const savedInks = Array.isArray(this.currentJo.ink_usage) ? this.currentJo.ink_usage.length : 0;
@@ -10495,7 +10504,7 @@ window.pfServiceFieldCatalog = (() => {
                     }
                     const inkPayload = this.buildInkPayload();
                     if (!this.validateProductionAssignments(materialsToSave, inkPayload)) {
-                        this.setFooterActionError(Object.values(this.productionErrors).find(Boolean));
+                        this.setProductionValidationFeedback();
                         return;
                     }
                     if (isPosReturnFlow) {
@@ -10664,7 +10673,7 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 const inkPayload = this.buildInkPayload();
                 if (!this.validateProductionAssignments(materialsToSave, inkPayload)) {
-                    this.setFooterActionError(Object.values(this.productionErrors).find(Boolean));
+                    this.setProductionValidationFeedback();
                     return;
                 }
                 if (fromPOS) {
