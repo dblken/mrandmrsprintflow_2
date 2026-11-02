@@ -10,6 +10,8 @@ require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/service_design_fee.php';
+require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/product_pricing.php';
 
 require_role('Customer');
 if (printflow_customer_exclusion_customer_is_active((int)(get_customer_id() ?? 0))) {
@@ -67,8 +69,25 @@ function checkout_item_customization(array $item): array {
 $cart_items = $_SESSION['cart'] ?? [];
 
 $servicePricingError = null;
+$productPricingError = null;
 foreach ($cart_items as $cartKey => &$cartItem) {
-    if (!checkout_item_is_service((array)$cartItem)) continue;
+    if (!checkout_item_is_service((array)$cartItem)) {
+        $productId = (int)($cartItem['product_id'] ?? 0);
+        if ($productId > 0) {
+            $pricing = printflow_product_resolve_catalog_unit_price(
+                $productId,
+                (array)($cartItem['customization'] ?? []),
+                !empty($cartItem['variant_id']) ? (int)$cartItem['variant_id'] : null
+            );
+            if (empty($pricing['ok'])) {
+                $productPricingError = (string)($pricing['message'] ?? 'Product price could not be verified.');
+                break;
+            }
+            $cartItem['price'] = (float)$pricing['unit_price'];
+            $_SESSION['cart'][$cartKey]['price'] = $cartItem['price'];
+        }
+        continue;
+    }
     $pricing = printflow_apply_service_line_pricing_to_cart_item($cartItem);
     if (empty($pricing['ok'])) {
         $servicePricingError = (string)($pricing['message'] ?? 'A service price could not be verified.');
@@ -81,6 +100,7 @@ foreach ($cart_items as $cartKey => &$cartItem) {
     $_SESSION['cart'][$cartKey] = $cartItem;
 }
 unset($cartItem);
+$error = $productPricingError ?? $servicePricingError;
 
 if (empty($cart_items)) {
     redirect('cart.php');
@@ -107,7 +127,9 @@ $customer_type = $customer['customer_type'] ?? 'new';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
     global $conn; // needed for send_long_data BLOB insertion
     
-    if ($servicePricingError !== null) {
+    if ($productPricingError !== null) {
+        $error = $productPricingError;
+    } elseif ($servicePricingError !== null) {
         $error = $servicePricingError;
     } elseif (false) {
         $error = "🚫 Your account is restricted from placing new orders.";
@@ -715,7 +737,7 @@ require_once __DIR__ . '/../includes/header.php';
 
                 <!-- 6. Final Actions -->
                 <div style="margin-top:0.5rem; text-align:center;">
-                    <button type="submit" name="place_order" class="btn-primary" style="width:100%; padding:14px; font-weight:700; font-size:1.1rem; border-radius:12px; box-shadow:0 4px 6px -1px rgba(79, 70, 229, 0.2);">Place Order</button>
+                    <button type="submit" name="place_order" class="btn-primary" style="width:100%; padding:14px; font-weight:700; font-size:1.1rem; border-radius:12px; box-shadow:0 4px 6px -1px rgba(79, 70, 229, 0.2);"<?php echo ($productPricingError !== null || $servicePricingError !== null) ? ' disabled aria-disabled="true"' : ''; ?>>Place Order</button>
                     <a href="cart.php" style="display:inline-block; margin-top:1.25rem; font-size:0.875rem; color:#6b7280; text-decoration:none; font-weight:600; padding:8px 16px; transition:all 0.2s;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#6b7280'">Returns to Cart</a>
                 </div>
             </div>

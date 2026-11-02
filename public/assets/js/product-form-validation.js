@@ -14,7 +14,7 @@
         priceRequired: 'Price is required.',
         priceInvalid: 'Price must be a valid number.',
         priceMin: 'Price must be greater than 0.',
-        priceRange: 'Price must be between ₱1.00 and ₱1,000,000.00.',
+        priceRange: 'Price must be a positive amount up to ₱1,000,000.00, with no more than two decimal places.',
         descriptionMax: 'Description must not exceed 500 characters.',
         photoRequired: 'Product photo is required.',
         photoType: 'Invalid file type. Only JPG, PNG and GIF are allowed.',
@@ -178,10 +178,13 @@
 
     function validatePrice() {
         const v = getVal('price');
+        const optional = el('modal-price')?.dataset.priceOptional === '1';
+        if (optional && (!v || v.toUpperCase() === 'N/A')) return '';
         if (!v) return ERRORS.priceRequired;
-        const num = parseFloat(v);
-        if (isNaN(num)) return ERRORS.priceInvalid;
-        if (num < 1) return ERRORS.priceMin;
+        if (!/^\d+(?:\.\d{1,2})?$/.test(v)) return ERRORS.priceInvalid;
+        const num = Number(v);
+        if (!Number.isFinite(num)) return ERRORS.priceInvalid;
+        if (num <= 0) return ERRORS.priceMin;
         if (num > 1000000) return ERRORS.priceRange;
         const dec = v.split('.')[1];
         if (dec && dec.length > 2) return ERRORS.priceRange;

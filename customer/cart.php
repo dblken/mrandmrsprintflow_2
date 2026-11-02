@@ -10,6 +10,8 @@ require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/service_field_config_helper.php';
 require_once __DIR__ . '/../includes/service_design_fee.php';
+require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/product_pricing.php';
 
 require_role('Customer');
 
@@ -47,15 +49,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $cart_items = $_SESSION['cart'] ?? [];
 $cart_design_fee_errors = [];
+$cart_product_price_errors = [];
 foreach ($cart_items as $cartKey => &$cartItem) {
-    if (!is_array($cartItem) || strtolower(trim((string)($cartItem['source_page'] ?? ''))) !== 'services') {
+    if (!is_array($cartItem)) {
         continue;
     }
-    $feeResult = printflow_apply_configured_layout_fee_to_cart_item($cartItem);
-    if (empty($feeResult['ok'])) {
-        $cart_design_fee_errors[$cartKey] = (string)($feeResult['message'] ?? 'Service layout pricing could not be verified.');
+    $sourcePage = strtolower(trim((string)($cartItem['source_page'] ?? '')));
+    $itemType = strtolower(trim((string)($cartItem['type'] ?? '')));
+    if ($sourcePage === 'services' || $itemType === 'service') {
+        $feeResult = printflow_apply_configured_layout_fee_to_cart_item($cartItem);
+        if (empty($feeResult['ok'])) {
+            $cart_design_fee_errors[$cartKey] = (string)($feeResult['message'] ?? 'Service layout pricing could not be verified.');
+        }
+        $_SESSION['cart'][$cartKey] = $cartItem;
+        continue;
     }
-    $_SESSION['cart'][$cartKey] = $cartItem;
+    if ((int)($cartItem['product_id'] ?? 0) > 0) {
+        $pricing = printflow_product_resolve_catalog_unit_price(
+            (int)$cartItem['product_id'],
+            (array)($cartItem['customization'] ?? []),
+            !empty($cartItem['variant_id']) ? (int)$cartItem['variant_id'] : null
+        );
+        if (empty($pricing['ok'])) {
+            $cart_product_price_errors[$cartKey] = (string)($pricing['message'] ?? 'Product price could not be verified.');
+        } else {
+            $cartItem['price'] = (float)$pricing['unit_price'];
+            $_SESSION['cart'][$cartKey]['price'] = $cartItem['price'];
+        }
+    }
 }
 unset($cartItem);
 $total = 0;
@@ -833,6 +854,7 @@ require_once __DIR__ . '/../includes/header.php';
                                     $item_type_text = ($item_origin === 'Product') ? '#065f46' : '#581c87';
                                     $item_name = (string)($item['name'] ?? 'Unknown Product');
                                     $design_fee_error = $cart_design_fee_errors[$pid] ?? '';
+                                    $product_price_error = $cart_product_price_errors[$pid] ?? '';
                                     $item_name_limit = 24;
                                     if (function_exists('mb_strlen') && function_exists('mb_substr')) {
                                         $item_display_name = mb_strlen($item_name) > $item_name_limit
@@ -1002,6 +1024,9 @@ require_once __DIR__ . '/../includes/header.php';
                                                 <?php if ($design_fee_error !== ''): ?>
                                                     <div role="alert" style="font-size:0.75rem; color:#b91c1c; margin-top:0.35rem;"><?php echo htmlspecialchars($design_fee_error); ?></div>
                                                 <?php endif; ?>
+                                                <?php if ($product_price_error !== ''): ?>
+                                                    <div role="alert" style="font-size:0.75rem; color:#b91c1c; margin-top:0.35rem;"><?php echo htmlspecialchars($product_price_error); ?></div>
+                                                <?php endif; ?>
                                                 <?php endif; ?>
                                             </div>
                                             <span class="cart-item-type-badge" style="border:1px solid <?php echo $item_type_border; ?>; background:<?php echo $item_type_bg; ?>; color:<?php echo $item_type_text; ?>;">
@@ -1075,7 +1100,7 @@ require_once __DIR__ . '/../includes/header.php';
                                 </div>
                             </div>
                             
-                            <button type="button" onclick="proceedToReview()" id="checkout-btn" class="btn-primary" style="padding:0.75rem 2rem; <?php echo ($total <= 0 || $cart_design_fee_errors !== []) ? 'opacity: 0.5; pointer-events: none;' : ''; ?>" <?php echo $cart_design_fee_errors !== [] ? 'disabled aria-disabled="true"' : ''; ?>>Proceed to Checkout</button>
+                            <button type="button" onclick="proceedToReview()" id="checkout-btn" class="btn-primary" style="padding:0.75rem 2rem; <?php echo ($total <= 0 || $cart_design_fee_errors !== [] || $cart_product_price_errors !== []) ? 'opacity: 0.5; pointer-events: none;' : ''; ?>" <?php echo ($cart_design_fee_errors !== [] || $cart_product_price_errors !== []) ? 'disabled aria-disabled="true"' : ''; ?>>Proceed to Checkout</button>
                         </div>
                     </div>
                 </div>

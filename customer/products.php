@@ -8,6 +8,8 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/customer_catalog_perf.php';
 require_once __DIR__ . '/../includes/product_catalog_groups.php';
+require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/product_pricing.php';
 
 define('PF_CUSTOMER_CATALOG_NAV', true);
 require_role('Customer');
@@ -43,6 +45,7 @@ foreach ($catalog_entries as $entry) {
     }
 }
 $product_stats_map = printflow_catalog_product_card_stats_map($standalone_for_stats);
+$catalog_pricing_map = printflow_product_catalog_display_price_map($standalone_for_stats);
 
 $group_ids_on_page = [];
 foreach ($catalog_entries as $entry) {
@@ -541,6 +544,7 @@ require_once __DIR__ . '/../includes/header.php';
                         continue;
                     }
                     $product_id = (int) ($product['product_id'] ?? 0);
+                    $displayPricing = $catalog_pricing_map[$product_id] ?? ['ok' => false, 'mode' => 'invalid', 'price' => null];
                     $card_stats = $product_stats_map[$product_id] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
                     $sold_count = (int) ($card_stats['sold_count'] ?? 0);
                     $avg_rating = (float) ($card_stats['avg_rating'] ?? 0);
@@ -596,7 +600,7 @@ require_once __DIR__ . '/../includes/header.php';
                             </div>
 
                             <div class="shopee-price-row">
-                                <span class="shopee-price"><?php echo format_currency($product['price']); ?></span>
+                                <span class="shopee-price"><?php echo !empty($displayPricing['ok']) ? ((in_array(($displayPricing['mode'] ?? ''), ['option', 'variant'], true) ? 'From ' : '') . format_currency($displayPricing['price'])) : 'Price unavailable'; ?></span>
                             </div>
                         </div>
                         <div class="shopee-footer" aria-hidden="true">

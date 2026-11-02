@@ -12,6 +12,7 @@ require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/product_pricing.php';
 require_once __DIR__ . '/../includes/product_stock_status.php';
 require_once __DIR__ . '/../includes/product_catalog_groups.php';
 require_once __DIR__ . '/../includes/product_order_notice.php';
@@ -515,7 +516,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $order_notice_result = printflow_product_order_notice_clean($_POST['order_information_notice'] ?? '');
         $order_information_notice = $order_notice_result['value'];
         $order_information_notice_enabled = isset($_POST['order_information_notice_enabled']) ? 1 : 0;
-        $price = (float)($_POST['price'] ?? 0);
+        $priceInput = $_POST['price'] ?? null;
+        $priceValidation = printflow_product_validate_admin_price($priceInput, 'base');
+        $price = (float)($priceValidation['stored'] ?? 0);
         $stock_quantity = (int)($_POST['stock_quantity'] ?? 0);
         $thresholds = printflow_product_thresholds_from_post($stock_quantity);
         $low_stock_level = $thresholds['reorder'];
@@ -534,8 +537,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Description must not exceed 500 characters.';
         } elseif (!$order_notice_result['ok']) {
             $error = $order_notice_result['message'];
-        } elseif ($price < 1.00 || $price > 1000000) {
-            $error = $price <= 0 ? 'Price is required and must be greater than 0.' : 'Price must be between ₱1.00 and ₱1,000,000.00.';
+        } elseif (!$priceValidation['ok']) {
+            $error = $priceValidation['message'];
         } elseif ($stock_quantity < 0) {
             $error = 'Quantity must be a non-negative whole number.';
         } elseif ($thresholdErr = printflow_validate_item_thresholds((float)$low_stock_level, (float)$critical_level)) {
@@ -990,7 +993,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $order_notice_result = printflow_product_order_notice_clean($_POST['order_information_notice'] ?? '');
         $order_information_notice = $order_notice_result['value'];
         $order_information_notice_enabled = isset($_POST['order_information_notice_enabled']) ? 1 : 0;
-        $price = (float)($_POST['price'] ?? 0);
+        $priceInput = $_POST['price'] ?? null;
+        $pricingConfig = printflow_product_catalog_display_price($product_id, $priceInput);
+        $priceMode = in_array((string)($pricingConfig['mode'] ?? ''), ['base', 'option', 'variant'], true)
+            ? (string)$pricingConfig['mode']
+            : 'invalid';
+        $priceValidation = ($priceMode === 'invalid' || ($priceMode !== 'base' && empty($pricingConfig['ok'])))
+            ? ['ok' => false, 'stored' => null, 'message' => 'Product option pricing must be corrected before saving.']
+            : printflow_product_validate_admin_price($priceInput, $priceMode === 'base' ? 'base' : 'option');
+        $price = (float)($priceValidation['stored'] ?? 0);
         $posted_stock_quantity = max(0, (int)($_POST['stock_quantity'] ?? 0));
         $thresholds = printflow_product_thresholds_from_post($posted_stock_quantity);
         $low_stock_level = $thresholds['reorder'];
@@ -1011,8 +1022,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Description must not exceed 500 characters.';
         } elseif (!$order_notice_result['ok']) {
             $error = $order_notice_result['message'];
-        } elseif ($price < 1.00 || $price > 1000000) {
-            $error = $price <= 0 ? 'Price is required and must be greater than 0.' : 'Price must be between ₱1.00 and ₱1,000,000.00.';
+        } elseif (!$priceValidation['ok']) {
+            $error = $priceValidation['message'];
         } elseif ($posted_stock_quantity > 99999) {
             $error = 'Stock quantity must not exceed 5 digits.';
         } elseif ($thresholdErr = printflow_validate_item_thresholds((float)$low_stock_level, (float)$critical_level)) {
@@ -1473,7 +1484,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$sql    = "SELECT p.*, {$stockExpr} AS eff_stock_qty, {$lowExpr} AS eff_low_stock, {$criticalExpr} AS eff_critical FROM products p {$branchJoin} WHERE p.status != 'Archived'";
+$hasProductFieldConfigTable = db_table_has_column('product_field_configs', 'product_id');
+$hasProductVariantTable = db_table_has_column('product_variants', 'variant_id');
+$fieldPricingExistsSql = $hasProductFieldConfigTable
+    ? "EXISTS (SELECT 1 FROM product_field_configs pfc WHERE pfc.product_id = p.product_id AND pfc.is_visible = 1 AND pfc.field_type IN ('select','radio','dimension') AND JSON_LENGTH(pfc.field_options) > 0)"
+    : '0';
+$variantPricingExistsSql = $hasProductVariantTable
+    ? "EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.product_id AND pv.status = 'Active')"
+    : '0';
+$sql    = "SELECT p.*, ({$fieldPricingExistsSql} OR {$variantPricingExistsSql}) AS has_option_pricing, {$stockExpr} AS eff_stock_qty, {$lowExpr} AS eff_low_stock, {$criticalExpr} AS eff_critical FROM products p {$branchJoin} WHERE p.status != 'Archived'";
 $params = $sqlParams;
 $types  = $sqlTypes;
 
@@ -1633,7 +1652,7 @@ if (isset($_GET['ajax'])) {
                         <td class="product-sku-cell"><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
                         <td style="font-weight:500;color:#1f2937;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($product['name']); ?></td>
                         <td><?php echo htmlspecialchars($product['category'] ?? '—'); ?></td>
-                        <td style="font-weight:600;color:#1f2937;white-space:nowrap;">₱<?php echo number_format($product['price'], 2); ?></td>
+                        <td style="font-weight:600;color:#1f2937;white-space:nowrap;"><?php echo !empty($product['has_option_pricing']) ? 'Option-based' : '₱' . number_format((float)$product['price'], 2); ?></td>
                         <td>
                             <span style="font-weight:<?php echo $isAlertStock ? 'bold' : '400'; ?>;color:<?php echo $qtyColor; ?>;"><?php echo $product['stock_quantity']; ?></span>
                         </td>
@@ -3662,8 +3681,8 @@ if (isset($_GET['ajax'])) {
                         <small style="display:block;margin-top:4px;color:#6b7280;">Customer catalog only — POS is unchanged.</small>
                     </div>
                     <div class="form-group" id="fg-price">
-                        <label for="modal-price">Price (₱) <span style="color:red">*</span></label>
-                        <input type="number" id="modal-price" name="price" step="0.01" min="0.01" placeholder="0.00">
+                        <label for="modal-price" id="modal-price-label">Price (₱) <span style="color:red">*</span></label>
+                        <input type="text" inputmode="decimal" id="modal-price" name="price" placeholder="0.00">
                         <span id="err-price" class="field-error"></span>
                     </div>
                 </div>
@@ -4275,6 +4294,16 @@ function pfSetProductModalEditMode(isEdit) {
     if (statusRow) statusRow.style.display = isEdit ? 'grid' : 'none';
 }
 
+function pfSetProductModalPriceMode(optionBased) {
+    var input = document.getElementById('modal-price');
+    var label = document.getElementById('modal-price-label');
+    if (!input || !label) return;
+    input.dataset.priceOptional = optionBased ? '1' : '0';
+    if (optionBased && Number(input.value) === 0) input.value = '';
+    input.placeholder = optionBased ? 'Optional for option-based pricing' : '0.00';
+    label.innerHTML = 'Price (₱)' + (optionBased ? ' <span style="font-weight:500;color:#6b7280">(optional — option prices apply)</span>' : ' <span style="color:red">*</span>');
+}
+
 window.pfOpenProductFields = function pfOpenProductFields() {
     if (typeof window.printflowProductFormIsValid === 'function' && !window.printflowProductFormIsValid()) {
         if (typeof window.printflowProductFormValidationRun === 'function') {
@@ -4732,6 +4761,7 @@ window.openProductModal = function openProductModal(mode, product) {
     var pti = document.getElementById('modal-photo');
     if (pti) pti.disabled = false;
     form.reset();
+    pfSetProductModalPriceMode(false);
     pfRefreshModalBarcodePreview();
     var catSelPfInit = document.getElementById('modal-category');
     if (catSelPfInit) catSelPfInit.querySelectorAll('option[data-pf-legacy-cat]').forEach(function(o) { o.remove(); });
@@ -4798,6 +4828,7 @@ window.openProductModal = function openProductModal(mode, product) {
             }
             var priceEl = document.getElementById('modal-price');
             if (priceEl) priceEl.value = product.price != null ? String(product.price) : '';
+            pfSetProductModalPriceMode(String(product.has_option_pricing) === '1');
             var descEl = document.getElementById('modal-description');
             if (descEl) descEl.value = product.description || '';
             var orderNoticeEl = document.getElementById('modal-order-information-notice');
@@ -4833,6 +4864,7 @@ window.openProductModal = function openProductModal(mode, product) {
             }
         }
     } else {
+        pfSetProductModalPriceMode(false);
         if (title) title.textContent = 'Add New Product';
         pfRefreshModalBarcodePreview();
         if (modeInput) { modeInput.name = 'create_product'; modeInput.value = '1'; }
@@ -5020,7 +5052,7 @@ function openViewModal(product) {
     var priceEl = document.getElementById('view-product-price');
     if (priceEl) {
         var p = parseFloat(product.price);
-        priceEl.textContent = isNaN(p) ? '—' : '₱' + p.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        priceEl.textContent = String(product.has_option_pricing) === '1' ? 'Option-based pricing' : (isNaN(p) ? '—' : '₱' + p.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
     }
     var ssEl = document.getElementById('view-product-stock-status');
     if (ssEl) {

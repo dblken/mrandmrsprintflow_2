@@ -2,6 +2,8 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/customer_profile_completion.php';
+require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/product_pricing.php';
 
 require_role('Customer');
 
@@ -29,20 +31,13 @@ $product = $product[0];
 $variant_id = null;
 $variant_name = '';
 $price = (float)$product['price'];
-$first_variant = db_query(
-    "SELECT variant_id, variant_name, price
-     FROM product_variants
-     WHERE product_id = ? AND status = 'Active'
-     ORDER BY variant_id ASC
-     LIMIT 1",
-    'i',
-    [$product_id]
-);
-if (!empty($first_variant)) {
-    $variant_id = (int)$first_variant[0]['variant_id'];
-    $variant_name = (string)$first_variant[0]['variant_name'];
-    $price = (float)$first_variant[0]['price'];
+
+$pricing = printflow_product_resolve_catalog_unit_price($product_id, [], $variant_id);
+if (empty($pricing['ok'])) {
+    $_SESSION['error'] = (string)($pricing['message'] ?? 'Product price could not be verified.');
+    redirect('order_create.php?product_id=' . $product_id);
 }
+$price = (float)$pricing['unit_price'];
 
 if (!isset($_SESSION['cart']) || !is_array($_SESSION['cart'])) {
     $_SESSION['cart'] = [];

@@ -6,6 +6,8 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/customer_catalog_perf.php';
 require_once __DIR__ . '/../includes/product_catalog_groups.php';
+require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/product_pricing.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/customer_profile_completion.php';
 
@@ -24,6 +26,7 @@ $members = printflow_catalog_group_members($groupId, true);
 if (empty($members)) {
     redirect(pf_app_base_path() . '/customer/products.php');
 }
+$memberPricingMap = printflow_product_catalog_display_price_map($members);
 
 $memberRows = [];
 foreach ($members as $m) {
@@ -162,6 +165,14 @@ $options = [];
 $pf_group_product_stock = [];
 foreach ($members as $m) {
     $pid = (int) ($m['product_id'] ?? 0);
+    $memberPricing = $memberPricingMap[$pid] ?? ['ok' => false, 'mode' => 'invalid', 'price' => null];
+    $memberFieldConfigs = printflow_product_pricing_field_configs($pid);
+    $memberOptionPricing = printflow_product_option_pricing_config($memberFieldConfigs);
+    $memberPricingFieldKey = (string)($memberOptionPricing['field']['key'] ?? '');
+    $memberOptionPrices = [];
+    foreach ((array)($memberOptionPricing['field']['options'] ?? []) as $pricedOption) {
+        $memberOptionPrices[(string)$pricedOption['value']] = (float)$pricedOption['price'];
+    }
     $rawImg = trim((string) ($m['photo_path'] ?? $m['product_image'] ?? ''));
     $img = $rawImg !== '' ? pf_normalize_service_image_path($rawImg, $base_path, $default_product_img) : $default_product_img;
     $branchStockById = [];
@@ -178,6 +189,9 @@ foreach ($members as $m) {
             $branchVariantOptions[] = [
                 'value' => (string)($variantRow['option_value'] ?? ''),
                 'stock' => (int)($variantRow['stock_quantity'] ?? 0),
+                'price' => ($memberPricingFieldKey !== '' && $memberPricingFieldKey === (string)($branchData['variant_stock_field_key'] ?? '')
+                    ? (float)($memberOptionPrices[(string)($variantRow['option_value'] ?? '')] ?? 0)
+                    : 0.0),
             ];
         }
         $pf_group_product_stock[$pid]['branches'][$branchId] = [
@@ -191,7 +205,7 @@ foreach ($members as $m) {
     $options[] = [
         'product_id' => $pid,
         'name' => (string) ($m['name'] ?? ''),
-        'price' => (float) ($m['price'] ?? 0),
+        'price' => !empty($memberPricing['ok']) ? (float)$memberPricing['price'] : 0.0,
         'stock_quantity' => 0,
         'has_variant_stock' => false,
         'category' => (string) ($m['category'] ?? ''),
@@ -1244,6 +1258,7 @@ function pfGroupRenderVariantOptions(productId) {
         btn.type = 'button';
         btn.className = 'shopee-opt-btn' + (stock <= 0 ? ' is-disabled' : '');
         btn.setAttribute('data-value', value);
+        btn.setAttribute('data-price', String(row.price || ''));
         btn.textContent = value + (stock > 0 ? '' : ' (Out)');
         btn.disabled = stock <= 0;
         btn.addEventListener('click', function () {
@@ -1251,6 +1266,8 @@ function pfGroupRenderVariantOptions(productId) {
             optionsEl.querySelectorAll('.shopee-opt-btn').forEach(function (el) { el.classList.remove('active'); });
             btn.classList.add('active');
             if (errEl) errEl.hidden = true;
+            var selectedPrice = Number(row.price || 0);
+            if (selectedPrice > 0) document.getElementById('pf-group-action-price').textContent = pfFormatMoney(selectedPrice);
             pfGroupSyncQuantityLimits(productId);
         });
         optionsEl.appendChild(btn);
@@ -1260,6 +1277,8 @@ function pfGroupRenderVariantOptions(productId) {
     });
     if (firstSelectable) {
         firstSelectable.classList.add('active');
+        var firstPrice = Number(firstSelectable.dataset.price || 0);
+        if (firstPrice > 0) document.getElementById('pf-group-action-price').textContent = pfFormatMoney(firstPrice);
     }
     if (errEl) errEl.hidden = true;
 }

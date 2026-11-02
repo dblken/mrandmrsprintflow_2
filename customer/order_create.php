@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/product_pricing.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/service_dimension_ui.php';
 
@@ -80,7 +81,7 @@ function printflow_render_product_custom_field(string $field_key, array $config,
                 continue;
             }
             $selected = $saved === $value ? ' selected' : '';
-            $html .= '<option value="' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '" data-price="' . htmlspecialchars((string)$price, ENT_QUOTES, 'UTF-8') . '"' . $selected . '>' . htmlspecialchars($value) . '</option>';
+            $html .= '<option value="' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '" data-price="' . htmlspecialchars((string)$price, ENT_QUOTES, 'UTF-8') . '"' . $selected . '>' . htmlspecialchars($value) . ' — ' . htmlspecialchars(format_currency($price)) . '</option>';
         }
         $html .= '</select>';
     } elseif ($type === 'radio') {
@@ -96,7 +97,7 @@ function printflow_render_product_custom_field(string $field_key, array $config,
             $active = $saved === $value ? ' active' : '';
             $html .= '<label class="shopee-opt-btn' . $active . '">';
             $html .= '<input type="radio" name="' . $name . '" value="' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '" data-price="' . htmlspecialchars((string)$price, ENT_QUOTES, 'UTF-8') . '" style="display:none;" class="pricing-field"' . $checked . ' ' . $required_attr . '>';
-            $html .= '<span>' . htmlspecialchars($value) . '</span></label>';
+            $html .= '<span>' . htmlspecialchars($value) . ' — ' . htmlspecialchars(format_currency($price)) . '</span></label>';
         }
         if ($othersEnabled) {
             $checked = ($saved !== '' && !isset(printflow_product_option_price_map((array)($config['options'] ?? []))[$saved])) ? ' checked' : '';
@@ -124,7 +125,7 @@ function printflow_render_product_custom_field(string $field_key, array $config,
                 continue;
             }
             $active = $savedBase === $value ? ' active' : '';
-            $html .= '<button type="button" class="shopee-opt-btn pricing-dimension' . $active . '" data-target="' . $name . '" data-value="' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '" data-price="' . htmlspecialchars((string)$price, ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars($value) . '</button>';
+            $html .= '<button type="button" class="shopee-opt-btn pricing-dimension' . $active . '" data-target="' . $name . '" data-value="' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '" data-price="' . htmlspecialchars((string)$price, ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars($value) . ' — ' . htmlspecialchars(format_currency($price)) . '</button>';
         }
         if (!array_key_exists('allow_others', $config) || !empty($config['allow_others'])) {
             $active = (!$savedIsPreset && $savedBase !== '') ? ' active' : '';
@@ -192,7 +193,12 @@ $product = db_query(
 );
 if (empty($product)) { header('Location: products.php'); exit; }
 $product = $product[0];
-$product_field_configs = get_product_field_config($product_id);
+$product_field_configs = printflow_product_pricing_field_configs($product_id);
+$product_variants = function_exists('db_table_has_column') && db_table_has_column('product_variants', 'variant_id')
+    ? (db_query("SELECT variant_id, variant_name, price FROM product_variants WHERE product_id = ? AND status = 'Active' ORDER BY variant_id", 'i', [$product_id]) ?: [])
+    : [];
+$product_display_pricing = printflow_product_catalog_display_price($product_id, $product['price'] ?? null);
+$product_pricing_available = !empty($product_display_pricing['ok']);
 $error = '';
 $product_profile_incomplete = printflow_customer_profile_incomplete();
 $branches = order_create_optional_query("SELECT id, branch_name FROM branches WHERE status = 'Active'") ?: [];
@@ -228,7 +234,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
 
     $customization = [];
     $uploaded_files = [];
-    $price_delta = 0.0;
 
     foreach ($product_field_configs as $field_key => $config) {
         if (empty($config['visible'])) {
@@ -323,10 +328,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 $raw = trim((string)($_POST[$field_key . '_other'] ?? ''));
             }
             $value = $raw;
-            $priceMap = printflow_product_option_price_map((array)($config['options'] ?? []));
-            if ($value !== '' && isset($priceMap[$value])) {
-                $price_delta += (float)$priceMap[$value];
-            }
         } elseif ($type === 'select') {
             $value = trim((string)($_POST[$field_key] ?? ''));
             $allowed = [];
@@ -337,16 +338,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 $error = 'Please select a valid ' . strtolower($label) . '.';
                 break;
             }
-            $priceMap = printflow_product_option_price_map((array)($config['options'] ?? []));
-            if ($value !== '' && isset($priceMap[$value])) {
-                $price_delta += (float)$priceMap[$value];
-            }
         } elseif ($type === 'dimension') {
             $value = trim((string)($_POST[$field_key] ?? ''));
-            $priceMap = printflow_product_option_price_map((array)($config['options'] ?? []));
-            if ($value !== '' && isset($priceMap[$value])) {
-                $price_delta += (float)$priceMap[$value];
-            }
             if ($value !== '' && !empty($config['unit'])) {
                 $value .= ' ' . trim((string)$config['unit']);
             }
@@ -360,6 +353,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         }
         if ($value !== '') {
             $customization[$label] = $value;
+        }
+    }
+
+    if ($error === '') {
+        $variant_id = isset($_POST['variant_id']) && ctype_digit((string)$_POST['variant_id']) ? (int)$_POST['variant_id'] : null;
+        $selectedVariantName = '';
+        foreach ($product_variants as $variantRow) {
+            if ((int)$variantRow['variant_id'] === (int)$variant_id) {
+                $selectedVariantName = (string)$variantRow['variant_name'];
+                break;
+            }
+        }
+        $pricingResult = printflow_product_resolve_unit_price(
+            $product['price'] ?? null,
+            $product_field_configs,
+            $customization,
+            $product_variants,
+            $variant_id
+        );
+        if (empty($pricingResult['ok'])) {
+            $error = (string)($pricingResult['message'] ?? 'Product price could not be verified.');
+        } elseif ($selectedVariantName !== '') {
+            $customization['Product Variant'] = $selectedVariantName;
         }
     }
 
@@ -384,8 +400,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     'type'            => 'Product',
                     'source_page'     => 'products',
                     'product_id'      => $product_id,
+                    'variant_id'      => $variant_id,
                     'name'            => $product['name'],
-                    'price'           => (float)$product['price'] + $price_delta,
+                    'variant_name'    => $selectedVariantName,
+                    'price'           => (float)$pricingResult['unit_price'],
                     'quantity'        => $quantity,
                     'category'        => $product['category'],
                     'branch_id'       => $branch_id,
@@ -607,11 +625,14 @@ require_once __DIR__ . '/../includes/header.php';
                     <div class="h-4 w-px bg-gray-200"></div>
                     <div class="text-sm text-gray-500"><?php echo $sold_display; ?> Sold</div>
                     <div class="h-4 w-px bg-gray-200"></div>
-                    <div class="text-lg font-bold text-gray-900"><?php echo format_currency($product['price']); ?></div>
+                    <div id="poc-price-display" class="text-lg font-bold text-gray-900" data-mode="<?php echo htmlspecialchars((string)($product_display_pricing['mode'] ?? 'invalid'), ENT_QUOTES, 'UTF-8'); ?>" data-field-key="<?php echo htmlspecialchars((string)($product_display_pricing['field_key'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>" data-base-display="<?php echo htmlspecialchars((!empty($product_display_pricing['ok']) ? ((!empty($product_variants) || ($product_display_pricing['mode'] ?? '') === 'option' ? 'From ' : '') . format_currency($product_display_pricing['price'])) : 'Price configuration unavailable'), ENT_QUOTES, 'UTF-8'); ?>"><?php if (!empty($product_display_pricing['ok'])) { echo (!empty($product_variants) || ($product_display_pricing['mode'] ?? '') === 'option' ? 'From ' : '') . format_currency($product_display_pricing['price']); } else { echo 'Price configuration unavailable'; } ?></div>
                 </div>
 
                 <form action="" method="POST" enctype="multipart/form-data" id="productOrderForm" data-pf-skip-validation="true" novalidate>
                     <?php echo csrf_field(); ?>
+                    <?php if (!$product_pricing_available): ?>
+                        <div role="alert" style="margin-bottom:1rem;padding:0.75rem;border:1px solid #fecaca;border-radius:0.5rem;background:#fef2f2;color:#991b1b;">This product's pricing configuration needs Admin review before it can be ordered.</div>
+                    <?php endif; ?>
 
                     <div class="shopee-form-row">
                         <div class="shopee-form-label">Branch *</div>
@@ -635,6 +656,20 @@ require_once __DIR__ . '/../includes/header.php';
                             </div>
                         </div>
                     </div>
+
+                    <?php if ($product_variants !== []): ?>
+                    <div class="shopee-form-row">
+                        <div class="shopee-form-label">Option *</div>
+                        <div class="shopee-form-field">
+                            <select name="variant_id" required class="shopee-opt-btn" style="width: min(100%, 320px);">
+                                <option value="">Select an option</option>
+                                <?php foreach ($product_variants as $variantRow): ?>
+                                    <option value="<?php echo (int)$variantRow['variant_id']; ?>" data-price="<?php echo htmlspecialchars(number_format((float)$variantRow['price'], 2, '.', ''), ENT_QUOTES, 'UTF-8'); ?>"<?php echo (string)($_POST['variant_id'] ?? $existing_data['variant_id'] ?? '') === (string)$variantRow['variant_id'] ? ' selected' : ''; ?>><?php echo htmlspecialchars((string)$variantRow['variant_name']); ?> — <?php echo format_currency((float)$variantRow['price']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <?php endif; ?>
 
                     <div class="shopee-form-row">
                         <div class="shopee-form-label">Quantity *</div>
@@ -664,7 +699,7 @@ require_once __DIR__ . '/../includes/header.php';
                                 </div>
                             <?php endif; ?>
                             <a href="products.php" class="shopee-btn-outline" style="flex: 1; min-width: 0;">Back</a>
-                            <?php if ((int)$initial_stock_qty > 0): ?>
+                            <?php if ((int)$initial_stock_qty > 0 && $product_pricing_available): ?>
                                 <button type="submit" name="action" value="add_to_cart" id="poc-add-cart-btn" class="shopee-btn-outline" style="flex: 1.2; min-width: 140px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; white-space: nowrap; padding: 0.5rem 1.25rem;" title="Add to Cart"<?php echo $product_profile_incomplete ? ' disabled aria-disabled="true"' : ''; ?>>
                                     <svg style="width: 1.125rem; height: 1.125rem; flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
@@ -675,8 +710,8 @@ require_once __DIR__ . '/../includes/header.php';
                                     <span>Order Now</span>
                                 </button>
                             <?php else: ?>
-                                <button type="button" disabled id="poc-add-cart-btn" class="shopee-btn-outline" style="flex: 1.2; min-width: 140px; opacity: 0.5; cursor: not-allowed; padding: 0.5rem 1.25rem;">Out of Stock</button>
-                                <button type="button" disabled id="poc-buy-now-btn" class="shopee-btn-primary" style="flex: 1; min-width: 0; opacity: 0.5; cursor: not-allowed; padding: 0.5rem 1.25rem;">Out of Stock</button>
+                                <button type="button" disabled id="poc-add-cart-btn" class="shopee-btn-outline" style="flex: 1.2; min-width: 140px; opacity: 0.5; cursor: not-allowed; padding: 0.5rem 1.25rem;"><?php echo $product_pricing_available ? 'Out of Stock' : 'Pricing unavailable'; ?></button>
+                                <button type="button" disabled id="poc-buy-now-btn" class="shopee-btn-primary" style="flex: 1; min-width: 0; opacity: 0.5; cursor: not-allowed; padding: 0.5rem 1.25rem;"><?php echo $product_pricing_available ? 'Out of Stock' : 'Pricing unavailable'; ?></button>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -1251,6 +1286,50 @@ async function markHelpful(reviewId, btn) {
         btn.disabled = false;
     }
 }
+</script>
+<script>
+(function () {
+    var display = document.getElementById('poc-price-display');
+    if (!display) return;
+    var mode = display.dataset.mode || 'invalid';
+    var fieldKey = display.dataset.fieldKey || '';
+    var baseDisplay = display.dataset.baseDisplay || display.textContent;
+    function updatePrice() {
+        var price = '';
+        if (mode === 'variant') {
+            var variant = document.querySelector('select[name="variant_id"]');
+            price = variant && variant.selectedOptions[0] ? variant.selectedOptions[0].dataset.price || '' : '';
+        } else if (mode === 'option' && fieldKey) {
+            var selected = document.getElementsByName(fieldKey);
+            for (var i = 0; i < selected.length; i++) {
+                if (selected[i].type === 'radio' && selected[i].checked && selected[i].value !== '__other__') {
+                    price = selected[i].dataset.price || '';
+                    break;
+                }
+                if (selected[i].tagName === 'SELECT' && selected[i].value) {
+                    price = selected[i].selectedOptions[0] ? selected[i].selectedOptions[0].dataset.price || '' : '';
+                    break;
+                }
+            }
+            if (!price) {
+                var activeDimension = document.querySelector('.pricing-dimension.active[data-target]');
+                if (activeDimension && activeDimension.dataset.target === fieldKey) price = activeDimension.dataset.price || '';
+            }
+        }
+        if (price && Number.isFinite(Number(price)) && Number(price) > 0) {
+            display.textContent = '₱' + Number(price).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        } else {
+            display.textContent = baseDisplay;
+        }
+    }
+    document.addEventListener('change', function (event) {
+        if (event.target && (event.target.name === fieldKey || event.target.name === 'variant_id')) updatePrice();
+    });
+    document.addEventListener('click', function (event) {
+        if (event.target && event.target.closest('.pricing-dimension')) window.setTimeout(updatePrice, 0);
+    });
+    updatePrice();
+})();
 </script>
 <script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/service-custom-size.js'); ?>"></script>
 

@@ -10,6 +10,8 @@ require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/product_catalog_groups.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/customer_profile_completion.php';
+require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/product_pricing.php';
 
 $session_user_type = trim((string)(get_user_type() ?? ''));
 if (!is_logged_in() || strcasecmp($session_user_type, 'Customer') !== 0) {
@@ -148,23 +150,14 @@ if ($action === 'add') {
         }
         $price        = (float)$variant[0]['price'];
         $variant_name = $variant[0]['variant_name'];
-    } else {
-        $has_variants = db_query(
-            "SELECT COUNT(*) as cnt FROM product_variants WHERE product_id = ? AND status = 'Active'",
-            'i', [$product_id]
-        );
-        if (!empty($has_variants) && (int)$has_variants[0]['cnt'] > 0) {
-            $first_variant = db_query(
-                "SELECT variant_id, variant_name, price FROM product_variants WHERE product_id = ? AND status = 'Active' ORDER BY variant_id ASC LIMIT 1",
-                'i', [$product_id]
-            );
-            if (!empty($first_variant)) {
-                $variant_id   = (int)$first_variant[0]['variant_id'];
-                $price        = (float)$first_variant[0]['price'];
-                $variant_name = (string)$first_variant[0]['variant_name'];
-            }
-        }
     }
+
+    $pricing = printflow_product_resolve_catalog_unit_price($product_id, $customization, $variant_id);
+    if (empty($pricing['ok'])) {
+        echo json_encode(['success' => false, 'message' => (string)($pricing['message'] ?? 'Product price could not be verified.')]);
+        exit;
+    }
+    $price = (float)$pricing['unit_price'];
 
     [$branch_stock_qty] = printflow_product_effective_stock($product_id, $branch_id);
     $optionStockCheck = printflow_product_option_stock_validate($product_id, $branch_id, $customization, $quantity);
@@ -233,6 +226,7 @@ if ($action === 'add') {
 if ($action === 'buy_now') {
     $product_id = (int) ($input['product_id'] ?? 0);
     $catalogGroupId = (int) ($input['catalog_group_id'] ?? 0);
+    $variant_id = isset($input['variant_id']) && ctype_digit((string)$input['variant_id']) ? (int)$input['variant_id'] : null;
     $quantity = max(1, min(999, (int) ($input['quantity'] ?? 1)));
     $branch_id = (int) ($input['branch_id'] ?? 0);
     $customization = [];
@@ -272,6 +266,12 @@ if ($action === 'buy_now') {
     }
     $product = $product[0];
 
+    $pricing = printflow_product_resolve_catalog_unit_price($product_id, $customization, $variant_id);
+    if (empty($pricing['ok'])) {
+        echo json_encode(['success' => false, 'message' => (string)($pricing['message'] ?? 'Product price could not be verified.')]);
+        exit;
+    }
+
     $activeBranch = $branch_id > 0
         ? db_query("SELECT id FROM branches WHERE id = ? AND status = 'Active' LIMIT 1", 'i', [$branch_id])
         : [];
@@ -296,12 +296,24 @@ if ($action === 'buy_now') {
     }
 
     $item_key = 'product_' . $product_id . '_' . time() . '_' . rand(100, 999);
+    $variant_name = '';
+    if ($variant_id !== null) {
+        $variantRows = db_query("SELECT variant_name FROM product_variants WHERE variant_id = ? AND product_id = ? AND status = 'Active' LIMIT 1", 'ii', [$variant_id, $product_id]) ?: [];
+        $variant_name = (string)($variantRows[0]['variant_name'] ?? '');
+        if ($variant_name === '') {
+            echo json_encode(['success' => false, 'message' => 'Selected variant is not available.']);
+            exit;
+        }
+        $customization['Product Variant'] = $variant_name;
+    }
     $_SESSION['cart'][$item_key] = [
         'type'            => 'Product',
         'source_page'     => 'products',
         'product_id'      => $product_id,
         'name'            => $product['name'],
-        'price'           => (float) $product['price'],
+        'price'           => (float) $pricing['unit_price'],
+        'variant_id'      => $variant_id,
+        'variant_name'    => $variant_name,
         'quantity'        => $quantity,
         'category'        => $product['category'],
         'branch_id'       => $branch_id,
@@ -341,6 +353,21 @@ if ($action === 'update') {
         unset($_SESSION['cart'][$key]);
     } else {
         $item = $_SESSION['cart'][$key];
+        $isServiceLine = strtolower(trim((string)($item['source_page'] ?? ''))) === 'services'
+            || strtolower(trim((string)($item['type'] ?? ''))) === 'service';
+        if ((int)($item['product_id'] ?? 0) > 0 && !$isServiceLine) {
+            $pricing = printflow_product_resolve_catalog_unit_price(
+                (int)$item['product_id'],
+                (array)($item['customization'] ?? []),
+                !empty($item['variant_id']) ? (int)$item['variant_id'] : null
+            );
+            if (empty($pricing['ok'])) {
+                echo json_encode(['success' => false, 'message' => (string)($pricing['message'] ?? 'Product price could not be verified.')]);
+                exit;
+            }
+            $_SESSION['cart'][$key]['price'] = (float)$pricing['unit_price'];
+            $item['price'] = (float)$pricing['unit_price'];
+        }
         $stockCheck = printflow_product_option_stock_validate(
             (int)($item['product_id'] ?? 0),
             (int)($item['branch_id'] ?? 0),
