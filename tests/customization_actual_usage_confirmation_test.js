@@ -3,6 +3,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const page = fs.readFileSync(path.join(__dirname, '..', 'staff', 'customizations.php'), 'utf8');
+const inputBindingMatch = page.match(/@input="([^"]*handlePendingMaterialQtyInput\(pm, \$event\.target\.value\)[^"]*)"/);
+assert(inputBindingMatch, 'Rendered Actual Usage input binds the displayed pm row and browser input value.');
+const actualUsageInputBinding = new Function('pm', '$event', 'handlePendingMaterialQtyInput', `${inputBindingMatch[1]};`);
 const start = page.indexOf('            handlePendingMaterialQtyInput(material, value) {');
 const end = page.indexOf('            isCurrentTarpaulinService() {', start);
 assert(start >= 0 && end > start, 'Actual Usage methods are present in the staff page.');
@@ -28,6 +31,11 @@ function context(error) {
     };
 }
 
+function dispatchActualUsageInput(ctx, material, value) {
+    const boundHandler = methods.handlePendingMaterialQtyInput.bind(ctx);
+    actualUsageInputBinding(material, { target: { value: String(value ?? '') } }, boundHandler);
+}
+
 const confirmationError = 'Confirm the actual usage for Pp Stkr Matte 98 before saving.';
 const item = {
     name: 'Pp Stkr Matte 98',
@@ -41,34 +49,36 @@ const item = {
 };
 
 assert.equal(item.manual_quantity_confirmed, false, 'A prefilled quantity alone is not confirmation.');
+assert.equal(validateEstimatedMaterial(item), false, 'Untouched prefilled manual usage remains blocked by the final assignment validator.');
 
 const inputContext = context(confirmationError);
-methods.handlePendingMaterialQtyInput.call(inputContext, item, '1');
+dispatchActualUsageInput(inputContext, item, '1');
 assert.equal(item.manual_quantity_confirmed, true, 'A valid edited actual quantity confirms usage.');
 assert.equal(item.metadata.material_usage.actual, 1, 'The entered quantity is retained without conversion.');
 assert.equal(item.metadata.material_usage.staff_confirmed, true, 'Confirmation metadata follows the state.');
 assert.equal(inputContext.productionErrors.material, '', 'Editing valid usage clears its stale confirmation warning.');
 assert.equal(inputContext.footerActionError, '', 'Editing valid usage clears its matching stale footer copy.');
+assert.equal(validateEstimatedMaterial(item), true, 'The same pending material passes the final assignment validator after the rendered input event.');
 
 const invalidItem = { ...item, metadata: {}, manual_quantity_confirmed: true };
 const invalidContext = context(confirmationError);
-methods.handlePendingMaterialQtyInput.call(invalidContext, invalidItem, '0');
+dispatchActualUsageInput(invalidContext, invalidItem, '0');
 assert.equal(invalidItem.manual_quantity_confirmed, false, 'Zero usage cannot confirm a manual quantity.');
 assert.equal(invalidItem.metadata.material_usage.staff_confirmed, false, 'Invalid usage is not marked staff-confirmed.');
 assert.equal(invalidContext.productionErrors.material, confirmationError, 'Invalid input retains the confirmation warning.');
 assert.equal(invalidContext.footerActionError, confirmationError, 'Invalid input retains the matching footer warning.');
 
 const negativeItem = { ...item, metadata: {}, manual_quantity_confirmed: true };
-methods.handlePendingMaterialQtyInput.call(context(confirmationError), negativeItem, '-1');
+dispatchActualUsageInput(context(confirmationError), negativeItem, '-1');
 assert.equal(negativeItem.manual_quantity_confirmed, false, 'Negative usage cannot confirm a manual quantity.');
 assert.equal(negativeItem.metadata.material_usage.staff_confirmed, false, 'Negative usage is not marked staff-confirmed.');
 
 const fractionalPieces = { ...item, metadata: {}, manual_quantity_confirmed: false };
-methods.handlePendingMaterialQtyInput.call(context(''), fractionalPieces, '1.5');
+dispatchActualUsageInput(context(''), fractionalPieces, '1.5');
 assert.equal(fractionalPieces.manual_quantity_confirmed, false, 'Fractional pieces remain invalid.');
 
 const fractionalFeet = { ...item, uom: 'ft', metadata: {}, manual_quantity_confirmed: false };
-methods.handlePendingMaterialQtyInput.call(context(''), fractionalFeet, '1.5');
+dispatchActualUsageInput(context(''), fractionalFeet, '1.5');
 assert.equal(fractionalFeet.manual_quantity_confirmed, true, 'Fractional length usage remains valid.');
 
 function validateEstimatedMaterial(material) {
@@ -100,20 +110,27 @@ for (const uom of ['pcs', 'pc', 'piece', 'pieces']) {
 assert.equal(validateEstimatedMaterial({ ...fractionalFeet, estimated_qty: 1, manual_confirmation_required: false }), true,
     'Final assignment validator permits fractional feet when otherwise valid.');
 
+for (const value of ['', '0', '-1', 'Infinity', '1.5', '1 pcs']) {
+    const invalidManualMaterial = { ...item, uom: 'pcs', qty: 1, estimated_qty: null, manual_confirmation_required: true, manual_quantity_confirmed: false, metadata: {} };
+    dispatchActualUsageInput(context(''), invalidManualMaterial, value);
+    assert.equal(validateEstimatedMaterial(invalidManualMaterial), false, `Rendered input value ${JSON.stringify(value)} cannot pass assignment validation for pcs.`);
+}
+
 for (const material of [
     { ...item, name: 'Nextjet', item_id: 18, uom: 'pcs', estimated_qty: null, manual_confirmation_required: true, manual_quantity_confirmed: false },
     { ...item, name: 'Sticker Blue', item_id: 31, uom: 'ft', estimated_qty: null, manual_confirmation_required: true, manual_quantity_confirmed: false },
     { ...item, name: 'Hologram Roll', item_id: 44, uom: 'ft', qty: 1.5, estimated_qty: 1, manual_confirmation_required: false }
 ]) {
     const materialContext = context(`Confirm the actual usage for ${material.name} before saving.`);
-    methods.handlePendingMaterialQtyInput.call(materialContext, material, String(material.qty));
+    dispatchActualUsageInput(materialContext, material, material.qty);
     assert.equal(material.manual_quantity_confirmed, true, `${material.name} accepts a valid actual quantity in its unit.`);
     assert.equal(materialContext.productionErrors.material, '', `${material.name} clears its own confirmation message.`);
     assert.equal(materialContext.footerActionError, '', `${material.name} clears its duplicate footer message.`);
+    assert.equal(validateEstimatedMaterial(material), true, `${material.name} passes the final validator after its bound input event.`);
 }
 
 const otherMaterialWarning = context('Confirm the actual usage for Nextjet before saving.');
-methods.handlePendingMaterialQtyInput.call(otherMaterialWarning, { ...item, name: 'Sticker Blue', metadata: {} }, '2');
+dispatchActualUsageInput(otherMaterialWarning, { ...item, name: 'Sticker Blue', metadata: {} }, '2');
 assert.equal(otherMaterialWarning.productionErrors.material, 'Confirm the actual usage for Nextjet before saving.', 'Editing another material does not clear its warning.');
 assert.equal(otherMaterialWarning.footerActionError, 'Confirm the actual usage for Nextjet before saving.', 'Editing another material does not clear its footer warning.');
 
@@ -133,7 +150,7 @@ feedbackMethods.setProductionValidationFeedback.call(duplicateFeedbackContext);
 assert.equal(duplicateFeedbackContext.footerActionError, 'A separate stock validation error.', 'A different existing footer error is preserved.');
 
 const unrelatedErrorContext = context('Insufficient stock for this material.');
-methods.handlePendingMaterialQtyInput.call(unrelatedErrorContext, { ...item, metadata: {} }, '2');
+dispatchActualUsageInput(unrelatedErrorContext, { ...item, metadata: {} }, '2');
 assert.equal(unrelatedErrorContext.productionErrors.material, 'Insufficient stock for this material.', 'Unrelated validation errors are preserved.');
 
 console.log('customization_actual_usage_confirmation_test: PASS');
