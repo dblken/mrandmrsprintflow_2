@@ -3220,7 +3220,7 @@ $online_closed_count = 0;
                                                         </template>
                                                         <template x-if="!isTarpaulin(pm.item_id)">
                                                             <label style="display:block;color:#334155;font-size:11px;margin-top:5px;font-weight:700;">Actual Usage:
-                                                                <input type="number" min="1" step="any" :value="pm.qty" @input="handlePendingMaterialQtyInput(pm, $event.target.value)" aria-label="Actual material usage quantity"
+                                                                <input type="number" min="1" step="any" :value="pm.qty" @beforeinput="markPendingMaterialQtyEdit(pm, $event.target, $event)" @keydown="markPendingMaterialQtyKeyEdit(pm, $event.target, $event)" @keyup="clearPendingMaterialQtyKeyEdit($event.target)" @pointerdown="markPendingMaterialQtyPointerEdit(pm, $event.target, $event)" @pointerup="clearPendingMaterialQtyPointerEdit($event.target)" @pointercancel="clearPendingMaterialQtyPointerEdit($event.target)" @input="handlePendingMaterialQtyInput(pm, $event.target.value, $event.target, $event)" @blur="handlePendingMaterialQtyBlur(pm, $event.target, $event)" aria-label="Actual material usage quantity"
                                                                        style="width:72px;margin:0 3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
                                                                 <span x-text="pm.uom"></span>
                                                             </label>
@@ -4451,12 +4451,66 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 return `${stockLabel}${format} · ${material.usage_estimate_reason || 'Manual confirmation required.'}`;
             },
-            handlePendingMaterialQtyInput(material, value) {
+            markPendingMaterialQtyEdit(material, input, event) {
+                const allowedEditTypes = new Set(['insertText', 'insertFromPaste', 'insertFromDrop', 'insertCompositionText', 'deleteContentBackward', 'deleteContentForward', 'deleteByCut', 'deleteByDrag', 'historyUndo', 'historyRedo']);
+                if (event?.isTrusted !== true || !input?.dataset || !allowedEditTypes.has(String(event.inputType || ''))) return;
+                input.dataset.actualUsageEditPending = '1';
+                input.dataset.actualUsageEditStartValue = String(input.value ?? '');
+                input.dataset.actualUsageEditInputType = String(event.inputType);
+            },
+            markPendingMaterialQtyKeyEdit(material, input, event) {
+                const editKeys = new Set(['Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'Decimal', '.', ',', '-', '+', 'e', 'E']);
+                if (event?.isTrusted !== true || !input?.dataset) return;
+                if (!/^\d$/.test(String(event.key || '')) && !editKeys.has(String(event.key || ''))) return;
+                input.dataset.actualUsageKeyEditPending = '1';
+                input.dataset.actualUsageKeyEditAt = String(Date.now());
+            },
+            clearPendingMaterialQtyKeyEdit(input) {
+                if (!input?.dataset) return;
+                delete input.dataset.actualUsageKeyEditPending;
+                delete input.dataset.actualUsageKeyEditAt;
+            },
+            markPendingMaterialQtyPointerEdit(material, input, event) {
+                if (event?.isTrusted !== true || event.pointerType !== 'mouse' || !input?.dataset) return;
+                const bounds = input.getBoundingClientRect();
+                if (Number(event.clientX) < bounds.right - 18) return;
+                input.dataset.actualUsagePointerEditPending = '1';
+                input.dataset.actualUsagePointerQty = String(material.qty ?? '');
+                input.dataset.actualUsagePointerEditAt = String(Date.now());
+            },
+            clearPendingMaterialQtyPointerEdit(input) {
+                if (!input?.dataset) return;
+                delete input.dataset.actualUsagePointerEditPending;
+                delete input.dataset.actualUsagePointerQty;
+                delete input.dataset.actualUsagePointerEditAt;
+            },
+            handlePendingMaterialQtyInput(material, value, input = null, event = null) {
                 const raw = String(value ?? '').trim();
                 const qty = raw === '' ? NaN : Number(raw);
+                const dataset = input?.dataset || {};
+                const trustedInput = event?.isTrusted === true;
+                const beforeInputIntent = dataset.actualUsageEditPending === '1';
+                const keyEditFresh = dataset.actualUsageKeyEditPending === '1'
+                    && Date.now() - Number(dataset.actualUsageKeyEditAt || 0) <= 250
+                    && String(value ?? '') !== String(material.qty ?? '');
+                const pointerEditFresh = dataset.actualUsagePointerEditPending === '1'
+                    && Date.now() - Number(dataset.actualUsagePointerEditAt || 0) <= 250
+                    && String(value ?? '') !== String(dataset.actualUsagePointerQty ?? '');
+                const matchingBeforeInput = beforeInputIntent
+                    && ((event?.type === 'blur' && String(value ?? '') === String(dataset.actualUsageEditStartValue ?? ''))
+                        || String(event?.inputType || '') === String(dataset.actualUsageEditInputType || ''));
+                const explicitEdit = trustedInput && (matchingBeforeInput || keyEditFresh || pointerEditFresh);
+                if (input && input.dataset) {
+                    delete input.dataset.actualUsageEditPending;
+                    delete input.dataset.actualUsageEditStartValue;
+                    delete input.dataset.actualUsageEditInputType;
+                    delete input.dataset.actualUsageKeyEditPending;
+                    delete input.dataset.actualUsageKeyEditAt;
+                    this.clearPendingMaterialQtyPointerEdit(input);
+                }
                 material.qty = raw === '' ? '' : qty;
                 const wholeUnit = ['pcs', 'pc', 'piece', 'pieces'].includes(String(material.uom || '').toLowerCase());
-                material.manual_quantity_confirmed = Number.isFinite(qty) && qty > 0 && (!wholeUnit || Number.isInteger(qty));
+                material.manual_quantity_confirmed = explicitEdit && Number.isFinite(qty) && qty > 0 && (!wholeUnit || Number.isInteger(qty));
                 material.actual_usage_overridden = material.estimated_qty !== null && material.estimated_qty !== undefined;
                 if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
                 material.metadata.material_usage = {
@@ -4468,6 +4522,12 @@ window.pfServiceFieldCatalog = (() => {
                     overridden: material.actual_usage_overridden
                 };
                 if (material.manual_quantity_confirmed) this.clearPendingMaterialConfirmationError(material);
+            },
+            handlePendingMaterialQtyBlur(material, input, event) {
+                if (event?.isTrusted !== true || !input?.dataset || input.dataset.actualUsageEditPending !== '1') return;
+                const unchangedSinceEditIntent = String(input.value ?? '') === String(input.dataset.actualUsageEditStartValue ?? '');
+                if (!unchangedSinceEditIntent) delete input.dataset.actualUsageEditPending;
+                this.handlePendingMaterialQtyInput(material, input.value, input, event);
             },
             clearPendingMaterialConfirmationError(material) {
                 const expected = `Confirm the actual usage for ${material?.name || 'the selected material'} before saving.`;
@@ -4504,6 +4564,15 @@ window.pfServiceFieldCatalog = (() => {
                     material.metadata = { ...(material.metadata || {}), material_usage: { estimate: estimate.quantity, actual: estimate.quantity, method: material.usage_method, staff_confirmed: true, overridden: false } };
                 } else {
                     material.manual_quantity_confirmed = false;
+                    if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
+                    material.metadata.material_usage = {
+                        ...(material.metadata.material_usage || {}),
+                        estimate: null,
+                        actual: material.qty !== '' && material.qty !== null && material.qty !== undefined && Number.isFinite(Number(material.qty)) ? Number(material.qty) : null,
+                        method: material.usage_method || 'manual',
+                        staff_confirmed: false,
+                        overridden: material.actual_usage_overridden === true
+                    };
                     material.usage_estimate_reason = estimate.reason || 'No reliable estimate is configured.';
                 }
             },
