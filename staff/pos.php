@@ -5322,11 +5322,19 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (!customization || !body || !overlay) return;
             const fieldKey = String(overlay.dataset.materialDimensionFieldKey || '').trim();
             if (!fieldKey) return;
-            const select = Array.from(body.querySelectorAll('select')).find((field) => field.name === fieldKey);
-            if (!select || !select.value) return;
-            const otherValue = select.getAttribute('data-other-option') || 'Others';
-            if (select.value === otherValue) {
-                const row = select.closest('.shopee-form-row');
+            const control = Array.from(body.querySelectorAll('select, input[type="radio"]')).find((field) =>
+                field.name === fieldKey && (field.tagName === 'SELECT' ? !!field.value : !!field.checked)
+            );
+            if (!control) {
+                customization.width = '';
+                customization.height = '';
+                delete customization.pos_material_dimension_unit;
+                return;
+            }
+            const selectedValue = String(control.value || '').trim();
+            const otherValue = control.tagName === 'SELECT' ? (control.getAttribute('data-other-option') || 'Others') : 'Others';
+            if (selectedValue.toLowerCase() === String(otherValue).toLowerCase()) {
+                const row = control.closest('.shopee-form-row');
                 const width = row?.querySelector('[data-dimension-role="width"]')?.value || customization.width || '';
                 const height = row?.querySelector('[data-dimension-role="height"]')?.value || customization.height || '';
                 if (String(width).trim() && String(height).trim()) {
@@ -5337,18 +5345,52 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
                 return;
             }
-            const option = select.options && select.options[select.selectedIndex];
-            const raw = [String((option && option.textContent) || '').trim(), String(select.value || '').trim()]
-                .filter(Boolean).join(' ');
-            const pair = raw.match(/(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)/i);
-            if (!pair) return;
+            const option = control.tagName === 'SELECT' && control.options
+                ? control.options[control.selectedIndex]
+                : null;
+            const label = control.tagName === 'SELECT'
+                ? String((option && option.textContent) || '').trim()
+                : String(control.closest('label')?.textContent || '').trim();
+            const raw = /\d+(?:\.\d+)?\s*(?:(?:feet|foot|ft|inches|inch|in|cm|mm|m)\b|\")?\s*[x×*]\s*\d+(?:\.\d+)?/i.test(label) ? label : selectedValue;
+            const pairs = raw.match(/\d+(?:\.\d+)?\s*(?:(?:feet|foot|ft|inches|inch|in|cm|mm|m)\b|\")?\s*[x×*]\s*\d+(?:\.\d+)?\s*(?:(?:feet|foot|ft|inches|inch|in|cm|mm|m)\b|\")?/gi) || [];
+            if (pairs.length !== 1) {
+                customization.width = '';
+                customization.height = '';
+                delete customization.pos_material_dimension_unit;
+                return;
+            }
+            const pair = pairs[0].match(/(\d+(?:\.\d+)?)(?:\s*(?:feet|foot|ft|inches|inch|in|cm|mm|m)\b|\s*\")?\s*[x×*]\s*(\d+(?:\.\d+)?)/i);
+            if (!pair || Number(pair[1]) <= 0 || Number(pair[2]) <= 0) {
+                customization.width = '';
+                customization.height = '';
+                delete customization.pos_material_dimension_unit;
+                return;
+            }
+            const unitMatches = raw.match(/(?<![a-z])(?:feet|foot|ft|inches|inch|in|cm|mm|m)(?![a-z])|"/gi) || [];
+            const normalizedUnits = new Set(unitMatches.map((token) => {
+                const value = token.toLowerCase();
+                if (['feet', 'foot', 'ft'].includes(value)) return 'ft';
+                if (['inches', 'inch', 'in', '"'].includes(value)) return 'in';
+                return value;
+            }));
+            if (normalizedUnits.size > 1 || (normalizedUnits.size === 1 && normalizedUnits.has('m'))) {
+                customization.width = '';
+                customization.height = '';
+                delete customization.pos_material_dimension_unit;
+                return;
+            }
+            const optionUnit = normalizedUnits.size === 1
+                ? Array.from(normalizedUnits)[0]
+                : String(overlay.dataset.materialDimensionUnit || '').trim().toLowerCase();
+            if (!['ft', 'in', 'cm', 'mm'].includes(optionUnit)) {
+                customization.width = '';
+                customization.height = '';
+                delete customization.pos_material_dimension_unit;
+                return;
+            }
             customization.width = pair[1];
             customization.height = pair[2];
-            const unitMatch = raw.match(/\b(inch(?:es)?|in|feet|foot|ft)\b/i);
-            const optionUnit = unitMatch
-                ? (/^(?:in|inch|inches)$/i.test(unitMatch[1]) ? 'in' : 'ft')
-                : String(overlay.dataset.materialDimensionUnit || '').trim();
-            if (optionUnit) customization.pos_material_dimension_unit = optionUnit;
+            customization.pos_material_dimension_unit = optionUnit;
         }
 
         function posCollectTarpaulinStockCustomization() {

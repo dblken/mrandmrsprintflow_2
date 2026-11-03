@@ -37,8 +37,10 @@ $assert(
 );
 $assert(
     str_contains($source, 'printflow_pos_service_dimension_configs($service_id)')
-        && str_contains($source, "'material_dimension_field_key' =>"),
-    'area-based POS services return the configured visible size field identity and resolved unit'
+        && str_contains($source, "'material_dimension_field_key' =>")
+        && str_contains($source, "'material_dimension_unit_per_option' =>")
+        && str_contains($source, "\$dimensionDescriptor['field_type'] === 'dimension'"),
+    'area-based POS services return field identity and allow validated select/radio options to carry their own units'
 );
 
 echo "pos_service_fields endpoint test: {$passed} assertions passed.\n";

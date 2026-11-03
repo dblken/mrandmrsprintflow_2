@@ -31,11 +31,44 @@ function printflow_pos_service_dimension_configs(int $serviceId): array|false
 
 function printflow_pos_dimension_pair_from_option(string $value): ?array
 {
-    if (!preg_match('/(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)/iu', $value, $match)) return null;
+    $number = '\\d+(?:\\.\\d+)?';
+    $unit = '(?:\\s*(?:feet|foot|ft|inches|inch|in|cm|mm|m)\\b|\\s*\")?';
+    $pairPattern = '/(' . $number . ')' . $unit . '\\s*[x×*]\\s*(' . $number . ')' . $unit . '/iu';
+    $triplePattern = '/'. $number . $unit . '\\s*[x×*]\\s*' . $number . $unit . '\\s*[x×*]\\s*' . $number . '/iu';
+    if (preg_match($triplePattern, $value)) return null;
+    if (preg_match_all($pairPattern, $value, $matches, PREG_SET_ORDER) !== 1) return null;
+    $match = $matches[0];
     $width = (float)$match[1];
     $height = (float)$match[2];
     if (!is_finite($width) || !is_finite($height) || $width <= 0 || $height <= 0) return null;
     return ['width' => (string)$match[1], 'height' => (string)$match[2]];
+}
+
+/** Return a supported unit explicitly named in an option, rejecting conflicts. */
+function printflow_pos_dimension_explicit_unit(string $value): ?string
+{
+    preg_match_all('/(?<![\p{L}])(?:feet|foot|ft|inches|inch|in|cm|mm)(?![\p{L}])|"/iu', $value, $matches);
+    $units = [];
+    foreach ($matches[0] ?? [] as $token) {
+        $token = strtolower(trim($token));
+        $unit = in_array($token, ['feet', 'foot', 'ft'], true) ? 'ft'
+            : (in_array($token, ['inches', 'inch', 'in', '"'], true) ? 'in' : $token);
+        $units[$unit] = true;
+    }
+    return count($units) === 1 ? (string)array_key_first($units) : null;
+}
+
+/** Normalize only units supported by the area-demand calculator; never default unknown units to feet. */
+function printflow_pos_dimension_configured_unit(array $row): string
+{
+    $unit = strtolower(trim((string)($row['unit'] ?? '')));
+    return match ($unit) {
+        'ft', 'feet', 'foot' => 'ft',
+        'in', 'inch', 'inches', '"' => 'in',
+        'cm' => 'cm',
+        'mm' => 'mm',
+        default => '',
+    };
 }
 
 function printflow_pos_dimension_field_candidate(array $row): bool
@@ -64,15 +97,15 @@ function printflow_pos_dimension_field_candidate(array $row): bool
 
 function printflow_pos_dimension_option_unit(string $value, array $row): string
 {
-    $type = strtolower(trim((string)($row['field_type'] ?? $row['type'] ?? '')));
-    $configured = trim((string)($row['unit'] ?? ''));
-    if ($configured === '') {
-        return $type === 'dimension' ? 'ft' : (printflow_service_dimension_unit_in_text($value) ?? '');
+    $explicit = printflow_pos_dimension_explicit_unit($value);
+    $configured = printflow_pos_dimension_configured_unit($row);
+    if ($explicit !== null) return $explicit;
+    // Do not let an unsupported or conflicting unit token silently inherit a
+    // different configured unit (for example, “8 x 11 m” with unit “ft”).
+    if (preg_match('/(?<![\p{L}])(?:feet|foot|ft|inches|inch|in|cm|mm|m)(?![\p{L}])|"/iu', $value)) {
+        return '';
     }
-    if ($type === 'dimension') return printflow_service_dimension_normalize_unit($configured);
-    $unit = printflow_service_dimension_unit_in_text($value);
-    if ($unit !== null) return $unit;
-    return printflow_service_dimension_normalize_unit($configured);
+    return $configured;
 }
 
 /** Returns one unambiguous field/unit descriptor, or null if configuration is incomplete. */
@@ -96,12 +129,11 @@ function printflow_pos_service_dimension_descriptor(array $rows): ?array
         if ($unit === '') return null;
         $units[$unit] = true;
     }
-    if ($units === [] && $type === 'dimension') {
-        $unit = printflow_pos_dimension_option_unit('', $row);
-        if ($unit !== '') $units[$unit] = true;
-    }
-    if ($units === [] && !empty($row['allow_others'])) {
-        $unit = printflow_pos_dimension_option_unit('', $row);
+    // The legacy dimension-button renderer carries only width/height values,
+    // not each option's unit. It can safely use only one resolved unit.
+    if ($type === 'dimension' && count($units) > 1) return null;
+    if ($units === [] && ($type === 'dimension' || !empty($row['allow_others']))) {
+        $unit = printflow_pos_dimension_configured_unit($row);
         if ($unit !== '') $units[$unit] = true;
     }
     if ($units === []) return null;
@@ -148,10 +180,16 @@ function printflow_pos_resolve_service_dimension_selection(array $rows, array $c
     $unit = $descriptor['unit'];
     if ($unit === '') {
         $postedUnit = trim((string)($customization[$key . '_unit'] ?? $customization['pos_material_dimension_unit'] ?? ''));
-        if (!in_array(strtolower($postedUnit), ['ft', 'feet', 'foot', 'in', 'inch', 'inches', '"'], true)) {
+        $unit = match (strtolower($postedUnit)) {
+            'ft', 'feet', 'foot' => 'ft',
+            'in', 'inch', 'inches', '"' => 'in',
+            'cm' => 'cm',
+            'mm' => 'mm',
+            default => '',
+        };
+        if ($unit === '') {
             throw new RuntimeException('Select a valid unit for the custom dimensions.');
         }
-        $unit = printflow_service_dimension_normalize_unit($postedUnit);
     }
     return ['width' => $width, 'height' => $height, 'unit' => $unit, 'field_key' => $key, 'selected_value' => 'Others'];
 }

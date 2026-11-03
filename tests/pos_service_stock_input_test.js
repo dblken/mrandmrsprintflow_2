@@ -72,9 +72,13 @@ const dimensionWidth = { name: 'width', value: '3', type: 'number', dataset: { d
 const dimensionHeight = { name: 'height', value: '4', type: 'number', dataset: { dimensionRole: 'height', fieldName: 'height' } };
 const finishOption = { name: 'finish', value: 'Matte', type: 'select-one', dataset: { fieldName: 'finish' } };
 const sizesSelect = {
-    name: 'sizes', value: '', type: 'select-one', selectedIndex: 0,
+    tagName: 'SELECT', name: 'sizes', value: '', type: 'select-one', selectedIndex: 0,
     options: [], dataset: {},
     getAttribute(name) { return name === 'data-other-option' ? 'Others' : null; }
+};
+const radioDimension = {
+    tagName: 'INPUT', type: 'radio', name: 'sizes', value: '', checked: false, dataset: {},
+    closest(selector) { return selector === 'label' ? { textContent: this.labelText || '' } : null; }
 };
 const branchField = { name: 'branch_id', value: '5', type: 'hidden', dataset: {} };
 const fieldsBody = {
@@ -86,9 +90,11 @@ const fieldsBody = {
         listenerCounts[name] = (listenerCounts[name] || 0) + 1;
     },
     querySelectorAll(selector) {
+        if (selector.includes('data-pos-material-id')) return [];
         if (selector.includes('data-dimension-role')) return [widthHidden, heightHidden];
         if (selector === 'select') return [sizesSelect, dimensionsControl];
-        return [input, dimensionWidth, dimensionHeight, finishOption, sizesSelect, branchField, widthHidden, heightHidden];
+        if (selector === 'select, input[type="radio"]') return [sizesSelect, radioDimension];
+        return [input, dimensionWidth, dimensionHeight, finishOption, sizesSelect, radioDimension, branchField, widthHidden, heightHidden];
     },
     querySelector(selector) {
         if (selector === '[name="branch_id"]') return branchField;
@@ -122,7 +128,7 @@ context = vm.createContext({
             serviceId,
             String(quantity),
             Number(serviceId) === 40 ? context.posCollectTarpaulinStockCustomization()
-                : Number(serviceId) === 67 ? context.posCollectServiceStockCustomization() : null
+                : [36, 39, 67, 71].includes(Number(serviceId)) ? context.posCollectServiceStockCustomization() : null
         ]);
     },
     pfPrepareServiceFormDimensions() {
@@ -172,6 +178,49 @@ assert.equal(initialBrochureRequest[0], 67, 'Brochure modal validates through th
 assert.equal(initialBrochureRequest[2].width, '8', 'Brochure modal passes selected width to stock validation');
 assert.equal(initialBrochureRequest[2].height, '11', 'Brochure modal passes selected height to stock validation');
 assert.equal(initialBrochureRequest[2].pos_material_dimension_unit, 'in', 'Brochure modal passes the physical option unit');
+
+// Configured option labels captured from the live read-only service settings.
+const selectedDimensionCases = [
+    { serviceId: 71, type: 'select', value: '1 Ft x 2 Ft', unit: 'ft' },
+    { serviceId: 36, type: 'select', value: 'Matte Sticker Cut Out (1ft X 2ft)', unit: 'ft' },
+    { serviceId: 67, type: 'select', value: '25pcs A4 (8 x 11 Inch)', unit: 'in' }
+];
+for (const testCase of selectedDimensionCases) {
+    elements['service-modal-overlay'].dataset.materialDimensionFieldKey = testCase.serviceId === 36 ? 'dimensions' : 'sizes';
+    elements['service-modal-overlay'].dataset.materialDimensionUnit = testCase.unit;
+    sizesSelect.name = elements['service-modal-overlay'].dataset.materialDimensionFieldKey;
+    sizesSelect.value = testCase.value;
+    sizesSelect.selectedIndex = 0;
+    sizesSelect.options = [{ textContent: testCase.value }];
+    radioDimension.checked = false;
+    context.posBindServiceStockValidation(testCase.serviceId);
+    const request = validations.shift();
+    assert.equal(request[0], testCase.serviceId, `service ${testCase.serviceId} uses the shared stock validation endpoint`);
+    assert.equal(request[2].width, testCase.serviceId === 67 ? '8' : '1',
+        `service ${testCase.serviceId} sends its selected option width`);
+    assert.equal(request[2].height, testCase.serviceId === 67 ? '11' : '2',
+        `service ${testCase.serviceId} sends its selected option height`);
+    assert.equal(request[2].pos_material_dimension_unit, testCase.unit,
+        `service ${testCase.serviceId} sends the selected option's explicit unit`);
+}
+elements['service-modal-overlay'].dataset.materialDimensionFieldKey = 'type_of_plates';
+elements['service-modal-overlay'].dataset.materialDimensionUnit = 'ft';
+sizesSelect.name = 'type_of_plates';
+sizesSelect.value = 'Motor Cycle Plate';
+sizesSelect.options = [{ textContent: 'Motor Cycle Plate' }];
+context.posBindServiceStockValidation(39);
+const plateRequest = validations.shift();
+assert.equal(plateRequest[2].type_of_plates, 'Motor Cycle Plate', 'Plates keeps its selected plate-type value');
+assert.equal(plateRequest[2].width, '', 'non-dimensional Plate type options clear any stale width instead of guessing dimensions');
+assert.equal(plateRequest[2].height, '', 'non-dimensional Plate type options clear any stale height instead of guessing dimensions');
+const sharedConfirmStart = source.indexOf('        async function confirmServiceModal() {');
+const sharedConfirmEnd = source.indexOf('\n        function ', sharedConfirmStart + 20);
+const sharedConfirmSource = source.slice(sharedConfirmStart, sharedConfirmEnd);
+assert.ok(sharedConfirmSource.indexOf('posApplySelectedServiceDimension(customization, body, overlay);')
+    < sharedConfirmSource.indexOf("syncedCartAction('add'"),
+    'the Add to Order handler applies selected dimensions before sending the request');
+assert.match(sharedConfirmSource, /customization\s*:\s*customization/,
+    'the dimensions used in stock validation are included in the Add to Order customization payload');
 context.posBindServiceStockValidation(42);
 assert.equal(validations.shift()[0], 42, 'opening a non-Tarpaulin service validates its initial quantity');
 
@@ -192,8 +241,8 @@ assert.deepEqual(validations.shift().slice(0, 2), [42, '4'], 'typed quantity val
 elements['service-modal-overlay'].dataset.materialDimensionFieldKey = '';
 sizesSelect.value = '';
 context.posBindServiceStockValidation(40);
-assert.equal(listenerCounts.input, 3, 'each service modal opening registers one delegated stock input handler');
-assert.equal(listenerCounts.change, 3, 'each service modal opening registers one delegated stock change handler');
+assert.equal(listenerCounts.input, 7, 'each service modal opening registers one delegated stock input handler');
+assert.equal(listenerCounts.change, 7, 'each service modal opening registers one delegated stock change handler');
 assert.equal(validationControllers[0].aborted, true, 'opening another service modal aborts the prior delegated validation listeners');
 assert.equal(listenerOptions.input.signal, listenerOptions.change.signal, 'input and change handlers share the current modal listener lifetime');
 const initialTarpaulinRequest = validations.shift();

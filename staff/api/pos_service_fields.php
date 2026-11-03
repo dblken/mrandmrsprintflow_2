@@ -258,7 +258,7 @@ $dimensionDescriptor = is_array($dimensionConfigRows)
 $materialDimensionUnit = '';
 if ($dimensionDescriptor !== null) {
     $materialDimensionUnit = (string)$dimensionDescriptor['unit'];
-    if ($materialDimensionUnit === '') {
+    if ($materialDimensionUnit === '' && $dimensionDescriptor['field_type'] === 'dimension') {
         $dimensionConfig = $dimensionDescriptor['row'];
         $dimensionConfig['type'] = $dimensionConfig['field_type'];
         $dimensionConfig['label'] = $dimensionConfig['field_label'] ?? '';
@@ -267,7 +267,8 @@ if ($dimensionDescriptor !== null) {
         $materialDimensionUnit = (string)($context['unit'] ?? '');
     }
 }
-if (is_array($selectionPolicy) && ($dimensionConfigRows === false || $dimensionDescriptor === null || $materialDimensionUnit === '')) {
+if (is_array($selectionPolicy) && ($dimensionConfigRows === false || $dimensionDescriptor === null
+    || ($dimensionDescriptor['field_type'] === 'dimension' && $materialDimensionUnit === ''))) {
     http_response_code(422);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['success' => false, 'error' => 'This service must have one explicit dimension unit before area-based material consumption can be used.']);
@@ -286,4 +287,7 @@ echo json_encode([
     'staff_branch_name' => $staff_branch_name,
     'material_dimension_unit' => $materialDimensionUnit,
     'material_dimension_field_key' => $dimensionDescriptor['field_key'] ?? '',
+    'material_dimension_unit_per_option' => $dimensionDescriptor !== null
+        && in_array($dimensionDescriptor['field_type'], ['select', 'radio'], true)
+        && $materialDimensionUnit === '',
 ]);
