@@ -136,6 +136,7 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
     setCustomizationValue() {},
     posStoreDesignLink() {},
     posCollectTarpaulinStockCustomization() { return {}; },
+    posApplySelectedServiceDimension() {},
     closeServiceModal() {},
     confirmMissingEstimatedPrice: async () => false,
   });

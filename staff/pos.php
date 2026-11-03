@@ -5276,6 +5276,31 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             setServiceAddButtonBusy(isAddingToOrder);
         }
 
+        function posServiceStockDisplayMessage(message) {
+            const text = String(message || '').trim();
+            if (!text) return '';
+            // Keep genuine stock failures visible, including the legacy
+            // "only N available; M required" wording used by cart validation.
+            if (/out of stock|insufficient stock|not enough stock|low stock|has only\s+[\d,.]+.*available.*required|only\s+[\d,.]+.*available.*required|cannot be cut as continuous pieces from the available open rolls/i.test(text)) {
+                return text;
+            }
+            // Preserve actual dimension-entry validation. Configuration or
+            // material-consumption explanations are not shown in POS feedback.
+            if (/^(?:width|height) must be|^select (?:a configured )?(?:dimension|size)|^the selected (?:size|option).*physical (?:width|height|dimensions)|^the configured dimension field|^this service must have one explicit dimension unit|^enter valid custom width|^additional allowance must be/i.test(text)) {
+                return text;
+            }
+            if (/could not be verified|unable to validate|try again|network error/i.test(text)) {
+                return text;
+            }
+            if (/^stock:.*\bavailable\b|^estimated consumption:|\bto consume\b/i.test(text)) {
+                return '';
+            }
+            if (/material|consumption|multiplier|inventory units|square feet|area-based|exactly one .*choices/i.test(text)) {
+                return '';
+            }
+            return text;
+        }
+
         function posDisposeServiceStockValidationListeners() {
             if (posServiceStockValidationController) {
                 posServiceStockValidationController.abort();
@@ -5512,7 +5537,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (requestVersion !== posServiceStockRequestVersion) return { valid: false, stale: true };
                 if (!response.ok || data.success === false) {
                     const message = data.message || 'Material stock could not be verified. Try again.';
-                    posSetServiceStockState(true, '', message);
+                    posSetServiceStockState(true, '', posServiceStockDisplayMessage(message));
                     return { valid: false, message };
                 }
                 const validation = data.stock_validation || {};
@@ -5520,25 +5545,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     posSetServiceStockState(false, '', '');
                     return { valid: true, tracked: false };
                 }
-                const materials = Array.isArray(validation.materials) ? validation.materials : [];
-                const formatQty = value => String(Number(value || 0));
-                const hideMaterialAvailability = [36, 40, 63].includes(Number(serviceId));
-                const consumption = materials.map(material => `${material.name}: ${formatQty(material.required)} ${material.uom || 'units'} to consume`).join(' | ');
-                const availability = hideMaterialAvailability ? '' : materials.map(material => `${material.name}: ${formatQty(material.available)} ${material.uom || 'units'} available`).join(' | ');
-                const indicator = [consumption ? `Estimated consumption: ${consumption}` : '', availability ? `Stock: ${availability}` : ''].filter(Boolean).join(' · ');
                 const issues = Array.isArray(validation.issues) ? validation.issues : [];
                 if (!validation.ok || issues.length) {
                     const issue = issues[0] || {};
+                    const formatQty = value => String(Number(value || 0));
                     const message = `Insufficient ${issue.name || 'selected material'} stock. Available: ${formatQty(issue.available)} ${issue.uom || 'units'}. Required: ${formatQty(issue.required)} ${issue.uom || 'units'}.`;
-                    posSetServiceStockState(true, indicator, message);
+                    posSetServiceStockState(true, '', posServiceStockDisplayMessage(message));
                     return { valid: false, message };
                 }
-                posSetServiceStockState(false, indicator, '');
+                posSetServiceStockState(false, '', '');
                 return { valid: true, tracked: true };
             } catch (error) {
                 if (requestVersion !== posServiceStockRequestVersion) return { valid: false, stale: true };
                 const message = 'Material stock could not be verified. Try again.';
-                posSetServiceStockState(true, '', message);
+                posSetServiceStockState(true, '', posServiceStockDisplayMessage(message));
                 return { valid: false, message };
             }
         }

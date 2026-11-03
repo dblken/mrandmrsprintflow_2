@@ -53,5 +53,12 @@ $assert(
         && str_contains($source, '$fields_html .= $materialSelectionHtml;'),
     'Brochure service fields omit the staff material-choice picker while other selection-policy services retain it'
 );
+$assert(
+    !str_contains($source, 'Demand is calculated')
+        && !str_contains($source, 'inventory-units-per-square-foot multiplier')
+        && !str_contains($source, "htmlspecialchars(\$choice['uom'], ENT_QUOTES, 'UTF-8') . '</span><small")
+        && str_contains($source, "htmlspecialchars(\$choice['name'], ENT_QUOTES, 'UTF-8') . '</span></label>'"),
+    'material picker rows expose selectable names without consumption explanations, UOM availability, or multiplier setup text'
+);
 
 echo "pos_service_fields endpoint test: {$passed} assertions passed.\n";

@@ -6,14 +6,21 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(require('node:path').join(__dirname, '../staff/pos.php'), 'utf8');
 assert.match(source, /posSetServiceStockState\(false, '', ''\)/, 'a successful validation displays no material list or stock quantities');
-assert.match(source, /posSetServiceStockState\(true, indicator, message\)/, 'a stock warning still uses the stock validation result and service-scoped message');
-assert.match(source, /const hideMaterialAvailability = \[36, 40, 63\]\.includes\(Number\(serviceId\)\);/, 'availability text is suppressed only for Sticker/Decals (36) and existing special cases (40, 63)');
+assert.match(source, /posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message\)\)/, 'non-stock material explanations are filtered while validation remains blocking');
+const stockValidationStart = source.indexOf('        async function posValidateServiceStockNow(');
+const stockBindingStart = source.indexOf('        function posBindServiceStockValidation(serviceId) {', stockValidationStart);
+const stockValidationSource = source.slice(stockValidationStart, stockBindingStart);
+assert.doesNotMatch(stockValidationSource, /Estimated consumption:|to consume|`Stock: \$\{availability\}`/, 'informational consumption and available-stock summaries are not rendered');
 assert.match(source, /const message = `Insufficient \$\{issue\.name \|\| 'selected material'\} stock\. Available: \$\{formatQty\(issue\.available\)\} \$\{issue\.uom \|\| 'units'\}\. Required: \$\{formatQty\(issue\.required\)\}/,
     'Insufficient selected-material stock reports the actual material, available quantity, and required quantity for every service');
-assert.match(source, /posSetServiceStockState\(true, indicator, message\);\s*return \{ valid: false, message \};/,
+assert.match(source, /posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message\)\);\s*return \{ valid: false, message \};/,
     'Insufficient selected-material stock continues to block Add to Order');
-assert.match(source, /Insufficient \$\{issue\.name \|\| 'selected material'\} stock\. Available:/,
-    'Other services keep their existing material availability warning');
+const confirmStart = source.indexOf('        async function confirmServiceModal() {');
+const confirmEnd = source.indexOf('\n        function ', confirmStart + 20);
+const confirmSource = source.slice(confirmStart, confirmEnd);
+assert.ok(confirmSource.indexOf('validateServiceOrderForm()') < confirmSource.indexOf('posValidateServiceStockNow(')
+    && /if \(!validationResult\.valid\) \{[\s\S]*?showValidationErrors\(validationResult\.errors\)[\s\S]*?return;/.test(confirmSource),
+    'Required empty or invalid configured fields still show validation and block before stock checks or Add to Order');
 assert.match(source, /<div class="sm-footer-inner">[\s\S]*?<div class="sm-footer-buttons">[\s\S]*?<\/div>\s*<\/div>\s*<div id="pos-service-stock-feedback"/,
     'stock feedback is outside the stable Estimated Price and button row');
 const footerCssStart = source.indexOf('#service-modal-overlay .sm-footer-inner {');
@@ -153,6 +160,27 @@ context = vm.createContext({
     posServiceStockRequestVersion: 0,
     isAddingToOrder: false
 });
+
+const displayMessageStart = source.indexOf('        function posServiceStockDisplayMessage(message) {');
+const displayMessageEnd = source.indexOf('\n        function posDisposeServiceStockValidationListeners()', displayMessageStart);
+assert.ok(displayMessageStart >= 0 && displayMessageEnd > displayMessageStart, 'material feedback display filter is present');
+vm.runInContext(source.slice(displayMessageStart, displayMessageEnd), context);
+assert.equal(context.posServiceStockDisplayMessage('Estimated consumption: C2S Board: 4 sheets to consume'), '',
+    'estimated-consumption summaries are hidden');
+assert.equal(context.posServiceStockDisplayMessage('Stock: C2S Board: 8 sheets available'), '',
+    'available-stock summaries are hidden');
+assert.equal(context.posServiceStockDisplayMessage('Select exactly one material from the brochure paper choices.'), '',
+    'Brochure material-choice explanations are hidden');
+assert.match(context.posServiceStockDisplayMessage('Insufficient C2s Board stock. Available: 2 sheets. Required: 4 sheets.'), /Insufficient C2s Board stock/,
+    'actual insufficient-stock errors retain the material and shortage quantities');
+assert.equal(context.posServiceStockDisplayMessage('Nextjet is out of stock.'), 'Nextjet is out of stock.',
+    'out-of-stock errors remain visible');
+assert.equal(context.posServiceStockDisplayMessage('Low stock: only 1 sheet remains.'), 'Low stock: only 1 sheet remains.',
+    'existing blocking low-stock messages remain visible');
+assert.equal(context.posServiceStockDisplayMessage('Width must be greater than 0 and at most 100 feet.'), 'Width must be greater than 0 and at most 100 feet.',
+    'dimension field validation remains visible');
+assert.equal(context.posServiceStockDisplayMessage('This service must have one explicit dimension unit before area-based material consumption can be used.'), 'This service must have one explicit dimension unit before area-based material consumption can be used.',
+    'required dimension configuration validation remains visible while informational material explanations are hidden');
 
 vm.runInContext(source.slice(disposeStart, collectStart) + source.slice(collectStart, validateStart) + source.slice(bindStart, end), context);
 const confirmFlowStart = source.indexOf('        async function confirmServiceModal() {');

@@ -234,11 +234,8 @@ if (is_array($selectionPolicy)) {
     // Brochure paper is an internal production choice. The shared backend
     // resolver selects an approved alternative using the active branch stock.
     if ($service_id !== 67) {
-        $demandHelpText = $service_id === 39
-            ? 'Select the Plate material used. Demand is calculated from the order quantity and the Admin-approved inventory-units-per-item multiplier; fractional inventory units round up.'
-            : 'Select only the material(s) used. Demand is calculated from the selected dimensions, approved multiplier, and order quantity; fractional units round up.';
         $materialSelectionHtml = '<section class="pos-material-selection" data-pos-material-picker="1" style="margin:12px 0;padding:14px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc">'
-            . '<h3 style="margin:0 0 6px;font-size:15px">Materials for this order</h3><p style="margin:0 0 10px;color:#64748b;font-size:12px">' . htmlspecialchars($demandHelpText, ENT_QUOTES, 'UTF-8') . '</p>';
+            . '<h3 style="margin:0 0 6px;font-size:15px">Materials for this order</h3>';
         foreach ($labels as $groupKey => $choices) {
             $requiredGroup = $groupKey !== 'optional' && !empty($choices[0]['required_group']);
             $mode = $groupKey === 'decal_finishes' ? 'checkbox' : 'radio';
@@ -247,7 +244,7 @@ if (is_array($selectionPolicy)) {
             foreach ($choices as $choice) {
                 $disabled = $choice['enabled'] ? '' : ' disabled';
                 $checked = '';
-                $materialSelectionHtml .= '<label style="display:flex;gap:8px;align-items:center;padding:5px 2px;font-size:13px"><input type="' . $mode . '" name="pos_material_choice_' . htmlspecialchars($groupKey, ENT_QUOTES, 'UTF-8') . '" value="' . (int)$choice['id'] . '" data-pos-material-id="' . (int)$choice['id'] . '" data-pos-material-group="' . htmlspecialchars($groupKey, ENT_QUOTES, 'UTF-8') . '" data-pos-material-uom="' . htmlspecialchars($choice['uom'], ENT_QUOTES, 'UTF-8') . '"' . $disabled . $checked . '><span>' . htmlspecialchars($choice['name'], ENT_QUOTES, 'UTF-8') . ' · ' . htmlspecialchars($choice['uom'], ENT_QUOTES, 'UTF-8') . '</span><small style="margin-left:auto;color:' . ($choice['enabled'] ? '#047857' : '#b45309') . '">' . htmlspecialchars($choice['setup'], ENT_QUOTES, 'UTF-8') . '</small></label>';
+                $materialSelectionHtml .= '<label style="display:flex;gap:8px;align-items:center;padding:5px 2px;font-size:13px"><input type="' . $mode . '" name="pos_material_choice_' . htmlspecialchars($groupKey, ENT_QUOTES, 'UTF-8') . '" value="' . (int)$choice['id'] . '" data-pos-material-id="' . (int)$choice['id'] . '" data-pos-material-group="' . htmlspecialchars($groupKey, ENT_QUOTES, 'UTF-8') . '" data-pos-material-uom="' . htmlspecialchars($choice['uom'], ENT_QUOTES, 'UTF-8') . '"' . $disabled . $checked . '><span>' . htmlspecialchars($choice['name'], ENT_QUOTES, 'UTF-8') . '</span></label>';
             }
             $materialSelectionHtml .= '</fieldset>';
         }
