@@ -52,13 +52,17 @@ function pf_service_rule_bulk_assess(int $serviceId, int $itemId, $submittedMult
     $acceptedTypes = printflow_pos_service_material_type_aliases($serviceId);
     if ($acceptedTypes === []) $acceptedTypes = [$expectedType];
     $typePlaceholders = implode(',', array_fill(0, count($acceptedTypes), '?'));
+    // db_query() deliberately returns [] after prepare/execute failures, the
+    // same value it returns for a successful SELECT with no matching rows.
+    // Distinguish those cases before deciding that a rule is safe to create.
+    $dbErrorsBeforeRuleLookup = count(printflow_db_errors());
     $rules = db_query(
         "SELECT id, service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved,
                 qty_multiplier_approved_by, qty_multiplier_approved_at, qty_multiplier_basis, qty_multiplier_approved_basis
          FROM service_material_rules WHERE service_type IN ({$typePlaceholders}) AND item_id = ? ORDER BY id ASC LIMIT 3" . ($forUpdate ? ' FOR UPDATE' : ''),
         str_repeat('s', count($acceptedTypes)) . 'i', array_merge($acceptedTypes, [$itemId])
     );
-    if (!is_array($rules)) return ['action' => 'pending', 'service_name' => (string)$definition['name'], 'material_name' => (string)$expectedName, 'uom' => $uom, 'message' => 'Existing service-material rules could not be checked.'];
+    if (!is_array($rules) || count(printflow_db_errors()) > $dbErrorsBeforeRuleLookup) return ['action' => 'pending', 'service_name' => (string)$definition['name'], 'material_name' => (string)$expectedName, 'uom' => $uom, 'message' => 'Existing service-material rules could not be checked. No create or approval is safe until this query succeeds.'];
     $base = ['service_name' => (string)$definition['name'], 'material_name' => (string)$expectedName, 'uom' => $uom,
         'selection_role' => (string)$selection['role'], 'selection_group' => $selection['group'] ?? null,
         'expected_rule_type' => in_array($selection['role'], ['optional', 'multi_optional'], true) ? 'OPTIONAL' : 'REQUIRED'];
@@ -262,9 +266,17 @@ if (in_array($action, ['bulk_preview', 'bulk_process'], true)) {
             }
         } catch (Throwable $e) {
             @$conn->rollback();
-            error_log('Bulk service material rule row failed: ' . get_class($e));
+            $errorReference = printflow_db_error_reference();
+            error_log('[service_material_rule_bulk_failure] ' . json_encode([
+                'reference' => $errorReference,
+                'service_id' => $serviceId,
+                'item_id' => $itemId,
+                'action' => $lockedAction ?? 'unknown',
+                'error_class' => get_class($e),
+                'error_code' => (int)$e->getCode(),
+            ], JSON_UNESCAPED_SLASHES));
             $rowResult['action'] = 'failed'; $rowResult['new_status'] = $oldStatus; $rowResult['approval'] = 'Not approved';
-            $rowResult['message'] = 'This row failed safely and was rolled back; review the server log and retry after correction.'; $summary['will_remain_pending']++;
+            $rowResult['message'] = 'This row failed safely and was rolled back. Reference ' . $errorReference . '; review the matching server log entry before retrying.'; $summary['will_remain_pending']++;
         } finally {
             db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$lockName]);
         }
@@ -444,6 +456,13 @@ try {
     pf_service_rule_api_reply(400, ['success' => false, 'error' => $e->getMessage()]);
 } catch (Throwable $e) {
     @$conn->rollback();
-    error_log('Service material rule approval failed: ' . get_class($e));
-    pf_service_rule_api_reply(500, ['success' => false, 'error' => 'The service material rule could not be saved. No approval success was recorded.']);
+    $errorReference = printflow_db_error_reference();
+    error_log('[service_material_rule_mutation_failure] ' . json_encode([
+        'reference' => $errorReference,
+        'rule_id' => (int)$ruleId,
+        'action' => $action,
+        'error_class' => get_class($e),
+        'error_code' => (int)$e->getCode(),
+    ], JSON_UNESCAPED_SLASHES));
+    pf_service_rule_api_reply(500, ['success' => false, 'error' => 'The service material rule could not be saved. No approval success was recorded. Reference ' . $errorReference . '.']);
 }
