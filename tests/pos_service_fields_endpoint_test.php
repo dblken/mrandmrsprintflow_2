@@ -50,8 +50,14 @@ $assert(
 );
 $assert(
     str_contains($source, 'if ($service_id !== 67)')
+        && str_contains($source, "if (\$service_id === 71 && \$groupKey === 'sintra_thickness') continue;")
         && str_contains($source, '$fields_html .= $materialSelectionHtml;'),
-    'Brochure service fields omit the staff material-choice picker while other selection-policy services retain it'
+    'Brochure omits internal paper choices, Sintraboard omits the duplicate thickness picker but retains optional materials'
+);
+$assert(
+    str_contains($source, "'material_selection_field_map' => printflow_pos_material_selection_field_map(\$service_id)")
+        && str_contains($source, 'printflow_pos_material_selection_field_map'),
+    'the endpoint returns the server-owned exact Sintra thickness-to-item ID map for POS payload construction'
 );
 $assert(
     str_contains($source, 'printflow_pos_material_selection_group_label($service_id, $groupKey)')

@@ -86,6 +86,31 @@ $sintraSelected = printflow_pos_material_selection_resolve(71, [207]);
 $assert(count($sintraSelected) === 1 && (int)$sintraSelected[0]['item_id'] === 207
     && !printflow_pos_service_stock_exceeds_available(2.0, 3.0),
     'A selected approved Sintraboard thickness can pass the sufficient-stock check without consuming its alternative.');
+$sintraFieldMap = printflow_pos_material_selection_field_map(71);
+$assert($sintraFieldMap === ['field_key' => 'board_thickness', 'options' => ['Sintra 3mm' => 206, 'Sintra 5mm' => 207]],
+    'Sintraboard Board Thickness uses only the verified stable item IDs 206 and 207.');
+foreach ([['Sintra 3mm', 206], ['Sintra 5mm', 207]] as [$thickness, $itemId]) {
+    $resolvedFieldSelection = printflow_pos_material_selection_resolve_customization(71, [
+        'board_thickness' => $thickness,
+        'pos_selected_material_ids' => [$itemId],
+    ]);
+    $assert(count($resolvedFieldSelection) === 1 && (int)$resolvedFieldSelection[0]['item_id'] === $itemId,
+        $thickness . ' resolves to its matching selected inventory material ID.');
+}
+$sintraWithOptional = printflow_pos_material_selection_resolve_customization(71, [
+    'board_thickness' => 'Sintra 3mm',
+    'pos_selected_material_ids' => [206, 23],
+]);
+$assert(array_column($sintraWithOptional, 'item_id') === [206, 23],
+    'the selected thickness and a manually selected optional sticker layer can be resolved together.');
+$expectRuntimeError(
+    static fn() => printflow_pos_material_selection_resolve_customization(71, ['board_thickness' => 'Sintra 5mm', 'pos_selected_material_ids' => [206]]),
+    'Please select Sintra 3mm or Sintra 5mm.'
+);
+$expectRuntimeError(
+    static fn() => printflow_pos_material_selection_resolve_customization(71, ['board_thickness' => '', 'pos_selected_material_ids' => []]),
+    'Please select Sintra 3mm or Sintra 5mm.'
+);
 foreach ([
     ['rule_type' => 'OPTIONAL'],
     ['qty_multiplier_basis' => 'PER_ITEM'],

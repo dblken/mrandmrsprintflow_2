@@ -307,10 +307,7 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
             // is never supplied as a customer/staff material selection.
             $selection = printflow_pos_material_selection_resolve(67, [(int)$chosen['item_id']]);
         } else {
-            $selection = printflow_pos_material_selection_resolve(
-                $serviceId,
-                is_array($customization['pos_selected_material_ids'] ?? null) ? $customization['pos_selected_material_ids'] : []
-            );
+            $selection = printflow_pos_material_selection_resolve_customization($serviceId, $customization);
         }
         $selectedRules = [];
         foreach ($selection as $selectedMaterial) {

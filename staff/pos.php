@@ -4746,6 +4746,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 overlay.dataset.csrfToken = data.csrf_token;
                 overlay.dataset.materialDimensionUnit = String(data.material_dimension_unit || '');
                 overlay.dataset.materialDimensionFieldKey = String(data.material_dimension_field_key || '');
+                overlay.dataset.materialSelectionFieldMap = JSON.stringify(data.material_selection_field_map || {});
                 body.innerHTML = data.fields_html;
                 if (Number(serviceId) === 40) posEnsureTarpaulinJoiningControls(body);
                 footerActions.style.display = 'block';
@@ -5362,13 +5363,36 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const overlay = document.getElementById('service-modal-overlay');
             if (overlay && overlay.dataset.materialDimensionUnit) customization.pos_material_dimension_unit = overlay.dataset.materialDimensionUnit;
             posApplySelectedServiceDimension(customization, body, overlay);
-            if (Number(overlay?.dataset.serviceId || customization.service_id || 0) === 67) {
+            const serviceId = Number(overlay?.dataset.serviceId || customization.service_id || 0);
+            if (serviceId === 67) {
                 delete customization.pos_selected_material_ids;
             } else {
-                customization.pos_selected_material_ids = Array.from(body.querySelectorAll('[data-pos-material-id]:checked'))
-                    .map(input => Number(input.dataset.posMaterialId || input.value)).filter(id => Number.isInteger(id) && id > 0);
+                customization.pos_selected_material_ids = posSelectedServiceMaterialIds(serviceId, customization, body, overlay);
             }
             return customization;
+        }
+
+        function posSelectedServiceMaterialIds(serviceId, customization, body, overlay) {
+            const checkedIds = Array.from(body?.querySelectorAll('[data-pos-material-id]:checked') || [])
+                .map(input => Number(input.dataset.posMaterialId || input.value))
+                .filter(id => Number.isInteger(id) && id > 0);
+            if (Number(serviceId) !== 71) return checkedIds;
+
+            let fieldMap = {};
+            try {
+                fieldMap = JSON.parse(String(overlay?.dataset.materialSelectionFieldMap || '{}'));
+            } catch (_) {
+                return [];
+            }
+            const fieldKey = String(fieldMap.field_key || '');
+            const options = fieldMap.options && typeof fieldMap.options === 'object' ? fieldMap.options : {};
+            const selectedValue = String(customization?.[fieldKey] || '').trim().replace(/\s+/g, ' ').toLowerCase();
+            const mappedEntry = Object.entries(options).find(([label]) => String(label).trim().replace(/\s+/g, ' ').toLowerCase() === selectedValue);
+            const selectedId = mappedEntry ? Number(mappedEntry[1]) : 0;
+            if (!Number.isInteger(selectedId) || selectedId <= 0) return [];
+            const thicknessIds = checkedIds.filter(id => [206, 207].includes(id));
+            if (thicknessIds.length > 0 && (thicknessIds.length !== 1 || thicknessIds[0] !== selectedId)) return [];
+            return [selectedId, ...checkedIds.filter(id => ![206, 207].includes(id))];
         }
 
         function posApplySelectedServiceDimension(customization, body, overlay) {
@@ -6219,8 +6243,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (serviceId === 67) {
                 delete customization.pos_selected_material_ids;
             } else {
-                customization.pos_selected_material_ids = Array.from(body.querySelectorAll('[data-pos-material-id]:checked'))
-                    .map(input => Number(input.dataset.posMaterialId || input.value)).filter(id => Number.isInteger(id) && id > 0);
+                customization.pos_selected_material_ids = posSelectedServiceMaterialIds(serviceId, customization, body, overlay);
             }
             customization.pos_material_dimension_unit = customization.pos_material_dimension_unit
                 || String(overlay.dataset.materialDimensionUnit || '').trim();

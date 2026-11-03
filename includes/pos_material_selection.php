@@ -59,6 +59,53 @@ function printflow_pos_material_selection_display_name(int $serviceId, int $item
     return $fallback;
 }
 
+/**
+ * Sintraboard's configured Board Thickness field is the single staff selector.
+ * These explicit option-to-inventory identities keep that field connected to
+ * the stable material IDs without guessing from dimensions or stock records.
+ */
+function printflow_pos_material_selection_field_map(int $serviceId): array
+{
+    if ($serviceId !== 71) return [];
+    return [
+        'field_key' => 'board_thickness',
+        'options' => [
+            'Sintra 3mm' => 206,
+            'Sintra 5mm' => 207,
+        ],
+    ];
+}
+
+function printflow_pos_sintraboard_selected_item_id($rawValue): ?int
+{
+    if (!is_scalar($rawValue)) return null;
+    $value = strtolower(trim((string)$rawValue));
+    $value = preg_replace('/\\s+/', ' ', $value) ?? $value;
+    foreach (printflow_pos_material_selection_field_map(71)['options'] as $label => $itemId) {
+        $expected = strtolower(trim($label));
+        if ($value === $expected) return (int)$itemId;
+    }
+    return null;
+}
+
+/** Resolve submitted selection IDs while enforcing the configured Sintra field. */
+function printflow_pos_material_selection_resolve_customization(int $serviceId, array $customization): array
+{
+    $selectedIds = is_array($customization['pos_selected_material_ids'] ?? null)
+        ? $customization['pos_selected_material_ids']
+        : [];
+    if ($serviceId === 71) {
+        $fieldSelectedId = printflow_pos_sintraboard_selected_item_id($customization['board_thickness'] ?? null);
+        $submittedThicknessIds = array_values(array_filter($selectedIds, static function ($id): bool {
+            return is_scalar($id) && filter_var($id, FILTER_VALIDATE_INT) !== false && in_array((int)$id, [206, 207], true);
+        }));
+        if ($fieldSelectedId === null || count($submittedThicknessIds) !== 1 || (int)$submittedThicknessIds[0] !== $fieldSelectedId) {
+            throw new InvalidArgumentException('Please select Sintra 3mm or Sintra 5mm.');
+        }
+    }
+    return printflow_pos_material_selection_resolve($serviceId, $selectedIds);
+}
+
 function printflow_pos_material_selection_group_label(int $serviceId, string $group): string
 {
     if ($serviceId === 71 && $group === 'sintra_thickness') return 'Board Thickness';

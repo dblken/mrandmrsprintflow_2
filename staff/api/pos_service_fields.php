@@ -250,6 +250,7 @@ if (is_array($selectionPolicy)) {
         $materialSelectionHtml = '<section class="pos-material-selection" data-pos-material-picker="1" style="margin:12px 0;padding:14px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc">'
             . '<h3 style="margin:0 0 6px;font-size:15px">Materials for this order</h3>';
         foreach ($labels as $groupKey => $choices) {
+            if ($service_id === 71 && $groupKey === 'sintra_thickness') continue;
             $requiredGroup = $groupKey !== 'optional' && !empty($choices[0]['required_group']);
             $mode = $groupKey === 'decal_finishes' ? 'checkbox' : 'radio';
             $materialSelectionHtml .= '<fieldset data-material-group="' . htmlspecialchars($groupKey, ENT_QUOTES, 'UTF-8') . '" data-group-required="' . ($requiredGroup ? '1' : '0') . '" style="margin:8px 0;padding:8px;border:1px solid #e2e8f0;border-radius:8px"><legend style="padding:0 4px;font-size:12px;font-weight:700">'
@@ -310,4 +311,5 @@ echo json_encode([
         && in_array($dimensionDescriptor['field_type'], ['select', 'radio'], true)
         && $materialDimensionUnit === '',
     'material_consumption_basis' => printflow_pos_material_selection_consumption_basis($service_id),
+    'material_selection_field_map' => printflow_pos_material_selection_field_map($service_id),
 ]);

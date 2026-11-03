@@ -81,11 +81,19 @@ assert.equal(clearedRow, form.row, 'correcting the choice clears its inline fiel
 const confirmBlock = block('        async function confirmServiceModal() {', '        // ── Legacy service requirements');
 function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromise, cartResponse, serviceId = 63, serviceName = 'Mugs', selectedMaterialId = null }) {
   const button = { disabled: false, style: {}, textContent: 'Add to Order' };
-  const overlay = { dataset: { serviceId: String(serviceId), serviceName } };
+  const overlay = { dataset: {
+    serviceId: String(serviceId), serviceName,
+    materialSelectionFieldMap: serviceId === 71 ? JSON.stringify({ field_key: 'board_thickness', options: { 'Sintra 3mm': 206, 'Sintra 5mm': 207 } }) : '{}',
+  } };
   const hiddenBranch = { value: '1' };
   const selectedMaterial = selectedMaterialId === null ? null : {
-    type: 'radio', name: 'pos_material_choice_sintra_thickness', value: String(selectedMaterialId), checked: true,
-    dataset: { posMaterialId: String(selectedMaterialId), posMaterialGroup: 'sintra_thickness' },
+    type: 'radio', name: 'board_thickness', value: selectedMaterialId === 206 ? 'Sintra 3mm' : 'Sintra 5mm', checked: true,
+    dataset: { fieldName: 'board_thickness' },
+    closest(selector) { return selector === '.shopee-form-row' ? thicknessRow : null; },
+  };
+  const thicknessRow = {
+    dataset: { fieldKey: 'board_thickness' },
+    querySelector(selector) { return selector === 'input[type="radio"]:checked' ? selectedMaterial : null; },
   };
   const body = {
     querySelector(selector) {
@@ -93,7 +101,9 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
       return null;
     },
     querySelectorAll(selector) {
-      if (selector === '[data-pos-material-id]:checked') return selectedMaterial ? [selectedMaterial] : [];
+      if (selector === '[data-pos-material-id]:checked') return [];
+      if (selector === '.shopee-form-row') return selectedMaterial ? [thicknessRow] : [];
+      if (selector === 'input[type="radio"]:checked') return selectedMaterial ? [selectedMaterial] : [];
       return [];
     },
   };
@@ -123,8 +133,13 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
     async posValidateServiceStockNow(checkedServiceId) {
       stockCalls += 1;
       stockServiceIds.push(Number(checkedServiceId));
-      stockMaterialIds.push(body.querySelectorAll('[data-pos-material-id]:checked').map(input => Number(input.dataset.posMaterialId || input.value)));
+      stockMaterialIds.push(selectedMaterial ? [selectedMaterialId] : []);
       return stockPromise();
+    },
+    posSelectedServiceMaterialIds(checkedServiceId, customization, _body, selectedOverlay) {
+      if (Number(checkedServiceId) !== 71) return [];
+      const fieldMap = JSON.parse(selectedOverlay.dataset.materialSelectionFieldMap || '{}');
+      return [Number(fieldMap.options?.[customization[fieldMap.field_key]] || 0)].filter(id => id > 0);
     },
     resolveServiceModalPricing() { return { unitPrice: 120, quantity: 3, designFee: 200 }; },
     setServiceAddButtonBusy(isBusy) {
@@ -148,7 +163,7 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
     serviceFieldKey() { return ''; },
     serviceFieldLabel() { return ''; },
     normalizeLayoutCustomizationValue(_row, value) { return value; },
-    setCustomizationValue() {},
+    setCustomizationValue(customization, _row, input, value) { if (input?.name) customization[input.name] = value; },
     posStoreDesignLink() {},
     posCollectTarpaulinStockCustomization() { return {}; },
     posApplySelectedServiceDimension() {},

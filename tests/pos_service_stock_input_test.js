@@ -53,6 +53,7 @@ const heightField = { value: '', matches(selector) { return selector === 'input,
 let customSizeVisible = false;
 let plateHasDimensionControls = true;
 let selectedPlateMaterial = null;
+const boardThicknessRadio = { tagName: 'INPUT', type: 'radio', name: 'board_thickness', value: '', checked: false, dataset: { fieldName: 'board_thickness' } };
 // Production places the custom-size hidden fields before the actual preset
 // select, so a broad name*=dimension selector can resolve the wrong control.
 const dimensionsControl = {
@@ -106,8 +107,8 @@ const fieldsBody = {
         if (selector === 'select') return [sizesSelect, dimensionsControl];
         if (selector === 'select, input[type="radio"]') return [sizesSelect, radioDimension];
         return plateHasDimensionControls
-            ? [input, dimensionWidth, dimensionHeight, finishOption, sizesSelect, radioDimension, branchField, widthHidden, heightHidden]
-            : [input, finishOption, sizesSelect, radioDimension, branchField];
+            ? [input, dimensionWidth, dimensionHeight, finishOption, sizesSelect, radioDimension, boardThicknessRadio, branchField, widthHidden, heightHidden]
+            : [input, finishOption, sizesSelect, radioDimension, boardThicknessRadio, branchField];
     },
     querySelector(selector) {
         if (selector === '[name="branch_id"]') return branchField;
@@ -125,7 +126,7 @@ const fieldsBody = {
 };
 const elements = {
     'sm-fields-body': fieldsBody,
-    'service-modal-overlay': { dataset: { materialDimensionFieldKey: '', materialDimensionUnit: 'ft' } },
+    'service-modal-overlay': { dataset: { materialDimensionFieldKey: '', materialDimensionUnit: 'ft', materialSelectionFieldMap: '' } },
     'pos-service-stock-feedback': { style: {} },
     'pos-service-stock-warning': { textContent: '' },
     'pos-service-stock-indicator': { textContent: '' }
@@ -266,11 +267,16 @@ for (const thicknessId of [206, 207]) {
     elements['service-modal-overlay'].dataset.serviceId = '71';
     elements['service-modal-overlay'].dataset.materialDimensionFieldKey = 'sizes';
     elements['service-modal-overlay'].dataset.materialDimensionUnit = 'ft';
+    elements['service-modal-overlay'].dataset.materialSelectionFieldMap = JSON.stringify({
+        field_key: 'board_thickness', options: { 'Sintra 3mm': 206, 'Sintra 5mm': 207 }
+    });
     sizesSelect.name = 'sizes';
     sizesSelect.value = '1 Ft x 2 Ft';
     sizesSelect.selectedIndex = 0;
     sizesSelect.options = [{ textContent: '1 Ft x 2 Ft' }];
-    selectedPlateMaterial = { type: 'radio', value: String(thicknessId), checked: true, dataset: { posMaterialId: String(thicknessId), posMaterialGroup: 'sintra_thickness' } };
+    selectedPlateMaterial = null;
+    boardThicknessRadio.value = thicknessId === 206 ? 'Sintra 3mm' : 'Sintra 5mm';
+    boardThicknessRadio.checked = true;
     context.posBindServiceStockValidation(71);
     const thicknessRequest = validations.shift();
     assert.deepEqual(Array.from(thicknessRequest[2].pos_selected_material_ids), [thicknessId],
@@ -278,11 +284,20 @@ for (const thicknessId of [206, 207]) {
     assert.equal(thicknessRequest[2].width, '1', `Sintraboard thickness ${thicknessId} uses dimensions only for consumption`);
     assert.equal(thicknessRequest[2].height, '2', `Sintraboard thickness ${thicknessId} sends selected height for stock demand`);
     assert.deepEqual(Array.from(context.posCollectServiceStockCustomization().pos_selected_material_ids), [thicknessId],
-        `Sintraboard Add to Order customization retains the explicit thickness item ${thicknessId}`);
+        `Sintraboard Add to Order customization maps the configured Board Thickness choice to item ${thicknessId}`);
 }
+selectedPlateMaterial = { value: '23', type: 'checkbox', checked: true, dataset: { posMaterialId: '23', posMaterialGroup: 'optional' } };
+boardThicknessRadio.value = 'Sintra 3mm';
+boardThicknessRadio.checked = true;
+const thicknessWithOptionalLayer = context.posCollectServiceStockCustomization();
+assert.deepEqual(Array.from(thicknessWithOptionalLayer.pos_selected_material_ids), [206, 23],
+    'the explicit thickness field and manually selected optional sticker layer both reach validation');
 selectedPlateMaterial = null;
-assert.match(source, /customization\.pos_selected_material_ids = Array\.from\(body\.querySelectorAll\('\[data-pos-material-id\]:checked'\)\)/,
-    'Sintraboard Add to Order derives selected thickness IDs from the checked selector control');
+boardThicknessRadio.checked = false;
+const noSintraThickness = context.posCollectServiceStockCustomization();
+assert.deepEqual(Array.from(noSintraThickness.pos_selected_material_ids), [], 'unselected Board Thickness sends no material ID and remains blocking');
+assert.match(source, /posSelectedServiceMaterialIds\(serviceId, customization, body, overlay\)/,
+    'stock validation and Add to Order share the configured Board Thickness to stable item ID resolver');
 
 // Configured option labels captured from the live read-only service settings.
 const selectedDimensionCases = [
