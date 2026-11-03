@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once dirname(__DIR__) . '/includes/pos_material_selection.php';
+require_once dirname(__DIR__) . '/includes/pos_service_stock_helpers.php';
 $assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
 $fails = static function (callable $fn, string $message): void { try { $fn(); } catch (InvalidArgumentException $e) { return; } throw new RuntimeException($message); };
 $assert(!in_array(12, printflow_pos_material_selection_allowed_ids(39), true), 'SPHONE is excluded from Plates.');
@@ -24,6 +25,25 @@ $fails(static fn() => printflow_pos_material_demand_for_items(0, 1), 'A zero Pla
 $fails(static fn() => printflow_pos_material_demand_for_items(3, 0), 'An unconfigured or zero Plate multiplier fails closed.');
 $fails(static fn() => printflow_pos_material_demand_for_items(3, 'NAN'), 'A non-finite Plate multiplier fails closed.');
 $assert(count(printflow_pos_material_selection_resolve(67, [212])) === 1, 'One Brochure paper is accepted.');
+$brochurePick = printflow_pos_material_selection_choose_alternative([
+    ['item_id' => 212, 'required' => 3, 'available' => 2, 'already_required' => 0],
+    ['item_id' => 211, 'required' => 3, 'available' => 5, 'already_required' => 0],
+]);
+$assert((int)$brochurePick['item_id'] === 211, 'Brochure automatically selects the first approved alternative with sufficient branch stock when C2S Board is insufficient.');
+$brochureShortagePick = printflow_pos_material_selection_choose_alternative([
+    ['item_id' => 212, 'required' => 3, 'available' => 2, 'already_required' => 0],
+]);
+$assert((int)$brochureShortagePick['item_id'] === 212, 'When no approved Brochure alternative has enough stock, the selected internal candidate reaches backend stock validation for a material-specific shortage.');
+$assert(printflow_pos_service_stock_exceeds_available((float)$brochureShortagePick['required'], (float)$brochureShortagePick['available']),
+    'The ordinary backend stock guard blocks Add to Order when the internally selected Brochure paper is insufficient.');
+$brochureCartPick = printflow_pos_material_selection_choose_alternative([
+    ['item_id' => 212, 'required' => 2, 'available' => 5, 'already_required' => 4],
+    ['item_id' => 211, 'required' => 2, 'available' => 5, 'already_required' => 0],
+]);
+$assert((int)$brochureCartPick['item_id'] === 211, 'Brochure alternative resolution accounts for stock already requested by earlier cart lines.');
+$fails(static fn() => printflow_pos_material_selection_choose_alternative([
+    ['item_id' => 212, 'required' => 0, 'available' => 5],
+]), 'Brochure auto-selection rejects invalid calculated demand rather than selecting a material.');
 $assert(count(printflow_pos_material_selection_resolve(64, [211])) === 1, 'One Poster paper is accepted.');
 $assert(count(printflow_pos_material_selection_resolve(71, [207])) === 1, 'One Sintra thickness is accepted.');
 $assert(count(printflow_pos_material_selection_resolve(71, [206, 23])) === 2, 'Optional printed sticker material can accompany one Sintra thickness.');
@@ -94,6 +114,16 @@ $jobServiceSource = (string)file_get_contents(dirname(__DIR__) . '/includes/JobO
 $assert(str_contains($cartSource, 'if (isset(printflow_pos_material_selection_registry()[$selectionServiceId])) return;'), 'Legacy pending-job stock checks cannot reintroduce unselected materials for selection-policy services.');
 $assert(str_contains($checkoutSource, 'unset($customization[\'pos_material_consumption\'])')
     && str_contains($checkoutSource, "'pos_material_consumption'] = array_values((array)\$consumptionRows)"), 'Checkout discards client calculation data and persists the server-validated consumption snapshot.');
+$stockSource = (string)file_get_contents(dirname(__DIR__) . '/includes/pos_service_stock_validation.php');
+$assert(str_contains($stockSource, 'if ($serviceId === 67)')
+    && str_contains($stockSource, 'InventoryManager::getStockOnHand($candidateId, $branchId)')
+    && str_contains($stockSource, 'printflow_pos_material_selection_choose_alternative($candidates)')
+    && str_contains($stockSource, 'printflow_pos_approved_service_multiplier('),
+    'Brochure material choice is server-resolved only from approved rules and current active-branch stock before normal stock validation.');
+$assert(str_contains($stockSource, '$materialSelectionsByLine[$lineIndex][] = [')
+    && str_contains($stockSource, "'item_id' => (int)\$rule['item_id']")
+    && str_contains($stockSource, "'selection_group' => \$rule['selection_group'] ?? null"),
+    'The internally resolved Brochure paper is retained in the server-authored material consumption snapshot for order/job assignment.');
 $assert(str_contains($jobServiceSource, 'self::syncPosSelectedMaterialsForStoreOrder($orderId)')
     && str_contains($jobServiceSource, "'source' => 'pos_explicit_material_selection'"), 'Pre-existing linked jobs receive idempotent assignment rows without changing their deduction timing.');
 echo "POS material selection contract tests passed.\n";

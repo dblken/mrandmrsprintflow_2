@@ -167,6 +167,7 @@ assert.equal(customization.height, '4', 'stock preview captures current height')
 assert.equal(customization.finish, 'Matte', 'stock preview captures selected service options');
 assert.equal(customization.branch_id, '5', 'stock preview captures the assigned branch');
 assert.equal(customization.quantity, '1', 'stock preview captures requested quantity');
+elements['service-modal-overlay'].dataset.serviceId = '67';
 elements['service-modal-overlay'].dataset.materialDimensionFieldKey = 'sizes';
 sizesSelect.value = '25pcs A4 (8 x 11 Inch)';
 sizesSelect.selectedIndex = 0;
@@ -176,12 +177,18 @@ assert.equal(brochureCustomization.sizes, '25pcs A4 (8 x 11 Inch)', 'Brochure st
 assert.equal(brochureCustomization.width, '8', 'Brochure preset parses the physical width for area demand');
 assert.equal(brochureCustomization.height, '11', 'Brochure preset parses the physical height for area demand');
 assert.equal(brochureCustomization.pos_material_dimension_unit, 'in', 'Brochure preset unit is derived from the selected option label');
+assert.equal(Object.hasOwn(brochureCustomization, 'pos_selected_material_ids'), false,
+    'Brochure Add to Order customization does not expose an internal paper choice as a staff/customer selection');
 context.posBindServiceStockValidation(67);
 const initialBrochureRequest = validations.shift();
 assert.equal(initialBrochureRequest[0], 67, 'Brochure modal validates through the normal service stock path');
 assert.equal(initialBrochureRequest[2].width, '8', 'Brochure modal passes selected width to stock validation');
 assert.equal(initialBrochureRequest[2].height, '11', 'Brochure modal passes selected height to stock validation');
 assert.equal(initialBrochureRequest[2].pos_material_dimension_unit, 'in', 'Brochure modal passes the physical option unit');
+assert.equal(Object.hasOwn(initialBrochureRequest[2], 'pos_selected_material_ids'), false,
+    'early Brochure stock validation carries no manual material choice');
+assert.match(source, /if \(serviceId === 67\) \{\s*delete customization\.pos_selected_material_ids;/,
+    'the final Add to Order request omits Brochure paper IDs and lets the backend resolve the internal alternative');
 
 // Configured option labels captured from the live read-only service settings.
 const selectedDimensionCases = [

@@ -143,7 +143,7 @@ $tarpaulinExit = strpos($stockRulesBlock, 'if ($serviceId === 40) return [];');
 $stockValidationStart = strpos($validator, 'function printflow_pos_validate_service_stock(');
 $stockValidationBlock = $stockValidationStart !== false ? substr($validator, $stockValidationStart) : '';
 $tarpaulinDedicatedPath = strpos($stockValidationBlock, 'if ($serviceId === 40) {');
-$genericRulesCall = strpos($stockValidationBlock, 'printflow_pos_service_stock_rules($serviceId, $customization, $hasAssignedMaterials)');
+$genericRulesCall = strpos($stockValidationBlock, 'printflow_pos_service_stock_rules($serviceId, $customization, $hasAssignedMaterials, $branchId, (float)$quantity, $demand)');
 $approvalSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved', true)");
 $approverSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved_by', true)");
 $approvalTimestampSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved_at', true)");

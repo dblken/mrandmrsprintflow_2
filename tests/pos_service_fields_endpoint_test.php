@@ -48,5 +48,10 @@ $assert(
         && str_contains($source, "'material_consumption_basis' => printflow_pos_material_selection_consumption_basis(\$service_id)"),
     'the service-fields endpoint does not demand dimensions for quantity-based Plates and reports its explicit consumption basis'
 );
+$assert(
+    str_contains($source, 'if ($service_id !== 67)')
+        && str_contains($source, '$fields_html .= $materialSelectionHtml;'),
+    'Brochure service fields omit the staff material-choice picker while other selection-policy services retain it'
+);
 
 echo "pos_service_fields endpoint test: {$passed} assertions passed.\n";

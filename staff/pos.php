@@ -5313,8 +5313,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const overlay = document.getElementById('service-modal-overlay');
             if (overlay && overlay.dataset.materialDimensionUnit) customization.pos_material_dimension_unit = overlay.dataset.materialDimensionUnit;
             posApplySelectedServiceDimension(customization, body, overlay);
-            customization.pos_selected_material_ids = Array.from(body.querySelectorAll('[data-pos-material-id]:checked'))
-                .map(input => Number(input.dataset.posMaterialId || input.value)).filter(id => Number.isInteger(id) && id > 0);
+            if (Number(overlay?.dataset.serviceId || customization.service_id || 0) === 67) {
+                delete customization.pos_selected_material_ids;
+            } else {
+                customization.pos_selected_material_ids = Array.from(body.querySelectorAll('[data-pos-material-id]:checked'))
+                    .map(input => Number(input.dataset.posMaterialId || input.value)).filter(id => Number.isInteger(id) && id > 0);
+            }
             return customization;
         }
 
@@ -6168,8 +6172,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             posApplySelectedServiceDimension(customization, body, overlay);
 
-            customization.pos_selected_material_ids = Array.from(body.querySelectorAll('[data-pos-material-id]:checked'))
-                .map(input => Number(input.dataset.posMaterialId || input.value)).filter(id => Number.isInteger(id) && id > 0);
+            if (serviceId === 67) {
+                delete customization.pos_selected_material_ids;
+            } else {
+                customization.pos_selected_material_ids = Array.from(body.querySelectorAll('[data-pos-material-id]:checked'))
+                    .map(input => Number(input.dataset.posMaterialId || input.value)).filter(id => Number.isInteger(id) && id > 0);
+            }
             customization.pos_material_dimension_unit = customization.pos_material_dimension_unit
                 || String(overlay.dataset.materialDimensionUnit || '').trim();
 

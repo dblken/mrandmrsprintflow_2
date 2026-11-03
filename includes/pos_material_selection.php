@@ -95,6 +95,36 @@ function printflow_pos_material_selection_resolve(int $serviceId, array $selecte
 }
 
 /**
+ * Choose an internal required alternative in its configured registry order.
+ * Candidates must already have passed identity, approval, UOM, and demand
+ * validation. Prefer the first candidate with enough branch stock; if none
+ * has enough, return the first valid candidate so the normal stock validator
+ * can report its exact shortage without bypassing validation.
+ */
+function printflow_pos_material_selection_choose_alternative(array $candidates): ?array
+{
+    foreach ($candidates as $candidate) {
+        if (!is_array($candidate)
+            || (int)($candidate['item_id'] ?? 0) <= 0
+            || !is_numeric($candidate['required'] ?? null)
+            || !is_finite((float)$candidate['required'])
+            || (float)$candidate['required'] <= 0
+            || !is_numeric($candidate['available'] ?? null)
+            || !is_finite((float)$candidate['available'])
+            || (float)$candidate['available'] < 0
+            || !is_numeric($candidate['already_required'] ?? 0)
+            || !is_finite((float)($candidate['already_required'] ?? 0))) {
+            throw new InvalidArgumentException('An internal material alternative could not be safely evaluated for stock.');
+        }
+        if ((float)$candidate['available'] - (float)($candidate['already_required'] ?? 0)
+            + 0.000001 >= (float)$candidate['required']) {
+            return $candidate;
+        }
+    }
+    return $candidates[0] ?? null;
+}
+
+/**
  * Calculate area-based demand; multiplier means inventory UOM units per ft².
  * Every fractional inventory unit is rounded upward as required.
  */
