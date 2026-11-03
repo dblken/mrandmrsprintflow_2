@@ -66,7 +66,7 @@ try {
     $identity = $getRows($conn, "SELECT service_id, name, status FROM services WHERE service_id = 67");
     if (count($identity) !== 1 || (string)$identity[0]['name'] !== 'Brochure' || strtoupper(trim((string)$identity[0]['status'])) !== 'ACTIVATED') throw new RuntimeException('Verified Brochure service identity no longer matches service_id 67.');
     $item = $getRows($conn, "SELECT id, name, status, unit_of_measure FROM inv_items WHERE id = 212");
-    if (count($item) !== 1 || (string)$item[0]['name'] !== 'C2S Board' || strtoupper(trim((string)$item[0]['status'])) !== 'ACTIVE' || strtolower(trim((string)$item[0]['unit_of_measure'])) !== 'sheet') throw new RuntimeException('Verified C2S Board identity no longer matches item_id 212.');
+    if (count($item) !== 1 || (string)$item[0]['name'] !== 'C2s Board' || strtoupper(trim((string)$item[0]['status'])) !== 'ACTIVE' || strtolower(trim((string)$item[0]['unit_of_measure'])) !== 'sheet') throw new RuntimeException('Verified C2s Board identity no longer matches item_id 212.');
 
     // Rows 31 and 32 are explicitly known to be ambiguous. They must remain byte-for-byte untouched and unassigned.
     $ambiguous = $getRows($conn, "SELECT id, service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved, qty_multiplier_approved_by, qty_multiplier_approved_at FROM service_material_rules WHERE id IN (31, 32) ORDER BY id");
@@ -103,14 +103,14 @@ try {
         36 => ['Nextjet', 'Gloss Laminate', 'Matte Laminate', 'Hologram'],
         39 => ['AC MC', 'AC PH', 'AC EURO', 'AC THAI', 'AC NMC', 'AC HOME', 'SP MC', 'SP PH', 'SP EURO', 'SP THAI', 'SP NMC'],
         40 => ['3ft Tarpaulin', '4ft Tarpaulin', '5ft Tarpaulin', '6ft Tarpaulin'],
-        64 => ['C2S Board', 'C2S Special Paper'], 67 => ['C2S Board', 'C2S Special Paper'],
+        64 => ['C2s Board', 'C2S Special Paper'], 67 => ['C2s Board', 'C2S Special Paper'],
         71 => ['Sintra 5mm', 'Sintra 3mm 32', 'Pp Stkr Matte 98'],
     ];
     $materialIdsByService = [
         36 => [18 => 'Nextjet', 20 => 'Gloss Laminate', 21 => 'Matte Laminate', 22 => 'Hologram'],
         39 => [1 => 'AC MC', 2 => 'AC PH', 3 => 'AC EURO', 4 => 'AC THAI', 5 => 'AC NMC', 6 => 'AC HOME', 7 => 'SP MC', 8 => 'SP PH', 9 => 'SP EURO', 10 => 'SP THAI', 11 => 'SP NMC'],
-        64 => [212 => 'C2S Board', 211 => 'C2S Special Paper'],
-        67 => [212 => 'C2S Board', 211 => 'C2S Special Paper'],
+        64 => [212 => 'C2s Board', 211 => 'C2S Special Paper'],
+        67 => [212 => 'C2s Board', 211 => 'C2S Special Paper'],
         71 => [207 => 'Sintra 5mm', 206 => 'Sintra 3mm 32', 23 => 'Pp Stkr Matte 98'],
     ];
     $isVerifiedPair = static function (int $serviceId, int $itemId, string $itemName) use ($materialNamesByService, $materialIdsByService): bool {

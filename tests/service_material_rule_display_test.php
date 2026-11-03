@@ -62,8 +62,8 @@ $assert(count($byId[40]['materials']) === 1
     && $byId[40]['materials'][0]['service_type'] === 'Tarpaulin Printing', 'Tarpaulin uses only the explicit Tarpaulin Printing alias.');
 $configuredNames = [
     39 => ['AC MC', 'AC PH', 'AC EURO', 'AC THAI', 'AC NMC', 'AC HOME', 'SP MC', 'SP PH', 'SP EURO', 'SP THAI', 'SP NMC'],
-    67 => ['C2S Board', 'C2S Special Paper'],
-    64 => ['C2S Board', 'C2S Special Paper'],
+    67 => ['C2s Board', 'C2S Special Paper'],
+    64 => ['C2s Board', 'C2S Special Paper'],
     71 => ['Sintra 5mm', 'Sintra 3mm 32', 'Pp Stkr Matte 98'],
 ];
 $additionalRows = [];

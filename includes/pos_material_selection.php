@@ -45,8 +45,8 @@ function printflow_pos_material_selection_item_names(int $serviceId): array
 {
     return [
         39 => [1 => 'AC MC', 2 => 'AC PH', 3 => 'AC EURO', 4 => 'AC THAI', 5 => 'AC NMC', 6 => 'AC HOME', 7 => 'SP MC', 8 => 'SP PH', 9 => 'SP EURO', 10 => 'SP THAI', 11 => 'SP NMC'],
-        67 => [212 => 'C2S Board', 211 => 'C2S Special Paper'],
-        64 => [212 => 'C2S Board', 211 => 'C2S Special Paper'],
+        67 => [212 => 'C2s Board', 211 => 'C2S Special Paper'],
+        64 => [212 => 'C2s Board', 211 => 'C2S Special Paper'],
         71 => [207 => 'Sintra 5mm', 206 => 'Sintra 3mm 32', 23 => 'Pp Stkr Matte 98'],
         36 => [18 => 'Nextjet', 20 => 'Gloss Laminate', 21 => 'Matte Laminate', 22 => 'Hologram'],
     ][$serviceId] ?? [];

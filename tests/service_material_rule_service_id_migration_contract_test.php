@@ -5,6 +5,7 @@ $root = dirname(__DIR__);
 $migration = (string)file_get_contents($root . '/database/migrate_service_material_rule_service_id_20261103.php');
 $freshSchema = (string)file_get_contents($root . '/migrate_db.php');
 $identity = (string)file_get_contents($root . '/includes/service_material_rule_identity.php');
+$selection = (string)file_get_contents($root . '/includes/pos_material_selection.php');
 $api = (string)file_get_contents($root . '/admin/service_material_rules_api.php');
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -28,7 +29,9 @@ $assert(str_contains($migration, 'WHERE id IN (31, 32)')
 $assert(str_contains($migration, '$isVerifiedPair')
     && str_contains($migration, '!in_array((string)($row[\'service_type\'] ?? \'\'), $mapping[$serviceId] ?? [], true)')
     && str_contains($migration, '36 => [18 => \'Nextjet\'')
-    && str_contains($migration, '67 => [212 => \'C2S Board\', 211 => \'C2S Special Paper\']')
+    && str_contains($migration, '67 => [212 => \'C2s Board\', 211 => \'C2S Special Paper\']')
+    && preg_match("/\\['name'\\] !== 'C2s Board'/", $migration) === 1
+    && str_contains($selection, "67 => [212 => 'C2s Board'")
     && str_contains($migration, 'service_id = ? WHERE id = ? AND service_id IS NULL AND BINARY service_type = BINARY ? AND item_id = ?'), 'Backfill is limited to exact verified item-ID/name and service alias pairs, one guarded row ID at a time.');
 $assert(str_contains($migration, 'uq_smr_service_item')
     && str_contains($migration, 'Duplicate stable service/material mappings remain after backfill.'), 'Migration preflights duplicates and installs the stable service/item uniqueness constraint.');
