@@ -171,6 +171,8 @@ assert.equal(context.posServiceStockDisplayMessage('Stock: C2S Board: 8 sheets a
     'available-stock summaries are hidden');
 assert.equal(context.posServiceStockDisplayMessage('Select exactly one material from the brochure paper choices.'), '',
     'Brochure material-choice explanations are hidden');
+assert.equal(context.posServiceStockDisplayMessage('Select a configured size or enter valid custom width and height before checking material stock.'), '',
+    'material precheck dimension guidance is hidden from stock feedback');
 assert.match(context.posServiceStockDisplayMessage('Insufficient C2s Board stock. Available: 2 sheets. Required: 4 sheets.'), /Insufficient C2s Board stock/,
     'actual insufficient-stock errors retain the material and shortage quantities');
 assert.equal(context.posServiceStockDisplayMessage('Nextjet is out of stock.'), 'Nextjet is out of stock.',
@@ -181,6 +183,8 @@ assert.equal(context.posServiceStockDisplayMessage('Width must be greater than 0
     'dimension field validation remains visible');
 assert.equal(context.posServiceStockDisplayMessage('This service must have one explicit dimension unit before area-based material consumption can be used.'), 'This service must have one explicit dimension unit before area-based material consumption can be used.',
     'required dimension configuration validation remains visible while informational material explanations are hidden');
+assert.match(stockValidationSource, /if \(!response\.ok \|\| data\.success === false\) \{[\s\S]*?posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message\)\);\s*return \{ valid: false, message \};/,
+    'suppressed stock-precheck copy does not turn a failed backend stock/dimension precheck into a valid result');
 
 vm.runInContext(source.slice(disposeStart, collectStart) + source.slice(collectStart, validateStart) + source.slice(bindStart, end), context);
 const confirmFlowStart = source.indexOf('        async function confirmServiceModal() {');

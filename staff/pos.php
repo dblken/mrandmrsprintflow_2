@@ -5286,7 +5286,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
             // Preserve actual dimension-entry validation. Configuration or
             // material-consumption explanations are not shown in POS feedback.
-            if (/^(?:width|height) must be|^select (?:a configured )?(?:dimension|size)|^the selected (?:size|option).*physical (?:width|height|dimensions)|^the configured dimension field|^this service must have one explicit dimension unit|^enter valid custom width|^additional allowance must be/i.test(text)) {
+            if (/^(?:width|height) must be|^the selected (?:size|option).*physical (?:width|height|dimensions)|^the configured dimension field|^this service must have one explicit dimension unit|^enter valid custom width|^additional allowance must be/i.test(text)) {
                 return text;
             }
             if (/could not be verified|unable to validate|try again|network error/i.test(text)) {
