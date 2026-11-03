@@ -52,6 +52,19 @@ function printflow_pos_material_selection_item_names(int $serviceId): array
     ][$serviceId] ?? [];
 }
 
+/** Staff-facing selector labels; canonical inventory identity checks use item_names(). */
+function printflow_pos_material_selection_display_name(int $serviceId, int $itemId, string $fallback): string
+{
+    if ($serviceId === 71) return [206 => 'Sintra 3mm', 207 => 'Sintra 5mm'][$itemId] ?? $fallback;
+    return $fallback;
+}
+
+function printflow_pos_material_selection_group_label(int $serviceId, string $group): string
+{
+    if ($serviceId === 71 && $group === 'sintra_thickness') return 'Board Thickness';
+    return ucwords(str_replace('_', ' ', $group));
+}
+
 /** Plates use standard-count demand; the other selectable-material services use area demand. */
 function printflow_pos_material_selection_consumption_basis(int $serviceId): ?string
 {

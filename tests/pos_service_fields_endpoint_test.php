@@ -54,10 +54,18 @@ $assert(
     'Brochure service fields omit the staff material-choice picker while other selection-policy services retain it'
 );
 $assert(
+    str_contains($source, 'printflow_pos_material_selection_group_label($service_id, $groupKey)')
+        && str_contains($source, 'printflow_pos_material_selection_display_name($service_id, $id, $expectedNames[$id])')
+        && str_contains($source, '$mode = $groupKey === \'decal_finishes\' ? \'checkbox\' : \'radio\';')
+        && str_contains($source, '$checked = \'\';')
+        && str_contains($source, 'data-group-required="\' . ($requiredGroup ? \'1\' : \'0\')'),
+    'Sintraboard renders an unselected required Board Thickness radio group with explicit Sintra 3mm and Sintra 5mm labels'
+);
+$assert(
     !str_contains($source, 'Demand is calculated')
         && !str_contains($source, 'inventory-units-per-square-foot multiplier')
         && !str_contains($source, "htmlspecialchars(\$choice['uom'], ENT_QUOTES, 'UTF-8') . '</span><small")
-        && str_contains($source, "htmlspecialchars(\$choice['name'], ENT_QUOTES, 'UTF-8') . '</span></label>'"),
+        && str_contains($source, "htmlspecialchars(\$choice['display_name'], ENT_QUOTES, 'UTF-8') . '</span></label>'"),
     'material picker rows expose selectable names without consumption explanations, UOM availability, or multiplier setup text'
 );
 

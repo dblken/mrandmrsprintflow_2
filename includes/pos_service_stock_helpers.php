@@ -184,7 +184,11 @@ function printflow_pos_sintraboard_rule_rows_resolve(array $stableRows, array $l
 /** Keep service 71's internal rule-identity diagnostics out of staff-facing POS errors. */
 function printflow_pos_sintraboard_staff_facing_material_error(int $serviceId, string $message): ?string
 {
-    if ($serviceId !== 71 || !preg_match(
+    if ($serviceId !== 71) return null;
+    if (preg_match('/select exactly one material from the sintra(?:_thickness| thickness) choices/i', $message)) {
+        return 'Piliin ang Sintra 3mm o Sintra 5mm ayon sa hiling ng customer.';
+    }
+    if (!preg_match(
         '/stable(?:-id)?\s+and\s+legacy|sintraboard mappings conflict|duplicate configuration|multiple rules exist for one service\/material|stable service id conflicts with the stored service_type/i',
         $message
     )) return null;

@@ -46,6 +46,28 @@ $fails(static fn() => printflow_pos_material_selection_choose_alternative([
 ]), 'Brochure auto-selection rejects invalid calculated demand rather than selecting a material.');
 $assert(count(printflow_pos_material_selection_resolve(64, [211])) === 1, 'One Poster paper is accepted.');
 $assert(count(printflow_pos_material_selection_resolve(71, [207])) === 1, 'One Sintra thickness is accepted.');
+$assert(printflow_pos_material_selection_group_label(71, 'sintra_thickness') === 'Board Thickness'
+    && printflow_pos_material_selection_display_name(71, 206, 'Sintra 3mm 32') === 'Sintra 3mm'
+    && printflow_pos_material_selection_display_name(71, 207, 'Sintra 5mm') === 'Sintra 5mm',
+    'The POS thickness selector presents the customer-facing Sintra 3mm and Sintra 5mm choices without changing inventory identity names.');
+$sintraPolicy = printflow_pos_material_selection_registry()[71];
+$assert($sintraPolicy[206]['group'] === 'sintra_thickness' && $sintraPolicy[207]['group'] === 'sintra_thickness'
+    && $sintraPolicy[206]['role'] === 'alternative' && $sintraPolicy[207]['role'] === 'alternative'
+    && $sintraPolicy[206]['group_required'] === true && $sintraPolicy[207]['group_required'] === true
+    && $sintraPolicy[23]['role'] === 'optional',
+    'The two thickness choices remain one required alternative group while the printed sticker layer remains optional.');
+foreach ([206, 207] as $thicknessId) {
+    $selectedThickness = printflow_pos_material_selection_resolve(71, [$thicknessId]);
+    $assert(count($selectedThickness) === 1 && (int)$selectedThickness[0]['item_id'] === $thicknessId,
+        'Exactly one explicit Sintraboard thickness ID is accepted: ' . $thicknessId . '.');
+    $thicknessDemand = printflow_pos_material_demand_for_area(1, 2, 'ft', 2, 1.0);
+    $assert($thicknessDemand['rounded_demand'] === 4
+        && !printflow_pos_service_stock_exceeds_available((float)$thicknessDemand['rounded_demand'], 4.0)
+        && printflow_pos_service_stock_exceeds_available((float)$thicknessDemand['rounded_demand'], 3.0)
+        && printflow_pos_service_stock_exceeds_available((float)$thicknessDemand['rounded_demand'], 0.0),
+        'Sintraboard item ' . $thicknessId . ' applies dimensions and quantity to selected-only demand and blocks insufficient or empty stock.');
+}
+$fails(static fn() => printflow_pos_material_selection_resolve(71, []), 'Sintraboard requires a staff-selected board thickness.');
 $assert(count(printflow_pos_material_selection_resolve(71, [206, 23])) === 2, 'Optional printed sticker material can accompany one Sintra thickness.');
 $assert(count(printflow_pos_material_selection_resolve(71, [206])) === 1, 'Optional printed sticker material is not forced.');
 $fails(static fn() => printflow_pos_material_selection_resolve(71, [206, 207]), 'Both Sintra thicknesses cannot be selected.');

@@ -231,7 +231,9 @@ if (is_array($selectionPolicy)) {
         }
         $role = (string)$policy['role'];
         $labels[$group !== '' ? $group : 'optional'][] = [
-            'id' => $id, 'name' => $expectedNames[$id], 'uom' => (string)($item['unit_of_measure'] ?? ''),
+            'id' => $id, 'name' => $expectedNames[$id],
+            'display_name' => printflow_pos_material_selection_display_name($service_id, $id, $expectedNames[$id]),
+            'uom' => (string)($item['unit_of_measure'] ?? ''),
             'role' => $role, 'required_group' => !empty($policy['group_required']), 'enabled' => $approved,
             'setup' => $setupMessage,
         ];
@@ -245,11 +247,11 @@ if (is_array($selectionPolicy)) {
             $requiredGroup = $groupKey !== 'optional' && !empty($choices[0]['required_group']);
             $mode = $groupKey === 'decal_finishes' ? 'checkbox' : 'radio';
             $materialSelectionHtml .= '<fieldset data-material-group="' . htmlspecialchars($groupKey, ENT_QUOTES, 'UTF-8') . '" data-group-required="' . ($requiredGroup ? '1' : '0') . '" style="margin:8px 0;padding:8px;border:1px solid #e2e8f0;border-radius:8px"><legend style="padding:0 4px;font-size:12px;font-weight:700">'
-                . htmlspecialchars(str_replace('_', ' ', $groupKey), ENT_QUOTES, 'UTF-8') . ($requiredGroup ? ' · choose one' : ' · optional') . '</legend>';
+                . htmlspecialchars(printflow_pos_material_selection_group_label($service_id, $groupKey), ENT_QUOTES, 'UTF-8') . ($requiredGroup ? ' · choose one' : ' · optional') . '</legend>';
             foreach ($choices as $choice) {
                 $disabled = $choice['enabled'] ? '' : ' disabled';
                 $checked = '';
-                $materialSelectionHtml .= '<label style="display:flex;gap:8px;align-items:center;padding:5px 2px;font-size:13px"><input type="' . $mode . '" name="pos_material_choice_' . htmlspecialchars($groupKey, ENT_QUOTES, 'UTF-8') . '" value="' . (int)$choice['id'] . '" data-pos-material-id="' . (int)$choice['id'] . '" data-pos-material-group="' . htmlspecialchars($groupKey, ENT_QUOTES, 'UTF-8') . '" data-pos-material-uom="' . htmlspecialchars($choice['uom'], ENT_QUOTES, 'UTF-8') . '"' . $disabled . $checked . '><span>' . htmlspecialchars($choice['name'], ENT_QUOTES, 'UTF-8') . '</span></label>';
+                $materialSelectionHtml .= '<label style="display:flex;gap:8px;align-items:center;padding:5px 2px;font-size:13px"><input type="' . $mode . '" name="pos_material_choice_' . htmlspecialchars($groupKey, ENT_QUOTES, 'UTF-8') . '" value="' . (int)$choice['id'] . '" data-pos-material-id="' . (int)$choice['id'] . '" data-pos-material-group="' . htmlspecialchars($groupKey, ENT_QUOTES, 'UTF-8') . '" data-pos-material-uom="' . htmlspecialchars($choice['uom'], ENT_QUOTES, 'UTF-8') . '"' . $disabled . $checked . '><span>' . htmlspecialchars($choice['display_name'], ENT_QUOTES, 'UTF-8') . '</span></label>';
             }
             $materialSelectionHtml .= '</fieldset>';
         }

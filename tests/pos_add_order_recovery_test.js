@@ -79,21 +79,30 @@ form.listeners.change[0].call(form.radios[0]);
 assert.equal(clearedRow, form.row, 'correcting the choice clears its inline field error');
 
 const confirmBlock = block('        async function confirmServiceModal() {', '        // ── Legacy service requirements');
-function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromise, cartResponse, serviceId = 63, serviceName = 'Mugs' }) {
+function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromise, cartResponse, serviceId = 63, serviceName = 'Mugs', selectedMaterialId = null }) {
   const button = { disabled: false, style: {}, textContent: 'Add to Order' };
   const overlay = { dataset: { serviceId: String(serviceId), serviceName } };
   const hiddenBranch = { value: '1' };
+  const selectedMaterial = selectedMaterialId === null ? null : {
+    type: 'radio', name: 'pos_material_choice_sintra_thickness', value: String(selectedMaterialId), checked: true,
+    dataset: { posMaterialId: String(selectedMaterialId), posMaterialGroup: 'sintra_thickness' },
+  };
   const body = {
     querySelector(selector) {
       if (selector === 'input[type="hidden"][name="branch_id"]') return hiddenBranch;
       return null;
     },
-    querySelectorAll() { return []; },
+    querySelectorAll(selector) {
+      if (selector === '[data-pos-material-id]:checked') return selectedMaterial ? [selectedMaterial] : [];
+      return [];
+    },
   };
   const busyTransitions = [];
   let cartCalls = 0;
   let stockCalls = 0;
   const stockServiceIds = [];
+  const stockMaterialIds = [];
+  let cartPayload = null;
   let shownValidationErrors = null;
   const context = vm.createContext({
     document: { getElementById(id) {
@@ -110,8 +119,13 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
     showValidationErrors(errors) { shownValidationErrors = errors; },
     focusFirstInvalidField() {},
     showPOSAlert: async () => {},
-    posServiceQuantityInput() { return { value: '3' }; },
-    async posValidateServiceStockNow(checkedServiceId) { stockCalls += 1; stockServiceIds.push(Number(checkedServiceId)); return stockPromise(); },
+    posServiceQuantityInput() { return { value: '3', checkValidity() { return true; }, reportValidity() {} }; },
+    async posValidateServiceStockNow(checkedServiceId) {
+      stockCalls += 1;
+      stockServiceIds.push(Number(checkedServiceId));
+      stockMaterialIds.push(body.querySelectorAll('[data-pos-material-id]:checked').map(input => Number(input.dataset.posMaterialId || input.value)));
+      return stockPromise();
+    },
     resolveServiceModalPricing() { return { unitPrice: 120, quantity: 3, designFee: 200 }; },
     setServiceAddButtonBusy(isBusy) {
       button.disabled = !!isBusy || context.posServiceStockBlocking;
@@ -127,7 +141,7 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
     applyServicePricingToCustomization(customization, unitPrice, quantity, designFee) {
       return { unitPrice, quantity, designFee };
     },
-    async syncedCartAction() { cartCalls += 1; return cartResponse(); },
+    async syncedCartAction(_action, payload) { cartCalls += 1; cartPayload = payload; return cartResponse(); },
     showBackendValidationErrors() {},
     serviceSelectorEscape(value) { return value; },
     isServiceFieldActive() { return true; },
@@ -148,6 +162,8 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
     get cartCalls() { return cartCalls; },
     get stockCalls() { return stockCalls; },
     get stockServiceIds() { return stockServiceIds; },
+    get stockMaterialIds() { return stockMaterialIds; },
+    get cartPayload() { return cartPayload; },
     get shownValidationErrors() { return shownValidationErrors; },
   };
 }
@@ -208,16 +224,35 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
   assert.equal(success.cartCalls, 1, 'successful local addition sends one cart request');
   assert.deepEqual(success.busyTransitions, [true, false], 'success also exits the loading state');
 
-  const sintraboard = makeConfirmHarness({
-    validationValid: true,
-    serviceId: 71,
-    serviceName: 'Sintraboard Standees',
-    stockPromise: async () => ({ valid: true }),
-    cartResponse: async () => ({ success: true }),
+  const noThickness = makeConfirmHarness({
+    validationValid: true, serviceId: 71, serviceName: 'Sintraboard Standees',
+    stockPromise: async () => ({ valid: false }), cartResponse: async () => ({ success: true }),
   });
-  await sintraboard.context.confirmServiceModal();
-  assert.deepEqual(sintraboard.stockServiceIds, [71], 'Sintraboard Add to Order revalidates stock for service ID 71');
-  assert.equal(sintraboard.cartCalls, 1, 'valid Sintraboard stock allows the existing Add to Order flow to send one cart request');
+  await noThickness.context.confirmServiceModal();
+  assert.equal(noThickness.cartCalls, 0, 'Sintraboard cannot Add to Order when staff has not selected a board thickness');
+  assert.deepEqual(noThickness.stockMaterialIds, [[]], 'no Sintra thickness is auto-selected from dimensions');
+
+  for (const thicknessId of [206, 207]) {
+    const sintraboard = makeConfirmHarness({
+      validationValid: true, serviceId: 71, serviceName: 'Sintraboard Standees', selectedMaterialId: thicknessId,
+      stockPromise: async () => ({ valid: true }), cartResponse: async () => ({ success: true }),
+    });
+    await sintraboard.context.confirmServiceModal();
+    assert.deepEqual(sintraboard.stockServiceIds, [71], `Sintra ${thicknessId} Add to Order revalidates stock for service ID 71`);
+    assert.deepEqual(sintraboard.stockMaterialIds, [[thicknessId]], `stock validation receives only selected Sintra item ${thicknessId}`);
+    assert.equal(sintraboard.cartCalls, 1, `valid Sintra ${thicknessId} stock allows one cart request`);
+    assert.deepEqual(Array.from(sintraboard.cartPayload.customization.pos_selected_material_ids), [thicknessId],
+      `Add to Order payload persists selected Sintra item ${thicknessId}`);
+
+    const lowStock = makeConfirmHarness({
+      validationValid: true, serviceId: 71, serviceName: 'Sintraboard Standees', selectedMaterialId: thicknessId,
+      stockPromise: async () => ({ valid: false, message: `Insufficient Sintra ${thicknessId} stock.` }),
+      cartResponse: async () => ({ success: true }),
+    });
+    await lowStock.context.confirmServiceModal();
+    assert.deepEqual(lowStock.stockMaterialIds, [[thicknessId]], `low-stock validation checks only selected Sintra item ${thicknessId}`);
+    assert.equal(lowStock.cartCalls, 0, `insufficient Sintra ${thicknessId} stock blocks Add to Order`);
+  }
 
   console.log('POS Add to Order validation and recovery tests passed.');
 })().catch(error => {

@@ -186,6 +186,8 @@ $sintraTechnicalError = 'Stable and legacy material mappings conflict. An Admin 
 $sintraStaffMessage = 'May kailangan bang linawin tungkol sa material na gagamitin? May nalilito ba sa pagpili ng material? Pakisuri ang Sintra 3mm o Sintra 5mm bago magpatuloy.';
 $assert(printflow_pos_sintraboard_staff_facing_material_error(71, $sintraTechnicalError) === $sintraStaffMessage,
     'Sintraboard mapping diagnostics are replaced with the staff-friendly ambiguity prompt.');
+$assert(printflow_pos_sintraboard_staff_facing_material_error(71, 'Select exactly one material from the sintra thickness choices.') === 'Piliin ang Sintra 3mm o Sintra 5mm ayon sa hiling ng customer.',
+    'Missing or multiple board-thickness selections receive a clear staff instruction rather than a technical group key.');
 $assert(printflow_pos_sintraboard_staff_facing_material_error(71, 'Sintra 3mm is out of stock.') === null
     && printflow_pos_sintraboard_staff_facing_material_error(67, $sintraTechnicalError) === null,
     'Stock messages and other services are not rewritten by the Sintraboard diagnostic sanitizer.');

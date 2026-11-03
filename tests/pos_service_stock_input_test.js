@@ -183,6 +183,14 @@ sintraTechnicalErrors.forEach(error => {
 });
 assert.equal(context.posServiceStockDisplayMessage(sintraTechnicalErrors[0], 67), '',
     'the Sintraboard-only wording change does not affect other services');
+assert.equal(context.posServiceStockDisplayMessage('Select exactly one material from the sintra_thickness choices.', 71),
+    'Piliin ang Sintra 3mm o Sintra 5mm ayon sa hiling ng customer.',
+    'an unselected thickness shows a clear staff instruction instead of an internal group key');
+assert.equal(context.posServiceStockDisplayMessage('Sintra 3mm is out of stock.', 71), 'Sintra 3mm is out of stock.',
+    'selected Sintraboard no-stock failures remain visible');
+assert.match(context.posServiceStockDisplayMessage('Insufficient Sintra 5mm stock. Available: 1 pcs. Required: 2 pcs.', 71),
+    /Insufficient Sintra 5mm stock/,
+    'selected Sintraboard insufficient-stock failures remain visible with the material name');
 assert.equal(context.posServiceStockDisplayMessage('Estimated consumption: C2S Board: 4 sheets to consume'), '',
     'estimated-consumption summaries are hidden');
 assert.equal(context.posServiceStockDisplayMessage('Stock: C2S Board: 8 sheets available'), '',
@@ -253,6 +261,28 @@ assert.equal(Object.hasOwn(initialBrochureRequest[2], 'pos_selected_material_ids
     'early Brochure stock validation carries no manual material choice');
 assert.match(source, /if \(serviceId === 67\) \{\s*delete customization\.pos_selected_material_ids;/,
     'the final Add to Order request omits Brochure paper IDs and lets the backend resolve the internal alternative');
+
+for (const thicknessId of [206, 207]) {
+    elements['service-modal-overlay'].dataset.serviceId = '71';
+    elements['service-modal-overlay'].dataset.materialDimensionFieldKey = 'sizes';
+    elements['service-modal-overlay'].dataset.materialDimensionUnit = 'ft';
+    sizesSelect.name = 'sizes';
+    sizesSelect.value = '1 Ft x 2 Ft';
+    sizesSelect.selectedIndex = 0;
+    sizesSelect.options = [{ textContent: '1 Ft x 2 Ft' }];
+    selectedPlateMaterial = { type: 'radio', value: String(thicknessId), checked: true, dataset: { posMaterialId: String(thicknessId), posMaterialGroup: 'sintra_thickness' } };
+    context.posBindServiceStockValidation(71);
+    const thicknessRequest = validations.shift();
+    assert.deepEqual(Array.from(thicknessRequest[2].pos_selected_material_ids), [thicknessId],
+        `Sintraboard stock validation receives only the explicitly selected thickness item ${thicknessId}`);
+    assert.equal(thicknessRequest[2].width, '1', `Sintraboard thickness ${thicknessId} uses dimensions only for consumption`);
+    assert.equal(thicknessRequest[2].height, '2', `Sintraboard thickness ${thicknessId} sends selected height for stock demand`);
+    assert.deepEqual(Array.from(context.posCollectServiceStockCustomization().pos_selected_material_ids), [thicknessId],
+        `Sintraboard Add to Order customization retains the explicit thickness item ${thicknessId}`);
+}
+selectedPlateMaterial = null;
+assert.match(source, /customization\.pos_selected_material_ids = Array\.from\(body\.querySelectorAll\('\[data-pos-material-id\]:checked'\)\)/,
+    'Sintraboard Add to Order derives selected thickness IDs from the checked selector control');
 
 // Configured option labels captured from the live read-only service settings.
 const selectedDimensionCases = [
@@ -332,8 +362,8 @@ assert.deepEqual(validations.shift().slice(0, 2), [42, '4'], 'typed quantity val
 elements['service-modal-overlay'].dataset.materialDimensionFieldKey = '';
 sizesSelect.value = '';
 context.posBindServiceStockValidation(40);
-assert.equal(listenerCounts.input, 7, 'each service modal opening registers one delegated stock input handler');
-assert.equal(listenerCounts.change, 7, 'each service modal opening registers one delegated stock change handler');
+assert.equal(listenerCounts.input, 9, 'each service modal opening registers one delegated stock input handler');
+assert.equal(listenerCounts.change, 9, 'each service modal opening registers one delegated stock change handler');
 assert.equal(validationControllers[0].aborted, true, 'opening another service modal aborts the prior delegated validation listeners');
 assert.equal(listenerOptions.input.signal, listenerOptions.change.signal, 'input and change handlers share the current modal listener lifetime');
 const initialTarpaulinRequest = validations.shift();
