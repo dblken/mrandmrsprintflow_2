@@ -1635,17 +1635,26 @@ if (isset($_GET['ajax'])) {
             var response = await fetch(ADMIN_API_BASE + 'service_material_rules_api.php', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
             var data = await response.json();
             if (!response.ok || !data.success) throw new Error(data.error || 'Could not load rules.');
-            if (!data.data.length) { body.innerHTML = '<tr><td colspan="7" style="padding:16px;">No service material rules are configured.</td></tr>'; return; }
-            body.innerHTML = data.data.map(function (rule) {
+            if (!Array.isArray(data.groups)) throw new Error('The active service mapping response is invalid.');
+            body.innerHTML = data.groups.map(function (group) {
+                var header = '<tr class="service-material-service-heading"><th colspan="7" style="padding:12px 10px;background:#f1f5f9;color:#0f172a;text-align:left;">' + escapeHtml(group.service_name) + ' <span style="color:#64748b;font-weight:500;">(Service ID ' + Number(group.service_id) + ')</span></th></tr>';
+                if (!Array.isArray(group.materials) || !group.materials.length) {
+                    return header + '<tr><td colspan="7" style="padding:12px 16px;color:#64748b;">' + escapeHtml(group.empty_message || 'No materials mapped yet.') + '</td></tr>';
+                }
+                return header + group.materials.map(function (rule) {
                 var required = String(rule.rule_type || '').toUpperCase() === 'REQUIRED';
                 var approved = String(rule.qty_multiplier_approved) === '1';
                 var auditPresent = rule.qty_multiplier_approved_by && rule.qty_multiplier_approved_at;
                 var status = approved && auditPresent ? 'Approved by Admin #' + escapeHtml(rule.qty_multiplier_approved_by) + ' at ' + escapeHtml(rule.qty_multiplier_approved_at) : (approved ? 'Approval audit incomplete; reapproval required' : 'Not approved');
                 var multiplier = rule.qty_multiplier == null ? '' : String(rule.qty_multiplier);
-                var actions = '<button type="button" class="toolbar-btn" onclick="pfSaveServiceMaterialMultiplier(' + Number(rule.id) + ')">Save multiplier</button>';
-                if (required) actions += ' <button type="button" class="toolbar-btn" onclick="pfApproveServiceMaterialRule(' + Number(rule.id) + ')">Approve REQUIRED</button>';
-                return '<tr><td>' + escapeHtml(rule.service_name || rule.service_type) + '</td><td>' + escapeHtml(rule.material_name || ('Inventory item #' + rule.item_id)) + '</td><td>' + escapeHtml(rule.inventory_uom || '—') + '</td><td>' + escapeHtml(rule.rule_type || '') + '</td><td><input id="serviceMaterialMultiplier-' + Number(rule.id) + '" type="number" min="0.01" max="99999999.99" step="0.01" value="' + escapeHtml(multiplier) + '" aria-label="Multiplier for rule ' + Number(rule.id) + '" style="width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;"></td><td>' + status + '</td><td class="service-material-rule-actions" style="white-space:nowrap;">' + actions + '</td></tr>';
-            }).join('');
+                var readOnly = rule.read_only === true || rule.display_source === 'dedicated_pos_rule';
+                var actions = readOnly ? 'Dedicated POS rule · read only' : '<button type="button" class="toolbar-btn" onclick="pfSaveServiceMaterialMultiplier(' + Number(rule.id) + ')">Save multiplier</button>';
+                if (!readOnly && required) actions += ' <button type="button" class="toolbar-btn" onclick="pfApproveServiceMaterialRule(' + Number(rule.id) + ')">Approve REQUIRED</button>';
+                var multiplierCell = readOnly ? escapeHtml(multiplier) + ' (POS-managed)' : '<input id="serviceMaterialMultiplier-' + Number(rule.id) + '" type="number" min="0.01" max="99999999.99" step="0.01" value="' + escapeHtml(multiplier) + '" aria-label="Multiplier for rule ' + Number(rule.id) + '" style="width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;">';
+                if (readOnly) status = 'Dedicated active Mugs POS rule';
+                return '<tr><td>' + escapeHtml(group.service_name) + '</td><td>' + escapeHtml(rule.material_name || ('Inventory item #' + rule.item_id)) + '</td><td>' + escapeHtml(rule.inventory_uom || '—') + '</td><td>' + escapeHtml(rule.rule_type || '') + '</td><td>' + multiplierCell + '</td><td>' + status + '</td><td class="service-material-rule-actions" style="white-space:nowrap;">' + actions + '</td></tr>';
+                }).join('');
+            }).join('') || '<tr><td colspan="7" style="padding:16px;">No active approved service groups are available.</td></tr>';
             if (feedback) feedback.textContent = '';
         } catch (error) {
             body.innerHTML = '<tr><td colspan="7" style="padding:16px;color:#b91c1c;">' + escapeHtml(error.message) + '</td></tr>';

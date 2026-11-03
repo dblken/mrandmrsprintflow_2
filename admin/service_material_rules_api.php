@@ -5,6 +5,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/service_material_rule_approval.php';
 require_once __DIR__ . '/../includes/pos_service_stock_helpers.php';
+require_once __DIR__ . '/../includes/service_material_rule_display.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -31,21 +32,37 @@ foreach (['qty_multiplier', 'qty_multiplier_approved', 'qty_multiplier_approved_
 global $conn;
 $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 if ($method === 'GET') {
+    $activeServices = db_query("SELECT service_id, name, status FROM services WHERE status = 'Activated' ORDER BY service_id");
+    if ($activeServices === false) pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not load active services.']);
     $rows = db_query(
-        "SELECT r.id, r.service_type, COALESCE(s.name, r.service_type) AS service_name,
+        "SELECT r.id, r.service_type,
                 r.item_id, i.name AS material_name, i.unit_of_measure AS inventory_uom,
                 r.rule_type, r.qty_multiplier, r.qty_multiplier_approved,
                 r.qty_multiplier_approved_by, r.qty_multiplier_approved_at
          FROM service_material_rules r
-         LEFT JOIN inv_items i ON i.id = r.item_id
-         LEFT JOIN services s ON s.service_id = (
-             SELECT MIN(s2.service_id) FROM services s2
-             WHERE LOWER(TRIM(s2.name)) = LOWER(TRIM(r.service_type))
-         )
-         ORDER BY r.service_type, r.id"
+         INNER JOIN inv_items i ON i.id = r.item_id AND UPPER(TRIM(i.status)) = 'ACTIVE'
+         ORDER BY r.id"
     );
     if ($rows === false) pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not load service material rules.']);
-    pf_service_rule_api_reply(200, ['success' => true, 'data' => $rows ?: []]);
+    $mugsRule = null;
+    foreach ($activeServices as $service) {
+        if ((int)($service['service_id'] ?? 0) !== 63 || (string)($service['name'] ?? '') !== 'Mugs') continue;
+        $mugRows = db_query("SELECT id, name, unit_of_measure, status, track_by_roll FROM inv_items WHERE id = 37 LIMIT 1");
+        if ($mugRows === false) pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not verify the dedicated Mugs POS rule.']);
+        try {
+            $mugsRule = printflow_pos_mugs_release_material_rule(63, 'Mugs', $mugRows[0] ?? null)[0] ?? null;
+        } catch (Throwable $e) {
+            error_log('Mugs display rule verification failed: ' . get_class($e));
+            $mugsRule = null;
+        }
+        if ($mugsRule !== null) {
+            $mugsRule['material_name'] = $mugsRule['name'];
+            $mugsRule['inventory_uom'] = $mugsRule['uom'];
+        }
+        break;
+    }
+    $groups = printflow_service_material_rule_display_groups($activeServices ?: [], $rows ?: [], $mugsRule);
+    pf_service_rule_api_reply(200, ['success' => true, 'groups' => $groups]);
 }
 
 if ($method !== 'POST') pf_service_rule_api_reply(405, ['success' => false, 'error' => 'Method not allowed.']);
@@ -62,8 +79,9 @@ if (!$ruleId || !in_array($action, ['update_multiplier', 'approve'], true)) {
 try {
     if (!$conn->begin_transaction()) throw new RuntimeException('Could not start approval transaction.');
     $select = $conn->prepare(
-        "SELECT r.service_type, r.rule_type, r.qty_multiplier, r.qty_multiplier_approved,
-                r.qty_multiplier_approved_by, r.qty_multiplier_approved_at, i.name AS material_name
+        "SELECT r.service_type, r.item_id, r.rule_type, r.qty_multiplier, r.qty_multiplier_approved,
+                r.qty_multiplier_approved_by, r.qty_multiplier_approved_at, i.name AS material_name,
+                i.status AS item_status
          FROM service_material_rules r LEFT JOIN inv_items i ON i.id = r.item_id WHERE r.id = ? FOR UPDATE"
     );
     if (!$select) throw new RuntimeException('Could not inspect the selected service material rule.');
@@ -73,6 +91,18 @@ try {
     $rule = $result ? $result->fetch_assoc() : null;
     $select->close();
     if (!$rule) throw new InvalidArgumentException('The selected service material rule no longer exists.');
+    if (strtoupper(trim((string)($rule['item_status'] ?? ''))) !== 'ACTIVE') {
+        throw new InvalidArgumentException('Inactive inventory materials cannot be configured from this page.');
+    }
+    $activeServices = db_query("SELECT service_id, name, status FROM services WHERE status = 'Activated'");
+    if ($activeServices === false || !printflow_service_material_rule_display_row_is_editable(
+        (string)$rule['service_type'],
+        (int)$rule['item_id'],
+        $activeServices ?: [],
+        (string)($rule['material_name'] ?? '')
+    )) {
+        throw new InvalidArgumentException('This rule is not mapped to an active service in the approved Admin display.');
+    }
     $ruleType = strtoupper(trim((string)$rule['rule_type']));
     if ($action === 'approve') {
         $conflict = printflow_pos_known_service_material_conflict((string)$rule['service_type'], (string)($rule['material_name'] ?? ''));
