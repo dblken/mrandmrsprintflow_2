@@ -135,6 +135,17 @@ $assert($auditedSintraResolved[1]['qty_multiplier'] === '1.00'
     && $auditedSintraResolved[2]['qty_multiplier_basis'] === 'AREA_SQFT'
     && (int)$auditedSintraResolved[2]['qty_multiplier_approved'] === 1,
     'The audited approved Sintra 3mm and 5mm AREA_SQFT rules are preserved by resolution.');
+$stableSintraWithStaleText = $auditedSintraStableRows;
+$stableSintraWithStaleText[1]['service_type'] = '';
+$stableSintraWithStaleText[2]['service_type'] = 'Legacy Sintraboard';
+$stableSintraTextResolved = printflow_pos_select_service_material_rule_set(
+    71,
+    array_merge($stableSintraWithStaleText, $auditedSintraLegacyRows)
+);
+$assert(array_column($stableSintraTextResolved, 'id') === [26, 35, 52]
+    && $stableSintraTextResolved[1]['qty_multiplier_basis'] === 'AREA_SQFT'
+    && $stableSintraTextResolved[2]['qty_multiplier_basis'] === 'AREA_SQFT',
+    'Stable service_id=71 rules remain authoritative when their legacy service_type text is blank or stale; unrelated legacy aliases do not block them.');
 $unapprovedStableDuplicate = $auditedSintraStableRows[1];
 $unapprovedStableDuplicate['id'] = 99;
 $unapprovedStableDuplicate['qty_multiplier_approved'] = 0;

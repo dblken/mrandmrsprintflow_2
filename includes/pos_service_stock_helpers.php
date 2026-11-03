@@ -211,6 +211,16 @@ function printflow_pos_select_service_material_rule_set(int $serviceId, array $r
         if (!is_array($row)) continue;
         $rowServiceId = (int)($row['service_id'] ?? 0);
         if ($rowServiceId > 0) {
+            // Sintraboard's stable service_id is its canonical identity. Its
+            // legacy service_type value may be blank or stale (the historical
+            // ENUM did not consistently contain every active service name),
+            // so do not let that text prevent the stable thickness rules from
+            // reaching the selector. Conflicts between actual approved rules
+            // are still checked by printflow_pos_sintraboard_rule_rows_resolve.
+            if ($serviceId === 71 && $rowServiceId === 71) {
+                $stableRows[] = $row;
+                continue;
+            }
             $expectedTextType = printflow_pos_service_material_expected_type($rowServiceId);
             $storedTextType = (string)($row['service_type'] ?? '');
             $textIsCanonical = $rowServiceId === 40
