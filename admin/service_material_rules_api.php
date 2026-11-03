@@ -6,6 +6,7 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/service_material_rule_approval.php';
 require_once __DIR__ . '/../includes/pos_service_stock_helpers.php';
 require_once __DIR__ . '/../includes/service_material_rule_display.php';
+require_once __DIR__ . '/../includes/service_material_rule_bulk.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -21,6 +22,56 @@ function pf_service_rule_api_reply(int $status, array $payload): void
     http_response_code($status);
     echo json_encode($payload, JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+function pf_service_rule_bulk_assess(int $serviceId, int $itemId, $submittedMultiplier, $submittedBasis, bool $forUpdate = false): array
+{
+    $allowedServiceIds = [36, 39, 64, 67, 71];
+    if (!in_array($serviceId, $allowedServiceIds, true)) return ['action' => 'pending', 'message' => 'This service is excluded from bulk processing.'];
+    $selection = printflow_pos_material_selection_registry()[$serviceId][$itemId] ?? null;
+    $expectedType = printflow_pos_material_selection_service_type($serviceId);
+    $expectedName = printflow_pos_material_selection_item_names($serviceId)[$itemId] ?? null;
+    $definition = printflow_service_material_rule_display_registry()[$serviceId] ?? null;
+    if (!$selection || !$expectedType || !$expectedName || !$definition) return ['action' => 'pending', 'message' => 'Service/material identity is not in the verified active mapping registry.'];
+
+    $active = db_query('SELECT service_id, name, status FROM services WHERE service_id = ? LIMIT 1' . ($forUpdate ? ' FOR UPDATE' : ''), 'i', [$serviceId]);
+    if (!is_array($active) || count($active) !== 1 || strtoupper(trim((string)($active[0]['status'] ?? ''))) !== 'ACTIVATED'
+        || strcasecmp(trim((string)($active[0]['name'] ?? '')), (string)$definition['name']) !== 0) {
+        return ['action' => 'pending', 'service_name' => (string)$definition['name'], 'material_name' => (string)$expectedName, 'message' => 'The exact service is missing, inactive, or its identity does not match the approved registry.'];
+    }
+    $itemRows = db_query('SELECT id, name, unit_of_measure, status FROM inv_items WHERE id = ? LIMIT 1' . ($forUpdate ? ' FOR UPDATE' : ''), 'i', [$itemId]);
+    if (!is_array($itemRows) || count($itemRows) !== 1 || (int)($itemRows[0]['id'] ?? 0) !== $itemId
+        || strcasecmp(trim((string)($itemRows[0]['name'] ?? '')), (string)$expectedName) !== 0
+        || strtoupper(trim((string)($itemRows[0]['status'] ?? ''))) !== 'ACTIVE') {
+        return ['action' => 'pending', 'service_name' => (string)$definition['name'], 'material_name' => (string)$expectedName, 'message' => 'The exact inventory item is missing, inactive, or has a different name.'];
+    }
+    $uom = trim((string)($itemRows[0]['unit_of_measure'] ?? ''));
+    if (!printflow_service_material_bulk_uom_valid($uom)) {
+        return ['action' => 'pending', 'service_name' => (string)$definition['name'], 'material_name' => (string)$expectedName, 'uom' => $uom, 'message' => 'Inventory UOM is missing or unsupported for area-based consumption.'];
+    }
+    $acceptedTypes = printflow_pos_service_material_type_aliases($serviceId);
+    if ($acceptedTypes === []) $acceptedTypes = [$expectedType];
+    $typePlaceholders = implode(',', array_fill(0, count($acceptedTypes), '?'));
+    $rules = db_query(
+        "SELECT id, service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved,
+                qty_multiplier_approved_by, qty_multiplier_approved_at, qty_multiplier_basis, qty_multiplier_approved_basis
+         FROM service_material_rules WHERE service_type IN ({$typePlaceholders}) AND item_id = ? ORDER BY id ASC LIMIT 3" . ($forUpdate ? ' FOR UPDATE' : ''),
+        str_repeat('s', count($acceptedTypes)) . 'i', array_merge($acceptedTypes, [$itemId])
+    );
+    if (!is_array($rules)) return ['action' => 'pending', 'service_name' => (string)$definition['name'], 'material_name' => (string)$expectedName, 'uom' => $uom, 'message' => 'Existing service-material rules could not be checked.'];
+    $base = ['service_name' => (string)$definition['name'], 'material_name' => (string)$expectedName, 'uom' => $uom,
+        'selection_role' => (string)$selection['role'], 'selection_group' => $selection['group'] ?? null,
+        'expected_rule_type' => in_array($selection['role'], ['optional', 'multi_optional'], true) ? 'OPTIONAL' : 'REQUIRED'];
+    if (count($rules) > 1) return $base + ['action' => 'pending', 'message' => 'Multiple canonical/alias rules exist for this exact item; manual review is required.'];
+    if ($rules === []) return $base + ['action' => 'create', 'rule' => null, 'multiplier' => null, 'basis' => '', 'message' => 'Will create an unapproved rule; multiplier configuration and approval remain pending.'];
+    $rule = $rules[0];
+    $base['rule'] = $rule;
+    if ((string)$rule['service_type'] !== $expectedType
+        || !printflow_service_material_rule_display_row_is_editable((string)$rule['service_type'], $itemId, [$active[0]], (string)$expectedName)) {
+        return $base + ['action' => 'pending', 'message' => 'A legacy or unmatched service-key rule exists; it will not be duplicated or modified by bulk processing.'];
+    }
+    $state = printflow_service_material_bulk_rule_state($rule, $submittedMultiplier, $submittedBasis, $base['expected_rule_type']);
+    return $base + $state;
 }
 
 foreach (['qty_multiplier', 'qty_multiplier_approved', 'qty_multiplier_approved_by', 'qty_multiplier_approved_at', 'qty_multiplier_basis', 'qty_multiplier_approved_basis'] as $column) {
@@ -75,17 +126,29 @@ if ($method === 'GET') {
         foreach ($policy as $itemId => $selection) {
             $key = $serviceType . ':' . (int)$itemId;
             if (isset($ruleKeys[$key])) continue;
+            $acceptedTypes = printflow_pos_service_material_type_aliases((int)$serviceId);
+            if ($acceptedTypes === []) $acceptedTypes = [$serviceType];
+            $legacyTypes = array_values(array_filter($acceptedTypes, static fn(string $accepted): bool => $accepted !== $serviceType));
+            $aliases = $legacyTypes === [] ? [] : db_query(
+                'SELECT id, service_type FROM service_material_rules WHERE service_type IN (' . implode(',', array_fill(0, count($legacyTypes), '?')) . ') AND item_id = ? ORDER BY id ASC LIMIT 3',
+                str_repeat('s', count($legacyTypes)) . 'i', array_merge($legacyTypes, [(int)$itemId])
+            );
             $itemRows = db_query('SELECT id, name, unit_of_measure, status FROM inv_items WHERE id = ? LIMIT 1', 'i', [(int)$itemId]);
             $item = $itemRows[0] ?? null;
-            if (!$item || strtoupper(trim((string)$item['status'])) !== 'ACTIVE' || strcasecmp((string)$item['name'], (string)($names[$itemId] ?? '')) !== 0) continue;
+            $identityValid = $item && strtoupper(trim((string)$item['status'])) === 'ACTIVE'
+                && strcasecmp((string)$item['name'], (string)($names[$itemId] ?? '')) === 0
+                && printflow_service_material_bulk_uom_valid((string)($item['unit_of_measure'] ?? ''));
             $ruleRows[] = [
                 'id' => null, 'service_type' => $serviceType, 'item_id' => (int)$itemId,
-                'material_name' => (string)$item['name'], 'inventory_uom' => (string)$item['unit_of_measure'],
+                'material_name' => $item && strcasecmp((string)$item['name'], (string)($names[$itemId] ?? '')) === 0 ? (string)$item['name'] : (string)($names[$itemId] ?? ('Inventory item #' . $itemId)),
+                'inventory_uom' => $item ? (string)$item['unit_of_measure'] : '',
                 'rule_type' => in_array($selection['role'], ['optional', 'multi_optional'], true) ? 'OPTIONAL' : 'REQUIRED',
                 'qty_multiplier' => null, 'qty_multiplier_approved' => 0,
                 'qty_multiplier_approved_by' => null, 'qty_multiplier_approved_at' => null,
                 'qty_multiplier_basis' => null, 'qty_multiplier_approved_basis' => null,
                 'configured' => false,
+                'configuration_blocked' => !$identityValid || !is_array($aliases) || $aliases !== [],
+                'configuration_message' => !is_array($aliases) ? 'Existing alias rules could not be checked.' : ($aliases !== [] ? 'A matching rule exists under a non-canonical service key; manual review is required.' : (!$identityValid ? 'The active inventory item identity or UOM could not be verified.' : '')),
             ];
         }
     }
@@ -100,6 +163,125 @@ if (!verify_csrf_token((string)($_POST['csrf_token'] ?? ''))) {
 
 $ruleId = filter_var($_POST['rule_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
 $action = (string)($_POST['action'] ?? '');
+if (in_array($action, ['bulk_preview', 'bulk_process'], true)) {
+    $rawRows = json_decode((string)($_POST['rows'] ?? ''), true);
+    if (!is_array($rawRows) || $rawRows === [] || count($rawRows) > 100) pf_service_rule_api_reply(400, ['success' => false, 'error' => 'Submit 1 to 100 currently displayed active service-material rows.']);
+    $seen = [];
+    $candidates = [];
+    foreach ($rawRows as $rawRow) {
+        if (!is_array($rawRow)) pf_service_rule_api_reply(400, ['success' => false, 'error' => 'A bulk row is malformed.']);
+        $serviceId = filter_var($rawRow['service_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $itemId = filter_var($rawRow['item_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if (!$serviceId || !$itemId || isset($seen[$serviceId . ':' . $itemId])) pf_service_rule_api_reply(400, ['success' => false, 'error' => 'A bulk row has an invalid or duplicate service/material identity.']);
+        $seen[$serviceId . ':' . $itemId] = true;
+        $multiplier = is_scalar($rawRow['multiplier'] ?? null) ? (string)$rawRow['multiplier'] : '';
+        $basis = is_scalar($rawRow['basis'] ?? null) ? (string)$rawRow['basis'] : '';
+        $candidates[] = ['service_id' => (int)$serviceId, 'item_id' => (int)$itemId, 'multiplier' => $multiplier, 'basis' => $basis];
+    }
+    $process = $action === 'bulk_process';
+    if ($process && (string)($_POST['confirm_bulk'] ?? '') !== '1') pf_service_rule_api_reply(400, ['success' => false, 'error' => 'Explicit Admin confirmation is required before bulk processing.']);
+    $results = [];
+    $summary = ['to_create' => 0, 'to_approve' => 0, 'will_remain_pending' => 0, 'already_approved' => 0, 'processed' => 0];
+    foreach ($candidates as $candidate) {
+        $serviceId = $candidate['service_id']; $itemId = $candidate['item_id'];
+        $assessment = pf_service_rule_bulk_assess($serviceId, $itemId, $candidate['multiplier'], $candidate['basis']);
+        $rule = $assessment['rule'] ?? null;
+        $oldStatus = !$rule ? 'Missing' : ((int)($rule['qty_multiplier_approved'] ?? 0) === 1 ? 'Approved' : 'Not Approved');
+        $actionName = (string)($assessment['action'] ?? 'pending');
+        if ($actionName === 'create') $summary['to_create']++;
+        elseif ($actionName === 'approve') $summary['to_approve']++;
+        elseif ($actionName === 'already_approved') $summary['already_approved']++;
+        if (in_array($actionName, ['create', 'pending'], true)) $summary['will_remain_pending']++;
+        $rowResult = [
+            'service' => (string)($assessment['service_name'] ?? ('Service #' . $serviceId)),
+            'material' => (string)($assessment['material_name'] ?? ('Inventory item #' . $itemId)),
+            'action' => $actionName,
+            'old_status' => $oldStatus,
+            'new_status' => $actionName === 'create' ? 'Not Approved' : ($actionName === 'approve' ? 'Approved' : ($actionName === 'already_approved' ? 'Approved' : 'Pending')),
+            'multiplier' => (string)($assessment['multiplier'] ?? $candidate['multiplier']),
+            'basis' => (string)($assessment['basis'] ?? $candidate['basis']),
+            'approval' => $actionName === 'approve' ? 'New Admin audit on confirmation' : ($actionName === 'already_approved' ? 'Existing audit retained' : 'Not approved'),
+            'message' => (string)($assessment['message'] ?? ''),
+        ];
+        if (!$process || !in_array($actionName, ['create', 'approve'], true)) { $results[] = $rowResult; continue; }
+        $lockName = 'pf_smr_' . $serviceId . '_' . $itemId;
+        $lock = db_query('SELECT GET_LOCK(?, 5) AS acquired', 's', [$lockName]);
+        if (!is_array($lock) || (int)($lock[0]['acquired'] ?? 0) !== 1) {
+            $rowResult['action'] = 'pending'; $rowResult['new_status'] = $oldStatus; $rowResult['approval'] = 'Not approved';
+            $rowResult['message'] = 'Could not acquire the per-rule lock; retry this row later.'; $summary['will_remain_pending']++; $results[] = $rowResult; continue;
+        }
+        try {
+            if (!$conn->begin_transaction()) throw new RuntimeException('Could not start a per-rule transaction.');
+            $locked = pf_service_rule_bulk_assess($serviceId, $itemId, $candidate['multiplier'], $candidate['basis'], true);
+            $lockedAction = (string)($locked['action'] ?? 'pending');
+            if ($lockedAction === 'create') {
+                $expectedType = printflow_pos_material_selection_service_type($serviceId);
+                $role = printflow_pos_material_selection_registry()[$serviceId][$itemId]['role'];
+                $ruleType = in_array($role, ['optional', 'multi_optional'], true) ? 'OPTIONAL' : 'REQUIRED';
+                $insert = $conn->prepare("INSERT INTO service_material_rules (service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved, qty_multiplier_approved_by, qty_multiplier_approved_at, qty_multiplier_basis, qty_multiplier_approved_basis) VALUES (?, ?, ?, NULL, 0, NULL, NULL, NULL, NULL)");
+                if (!$insert) throw new RuntimeException('Could not prepare the unapproved rule creation.');
+                $insert->bind_param('sis', $expectedType, $itemId, $ruleType);
+                if (!$insert->execute()) throw new RuntimeException('Could not create the unapproved rule.');
+                $createdRuleId = (int)$insert->insert_id; $insert->close();
+                if ($createdRuleId <= 0) throw new RuntimeException('The new unapproved rule ID could not be verified.');
+                $verify = db_query('SELECT id, service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved FROM service_material_rules WHERE id = ? LIMIT 1', 'i', [$createdRuleId]);
+                if (!is_array($verify) || count($verify) !== 1 || (string)$verify[0]['service_type'] !== $expectedType || (int)$verify[0]['item_id'] !== $itemId
+                    || (string)$verify[0]['rule_type'] !== $ruleType || $verify[0]['qty_multiplier'] !== null || (int)$verify[0]['qty_multiplier_approved'] !== 0) throw new RuntimeException('The new row did not verify as unapproved.');
+                if (!$conn->commit()) throw new RuntimeException('Could not commit the unapproved rule creation.');
+                $rowResult['action'] = 'created_unapproved'; $rowResult['new_status'] = 'Not Approved'; $rowResult['approval'] = 'None';
+                $rowResult['message'] = 'Created only; configure and explicitly approve later.'; $summary['processed']++;
+            } elseif ($lockedAction === 'approve') {
+                $lockedRule = $locked['rule'] ?? null;
+                if (!$lockedRule || (int)($lockedRule['id'] ?? 0) <= 0) throw new RuntimeException('The existing rule could not be locked and verified.');
+                $lockedRuleId = (int)$lockedRule['id']; $multiplier = (string)$locked['multiplier']; $basis = 'AREA_SQFT'; $adminId = (int)get_user_id();
+                if ($adminId <= 0) throw new RuntimeException('The Admin identity is unavailable.');
+                $update = $conn->prepare('UPDATE service_material_rules SET qty_multiplier = ?, qty_multiplier_approved = 0, qty_multiplier_approved_by = NULL, qty_multiplier_approved_at = NULL, qty_multiplier_basis = ?, qty_multiplier_approved_basis = NULL WHERE id = ?');
+                if (!$update) throw new RuntimeException('Could not prepare the explicit multiplier update.');
+                $update->bind_param('ssi', $multiplier, $basis, $lockedRuleId);
+                if (!$update->execute()) throw new RuntimeException('Could not save the multiplier.'); $update->close();
+                $approve = $conn->prepare('UPDATE service_material_rules SET qty_multiplier_approved = 1, qty_multiplier_approved_by = ?, qty_multiplier_approved_at = NOW(), qty_multiplier_approved_basis = qty_multiplier_basis WHERE id = ?');
+                if (!$approve) throw new RuntimeException('Could not prepare the approval audit.');
+                $approve->bind_param('ii', $adminId, $lockedRuleId);
+                if (!$approve->execute() || $approve->affected_rows !== 1) throw new RuntimeException('Could not record the explicit Admin approval.'); $approve->close();
+                $verify = db_query('SELECT qty_multiplier, qty_multiplier_approved, qty_multiplier_approved_by, qty_multiplier_approved_at, qty_multiplier_basis, qty_multiplier_approved_basis FROM service_material_rules WHERE id = ? LIMIT 1', 'i', [$lockedRuleId]);
+                if (!is_array($verify) || count($verify) !== 1 || number_format((float)$verify[0]['qty_multiplier'], 2, '.', '') !== $multiplier
+                    || (int)$verify[0]['qty_multiplier_approved'] !== 1 || (int)$verify[0]['qty_multiplier_approved_by'] !== $adminId
+                    || trim((string)$verify[0]['qty_multiplier_approved_at']) === '' || (string)$verify[0]['qty_multiplier_basis'] !== $basis
+                    || (string)$verify[0]['qty_multiplier_approved_basis'] !== $basis) throw new RuntimeException('Multiplier or Admin approval audit verification failed.');
+                if (!$conn->commit()) throw new RuntimeException('Could not commit this rule update.');
+                $rowResult['action'] = 'approved'; $rowResult['new_status'] = 'Approved'; $rowResult['approval'] = 'Admin #' . $adminId . ' at ' . (string)$verify[0]['qty_multiplier_approved_at'];
+                $rowResult['message'] = 'Multiplier/basis verified and Admin approval audit recorded.'; $summary['processed']++;
+            } elseif ($lockedAction === 'already_approved') {
+                if (!$conn->commit()) throw new RuntimeException('Could not close the verified no-op transaction.');
+                $rowResult['action'] = 'already_approved'; $rowResult['new_status'] = 'Approved';
+                $rowResult['approval'] = 'Existing audit retained'; $rowResult['message'] = (string)($locked['message'] ?? 'Already approved; no changes were made.');
+            } else {
+                $conn->rollback();
+                $rowResult['action'] = 'pending'; $rowResult['new_status'] = $oldStatus; $rowResult['approval'] = 'Not approved';
+                $rowResult['message'] = (string)($locked['message'] ?? 'This row no longer qualifies; no changes were made.'); $summary['will_remain_pending']++;
+            }
+        } catch (Throwable $e) {
+            @$conn->rollback();
+            error_log('Bulk service material rule row failed: ' . get_class($e));
+            $rowResult['action'] = 'failed'; $rowResult['new_status'] = $oldStatus; $rowResult['approval'] = 'Not approved';
+            $rowResult['message'] = 'This row failed safely and was rolled back; review the server log and retry after correction.'; $summary['will_remain_pending']++;
+        } finally {
+            db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$lockName]);
+        }
+        $results[] = $rowResult;
+    }
+    if ($process) {
+        $summary['will_remain_pending'] = 0;
+        $summary['already_approved'] = 0;
+        $summary['processed'] = 0;
+        foreach ($results as $resultRow) {
+            if (in_array($resultRow['action'], ['created_unapproved', 'pending', 'failed'], true)) $summary['will_remain_pending']++;
+            if ($resultRow['action'] === 'already_approved') $summary['already_approved']++;
+            if (in_array($resultRow['action'], ['created_unapproved', 'approved'], true)) $summary['processed']++;
+        }
+    }
+    pf_service_rule_api_reply(200, ['success' => true, 'mode' => $process ? 'processed' : 'preview', 'summary' => $summary, 'results' => $results]);
+}
 if ($action === 'create_rule') {
     $serviceId = filter_var($_POST['service_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
     $itemId = filter_var($_POST['item_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
@@ -119,20 +301,46 @@ if ($action === 'create_rule') {
     // row that the POS runtime would also resolve for this service.
     $acceptedTypes = printflow_pos_service_material_type_aliases((int)$serviceId);
     if ($acceptedTypes === []) $acceptedTypes = [$expectedType];
+    $ruleLock = 'pf_smr_' . (int)$serviceId . '_' . (int)$itemId;
+    $lockRows = db_query('SELECT GET_LOCK(?, 5) AS acquired', 's', [$ruleLock]);
+    if (!is_array($lockRows) || (int)($lockRows[0]['acquired'] ?? 0) !== 1) pf_service_rule_api_reply(409, ['success' => false, 'error' => 'This service-material rule is being updated. Retry after the current operation finishes.']);
+    if (!$conn->begin_transaction()) { db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]); pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not start the unapproved rule transaction.']); }
+    $lockedActive = db_query('SELECT service_id, name, status FROM services WHERE service_id = ? LIMIT 1 FOR UPDATE', 'i', [$serviceId]);
+    $lockedItem = db_query('SELECT id, name, status FROM inv_items WHERE id = ? LIMIT 1 FOR UPDATE', 'i', [$itemId]);
+    if (!is_array($lockedActive) || count($lockedActive) !== 1 || strtoupper(trim((string)$lockedActive[0]['status'])) !== 'ACTIVATED'
+        || strcasecmp(trim((string)$lockedActive[0]['name']), (string)(printflow_service_material_rule_display_registry()[$serviceId]['name'] ?? '')) !== 0
+        || !is_array($lockedItem) || count($lockedItem) !== 1 || strtoupper(trim((string)$lockedItem[0]['status'])) !== 'ACTIVE'
+        || strcasecmp(trim((string)$lockedItem[0]['name']), (string)$expectedName) !== 0) {
+        $conn->rollback(); db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]);
+        pf_service_rule_api_reply(409, ['success' => false, 'error' => 'The active service or inventory identity changed during the request. Refresh before creating the rule.']);
+    }
     $typePlaceholders = implode(',', array_fill(0, count($acceptedTypes), '?'));
     $existing = db_query(
-        "SELECT id FROM service_material_rules WHERE service_type IN ({$typePlaceholders}) AND item_id = ? LIMIT 2",
+        "SELECT id FROM service_material_rules WHERE service_type IN ({$typePlaceholders}) AND item_id = ? LIMIT 2 FOR UPDATE",
         str_repeat('s', count($acceptedTypes)) . 'i',
         array_merge($acceptedTypes, [$itemId])
     );
-    if ($existing === false || $existing !== []) pf_service_rule_api_reply(409, ['success' => false, 'error' => 'A rule already exists or could not be checked. Refresh before editing.']);
+    if ($existing === false || $existing !== []) {
+        $conn->rollback();
+        db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]);
+        pf_service_rule_api_reply(409, ['success' => false, 'error' => 'A rule already exists or could not be checked. Refresh before editing.']);
+    }
     $ruleType = in_array($policy['role'], ['optional', 'multi_optional'], true) ? 'OPTIONAL' : 'REQUIRED';
     $insert = $conn->prepare("INSERT INTO service_material_rules (service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved, qty_multiplier_approved_by, qty_multiplier_approved_at, qty_multiplier_basis, qty_multiplier_approved_basis) VALUES (?, ?, ?, NULL, 0, NULL, NULL, NULL, NULL)");
-    if (!$insert) pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not prepare the new unapproved material rule.']);
+    if (!$insert) { $conn->rollback(); db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]); pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not prepare the new unapproved material rule.']); }
     $insert->bind_param('sis', $expectedType, $itemId, $ruleType);
-    if (!$insert->execute()) pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not create the unapproved material rule.']);
+    if (!$insert->execute()) { $insert->close(); $conn->rollback(); db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]); pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not create the unapproved material rule.']); }
     $newId = (int)$insert->insert_id;
     $insert->close();
+    $verify = db_query('SELECT id, service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved FROM service_material_rules WHERE id = ? LIMIT 1', 'i', [$newId]);
+    if ($newId <= 0 || !is_array($verify) || count($verify) !== 1 || (string)$verify[0]['service_type'] !== $expectedType
+        || (int)$verify[0]['item_id'] !== (int)$itemId || (string)$verify[0]['rule_type'] !== $ruleType
+        || $verify[0]['qty_multiplier'] !== null || (int)$verify[0]['qty_multiplier_approved'] !== 0) {
+        $conn->rollback(); db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]);
+        pf_service_rule_api_reply(500, ['success' => false, 'error' => 'The new row did not verify as unapproved; the transaction was rolled back.']);
+    }
+    if (!$conn->commit()) { db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]); pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not commit the unapproved service-material rule.']); }
+    db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]);
     pf_service_rule_api_reply(200, ['success' => true, 'rule_id' => $newId, 'approved' => false]);
 }
 if (!$ruleId || !in_array($action, ['update_multiplier', 'approve'], true)) {
@@ -169,6 +377,7 @@ try {
     }
     $ruleType = strtoupper(trim((string)$rule['rule_type']));
     if ($action === 'approve') {
+        if ($ruleType !== 'REQUIRED') throw new InvalidArgumentException('Only REQUIRED service material rules can be approved.');
         $conflict = printflow_pos_known_service_material_conflict((string)$rule['service_type'], (string)($rule['material_name'] ?? ''));
         if ($conflict !== null) throw new InvalidArgumentException($conflict);
     }

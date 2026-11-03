@@ -865,9 +865,12 @@ if (isset($_GET['ajax'])) {
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
                     <div>
                         <h2 style="font-size:16px;margin:0;color:#1f2937;">Service Material Rules</h2>
-                        <p style="font-size:12px;color:#64748b;margin:5px 0 0;">Only an Admin can save multipliers or approve REQUIRED rules. Changing a multiplier clears its approval and requires a new approval.</p>
+                        <p style="font-size:12px;color:#64748b;margin:5px 0 0;">Only an Admin can save multipliers or approve configured materials. Changing a multiplier clears its previous approval and audit.</p>
                     </div>
-                    <button type="button" class="toolbar-btn" onclick="pfLoadServiceMaterialRules()">Refresh rules</button>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button type="button" class="toolbar-btn" onclick="pfLoadServiceMaterialRules()">Refresh rules</button>
+                        <button type="button" class="toolbar-btn" id="serviceMaterialProcessAll" onclick="pfProcessAllServiceMaterialRules()">Process All</button>
+                    </div>
                 </div>
                 <div id="serviceMaterialRuleFeedback" role="status" aria-live="polite" style="font-size:13px;margin:0 0 10px;color:#334155;"></div>
                 <div style="overflow-x:auto;">
@@ -876,6 +879,11 @@ if (isset($_GET['ajax'])) {
                         <tbody id="serviceMaterialRuleRows"><tr><td colspan="7" style="padding:16px;">Loading service material rules…</td></tr></tbody>
                     </table>
                 </div>
+                <details id="serviceMaterialBulkResults" style="margin-top:12px;" open>
+                    <summary style="cursor:pointer;font-weight:600;">Bulk preview / result details</summary>
+                    <div id="serviceMaterialBulkSummary" role="status" aria-live="polite" style="padding:10px 0;color:#334155;font-size:13px;">No bulk operation has been run.</div>
+                    <div style="overflow-x:auto;"><table class="inv-table" style="min-width:1100px;"><thead><tr><th>Service</th><th>Material</th><th>Action</th><th>Old Status</th><th>New Status</th><th>Multiplier</th><th>Basis</th><th>Approval</th><th>Message</th></tr></thead><tbody id="serviceMaterialBulkResultRows"><tr><td colspan="9" style="padding:10px;color:#64748b;">Preview appears here before any change.</td></tr></tbody></table></div>
+                </details>
             </section>
             <?php endif; ?>
             <!-- Items Card -->
@@ -1636,6 +1644,7 @@ if (isset($_GET['ajax'])) {
             var data = await response.json();
             if (!response.ok || !data.success) throw new Error(data.error || 'Could not load rules.');
             if (!Array.isArray(data.groups)) throw new Error('The active service mapping response is invalid.');
+            window.pfCurrentServiceMaterialRuleGroups = data.groups;
             body.innerHTML = data.groups.map(function (group) {
                 var header = '<tr class="service-material-service-heading"><th colspan="7" style="padding:12px 10px;background:#f1f5f9;color:#0f172a;text-align:left;">' + escapeHtml(group.service_name) + ' <span style="color:#64748b;font-weight:500;">(Service ID ' + Number(group.service_id) + ')</span></th></tr>';
                 if (!Array.isArray(group.materials) || !group.materials.length) {
@@ -1651,11 +1660,13 @@ if (isset($_GET['ajax'])) {
                 var ruleId = Number(rule.id || 0);
                 var basisServices = [36,39,64,67,71].includes(Number(group.service_id));
                 if (basisServices && approved && String(rule.qty_multiplier_approved_basis || '').toUpperCase() !== String(rule.qty_multiplier_basis || '').toUpperCase()) status = 'Basis approval is missing or stale; explicit reapproval required';
-                var actions = readOnly ? 'Dedicated POS rule · read only' : (rule.configured === false
+                var actions = readOnly ? 'Dedicated POS rule · read only' : (rule.configuration_blocked === true
+                    ? escapeHtml(rule.configuration_message || 'This mapping is blocked pending identity review.')
+                    : (rule.configured === false
                     ? '<button type="button" class="toolbar-btn" onclick="pfCreateServiceMaterialRule(' + Number(group.service_id) + ',' + Number(rule.item_id) + ')">Create unapproved rule</button>'
-                    : '<button type="button" class="toolbar-btn" onclick="pfSaveServiceMaterialMultiplier(' + ruleId + ')">Save multiplier</button>');
-                if (!readOnly && rule.configured !== false) actions += ' <button type="button" class="toolbar-btn" onclick="pfApproveServiceMaterialRule(' + ruleId + ')">' + (required ? 'Approve REQUIRED' : 'Approve multiplier') + '</button>';
-                var multiplierCell = readOnly ? escapeHtml(multiplier) + ' (POS-managed)' : (rule.configured === false ? 'Not configured' : '<input id="serviceMaterialMultiplier-' + ruleId + '" type="number" min="0.01" max="99999999.99" step="0.01" value="' + escapeHtml(multiplier) + '" aria-label="Inventory units per square foot for rule ' + ruleId + '" style="width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;">' + (basisServices ? '<small style="display:block;color:#64748b">inventory units per ft²</small>' : ''));
+                    : '<button type="button" class="toolbar-btn" onclick="pfSaveServiceMaterialMultiplier(' + ruleId + ')">Save multiplier</button>'));
+                if (!readOnly && rule.configuration_blocked !== true && rule.configured !== false) actions += ' <button type="button" class="toolbar-btn" onclick="pfApproveServiceMaterialRule(' + ruleId + ')">' + (required ? 'Approve REQUIRED' : 'Approve multiplier') + '</button>';
+                var multiplierCell = readOnly ? escapeHtml(multiplier) + ' (POS-managed)' : (rule.configuration_blocked === true ? 'Unavailable' : (rule.configured === false ? 'Not configured' : '<input id="serviceMaterialMultiplier-' + ruleId + '" type="number" min="0.01" max="99999999.99" step="0.01" value="' + escapeHtml(multiplier) + '" aria-label="Inventory units per square foot for rule ' + ruleId + '" style="width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;">' + (basisServices ? '<small style="display:block;color:#64748b">Inventory Units Per Ft²</small>' : '')));
                 if (readOnly) status = 'Dedicated active Mugs POS rule';
                 var roleLabel = rule.selection_role === 'alternative' ? 'Alternative · ' + (rule.group_required ? 'choose one' : 'optional') : (rule.selection_role === 'optional' ? 'Optional, manual selection' : (rule.selection_role === 'multi_optional' ? 'Optional finish, multi-select' : ''));
                 if (rule.stored_rule_type && String(rule.stored_rule_type).toUpperCase() !== String(rule.rule_type).toUpperCase()) status += ' · stored type ' + escapeHtml(rule.stored_rule_type) + ' needs targeted correction';
@@ -1666,6 +1677,68 @@ if (isset($_GET['ajax'])) {
         } catch (error) {
             body.innerHTML = '<tr><td colspan="7" style="padding:16px;color:#b91c1c;">' + escapeHtml(error.message) + '</td></tr>';
         }
+    };
+    window.pfRenderServiceMaterialBulkResults = function (mode, summary, results) {
+        var summaryEl = document.getElementById('serviceMaterialBulkSummary');
+        var rowsEl = document.getElementById('serviceMaterialBulkResultRows');
+        if (summaryEl) summaryEl.textContent = (mode === 'preview' ? 'DRY RUN — no records changed. ' : 'PROCESS RESULT. ')
+            + 'Create unapproved: ' + Number(summary.to_create || 0)
+            + '; approve/reapprove: ' + Number(summary.to_approve || 0)
+            + '; remain pending: ' + Number(summary.will_remain_pending || 0)
+            + '; already approved: ' + Number(summary.already_approved || 0)
+            + (mode === 'processed' ? '; processed: ' + Number(summary.processed || 0) : '');
+        if (!rowsEl) return;
+        rowsEl.innerHTML = (results || []).map(function (row) {
+            return '<tr>' + ['service','material','action','old_status','new_status','multiplier','basis','approval','message'].map(function (key) {
+                return '<td>' + escapeHtml(row[key] == null ? '' : String(row[key])) + '</td>';
+            }).join('') + '</tr>';
+        }).join('') || '<tr><td colspan="9" style="padding:10px;">No eligible displayed rows.</td></tr>';
+    };
+    window.pfProcessAllServiceMaterialRules = async function () {
+        var button = document.getElementById('serviceMaterialProcessAll');
+        var feedback = document.getElementById('serviceMaterialRuleFeedback');
+        var allowed = [36, 39, 64, 67, 71];
+        var rows = [];
+        (window.pfCurrentServiceMaterialRuleGroups || []).forEach(function (group) {
+            var serviceId = Number(group.service_id);
+            if (!allowed.includes(serviceId) || !Array.isArray(group.materials)) return;
+            group.materials.forEach(function (rule) {
+                var itemId = Number(rule.item_id);
+                if (!itemId) return;
+                var ruleId = Number(rule.id || 0);
+                var input = ruleId > 0 ? document.getElementById('serviceMaterialMultiplier-' + ruleId) : null;
+                rows.push({ service_id: serviceId, item_id: itemId,
+                    multiplier: input ? input.value : (rule.qty_multiplier == null ? '' : String(rule.qty_multiplier)),
+                    basis: input ? 'AREA_SQFT' : String(rule.qty_multiplier_basis || '') });
+            });
+        });
+        if (!rows.length) { if (feedback) feedback.textContent = 'No currently displayed bulk-eligible rows were found.'; return; }
+        if (button) button.disabled = true;
+        var request = async function (action, confirmBulk) {
+            var form = new FormData(); form.set('csrf_token', window.PF_INVENTORY_CSRF || ''); form.set('action', action);
+            form.set('rows', JSON.stringify(rows)); if (confirmBulk) form.set('confirm_bulk', '1');
+            var response = await fetch(ADMIN_API_BASE + 'service_material_rules_api.php', { method: 'POST', body: form, credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+            var data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Bulk rule processing failed.'); return data;
+        };
+        try {
+            if (feedback) feedback.textContent = 'Building read-only preview…';
+            var preview = await request('bulk_preview', false);
+            window.pfRenderServiceMaterialBulkResults('preview', preview.summary || {}, preview.results || []);
+            var s = preview.summary || {};
+            var confirmation = 'Review the dry-run table first.\n\nCreate unapproved: ' + Number(s.to_create || 0)
+                + '\nApprove/reapprove: ' + Number(s.to_approve || 0)
+                + '\nWill remain pending: ' + Number(s.will_remain_pending || 0)
+                + '\nAlready approved: ' + Number(s.already_approved || 0)
+                + '\n\nApproval changes POS validation and may authorize inventory consumption when a material is selected. Existing approved values/audits may be replaced only for rows explicitly listed for reapproval. Continue?';
+            if (!Number(s.to_create || 0) && !Number(s.to_approve || 0)) { if (feedback) feedback.textContent = 'Dry run complete. No row qualifies for changes; nothing was written.'; return; }
+            if (!window.confirm(confirmation)) { if (feedback) feedback.textContent = 'Dry run retained. No records changed.'; return; }
+            if (feedback) feedback.textContent = 'Processing confirmed rows independently…';
+            var result = await request('bulk_process', true);
+            window.pfRenderServiceMaterialBulkResults('processed', result.summary || {}, result.results || []);
+            await window.pfLoadServiceMaterialRules();
+            if (feedback) feedback.textContent = 'Bulk processing finished. Review each row result below; pending and failed rows were left unapproved.';
+        } catch (error) { if (feedback) feedback.textContent = error.message; }
+        finally { if (button) button.disabled = false; }
     };
     window.pfMutateServiceMaterialRule = async function (ruleId, action, multiplier) {
         var feedback = document.getElementById('serviceMaterialRuleFeedback');
