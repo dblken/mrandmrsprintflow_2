@@ -214,6 +214,7 @@ if (in_array($action, ['bulk_preview', 'bulk_process'], true)) {
             $rowResult['action'] = 'pending'; $rowResult['new_status'] = $oldStatus; $rowResult['approval'] = 'Not approved';
             $rowResult['message'] = 'Could not acquire the per-rule lock; retry this row later.'; $summary['will_remain_pending']++; $results[] = $rowResult; continue;
         }
+        $safeFailureReason = '';
         try {
             if (!$conn->begin_transaction()) throw new RuntimeException('Could not start a per-rule transaction.');
             $locked = pf_service_rule_bulk_assess($serviceId, $itemId, $candidate['multiplier'], $candidate['basis'], true);
@@ -228,9 +229,45 @@ if (in_array($action, ['bulk_preview', 'bulk_process'], true)) {
                 if (!$insert->execute()) throw new RuntimeException('Could not create the unapproved rule.');
                 $createdRuleId = (int)$insert->insert_id; $insert->close();
                 if ($createdRuleId <= 0) throw new RuntimeException('The new unapproved rule ID could not be verified.');
-                $verify = db_query('SELECT id, service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved FROM service_material_rules WHERE id = ? LIMIT 1', 'i', [$createdRuleId]);
-                if (!is_array($verify) || count($verify) !== 1 || (string)$verify[0]['service_type'] !== $expectedType || (int)$verify[0]['item_id'] !== $itemId
-                    || (string)$verify[0]['rule_type'] !== $ruleType || $verify[0]['qty_multiplier'] !== null || (int)$verify[0]['qty_multiplier_approved'] !== 0) throw new RuntimeException('The new row did not verify as unapproved.');
+                $verifyFailure = '';
+                $verifyStmt = $conn->prepare(
+                    'SELECT id, service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved,
+                            qty_multiplier_approved_by, qty_multiplier_approved_at, qty_multiplier_basis, qty_multiplier_approved_basis
+                     FROM service_material_rules WHERE id = ? LIMIT 1 FOR UPDATE'
+                );
+                if (!$verifyStmt) {
+                    $verifyFailure = 'The inserted rule could not be verified because its exact-ID query could not be prepared.';
+                } else {
+                    $verifyStmt->bind_param('i', $createdRuleId);
+                    if (!$verifyStmt->execute()) {
+                        $verifyFailure = 'The inserted rule could not be verified because its exact-ID query failed.';
+                    } elseif (!$verifyStmt->store_result() || (int)$verifyStmt->num_rows !== 1) {
+                        $verifyFailure = 'The inserted rule ID did not resolve to exactly one row.';
+                    } else {
+                        $verifyId = 0; $verifyServiceType = null; $verifyItemId = 0; $verifyRuleType = null;
+                        $verifyMultiplier = null; $verifyApproved = null; $verifyApprovedBy = null; $verifyApprovedAt = null;
+                        $verifyBasis = null; $verifyApprovedBasis = null;
+                        if (!$verifyStmt->bind_result($verifyId, $verifyServiceType, $verifyItemId, $verifyRuleType, $verifyMultiplier, $verifyApproved, $verifyApprovedBy, $verifyApprovedAt, $verifyBasis, $verifyApprovedBasis)
+                            || !$verifyStmt->fetch()) {
+                            $verifyFailure = 'The inserted rule verification result could not be read.';
+                        } elseif ((int)$verifyId !== $createdRuleId) {
+                            $verifyFailure = 'The inserted rule ID did not match the row read back.';
+                        } elseif ((string)$verifyServiceType !== $expectedType || (int)$verifyItemId !== $itemId) {
+                            $verifyFailure = 'The inserted rule service or inventory identity did not match the requested mapping.';
+                        } elseif ((string)$verifyRuleType !== $ruleType) {
+                            $verifyFailure = 'The inserted rule type did not match the expected classification.';
+                        } elseif ($verifyMultiplier !== null || (int)$verifyApproved !== 0) {
+                            $verifyFailure = 'The inserted rule did not remain unconfigured and unapproved.';
+                        } elseif ($verifyApprovedBy !== null || $verifyApprovedAt !== null || $verifyBasis !== null || $verifyApprovedBasis !== null) {
+                            $verifyFailure = 'The inserted rule contains unexpected approval audit or basis values.';
+                        }
+                    }
+                    $verifyStmt->close();
+                }
+                if ($verifyFailure !== '') {
+                    $safeFailureReason = $verifyFailure;
+                    throw new RuntimeException('Unapproved rule verification failed.');
+                }
                 if (!$conn->commit()) throw new RuntimeException('Could not commit the unapproved rule creation.');
                 $rowResult['action'] = 'created_unapproved'; $rowResult['new_status'] = 'Not Approved'; $rowResult['approval'] = 'None';
                 $rowResult['message'] = 'Created only; configure and explicitly approve later.'; $summary['processed']++;
@@ -272,11 +309,13 @@ if (in_array($action, ['bulk_preview', 'bulk_process'], true)) {
                 'service_id' => $serviceId,
                 'item_id' => $itemId,
                 'action' => $lockedAction ?? 'unknown',
+                'safe_reason' => $safeFailureReason !== '' ? $safeFailureReason : 'Transaction failed before a verified commit.',
                 'error_class' => get_class($e),
                 'error_code' => (int)$e->getCode(),
             ], JSON_UNESCAPED_SLASHES));
             $rowResult['action'] = 'failed'; $rowResult['new_status'] = $oldStatus; $rowResult['approval'] = 'Not approved';
-            $rowResult['message'] = 'This row failed safely and was rolled back. Reference ' . $errorReference . '; review the matching server log entry before retrying.'; $summary['will_remain_pending']++;
+            $rowResult['message'] = ($safeFailureReason !== '' ? $safeFailureReason . ' ' : 'This row failed safely and was rolled back. ')
+                . 'Reference ' . $errorReference . '; review the matching server log entry before retrying.'; $summary['will_remain_pending']++;
         } finally {
             db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$lockName]);
         }
