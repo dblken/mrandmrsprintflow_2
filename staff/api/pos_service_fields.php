@@ -172,20 +172,26 @@ if (is_array($selectionPolicy)) {
         echo json_encode(['success' => false, 'error' => 'Service material rules could not be loaded.']);
         exit;
     }
-    try { $ruleRows = printflow_pos_select_service_material_rule_set($service_id, $ruleRows ?: []); }
-    catch (Throwable $identityError) {
-        http_response_code(409);
-        header('Content-Type: application/json; charset=utf-8');
-        $staffError = printflow_pos_sintraboard_staff_facing_material_error($service_id, $identityError->getMessage());
-        echo json_encode(['success' => false, 'error' => $staffError ?? ($service_id === 71
-            ? 'May kailangan bang linawin tungkol sa material na gagamitin? May nalilito ba sa pagpili ng material? Pakisuri ang Sintra 3mm o Sintra 5mm bago magpatuloy.'
-            : 'Stable and legacy material mappings conflict. An Admin must resolve the duplicate configuration.')]);
-        exit;
+    if ($service_id === 71) {
+        // Render the thickness selector even when saved material rows conflict.
+        // This is a display projection only; stock/cart/checkout still apply
+        // the strict resolver to the complete rule set after a choice is made.
+        $ruleRows = printflow_pos_sintraboard_rule_rows_for_display($ruleRows ?: []);
+    } else {
+        try { $ruleRows = printflow_pos_select_service_material_rule_set($service_id, $ruleRows ?: []); }
+        catch (Throwable $identityError) {
+            http_response_code(409);
+            header('Content-Type: application/json; charset=utf-8');
+            $staffError = printflow_pos_sintraboard_staff_facing_material_error($service_id, $identityError->getMessage());
+            echo json_encode(['success' => false, 'error' => $staffError ?? 'Stable and legacy material mappings conflict. An Admin must resolve the duplicate configuration.']);
+            exit;
+        }
     }
     $rulesByItem = [];
     foreach ($ruleRows as $ruleRow) {
         $ruleItemId = (int)$ruleRow['item_id'];
         if (isset($rulesByItem[$ruleItemId])) {
+            if ($service_id === 71) continue; // display projection de-duplicates only.
             http_response_code(409);
             header('Content-Type: application/json; charset=utf-8');
             $duplicateError = 'Multiple rules exist for one service/material ID. An Admin must resolve the duplicate configuration.';

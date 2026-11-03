@@ -62,6 +62,12 @@ $assert(
     'Sintraboard renders an unselected required Board Thickness radio group with explicit Sintra 3mm and Sintra 5mm labels'
 );
 $assert(
+    str_contains($source, 'printflow_pos_sintraboard_rule_rows_for_display($ruleRows ?: [])')
+        && str_contains($source, 'strict resolver to the complete rule set after a choice is made')
+        && str_contains($source, 'if ($service_id === 71) continue; // display projection de-duplicates only.'),
+    'Sintraboard conflicts cannot abort initial form rendering; selection-time stock validation remains strict.'
+);
+$assert(
     !str_contains($source, 'Demand is calculated')
         && !str_contains($source, 'inventory-units-per-square-foot multiplier')
         && !str_contains($source, "htmlspecialchars(\$choice['uom'], ENT_QUOTES, 'UTF-8') . '</span><small")

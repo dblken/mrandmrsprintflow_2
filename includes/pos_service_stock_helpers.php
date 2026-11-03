@@ -186,7 +186,7 @@ function printflow_pos_sintraboard_staff_facing_material_error(int $serviceId, s
 {
     if ($serviceId !== 71) return null;
     if (preg_match('/select exactly one material from the sintra(?:_thickness| thickness) choices/i', $message)) {
-        return 'Piliin ang Sintra 3mm o Sintra 5mm ayon sa hiling ng customer.';
+        return 'Please select Sintra 3mm or Sintra 5mm.';
     }
     if (!preg_match(
         '/stable(?:-id)?\s+and\s+legacy|sintraboard mappings conflict|duplicate configuration|multiple rules exist for one service\/material|stable service id conflicts with the stored service_type/i',
@@ -258,6 +258,45 @@ function printflow_pos_select_service_material_rule_set(int $serviceId, array $r
         throw new RuntimeException('Material rules exist under multiple aliases for service ID ' . $serviceId . '. Resolve the duplicate service_type configuration before POS stock validation.');
     }
     return $groups === [] ? [] : array_values(reset($groups));
+}
+
+/**
+ * Build initial Sintraboard selector rows without allowing configuration
+ * conflicts to prevent the form from rendering. The strict stock resolver
+ * still checks all rows after a thickness is selected.
+ */
+function printflow_pos_sintraboard_rule_rows_for_display(array $rows): array
+{
+    $stableRows = [];
+    foreach ($rows as $row) {
+        if (is_array($row) && (int)($row['service_id'] ?? 0) === 71) $stableRows[] = $row;
+    }
+    if ($stableRows !== []) {
+        $sourceRows = $stableRows;
+    } else {
+        $aliases = array_map('strtolower', printflow_pos_service_material_type_aliases(71));
+        $sourceRows = array_values(array_filter($rows, static function ($row) use ($aliases): bool {
+            return is_array($row)
+                && (int)($row['service_id'] ?? 0) <= 0
+                && in_array(strtolower(trim((string)($row['service_type'] ?? ''))), $aliases, true);
+        }));
+    }
+
+    $byItem = [];
+    foreach ($sourceRows as $row) {
+        $itemId = filter_var($row['item_id'] ?? null, FILTER_VALIDATE_INT);
+        if ($itemId === false || $itemId <= 0) continue;
+        if (!isset($byItem[(int)$itemId])) {
+            $byItem[(int)$itemId] = $row;
+            continue;
+        }
+        $currentSignature = printflow_pos_service_material_rule_alias_signature($byItem[(int)$itemId]);
+        $nextSignature = printflow_pos_service_material_rule_alias_signature($row);
+        $currentApproved = $currentSignature !== null && $currentSignature[4] === 1;
+        $nextApproved = $nextSignature !== null && $nextSignature[4] === 1;
+        if ($nextApproved && !$currentApproved) $byItem[(int)$itemId] = $row;
+    }
+    return array_values($byItem);
 }
 
 function printflow_pos_assert_service_stock_multiplier_schema(

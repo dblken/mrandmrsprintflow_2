@@ -4702,7 +4702,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function posServiceStaffFacingMaterialMessage(message, serviceId = null) {
             const text = String(message || '').trim();
             if (Number(serviceId) === 71 && /select exactly one material from the sintra(?:_thickness| thickness) choices/i.test(text)) {
-                return 'Piliin ang Sintra 3mm o Sintra 5mm ayon sa hiling ng customer.';
+                return 'Please select Sintra 3mm or Sintra 5mm.';
             }
             if (Number(serviceId) === 71 && /stable(?:-id)?\s+and\s+legacy|sintraboard mappings conflict|duplicate configuration|multiple rules exist for one service\/material|stable service id conflicts with the stored service_type/i.test(text)) {
                 return 'May kailangan bang linawin tungkol sa material na gagamitin? May nalilito ba sa pagpili ng material? Pakisuri ang Sintra 3mm o Sintra 5mm bago magpatuloy.';

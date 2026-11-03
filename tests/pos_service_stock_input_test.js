@@ -184,7 +184,7 @@ sintraTechnicalErrors.forEach(error => {
 assert.equal(context.posServiceStockDisplayMessage(sintraTechnicalErrors[0], 67), '',
     'the Sintraboard-only wording change does not affect other services');
 assert.equal(context.posServiceStockDisplayMessage('Select exactly one material from the sintra_thickness choices.', 71),
-    'Piliin ang Sintra 3mm o Sintra 5mm ayon sa hiling ng customer.',
+    'Please select Sintra 3mm or Sintra 5mm.',
     'an unselected thickness shows a clear staff instruction instead of an internal group key');
 assert.equal(context.posServiceStockDisplayMessage('Sintra 3mm is out of stock.', 71), 'Sintra 3mm is out of stock.',
     'selected Sintraboard no-stock failures remain visible');

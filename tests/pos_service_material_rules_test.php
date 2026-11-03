@@ -146,6 +146,21 @@ $assert(array_column($stableSintraTextResolved, 'id') === [26, 35, 52]
     && $stableSintraTextResolved[1]['qty_multiplier_basis'] === 'AREA_SQFT'
     && $stableSintraTextResolved[2]['qty_multiplier_basis'] === 'AREA_SQFT',
     'Stable service_id=71 rules remain authoritative when their legacy service_type text is blank or stale; unrelated legacy aliases do not block them.');
+$displaySintraRows = printflow_pos_sintraboard_rule_rows_for_display(array_merge($auditedSintraStableRows, $auditedSintraLegacyRows));
+$assert(array_column($displaySintraRows, 'id') === [26, 35, 52],
+    'The initial Sintraboard form uses stable rows and ignores unmatched legacy entries for display.');
+$displayConflictRows = $auditedSintraStableRows;
+$displayConflictDuplicate = $auditedSintraStableRows[1];
+$displayConflictDuplicate['id'] = 100;
+$displayConflictDuplicate['qty_multiplier'] = '2.00';
+$displayProjection = printflow_pos_sintraboard_rule_rows_for_display(array_merge($displayConflictRows, [$displayConflictDuplicate]));
+$assert(array_column($displayProjection, 'item_id') === [23, 206, 207]
+    && count(array_filter($displayProjection, static fn(array $row): bool => (int)$row['item_id'] === 206)) === 1,
+    'Conflicting thickness rows do not prevent the initial selector from rendering one choice per material.');
+$expectRuntimeError(
+    static fn() => printflow_pos_select_service_material_rule_set(71, array_merge($auditedSintraStableRows, [$displayConflictDuplicate])),
+    'An Admin must review the service-material configuration'
+);
 $unapprovedStableDuplicate = $auditedSintraStableRows[1];
 $unapprovedStableDuplicate['id'] = 99;
 $unapprovedStableDuplicate['qty_multiplier_approved'] = 0;
@@ -197,8 +212,8 @@ $sintraTechnicalError = 'Stable and legacy material mappings conflict. An Admin 
 $sintraStaffMessage = 'May kailangan bang linawin tungkol sa material na gagamitin? May nalilito ba sa pagpili ng material? Pakisuri ang Sintra 3mm o Sintra 5mm bago magpatuloy.';
 $assert(printflow_pos_sintraboard_staff_facing_material_error(71, $sintraTechnicalError) === $sintraStaffMessage,
     'Sintraboard mapping diagnostics are replaced with the staff-friendly ambiguity prompt.');
-$assert(printflow_pos_sintraboard_staff_facing_material_error(71, 'Select exactly one material from the sintra thickness choices.') === 'Piliin ang Sintra 3mm o Sintra 5mm ayon sa hiling ng customer.',
-    'Missing or multiple board-thickness selections receive a clear staff instruction rather than a technical group key.');
+$assert(printflow_pos_sintraboard_staff_facing_material_error(71, 'Select exactly one material from the sintra thickness choices.') === 'Please select Sintra 3mm or Sintra 5mm.',
+    'Missing or multiple board-thickness selections receive the requested concise staff instruction.');
 $assert(printflow_pos_sintraboard_staff_facing_material_error(71, 'Sintra 3mm is out of stock.') === null
     && printflow_pos_sintraboard_staff_facing_material_error(67, $sintraTechnicalError) === null,
     'Stock messages and other services are not rewritten by the Sintraboard diagnostic sanitizer.');
