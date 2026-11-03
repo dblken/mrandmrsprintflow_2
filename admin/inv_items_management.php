@@ -1634,6 +1634,31 @@ if (isset($_GET['ajax'])) {
     window.PF_INVENTORY_CSRF = <?php echo json_encode(generate_csrf_token(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
     var ADMIN_API_BASE = '<?php echo $base_path; ?>/admin/';
     <?php if (is_admin()): ?>
+    window.pfRenderServiceMaterialRuleRow = function (group, rule) {
+        var serviceId = Number(group.service_id);
+        var itemId = Number(rule.item_id);
+        var required = String(rule.rule_type || '').toUpperCase() === 'REQUIRED';
+        var approved = String(rule.qty_multiplier_approved) === '1';
+        var auditPresent = rule.qty_multiplier_approved_by && rule.qty_multiplier_approved_at;
+        var status = approved && auditPresent ? 'Approved by Admin #' + escapeHtml(rule.qty_multiplier_approved_by) + ' at ' + escapeHtml(rule.qty_multiplier_approved_at) : (approved ? 'Approval audit incomplete; reapproval required' : 'Not approved');
+        var multiplier = rule.qty_multiplier == null ? '' : String(rule.qty_multiplier);
+        var readOnly = rule.read_only === true || rule.display_source === 'dedicated_pos_rule';
+        var ruleId = Number(rule.id || 0);
+        var basisServices = [36,39,64,67,71].includes(serviceId);
+        if (basisServices && approved && String(rule.qty_multiplier_approved_basis || '').toUpperCase() !== String(rule.qty_multiplier_basis || '').toUpperCase()) status = 'Basis approval is missing or stale; explicit reapproval required';
+        var actions = readOnly ? 'Dedicated POS rule · read only' : (rule.configuration_blocked === true
+            ? escapeHtml(rule.configuration_message || 'This mapping is blocked pending identity review.')
+            : (rule.configured === false
+            ? '<button type="button" class="toolbar-btn" onclick="pfCreateServiceMaterialRule(' + serviceId + ',' + itemId + ',this)">Create unapproved rule</button>'
+            : '<button type="button" class="toolbar-btn" onclick="pfSaveServiceMaterialMultiplier(' + ruleId + ',this)">Save multiplier</button>'));
+        if (!readOnly && rule.configuration_blocked !== true && rule.configured !== false && required) actions += ' <button type="button" class="toolbar-btn" onclick="pfApproveServiceMaterialRule(' + ruleId + ',this)">Approve REQUIRED</button>';
+        else if (!readOnly && rule.configuration_blocked !== true && rule.configured !== false && !required) actions += ' <span style="color:#64748b;font-size:12px;">Optional · approval not applicable</span>';
+        var multiplierCell = readOnly ? escapeHtml(multiplier) + ' (POS-managed)' : (rule.configuration_blocked === true ? 'Unavailable' : (rule.configured === false ? 'Not configured' : '<input id="serviceMaterialMultiplier-' + ruleId + '" type="number" min="0.01" max="99999999.99" step="0.01" value="' + escapeHtml(multiplier) + '" aria-label="Inventory units per square foot for rule ' + ruleId + '" style="width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;">' + (basisServices ? '<small style="display:block;color:#64748b">Inventory Units Per Ft²</small>' : '')));
+        if (readOnly) status = 'Dedicated active Mugs POS rule';
+        var roleLabel = rule.selection_role === 'alternative' ? 'Alternative · ' + (rule.group_required ? 'choose one' : 'optional') : (rule.selection_role === 'optional' ? 'Optional, manual selection' : (rule.selection_role === 'multi_optional' ? 'Optional finish, multi-select' : ''));
+        if (rule.stored_rule_type && String(rule.stored_rule_type).toUpperCase() !== String(rule.rule_type).toUpperCase()) status += ' · stored type ' + escapeHtml(rule.stored_rule_type) + ' needs targeted correction';
+        return '<tr data-service-material-key="' + serviceId + ':' + itemId + '"><td>' + escapeHtml(group.service_name) + '</td><td>' + escapeHtml(rule.material_name || ('Inventory item #' + itemId)) + (roleLabel ? '<small style="display:block;color:#64748b">' + escapeHtml(roleLabel) + '</small>' : '') + '</td><td>' + escapeHtml(rule.inventory_uom || '—') + '</td><td>' + escapeHtml(rule.rule_type || '') + '</td><td>' + multiplierCell + '</td><td>' + status + '</td><td class="service-material-rule-actions" style="white-space:nowrap;">' + actions + '<div class="service-material-row-feedback" role="status" aria-live="polite" style="white-space:normal;max-width:360px;margin-top:6px;color:#b91c1c;font-size:12px;"></div></td></tr>';
+    };
     window.pfLoadServiceMaterialRules = async function () {
         var body = document.getElementById('serviceMaterialRuleRows');
         var feedback = document.getElementById('serviceMaterialRuleFeedback');
@@ -1650,34 +1675,27 @@ if (isset($_GET['ajax'])) {
                 if (!Array.isArray(group.materials) || !group.materials.length) {
                     return header + '<tr><td colspan="7" style="padding:12px 16px;color:#64748b;">' + escapeHtml(group.empty_message || 'No materials mapped yet.') + '</td></tr>';
                 }
-                return header + group.materials.map(function (rule) {
-                var required = String(rule.rule_type || '').toUpperCase() === 'REQUIRED';
-                var approved = String(rule.qty_multiplier_approved) === '1';
-                var auditPresent = rule.qty_multiplier_approved_by && rule.qty_multiplier_approved_at;
-                var status = approved && auditPresent ? 'Approved by Admin #' + escapeHtml(rule.qty_multiplier_approved_by) + ' at ' + escapeHtml(rule.qty_multiplier_approved_at) : (approved ? 'Approval audit incomplete; reapproval required' : 'Not approved');
-                var multiplier = rule.qty_multiplier == null ? '' : String(rule.qty_multiplier);
-                var readOnly = rule.read_only === true || rule.display_source === 'dedicated_pos_rule';
-                var ruleId = Number(rule.id || 0);
-                var basisServices = [36,39,64,67,71].includes(Number(group.service_id));
-                if (basisServices && approved && String(rule.qty_multiplier_approved_basis || '').toUpperCase() !== String(rule.qty_multiplier_basis || '').toUpperCase()) status = 'Basis approval is missing or stale; explicit reapproval required';
-                var actions = readOnly ? 'Dedicated POS rule · read only' : (rule.configuration_blocked === true
-                    ? escapeHtml(rule.configuration_message || 'This mapping is blocked pending identity review.')
-                    : (rule.configured === false
-                    ? '<button type="button" class="toolbar-btn" onclick="pfCreateServiceMaterialRule(' + Number(group.service_id) + ',' + Number(rule.item_id) + ',this)">Create unapproved rule</button>'
-                    : '<button type="button" class="toolbar-btn" onclick="pfSaveServiceMaterialMultiplier(' + ruleId + ',this)">Save multiplier</button>'));
-                if (!readOnly && rule.configuration_blocked !== true && rule.configured !== false && required) actions += ' <button type="button" class="toolbar-btn" onclick="pfApproveServiceMaterialRule(' + ruleId + ',this)">Approve REQUIRED</button>';
-                else if (!readOnly && rule.configuration_blocked !== true && rule.configured !== false && !required) actions += ' <span style="color:#64748b;font-size:12px;">Optional · approval not applicable</span>';
-                var multiplierCell = readOnly ? escapeHtml(multiplier) + ' (POS-managed)' : (rule.configuration_blocked === true ? 'Unavailable' : (rule.configured === false ? 'Not configured' : '<input id="serviceMaterialMultiplier-' + ruleId + '" type="number" min="0.01" max="99999999.99" step="0.01" value="' + escapeHtml(multiplier) + '" aria-label="Inventory units per square foot for rule ' + ruleId + '" style="width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;">' + (basisServices ? '<small style="display:block;color:#64748b">Inventory Units Per Ft²</small>' : '')));
-                if (readOnly) status = 'Dedicated active Mugs POS rule';
-                var roleLabel = rule.selection_role === 'alternative' ? 'Alternative · ' + (rule.group_required ? 'choose one' : 'optional') : (rule.selection_role === 'optional' ? 'Optional, manual selection' : (rule.selection_role === 'multi_optional' ? 'Optional finish, multi-select' : ''));
-                if (rule.stored_rule_type && String(rule.stored_rule_type).toUpperCase() !== String(rule.rule_type).toUpperCase()) status += ' · stored type ' + escapeHtml(rule.stored_rule_type) + ' needs targeted correction';
-                return '<tr><td>' + escapeHtml(group.service_name) + '</td><td>' + escapeHtml(rule.material_name || ('Inventory item #' + rule.item_id)) + (roleLabel ? '<small style="display:block;color:#64748b">' + escapeHtml(roleLabel) + '</small>' : '') + '</td><td>' + escapeHtml(rule.inventory_uom || '—') + '</td><td>' + escapeHtml(rule.rule_type || '') + '</td><td>' + multiplierCell + '</td><td>' + status + '</td><td class="service-material-rule-actions" style="white-space:nowrap;">' + actions + '</td></tr>';
-                }).join('');
+                return header + group.materials.map(function (rule) { return window.pfRenderServiceMaterialRuleRow(group, rule); }).join('');
             }).join('') || '<tr><td colspan="7" style="padding:16px;">No active approved service groups are available.</td></tr>';
             if (feedback) feedback.textContent = '';
         } catch (error) {
             body.innerHTML = '<tr><td colspan="7" style="padding:16px;color:#b91c1c;">' + escapeHtml(error.message) + '</td></tr>';
         }
+    };
+    window.pfRefreshServiceMaterialRuleRow = async function (serviceId, itemId) {
+        var response = await fetch(ADMIN_API_BASE + 'service_material_rules_api.php', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+        var data = await window.pfReadServiceMaterialApiResponse(response);
+        if (!Array.isArray(data.groups)) throw new Error('The active service mapping response is invalid.');
+        window.pfCurrentServiceMaterialRuleGroups = data.groups;
+        var group = data.groups.find(function (entry) { return Number(entry.service_id) === Number(serviceId); });
+        var rule = group && Array.isArray(group.materials) ? group.materials.find(function (entry) { return Number(entry.item_id) === Number(itemId); }) : null;
+        var currentRow = document.querySelector('[data-service-material-key="' + Number(serviceId) + ':' + Number(itemId) + '"]');
+        if (!group || !rule || !currentRow) throw new Error('The saved rule could not be refreshed in its displayed row. Reload rules before retrying.');
+        var template = document.createElement('template');
+        template.innerHTML = window.pfRenderServiceMaterialRuleRow(group, rule).trim();
+        var refreshedRow = template.content.firstElementChild;
+        if (!refreshedRow) throw new Error('The refreshed service-material row was invalid.');
+        currentRow.replaceWith(refreshedRow);
     };
     window.pfRenderServiceMaterialBulkResults = function (mode, summary, results) {
         var summaryEl = document.getElementById('serviceMaterialBulkSummary');
@@ -1755,6 +1773,14 @@ if (isset($_GET['ajax'])) {
         row.setAttribute('aria-busy', busy ? 'true' : 'false');
         row.querySelectorAll('button').forEach(function (button) { button.disabled = !!busy; });
     };
+    window.pfSetServiceMaterialRowFeedback = function (trigger, message, isError) {
+        var row = trigger && trigger.closest ? trigger.closest('tr') : null;
+        var target = row ? row.querySelector('.service-material-row-feedback') : null;
+        if (!target) return;
+        target.textContent = String(message || '');
+        target.style.color = isError ? '#b91c1c' : '#047857';
+        target.setAttribute('role', isError ? 'alert' : 'status');
+    };
     window.pfMutateServiceMaterialRule = async function (ruleId, action, multiplier, trigger) {
         var feedback = document.getElementById('serviceMaterialRuleFeedback');
         var form = new FormData();
@@ -1763,16 +1789,22 @@ if (isset($_GET['ajax'])) {
         form.set('action', action);
         if (multiplier != null) { form.set('qty_multiplier', multiplier); form.set('qty_multiplier_basis', 'AREA_SQFT'); }
         if (feedback) feedback.textContent = 'Saving…';
+        window.pfSetServiceMaterialRowFeedback(trigger, 'Saving…', false);
         window.pfSetServiceMaterialRowBusy(trigger, true);
         try {
             var response = await fetch(ADMIN_API_BASE + 'service_material_rules_api.php', { method: 'POST', body: form, credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
             var data = await window.pfReadServiceMaterialApiResponse(response);
-            await window.pfLoadServiceMaterialRules();
+            var rowKey = trigger && trigger.closest ? trigger.closest('tr')?.getAttribute('data-service-material-key') : '';
+            var rowParts = String(rowKey || '').split(':');
+            if (rowParts.length !== 2) throw new Error('The server saved the rule, but its displayed service/material row could not be identified. Reload rules before retrying.');
+            try { await window.pfRefreshServiceMaterialRuleRow(Number(rowParts[0]), Number(rowParts[1])); }
+            catch (refreshError) { throw new Error('The server confirmed the change, but the row refresh failed: ' + refreshError.message + ' Do not retry the save until you refresh the rules list.'); }
             if (feedback) feedback.textContent = action === 'approve'
                 ? 'Approval recorded by Admin #' + Number(data.approved_by || 0) + '. The refreshed row shows its audit timestamp.'
                 : (data.approval_required ? 'Multiplier and basis saved. This REQUIRED rule must be explicitly approved again.' : 'Multiplier and basis saved; the refreshed row shows the current approval state.');
         } catch (error) {
             if (feedback) feedback.textContent = error.message;
+            window.pfSetServiceMaterialRowFeedback(trigger, error.message, true);
         } finally {
             window.pfSetServiceMaterialRowBusy(trigger, false);
         }
@@ -1787,13 +1819,18 @@ if (isset($_GET['ajax'])) {
         var form = new FormData(); form.set('csrf_token', window.PF_INVENTORY_CSRF || ''); form.set('action', 'create_rule');
         form.set('service_id', String(serviceId)); form.set('item_id', String(itemId));
         if (feedback) feedback.textContent = 'Creating an unapproved rule…';
+        window.pfSetServiceMaterialRowFeedback(trigger, 'Creating an unapproved rule…', false);
         window.pfSetServiceMaterialRowBusy(trigger, true);
         try {
             var response = await fetch(ADMIN_API_BASE + 'service_material_rules_api.php', { method: 'POST', body: form, credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
-            await window.pfReadServiceMaterialApiResponse(response);
-            await window.pfLoadServiceMaterialRules();
-            if (feedback) feedback.textContent = 'Rule created as unapproved. Configure a verified multiplier and basis before approval.';
-        } catch (error) { if (feedback) feedback.textContent = error.message; }
+            var data = await window.pfReadServiceMaterialApiResponse(response);
+            try { await window.pfRefreshServiceMaterialRuleRow(serviceId, itemId); }
+            catch (refreshError) { throw new Error('The server confirmed creation of unapproved rule #' + Number(data.rule_id || 0) + ', but the row refresh failed: ' + refreshError.message + ' Do not retry creation until you refresh the rules list.'); }
+            if (feedback) feedback.textContent = 'Unapproved rule created successfully. Configure the multiplier and basis before approval.';
+        } catch (error) {
+            if (feedback) feedback.textContent = error.message;
+            window.pfSetServiceMaterialRowFeedback(trigger, error.message, true);
+        }
         finally { window.pfSetServiceMaterialRowBusy(trigger, false); }
     };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', window.pfLoadServiceMaterialRules);

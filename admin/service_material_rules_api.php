@@ -301,8 +301,17 @@ if ($action === 'create_rule') {
     $policy = printflow_pos_material_selection_registry()[(int)$serviceId][$itemId] ?? null;
     $expectedType = printflow_pos_material_selection_service_type((int)$serviceId);
     $expectedName = printflow_pos_material_selection_item_names((int)$serviceId)[$itemId] ?? null;
+    $identityLookupErrorCount = count(printflow_db_errors());
     $active = db_query("SELECT service_id, name, status FROM services WHERE service_id = ? LIMIT 1", 'i', [$serviceId]);
     $item = db_query('SELECT id, name, status FROM inv_items WHERE id = ? LIMIT 1', 'i', [$itemId]);
+    if (!is_array($active) || !is_array($item) || count(printflow_db_errors()) > $identityLookupErrorCount) {
+        $reference = printflow_db_error_reference();
+        error_log('[service_material_rule_create_failure] ' . json_encode([
+            'reference' => $reference, 'stage' => 'identity_lookup', 'service_id' => (int)$serviceId,
+            'item_id' => (int)$itemId, 'db_error_count' => count(printflow_db_errors()) - $identityLookupErrorCount,
+        ], JSON_UNESCAPED_SLASHES));
+        pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not verify the active service and inventory item before creating the rule. No change was made. Reference ' . $reference . '.']);
+    }
     if (!$policy || !$expectedType || !$expectedName || empty($active) || strtoupper((string)$active[0]['status']) !== 'ACTIVATED'
         || strcasecmp((string)$active[0]['name'], (string)(printflow_service_material_rule_display_registry()[$serviceId]['name'] ?? '')) !== 0
         || empty($item) || strtoupper((string)$item[0]['status']) !== 'ACTIVE' || strcasecmp((string)$item[0]['name'], $expectedName) !== 0) {
@@ -317,8 +326,18 @@ if ($action === 'create_rule') {
     $lockRows = db_query('SELECT GET_LOCK(?, 5) AS acquired', 's', [$ruleLock]);
     if (!is_array($lockRows) || (int)($lockRows[0]['acquired'] ?? 0) !== 1) pf_service_rule_api_reply(409, ['success' => false, 'error' => 'This service-material rule is being updated. Retry after the current operation finishes.']);
     if (!$conn->begin_transaction()) { db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]); pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not start the unapproved rule transaction.']); }
+    $lockedLookupErrorCount = count(printflow_db_errors());
     $lockedActive = db_query('SELECT service_id, name, status FROM services WHERE service_id = ? LIMIT 1 FOR UPDATE', 'i', [$serviceId]);
     $lockedItem = db_query('SELECT id, name, status FROM inv_items WHERE id = ? LIMIT 1 FOR UPDATE', 'i', [$itemId]);
+    if (!is_array($lockedActive) || !is_array($lockedItem) || count(printflow_db_errors()) > $lockedLookupErrorCount) {
+        $conn->rollback(); db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]);
+        $reference = printflow_db_error_reference();
+        error_log('[service_material_rule_create_failure] ' . json_encode([
+            'reference' => $reference, 'stage' => 'locked_identity_lookup', 'service_id' => (int)$serviceId,
+            'item_id' => (int)$itemId, 'db_error_count' => count(printflow_db_errors()) - $lockedLookupErrorCount,
+        ], JSON_UNESCAPED_SLASHES));
+        pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not recheck the active service and inventory item inside the transaction. The transaction was rolled back. Reference ' . $reference . '.']);
+    }
     if (!is_array($lockedActive) || count($lockedActive) !== 1 || strtoupper(trim((string)$lockedActive[0]['status'])) !== 'ACTIVATED'
         || strcasecmp(trim((string)$lockedActive[0]['name']), (string)(printflow_service_material_rule_display_registry()[$serviceId]['name'] ?? '')) !== 0
         || !is_array($lockedItem) || count($lockedItem) !== 1 || strtoupper(trim((string)$lockedItem[0]['status'])) !== 'ACTIVE'
@@ -327,12 +346,23 @@ if ($action === 'create_rule') {
         pf_service_rule_api_reply(409, ['success' => false, 'error' => 'The active service or inventory identity changed during the request. Refresh before creating the rule.']);
     }
     $typePlaceholders = implode(',', array_fill(0, count($acceptedTypes), '?'));
+    $existingLookupErrorCount = count(printflow_db_errors());
     $existing = db_query(
         "SELECT id FROM service_material_rules WHERE service_type IN ({$typePlaceholders}) AND item_id = ? LIMIT 2 FOR UPDATE",
         str_repeat('s', count($acceptedTypes)) . 'i',
         array_merge($acceptedTypes, [$itemId])
     );
-    if ($existing === false || $existing !== []) {
+    if (!is_array($existing) || count(printflow_db_errors()) > $existingLookupErrorCount) {
+        $conn->rollback();
+        db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]);
+        $reference = printflow_db_error_reference();
+        error_log('[service_material_rule_create_failure] ' . json_encode([
+            'reference' => $reference, 'stage' => 'duplicate_check', 'service_id' => (int)$serviceId,
+            'item_id' => (int)$itemId, 'db_error_count' => count(printflow_db_errors()) - $existingLookupErrorCount,
+        ], JSON_UNESCAPED_SLASHES));
+        pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not verify whether this exact service-material rule already exists. No rule was created. Reference ' . $reference . '.']);
+    }
+    if ($existing !== []) {
         $conn->rollback();
         db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]);
         pf_service_rule_api_reply(409, ['success' => false, 'error' => 'A rule already exists or could not be checked. Refresh before editing.']);
@@ -344,12 +374,73 @@ if ($action === 'create_rule') {
     if (!$insert->execute()) { $insert->close(); $conn->rollback(); db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]); pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not create the unapproved material rule.']); }
     $newId = (int)$insert->insert_id;
     $insert->close();
-    $verify = db_query('SELECT id, service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved FROM service_material_rules WHERE id = ? LIMIT 1', 'i', [$newId]);
-    if ($newId <= 0 || !is_array($verify) || count($verify) !== 1 || (string)$verify[0]['service_type'] !== $expectedType
-        || (int)$verify[0]['item_id'] !== (int)$itemId || (string)$verify[0]['rule_type'] !== $ruleType
-        || $verify[0]['qty_multiplier'] !== null || (int)$verify[0]['qty_multiplier_approved'] !== 0) {
+    $verify = null;
+    $verifyFailure = '';
+    $verifyStmt = $newId > 0 ? $conn->prepare(
+        'SELECT id, service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved,
+                qty_multiplier_approved_by, qty_multiplier_approved_at, qty_multiplier_basis, qty_multiplier_approved_basis
+         FROM service_material_rules WHERE id = ? LIMIT 1 FOR UPDATE'
+    ) : false;
+    if ($newId <= 0) {
+        $verifyFailure = 'Insert did not return a valid rule ID.';
+    } elseif (!$verifyStmt) {
+        $verifyFailure = 'The exact inserted rule could not be read back (verification query could not be prepared).';
+    } else {
+        $verifyStmt->bind_param('i', $newId);
+        if (!$verifyStmt->execute()) {
+            $verifyFailure = 'The exact inserted rule could not be read back (verification query failed).';
+        } elseif (!$verifyStmt->store_result() || (int)$verifyStmt->num_rows !== 1) {
+            $verifyFailure = 'The exact inserted rule ID was not found during verification.';
+        } else {
+            $verifyId = 0;
+            $verifyServiceType = null;
+            $verifyItemId = 0;
+            $verifyRuleType = null;
+            $verifyMultiplier = null;
+            $verifyApproved = null;
+            $verifyApprovedBy = null;
+            $verifyApprovedAt = null;
+            $verifyBasis = null;
+            $verifyApprovedBasis = null;
+            if (!$verifyStmt->bind_result($verifyId, $verifyServiceType, $verifyItemId, $verifyRuleType, $verifyMultiplier, $verifyApproved, $verifyApprovedBy, $verifyApprovedAt, $verifyBasis, $verifyApprovedBasis)
+                || !$verifyStmt->fetch()) {
+                $verifyFailure = 'The exact inserted rule could not be read back (verification result was unavailable).';
+            } else {
+                $verify = [
+                    'id' => $verifyId, 'service_type' => $verifyServiceType, 'item_id' => $verifyItemId,
+                    'rule_type' => $verifyRuleType, 'qty_multiplier' => $verifyMultiplier,
+                    'qty_multiplier_approved' => $verifyApproved, 'qty_multiplier_approved_by' => $verifyApprovedBy,
+                    'qty_multiplier_approved_at' => $verifyApprovedAt, 'qty_multiplier_basis' => $verifyBasis,
+                    'qty_multiplier_approved_basis' => $verifyApprovedBasis,
+                ];
+                if ((int)$verify['id'] !== $newId) $verifyFailure = 'The inserted rule ID did not match the verification row.';
+                elseif ((string)$verify['service_type'] !== $expectedType || (int)$verify['item_id'] !== (int)$itemId) $verifyFailure = 'The stored service or material identity differed from the requested active mapping.';
+                elseif ((string)$verify['rule_type'] !== $ruleType) $verifyFailure = 'The stored rule classification differed from the required unapproved classification.';
+                elseif ($verify['qty_multiplier'] !== null) $verifyFailure = 'The new row did not retain a NULL, unconfigured multiplier.';
+                elseif ((int)$verify['qty_multiplier_approved'] !== 0) $verifyFailure = 'The new row was not stored with approval disabled.';
+                elseif ($verify['qty_multiplier_approved_by'] !== null || $verify['qty_multiplier_approved_at'] !== null) $verifyFailure = 'The new row contains unexpected approval audit metadata.';
+                elseif ($verify['qty_multiplier_basis'] !== null || $verify['qty_multiplier_approved_basis'] !== null) $verifyFailure = 'The new row contains an unexpected consumption basis or approval basis.';
+            }
+        }
+        $verifyStmt->close();
+    }
+    if ($verifyFailure !== '') {
         $conn->rollback(); db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]);
-        pf_service_rule_api_reply(500, ['success' => false, 'error' => 'The new row did not verify as unapproved; the transaction was rolled back.']);
+        $reference = printflow_db_error_reference();
+        error_log('[service_material_rule_create_failure] ' . json_encode([
+            'reference' => $reference, 'stage' => 'insert_verification', 'rule_id' => $newId,
+            'service_id' => (int)$serviceId, 'item_id' => (int)$itemId, 'service_type_expected' => $expectedType,
+            'rule_type_expected' => $ruleType, 'verification_reason' => $verifyFailure,
+            'stored_row' => $verify ? [
+                'id' => (int)$verify['id'], 'service_type' => (string)$verify['service_type'], 'item_id' => (int)$verify['item_id'],
+                'rule_type' => (string)$verify['rule_type'], 'qty_multiplier_is_null' => $verify['qty_multiplier'] === null,
+                'approved' => (int)$verify['qty_multiplier_approved'], 'approved_by_is_null' => $verify['qty_multiplier_approved_by'] === null,
+                'approved_at_is_null' => $verify['qty_multiplier_approved_at'] === null,
+                'basis_is_null' => $verify['qty_multiplier_basis'] === null,
+                'approved_basis_is_null' => $verify['qty_multiplier_approved_basis'] === null,
+            ] : null,
+        ], JSON_UNESCAPED_SLASHES));
+        pf_service_rule_api_reply(500, ['success' => false, 'error' => $verifyFailure . ' The transaction was rolled back; the rule remains uncreated. Reference ' . $reference . '.']);
     }
     if (!$conn->commit()) { db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]); pf_service_rule_api_reply(500, ['success' => false, 'error' => 'Could not commit the unapproved service-material rule.']); }
     db_query('SELECT RELEASE_LOCK(?) AS released', 's', [$ruleLock]);
