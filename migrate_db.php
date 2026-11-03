@@ -183,6 +183,7 @@ $tables = [
 
     "CREATE TABLE IF NOT EXISTS `service_material_rules` (
       `id` int(11) NOT NULL AUTO_INCREMENT,
+      `service_id` int(11) DEFAULT NULL,
       `service_type` varchar(100) NOT NULL,
       `item_id` int(11) NOT NULL,
       `rule_type` varchar(50) DEFAULT 'REQUIRED',
@@ -190,8 +191,11 @@ $tables = [
       `qty_multiplier_approved` tinyint(1) NOT NULL DEFAULT 0,
       `qty_multiplier_approved_by` int(11) DEFAULT NULL,
       `qty_multiplier_approved_at` datetime DEFAULT NULL,
+      `qty_multiplier_basis` varchar(24) DEFAULT NULL,
+      `qty_multiplier_approved_basis` varchar(24) DEFAULT NULL,
       `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (`id`)
+      PRIMARY KEY (`id`),
+      UNIQUE KEY `uq_smr_service_item` (`service_id`, `item_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"
 ];
 

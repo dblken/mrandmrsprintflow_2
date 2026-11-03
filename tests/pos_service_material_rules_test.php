@@ -47,6 +47,12 @@ $stickerAliasRows = [
 ];
 $selectedStickerRows = printflow_pos_select_service_material_rule_set(36, $stickerAliasRows);
 $assert(count($selectedStickerRows) === 2, 'One existing Sticker/Decal alias rule set retains both REQUIRED and OPTIONAL records.');
+$stableStickerRows = printflow_pos_select_service_material_rule_set(36, [['service_id' => 36, 'service_type' => 'Decals/Stickers (Print/Cut)', 'item_id' => 18]]);
+$assert(count($stableStickerRows) === 1 && (int)$stableStickerRows[0]['item_id'] === 18, 'Stable ID rows with a matching canonical label remain valid.');
+$expectRuntimeError(
+    static fn() => printflow_pos_select_service_material_rule_set(36, [['service_id' => 36, 'service_type' => 'Poster Printing', 'item_id' => 18]]),
+    'conflicts with the stored service_type'
+);
 $canonicalStickerRows = printflow_pos_select_service_material_rule_set(36, [['service_type' => 'Decals/Stickers (Print/Cut)', 'item_id' => 14]]);
 $assert(count($canonicalStickerRows) === 1 && (int)$canonicalStickerRows[0]['item_id'] === 14,
     'The canonical Sticker/Decal rule set is returned without modifying its rows.');
@@ -132,7 +138,7 @@ $stockRulesBlock = $stockRulesStart !== false && $stockRulesEnd !== false
     ? substr($validator, $stockRulesStart, $stockRulesEnd - $stockRulesStart)
     : '';
 $schemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier', true)");
-$query = strpos($stockRulesBlock, 'SELECT r.id AS rule_id, r.item_id, r.rule_type, r.qty_multiplier');
+$query = strpos($stockRulesBlock, 'SELECT r.id AS rule_id, ');
 $tarpaulinExit = strpos($stockRulesBlock, 'if ($serviceId === 40) return [];');
 $stockValidationStart = strpos($validator, 'function printflow_pos_validate_service_stock(');
 $stockValidationBlock = $stockValidationStart !== false ? substr($validator, $stockValidationStart) : '';
@@ -155,6 +161,8 @@ $assert($basisSchemaCheck !== false && $approvedBasisSchemaCheck !== false
 $assert($approvedMultiplierCheck !== false && $approvedMultiplierCheck < strpos($stockRulesBlock, '$required[] = ['),
     'Unapproved multipliers fail before a required demand entry can be accumulated.');
 $assert(str_contains($stockRulesBlock, 'r.qty_multiplier_approved'), 'The runtime selects the explicit approval state.');
+$assert(str_contains($stockRulesBlock, 'printflow_service_material_rule_identity_scope($serviceId, $ruleTypes,')
+    && str_contains($stockRulesBlock, 'NULL AS service_id'), 'POS rule lookup uses stable service IDs when available with explicit legacy alias fallback before migration.');
 $assert($tarpaulinExit !== false && $tarpaulinExit < $schemaCheck, 'Tarpaulin exits before checking or querying qty_multiplier.');
 $assert($tarpaulinDedicatedPath !== false && $genericRulesCall !== false && $tarpaulinDedicatedPath < $genericRulesCall,
     'Tarpaulin is validated through its dedicated roll path before generic multiplier rules are consulted.');

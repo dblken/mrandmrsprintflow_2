@@ -65,11 +65,33 @@ function printflow_pos_select_service_material_rule_set(int $serviceId, array $r
 {
     $allowed = array_map('strtolower', printflow_pos_service_material_type_aliases($serviceId));
     if ($allowed === []) return $rows;
-    $groups = [];
+    $stableRows = [];
+    $legacyRows = [];
     foreach ($rows as $row) {
         if (!is_array($row)) continue;
+        $rowServiceId = (int)($row['service_id'] ?? 0);
+        if ($rowServiceId > 0) {
+            $expectedTextType = printflow_pos_service_material_expected_type($rowServiceId);
+            $storedTextType = (string)($row['service_type'] ?? '');
+            $textIsCanonical = $rowServiceId === 40
+                ? $storedTextType === 'Tarpaulin Printing'
+                : ($expectedTextType !== null && printflow_pos_canonical_service_material_type($rowServiceId, $storedTextType) === $expectedTextType);
+            if (!$textIsCanonical) {
+                throw new RuntimeException('A stable service ID conflicts with the stored service_type for service ID ' . $rowServiceId . '. Resolve the identity mismatch before POS stock validation.');
+            }
+            if ($rowServiceId === $serviceId) $stableRows[] = $row;
+            continue;
+        }
+        if (in_array(strtolower(trim((string)($row['service_type'] ?? ''))), $allowed, true)) $legacyRows[] = $row;
+    }
+    if ($stableRows !== [] && $legacyRows !== []) {
+        throw new RuntimeException('Both stable-ID and legacy service-key rules exist for service ID ' . $serviceId . '. Resolve the duplicate mapping before POS stock validation.');
+    }
+    if ($stableRows !== []) return $stableRows;
+    $groups = [];
+    foreach ($legacyRows as $row) {
+        if (!is_array($row)) continue;
         $serviceType = trim((string)($row['service_type'] ?? ''));
-        if (!in_array(strtolower($serviceType), $allowed, true)) continue;
         $groups[$serviceType][] = $row;
     }
     if (count($groups) > 1) {

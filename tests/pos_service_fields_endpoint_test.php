@@ -21,8 +21,9 @@ $assert($lintExit === 0, 'pos_service_fields.php has valid PHP syntax');
 
 $assert(
     !preg_match('/echo\s+[\'"][^\'"]*date\s*\(\s*[\'"]Y-m-d[\'"]/s', $source)
-        && str_contains($source, '$needed_date_min = date(\'Y-m-d\')'),
-    'fallback needed_date min is built with PHP concatenation, not nested PHP tags'
+        && str_contains($source, '$needed_date_min = !empty($GLOBALS[\'printflow_allow_past_needed_date\']) ? \'\' : date(\'Y-m-d\');')
+        && str_contains($source, '$needed_date_min_attr = $needed_date_min !== \'\' ? \' min="\''),
+    'needed_date min defaults to today but honors the existing POS allow-past-date workflow'
 );
 $assert(
     str_contains($source, 'catch (Throwable $renderError)')

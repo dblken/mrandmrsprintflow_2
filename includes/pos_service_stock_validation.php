@@ -9,6 +9,7 @@ require_once __DIR__ . '/roll_branch_scope.php';
 require_once __DIR__ . '/JobOrderService.php';
 require_once __DIR__ . '/pos_quantity_validation.php';
 require_once __DIR__ . '/pos_service_stock_helpers.php';
+require_once __DIR__ . '/service_material_rule_identity.php';
 require_once __DIR__ . '/pos_material_selection.php';
 require_once __DIR__ . '/pos_mugs_release_rule.php';
 require_once __DIR__ . '/tarpaulin_material_calculation.php';
@@ -201,18 +202,22 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
     $errorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
     $ruleTypes = printflow_pos_service_material_type_aliases($serviceId);
     if ($ruleTypes === []) $ruleTypes = [$serviceType];
-    $placeholders = implode(',', array_fill(0, count($ruleTypes), '?'));
+    $hasServiceIdColumn = function_exists('db_table_has_column') && db_table_has_column('service_material_rules', 'service_id', true);
+    if (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $errorCount) {
+        throw new RuntimeException('The stable service-material identity schema could not be checked.');
+    }
+    $identityScope = printflow_service_material_rule_identity_scope($serviceId, $ruleTypes, 'r', $hasServiceIdColumn);
     $rules = db_query(
-        "SELECT r.id AS rule_id, r.item_id, r.rule_type, r.qty_multiplier, r.qty_multiplier_approved,
+        "SELECT r.id AS rule_id, " . ($hasServiceIdColumn ? 'r.service_id' : 'NULL AS service_id') . ", r.item_id, r.rule_type, r.qty_multiplier, r.qty_multiplier_approved,
                 r.qty_multiplier_approved_by, r.qty_multiplier_approved_at, r.service_type,
                 " . ($usesSelectionPolicy ? 'r.qty_multiplier_basis, r.qty_multiplier_approved_basis,' : "NULL AS qty_multiplier_basis, NULL AS qty_multiplier_approved_basis,") . "
                 i.name AS item_name, i.unit_of_measure, i.track_by_roll, i.status AS item_status
          FROM service_material_rules r
          LEFT JOIN inv_items i ON i.id = r.item_id
-         WHERE r.service_type IN ({$placeholders})
+         WHERE {$identityScope['sql']}
          ORDER BY r.service_type ASC, r.item_id ASC",
-        str_repeat('s', count($ruleTypes)),
-        $ruleTypes
+        $identityScope['types'],
+        $identityScope['params']
     );
     if ($rules === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $errorCount)) {
         throw new RuntimeException('The POS service material rules could not be loaded.');

@@ -107,7 +107,7 @@ $assert(str_contains($apiSource, "WHERE status = 'Activated'")
 $assert(!str_contains($apiSource, 'SELECT MIN(s2.service_id)')
     && str_contains($apiSource, 'INNER JOIN inv_items i ON i.id = r.item_id AND UPPER(TRIM(i.status)) = \'ACTIVE\''), 'Fuzzy service-name joins are removed and inactive materials are not offered.');
 $assert(str_contains($apiSource, 'printflow_pos_service_material_type_aliases((int)$serviceId)')
-    && str_contains($apiSource, 'service_type IN ({$typePlaceholders})'), 'Admin rule creation checks explicit accepted service aliases to prevent duplicate canonical rules.');
+    && str_contains($apiSource, 'printflow_service_material_rule_identity_scope((int)$serviceId, $acceptedTypes, \'r\', $hasServiceIdColumn)'), 'Admin rule creation checks stable service IDs and explicit legacy aliases to prevent duplicate canonical rules.');
 $assert(str_contains($uiSource, 'Array.isArray(data.groups)')
     && str_contains($uiSource, 'group.materials.map')
     && str_contains($uiSource, 'No materials mapped yet.')

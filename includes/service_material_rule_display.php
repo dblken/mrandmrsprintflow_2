@@ -1,11 +1,12 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/pos_material_selection.php';
+require_once __DIR__ . '/service_material_rule_identity.php';
 
 /**
  * Read-only registry for the Admin Service Material Rules display.
- * service_material_rules has no service_id column, so only explicitly verified
- * stored service_type keys may be associated with an active service ID here.
+ * Stable service_id is authoritative after migration. Before migration, only
+ * explicitly verified stored service_type keys associate rows with a service.
  */
 function printflow_service_material_rule_display_registry(): array
 {
@@ -21,6 +22,22 @@ function printflow_service_material_rule_display_registry(): array
         36 => ['name' => 'Stickers /Decals', 'service_types' => ['Decals/Stickers (Print/Cut)'], 'material_names' => ['Nextjet', 'Gloss Laminate', 'Matte Laminate', 'Hologram'], 'item_names' => [18 => 'Nextjet', 20 => 'Gloss Laminate', 21 => 'Matte Laminate', 22 => 'Hologram']],
         40 => ['name' => 'Tarpaulin', 'service_types' => ['Tarpaulin Printing'], 'material_names' => ['3ft Tarpaulin', '4ft Tarpaulin', '5ft Tarpaulin', '6ft Tarpaulin']],
     ];
+}
+
+/** The display accepts only registry-approved legacy keys; a saved numeric ID takes precedence. */
+function printflow_service_material_rule_display_service_id(array $row): ?int
+{
+    $registry = printflow_service_material_rule_display_registry();
+    $serviceType = (string)($row['service_type'] ?? '');
+    $stableId = (int)($row['service_id'] ?? 0);
+    if ($stableId > 0) {
+        $definition = $registry[$stableId] ?? null;
+        return $definition && in_array($serviceType, $definition['service_types'], true) ? $stableId : null;
+    }
+    foreach ($registry as $serviceId => $definition) {
+        if (in_array($serviceType, $definition['service_types'], true)) return (int)$serviceId;
+    }
+    return null;
 }
 
 /** Build the seven active display groups without changing or inferring stored mappings. */
@@ -67,7 +84,7 @@ function printflow_service_material_rule_display_groups(array $activeServices, a
         } else {
             foreach ($ruleRows as $row) {
                 if (!is_array($row)) continue;
-                if (!in_array((string)($row['service_type'] ?? ''), $definition['service_types'], true)) continue;
+                if (printflow_service_material_rule_display_service_id($row) !== (int)$serviceId) continue;
                 if (isset($definition['material_names'])) {
                     $allowedName = false;
                     foreach ($definition['material_names'] as $materialName) {
@@ -117,10 +134,12 @@ function printflow_service_material_rule_display_groups(array $activeServices, a
 }
 
 /** Return true only for persisted rows the Admin display exposes as editable. */
-function printflow_service_material_rule_display_row_is_editable(string $serviceType, int $itemId, array $activeServices, ?string $itemName = null): bool
+function printflow_service_material_rule_display_row_is_editable(string $serviceType, int $itemId, array $activeServices, ?string $itemName = null, ?int $ruleServiceId = null): bool
 {
     foreach (printflow_service_material_rule_display_registry() as $serviceId => $definition) {
-        if ($definition['service_types'] === [] || !in_array($serviceType, $definition['service_types'], true)) continue;
+        if ($ruleServiceId !== null && $ruleServiceId > 0) {
+            if ((int)$ruleServiceId !== (int)$serviceId) continue;
+        } elseif ($definition['service_types'] === [] || !in_array($serviceType, $definition['service_types'], true)) continue;
         if (isset($definition['item_names'])) {
             $expectedName = $definition['item_names'][$itemId] ?? null;
             if ($expectedName !== null) {

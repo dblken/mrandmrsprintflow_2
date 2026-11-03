@@ -1783,9 +1783,19 @@ if (isset($_GET['ajax'])) {
     };
     window.pfMutateServiceMaterialRule = async function (ruleId, action, multiplier, trigger) {
         var feedback = document.getElementById('serviceMaterialRuleFeedback');
+        var rowKey = trigger && trigger.closest ? trigger.closest('tr')?.getAttribute('data-service-material-key') : '';
+        var rowParts = String(rowKey || '').split(':');
+        if (rowParts.length !== 2 || !Number(rowParts[0]) || !Number(rowParts[1])) {
+            var identityError = new Error('The displayed service/material identity could not be verified. Refresh the rules before changing it.');
+            if (feedback) feedback.textContent = identityError.message;
+            window.pfSetServiceMaterialRowFeedback(trigger, identityError.message, true);
+            return;
+        }
         var form = new FormData();
         form.set('csrf_token', window.PF_INVENTORY_CSRF || '');
         form.set('rule_id', String(ruleId));
+        form.set('service_id', String(Number(rowParts[0])));
+        form.set('item_id', String(Number(rowParts[1])));
         form.set('action', action);
         if (multiplier != null) { form.set('qty_multiplier', multiplier); form.set('qty_multiplier_basis', 'AREA_SQFT'); }
         if (feedback) feedback.textContent = 'Saving…';
@@ -1794,9 +1804,6 @@ if (isset($_GET['ajax'])) {
         try {
             var response = await fetch(ADMIN_API_BASE + 'service_material_rules_api.php', { method: 'POST', body: form, credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
             var data = await window.pfReadServiceMaterialApiResponse(response);
-            var rowKey = trigger && trigger.closest ? trigger.closest('tr')?.getAttribute('data-service-material-key') : '';
-            var rowParts = String(rowKey || '').split(':');
-            if (rowParts.length !== 2) throw new Error('The server saved the rule, but its displayed service/material row could not be identified. Reload rules before retrying.');
             try { await window.pfRefreshServiceMaterialRuleRow(Number(rowParts[0]), Number(rowParts[1])); }
             catch (refreshError) { throw new Error('The server confirmed the change, but the row refresh failed: ' + refreshError.message + ' Do not retry the save until you refresh the rules list.'); }
             if (feedback) feedback.textContent = action === 'approve'

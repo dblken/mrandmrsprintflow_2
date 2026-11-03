@@ -8,6 +8,7 @@ require_once __DIR__ . '/../../includes/service_field_renderer.php';
 require_once __DIR__ . '/../../includes/pos_custom_transaction_datetime.php';
 require_once __DIR__ . '/../../includes/pos_material_selection.php';
 require_once __DIR__ . '/../../includes/pos_service_stock_helpers.php';
+require_once __DIR__ . '/../../includes/service_material_rule_identity.php';
 require_once __DIR__ . '/../../includes/InventoryManager.php';
 
 if (!is_logged_in() || (!is_staff() && !is_admin())) {
@@ -146,16 +147,23 @@ if (is_array($selectionPolicy)) {
         echo json_encode(['success' => false, 'error' => 'Verified service materials could not be loaded.']);
         exit;
     }
-    $aliases = $service_id === 36
-        ? ['Decals/Stickers (Print/Cut)', 'Decals / Stickers (Print/Cut)', 'Decals / Stickers (Print & Cut)', 'Stickers/Decals', 'Stickers', 'Sticker', 'Decal', 'Decals']
-        : [$serviceType];
-    $typeMarks = implode(',', array_fill(0, count($aliases), '?'));
+    $aliases = printflow_pos_service_material_type_aliases($service_id);
+    if ($aliases === []) $aliases = [$serviceType];
+    $schemaErrorsBefore = count(printflow_db_errors());
+    $hasServiceIdColumn = db_table_has_column('service_material_rules', 'service_id', true);
+    if (count(printflow_db_errors()) > $schemaErrorsBefore) {
+        http_response_code(503);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['success' => false, 'error' => 'Stable service-material identity could not be verified.']);
+        exit;
+    }
+    $identityScope = printflow_service_material_rule_identity_scope($service_id, $aliases, 'r', $hasServiceIdColumn);
     $ruleRows = db_query(
-        "SELECT id, service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved, qty_multiplier_approved_by, qty_multiplier_approved_at,
+        "SELECT id, " . ($hasServiceIdColumn ? 'service_id' : 'NULL AS service_id') . ", service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved, qty_multiplier_approved_by, qty_multiplier_approved_at,
                 qty_multiplier_basis, qty_multiplier_approved_basis
-         FROM service_material_rules WHERE service_type IN ({$typeMarks}) AND item_id IN ({$idSql}) ORDER BY id",
-        str_repeat('s', count($aliases)),
-        $aliases
+         FROM service_material_rules r WHERE {$identityScope['sql']} AND r.item_id IN ({$idSql}) ORDER BY id",
+        $identityScope['types'],
+        $identityScope['params']
     );
     if ($ruleRows === false) {
         http_response_code(500);
@@ -163,16 +171,24 @@ if (is_array($selectionPolicy)) {
         echo json_encode(['success' => false, 'error' => 'Service material rules could not be loaded.']);
         exit;
     }
-    $chosenTypeRows = [];
-    foreach ($ruleRows as $ruleRow) $chosenTypeRows[(string)$ruleRow['service_type']][] = $ruleRow;
-    if (count($chosenTypeRows) > 1) {
+    try { $ruleRows = printflow_pos_select_service_material_rule_set($service_id, $ruleRows ?: []); }
+    catch (Throwable $identityError) {
         http_response_code(409);
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['success' => false, 'error' => 'Material rules exist under multiple service aliases. An Admin must resolve the duplicate configuration.']);
+        echo json_encode(['success' => false, 'error' => 'Stable and legacy material mappings conflict. An Admin must resolve the duplicate configuration.']);
         exit;
     }
     $rulesByItem = [];
-    foreach ($ruleRows as $ruleRow) $rulesByItem[(int)$ruleRow['item_id']] = $ruleRow;
+    foreach ($ruleRows as $ruleRow) {
+        $ruleItemId = (int)$ruleRow['item_id'];
+        if (isset($rulesByItem[$ruleItemId])) {
+            http_response_code(409);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => false, 'error' => 'Multiple rules exist for one service/material ID. An Admin must resolve the duplicate configuration.']);
+            exit;
+        }
+        $rulesByItem[$ruleItemId] = $ruleRow;
+    }
     $expectedNames = printflow_pos_material_selection_item_names($service_id);
     $labels = [];
     foreach ($items as $item) {

@@ -8,9 +8,11 @@ const source = fs.readFileSync(require('node:path').join(__dirname, '../staff/po
 assert.match(source, /posSetServiceStockState\(false, '', ''\)/, 'a successful validation displays no material list or stock quantities');
 assert.match(source, /posSetServiceStockState\(true, indicator, message\)/, 'a stock warning still uses the stock validation result and service-scoped message');
 assert.match(source, /const hideMaterialAvailability = \[36, 40, 63\]\.includes\(Number\(serviceId\)\);/, 'availability text is suppressed only for Sticker/Decals (36) and existing special cases (40, 63)');
-assert.match(source, /Number\(serviceId\) === 36\s*\?\s*'Insufficient material stock for this quantity\. Reduce the quantity or contact an administrator\.'/,
-    'Sticker/Decals stock failures remain blocking without exposing available or required quantities');
-assert.match(source, /Insufficient \$\{issue\.name \|\| 'material'\} stock\. Available:/,
+assert.match(source, /const message = `Insufficient \$\{issue\.name \|\| 'selected material'\} stock\. Available: \$\{formatQty\(issue\.available\)\} \$\{issue\.uom \|\| 'units'\}\. Required: \$\{formatQty\(issue\.required\)\}/,
+    'Insufficient selected-material stock reports the actual material, available quantity, and required quantity for every service');
+assert.match(source, /posSetServiceStockState\(true, indicator, message\);\s*return \{ valid: false, message \};/,
+    'Insufficient selected-material stock continues to block Add to Order');
+assert.match(source, /Insufficient \$\{issue\.name \|\| 'selected material'\} stock\. Available:/,
     'Other services keep their existing material availability warning');
 assert.match(source, /<div class="sm-footer-inner">[\s\S]*?<div class="sm-footer-buttons">[\s\S]*?<\/div>\s*<\/div>\s*<div id="pos-service-stock-feedback"/,
     'stock feedback is outside the stable Estimated Price and button row');
