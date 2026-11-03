@@ -19,6 +19,30 @@ require_once __DIR__ . '/../../includes/JobOrderService.php';
 require_once __DIR__ . '/../../includes/pos_quantity_validation.php';
 require_once __DIR__ . '/../../includes/pos_service_stock_validation.php';
 
+function pos_cart_staff_facing_service_material_error(string $message, array $requestData): string
+{
+    $serviceId = (int)($requestData['service_id'] ?? $requestData['product_id'] ?? 0);
+    if ($serviceId !== 71) {
+        foreach ((array)($_SESSION['pos_cart'] ?? []) as $cartItem) {
+            if (!is_array($cartItem)) continue;
+            $customization = is_array($cartItem['customization'] ?? null) ? $cartItem['customization'] : [];
+            if ((int)($customization['service_id'] ?? $cartItem['product_id'] ?? 0) === 71) {
+                $serviceId = 71;
+                break;
+            }
+        }
+    }
+    return printflow_pos_sintraboard_staff_facing_material_error($serviceId, $message) ?? $message;
+}
+
+function pos_cart_staff_facing_error_details($value, array $requestData)
+{
+    if (is_string($value)) return pos_cart_staff_facing_service_material_error($value, $requestData);
+    if (!is_array($value)) return $value;
+    foreach ($value as $key => $entry) $value[$key] = pos_cart_staff_facing_error_details($entry, $requestData);
+    return $value;
+}
+
 // Require staff or admin role
 if (!has_role(['Admin', 'Staff'])) {
     header('Content-Type: application/json');
@@ -1020,8 +1044,8 @@ try {
     session_write_close();
     echo json_encode([
         'success' => false,
-        'message' => $e->getMessage(),
-        'errors' => $e->errors,
+        'message' => pos_cart_staff_facing_service_material_error($e->getMessage(), is_array($data ?? null) ? $data : []),
+        'errors' => pos_cart_staff_facing_error_details($e->errors, is_array($data ?? null) ? $data : []),
         'cart' => array_values($_SESSION['pos_cart'] ?? [])
     ]);
 } catch (Exception $e) {
@@ -1031,7 +1055,7 @@ try {
     session_write_close();
     echo json_encode([
         'success' => false,
-        'message' => $e->getMessage(),
+        'message' => pos_cart_staff_facing_service_material_error($e->getMessage(), is_array($data ?? null) ? $data : []),
         'cart' => array_values($_SESSION['pos_cart'] ?? [])
     ]);
 }

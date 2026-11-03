@@ -7,6 +7,8 @@ const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../staff/pos.php'), 'utf8');
 assert.match(source, /posSetServiceStockState\(false, '', ''\)/, 'a successful validation displays no material list or stock quantities');
 assert.match(source, /posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message, serviceId\)\)/, 'non-stock material explanations are filtered while validation remains blocking');
+assert.match(source, /body\.firstElementChild\.textContent = posServiceStaffFacingMaterialMessage\(data\.error \|\| 'Failed to load fields\.', serviceId\)/,
+    'service-field API configuration errors are inserted as sanitized staff-facing text');
 const stockValidationStart = source.indexOf('        async function posValidateServiceStockNow(');
 const stockBindingStart = source.indexOf('        function posBindServiceStockValidation(serviceId) {', stockValidationStart);
 const stockValidationSource = source.slice(stockValidationStart, stockBindingStart);
@@ -161,10 +163,26 @@ context = vm.createContext({
     isAddingToOrder: false
 });
 
+const staffMessageStart = source.indexOf('        function posServiceStaffFacingMaterialMessage(message, serviceId = null) {');
+const staffMessageEnd = source.indexOf('\n        async function openServiceModal(', staffMessageStart);
 const displayMessageStart = source.indexOf('        function posServiceStockDisplayMessage(message, serviceId = null) {');
 const displayMessageEnd = source.indexOf('\n        function posDisposeServiceStockValidationListeners()', displayMessageStart);
-assert.ok(displayMessageStart >= 0 && displayMessageEnd > displayMessageStart, 'material feedback display filter is present');
-vm.runInContext(source.slice(displayMessageStart, displayMessageEnd), context);
+assert.ok(staffMessageStart >= 0 && staffMessageEnd > staffMessageStart && displayMessageStart > staffMessageEnd && displayMessageEnd > displayMessageStart, 'material feedback display filter and staff-safe error translator are present');
+vm.runInContext(source.slice(staffMessageStart, staffMessageEnd) + source.slice(displayMessageStart, displayMessageEnd), context);
+const sintraStaffMessage = 'May kailangan bang linawin tungkol sa material na gagamitin? May nalilito ba sa pagpili ng material? Pakisuri ang Sintra 3mm o Sintra 5mm bago magpatuloy.';
+const sintraTechnicalErrors = [
+    'Stable and legacy material mappings conflict. An Admin must resolve the duplicate configuration.',
+    'Stable-ID and legacy Sintraboard mappings conflict by item, rule type, multiplier basis, or approval state. An Admin must review the service-material configuration before POS stock validation.',
+    'Multiple rules exist for one service/material ID. An Admin must resolve the duplicate configuration.',
+];
+sintraTechnicalErrors.forEach(error => {
+  assert.equal(context.posServiceStockDisplayMessage(error, 71), sintraStaffMessage,
+    'Sintraboard identity diagnostics show only the staff-friendly material clarification prompt');
+  assert.doesNotMatch(context.posServiceStockDisplayMessage(error, 71), /stable|legacy|mapping|configuration|Admin/i,
+    'technical rule identity terms do not reach Sintraboard staff');
+});
+assert.equal(context.posServiceStockDisplayMessage(sintraTechnicalErrors[0], 67), '',
+    'the Sintraboard-only wording change does not affect other services');
 assert.equal(context.posServiceStockDisplayMessage('Estimated consumption: C2S Board: 4 sheets to consume'), '',
     'estimated-consumption summaries are hidden');
 assert.equal(context.posServiceStockDisplayMessage('Stock: C2S Board: 8 sheets available'), '',
@@ -173,8 +191,8 @@ assert.equal(context.posServiceStockDisplayMessage('Select exactly one material 
     'Brochure material-choice explanations are hidden');
 assert.equal(context.posServiceStockDisplayMessage('Select a configured size or enter valid custom width and height before checking material stock.'), '',
     'material precheck dimension guidance is hidden from stock feedback');
-assert.equal(context.posServiceStockDisplayMessage('Stable-ID and legacy Sintraboard mappings conflict by item, rule type, multiplier basis, or approval state. An Admin must review the service-material configuration before POS stock validation.'), 'Stable-ID and legacy Sintraboard mappings conflict by item, rule type, multiplier basis, or approval state. An Admin must review the service-material configuration before POS stock validation.',
-    'conflicting Sintraboard rule identities remain visible for Admin review');
+assert.equal(context.posServiceStockDisplayMessage('Stable-ID and legacy Sintraboard mappings conflict by item, rule type, multiplier basis, or approval state. An Admin must review the service-material configuration before POS stock validation.', 71), sintraStaffMessage,
+    'conflicting Sintraboard rule identities remain blocked with the staff-friendly material prompt');
 assert.match(context.posServiceStockDisplayMessage('Insufficient C2s Board stock. Available: 2 sheets. Required: 4 sheets.'), /Insufficient C2s Board stock/,
     'actual insufficient-stock errors retain the material and shortage quantities');
 assert.equal(context.posServiceStockDisplayMessage('Nextjet is out of stock.'), 'Nextjet is out of stock.',

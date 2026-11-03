@@ -176,7 +176,10 @@ if (is_array($selectionPolicy)) {
     catch (Throwable $identityError) {
         http_response_code(409);
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['success' => false, 'error' => 'Stable and legacy material mappings conflict. An Admin must resolve the duplicate configuration.']);
+        $staffError = printflow_pos_sintraboard_staff_facing_material_error($service_id, $identityError->getMessage());
+        echo json_encode(['success' => false, 'error' => $staffError ?? ($service_id === 71
+            ? 'May kailangan bang linawin tungkol sa material na gagamitin? May nalilito ba sa pagpili ng material? Pakisuri ang Sintra 3mm o Sintra 5mm bago magpatuloy.'
+            : 'Stable and legacy material mappings conflict. An Admin must resolve the duplicate configuration.')]);
         exit;
     }
     $rulesByItem = [];
@@ -185,7 +188,9 @@ if (is_array($selectionPolicy)) {
         if (isset($rulesByItem[$ruleItemId])) {
             http_response_code(409);
             header('Content-Type: application/json; charset=utf-8');
-            echo json_encode(['success' => false, 'error' => 'Multiple rules exist for one service/material ID. An Admin must resolve the duplicate configuration.']);
+            $duplicateError = 'Multiple rules exist for one service/material ID. An Admin must resolve the duplicate configuration.';
+            $staffError = printflow_pos_sintraboard_staff_facing_material_error($service_id, $duplicateError);
+            echo json_encode(['success' => false, 'error' => $staffError ?? $duplicateError]);
             exit;
         }
         $rulesByItem[$ruleItemId] = $ruleRow;

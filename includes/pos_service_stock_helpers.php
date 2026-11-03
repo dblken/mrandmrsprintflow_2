@@ -110,36 +110,86 @@ function printflow_pos_service_material_rule_alias_signature(array $row): ?array
 function printflow_pos_sintraboard_rule_rows_resolve(array $stableRows, array $legacyRows): ?array
 {
     if ($stableRows === []) return null;
+    $approvedStableItems = [];
+    foreach ($stableRows as $row) {
+        if (!is_array($row)) continue;
+        $itemId = filter_var($row['item_id'] ?? null, FILTER_VALIDATE_INT);
+        $approved = $row['qty_multiplier_approved'] ?? null;
+        if ($itemId !== false && $itemId > 0 && in_array($approved, [1, '1', true], true)) $approvedStableItems[(int)$itemId] = true;
+    }
     $stableByItem = [];
     foreach ($stableRows as $row) {
         if (!is_array($row)) return null;
+        $rawItemId = filter_var($row['item_id'] ?? null, FILTER_VALIDATE_INT);
+        $approvalFlag = $row['qty_multiplier_approved'] ?? null;
+        $hasAudit = false;
+        foreach (['qty_multiplier_approved_by', 'qty_multiplier_approved_at', 'qty_multiplier_approved_basis'] as $auditField) {
+            $auditValue = $row[$auditField] ?? null;
+            if ($auditValue !== null && $auditValue !== '') {
+                $hasAudit = true;
+                break;
+            }
+        }
+        if ($rawItemId !== false && $rawItemId > 0 && isset($approvedStableItems[(int)$rawItemId])
+            && in_array($approvalFlag, [0, '0', false], true) && !$hasAudit) continue;
+
         $signature = printflow_pos_service_material_rule_alias_signature($row);
         if ($signature === null) return null;
         $itemId = $signature[0];
         if (isset($stableByItem[$itemId])) {
-            // Identical stable duplicates must not double-consume stock;
-            // divergent rows for the same material are ambiguous and fail closed.
-            if ($stableByItem[$itemId]['signature'] !== $signature) return null;
+            $existing = $stableByItem[$itemId]['signature'];
+            // Unapproved duplicates cannot drive consumption; prefer the
+            // approved stable row if one exists. Two approved rows conflict
+            // only when their operational rule values disagree.
+            if ($existing[4] === 1 && $signature[4] === 1
+                && array_slice($existing, 0, 5) !== array_slice($signature, 0, 5)) return null;
+            if ($existing[4] === 0 && $signature[4] === 1) {
+                $stableByItem[$itemId] = ['signature' => $signature, 'row' => $row];
+            }
             continue;
         }
         $stableByItem[$itemId] = ['signature' => $signature, 'row' => $row];
     }
     foreach ($legacyRows as $row) {
         if (!is_array($row)) return null;
+        $rawItemId = filter_var($row['item_id'] ?? null, FILTER_VALIDATE_INT);
+        if ($rawItemId === false || $rawItemId <= 0 || !isset($stableByItem[(int)$rawItemId])) continue;
+
+        // A clean unapproved compatibility row cannot drive POS validation or
+        // stock consumption. Ignore it before validating its stale identity.
+        $approvalFlag = $row['qty_multiplier_approved'] ?? null;
+        $hasAudit = false;
+        foreach (['qty_multiplier_approved_by', 'qty_multiplier_approved_at', 'qty_multiplier_approved_basis'] as $auditField) {
+            $auditValue = $row[$auditField] ?? null;
+            if ($auditValue !== null && $auditValue !== '') {
+                $hasAudit = true;
+                break;
+            }
+        }
+        if (in_array($approvalFlag, [0, '0', false], true) && !$hasAudit) continue;
+
         $signature = printflow_pos_service_material_rule_alias_signature($row);
         if ($signature === null) return null;
         $itemId = $signature[0];
-        if (isset($stableByItem[$itemId])) {
-            // A legacy row for an active stable material is safe only when its
-            // complete rule and approval state matches the stable row.
-            if ($stableByItem[$itemId]['signature'] !== $signature) return null;
-            continue;
-        }
-        $isStaleOptional = $signature[1] === 'OPTIONAL' && $signature[4] === 0
-            && $signature[5] === null && $signature[6] === null && $signature[7] === null;
-        if (!$isStaleOptional) return null;
+
+        // A legacy alias can accompany a stable rule only when both approved
+        // rows agree operationally. An unapproved/obsolete alias is ignored.
+        $stableSignature = $stableByItem[$itemId]['signature'];
+        if ($stableSignature[4] !== 1 || $signature[4] !== 1
+            || array_slice($stableSignature, 0, 5) !== array_slice($signature, 0, 5)) return null;
     }
     return array_values(array_map(static fn(array $entry): array => $entry['row'], $stableByItem));
+}
+
+/** Keep service 71's internal rule-identity diagnostics out of staff-facing POS errors. */
+function printflow_pos_sintraboard_staff_facing_material_error(int $serviceId, string $message): ?string
+{
+    if ($serviceId !== 71 || !preg_match(
+        '/stable(?:-id)?\s+and\s+legacy|sintraboard mappings conflict|duplicate configuration|multiple rules exist for one service\/material|stable service id conflicts with the stored service_type/i',
+        $message
+    )) return null;
+
+    return 'May kailangan bang linawin tungkol sa material na gagamitin? May nalilito ba sa pagpili ng material? Pakisuri ang Sintra 3mm o Sintra 5mm bago magpatuloy.';
 }
 
 /**
@@ -173,8 +223,9 @@ function printflow_pos_select_service_material_rule_set(int $serviceId, array $r
     if ($stableRows !== [] && $serviceId === 71) {
         $resolved = printflow_pos_sintraboard_rule_rows_resolve($stableRows, $legacyRows);
         if ($resolved !== null) {
-            // Stable service IDs are authoritative. Equivalent legacy aliases
-            // are ignored, as are unmatched OPTIONAL/unapproved legacy rows.
+            // Stable service IDs are authoritative. Clean unapproved aliases
+            // and obsolete unmatched aliases are ignored; approved same-item
+            // aliases must agree with the stable rule.
             return $resolved;
         }
         throw new RuntimeException('Stable-ID and legacy Sintraboard mappings conflict by item, rule type, multiplier basis, or approval state. An Admin must review the service-material configuration before POS stock validation.');

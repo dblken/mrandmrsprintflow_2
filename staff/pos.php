@@ -4699,6 +4699,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return { unitPrice: safeUnit, quantity: safeQty, designFee: safeDesignFee };
         }
 
+        function posServiceStaffFacingMaterialMessage(message, serviceId = null) {
+            const text = String(message || '').trim();
+            if (Number(serviceId) === 71 && /stable(?:-id)?\s+and\s+legacy|sintraboard mappings conflict|duplicate configuration|multiple rules exist for one service\/material|stable service id conflicts with the stored service_type/i.test(text)) {
+                return 'May kailangan bang linawin tungkol sa material na gagamitin? May nalilito ba sa pagpili ng material? Pakisuri ang Sintra 3mm o Sintra 5mm bago magpatuloy.';
+            }
+            return text;
+        }
+
         async function openServiceModal(serviceId, serviceName) {
             console.log('openServiceModal called:', serviceId, serviceName);
             const overlay = document.getElementById('service-modal-overlay');
@@ -4728,7 +4736,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const data = await res.json();
                 console.log('Service fields response:', data);
                 if (!data.success) {
-                    body.innerHTML = '<p style="color:#ef4444;text-align:center;padding:1rem;">' + (data.error || 'Failed to load fields.') + '</p>';
+                    body.innerHTML = '<p style="color:#ef4444;text-align:center;padding:1rem;"></p>';
+                    body.firstElementChild.textContent = posServiceStaffFacingMaterialMessage(data.error || 'Failed to load fields.', serviceId);
                     return;
                 }
                 overlay.dataset.csrfToken = data.csrf_token;
@@ -5277,14 +5286,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         function posServiceStockDisplayMessage(message, serviceId = null) {
-            const text = String(message || '').trim();
+            const text = posServiceStaffFacingMaterialMessage(message, serviceId);
             if (!text) return '';
             // Keep genuine stock failures visible, including the legacy
             // "only N available; M required" wording used by cart validation.
             if (/out of stock|insufficient stock|not enough stock|low stock|has only\s+[\d,.]+.*available.*required|only\s+[\d,.]+.*available.*required|cannot be cut as continuous pieces from the available open rolls/i.test(text)) {
                 return text;
             }
-            if (/stable-id and legacy sintraboard mappings conflict|an admin must review the service-material configuration/i.test(text)) {
+            if (Number(serviceId) === 71 && text.startsWith('May kailangan bang linawin tungkol sa material na gagamitin?')) {
                 return text;
             }
             if (Number(serviceId) === 40) {

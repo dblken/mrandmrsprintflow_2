@@ -135,19 +135,44 @@ $assert($auditedSintraResolved[1]['qty_multiplier'] === '1.00'
     && $auditedSintraResolved[2]['qty_multiplier_basis'] === 'AREA_SQFT'
     && (int)$auditedSintraResolved[2]['qty_multiplier_approved'] === 1,
     'The audited approved Sintra 3mm and 5mm AREA_SQFT rules are preserved by resolution.');
+$unapprovedStableDuplicate = $auditedSintraStableRows[1];
+$unapprovedStableDuplicate['id'] = 99;
+$unapprovedStableDuplicate['qty_multiplier_approved'] = 0;
+$unapprovedStableDuplicate['qty_multiplier_approved_by'] = null;
+$unapprovedStableDuplicate['qty_multiplier_approved_at'] = null;
+$unapprovedStableDuplicate['qty_multiplier_approved_basis'] = null;
+$unapprovedStableDuplicate['qty_multiplier'] = 'invalid-stale-value';
+$unapprovedStableDuplicate['qty_multiplier_basis'] = 'UNKNOWN';
+$stableDuplicateResolved = printflow_pos_select_service_material_rule_set(71, array_merge(
+    $auditedSintraStableRows,
+    [$unapprovedStableDuplicate],
+    $auditedSintraLegacyRows
+));
+$assert(array_column($stableDuplicateResolved, 'id') === [26, 35, 52],
+    'A malformed unapproved duplicate cannot override an approved stable Sintra rule for the same item.');
+$obsoleteLegacyRows = $auditedSintraLegacyRows;
+$obsoleteLegacyRows[] = ['id' => 29, 'service_id' => null, 'service_type' => 'Sintraboard Standees', 'item_id' => 999, 'rule_type' => 'OBSOLETE', 'qty_multiplier' => 'bad', 'qty_multiplier_approved' => 1];
+$obsoleteLegacyResolved = printflow_pos_select_service_material_rule_set(71, array_merge($auditedSintraStableRows, $obsoleteLegacyRows));
+$assert(array_column($obsoleteLegacyResolved, 'id') === [26, 35, 52],
+    'An unmatched obsolete legacy alias is ignored without changing stable mappings.');
 $legacyConflict = $auditedSintraLegacyRows;
 $legacyConflict[0]['item_id'] = 206;
-$legacyConflict[0]['rule_type'] = 'OPTIONAL';
+$legacyConflict[0]['rule_type'] = 'REQUIRED';
+$legacyConflict[0]['qty_multiplier'] = '2.00';
+$legacyConflict[0]['qty_multiplier_approved'] = 1;
+$legacyConflict[0]['qty_multiplier_approved_by'] = 23;
+$legacyConflict[0]['qty_multiplier_approved_at'] = '2026-11-03 11:00:00';
+$legacyConflict[0]['qty_multiplier_basis'] = 'AREA_SQFT';
+$legacyConflict[0]['qty_multiplier_approved_basis'] = 'AREA_SQFT';
 $expectRuntimeError(
     static fn() => printflow_pos_select_service_material_rule_set(71, array_merge($auditedSintraStableRows, $legacyConflict)),
     'An Admin must review the service-material configuration'
 );
 $unmatchedLegacyRequired = $auditedSintraLegacyRows;
 $unmatchedLegacyRequired[0]['rule_type'] = 'REQUIRED';
-$expectRuntimeError(
-    static fn() => printflow_pos_select_service_material_rule_set(71, array_merge($auditedSintraStableRows, $unmatchedLegacyRequired)),
-    'An Admin must review the service-material configuration'
-);
+$unmatchedLegacyResolved = printflow_pos_select_service_material_rule_set(71, array_merge($auditedSintraStableRows, $unmatchedLegacyRequired));
+$assert(array_column($unmatchedLegacyResolved, 'id') === [26, 35, 52],
+    'An unmatched legacy REQUIRED row without approval is ignored and cannot interfere with the stable service 71 rules.');
 $conflictingApprovedStable = $auditedSintraStableRows;
 $duplicateApprovedStable = $auditedSintraStableRows[1];
 $duplicateApprovedStable['id'] = 99;
@@ -157,6 +182,21 @@ $expectRuntimeError(
     static fn() => printflow_pos_select_service_material_rule_set(71, array_merge($conflictingApprovedStable, [$duplicateApprovedStable])),
     'An Admin must review the service-material configuration'
 );
+$sintraTechnicalError = 'Stable and legacy material mappings conflict. An Admin must resolve the duplicate configuration.';
+$sintraStaffMessage = 'May kailangan bang linawin tungkol sa material na gagamitin? May nalilito ba sa pagpili ng material? Pakisuri ang Sintra 3mm o Sintra 5mm bago magpatuloy.';
+$assert(printflow_pos_sintraboard_staff_facing_material_error(71, $sintraTechnicalError) === $sintraStaffMessage,
+    'Sintraboard mapping diagnostics are replaced with the staff-friendly ambiguity prompt.');
+$assert(printflow_pos_sintraboard_staff_facing_material_error(71, 'Sintra 3mm is out of stock.') === null
+    && printflow_pos_sintraboard_staff_facing_material_error(67, $sintraTechnicalError) === null,
+    'Stock messages and other services are not rewritten by the Sintraboard diagnostic sanitizer.');
+$serviceFieldsApi = (string)file_get_contents(dirname(__DIR__) . '/staff/api/pos_service_fields.php');
+$cartApi = (string)file_get_contents(dirname(__DIR__) . '/staff/api/pos_cart_handler.php');
+$checkoutApi = (string)file_get_contents(dirname(__DIR__) . '/staff/api/pos_checkout.php');
+$assert(str_contains($serviceFieldsApi, 'printflow_pos_sintraboard_staff_facing_material_error($service_id, $identityError->getMessage())')
+    && str_contains($serviceFieldsApi, '$staffError ??')
+    && str_contains($cartApi, 'pos_cart_staff_facing_service_material_error($e->getMessage()')
+    && str_contains($checkoutApi, 'pos_checkout_staff_facing_material_error((string)$issue[\'message\'], $items)'),
+    'Service-fields, cart, and checkout APIs sanitize genuine Sintraboard identity conflicts before returning staff-facing errors.');
 
 $expectRuntimeError(
     static fn() => printflow_pos_assert_service_stock_multiplier_schema(false, true, true, true),

@@ -24,6 +24,18 @@ require_once __DIR__ . '/../../includes/pos_quantity_validation.php';
 require_once __DIR__ . '/../../includes/pos_service_stock_validation.php';
 require_once __DIR__ . '/../../includes/pos_branch_scope.php';
 
+function pos_checkout_staff_facing_material_error(string $message, array $items): string
+{
+    foreach ($items as $item) {
+        if (!is_array($item)) continue;
+        $customization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+        $serviceId = (int)($customization['service_id'] ?? $item['id'] ?? 0);
+        $staffMessage = printflow_pos_sintraboard_staff_facing_material_error($serviceId, $message);
+        if ($staffMessage !== null) return $staffMessage;
+    }
+    return $message;
+}
+
 function pos_checkout_parse_positive_quantity($value): int {
     try {
         return printflow_pos_parse_cart_quantity($value);
@@ -1882,7 +1894,7 @@ if (empty($serviceStockValidation['ok'])) {
     $issue = $serviceStockValidation['issues'][0] ?? [];
     if (trim((string)($issue['message'] ?? '')) !== '') {
         http_response_code(409);
-        echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => (string)$issue['message']]);
+        echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => pos_checkout_staff_facing_material_error((string)$issue['message'], $items)]);
         exit;
     }
     $uom = trim((string)($issue['uom'] ?? ''));
@@ -1914,7 +1926,7 @@ foreach ((array)($serviceStockValidation['tarpaulin_selections'] ?? []) as $line
 $serviceMaterialError = pos_checkout_validate_assigned_service_materials($items, $pos_pending_orders_snapshot);
 if ($serviceMaterialError !== null) {
     http_response_code(409);
-    echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => $serviceMaterialError]);
+    echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => pos_checkout_staff_facing_material_error($serviceMaterialError, $items)]);
     exit;
 }
 $checkoutStaffId = $checkout_actor_user_id;
