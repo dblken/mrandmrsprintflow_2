@@ -14,6 +14,7 @@ require_once __DIR__ . '/NotificationService.php';
 require_once __DIR__ . '/revision_workflow.php';
 require_once __DIR__ . '/service_design_fee.php';
 require_once __DIR__ . '/pos_quantity_validation.php';
+require_once __DIR__ . '/pos_material_selection.php';
 
 class JobOrderService {
     private static array $columnExistsCache = [];
@@ -986,12 +987,20 @@ class JobOrderService {
 
             // 2. Insert Required Materials (placeholders + capture unit cost)
             if (!empty($materials)) {
-                $materialSql = "INSERT INTO job_order_materials (job_order_id, item_id, quantity, uom, computed_required_length_ft, unit_cost_at_assignment) VALUES (?, ?, ?, ?, ?, ?)";
+                $hasMaterialMetadata = self::tableHasColumn('job_order_materials', 'metadata');
+                $materialSql = $hasMaterialMetadata
+                    ? "INSERT INTO job_order_materials (job_order_id, item_id, quantity, uom, computed_required_length_ft, unit_cost_at_assignment, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                    : "INSERT INTO job_order_materials (job_order_id, item_id, quantity, uom, computed_required_length_ft, unit_cost_at_assignment) VALUES (?, ?, ?, ?, ?, ?)";
                 $mStmt = $conn->prepare($materialSql);
                 foreach ($materials as $m) {
                     $item = InventoryManager::getItem($m['item_id']);
                     $cost = $item['unit_cost'] ?? 0;
-                    $mStmt->bind_param("iidsdd", $orderId, $m['item_id'], $m['quantity'], $m['uom'], $m['computed_len'], $cost);
+                    if ($hasMaterialMetadata) {
+                        $metadataJson = json_encode((array)($m['metadata'] ?? []), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                        $mStmt->bind_param("iidsdds", $orderId, $m['item_id'], $m['quantity'], $m['uom'], $m['computed_len'], $cost, $metadataJson);
+                    } else {
+                        $mStmt->bind_param("iidsdd", $orderId, $m['item_id'], $m['quantity'], $m['uom'], $m['computed_len'], $cost);
+                    }
                     $mStmt->execute();
                 }
                 $mStmt->close();
@@ -1061,6 +1070,118 @@ class JobOrderService {
         return '';
     }
 
+    /** Convert a saved server-validated POS selection into deferred job assignments. */
+    private static function posSelectedMaterialsForCustomization(int $serviceId, array $custom): array {
+        if (!isset(printflow_pos_material_selection_registry()[$serviceId])) return [];
+        $rows = is_array($custom['pos_material_consumption'] ?? null) ? $custom['pos_material_consumption'] : [];
+        $verified = printflow_pos_material_selection_validate_saved_consumption($serviceId, $rows);
+        $materials = [];
+        foreach ($verified as $consumption) {
+            $quantity = (float)$consumption['rounded_demand'];
+            $materials[] = [
+                'item_id' => (int)$consumption['item_id'],
+                'quantity' => $quantity,
+                'uom' => (string)$consumption['uom'],
+                'computed_len' => 0,
+                'metadata' => [
+                    'pos_selected_material_consumption' => $consumption,
+                    'source' => 'pos_explicit_material_selection',
+                    'manual_assignment' => false,
+                ],
+            ];
+        }
+        return $materials;
+    }
+
+    /**
+     * Attach server-authored selected materials to pre-existing jobs after
+     * pending-job relinking. Exact order_item_id matching avoids cross-line
+     * assignments; this writes assignment rows only and never deducts stock.
+     */
+    private static function syncPosSelectedMaterialsForStoreOrder(int $orderId): void {
+        if ($orderId <= 0) return;
+        if (!self::tableHasColumn('job_orders', 'order_item_id')) {
+            throw new RuntimeException('POS selected materials require job/order-item links; no material assignment was created.');
+        }
+        $items = db_query(
+            'SELECT order_item_id, customization_data FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC',
+            'i', [$orderId]
+        );
+        if (!is_array($items)) throw new RuntimeException('POS selected-material order lines could not be loaded.');
+        $jobs = db_query(
+            "SELECT id, order_item_id FROM job_orders WHERE order_id = ? AND status NOT IN ('COMPLETED', 'CANCELLED') ORDER BY id ASC",
+            'i', [$orderId]
+        );
+        if (!is_array($jobs)) throw new RuntimeException('POS production jobs could not be loaded for selected-material assignment.');
+        $jobsByItem = [];
+        foreach ($jobs as $job) {
+            $itemId = (int)($job['order_item_id'] ?? 0);
+            if ($itemId > 0) $jobsByItem[$itemId][] = (int)$job['id'];
+        }
+
+        $pending = [];
+        foreach ($items as $item) {
+            $custom = json_decode((string)($item['customization_data'] ?? ''), true);
+            if (!is_array($custom)) continue;
+            $serviceId = (int)($custom['service_id'] ?? 0);
+            $materials = self::posSelectedMaterialsForCustomization($serviceId, $custom);
+            if ($materials === []) continue;
+            $orderItemId = (int)($item['order_item_id'] ?? 0);
+            $linkedJobs = $jobsByItem[$orderItemId] ?? [];
+            if (count($linkedJobs) !== 1) {
+                throw new RuntimeException('A POS service line does not have exactly one linked active production job; selected materials were not assigned.');
+            }
+            foreach ($materials as $material) $pending[] = ['job_id' => $linkedJobs[0], 'material' => $material];
+        }
+        if ($pending === []) return;
+
+        global $conn;
+        $started = !function_exists('printflow_db_in_transaction') || !printflow_db_in_transaction($conn);
+        if ($started && !$conn->begin_transaction()) throw new RuntimeException('Could not start selected-material assignment transaction.');
+        try {
+            $hasMetadata = self::tableHasColumn('job_order_materials', 'metadata');
+            foreach ($pending as $entry) {
+                $jobId = (int)$entry['job_id'];
+                $material = $entry['material'];
+                $itemId = (int)$material['item_id'];
+                $existing = db_query(
+                    'SELECT id, quantity, uom FROM job_order_materials WHERE job_order_id = ? AND item_id = ? AND roll_id IS NULL ORDER BY id ASC',
+                    'ii', [$jobId, $itemId]
+                );
+                if (!is_array($existing)) throw new RuntimeException('Existing job material assignments could not be checked.');
+                if (count($existing) > 1) throw new RuntimeException('Duplicate job assignments exist for a selected POS material; no assignment was changed.');
+                if ($existing !== []) {
+                    if (abs((float)$existing[0]['quantity'] - (float)$material['quantity']) > 0.000001
+                        || strcasecmp(trim((string)$existing[0]['uom']), (string)$material['uom']) !== 0) {
+                        throw new RuntimeException('An existing job material assignment conflicts with the saved POS selection; no assignment was changed.');
+                    }
+                    continue;
+                }
+                $inventoryItem = InventoryManager::getItem($itemId);
+                if (!$inventoryItem || strcasecmp(trim((string)($inventoryItem['unit_of_measure'] ?? '')), (string)$material['uom']) !== 0) {
+                    throw new RuntimeException('The selected POS inventory item or unit changed before production assignment.');
+                }
+                if ($hasMetadata) {
+                    $metadata = json_encode($material['metadata'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                    $saved = db_execute(
+                        'INSERT INTO job_order_materials (job_order_id, item_id, roll_id, quantity, uom, computed_required_length_ft, unit_cost_at_assignment, notes, metadata) VALUES (?, ?, NULL, ?, ?, 0, ?, ?, ?)',
+                        'iidsdss', [$jobId, $itemId, $material['quantity'], $material['uom'], (float)($inventoryItem['unit_cost'] ?? 0), 'POS selected material; deduction deferred until job completion.', $metadata]
+                    );
+                } else {
+                    $saved = db_execute(
+                        'INSERT INTO job_order_materials (job_order_id, item_id, roll_id, quantity, uom, computed_required_length_ft, unit_cost_at_assignment, notes) VALUES (?, ?, NULL, ?, ?, 0, ?, ?)',
+                        'iidsds', [$jobId, $itemId, $material['quantity'], $material['uom'], (float)($inventoryItem['unit_cost'] ?? 0), 'POS selected material; calculation stored on the order item.']
+                    );
+                }
+                if ($saved === false) throw new RuntimeException('Could not persist a selected POS material assignment.');
+            }
+            if ($started && !$conn->commit()) throw new RuntimeException('Could not commit selected POS material assignments.');
+        } catch (Throwable $e) {
+            if ($started) $conn->rollback();
+            throw $e;
+        }
+    }
+
     /**
      * If a store order has line items but no job_orders (e.g. checkout job step failed), create jobs like checkout does.
      * Returns first job_orders.id or null if order/items missing.
@@ -1069,6 +1190,7 @@ class JobOrderService {
         $existing = db_query('SELECT id FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1', 'i', [$orderId]);
         if (!empty($existing)) {
             self::repairMissingOrderItemLinks($orderId);
+            self::syncPosSelectedMaterialsForStoreOrder($orderId);
             return (int)$existing[0]['id'];
         }
         $order = db_query('SELECT * FROM orders WHERE order_id = ?', 'i', [$orderId]);
@@ -1138,14 +1260,8 @@ class JobOrderService {
             $unit_price = (float)($item['unit_price'] ?? 0);
             $estimatedTotal = printflow_order_item_calculated_line_total($item);
 
-            // Do not auto-assign production materials during store/POS job creation.
-            // Materials must only be attached through explicit staff actions later.
-            $autoMaterials = [];
-            error_log(sprintf(
-                'PrintFlow Material Assignment: skipped auto-assignment for store order %d (service: %s)',
-                $orderId,
-                $service_type
-            ));
+            $selectionServiceId = (int)($custom['service_id'] ?? 0);
+            $autoMaterials = self::posSelectedMaterialsForCustomization($selectionServiceId, $custom);
 
             try {
                 require_once __DIR__ . '/service_field_priority_helper.php';

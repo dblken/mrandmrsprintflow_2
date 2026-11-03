@@ -132,7 +132,7 @@ $stockRulesBlock = $stockRulesStart !== false && $stockRulesEnd !== false
     ? substr($validator, $stockRulesStart, $stockRulesEnd - $stockRulesStart)
     : '';
 $schemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier', true)");
-$query = strpos($stockRulesBlock, 'SELECT r.item_id, r.rule_type, r.qty_multiplier');
+$query = strpos($stockRulesBlock, 'SELECT r.id AS rule_id, r.item_id, r.rule_type, r.qty_multiplier');
 $tarpaulinExit = strpos($stockRulesBlock, 'if ($serviceId === 40) return [];');
 $stockValidationStart = strpos($validator, 'function printflow_pos_validate_service_stock(');
 $stockValidationBlock = $stockValidationStart !== false ? substr($validator, $stockValidationStart) : '';
@@ -141,12 +141,17 @@ $genericRulesCall = strpos($stockValidationBlock, 'printflow_pos_service_stock_r
 $approvalSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved', true)");
 $approverSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved_by', true)");
 $approvalTimestampSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved_at', true)");
+$basisSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_basis', true)");
+$approvedBasisSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved_basis', true)");
 $approvedMultiplierCheck = strpos($stockRulesBlock, 'printflow_pos_approved_service_multiplier(');
 $assert($schemaCheck !== false && $approvalSchemaCheck !== false && $approverSchemaCheck !== false
     && $approvalTimestampSchemaCheck !== false && $query !== false
     && $schemaCheck < $query && $approvalSchemaCheck < $query
     && $approverSchemaCheck < $query && $approvalTimestampSchemaCheck < $query,
     'All four production multiplier/approval/audit schema guards run before the dependent query.');
+$assert($basisSchemaCheck !== false && $approvedBasisSchemaCheck !== false
+    && $basisSchemaCheck < $query && $approvedBasisSchemaCheck < $query,
+    'Selection-based services require the explicit and Admin-approved consumption basis before reading rules.');
 $assert($approvedMultiplierCheck !== false && $approvedMultiplierCheck < strpos($stockRulesBlock, '$required[] = ['),
     'Unapproved multipliers fail before a required demand entry can be accumulated.');
 $assert(str_contains($stockRulesBlock, 'r.qty_multiplier_approved'), 'The runtime selects the explicit approval state.');

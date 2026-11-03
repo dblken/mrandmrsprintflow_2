@@ -6,6 +6,9 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/service_field_renderer.php';
 require_once __DIR__ . '/../../includes/pos_custom_transaction_datetime.php';
+require_once __DIR__ . '/../../includes/pos_material_selection.php';
+require_once __DIR__ . '/../../includes/pos_service_stock_helpers.php';
+require_once __DIR__ . '/../../includes/InventoryManager.php';
 
 if (!is_logged_in() || (!is_staff() && !is_admin())) {
     echo json_encode(['success' => false, 'error' => 'Unauthorized']);
@@ -119,6 +122,130 @@ if ($fields_html === '') {
     exit;
 }
 
+// These services use explicit selectable material groups. Choices are always
+// resolved by the confirmed inventory IDs; absent or unapproved rule rows stay
+// visible but disabled so staff cannot create unvalidated consumption.
+$materialSelectionHtml = '';
+$selectionPolicy = printflow_pos_material_selection_registry()[$service_id] ?? null;
+if (is_array($selectionPolicy)) {
+    foreach (['qty_multiplier_basis', 'qty_multiplier_approved_basis'] as $basisColumn) {
+        if (!db_table_has_column('service_material_rules', $basisColumn, true)) {
+            http_response_code(503);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => false, 'error' => 'Selected-material consumption is not configured until the reviewed material-basis migration is applied.']);
+            exit;
+        }
+    }
+    $serviceType = printflow_pos_material_selection_service_type($service_id);
+    $itemIds = array_map('intval', array_keys($selectionPolicy));
+    $idSql = implode(',', $itemIds);
+    $items = db_query("SELECT id, name, unit_of_measure, status FROM inv_items WHERE id IN ({$idSql}) ORDER BY id");
+    if ($items === false) {
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['success' => false, 'error' => 'Verified service materials could not be loaded.']);
+        exit;
+    }
+    $aliases = $service_id === 36
+        ? ['Decals/Stickers (Print/Cut)', 'Decals / Stickers (Print/Cut)', 'Decals / Stickers (Print & Cut)', 'Stickers/Decals', 'Stickers', 'Sticker', 'Decal', 'Decals']
+        : [$serviceType];
+    $typeMarks = implode(',', array_fill(0, count($aliases), '?'));
+    $ruleRows = db_query(
+        "SELECT id, service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved, qty_multiplier_approved_by, qty_multiplier_approved_at,
+                qty_multiplier_basis, qty_multiplier_approved_basis
+         FROM service_material_rules WHERE service_type IN ({$typeMarks}) AND item_id IN ({$idSql}) ORDER BY id",
+        str_repeat('s', count($aliases)),
+        $aliases
+    );
+    if ($ruleRows === false) {
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['success' => false, 'error' => 'Service material rules could not be loaded.']);
+        exit;
+    }
+    $chosenTypeRows = [];
+    foreach ($ruleRows as $ruleRow) $chosenTypeRows[(string)$ruleRow['service_type']][] = $ruleRow;
+    if (count($chosenTypeRows) > 1) {
+        http_response_code(409);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['success' => false, 'error' => 'Material rules exist under multiple service aliases. An Admin must resolve the duplicate configuration.']);
+        exit;
+    }
+    $rulesByItem = [];
+    foreach ($ruleRows as $ruleRow) $rulesByItem[(int)$ruleRow['item_id']] = $ruleRow;
+    $expectedNames = printflow_pos_material_selection_item_names($service_id);
+    $labels = [];
+    foreach ($items as $item) {
+        $id = (int)$item['id'];
+        if (strtoupper(trim((string)$item['status'])) !== 'ACTIVE'
+            || !isset($expectedNames[$id])
+            || strcasecmp(trim((string)$item['name']), $expectedNames[$id]) !== 0) continue;
+        $policy = $selectionPolicy[$id];
+        $group = (string)($policy['group'] ?? '');
+        $rule = $rulesByItem[$id] ?? null;
+        $approved = false;
+        $setupMessage = 'Admin configuration required';
+        if ($rule) {
+            try {
+                printflow_pos_approved_service_multiplier($rule['qty_multiplier'] ?? null, $rule['qty_multiplier_approved'] ?? null, $rule['qty_multiplier_approved_by'] ?? null, $rule['qty_multiplier_approved_at'] ?? null);
+                $storedRuleType = strtoupper(trim((string)($rule['rule_type'] ?? '')));
+                $optionalBySelectionPolicy = in_array($policy['role'], ['optional', 'multi_optional'], true);
+                if ($optionalBySelectionPolicy
+                    ? !in_array($storedRuleType, ['OPTIONAL', 'REQUIRED'], true)
+                    : $storedRuleType !== 'REQUIRED') {
+                    throw new RuntimeException('The saved rule type does not match the verified selection policy.');
+                }
+                if (strtoupper(trim((string)($rule['qty_multiplier_basis'] ?? ''))) !== 'AREA_SQFT'
+                    || strtoupper(trim((string)($rule['qty_multiplier_approved_basis'] ?? ''))) !== 'AREA_SQFT') {
+                    throw new RuntimeException('The Admin-approved rate must be saved as inventory units per square foot.');
+                }
+                $approved = true;
+                $setupMessage = 'Available';
+            } catch (Throwable $ignored) {
+                $setupMessage = $ignored->getMessage() === 'The saved rule type does not match the verified selection policy.'
+                    ? 'Admin must correct the rule type'
+                    : 'Admin multiplier and area-rate approval required';
+            }
+        }
+        $role = (string)$policy['role'];
+        $labels[$group !== '' ? $group : 'optional'][] = [
+            'id' => $id, 'name' => $expectedNames[$id], 'uom' => (string)($item['unit_of_measure'] ?? ''),
+            'role' => $role, 'required_group' => !empty($policy['group_required']), 'enabled' => $approved,
+            'setup' => $setupMessage,
+        ];
+    }
+    $materialSelectionHtml = '<section class="pos-material-selection" data-pos-material-picker="1" style="margin:12px 0;padding:14px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc">'
+        . '<h3 style="margin:0 0 6px;font-size:15px">Materials for this order</h3><p style="margin:0 0 10px;color:#64748b;font-size:12px">Select only the material(s) used. Demand is calculated from the selected dimensions, approved multiplier, and order quantity; fractional units round up.</p>';
+    foreach ($labels as $groupKey => $choices) {
+        $requiredGroup = $groupKey !== 'optional' && !empty($choices[0]['required_group']);
+        $mode = $groupKey === 'decal_finishes' ? 'checkbox' : 'radio';
+        $materialSelectionHtml .= '<fieldset data-material-group="' . htmlspecialchars($groupKey, ENT_QUOTES, 'UTF-8') . '" data-group-required="' . ($requiredGroup ? '1' : '0') . '" style="margin:8px 0;padding:8px;border:1px solid #e2e8f0;border-radius:8px"><legend style="padding:0 4px;font-size:12px;font-weight:700">'
+            . htmlspecialchars(str_replace('_', ' ', $groupKey), ENT_QUOTES, 'UTF-8') . ($requiredGroup ? ' · choose one' : ' · optional') . '</legend>';
+        foreach ($choices as $choice) {
+            $disabled = $choice['enabled'] ? '' : ' disabled';
+            $checked = '';
+            $materialSelectionHtml .= '<label style="display:flex;gap:8px;align-items:center;padding:5px 2px;font-size:13px"><input type="' . $mode . '" name="pos_material_choice_' . htmlspecialchars($groupKey, ENT_QUOTES, 'UTF-8') . '" value="' . (int)$choice['id'] . '" data-pos-material-id="' . (int)$choice['id'] . '" data-pos-material-group="' . htmlspecialchars($groupKey, ENT_QUOTES, 'UTF-8') . '" data-pos-material-uom="' . htmlspecialchars($choice['uom'], ENT_QUOTES, 'UTF-8') . '"' . $disabled . $checked . '><span>' . htmlspecialchars($choice['name'], ENT_QUOTES, 'UTF-8') . ' · ' . htmlspecialchars($choice['uom'], ENT_QUOTES, 'UTF-8') . '</span><small style="margin-left:auto;color:' . ($choice['enabled'] ? '#047857' : '#b45309') . '">' . htmlspecialchars($choice['setup'], ENT_QUOTES, 'UTF-8') . '</small></label>';
+        }
+        $materialSelectionHtml .= '</fieldset>';
+    }
+    $materialSelectionHtml .= '</section>';
+    $fields_html .= $materialSelectionHtml;
+}
+
+$dimensionUnitRows = db_query(
+    "SELECT DISTINCT LOWER(TRIM(COALESCE(unit, 'ft'))) AS dimension_unit
+     FROM service_field_configs WHERE service_id = ? AND field_type = 'dimension' AND is_visible = 1",
+    'i', [$service_id]
+);
+$dimensionUnits = array_values(array_unique(array_filter(array_map(static fn(array $row): string => (string)($row['dimension_unit'] ?? ''), is_array($dimensionUnitRows) ? $dimensionUnitRows : []))));
+$materialDimensionUnit = count($dimensionUnits) === 1 ? $dimensionUnits[0] : '';
+if (is_array($selectionPolicy) && ($dimensionUnitRows === false || $materialDimensionUnit === '')) {
+    http_response_code(422);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['success' => false, 'error' => 'This service must have one explicit dimension unit before area-based material consumption can be used.']);
+    exit;
+}
+
 header('Content-Type: application/json; charset=utf-8');
 echo json_encode([
     'success'       => true,
@@ -129,4 +256,5 @@ echo json_encode([
     'csrf_token'    => generate_csrf_token(),
     'staff_branch_id' => $staff_branch_id,
     'staff_branch_name' => $staff_branch_name,
+    'material_dimension_unit' => $materialDimensionUnit,
 ]);

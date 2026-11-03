@@ -24,6 +24,7 @@ function printflow_pos_service_material_expected_type(int $serviceId): ?string
         39 => 'Plates',
         64 => 'Poster Printing',
         67 => 'Brochure',
+        71 => 'Sintraboard Standees',
     ][$serviceId] ?? null;
 }
 

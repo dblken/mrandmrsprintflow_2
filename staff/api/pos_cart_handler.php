@@ -172,11 +172,16 @@ function pos_cart_validate_assigned_service_stock(array $item): void
         return;
     }
     $productId = (int)($item['product_id'] ?? 0);
+    $customization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+    $selectionServiceId = (int)($customization['service_id'] ?? $productId);
+    // Selection-policy services validate the currently selected materials
+    // through printflow_pos_validate_service_stock(); legacy pending-job
+    // assignments must not reintroduce unselected alternatives into demand.
+    if (isset(printflow_pos_material_selection_registry()[$selectionServiceId])) return;
     $orderId = (int)($item['pending_order_id'] ?? 0);
     if ($orderId <= 0 && $productId > 0) {
         $orderId = (int)($_SESSION['pos_pending_orders'][$productId] ?? 0);
     }
-    $customization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
     $orderItemId = (int)($item['pending_order_item_id'] ?? ($customization['pending_order_item_id'] ?? 0));
     if ($orderId <= 0) {
         return;
@@ -905,6 +910,14 @@ try {
         }
         if (empty($serviceStockValidation['ok'])) {
             throw new Exception(pos_cart_service_stock_message($serviceStockValidation));
+        }
+        foreach ($_SESSION['pos_cart'] as $lineIndex => $cartItem) {
+            $customization = is_array($cartItem['customization'] ?? null) ? $cartItem['customization'] : [];
+            $serviceId = (int)($customization['service_id'] ?? $cartItem['product_id'] ?? 0);
+            if (!isset(printflow_pos_material_selection_registry()[$serviceId])) continue;
+            $selectedLines = (array)($serviceStockValidation['material_selections_by_line'] ?? []);
+            $customization['pos_material_consumption'] = array_values((array)($selectedLines[$lineIndex] ?? []));
+            $_SESSION['pos_cart'][$lineIndex]['customization'] = $customization;
         }
         foreach ((array)($serviceStockValidation['tarpaulin_selections'] ?? []) as $lineIndex => $selection) {
             if (!is_array($selection) || !isset($_SESSION['pos_cart'][$lineIndex])) continue;

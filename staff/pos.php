@@ -4732,6 +4732,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     return;
                 }
                 overlay.dataset.csrfToken = data.csrf_token;
+                overlay.dataset.materialDimensionUnit = String(data.material_dimension_unit || '');
                 body.innerHTML = data.fields_html;
                 if (Number(serviceId) === 40) posEnsureTarpaulinJoiningControls(body);
                 footerActions.style.display = 'block';
@@ -5308,6 +5309,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (branch) customization.branch_id = branch.value;
             const quantity = posServiceQuantityInput();
             if (quantity) customization.quantity = quantity.value;
+            const overlay = document.getElementById('service-modal-overlay');
+            if (overlay && overlay.dataset.materialDimensionUnit) customization.pos_material_dimension_unit = overlay.dataset.materialDimensionUnit;
+            customization.pos_selected_material_ids = Array.from(body.querySelectorAll('[data-pos-material-id]:checked'))
+                .map(input => Number(input.dataset.posMaterialId || input.value)).filter(id => Number.isInteger(id) && id > 0);
             return customization;
         }
 
@@ -5437,13 +5442,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const materials = Array.isArray(validation.materials) ? validation.materials : [];
                 const formatQty = value => String(Number(value || 0));
                 const hideMaterialAvailability = [36, 40, 63].includes(Number(serviceId));
-                const indicator = hideMaterialAvailability ? '' : materials.map(material => `${material.name}: ${formatQty(material.available)} ${material.uom || 'units'} available · ${formatQty(material.required)} required`).join(' | ');
+                const consumption = materials.map(material => `${material.name}: ${formatQty(material.required)} ${material.uom || 'units'} to consume`).join(' | ');
+                const availability = hideMaterialAvailability ? '' : materials.map(material => `${material.name}: ${formatQty(material.available)} ${material.uom || 'units'} available`).join(' | ');
+                const indicator = [consumption ? `Estimated consumption: ${consumption}` : '', availability ? `Stock: ${availability}` : ''].filter(Boolean).join(' · ');
                 const issues = Array.isArray(validation.issues) ? validation.issues : [];
                 if (!validation.ok || issues.length) {
                     const issue = issues[0] || {};
-                    const message = Number(serviceId) === 36
-                        ? 'Insufficient material stock for this quantity. Reduce the quantity or contact an administrator.'
-                        : `Insufficient ${issue.name || 'material'} stock. Available: ${formatQty(issue.available)} ${issue.uom || 'units'}. Required: ${formatQty(issue.required)} ${issue.uom || 'units'}.`;
+                    const message = `Insufficient ${issue.name || 'selected material'} stock. Available: ${formatQty(issue.available)} ${issue.uom || 'units'}. Required: ${formatQty(issue.required)} ${issue.uom || 'units'}.`;
                     posSetServiceStockState(true, indicator, message);
                     return { valid: false, message };
                 }
@@ -6083,6 +6088,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     }
                 }
             });
+
+            customization.pos_selected_material_ids = Array.from(body.querySelectorAll('[data-pos-material-id]:checked'))
+                .map(input => Number(input.dataset.posMaterialId || input.value)).filter(id => Number.isInteger(id) && id > 0);
+            customization.pos_material_dimension_unit = String(overlay.dataset.materialDimensionUnit || '').trim();
 
             try {
                 posStripInactiveDesignUploads(body, customization);

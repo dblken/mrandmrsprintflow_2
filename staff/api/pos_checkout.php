@@ -37,6 +37,12 @@ function pos_checkout_validate_assigned_service_materials(array $items, array $p
         if (!is_array($item) || !pos_payload_item_is_service($item)) {
             continue;
         }
+        $customization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+        $selectionServiceId = (int)($customization['service_id'] ?? $item['id'] ?? 0);
+        // This order's explicitly selected materials are revalidated below by
+        // the shared selection-policy stock validator. Old pending-job rows
+        // must not make unselected alternative materials mandatory at checkout.
+        if (isset(printflow_pos_material_selection_registry()[$selectionServiceId])) continue;
         $pendingOrderId = (int)($item['pending_order_id'] ?? 0);
         $productId = (int)($item['id'] ?? 0);
         $sessionPendingOrderId = (int)($pendingOrders[$productId] ?? 0);
@@ -1860,6 +1866,17 @@ if ($tarpaulinPairingError !== null) {
     exit;
 }
 
+// Discard any client-authored material calculation before the server resolves
+// selected material IDs against current rules, Admin approval, dimensions,
+// quantity, branch stock, and the configured area-rate multiplier.
+foreach ($items as $lineIndex => $checkoutItem) {
+    if (!is_array($checkoutItem)) continue;
+    $customization = is_array($checkoutItem['customization'] ?? null) ? $checkoutItem['customization'] : [];
+    $selectionServiceId = (int)($customization['service_id'] ?? $checkoutItem['id'] ?? 0);
+    if (!isset(printflow_pos_material_selection_registry()[$selectionServiceId])) continue;
+    unset($customization['pos_material_consumption']);
+    $items[$lineIndex]['customization'] = $customization;
+}
 $serviceStockValidation = printflow_pos_validate_service_stock($items, $checkout_branch_id);
 if (empty($serviceStockValidation['ok'])) {
     $issue = $serviceStockValidation['issues'][0] ?? [];
@@ -1876,6 +1893,16 @@ if (empty($serviceStockValidation['ok'])) {
     http_response_code(409);
     echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => $message]);
     exit;
+}
+// Material selection data is authored by the server stock validator. Never
+// carry a client-supplied calculation into the saved order item: the verified
+// IDs, dimensions, multiplier, and rounded demand are the audit source for the
+// deferred job-completion deduction.
+foreach ((array)($serviceStockValidation['material_selections_by_line'] ?? []) as $lineIndex => $consumptionRows) {
+    if (!isset($items[$lineIndex]) || !is_array($items[$lineIndex])) continue;
+    $customization = is_array($items[$lineIndex]['customization'] ?? null) ? $items[$lineIndex]['customization'] : [];
+    $customization['pos_material_consumption'] = array_values((array)$consumptionRows);
+    $items[$lineIndex]['customization'] = $customization;
 }
 foreach ((array)($serviceStockValidation['tarpaulin_selections'] ?? []) as $lineIndex => $selection) {
     if (!is_array($selection) || !isset($items[$lineIndex])) continue;
