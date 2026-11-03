@@ -11,6 +11,7 @@ require_once __DIR__ . '/pos_quantity_validation.php';
 require_once __DIR__ . '/pos_service_stock_helpers.php';
 require_once __DIR__ . '/service_material_rule_identity.php';
 require_once __DIR__ . '/pos_material_selection.php';
+require_once __DIR__ . '/pos_service_dimensions.php';
 require_once __DIR__ . '/pos_mugs_release_rule.php';
 require_once __DIR__ . '/tarpaulin_material_calculation.php';
 
@@ -229,18 +230,12 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
             $serviceId,
             is_array($customization['pos_selected_material_ids'] ?? null) ? $customization['pos_selected_material_ids'] : []
         );
-        $dimensionUnitRows = db_query(
-            "SELECT DISTINCT LOWER(TRIM(COALESCE(unit, 'ft'))) AS dimension_unit
-             FROM service_field_configs WHERE service_id = ? AND field_type = 'dimension' AND is_visible = 1",
-            'i', [$serviceId]
-        );
-        if (!is_array($dimensionUnitRows)) throw new RuntimeException('The service dimension unit could not be verified.');
-        $dimensionUnits = array_values(array_unique(array_filter(array_map(
-            static fn(array $row): string => strtolower(trim((string)($row['dimension_unit'] ?? ''))),
-            $dimensionUnitRows
-        ))));
-        if (count($dimensionUnits) !== 1) throw new RuntimeException('This service must have one explicit dimension unit before area-based material consumption can be used.');
-        $dimensionUnit = $dimensionUnits[0];
+        $dimensionConfigRows = printflow_pos_service_dimension_configs($serviceId);
+        if (!is_array($dimensionConfigRows)) throw new RuntimeException('The service dimension configuration could not be verified.');
+        $resolvedDimensions = printflow_pos_resolve_service_dimension_selection($dimensionConfigRows, $customization);
+        $customization['width'] = $resolvedDimensions['width'];
+        $customization['height'] = $resolvedDimensions['height'];
+        $dimensionUnit = $resolvedDimensions['unit'];
         $rulesByItem = [];
         foreach ($rules as $rule) $rulesByItem[(int)($rule['item_id'] ?? 0)] = $rule;
         $expectedNames = printflow_pos_material_selection_item_names($serviceId);

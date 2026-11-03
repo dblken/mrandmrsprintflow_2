@@ -35,5 +35,10 @@ $assert(
         && str_contains($source, 'service_has_field_config($service_id)'),
     'configured services use the shared field renderer'
 );
+$assert(
+    str_contains($source, 'printflow_pos_service_dimension_configs($service_id)')
+        && str_contains($source, "'material_dimension_field_key' =>"),
+    'area-based POS services return the configured visible size field identity and resolved unit'
+);
 
 echo "pos_service_fields endpoint test: {$passed} assertions passed.\n";

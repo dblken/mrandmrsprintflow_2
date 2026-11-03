@@ -8,6 +8,7 @@ require_once __DIR__ . '/../../includes/service_field_renderer.php';
 require_once __DIR__ . '/../../includes/pos_custom_transaction_datetime.php';
 require_once __DIR__ . '/../../includes/pos_material_selection.php';
 require_once __DIR__ . '/../../includes/pos_service_stock_helpers.php';
+require_once __DIR__ . '/../../includes/pos_service_dimensions.php';
 require_once __DIR__ . '/../../includes/service_material_rule_identity.php';
 require_once __DIR__ . '/../../includes/InventoryManager.php';
 
@@ -248,14 +249,25 @@ if (is_array($selectionPolicy)) {
     $fields_html .= $materialSelectionHtml;
 }
 
-$dimensionUnitRows = db_query(
-    "SELECT DISTINCT LOWER(TRIM(COALESCE(unit, 'ft'))) AS dimension_unit
-     FROM service_field_configs WHERE service_id = ? AND field_type = 'dimension' AND is_visible = 1",
-    'i', [$service_id]
-);
-$dimensionUnits = array_values(array_unique(array_filter(array_map(static fn(array $row): string => (string)($row['dimension_unit'] ?? ''), is_array($dimensionUnitRows) ? $dimensionUnitRows : []))));
-$materialDimensionUnit = count($dimensionUnits) === 1 ? $dimensionUnits[0] : '';
-if (is_array($selectionPolicy) && ($dimensionUnitRows === false || $materialDimensionUnit === '')) {
+$dimensionConfigRows = is_array($selectionPolicy)
+    ? printflow_pos_service_dimension_configs($service_id)
+    : null;
+$dimensionDescriptor = is_array($dimensionConfigRows)
+    ? printflow_pos_service_dimension_descriptor($dimensionConfigRows)
+    : null;
+$materialDimensionUnit = '';
+if ($dimensionDescriptor !== null) {
+    $materialDimensionUnit = (string)$dimensionDescriptor['unit'];
+    if ($materialDimensionUnit === '') {
+        $dimensionConfig = $dimensionDescriptor['row'];
+        $dimensionConfig['type'] = $dimensionConfig['field_type'];
+        $dimensionConfig['label'] = $dimensionConfig['field_label'] ?? '';
+        $dimensionConfig['options'] = $dimensionConfig['_options'] ?? [];
+        $context = printflow_service_field_custom_size_unit_context((string)$dimensionDescriptor['field_key'], $dimensionConfig);
+        $materialDimensionUnit = (string)($context['unit'] ?? '');
+    }
+}
+if (is_array($selectionPolicy) && ($dimensionConfigRows === false || $dimensionDescriptor === null || $materialDimensionUnit === '')) {
     http_response_code(422);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['success' => false, 'error' => 'This service must have one explicit dimension unit before area-based material consumption can be used.']);
@@ -273,4 +285,5 @@ echo json_encode([
     'staff_branch_id' => $staff_branch_id,
     'staff_branch_name' => $staff_branch_name,
     'material_dimension_unit' => $materialDimensionUnit,
+    'material_dimension_field_key' => $dimensionDescriptor['field_key'] ?? '',
 ]);

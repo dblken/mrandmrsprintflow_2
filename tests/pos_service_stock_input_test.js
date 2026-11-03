@@ -71,6 +71,11 @@ buttons.forEach(button => {
 const dimensionWidth = { name: 'width', value: '3', type: 'number', dataset: { dimensionRole: 'width', fieldName: 'width' } };
 const dimensionHeight = { name: 'height', value: '4', type: 'number', dataset: { dimensionRole: 'height', fieldName: 'height' } };
 const finishOption = { name: 'finish', value: 'Matte', type: 'select-one', dataset: { fieldName: 'finish' } };
+const sizesSelect = {
+    name: 'sizes', value: '', type: 'select-one', selectedIndex: 0,
+    options: [], dataset: {},
+    getAttribute(name) { return name === 'data-other-option' ? 'Others' : null; }
+};
 const branchField = { name: 'branch_id', value: '5', type: 'hidden', dataset: {} };
 const fieldsBody = {
     listeners: {},
@@ -82,7 +87,8 @@ const fieldsBody = {
     },
     querySelectorAll(selector) {
         if (selector.includes('data-dimension-role')) return [widthHidden, heightHidden];
-        return [input, dimensionWidth, dimensionHeight, finishOption, branchField, widthHidden, heightHidden];
+        if (selector === 'select') return [sizesSelect, dimensionsControl];
+        return [input, dimensionWidth, dimensionHeight, finishOption, sizesSelect, branchField, widthHidden, heightHidden];
     },
     querySelector(selector) {
         if (selector === '[name="branch_id"]') return branchField;
@@ -100,6 +106,7 @@ const fieldsBody = {
 };
 const elements = {
     'sm-fields-body': fieldsBody,
+    'service-modal-overlay': { dataset: { materialDimensionFieldKey: '', materialDimensionUnit: 'ft' } },
     'pos-service-stock-feedback': { style: {} },
     'pos-service-stock-warning': { textContent: '' },
     'pos-service-stock-indicator': { textContent: '' }
@@ -114,7 +121,8 @@ context = vm.createContext({
         validations.push([
             serviceId,
             String(quantity),
-            Number(serviceId) === 40 ? context.posCollectTarpaulinStockCustomization() : null
+            Number(serviceId) === 40 ? context.posCollectTarpaulinStockCustomization()
+                : Number(serviceId) === 67 ? context.posCollectServiceStockCustomization() : null
         ]);
     },
     pfPrepareServiceFormDimensions() {
@@ -137,12 +145,33 @@ context = vm.createContext({
 });
 
 vm.runInContext(source.slice(disposeStart, collectStart) + source.slice(collectStart, validateStart) + source.slice(bindStart, end), context);
+const confirmFlowStart = source.indexOf('        async function confirmServiceModal() {');
+const confirmDimensionSync = source.indexOf('posApplySelectedServiceDimension(customization, body, overlay);', confirmFlowStart);
+const addServiceRequest = source.indexOf("const result = await syncedCartAction('add'", confirmFlowStart);
+assert.ok(confirmFlowStart >= 0 && confirmDimensionSync > confirmFlowStart && confirmDimensionSync < addServiceRequest
+    && source.indexOf('customization: customization', addServiceRequest) > addServiceRequest,
+    'Add to Order applies the same selected preset dimension mapping as early stock validation');
 const customization = context.posCollectServiceStockCustomization();
 assert.equal(customization.width, '3', 'stock preview captures current width');
 assert.equal(customization.height, '4', 'stock preview captures current height');
 assert.equal(customization.finish, 'Matte', 'stock preview captures selected service options');
 assert.equal(customization.branch_id, '5', 'stock preview captures the assigned branch');
 assert.equal(customization.quantity, '1', 'stock preview captures requested quantity');
+elements['service-modal-overlay'].dataset.materialDimensionFieldKey = 'sizes';
+sizesSelect.value = '25pcs A4 (8 x 11 Inch)';
+sizesSelect.selectedIndex = 0;
+sizesSelect.options = [{ textContent: '25pcs A4 (8 x 11 Inch)' }];
+const brochureCustomization = context.posCollectServiceStockCustomization();
+assert.equal(brochureCustomization.sizes, '25pcs A4 (8 x 11 Inch)', 'Brochure stock request preserves the selected priced option');
+assert.equal(brochureCustomization.width, '8', 'Brochure preset parses the physical width for area demand');
+assert.equal(brochureCustomization.height, '11', 'Brochure preset parses the physical height for area demand');
+assert.equal(brochureCustomization.pos_material_dimension_unit, 'in', 'Brochure preset unit is derived from the selected option label');
+context.posBindServiceStockValidation(67);
+const initialBrochureRequest = validations.shift();
+assert.equal(initialBrochureRequest[0], 67, 'Brochure modal validates through the normal service stock path');
+assert.equal(initialBrochureRequest[2].width, '8', 'Brochure modal passes selected width to stock validation');
+assert.equal(initialBrochureRequest[2].height, '11', 'Brochure modal passes selected height to stock validation');
+assert.equal(initialBrochureRequest[2].pos_material_dimension_unit, 'in', 'Brochure modal passes the physical option unit');
 context.posBindServiceStockValidation(42);
 assert.equal(validations.shift()[0], 42, 'opening a non-Tarpaulin service validates its initial quantity');
 
@@ -160,9 +189,11 @@ assert.equal(timers.length, 1, 'typing continues to debounce stock validation');
 timers.shift()();
 assert.deepEqual(validations.shift().slice(0, 2), [42, '4'], 'typed quantity validates through the existing request path');
 
+elements['service-modal-overlay'].dataset.materialDimensionFieldKey = '';
+sizesSelect.value = '';
 context.posBindServiceStockValidation(40);
-assert.equal(listenerCounts.input, 2, 'each service modal opening registers one delegated stock input handler');
-assert.equal(listenerCounts.change, 2, 'each service modal opening registers one delegated stock change handler');
+assert.equal(listenerCounts.input, 3, 'each service modal opening registers one delegated stock input handler');
+assert.equal(listenerCounts.change, 3, 'each service modal opening registers one delegated stock change handler');
 assert.equal(validationControllers[0].aborted, true, 'opening another service modal aborts the prior delegated validation listeners');
 assert.equal(listenerOptions.input.signal, listenerOptions.change.signal, 'input and change handlers share the current modal listener lifetime');
 const initialTarpaulinRequest = validations.shift();

@@ -4733,6 +4733,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
                 overlay.dataset.csrfToken = data.csrf_token;
                 overlay.dataset.materialDimensionUnit = String(data.material_dimension_unit || '');
+                overlay.dataset.materialDimensionFieldKey = String(data.material_dimension_field_key || '');
                 body.innerHTML = data.fields_html;
                 if (Number(serviceId) === 40) posEnsureTarpaulinJoiningControls(body);
                 footerActions.style.display = 'block';
@@ -5311,9 +5312,43 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (quantity) customization.quantity = quantity.value;
             const overlay = document.getElementById('service-modal-overlay');
             if (overlay && overlay.dataset.materialDimensionUnit) customization.pos_material_dimension_unit = overlay.dataset.materialDimensionUnit;
+            posApplySelectedServiceDimension(customization, body, overlay);
             customization.pos_selected_material_ids = Array.from(body.querySelectorAll('[data-pos-material-id]:checked'))
                 .map(input => Number(input.dataset.posMaterialId || input.value)).filter(id => Number.isInteger(id) && id > 0);
             return customization;
+        }
+
+        function posApplySelectedServiceDimension(customization, body, overlay) {
+            if (!customization || !body || !overlay) return;
+            const fieldKey = String(overlay.dataset.materialDimensionFieldKey || '').trim();
+            if (!fieldKey) return;
+            const select = Array.from(body.querySelectorAll('select')).find((field) => field.name === fieldKey);
+            if (!select || !select.value) return;
+            const otherValue = select.getAttribute('data-other-option') || 'Others';
+            if (select.value === otherValue) {
+                const row = select.closest('.shopee-form-row');
+                const width = row?.querySelector('[data-dimension-role="width"]')?.value || customization.width || '';
+                const height = row?.querySelector('[data-dimension-role="height"]')?.value || customization.height || '';
+                if (String(width).trim() && String(height).trim()) {
+                    customization.width = String(width).trim();
+                    customization.height = String(height).trim();
+                    const unitField = body.querySelector('[name="' + fieldKey + '_unit"]') || body.querySelector('[name="unit"]');
+                    customization.pos_material_dimension_unit = String(unitField?.value || overlay.dataset.materialDimensionUnit || '').trim();
+                }
+                return;
+            }
+            const option = select.options && select.options[select.selectedIndex];
+            const raw = [String((option && option.textContent) || '').trim(), String(select.value || '').trim()]
+                .filter(Boolean).join(' ');
+            const pair = raw.match(/(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)/i);
+            if (!pair) return;
+            customization.width = pair[1];
+            customization.height = pair[2];
+            const unitMatch = raw.match(/\b(inch(?:es)?|in|feet|foot|ft)\b/i);
+            const optionUnit = unitMatch
+                ? (/^(?:in|inch|inches)$/i.test(unitMatch[1]) ? 'in' : 'ft')
+                : String(overlay.dataset.materialDimensionUnit || '').trim();
+            if (optionUnit) customization.pos_material_dimension_unit = optionUnit;
         }
 
         function posCollectTarpaulinStockCustomization() {
@@ -6089,9 +6124,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
             });
 
+            posApplySelectedServiceDimension(customization, body, overlay);
+
             customization.pos_selected_material_ids = Array.from(body.querySelectorAll('[data-pos-material-id]:checked'))
                 .map(input => Number(input.dataset.posMaterialId || input.value)).filter(id => Number.isInteger(id) && id > 0);
-            customization.pos_material_dimension_unit = String(overlay.dataset.materialDimensionUnit || '').trim();
+            customization.pos_material_dimension_unit = customization.pos_material_dimension_unit
+                || String(overlay.dataset.materialDimensionUnit || '').trim();
 
             try {
                 posStripInactiveDesignUploads(body, customization);
