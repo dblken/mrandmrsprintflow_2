@@ -79,9 +79,9 @@ form.listeners.change[0].call(form.radios[0]);
 assert.equal(clearedRow, form.row, 'correcting the choice clears its inline field error');
 
 const confirmBlock = block('        async function confirmServiceModal() {', '        // ── Legacy service requirements');
-function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromise, cartResponse }) {
+function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromise, cartResponse, serviceId = 63, serviceName = 'Mugs' }) {
   const button = { disabled: false, style: {}, textContent: 'Add to Order' };
-  const overlay = { dataset: { serviceId: '63', serviceName: 'Mugs' } };
+  const overlay = { dataset: { serviceId: String(serviceId), serviceName } };
   const hiddenBranch = { value: '1' };
   const body = {
     querySelector(selector) {
@@ -93,6 +93,7 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
   const busyTransitions = [];
   let cartCalls = 0;
   let stockCalls = 0;
+  const stockServiceIds = [];
   let shownValidationErrors = null;
   const context = vm.createContext({
     document: { getElementById(id) {
@@ -110,7 +111,7 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
     focusFirstInvalidField() {},
     showPOSAlert: async () => {},
     posServiceQuantityInput() { return { value: '3' }; },
-    async posValidateServiceStockNow() { stockCalls += 1; return stockPromise(); },
+    async posValidateServiceStockNow(checkedServiceId) { stockCalls += 1; stockServiceIds.push(Number(checkedServiceId)); return stockPromise(); },
     resolveServiceModalPricing() { return { unitPrice: 120, quantity: 3, designFee: 200 }; },
     setServiceAddButtonBusy(isBusy) {
       button.disabled = !!isBusy || context.posServiceStockBlocking;
@@ -146,6 +147,7 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
     context, button, busyTransitions,
     get cartCalls() { return cartCalls; },
     get stockCalls() { return stockCalls; },
+    get stockServiceIds() { return stockServiceIds; },
     get shownValidationErrors() { return shownValidationErrors; },
   };
 }
@@ -205,6 +207,17 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
   await success.context.confirmServiceModal();
   assert.equal(success.cartCalls, 1, 'successful local addition sends one cart request');
   assert.deepEqual(success.busyTransitions, [true, false], 'success also exits the loading state');
+
+  const sintraboard = makeConfirmHarness({
+    validationValid: true,
+    serviceId: 71,
+    serviceName: 'Sintraboard Standees',
+    stockPromise: async () => ({ valid: true }),
+    cartResponse: async () => ({ success: true }),
+  });
+  await sintraboard.context.confirmServiceModal();
+  assert.deepEqual(sintraboard.stockServiceIds, [71], 'Sintraboard Add to Order revalidates stock for service ID 71');
+  assert.equal(sintraboard.cartCalls, 1, 'valid Sintraboard stock allows the existing Add to Order flow to send one cart request');
 
   console.log('POS Add to Order validation and recovery tests passed.');
 })().catch(error => {

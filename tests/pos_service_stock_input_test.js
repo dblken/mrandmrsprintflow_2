@@ -6,14 +6,14 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(require('node:path').join(__dirname, '../staff/pos.php'), 'utf8');
 assert.match(source, /posSetServiceStockState\(false, '', ''\)/, 'a successful validation displays no material list or stock quantities');
-assert.match(source, /posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message\)\)/, 'non-stock material explanations are filtered while validation remains blocking');
+assert.match(source, /posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message, serviceId\)\)/, 'non-stock material explanations are filtered while validation remains blocking');
 const stockValidationStart = source.indexOf('        async function posValidateServiceStockNow(');
 const stockBindingStart = source.indexOf('        function posBindServiceStockValidation(serviceId) {', stockValidationStart);
 const stockValidationSource = source.slice(stockValidationStart, stockBindingStart);
 assert.doesNotMatch(stockValidationSource, /Estimated consumption:|to consume|`Stock: \$\{availability\}`/, 'informational consumption and available-stock summaries are not rendered');
 assert.match(source, /const message = `Insufficient \$\{issue\.name \|\| 'selected material'\} stock\. Available: \$\{formatQty\(issue\.available\)\} \$\{issue\.uom \|\| 'units'\}\. Required: \$\{formatQty\(issue\.required\)\}/,
     'Insufficient selected-material stock reports the actual material, available quantity, and required quantity for every service');
-assert.match(source, /posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message\)\);\s*return \{ valid: false, message \};/,
+assert.match(source, /posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message, serviceId\)\);\s*return \{ valid: false, message \};/,
     'Insufficient selected-material stock continues to block Add to Order');
 const confirmStart = source.indexOf('        async function confirmServiceModal() {');
 const confirmEnd = source.indexOf('\n        function ', confirmStart + 20);
@@ -161,7 +161,7 @@ context = vm.createContext({
     isAddingToOrder: false
 });
 
-const displayMessageStart = source.indexOf('        function posServiceStockDisplayMessage(message) {');
+const displayMessageStart = source.indexOf('        function posServiceStockDisplayMessage(message, serviceId = null) {');
 const displayMessageEnd = source.indexOf('\n        function posDisposeServiceStockValidationListeners()', displayMessageStart);
 assert.ok(displayMessageStart >= 0 && displayMessageEnd > displayMessageStart, 'material feedback display filter is present');
 vm.runInContext(source.slice(displayMessageStart, displayMessageEnd), context);
@@ -173,6 +173,8 @@ assert.equal(context.posServiceStockDisplayMessage('Select exactly one material 
     'Brochure material-choice explanations are hidden');
 assert.equal(context.posServiceStockDisplayMessage('Select a configured size or enter valid custom width and height before checking material stock.'), '',
     'material precheck dimension guidance is hidden from stock feedback');
+assert.equal(context.posServiceStockDisplayMessage('Stable-ID and legacy Sintraboard mappings conflict by item, rule type, multiplier basis, or approval state. An Admin must review the service-material configuration before POS stock validation.'), 'Stable-ID and legacy Sintraboard mappings conflict by item, rule type, multiplier basis, or approval state. An Admin must review the service-material configuration before POS stock validation.',
+    'conflicting Sintraboard rule identities remain visible for Admin review');
 assert.match(context.posServiceStockDisplayMessage('Insufficient C2s Board stock. Available: 2 sheets. Required: 4 sheets.'), /Insufficient C2s Board stock/,
     'actual insufficient-stock errors retain the material and shortage quantities');
 assert.equal(context.posServiceStockDisplayMessage('Nextjet is out of stock.'), 'Nextjet is out of stock.',
@@ -181,10 +183,22 @@ assert.equal(context.posServiceStockDisplayMessage('Low stock: only 1 sheet rema
     'existing blocking low-stock messages remain visible');
 assert.equal(context.posServiceStockDisplayMessage('Width must be greater than 0 and at most 100 feet.'), 'Width must be greater than 0 and at most 100 feet.',
     'dimension field validation remains visible');
+assert.equal(context.posServiceStockDisplayMessage('Width must be greater than 0 and at most 100 feet.', 40), '',
+    'Tarpaulin internal material-precheck width text is hidden');
+assert.equal(context.posServiceStockDisplayMessage('Height must be greater than 0 and at most 100 feet.', 40), '',
+    'Tarpaulin internal material-precheck height text is hidden');
+assert.equal(context.posServiceStockDisplayMessage('Tarpaulin stock must be validated for the selected POS branch. Reopen the service and try again.', 40), '',
+    'Tarpaulin branch/precheck guidance is hidden without changing the failed result');
+assert.equal(context.posServiceStockDisplayMessage('No active Tarpaulin roll width can fit these dimensions, including rotation.', 40), 'No active Tarpaulin roll width can fit these dimensions, including rotation.',
+    'a Tarpaulin roll availability failure remains visible');
 assert.equal(context.posServiceStockDisplayMessage('This service must have one explicit dimension unit before area-based material consumption can be used.'), 'This service must have one explicit dimension unit before area-based material consumption can be used.',
     'required dimension configuration validation remains visible while informational material explanations are hidden');
-assert.match(stockValidationSource, /if \(!response\.ok \|\| data\.success === false\) \{[\s\S]*?posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message\)\);\s*return \{ valid: false, message \};/,
+assert.match(stockValidationSource, /if \(!response\.ok \|\| data\.success === false\) \{[\s\S]*?posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message, serviceId\)\);\s*return \{ valid: false, message \};/,
     'suppressed stock-precheck copy does not turn a failed backend stock/dimension precheck into a valid result');
+assert.match(stockValidationSource, /if \(!validDim\(width\) \|\| !validDim\(height\)\) \{[\s\S]*?posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message, serviceId\)\);\s*return \{ valid: false, message \};/,
+    'Tarpaulin invalid width or height remains blocking even though its internal precheck message is hidden');
+assert.match(source, /function confirmServiceModal\(\) \{[\s\S]*?const validationResult = validateServiceOrderForm\(\);[\s\S]*?if \(!validationResult\.valid\) \{[\s\S]*?showValidationErrors\(validationResult\.errors\)[\s\S]*?return;[\s\S]*?posValidateServiceStockNow\(/,
+    'normal required-field errors remain visible and block before the Tarpaulin stock precheck');
 
 vm.runInContext(source.slice(disposeStart, collectStart) + source.slice(collectStart, validateStart) + source.slice(bindStart, end), context);
 const confirmFlowStart = source.indexOf('        async function confirmServiceModal() {');

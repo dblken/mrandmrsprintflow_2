@@ -10,10 +10,11 @@ $assert(str_contains($validator, "if ($" . "serviceId === 63)") && str_contains(
 $assert(str_contains($validator, "if ($" . "serviceId === 40) return [];") && str_contains($validator, 'printflow_pos_tarpaulin_selection'), 'The new validator branch is scoped to Tarpaulin service 40.');
 $assert(!str_contains($validator, 'earlyMappedServiceIds') && !str_contains($validator, 'requiresEarlyMapping'), 'No broad fail-closed service list was imported.');
 $assert(str_contains($validator, 'db_table_has_column(\'service_material_rules\', \'qty_multiplier\', true)')
-    && str_contains($validator, 'SELECT r.item_id, r.rule_type, r.qty_multiplier'), 'Generic service validation verifies the multiplier schema before querying it.');
+    && str_contains($validator, 'SELECT r.id AS rule_id, ')
+    && str_contains($validator, 'r.item_id, r.rule_type, r.qty_multiplier'), 'Generic service validation verifies the multiplier schema before querying it.');
 $tarpGuard = strpos($validator, 'if ($serviceId === 40) return [];');
 $schemaGuard = strpos($validator, 'db_table_has_column(\'service_material_rules\', \'qty_multiplier\', true)');
-$genericRuleQuery = strpos($validator, 'SELECT r.item_id, r.rule_type, r.qty_multiplier');
+$genericRuleQuery = strpos($validator, 'SELECT r.id AS rule_id, ');
 $assert($tarpGuard !== false && $schemaGuard !== false && $genericRuleQuery !== false
     && $tarpGuard < $schemaGuard && $schemaGuard < $genericRuleQuery,
     'Tarpaulin exits before the schema guard and generic multiplier query.');

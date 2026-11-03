@@ -56,6 +56,92 @@ function printflow_pos_canonical_service_material_type(int $serviceId, string $s
     return null;
 }
 
+/** Compare the persisted fields that determine one rule's POS identity/state. */
+function printflow_pos_service_material_rule_alias_signature(array $row): ?array
+{
+    $itemId = filter_var($row['item_id'] ?? null, FILTER_VALIDATE_INT);
+    $ruleType = strtoupper(trim((string)($row['rule_type'] ?? '')));
+    $approvedRaw = $row['qty_multiplier_approved'] ?? null;
+    if ($itemId === false || $itemId <= 0 || !in_array($ruleType, ['REQUIRED', 'OPTIONAL'], true)
+        || !in_array($approvedRaw, [0, 1, '0', '1', false, true], true)) return null;
+
+    $multiplier = $row['qty_multiplier'] ?? null;
+    if ($multiplier === null || trim((string)$multiplier) === '') {
+        $normalizedMultiplier = null;
+    } elseif (is_numeric($multiplier) && is_finite((float)$multiplier)) {
+        // Stored multiplier columns are DECIMAL(10,2); normalize equivalent
+        // database string representations without accepting invalid values.
+        $normalizedMultiplier = number_format((float)$multiplier, 2, '.', '');
+    } else {
+        return null;
+    }
+
+    $approver = $row['qty_multiplier_approved_by'] ?? null;
+    if ($approver !== null && $approver !== '' && (!is_numeric($approver) || (int)$approver <= 0)) return null;
+    $approvedAt = $row['qty_multiplier_approved_at'] ?? null;
+    $approvedAt = $approvedAt === null || trim((string)$approvedAt) === '' ? null : trim((string)$approvedAt);
+    $approvedBasis = $row['qty_multiplier_approved_basis'] ?? null;
+    $basis = $row['qty_multiplier_basis'] ?? null;
+    $basis = strtoupper(trim((string)$basis)) ?: null;
+    $approvedBasis = strtoupper(trim((string)$approvedBasis)) ?: null;
+    $isApproved = in_array($approvedRaw, [1, '1', true], true);
+    if ($isApproved) {
+        if ($normalizedMultiplier === null || (float)$normalizedMultiplier <= 0
+            || $approver === null || $approver === '' || (int)$approver <= 0
+            || $approvedAt === null || !printflow_service_material_approval_timestamp_valid($approvedAt)
+            || $basis === null || $approvedBasis !== $basis) return null;
+    } elseif (($approver !== null && $approver !== '') || $approvedAt !== null || $approvedBasis !== null) {
+        return null;
+    }
+
+    return [
+        (int)$itemId,
+        $ruleType,
+        $normalizedMultiplier,
+        $basis,
+        $isApproved ? 1 : 0,
+        $approver === null || $approver === '' ? null : (int)$approver,
+        $approvedAt,
+        $approvedBasis,
+    ];
+}
+
+/** Resolve service 71's stable rules and classify its legacy compatibility rows. */
+function printflow_pos_sintraboard_rule_rows_resolve(array $stableRows, array $legacyRows): ?array
+{
+    if ($stableRows === []) return null;
+    $stableByItem = [];
+    foreach ($stableRows as $row) {
+        if (!is_array($row)) return null;
+        $signature = printflow_pos_service_material_rule_alias_signature($row);
+        if ($signature === null) return null;
+        $itemId = $signature[0];
+        if (isset($stableByItem[$itemId])) {
+            // Identical stable duplicates must not double-consume stock;
+            // divergent rows for the same material are ambiguous and fail closed.
+            if ($stableByItem[$itemId]['signature'] !== $signature) return null;
+            continue;
+        }
+        $stableByItem[$itemId] = ['signature' => $signature, 'row' => $row];
+    }
+    foreach ($legacyRows as $row) {
+        if (!is_array($row)) return null;
+        $signature = printflow_pos_service_material_rule_alias_signature($row);
+        if ($signature === null) return null;
+        $itemId = $signature[0];
+        if (isset($stableByItem[$itemId])) {
+            // A legacy row for an active stable material is safe only when its
+            // complete rule and approval state matches the stable row.
+            if ($stableByItem[$itemId]['signature'] !== $signature) return null;
+            continue;
+        }
+        $isStaleOptional = $signature[1] === 'OPTIONAL' && $signature[4] === 0
+            && $signature[5] === null && $signature[6] === null && $signature[7] === null;
+        if (!$isStaleOptional) return null;
+    }
+    return array_values(array_map(static fn(array $entry): array => $entry['row'], $stableByItem));
+}
+
 /**
  * Resolve one rule set only. If records are duplicated across canonical and
  * alias service_type values, fail closed rather than double-counting or
@@ -83,6 +169,15 @@ function printflow_pos_select_service_material_rule_set(int $serviceId, array $r
             continue;
         }
         if (in_array(strtolower(trim((string)($row['service_type'] ?? ''))), $allowed, true)) $legacyRows[] = $row;
+    }
+    if ($stableRows !== [] && $serviceId === 71) {
+        $resolved = printflow_pos_sintraboard_rule_rows_resolve($stableRows, $legacyRows);
+        if ($resolved !== null) {
+            // Stable service IDs are authoritative. Equivalent legacy aliases
+            // are ignored, as are unmatched OPTIONAL/unapproved legacy rows.
+            return $resolved;
+        }
+        throw new RuntimeException('Stable-ID and legacy Sintraboard mappings conflict by item, rule type, multiplier basis, or approval state. An Admin must review the service-material configuration before POS stock validation.');
     }
     if ($stableRows !== [] && $legacyRows !== []) {
         throw new RuntimeException('Both stable-ID and legacy service-key rules exist for service ID ' . $serviceId . '. Resolve the duplicate mapping before POS stock validation.');

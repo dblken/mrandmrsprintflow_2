@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/includes/pos_service_stock_helpers.php';
+require_once dirname(__DIR__) . '/includes/pos_material_selection.php';
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -29,6 +30,7 @@ foreach ($canonicalTypes as $serviceId => $serviceType) {
     );
 }
 $assert(printflow_pos_service_material_expected_type(40) === null, 'Tarpaulin stays on its dedicated rules path.');
+$assert(printflow_pos_service_material_expected_type(71) === 'Sintraboard Standees', 'Sintraboard retains its canonical service identity.');
 
 foreach ([36, 39, 64, 67] as $serviceId) {
     $expectRuntimeError(
@@ -63,6 +65,98 @@ $expectRuntimeError(
 $unmappedServiceRules = [['service_type' => 'Legacy Service', 'item_id' => 90, 'rule_type' => 'REQUIRED']];
 $assert(printflow_pos_select_service_material_rule_set(90, $unmappedServiceRules) === $unmappedServiceRules,
     'Existing non-specialized service rules continue through the generic path unchanged.');
+
+$sintraStableRules = [
+    ['id' => 80, 'service_id' => 71, 'service_type' => 'Sintraboard Standees', 'item_id' => 207, 'rule_type' => 'REQUIRED', 'qty_multiplier' => '2.00', 'qty_multiplier_approved' => 1, 'qty_multiplier_approved_by' => 22, 'qty_multiplier_approved_at' => '2026-11-03 10:00:00', 'qty_multiplier_basis' => 'AREA_SQFT', 'qty_multiplier_approved_basis' => 'AREA_SQFT'],
+    ['id' => 81, 'service_id' => 71, 'service_type' => 'Sintraboard Standees', 'item_id' => 206, 'rule_type' => 'REQUIRED', 'qty_multiplier' => null, 'qty_multiplier_approved' => 0, 'qty_multiplier_approved_by' => null, 'qty_multiplier_approved_at' => null, 'qty_multiplier_basis' => null, 'qty_multiplier_approved_basis' => null],
+    ['id' => 82, 'service_id' => 71, 'service_type' => 'Sintraboard Standees', 'item_id' => 23, 'rule_type' => 'OPTIONAL', 'qty_multiplier' => '1.00', 'qty_multiplier_approved' => 0, 'qty_multiplier_approved_by' => null, 'qty_multiplier_approved_at' => null, 'qty_multiplier_basis' => 'AREA_SQFT', 'qty_multiplier_approved_basis' => null],
+];
+$sintraLegacyRules = array_map(static function (array $row): array {
+    unset($row['service_id']);
+    $row['id'] += 100;
+    return $row;
+}, $sintraStableRules);
+$resolvedSintraRules = printflow_pos_select_service_material_rule_set(71, array_merge($sintraStableRules, $sintraLegacyRules));
+$assert(count($resolvedSintraRules) === count($sintraStableRules)
+    && array_column($resolvedSintraRules, 'id') === array_column($sintraStableRules, 'id'),
+    'Equivalent stable-ID and legacy Sintraboard rows resolve once, preferring stable service IDs.');
+$assert(printflow_pos_approved_service_multiplier($resolvedSintraRules[0]['qty_multiplier'], $resolvedSintraRules[0]['qty_multiplier_approved'], $resolvedSintraRules[0]['qty_multiplier_approved_by'], $resolvedSintraRules[0]['qty_multiplier_approved_at']) === 2.0,
+    'An approved equivalent Sintraboard material remains usable after deterministic identity resolution.');
+$sintraSelected = printflow_pos_material_selection_resolve(71, [207]);
+$assert(count($sintraSelected) === 1 && (int)$sintraSelected[0]['item_id'] === 207
+    && !printflow_pos_service_stock_exceeds_available(2.0, 3.0),
+    'A selected approved Sintraboard thickness can pass the sufficient-stock check without consuming its alternative.');
+foreach ([
+    ['rule_type' => 'OPTIONAL'],
+    ['qty_multiplier_basis' => 'PER_ITEM'],
+    ['qty_multiplier_approved' => 0, 'qty_multiplier_approved_by' => null, 'qty_multiplier_approved_at' => null, 'qty_multiplier_approved_basis' => null],
+    ['qty_multiplier' => '3.00'],
+] as $conflictingValues) {
+    $conflictingStable = $sintraStableRules;
+    $conflictingStable[0] = array_merge($conflictingStable[0], $conflictingValues);
+    $expectRuntimeError(
+        static fn() => printflow_pos_select_service_material_rule_set(71, array_merge($conflictingStable, $sintraLegacyRules)),
+        'An Admin must review the service-material configuration'
+    );
+}
+$duplicateSintraLegacy = $sintraLegacyRules;
+$duplicateSintraLegacy[] = $sintraLegacyRules[0];
+$duplicateStaleLegacyResolved = printflow_pos_select_service_material_rule_set(71, array_merge($sintraStableRules, $duplicateSintraLegacy));
+$assert(array_column($duplicateStaleLegacyResolved, 'id') === array_column($sintraStableRules, 'id'),
+    'Duplicate unmatched legacy OPTIONAL/unapproved rows are ignored when stable service 71 rules exist.');
+$malformedSintraStable = $sintraStableRules;
+$malformedSintraLegacy = $sintraLegacyRules;
+$malformedSintraStable[0]['qty_multiplier_approved_by'] = null;
+$malformedSintraStable[0]['qty_multiplier_approved_at'] = null;
+$malformedSintraLegacy[0]['qty_multiplier_approved_by'] = null;
+$malformedSintraLegacy[0]['qty_multiplier_approved_at'] = null;
+$expectRuntimeError(
+    static fn() => printflow_pos_select_service_material_rule_set(71, array_merge($malformedSintraStable, $malformedSintraLegacy)),
+    'An Admin must review the service-material configuration'
+);
+
+$auditedSintraStableRows = [
+    ['id' => 26, 'service_id' => 71, 'service_type' => 'Sintraboard Standees', 'item_id' => 23, 'material_name' => 'Pp Stkr Matte', 'rule_type' => 'OPTIONAL', 'qty_multiplier' => null, 'qty_multiplier_approved' => 0, 'qty_multiplier_approved_by' => null, 'qty_multiplier_approved_at' => null, 'qty_multiplier_basis' => null, 'qty_multiplier_approved_basis' => null],
+    ['id' => 35, 'service_id' => 71, 'service_type' => 'Sintraboard Standees', 'item_id' => 206, 'material_name' => 'Sintra 3mm', 'rule_type' => 'REQUIRED', 'qty_multiplier' => '1.00', 'qty_multiplier_approved' => 1, 'qty_multiplier_approved_by' => 22, 'qty_multiplier_approved_at' => '2026-11-03 10:00:00', 'qty_multiplier_basis' => 'AREA_SQFT', 'qty_multiplier_approved_basis' => 'AREA_SQFT'],
+    ['id' => 52, 'service_id' => 71, 'service_type' => 'Sintraboard Standees', 'item_id' => 207, 'material_name' => 'Sintra 5mm', 'rule_type' => 'REQUIRED', 'qty_multiplier' => '1.00', 'qty_multiplier_approved' => 1, 'qty_multiplier_approved_by' => 22, 'qty_multiplier_approved_at' => '2026-11-03 10:00:00', 'qty_multiplier_basis' => 'AREA_SQFT', 'qty_multiplier_approved_basis' => 'AREA_SQFT'],
+];
+$auditedSintraLegacyRows = [
+    ['id' => 27, 'service_id' => null, 'service_type' => 'Sintraboard Standees', 'item_id' => 1, 'material_name' => 'Ac Mc', 'rule_type' => 'OPTIONAL', 'qty_multiplier' => null, 'qty_multiplier_approved' => 0, 'qty_multiplier_approved_by' => null, 'qty_multiplier_approved_at' => null, 'qty_multiplier_basis' => null, 'qty_multiplier_approved_basis' => null],
+    ['id' => 28, 'service_id' => null, 'service_type' => 'Sintraboard Standees', 'item_id' => 7, 'material_name' => 'Sp Mc', 'rule_type' => 'OPTIONAL', 'qty_multiplier' => '1.00', 'qty_multiplier_approved' => 0, 'qty_multiplier_approved_by' => null, 'qty_multiplier_approved_at' => null, 'qty_multiplier_basis' => null, 'qty_multiplier_approved_basis' => null],
+];
+$auditedSintraResolved = printflow_pos_select_service_material_rule_set(71, array_merge($auditedSintraStableRows, $auditedSintraLegacyRows));
+$assert(array_column($auditedSintraResolved, 'id') === [26, 35, 52]
+    && array_column($auditedSintraResolved, 'material_name') === ['Pp Stkr Matte', 'Sintra 3mm', 'Sintra 5mm'],
+    'The audited service 71 stable rules remain authoritative while unmatched legacy OPTIONAL/unapproved item 1 and item 7 rows are ignored.');
+$assert($auditedSintraResolved[1]['qty_multiplier'] === '1.00'
+    && $auditedSintraResolved[1]['qty_multiplier_basis'] === 'AREA_SQFT'
+    && (int)$auditedSintraResolved[1]['qty_multiplier_approved'] === 1
+    && $auditedSintraResolved[2]['qty_multiplier'] === '1.00'
+    && $auditedSintraResolved[2]['qty_multiplier_basis'] === 'AREA_SQFT'
+    && (int)$auditedSintraResolved[2]['qty_multiplier_approved'] === 1,
+    'The audited approved Sintra 3mm and 5mm AREA_SQFT rules are preserved by resolution.');
+$legacyConflict = $auditedSintraLegacyRows;
+$legacyConflict[0]['item_id'] = 206;
+$legacyConflict[0]['rule_type'] = 'OPTIONAL';
+$expectRuntimeError(
+    static fn() => printflow_pos_select_service_material_rule_set(71, array_merge($auditedSintraStableRows, $legacyConflict)),
+    'An Admin must review the service-material configuration'
+);
+$unmatchedLegacyRequired = $auditedSintraLegacyRows;
+$unmatchedLegacyRequired[0]['rule_type'] = 'REQUIRED';
+$expectRuntimeError(
+    static fn() => printflow_pos_select_service_material_rule_set(71, array_merge($auditedSintraStableRows, $unmatchedLegacyRequired)),
+    'An Admin must review the service-material configuration'
+);
+$conflictingApprovedStable = $auditedSintraStableRows;
+$duplicateApprovedStable = $auditedSintraStableRows[1];
+$duplicateApprovedStable['id'] = 99;
+$duplicateApprovedStable['qty_multiplier_basis'] = 'PER_ITEM';
+$duplicateApprovedStable['qty_multiplier_approved_basis'] = 'PER_ITEM';
+$expectRuntimeError(
+    static fn() => printflow_pos_select_service_material_rule_set(71, array_merge($conflictingApprovedStable, [$duplicateApprovedStable])),
+    'An Admin must review the service-material configuration'
+);
 
 $expectRuntimeError(
     static fn() => printflow_pos_assert_service_stock_multiplier_schema(false, true, true, true),
