@@ -63,7 +63,9 @@ function pf_service_rule_bulk_assess(int $serviceId, int $itemId, $submittedMult
     }
     $uom = trim((string)($itemRows[0]['unit_of_measure'] ?? ''));
     if (!printflow_service_material_bulk_uom_valid($uom)) {
-        return ['action' => 'pending', 'service_name' => (string)$definition['name'], 'material_name' => (string)$expectedName, 'uom' => $uom, 'message' => 'Inventory UOM is missing or unsupported for area-based consumption.'];
+        $expectedBasisForUom = printflow_pos_material_selection_consumption_basis($serviceId);
+        $basisKind = $expectedBasisForUom === 'PER_ITEM' ? 'quantity-based' : 'area-based';
+        return ['action' => 'pending', 'service_name' => (string)$definition['name'], 'material_name' => (string)$expectedName, 'uom' => $uom, 'message' => 'Inventory UOM is missing or unsupported for ' . $basisKind . ' consumption.'];
     }
     $acceptedTypes = printflow_pos_service_material_type_aliases($serviceId);
     if ($acceptedTypes === []) $acceptedTypes = [$expectedType];
@@ -93,7 +95,8 @@ function pf_service_rule_bulk_assess(int $serviceId, int $itemId, $submittedMult
         || !printflow_service_material_rule_display_row_is_editable((string)$rule['service_type'], $itemId, [$active[0]], (string)$expectedName, $resolvedRuleServiceId)) {
         return $base + ['action' => 'pending', 'message' => 'A legacy or unmatched service-key rule exists; it will not be duplicated or modified by bulk processing.'];
     }
-    $state = printflow_service_material_bulk_rule_state($rule, $submittedMultiplier, $submittedBasis, $base['expected_rule_type']);
+    $expectedBasis = printflow_pos_material_selection_consumption_basis($serviceId) ?? '';
+    $state = printflow_service_material_bulk_rule_state($rule, $submittedMultiplier, $submittedBasis, $base['expected_rule_type'], $expectedBasis);
     return $base + $state;
 }
 
@@ -309,7 +312,10 @@ if (in_array($action, ['bulk_preview', 'bulk_process'], true)) {
             } elseif ($lockedAction === 'approve') {
                 $lockedRule = $locked['rule'] ?? null;
                 if (!$lockedRule || (int)($lockedRule['id'] ?? 0) <= 0) throw new RuntimeException('The existing rule could not be locked and verified.');
-                $lockedRuleId = (int)$lockedRule['id']; $multiplier = (string)$locked['multiplier']; $basis = 'AREA_SQFT'; $adminId = (int)get_user_id();
+                $lockedRuleId = (int)$lockedRule['id']; $multiplier = (string)$locked['multiplier'];
+                $basis = printflow_pos_material_selection_consumption_basis($serviceId) ?? '';
+                if ($basis === '') throw new RuntimeException('This service has no verified consumption basis.');
+                $adminId = (int)get_user_id();
                 if ($adminId <= 0) throw new RuntimeException('The Admin identity is unavailable.');
                 $update = $conn->prepare('UPDATE service_material_rules SET qty_multiplier = ?, qty_multiplier_approved = 0, qty_multiplier_approved_by = NULL, qty_multiplier_approved_at = NULL, qty_multiplier_basis = ?, qty_multiplier_approved_basis = NULL WHERE id = ?');
                 if (!$update) throw new RuntimeException('Could not prepare the explicit multiplier update.');
@@ -571,12 +577,11 @@ try {
     if ($action === 'update_multiplier') {
         $multiplier = printflow_service_material_parse_multiplier($_POST['qty_multiplier'] ?? null);
         if ($multiplier === null) throw new InvalidArgumentException('Enter a positive multiplier with up to two decimal places.');
-        // The approval UI exposes the dimension rate only for the new selection-based services.
-        $basis = 'AREA_SQFT';
-        if (!in_array($canonicalRuleType, ['Decals/Stickers (Print/Cut)', 'Plates', 'Poster Printing', 'Brochure', 'Sintraboard Standees'], true)) $basis = trim((string)($rule['qty_multiplier_basis'] ?? ''));
-        if (in_array($canonicalRuleType, ['Decals/Stickers (Print/Cut)', 'Plates', 'Poster Printing', 'Brochure', 'Sintraboard Standees'], true)
-            && strtoupper(trim((string)($_POST['qty_multiplier_basis'] ?? ''))) !== 'AREA_SQFT') {
-            throw new InvalidArgumentException('Set the consumption basis to inventory units per square foot before saving this multiplier.');
+        $expectedBasis = printflow_pos_material_selection_consumption_basis((int)$requestedServiceId);
+        $basis = $expectedBasis ?? trim((string)($rule['qty_multiplier_basis'] ?? ''));
+        if ($expectedBasis !== null && strtoupper(trim((string)($_POST['qty_multiplier_basis'] ?? ''))) !== $expectedBasis) {
+            $basisLabel = $expectedBasis === 'PER_ITEM' ? 'inventory units per plate/item' : 'inventory units per square foot';
+            throw new InvalidArgumentException('Set the consumption basis to ' . $basisLabel . ' before saving this multiplier.');
         }
         $current = $rule['qty_multiplier'] === null ? null : (string)$rule['qty_multiplier'];
         $state = printflow_service_material_multiplier_edit_state(
@@ -608,10 +613,12 @@ try {
 
     $multiplier = printflow_service_material_parse_multiplier((string)($rule['qty_multiplier'] ?? ''));
     if ($multiplier === null) throw new InvalidArgumentException('Set a valid positive multiplier before approving this selected-material rule.');
-    if (in_array($canonicalRuleType, ['Decals/Stickers (Print/Cut)', 'Plates', 'Poster Printing', 'Brochure', 'Sintraboard Standees'], true)
-        && (strtoupper(trim((string)($rule['qty_multiplier_basis'] ?? ''))) !== 'AREA_SQFT'
-            || strtoupper(trim((string)($_POST['qty_multiplier_basis'] ?? 'AREA_SQFT'))) !== 'AREA_SQFT')) {
-        throw new InvalidArgumentException('Save the inventory-units-per-square-foot basis before approving this material.');
+    $expectedBasis = printflow_pos_material_selection_consumption_basis((int)$requestedServiceId);
+    if ($expectedBasis !== null
+        && (strtoupper(trim((string)($rule['qty_multiplier_basis'] ?? ''))) !== $expectedBasis
+            || strtoupper(trim((string)($_POST['qty_multiplier_basis'] ?? ''))) !== $expectedBasis)) {
+        $basisLabel = $expectedBasis === 'PER_ITEM' ? 'inventory-units-per-plate/item' : 'inventory-units-per-square-foot';
+        throw new InvalidArgumentException('Save the ' . $basisLabel . ' basis before approving this material.');
     }
     $adminId = (int)get_user_id();
     if ($adminId <= 0) throw new RuntimeException('The authenticated Admin ID is unavailable; approval was not recorded.');

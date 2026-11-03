@@ -14,6 +14,9 @@ $assert(printflow_service_material_bulk_rule_state($base, '-1', 'AREA_SQFT', 'RE
 $assert(printflow_service_material_bulk_rule_state($base, '1.234', 'AREA_SQFT', 'REQUIRED')['action'] === 'pending', 'More than two decimal places remains pending.');
 $assert(printflow_service_material_bulk_rule_state($base, '1.25', '', 'REQUIRED')['action'] === 'pending', 'Missing basis remains pending.');
 $assert(printflow_service_material_bulk_rule_state($base, '1.25', 'AREA_SQFT', 'REQUIRED')['action'] === 'approve', 'Valid required configuration can be explicitly approved.');
+$assert(printflow_service_material_bulk_rule_state($base, '1.25', 'PER_ITEM', 'REQUIRED', 'PER_ITEM')['action'] === 'approve', 'A valid quantity-based Plates rate can be explicitly approved using PER_ITEM basis.');
+$assert(printflow_service_material_bulk_rule_state($base, '1.25', 'AREA_SQFT', 'REQUIRED', 'PER_ITEM')['action'] === 'pending', 'Bulk processing cannot approve a Plates multiplier configured as an area rate.');
+$assert(printflow_service_material_bulk_rule_state($base, '1.25', 'PER_ITEM', 'REQUIRED', 'AREA_SQFT')['action'] === 'pending', 'Area-based services cannot be approved with the Plates per-item basis.');
 $assert(printflow_service_material_bulk_rule_state(['rule_type' => 'OPTIONAL'], '1.25', 'AREA_SQFT', 'OPTIONAL')['action'] === 'pending', 'Optional rules remain unapproved by bulk processing.');
 $assert(printflow_service_material_bulk_rule_state(['rule_type' => 'OPTIONAL'], '1.25', 'AREA_SQFT', 'REQUIRED')['action'] === 'pending', 'Classification mismatch remains pending.');
 $approved = [
@@ -31,10 +34,21 @@ $assert(str_contains($api, 'Only REQUIRED service material rules can be approved
 $assert(str_contains($api, "['bulk_preview', 'bulk_process']") && str_contains($api, "confirm_bulk") && str_contains($api, 'verify_csrf_token'), 'Bulk endpoints require the existing CSRF contract and explicit process confirmation.');
 $assert(str_contains($api, '$allowedServiceIds = [36, 39, 64, 67, 71]') && str_contains($api, 'GET_LOCK(?, 5)'), 'Bulk processing is restricted to the five approved active services and uses per-rule mutual exclusion.');
 $assert(str_contains($api, 'created_unapproved') && str_contains($api, 'qty_multiplier_approved_by = ?') && str_contains($api, 'Admin approval audit verification failed'), 'Creation remains unapproved and approval audit is verified after updates.');
-$assert(str_contains($api, 'Multiple canonical/alias rules exist') && str_contains($api, 'unsupported for area-based consumption'), 'Ambiguous duplicates and invalid UOMs fail closed with a row-level reason.');
+$assert(str_contains($api, 'Multiple canonical/alias rules exist') && str_contains($api, 'unsupported for '), 'Ambiguous duplicates and invalid UOMs fail closed with a row-level reason.');
+$assert(str_contains($api, "\$expectedBasis = printflow_pos_material_selection_consumption_basis(\$serviceId) ?? ''")
+    && str_contains($api, "\$expectedBasis = printflow_pos_material_selection_consumption_basis((int)\$requestedServiceId)")
+    && str_contains($api, "'PER_ITEM' ? 'inventory-units-per-plate/item'"),
+    'Admin single-row and bulk approval use the service-specific expected basis and explain the Plates per-item rate');
 $assert(str_contains($ui, 'Process All') && str_contains($ui, 'bulk_preview') && str_contains($ui, 'window.confirm(confirmation)') && str_contains($ui, 'serviceMaterialBulkResultRows'), 'The Admin UI previews, confirms, and reports detailed per-row results.');
-$assert(str_contains($ui, '&& required) actions +=') && !str_contains($ui, "(required ? 'Approve REQUIRED' : 'Approve multiplier')"), 'Only REQUIRED rows render an approval action; OPTIONAL rows explain approval does not apply.');
+$assert(str_contains($ui, '&& required && basisReady && multiplierReady) actions +=')
+    && !str_contains($ui, "(required ? 'Approve REQUIRED' : 'Approve multiplier')"), 'Only REQUIRED rows with a saved valid basis and positive multiplier render an approval action; OPTIONAL rows explain approval does not apply.');
 $assert(str_contains($ui, 'pfReadServiceMaterialApiResponse') && str_contains($ui, 'invalid response (HTTP ') && str_contains($ui, 'pfSetServiceMaterialRowBusy'), 'Create, save, approve, and bulk requests parse errors safely and prevent duplicate row submissions.');
+$assert(str_contains($ui, "serviceId === 39 ? 'PER_ITEM' : 'AREA_SQFT'")
+    && str_contains($ui, 'Inventory Units Per Plate/Item')
+    && str_contains($ui, "serviceId === 39 && storedBasis !== 'PER_ITEM' ? '' : storedMultiplier")
+    && str_contains($ui, 'required && basisReady && multiplierReady')
+    && str_contains($ui, 'Prior area rate is not valid for standard Plates'),
+    'The Admin UI labels Plates as per-item, does not present a stale area rate as approved configuration, and withholds approval until the correct basis and positive rate are saved.');
 $assert(str_contains($api, '$dbErrorsBeforeRuleLookup = count(printflow_db_errors())') && str_contains($api, 'No create or approval is safe until this query succeeds.'), 'Bulk processing never treats a failed rule SELECT as a missing rule to create.');
 $assert(str_contains($api, 'service_material_rule_bulk_failure') && str_contains($api, 'Reference '), 'Failed rows include a reference linked to a structured server diagnostic without exposing raw DB details in the UI.');
 $assert(!str_contains($api, "'detail' => substr") && !str_contains($api, 'safeDetail'), 'Failure logs do not record raw exception text that could include SQL or connection details.');

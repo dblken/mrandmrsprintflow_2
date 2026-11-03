@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/service_material_rule_approval.php';
 
-/** Inventory units supported by the selected-material area-rate workflow. */
+/** Inventory units supported by explicit selected-material consumption rates. */
 function printflow_service_material_bulk_uom_valid($uom): bool
 {
     if (!is_string($uom)) return false;
@@ -12,20 +12,25 @@ function printflow_service_material_bulk_uom_valid($uom): bool
 }
 
 /** Pure row eligibility/state check shared by bulk preview and its tests. */
-function printflow_service_material_bulk_rule_state(array $rule, $submittedMultiplier, $submittedBasis, string $expectedRuleType): array
+function printflow_service_material_bulk_rule_state(array $rule, $submittedMultiplier, $submittedBasis, string $expectedRuleType, string $expectedBasis = 'AREA_SQFT'): array
 {
     $multiplier = printflow_service_material_parse_multiplier($submittedMultiplier);
     $basis = strtoupper(trim(is_scalar($submittedBasis) ? (string)$submittedBasis : ''));
     $storedType = strtoupper(trim((string)($rule['rule_type'] ?? '')));
     $expectedRuleType = strtoupper(trim($expectedRuleType));
+    $expectedBasis = strtoupper(trim($expectedBasis));
+    if (!in_array($expectedBasis, ['AREA_SQFT', 'PER_ITEM'], true)) {
+        return ['action' => 'pending', 'multiplier' => $multiplier, 'basis' => $basis, 'message' => 'This service has no supported consumption basis; configure it through the reviewed Admin workflow.'];
+    }
     if (!in_array($expectedRuleType, ['REQUIRED', 'OPTIONAL'], true) || $storedType !== $expectedRuleType) {
         return ['action' => 'pending', 'multiplier' => $multiplier, 'basis' => $basis, 'message' => 'Stored rule classification does not match the verified service selection policy.'];
     }
     if ($multiplier === null) {
         return ['action' => 'pending', 'multiplier' => null, 'basis' => $basis, 'message' => 'Enter a positive multiplier with up to two decimal places.'];
     }
-    if ($basis !== 'AREA_SQFT') {
-        return ['action' => 'pending', 'multiplier' => $multiplier, 'basis' => $basis, 'message' => 'Set the consumption basis to inventory units per square foot.'];
+    if ($basis !== $expectedBasis) {
+        $basisLabel = $expectedBasis === 'PER_ITEM' ? 'inventory units per plate/item' : 'inventory units per square foot';
+        return ['action' => 'pending', 'multiplier' => $multiplier, 'basis' => $basis, 'message' => 'Set the consumption basis to ' . $basisLabel . '.'];
     }
     $approved = (int)($rule['qty_multiplier_approved'] ?? 0) === 1;
     $approver = (int)($rule['qty_multiplier_approved_by'] ?? 0);

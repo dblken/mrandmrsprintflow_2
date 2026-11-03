@@ -226,16 +226,20 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
     $rules = printflow_pos_select_service_material_rule_set($serviceId, $rules ?: []);
 
     if ($usesSelectionPolicy) {
+        $consumptionBasis = printflow_pos_material_selection_consumption_basis($serviceId);
         $selection = printflow_pos_material_selection_resolve(
             $serviceId,
             is_array($customization['pos_selected_material_ids'] ?? null) ? $customization['pos_selected_material_ids'] : []
         );
-        $dimensionConfigRows = printflow_pos_service_dimension_configs($serviceId);
-        if (!is_array($dimensionConfigRows)) throw new RuntimeException('The service dimension configuration could not be verified.');
-        $resolvedDimensions = printflow_pos_resolve_service_dimension_selection($dimensionConfigRows, $customization);
-        $customization['width'] = $resolvedDimensions['width'];
-        $customization['height'] = $resolvedDimensions['height'];
-        $dimensionUnit = $resolvedDimensions['unit'];
+        $dimensionUnit = '';
+        if ($consumptionBasis === 'AREA_SQFT') {
+            $dimensionConfigRows = printflow_pos_service_dimension_configs($serviceId);
+            if (!is_array($dimensionConfigRows)) throw new RuntimeException('The service dimension configuration could not be verified.');
+            $resolvedDimensions = printflow_pos_resolve_service_dimension_selection($dimensionConfigRows, $customization);
+            $customization['width'] = $resolvedDimensions['width'];
+            $customization['height'] = $resolvedDimensions['height'];
+            $dimensionUnit = $resolvedDimensions['unit'];
+        }
         $rulesByItem = [];
         foreach ($rules as $rule) $rulesByItem[(int)($rule['item_id'] ?? 0)] = $rule;
         $expectedNames = printflow_pos_material_selection_item_names($serviceId);
@@ -258,8 +262,11 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
             }
             $basis = strtoupper(trim((string)($rule['qty_multiplier_basis'] ?? '')));
             $approvedBasis = strtoupper(trim((string)($rule['qty_multiplier_approved_basis'] ?? '')));
-            if ($basis !== 'AREA_SQFT' || $approvedBasis !== $basis) {
-                throw new RuntimeException($expectedNames[$itemId] . ' requires an Admin-approved inventory-units-per-square-foot rate. Save the basis and explicitly approve it before use.');
+            if ($basis !== $consumptionBasis || $approvedBasis !== $basis) {
+                $basisMessage = $consumptionBasis === 'PER_ITEM'
+                    ? 'inventory-units-per-item rate'
+                    : 'inventory-units-per-square-foot rate';
+                throw new RuntimeException($expectedNames[$itemId] . ' requires an Admin-approved ' . $basisMessage . '. Save the basis and explicitly approve it before use.');
             }
             $rule['multiplier'] = printflow_pos_approved_service_multiplier(
                 $rule['qty_multiplier'] ?? null,
@@ -268,7 +275,7 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
                 $rule['qty_multiplier_approved_at'] ?? null
             );
             $rule['uom'] = (string)($rule['unit_of_measure'] ?? '');
-            $rule['consumption_basis'] = 'AREA_SQFT';
+            $rule['consumption_basis'] = $consumptionBasis;
             $rule['dimension_unit'] = $dimensionUnit;
             $rule['selection_role'] = $selectedMaterial['role'];
             $rule['selection_group'] = $selectedMaterial['group'] ?? null;
@@ -582,7 +589,32 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                         'multiplier_approved_at' => (string)($rule['qty_multiplier_approved_at'] ?? ''),
                         'multiplier_approved_basis' => (string)($rule['qty_multiplier_approved_basis'] ?? ''),
                     ];
+                } elseif (($rule['consumption_basis'] ?? '') === 'PER_ITEM') {
+                    $calculation = printflow_pos_material_demand_for_items($quantity, $rule['multiplier']);
+                    $required = (float)$calculation['rounded_demand'];
+                    $selectionContext = [];
+                    foreach (['type_of_plates', 'Type Of Plates', 'plate_type', 'Plate Type'] as $contextKey) {
+                        if (!array_key_exists($contextKey, $customization) || !is_scalar($customization[$contextKey])) continue;
+                        $contextValue = trim((string)$customization[$contextKey]);
+                        if ($contextValue !== '' && strlen($contextValue) <= 160) $selectionContext[$contextKey] = $contextValue;
+                    }
+                    $materialSelectionsByLine[$lineIndex][] = [
+                        'rule_id' => (int)($rule['rule_id'] ?? 0),
+                        'item_id' => (int)$rule['item_id'], 'material_name' => (string)($rule['item_name'] ?? ''),
+                        'selection_role' => (string)($rule['selection_role'] ?? ''), 'selection_group' => $rule['selection_group'] ?? null,
+                        'uom' => (string)$rule['unit_of_measure'], 'dimensions' => [],
+                        'selection_context' => $selectionContext, 'order_quantity' => $quantity,
+                        'multiplier' => (float)$rule['multiplier'], 'multiplier_basis' => 'inventory_units_per_item',
+                        'area_sqft' => null, 'calculated_demand' => (float)$calculation['raw_demand'],
+                        'rounded_demand' => $required,
+                        'multiplier_approved_by' => (int)($rule['qty_multiplier_approved_by'] ?? 0),
+                        'multiplier_approved_at' => (string)($rule['qty_multiplier_approved_at'] ?? ''),
+                        'multiplier_approved_basis' => (string)($rule['qty_multiplier_approved_basis'] ?? ''),
+                    ];
                 } else {
+                    if (isset(printflow_pos_material_selection_registry()[$serviceId])) {
+                        throw new RuntimeException('The selected material rule has an unsupported consumption basis. Ask an Admin to configure the correct approved basis.');
+                    }
                     $required = printflow_pos_service_required_material_quantity($quantity, $rule['multiplier']);
                 }
             } catch (InvalidArgumentException $error) {

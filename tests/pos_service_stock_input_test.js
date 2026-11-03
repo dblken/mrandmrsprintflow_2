@@ -42,6 +42,8 @@ const heightHidden = { name: 'height', type: 'hidden', dataset: { dimensionRole:
 const widthField = { value: '', matches(selector) { return selector === 'input, select, textarea' || selector.includes('.custom-dim-width'); }, closest() { return null; } };
 const heightField = { value: '', matches(selector) { return selector === 'input, select, textarea' || selector.includes('.custom-dim-height'); }, closest() { return null; } };
 let customSizeVisible = false;
+let plateHasDimensionControls = true;
+let selectedPlateMaterial = null;
 // Production places the custom-size hidden fields before the actual preset
 // select, so a broad name*=dimension selector can resolve the wrong control.
 const dimensionsControl = {
@@ -90,11 +92,13 @@ const fieldsBody = {
         listenerCounts[name] = (listenerCounts[name] || 0) + 1;
     },
     querySelectorAll(selector) {
-        if (selector.includes('data-pos-material-id')) return [];
-        if (selector.includes('data-dimension-role')) return [widthHidden, heightHidden];
+        if (selector.includes('data-pos-material-id')) return selectedPlateMaterial ? [selectedPlateMaterial] : [];
+        if (selector.includes('data-dimension-role')) return plateHasDimensionControls ? [widthHidden, heightHidden] : [];
         if (selector === 'select') return [sizesSelect, dimensionsControl];
         if (selector === 'select, input[type="radio"]') return [sizesSelect, radioDimension];
-        return [input, dimensionWidth, dimensionHeight, finishOption, sizesSelect, radioDimension, branchField, widthHidden, heightHidden];
+        return plateHasDimensionControls
+            ? [input, dimensionWidth, dimensionHeight, finishOption, sizesSelect, radioDimension, branchField, widthHidden, heightHidden]
+            : [input, finishOption, sizesSelect, radioDimension, branchField];
     },
     querySelector(selector) {
         if (selector === '[name="branch_id"]') return branchField;
@@ -203,16 +207,28 @@ for (const testCase of selectedDimensionCases) {
     assert.equal(request[2].pos_material_dimension_unit, testCase.unit,
         `service ${testCase.serviceId} sends the selected option's explicit unit`);
 }
-elements['service-modal-overlay'].dataset.materialDimensionFieldKey = 'type_of_plates';
-elements['service-modal-overlay'].dataset.materialDimensionUnit = 'ft';
-sizesSelect.name = 'type_of_plates';
-sizesSelect.value = 'Motor Cycle Plate';
-sizesSelect.options = [{ textContent: 'Motor Cycle Plate' }];
+plateHasDimensionControls = false;
+selectedPlateMaterial = { value: '2', dataset: { posMaterialId: '2' } };
+elements['service-modal-overlay'].dataset.serviceId = '39';
+elements['service-modal-overlay'].dataset.materialDimensionFieldKey = '';
+elements['service-modal-overlay'].dataset.materialDimensionUnit = '';
+radioDimension.name = 'type_of_plates';
+radioDimension.value = 'Motor Cycle Plate';
+radioDimension.checked = true;
 context.posBindServiceStockValidation(39);
 const plateRequest = validations.shift();
 assert.equal(plateRequest[2].type_of_plates, 'Motor Cycle Plate', 'Plates keeps its selected plate-type value');
-assert.equal(plateRequest[2].width, '', 'non-dimensional Plate type options clear any stale width instead of guessing dimensions');
-assert.equal(plateRequest[2].height, '', 'non-dimensional Plate type options clear any stale height instead of guessing dimensions');
+assert.equal(Object.hasOwn(plateRequest[2], 'width'), false, 'standard Plates stock validation sends no invented width');
+assert.equal(Object.hasOwn(plateRequest[2], 'height'), false, 'standard Plates stock validation sends no invented height');
+assert.deepEqual(Array.from(plateRequest[2].pos_selected_material_ids), [2], 'the explicitly selected Plate material is included in stock validation');
+assert.equal(plateRequest[2].quantity, '1', 'the standard Plates order quantity is included in stock validation');
+const plateAddCustomization = context.posCollectServiceStockCustomization();
+assert.equal(plateAddCustomization.type_of_plates, 'Motor Cycle Plate', 'the Plate type remains in the Add to Order customization');
+assert.equal(Object.hasOwn(plateAddCustomization, 'width'), false, 'the Add to Order customization remains quantity-based and dimension-free for Plates');
+assert.deepEqual(Array.from(plateAddCustomization.pos_selected_material_ids), [2], 'the selected Plate material reaches the Add to Order customization payload');
+plateHasDimensionControls = true;
+selectedPlateMaterial = null;
+radioDimension.checked = false;
 const sharedConfirmStart = source.indexOf('        async function confirmServiceModal() {');
 const sharedConfirmEnd = source.indexOf('\n        function ', sharedConfirmStart + 20);
 const sharedConfirmSource = source.slice(sharedConfirmStart, sharedConfirmEnd);
@@ -221,6 +237,10 @@ assert.ok(sharedConfirmSource.indexOf('posApplySelectedServiceDimension(customiz
     'the Add to Order handler applies selected dimensions before sending the request');
 assert.match(sharedConfirmSource, /customization\s*:\s*customization/,
     'the dimensions used in stock validation are included in the Add to Order customization payload');
+assert.ok(sharedConfirmSource.indexOf("customization.pos_selected_material_ids = Array.from(body.querySelectorAll('[data-pos-material-id]:checked'))")
+    < sharedConfirmSource.indexOf("syncedCartAction('add'")
+    && /customization\s*:\s*customization/.test(sharedConfirmSource),
+    'the selected Plate material and Type Of Plates choice flow into the Add to Order request customization');
 context.posBindServiceStockValidation(42);
 assert.equal(validations.shift()[0], 42, 'opening a non-Tarpaulin service validates its initial quantity');
 

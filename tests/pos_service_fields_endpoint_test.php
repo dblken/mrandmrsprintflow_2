@@ -42,5 +42,11 @@ $assert(
         && str_contains($source, "\$dimensionDescriptor['field_type'] === 'dimension'"),
     'area-based POS services return field identity and allow validated select/radio options to carry their own units'
 );
+$assert(
+    str_contains($source, '$needsMaterialDimensions = is_array($selectionPolicy)')
+        && str_contains($source, 'printflow_pos_material_selection_requires_dimensions($service_id)')
+        && str_contains($source, "'material_consumption_basis' => printflow_pos_material_selection_consumption_basis(\$service_id)"),
+    'the service-fields endpoint does not demand dimensions for quantity-based Plates and reports its explicit consumption basis'
+);
 
 echo "pos_service_fields endpoint test: {$passed} assertions passed.\n";

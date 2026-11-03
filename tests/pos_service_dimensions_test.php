@@ -84,7 +84,12 @@ try {
 } catch (RuntimeException $error) {
     $plateRejected = str_contains($error->getMessage(), 'physical dimension');
 }
-$assert($plateRejected, 'Plates stays blocked until Admin configures a visible physical size/dimension field');
+$assert($plateRejected, 'the dimension parser still refuses to invent physical dimensions from a Plate type label');
+$assert(printflow_pos_material_selection_consumption_basis(39) === 'PER_ITEM'
+    && !printflow_pos_material_selection_requires_dimensions(39), 'standard Plates bypass area dimensions and use the dedicated quantity-based material path');
+$assert(printflow_pos_material_selection_requires_dimensions(67)
+    && printflow_pos_material_selection_requires_dimensions(71)
+    && printflow_pos_material_selection_requires_dimensions(36), 'area-based services retain their explicit physical dimension requirement');
 $assert(printflow_pos_dimension_explicit_unit('8 x 11 Inch') === 'in', 'unit parser recognizes Inch in option labels');
 $assert(printflow_pos_dimension_explicit_unit('30 x 40 cm') === 'cm', 'unit parser recognizes centimeters supported by area demand');
 $assert(printflow_pos_dimension_explicit_unit('12 x 18 mm') === 'mm', 'unit parser recognizes millimeters supported by area demand');
@@ -112,6 +117,12 @@ $demandAt = strpos($validatorSource, 'printflow_pos_material_demand_for_area(', 
 $widthAssignmentAt = strpos($validatorSource, '$customization[\'width\'] = $resolvedDimensions[\'width\'];', $resolveAt === false ? 0 : $resolveAt);
 $assert($resolveAt !== false && $demandAt > $resolveAt && $widthAssignmentAt !== false && $widthAssignmentAt < $demandAt,
     'the authoritative selected dimensions are applied before backend area demand is calculated');
+$plateBasisAt = strpos($validatorSource, "if (\$consumptionBasis === 'AREA_SQFT')");
+$plateDemandAt = strpos($validatorSource, 'printflow_pos_material_demand_for_items($quantity, $rule[\'multiplier\'])');
+$assert($plateBasisAt !== false && $plateDemandAt !== false
+    && str_contains($validatorSource, "'multiplier_basis' => 'inventory_units_per_item'")
+    && str_contains($validatorSource, "'multiplier_approved_basis' =>"),
+    'the stock validator skips dimension resolution for Plates and records the approved per-item quantity basis');
 
 $unconfiguredSelection = false;
 try {

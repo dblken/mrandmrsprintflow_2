@@ -231,8 +231,11 @@ if (is_array($selectionPolicy)) {
             'setup' => $setupMessage,
         ];
     }
+    $demandHelpText = $service_id === 39
+        ? 'Select the Plate material used. Demand is calculated from the order quantity and the Admin-approved inventory-units-per-item multiplier; fractional inventory units round up.'
+        : 'Select only the material(s) used. Demand is calculated from the selected dimensions, approved multiplier, and order quantity; fractional units round up.';
     $materialSelectionHtml = '<section class="pos-material-selection" data-pos-material-picker="1" style="margin:12px 0;padding:14px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc">'
-        . '<h3 style="margin:0 0 6px;font-size:15px">Materials for this order</h3><p style="margin:0 0 10px;color:#64748b;font-size:12px">Select only the material(s) used. Demand is calculated from the selected dimensions, approved multiplier, and order quantity; fractional units round up.</p>';
+        . '<h3 style="margin:0 0 6px;font-size:15px">Materials for this order</h3><p style="margin:0 0 10px;color:#64748b;font-size:12px">' . htmlspecialchars($demandHelpText, ENT_QUOTES, 'UTF-8') . '</p>';
     foreach ($labels as $groupKey => $choices) {
         $requiredGroup = $groupKey !== 'optional' && !empty($choices[0]['required_group']);
         $mode = $groupKey === 'decal_finishes' ? 'checkbox' : 'radio';
@@ -249,10 +252,12 @@ if (is_array($selectionPolicy)) {
     $fields_html .= $materialSelectionHtml;
 }
 
-$dimensionConfigRows = is_array($selectionPolicy)
+$needsMaterialDimensions = is_array($selectionPolicy)
+    && printflow_pos_material_selection_requires_dimensions($service_id);
+$dimensionConfigRows = $needsMaterialDimensions
     ? printflow_pos_service_dimension_configs($service_id)
     : null;
-$dimensionDescriptor = is_array($dimensionConfigRows)
+$dimensionDescriptor = $needsMaterialDimensions && is_array($dimensionConfigRows)
     ? printflow_pos_service_dimension_descriptor($dimensionConfigRows)
     : null;
 $materialDimensionUnit = '';
@@ -267,7 +272,7 @@ if ($dimensionDescriptor !== null) {
         $materialDimensionUnit = (string)($context['unit'] ?? '');
     }
 }
-if (is_array($selectionPolicy) && ($dimensionConfigRows === false || $dimensionDescriptor === null
+if ($needsMaterialDimensions && ($dimensionConfigRows === false || $dimensionDescriptor === null
     || ($dimensionDescriptor['field_type'] === 'dimension' && $materialDimensionUnit === ''))) {
     http_response_code(422);
     header('Content-Type: application/json; charset=utf-8');
@@ -290,4 +295,5 @@ echo json_encode([
     'material_dimension_unit_per_option' => $dimensionDescriptor !== null
         && in_array($dimensionDescriptor['field_type'], ['select', 'radio'], true)
         && $materialDimensionUnit === '',
+    'material_consumption_basis' => printflow_pos_material_selection_consumption_basis($service_id),
 ]);

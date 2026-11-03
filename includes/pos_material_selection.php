@@ -4,8 +4,8 @@ declare(strict_types=1);
 /**
  * Explicit POS alternative/optional material policy. Inventory IDs are the
  * confirmed catalog identities; no service/material name inference is used.
- * Multipliers are inventory UOM units per square foot and must be Admin
- * approved before a selected material can be validated or deducted.
+ * Multipliers are Admin-approved and interpreted using each service's
+ * explicit consumption basis.
  */
 function printflow_pos_material_selection_registry(): array
 {
@@ -50,6 +50,18 @@ function printflow_pos_material_selection_item_names(int $serviceId): array
         71 => [207 => 'Sintra 5mm', 206 => 'Sintra 3mm 32', 23 => 'Pp Stkr Matte 98'],
         36 => [18 => 'Nextjet', 20 => 'Gloss Laminate', 21 => 'Matte Laminate', 22 => 'Hologram'],
     ][$serviceId] ?? [];
+}
+
+/** Plates use standard-count demand; the other selectable-material services use area demand. */
+function printflow_pos_material_selection_consumption_basis(int $serviceId): ?string
+{
+    if (!isset(printflow_pos_material_selection_registry()[$serviceId])) return null;
+    return $serviceId === 39 ? 'PER_ITEM' : 'AREA_SQFT';
+}
+
+function printflow_pos_material_selection_requires_dimensions(int $serviceId): bool
+{
+    return printflow_pos_material_selection_consumption_basis($serviceId) === 'AREA_SQFT';
 }
 
 /** Validate selected IDs and the exact-one rule for required alternative groups. */
@@ -102,6 +114,21 @@ function printflow_pos_material_demand_for_area($width, $height, string $dimensi
     return ['area_sqft' => $areaSqFt, 'raw_demand' => $raw, 'rounded_demand' => (int)ceil($raw - 1e-10), 'multiplier' => (float)$multiplier];
 }
 
+/** Calculate Plate demand; multiplier means inventory UOM units consumed per plate item. */
+function printflow_pos_material_demand_for_items($orderQuantity, $multiplier): array
+{
+    foreach ([$orderQuantity, $multiplier] as $value) {
+        if (!is_numeric($value) || !is_finite((float)$value) || (float)$value <= 0) {
+            throw new InvalidArgumentException('Enter a valid positive order quantity and an Admin-approved inventory-units-per-item multiplier.');
+        }
+    }
+    $raw = (float)$orderQuantity * (float)$multiplier;
+    if (!is_finite($raw) || $raw <= 0 || $raw > 100000000) {
+        throw new InvalidArgumentException('Calculated Plate material consumption is outside the supported range.');
+    }
+    return ['raw_demand' => $raw, 'rounded_demand' => (int)ceil($raw - 1e-10), 'multiplier' => (float)$multiplier];
+}
+
 /** Validate the server-authored consumption snapshot before creating job assignments. */
 function printflow_pos_material_selection_validate_saved_consumption(int $serviceId, array $rows): array
 {
@@ -122,6 +149,7 @@ function printflow_pos_material_selection_validate_saved_consumption(int $servic
         $itemId = (int)$row['item_id'];
         $policy = null;
         foreach ($selected as $entry) if ((int)$entry['item_id'] === $itemId) { $policy = $entry; break; }
+        $expectedBasis = printflow_pos_material_selection_consumption_basis($serviceId);
         $dimensions = is_array($row['dimensions'] ?? null) ? $row['dimensions'] : [];
         $uom = trim((string)($row['uom'] ?? ''));
         $width = $dimensions['width'] ?? null;
@@ -137,13 +165,25 @@ function printflow_pos_material_selection_validate_saved_consumption(int $servic
             || (int)($row['rule_id'] ?? 0) <= 0
             || (int)($row['multiplier_approved_by'] ?? 0) <= 0
             || trim((string)($row['multiplier_approved_at'] ?? '')) === ''
-            || strtoupper(trim((string)($row['multiplier_basis'] ?? ''))) !== 'INVENTORY_UNITS_PER_SQFT'
-            || strtoupper(trim((string)($row['multiplier_approved_basis'] ?? ''))) !== 'AREA_SQFT') {
+            || strtoupper(trim((string)($row['multiplier_approved_basis'] ?? ''))) !== $expectedBasis) {
             throw new InvalidArgumentException('Saved POS material selection is missing its validated identity or Admin approval snapshot.');
         }
-        $calculation = printflow_pos_material_demand_for_area($width, $height, $dimensionUnit, $orderQty, $multiplier);
-        if (!is_numeric($row['area_sqft'] ?? null) || abs((float)$row['area_sqft'] - $calculation['area_sqft']) > 0.000001
-            || !is_numeric($row['calculated_demand'] ?? null) || abs((float)$row['calculated_demand'] - $calculation['raw_demand']) > 0.000001
+        if ($expectedBasis === 'PER_ITEM') {
+            if (strtoupper(trim((string)($row['multiplier_basis'] ?? ''))) !== 'INVENTORY_UNITS_PER_ITEM'
+                || $dimensions !== [] || ($row['area_sqft'] ?? null) !== null) {
+                throw new InvalidArgumentException('Saved Plate material consumption must use per-item demand without dimensions.');
+            }
+            $calculation = printflow_pos_material_demand_for_items($orderQty, $multiplier);
+        } else {
+            if (strtoupper(trim((string)($row['multiplier_basis'] ?? ''))) !== 'INVENTORY_UNITS_PER_SQFT') {
+                throw new InvalidArgumentException('Saved POS material selection is missing its validated consumption basis.');
+            }
+            $calculation = printflow_pos_material_demand_for_area($width, $height, $dimensionUnit, $orderQty, $multiplier);
+            if (!is_numeric($row['area_sqft'] ?? null) || abs((float)$row['area_sqft'] - $calculation['area_sqft']) > 0.000001) {
+                throw new InvalidArgumentException('Saved POS material consumption does not match the selected dimensions and approved rate.');
+            }
+        }
+        if (!is_numeric($row['calculated_demand'] ?? null) || abs((float)$row['calculated_demand'] - $calculation['raw_demand']) > 0.000001
             || !is_numeric($row['rounded_demand'] ?? null) || (int)$row['rounded_demand'] !== $calculation['rounded_demand']) {
             throw new InvalidArgumentException('Saved POS material consumption does not match the selected dimensions and approved rate.');
         }

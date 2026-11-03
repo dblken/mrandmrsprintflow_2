@@ -1641,19 +1641,32 @@ if (isset($_GET['ajax'])) {
         var approved = String(rule.qty_multiplier_approved) === '1';
         var auditPresent = rule.qty_multiplier_approved_by && rule.qty_multiplier_approved_at;
         var status = approved && auditPresent ? 'Approved by Admin #' + escapeHtml(rule.qty_multiplier_approved_by) + ' at ' + escapeHtml(rule.qty_multiplier_approved_at) : (approved ? 'Approval audit incomplete; reapproval required' : 'Not approved');
-        var multiplier = rule.qty_multiplier == null ? '' : String(rule.qty_multiplier);
         var readOnly = rule.read_only === true || rule.display_source === 'dedicated_pos_rule';
         var ruleId = Number(rule.id || 0);
         var basisServices = [36,39,64,67,71].includes(serviceId);
+        var consumptionBasis = serviceId === 39 ? 'PER_ITEM' : 'AREA_SQFT';
+        var basisLabel = serviceId === 39 ? 'Inventory Units Per Plate/Item' : 'Inventory Units Per Ft²';
+        var storedBasis = String(rule.qty_multiplier_basis || '').toUpperCase();
+        var basisReady = !basisServices || storedBasis === consumptionBasis;
+        var storedMultiplier = rule.qty_multiplier == null ? '' : String(rule.qty_multiplier);
+        var multiplier = serviceId === 39 && storedBasis !== 'PER_ITEM' ? '' : storedMultiplier;
+        var parsedMultiplier = Number(multiplier);
+        var multiplierReady = multiplier !== '' && Number.isFinite(parsedMultiplier) && parsedMultiplier > 0;
+        if (serviceId === 39 && !basisReady && !readOnly) {
+            status = storedMultiplier !== ''
+                ? 'Prior area rate is not valid for standard Plates; enter and save an Admin-approved per-item rate.'
+                : 'Configure and save a positive per-item rate before approval.';
+        }
+        if (basisServices && !basisReady && serviceId !== 39 && !readOnly) status = 'Configure and save the required consumption basis before approval.';
         if (basisServices && approved && String(rule.qty_multiplier_approved_basis || '').toUpperCase() !== String(rule.qty_multiplier_basis || '').toUpperCase()) status = 'Basis approval is missing or stale; explicit reapproval required';
         var actions = readOnly ? 'Dedicated POS rule · read only' : (rule.configuration_blocked === true
             ? escapeHtml(rule.configuration_message || 'This mapping is blocked pending identity review.')
             : (rule.configured === false
             ? '<button type="button" class="toolbar-btn" onclick="pfCreateServiceMaterialRule(' + serviceId + ',' + itemId + ',this)">Create unapproved rule</button>'
             : '<button type="button" class="toolbar-btn" onclick="pfSaveServiceMaterialMultiplier(' + ruleId + ',this)">Save multiplier</button>'));
-        if (!readOnly && rule.configuration_blocked !== true && rule.configured !== false && required) actions += ' <button type="button" class="toolbar-btn" onclick="pfApproveServiceMaterialRule(' + ruleId + ',this)">Approve REQUIRED</button>';
+        if (!readOnly && rule.configuration_blocked !== true && rule.configured !== false && required && basisReady && multiplierReady) actions += ' <button type="button" class="toolbar-btn" onclick="pfApproveServiceMaterialRule(' + ruleId + ',this)">Approve REQUIRED</button>';
         else if (!readOnly && rule.configuration_blocked !== true && rule.configured !== false && !required) actions += ' <span style="color:#64748b;font-size:12px;">Optional · approval not applicable</span>';
-        var multiplierCell = readOnly ? escapeHtml(multiplier) + ' (POS-managed)' : (rule.configuration_blocked === true ? 'Unavailable' : (rule.configured === false ? 'Not configured' : '<input id="serviceMaterialMultiplier-' + ruleId + '" type="number" min="0.01" max="99999999.99" step="0.01" value="' + escapeHtml(multiplier) + '" aria-label="Inventory units per square foot for rule ' + ruleId + '" style="width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;">' + (basisServices ? '<small style="display:block;color:#64748b">Inventory Units Per Ft²</small>' : '')));
+        var multiplierCell = readOnly ? escapeHtml(multiplier) + ' (POS-managed)' : (rule.configuration_blocked === true ? 'Unavailable' : (rule.configured === false ? 'Not configured' : '<input id="serviceMaterialMultiplier-' + ruleId + '" type="number" min="0.01" max="99999999.99" step="0.01" value="' + escapeHtml(multiplier) + '" aria-label="' + escapeHtml(basisLabel) + ' for rule ' + ruleId + '" style="width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;">' + (basisServices ? '<small style="display:block;color:#64748b">' + escapeHtml(basisLabel) + '</small>' : '')));
         if (readOnly) status = 'Dedicated active Mugs POS rule';
         var roleLabel = rule.selection_role === 'alternative' ? 'Alternative · ' + (rule.group_required ? 'choose one' : 'optional') : (rule.selection_role === 'optional' ? 'Optional, manual selection' : (rule.selection_role === 'multi_optional' ? 'Optional finish, multi-select' : ''));
         if (rule.stored_rule_type && String(rule.stored_rule_type).toUpperCase() !== String(rule.rule_type).toUpperCase()) status += ' · stored type ' + escapeHtml(rule.stored_rule_type) + ' needs targeted correction';
@@ -1728,7 +1741,7 @@ if (isset($_GET['ajax'])) {
                 var input = ruleId > 0 ? document.getElementById('serviceMaterialMultiplier-' + ruleId) : null;
                 rows.push({ service_id: serviceId, item_id: itemId,
                     multiplier: input ? input.value : (rule.qty_multiplier == null ? '' : String(rule.qty_multiplier)),
-                    basis: input ? 'AREA_SQFT' : String(rule.qty_multiplier_basis || '') });
+                    basis: input ? (serviceId === 39 ? 'PER_ITEM' : 'AREA_SQFT') : String(rule.qty_multiplier_basis || '') });
             });
         });
         if (!rows.length) { if (feedback) feedback.textContent = 'No currently displayed bulk-eligible rows were found.'; return; }
@@ -1797,7 +1810,8 @@ if (isset($_GET['ajax'])) {
         form.set('service_id', String(Number(rowParts[0])));
         form.set('item_id', String(Number(rowParts[1])));
         form.set('action', action);
-        if (multiplier != null) { form.set('qty_multiplier', multiplier); form.set('qty_multiplier_basis', 'AREA_SQFT'); }
+        if (multiplier != null) form.set('qty_multiplier', multiplier);
+        if ([36,39,64,67,71].includes(Number(rowParts[0]))) form.set('qty_multiplier_basis', Number(rowParts[0]) === 39 ? 'PER_ITEM' : 'AREA_SQFT');
         if (feedback) feedback.textContent = 'Saving…';
         window.pfSetServiceMaterialRowFeedback(trigger, 'Saving…', false);
         window.pfSetServiceMaterialRowBusy(trigger, true);
