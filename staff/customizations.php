@@ -4983,8 +4983,10 @@ window.pfServiceFieldCatalog = (() => {
                 const isPos = source === 'pos' || source === 'walk-in';
                 const isMatchingOrder = sourceOrderId !== '' && rowOrderId !== '' && sourceOrderId === rowOrderId;
                 const isPendingLike = ['PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'FOR_REVISION'].includes(current);
+                const isMatchingPosDraft = source === 'pos_draft' && isMatchingOrder && current === 'DRAFT';
 
-                if (expected === 'APPROVED' && ((isPos && isMatchingOrder) || (this.isPosPricingMode() && isMatchingOrder)) && isPendingLike) {
+                if (expected === 'APPROVED' && (((isPos && isMatchingOrder) || (this.isPosPricingMode() && isMatchingOrder)) && isPendingLike
+                    || (this.isPosPricingMode() && isMatchingPosDraft))) {
                     return { ...row, status: 'APPROVED' };
                 }
 
@@ -8731,20 +8733,11 @@ window.pfServiceFieldCatalog = (() => {
                 if (this.isPosPricingMode() && sourceOrderId) {
                     const parsedSourceOrderId = parseInt(sourceOrderId, 10);
                     if (!Number.isNaN(parsedSourceOrderId) && parsedSourceOrderId > 0) {
-                        const resolveEndpoint = this.adminApiUrl(
-                            `job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(parsedSourceOrderId)}`
-                        );
-                        const resolved = await this.parseJsonResponse(
-                            await fetch(resolveEndpoint),
-                            'Resolve job for order',
-                            resolveEndpoint
-                        );
-
-                        if (resolved.success && resolved.job_id) {
-                            await this.viewDetails(parseInt(resolved.job_id, 10), 'JOB');
-                        } else {
-                            await this.viewDetails(parsedSourceOrderId, 'ORDER');
-                        }
+                        // Set Price drafts are intentionally excluded from the
+                        // operational job lookup. Open the source order through
+                        // the staff order-modal endpoint, which authorizes the
+                        // POS draft and includes its linked job/assignment data.
+                        await this.viewDetails(parsedSourceOrderId, 'ORDER');
                         this.clearDeepLinkParams();
                     }
                 } else if (orderId) {
