@@ -6,6 +6,9 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(require('node:path').join(__dirname, '../staff/pos.php'), 'utf8');
 assert.match(source, /posSetServiceStockState\(false, '', ''\)/, 'a successful validation displays no material list or stock quantities');
+assert.match(source, /if \(Number\(serviceId\) !== 71\) return \[\];/, 'POS never derives material IDs from production-material controls for any service except the verified Sintra thickness specification');
+assert.match(source, /return \[selectedId\];/, 'Sintraboard POS payload contains only the Board Thickness-mapped item, never the optional sticker layer');
+assert.doesNotMatch(source, /Materials for this order|data-pos-material-picker/, 'the POS page does not contain a second production-material picker');
 assert.match(source, /posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message, serviceId\)\)/, 'non-stock material explanations are filtered while validation remains blocking');
 assert.match(source, /body\.firstElementChild\.textContent = posServiceStaffFacingMaterialMessage\(data\.error \|\| 'Failed to load fields\.', serviceId\)/,
     'service-field API configuration errors are inserted as sanitized staff-facing text');
@@ -290,8 +293,8 @@ selectedPlateMaterial = { value: '23', type: 'checkbox', checked: true, dataset:
 boardThicknessRadio.value = 'Sintra 3mm';
 boardThicknessRadio.checked = true;
 const thicknessWithOptionalLayer = context.posCollectServiceStockCustomization();
-assert.deepEqual(Array.from(thicknessWithOptionalLayer.pos_selected_material_ids), [206, 23],
-    'the explicit thickness field and manually selected optional sticker layer both reach validation');
+assert.deepEqual(Array.from(thicknessWithOptionalLayer.pos_selected_material_ids), [206],
+    'the explicit thickness field reaches validation while a stale optional-layer control is ignored');
 selectedPlateMaterial = null;
 boardThicknessRadio.checked = false;
 const noSintraThickness = context.posCollectServiceStockCustomization();
@@ -336,12 +339,12 @@ const plateRequest = validations.shift();
 assert.equal(plateRequest[2].type_of_plates, 'Motor Cycle Plate', 'Plates keeps its selected plate-type value');
 assert.equal(Object.hasOwn(plateRequest[2], 'width'), false, 'standard Plates stock validation sends no invented width');
 assert.equal(Object.hasOwn(plateRequest[2], 'height'), false, 'standard Plates stock validation sends no invented height');
-assert.deepEqual(Array.from(plateRequest[2].pos_selected_material_ids), [2], 'the explicitly selected Plate material is included in stock validation');
+assert.deepEqual(Array.from(plateRequest[2].pos_selected_material_ids), [], 'Plate material choice is deferred to Production Assignment because Type Of Plates does not identify a verified inventory item');
 assert.equal(plateRequest[2].quantity, '1', 'the standard Plates order quantity is included in stock validation');
 const plateAddCustomization = context.posCollectServiceStockCustomization();
 assert.equal(plateAddCustomization.type_of_plates, 'Motor Cycle Plate', 'the Plate type remains in the Add to Order customization');
 assert.equal(Object.hasOwn(plateAddCustomization, 'width'), false, 'the Add to Order customization remains quantity-based and dimension-free for Plates');
-assert.deepEqual(Array.from(plateAddCustomization.pos_selected_material_ids), [2], 'the selected Plate material reaches the Add to Order customization payload');
+assert.deepEqual(Array.from(plateAddCustomization.pos_selected_material_ids), [], 'the Add to Order payload does not force an internal Plate material choice');
 plateHasDimensionControls = true;
 selectedPlateMaterial = null;
 radioDimension.checked = false;
@@ -353,10 +356,10 @@ assert.ok(sharedConfirmSource.indexOf('posApplySelectedServiceDimension(customiz
     'the Add to Order handler applies selected dimensions before sending the request');
 assert.match(sharedConfirmSource, /customization\s*:\s*customization/,
     'the dimensions used in stock validation are included in the Add to Order customization payload');
-assert.ok(sharedConfirmSource.indexOf("customization.pos_selected_material_ids = Array.from(body.querySelectorAll('[data-pos-material-id]:checked'))")
+assert.ok(sharedConfirmSource.indexOf('posSelectedServiceMaterialIds(serviceId, customization, body, overlay)')
     < sharedConfirmSource.indexOf("syncedCartAction('add'")
     && /customization\s*:\s*customization/.test(sharedConfirmSource),
-    'the selected Plate material and Type Of Plates choice flow into the Add to Order request customization');
+    'only specification-resolved material IDs flow into the Add to Order request; unresolved production materials are deferred');
 context.posBindServiceStockValidation(42);
 assert.equal(validations.shift()[0], 42, 'opening a non-Tarpaulin service validates its initial quantity');
 

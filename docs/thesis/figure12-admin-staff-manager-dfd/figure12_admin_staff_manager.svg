@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="3200" height="2860" viewBox="0 0 3200 2860" role="img" aria-labelledby="title desc">
+ <title id="title">Figure 12. Admin, Staff and Manager Data Flow</title>
+ <desc id="desc">One Level 1 data flow diagram of PrintFlow, using external entities, six numbered processes, named data stores, and labeled directional flows. Store and role symbols repeat in separate lanes for legibility and refer to the same logical role or store.</desc>
+ <defs>
+  <marker id="arr" markerWidth="14" markerHeight="14" refX="11" refY="7" orient="auto" markerUnits="strokeWidth"><path d="M1 1 L12 7 L1 13 Z" fill="#294b65"/></marker>
+  <style>
+   .bg{fill:#fff}.title{font:700 48px Arial,sans-serif;fill:#102a43}.sub{font:400 26px Arial,sans-serif;fill:#486581}
+   .ent{fill:#eff6fb;stroke:#244b66;stroke-width:4;rx:24}.entt{font:700 29px Arial,sans-serif;fill:#102a43;text-anchor:middle}
+   .proc{fill:#e4f3ef;stroke:#176b63;stroke-width:4;rx:20}.head{stroke:#176b63;stroke-width:3}.num{font:700 25px Arial,sans-serif;fill:#176b63;text-anchor:middle}.pt{font:700 27px Arial,sans-serif;fill:#102a43;text-anchor:middle}
+   .store{fill:#fff;stroke:#667788;stroke-width:4}.st{font:700 23px Arial,sans-serif;fill:#263746;text-anchor:middle}.ss{font:400 18px Arial,sans-serif;fill:#52606d;text-anchor:middle}
+   .flow{fill:none;stroke:#294b65;stroke-width:4;marker-end:url(#arr);stroke-linejoin:round;stroke-linecap:round}.alt{fill:none;stroke:#477b91;stroke-width:3.5;marker-end:url(#arr);stroke-linejoin:round;stroke-linecap:round}
+   .lab{font:600 20px Arial,sans-serif;fill:#243b53;text-anchor:middle}.lb{fill:#fff;opacity:.97;stroke:#d9e2ec;stroke-width:1.5;rx:7}
+   .note{font:400 21px Arial,sans-serif;fill:#334e68}.legend{font:600 19px Arial,sans-serif;fill:#334e68}
+  </style>
+ </defs>
+ <rect class="bg" width="3200" height="2860"/>
+ <text class="title" x="1600" y="72" text-anchor="middle">Figure 12. Admin, Staff and Manager Data Flow</text>
+ <text class="sub" x="1600" y="118" text-anchor="middle">Level 1 Data Flow Diagram — PrintFlow</text>
+
+ <!-- 1.0 User accounts -->
+ <rect class="ent" x="80" y="300" width="380" height="110"/><text class="entt" x="270" y="370">Admin</text>
+ <g><rect class="proc" x="760" y="270" width="650" height="190"/><path class="head" d="M760 325 H1410"/><text class="num" x="1085" y="310">1.0</text><text class="pt" x="1085" y="380"><tspan x="1085">Maintain User</tspan><tspan x="1085" dy="36">Accounts</tspan></text></g>
+ <g><path class="store" d="M2050 295 H2750 M2050 425 H2750 M2050 295 V425 M2750 295 V425"/><text class="st" x="2400" y="350">D1  Users and Branches</text><text class="ss" x="2400" y="390">users · branches</text></g>
+ <path class="flow" d="M460 330 H760"/><rect class="lb" x="490" y="300" width="260" height="40"/><text class="lab" x="620" y="327">user details</text>
+ <path class="alt" d="M760 410 H460"/><rect class="lb" x="485" y="415" width="270" height="40"/><text class="lab" x="620" y="442">account status and result</text>
+ <path class="flow" d="M1410 330 H2050"/><rect class="lb" x="1555" y="300" width="350" height="40"/><text class="lab" x="1730" y="327">account and branch records</text>
+ <path class="alt" d="M2050 410 H1410"/><rect class="lb" x="1570" y="415" width="320" height="40"/><text class="lab" x="1730" y="442">saved account identity</text>
+
+ <!-- 2.0 Order entry and status -->
+ <rect class="ent" x="80" y="655" width="380" height="110"/><text class="entt" x="270" y="725">Staff</text>
+ <g><rect class="proc" x="760" y="625" width="650" height="190"/><path class="head" d="M760 680 H1410"/><text class="num" x="1085" y="665">2.0</text><text class="pt" x="1085" y="735"><tspan x="1085">Record Orders and</tspan><tspan x="1085" dy="36">Status Updates</tspan></text></g>
+ <g><path class="store" d="M2050 650 H2750 M2050 780 H2750 M2050 650 V780 M2750 650 V780"/><text class="st" x="2400" y="705">D3  Order and Payment Records</text><text class="ss" x="2400" y="745">orders · order_items · payment records</text></g>
+ <path class="flow" d="M460 685 H760"/><rect class="lb" x="475" y="655" width="280" height="40"/><text class="lab" x="615" y="682">customer and order details</text>
+ <path class="alt" d="M760 765 H460"/><rect class="lb" x="490" y="770" width="250" height="40"/><text class="lab" x="615" y="797">order result and status</text>
+ <path class="flow" d="M1410 685 H2050"/><rect class="lb" x="1545" y="655" width="370" height="40"/><text class="lab" x="1730" y="682">order, item, and payment data</text>
+ <path class="alt" d="M2050 765 H1410"/><rect class="lb" x="1560" y="770" width="340" height="40"/><text class="lab" x="1730" y="797">saved order and payment status</text>
+
+ <!-- 3.0 Pre-save branch stock check -->
+ <g><rect class="proc" x="760" y="1010" width="650" height="190"/><path class="head" d="M760 1065 H1410"/><text class="num" x="1085" y="1050">3.0</text><text class="pt" x="1085" y="1120"><tspan x="1085">Check Order and</tspan><tspan x="1085" dy="36">Branch Stock</tspan></text></g>
+ <g><path class="store" d="M1900 1005 H2500 M1900 1135 H2500 M1900 1005 V1135 M2500 1005 V1135"/><text class="st" x="2200" y="1060">D2  Service and Inventory Setup</text><text class="ss" x="2200" y="1100">services · fields · rules · item units</text></g>
+ <g><path class="store" d="M2600 1005 H3180 M2600 1135 H3180 M2600 1005 V1135 M3180 1005 V1135"/><text class="st" x="2890" y="1060">D5  Branch Inventory Records</text><text class="ss" x="2890" y="1100">inventory_transactions · inv_rolls</text></g>
+ <path class="flow" d="M1085 815 V1010"/><rect class="lb" x="900" y="845" width="370" height="40"/><text class="lab" x="1085" y="872">order and selected materials</text>
+ <path class="alt" d="M1160 1010 V850 H1085 V815"/><rect class="lb" x="1165" y="890" width="290" height="40"/><text class="lab" x="1310" y="917">availability decision</text>
+ <path class="alt" d="M1900 1050 H1410"/><rect class="lb" x="1470" y="1018" width="350" height="40"/><text class="lab" x="1645" y="1045">active rules and item units</text>
+ <path class="alt" d="M2600 1100 H2550 V1170 H1410"/><rect class="lb" x="1760" y="1140" width="400" height="40"/><text class="lab" x="1960" y="1167">branch stock-on-hand</text>
+
+ <!-- 4.0 Inventory configuration and transactions -->
+ <rect class="ent" x="80" y="1390" width="380" height="100"/><text class="entt" x="270" y="1454">Admin</text>
+ <rect class="ent" x="80" y="1520" width="380" height="100"/><text class="entt" x="270" y="1584">Manager</text>
+ <g><rect class="proc" x="760" y="1390" width="650" height="240"/><path class="head" d="M760 1445 H1410"/><text class="num" x="1085" y="1430">4.0</text><text class="pt" x="1085" y="1500"><tspan x="1085">Maintain Inventory</tspan><tspan x="1085" dy="36">and Material Rules</tspan></text></g>
+ <g><path class="store" d="M1900 1390 H2500 M1900 1520 H2500 M1900 1390 V1520 M2500 1390 V1520"/><text class="st" x="2200" y="1445">D2  Service and Inventory Setup</text><text class="ss" x="2200" y="1485">services · fields · rules · item units</text></g>
+ <g><path class="store" d="M2600 1390 H3180 M2600 1520 H3180 M2600 1390 V1520 M3180 1390 V1520"/><text class="st" x="2890" y="1445">D5  Branch Inventory Records</text><text class="ss" x="2890" y="1485">inventory_transactions · inv_rolls</text></g>
+ <path class="flow" d="M460 1425 H760"/><rect class="lb" x="485" y="1395" width="250" height="40"/><text class="lab" x="610" y="1422">item and rule setup</text>
+ <path class="flow" d="M460 1560 H760"/><rect class="lb" x="485" y="1568" width="250" height="40"/><text class="lab" x="610" y="1595">branch stock transaction</text>
+ <path class="flow" d="M1410 1435 H1900"/><rect class="lb" x="1460" y="1400" width="390" height="40"/><text class="lab" x="1655" y="1427">service and material configuration</text>
+ <path class="flow" d="M1410 1575 H2600"/><rect class="lb" x="1710" y="1540" width="520" height="40"/><text class="lab" x="1970" y="1567">receipt, issue, or adjustment transaction</text>
+
+ <!-- 5.0 Production assignment and material issue -->
+ <rect class="ent" x="80" y="1875" width="380" height="110"/><text class="entt" x="270" y="1945">Staff</text>
+ <g><rect class="proc" x="760" y="1840" width="650" height="250"/><path class="head" d="M760 1895 H1410"/><text class="num" x="1085" y="1880">5.0</text><text class="pt" x="1085" y="1950"><tspan x="1085">Manage Production and</tspan><tspan x="1085" dy="36">Record Material Use</tspan></text></g>
+ <g><path class="store" d="M2050 1835 H2650 M2050 1955 H2650 M2050 1835 V1955 M2650 1835 V1955"/><text class="st" x="2350" y="1885">D3  Order and Payment Records</text><text class="ss" x="2350" y="1925">saved order specifications</text></g>
+ <g><path class="store" d="M2050 1990 H2650 M2050 2110 H2650 M2050 1990 V2110 M2650 1990 V2110"/><text class="st" x="2350" y="2040">D4  Production Jobs</text><text class="ss" x="2350" y="2080">job_orders · material assignments</text></g>
+ <g><path class="store" d="M2700 1990 H3180 M2700 2110 H3180 M2700 1990 V2110 M3180 1990 V2110"/><text class="st" x="2940" y="2040">D5  Branch Inventory Records</text><text class="ss" x="2940" y="2080">inventory_transactions · inv_rolls</text></g>
+ <path class="flow" d="M460 1915 H760"/><rect class="lb" x="485" y="1885" width="250" height="40"/><text class="lab" x="610" y="1912">production assignment</text>
+ <path class="alt" d="M2050 1895 H1410"/><rect class="lb" x="1480" y="1860" width="500" height="40"/><text class="lab" x="1730" y="1887">saved order and item details</text>
+ <path class="flow" d="M1410 2010 H2050"/><rect class="lb" x="1490" y="1975" width="470" height="40"/><text class="lab" x="1725" y="2002">job and material assignment records</text>
+ <path class="flow" d="M1410 2060 V2140 H2940 V2110"/><rect class="lb" x="1710" y="2120" width="470" height="40"/><text class="lab" x="1945" y="2147">material OUT at production</text>
+
+ <!-- 6.0 Branch reporting; repeated store symbols simplify report inputs. -->
+ <rect class="ent" x="80" y="2235" width="380" height="100"/><text class="entt" x="270" y="2298">Admin</text>
+ <rect class="ent" x="80" y="2380" width="380" height="100"/><text class="entt" x="270" y="2443">Manager</text>
+ <g><rect class="proc" x="760" y="2220" width="650" height="300"/><path class="head" d="M760 2275 H1410"/><text class="num" x="1085" y="2260">6.0</text><text class="pt" x="1085" y="2350"><tspan x="1085">Generate Branch Reports</tspan><tspan x="1085" dy="36">and Summaries</tspan></text></g>
+ <g><path class="store" d="M2050 2215 H2650 M2050 2305 H2650 M2050 2215 V2305 M2650 2215 V2305"/><text class="st" x="2350" y="2272">D3  Order and Payment Records</text></g>
+ <g><path class="store" d="M2050 2330 H2650 M2050 2420 H2650 M2050 2330 V2420 M2650 2330 V2420"/><text class="st" x="2350" y="2387">D4  Production Jobs</text></g>
+ <g><path class="store" d="M2700 2330 H3180 M2700 2420 H3180 M2700 2330 V2420 M3180 2330 V2420"/><text class="st" x="2940" y="2387">D5  Branch Inventory Records</text></g>
+ <path class="flow" d="M460 2265 H760"/><rect class="lb" x="475" y="2238" width="270" height="40"/><text class="lab" x="610" y="2265">report scope and filters</text>
+ <path class="alt" d="M760 2315 H460"/><rect class="lb" x="475" y="2318" width="270" height="40"/><text class="lab" x="610" y="2345">system report</text>
+ <path class="flow" d="M460 2405 H760"/><rect class="lb" x="475" y="2378" width="270" height="40"/><text class="lab" x="610" y="2405">branch and date criteria</text>
+ <path class="alt" d="M760 2465 H460"/><rect class="lb" x="475" y="2468" width="270" height="40"/><text class="lab" x="610" y="2495">branch performance report</text>
+ <path class="alt" d="M2050 2260 H1410"/><rect class="lb" x="1470" y="2225" width="550" height="40"/><text class="lab" x="1745" y="2252">order and payment summaries</text>
+ <path class="alt" d="M2050 2375 H1410"/><rect class="lb" x="1470" y="2340" width="550" height="40"/><text class="lab" x="1745" y="2367">production job summaries</text>
+ <path class="alt" d="M2700 2385 H2680 V2445 H1410"/><rect class="lb" x="1760" y="2465" width="620" height="40"/><text class="lab" x="2070" y="2492">inventory movement summaries</text>
+
+ <!-- Notes and legend -->
+ <rect x="90" y="2550" width="3020" height="150" rx="18" fill="#f7fafc" stroke="#bcccdc" stroke-width="2"/>
+ <text class="note" x="125" y="2605"><tspan font-weight="700">Operational distinction:</tspan> Process 3.0 reads branch stock before POS order save; Process 5.0 records material OUT through production.</text>
+ <text class="note" x="125" y="2655">Repeated entity/store symbols retain the same role or D-number. Manager activity is branch-scoped; Admin report filters may use broader scope.</text>
+ <rect class="ent" x="120" y="2730" width="240" height="90"/><text class="legend" x="240" y="2785" text-anchor="middle">External entity</text>
+ <rect class="proc" x="430" y="2730" width="290" height="90"/><text class="legend" x="575" y="2785" text-anchor="middle">Numbered process</text>
+ <path class="store" d="M790 2740 H1100 M790 2810 H1100 M790 2740 V2810 M1100 2740 V2810"/><text class="legend" x="945" y="2785" text-anchor="middle">Data store</text>
+ <path class="flow" d="M1210 2775 H1550"/><text class="legend" x="1740" y="2782">Labeled, directional data flow</text>
+</svg>

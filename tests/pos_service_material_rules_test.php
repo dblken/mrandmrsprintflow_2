@@ -99,10 +99,32 @@ foreach ([['Sintra 3mm', 206], ['Sintra 5mm', 207]] as [$thickness, $itemId]) {
 }
 $sintraWithOptional = printflow_pos_material_selection_resolve_customization(71, [
     'board_thickness' => 'Sintra 3mm',
-    'pos_selected_material_ids' => [206, 23],
+    'pos_selected_material_ids' => [206],
 ]);
-$assert(array_column($sintraWithOptional, 'item_id') === [206, 23],
-    'the selected thickness and a manually selected optional sticker layer can be resolved together.');
+$assert(array_column($sintraWithOptional, 'item_id') === [206],
+    'the POS-specific selection resolver returns the board choice only.');
+$expectRuntimeError(
+    static fn() => printflow_pos_material_selection_resolve_customization(71, [
+        'board_thickness' => 'Sintra 3mm', 'pos_selected_material_ids' => [206, 23],
+    ]),
+    'Please select Sintra 3mm or Sintra 5mm.'
+);
+$assignedSintra = printflow_pos_material_selection_resolve_assignments(71, [
+    ['item_id' => 206, 'quantity' => 2], ['item_id' => 23, 'quantity' => 1],
+], ['board_thickness' => 'Sintra 3mm']);
+$assert(array_column($assignedSintra, 'item_id') === [206, 23],
+    'Production Assignment may explicitly select the board and optional Pp layer for strict rule and stock validation.');
+$expectRuntimeError(
+    static fn() => printflow_pos_material_selection_resolve_assignments(71, [
+        ['item_id' => 207, 'quantity' => 2],
+    ], ['board_thickness' => 'Sintra 3mm']),
+    'must match the selected Sintra board thickness'
+);
+$assignedBrochure = printflow_pos_material_selection_resolve_assignments(67, [
+    ['item_id' => 212, 'quantity' => 3],
+]);
+$assert(array_column($assignedBrochure, 'item_id') === [212],
+    'Brochure resolves its internal paper only after staff selects it in Production Assignment.');
 $expectRuntimeError(
     static fn() => printflow_pos_material_selection_resolve_customization(71, ['board_thickness' => 'Sintra 5mm', 'pos_selected_material_ids' => [206]]),
     'Please select Sintra 3mm or Sintra 5mm.'
@@ -273,11 +295,11 @@ $assert(printflow_pos_sintraboard_staff_facing_material_error(71, 'Sintra 3mm is
 $serviceFieldsApi = (string)file_get_contents(dirname(__DIR__) . '/staff/api/pos_service_fields.php');
 $cartApi = (string)file_get_contents(dirname(__DIR__) . '/staff/api/pos_cart_handler.php');
 $checkoutApi = (string)file_get_contents(dirname(__DIR__) . '/staff/api/pos_checkout.php');
-$assert(str_contains($serviceFieldsApi, 'printflow_pos_sintraboard_staff_facing_material_error($service_id, $identityError->getMessage())')
-    && str_contains($serviceFieldsApi, '$staffError ??')
+$assert(!str_contains($serviceFieldsApi, 'printflow_service_material_rule_identity_scope')
+    && !str_contains($serviceFieldsApi, 'printflow_pos_sintraboard_staff_facing_material_error')
     && str_contains($cartApi, 'pos_cart_staff_facing_service_material_error($e->getMessage()')
     && str_contains($checkoutApi, 'pos_checkout_staff_facing_material_error((string)$issue[\'message\'], $items)'),
-    'Service-fields, cart, and checkout APIs sanitize genuine Sintraboard identity conflicts before returning staff-facing errors.');
+    'Opening the service form no longer depends on production-rule resolution; cart and checkout retain staff-safe conflict handling.');
 
 $expectRuntimeError(
     static fn() => printflow_pos_assert_service_stock_multiplier_schema(false, true, true, true),
@@ -365,12 +387,18 @@ $approvalTimestampSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('s
 $basisSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_basis', true)");
 $approvedBasisSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved_basis', true)");
 $approvedMultiplierCheck = strpos($stockRulesBlock, 'printflow_pos_approved_service_multiplier(');
-$sintraSelectionResolve = strpos($stockRulesBlock, '$selection = printflow_pos_material_selection_resolve_customization($serviceId, $customization);');
+$sintraSelectionResolve = strpos($stockRulesBlock, '$selection = $assignmentRows !== null');
+$assignmentSelectionResolve = strpos($stockRulesBlock, 'printflow_pos_material_selection_resolve_assignments($serviceId, $assignmentRows, $customization)');
+$deferredRuleReturn = strpos($stockRulesBlock, 'if ($usesSelectionPolicy && $serviceId !== 71 && $assignmentRows === null) return [];');
 $optionalRuleFilter = strpos($stockRulesBlock, 'printflow_pos_material_selection_filter_unselected_optional_rules($serviceId, $rules ?: [], $selection)');
 $strictRuleResolution = strpos($stockRulesBlock, 'printflow_pos_select_service_material_rule_set($serviceId, $rules ?: [])');
 $assert($sintraSelectionResolve !== false && $optionalRuleFilter !== false && $strictRuleResolution !== false
     && $sintraSelectionResolve < $optionalRuleFilter && $optionalRuleFilter < $strictRuleResolution,
-    'Sintraboard resolves the selected thickness and removes only omitted optional-layer rules before strict stable/legacy conflict validation.');
+    'Sintraboard resolves the specification-selected thickness and excludes the unselected optional Pp rule before strict stable/legacy conflict validation.');
+$assert($assignmentSelectionResolve !== false && $deferredRuleReturn !== false
+    && str_contains($stockValidationBlock, '!array_key_exists(\'pos_material_assignments\', $line)) $assigned = [];')
+    && str_contains($stockValidationBlock, '$customization[\'pos_material_assignments\'] = $assigned;'),
+    'Unresolved production-material services defer POS stock rules, while explicit Production Assignment rows retain strict selected-rule validation.');
 $assert($schemaCheck !== false && $approvalSchemaCheck !== false && $approverSchemaCheck !== false
     && $approvalTimestampSchemaCheck !== false && $query !== false
     && $schemaCheck < $query && $approvalSchemaCheck < $query

@@ -152,6 +152,16 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
     // not from the incomplete service_material_rules multiplier schema.
     if ($serviceId === 40) return [];
 
+    // For services whose production material is not identified by a POS
+    // specification, defer material validation until staff select it in
+    // Production Assignment. Sintraboard is the exception: Board Thickness
+    // maps to a verified stable inventory ID and is checked here.
+    $usesSelectionPolicy = isset(printflow_pos_material_selection_registry()[$serviceId]);
+    $assignmentRows = is_array($customization['pos_material_assignments'] ?? null)
+        ? $customization['pos_material_assignments']
+        : null;
+    if ($usesSelectionPolicy && $serviceId !== 71 && $assignmentRows === null) return [];
+
     $serviceType = JobOrderService::inferServiceTypeFromProduct(
         (string)($service['category'] ?? ''),
         (string)($service['name'] ?? '')
@@ -185,7 +195,6 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
         && db_table_has_column('service_material_rules', 'qty_multiplier_approved_by', true);
     $hasApprovalTimestampColumn = function_exists('db_table_has_column')
         && db_table_has_column('service_material_rules', 'qty_multiplier_approved_at', true);
-    $usesSelectionPolicy = isset(printflow_pos_material_selection_registry()[$serviceId]);
     $hasMultiplierBasisColumn = !$usesSelectionPolicy || (function_exists('db_table_has_column')
         && db_table_has_column('service_material_rules', 'qty_multiplier_basis', true));
     $hasApprovedBasisColumn = !$usesSelectionPolicy || (function_exists('db_table_has_column')
@@ -225,10 +234,12 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
     }
     $selection = null;
     if ($serviceId === 71) {
-        // Resolve the explicit Board Thickness choice before checking rule-set
-        // consistency. Pp Stkr Matte 98 is a separate optional staff choice;
-        // when omitted, its rule/audit state must not block board validation.
-        $selection = printflow_pos_material_selection_resolve_customization($serviceId, $customization);
+        // POS validates only the board selected in the service specifications.
+        // In Production Assignment, explicitly selected material rows are
+        // authoritative and optional layers are included only when selected.
+        $selection = $assignmentRows !== null
+            ? printflow_pos_material_selection_resolve_assignments($serviceId, $assignmentRows, $customization)
+            : printflow_pos_material_selection_resolve_customization($serviceId, $customization);
         $rules = printflow_pos_material_selection_filter_unselected_optional_rules($serviceId, $rules ?: [], $selection);
     }
     $rules = printflow_pos_select_service_material_rule_set($serviceId, $rules ?: []);
@@ -247,75 +258,15 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
         $rulesByItem = [];
         foreach ($rules as $rule) $rulesByItem[(int)($rule['item_id'] ?? 0)] = $rule;
         $expectedNames = printflow_pos_material_selection_item_names($serviceId);
-        if ($serviceId === 67) {
-            if ($branchId <= 0 || $orderQuantity <= 0) {
-                throw new RuntimeException('Brochure material selection requires a valid POS branch and order quantity. Reopen the service and try again.');
-            }
-            $candidates = [];
-            $configurationErrors = [];
-            foreach (array_keys(printflow_pos_material_selection_registry()[67]) as $candidateId) {
-                $candidateId = (int)$candidateId;
-                $expectedName = (string)($expectedNames[$candidateId] ?? 'Brochure paper');
-                $rule = $rulesByItem[$candidateId] ?? null;
-                if (!$rule) {
-                    $configurationErrors[] = $expectedName . ' has no configured Brochure rule.';
-                    continue;
-                }
-                if (strcasecmp(trim((string)($rule['item_name'] ?? '')), $expectedName) !== 0
-                    || strtoupper(trim((string)($rule['item_status'] ?? ''))) !== 'ACTIVE'
-                    || trim((string)($rule['unit_of_measure'] ?? '')) === '') {
-                    $configurationErrors[] = $expectedName . ' no longer matches an active inventory item.';
-                    continue;
-                }
-                if (strtoupper(trim((string)($rule['rule_type'] ?? ''))) !== 'REQUIRED') {
-                    $configurationErrors[] = $expectedName . ' is not configured as the required Brochure paper alternative.';
-                    continue;
-                }
-                if (strtoupper(trim((string)($rule['qty_multiplier_basis'] ?? ''))) !== 'AREA_SQFT'
-                    || strtoupper(trim((string)($rule['qty_multiplier_approved_basis'] ?? ''))) !== 'AREA_SQFT') {
-                    $configurationErrors[] = $expectedName . ' requires an Admin-approved inventory-units-per-square-foot rate.';
-                    continue;
-                }
-                try {
-                    $multiplier = printflow_pos_approved_service_multiplier(
-                        $rule['qty_multiplier'] ?? null,
-                        $rule['qty_multiplier_approved'] ?? null,
-                        $rule['qty_multiplier_approved_by'] ?? null,
-                        $rule['qty_multiplier_approved_at'] ?? null
-                    );
-                    $calculation = printflow_pos_material_demand_for_area(
-                        $customization['width'] ?? null,
-                        $customization['height'] ?? null,
-                        $dimensionUnit,
-                        $orderQuantity,
-                        $multiplier
-                    );
-                } catch (Throwable $configurationError) {
-                    $configurationErrors[] = $expectedName . ' is not ready for POS: ' . $configurationError->getMessage();
-                    continue;
-                }
-                $alreadyRequired = (float)($alreadyDemand[$candidateId]['quantity'] ?? 0);
-                $available = (float)InventoryManager::getStockOnHand($candidateId, $branchId);
-                $candidates[] = [
-                    'item_id' => $candidateId,
-                    'name' => $expectedName,
-                    'required' => (float)$calculation['rounded_demand'],
-                    'available' => $available,
-                    'already_required' => $alreadyRequired,
-                    'rule' => $rule,
-                ];
-            }
-            if ($candidates === []) {
-                $detail = $configurationErrors[0] ?? 'No approved Brochure paper alternative is configured.';
-                throw new RuntimeException($detail . ' Configure and explicitly approve a valid Brochure paper rule in Admin.');
-            }
-            $chosen = printflow_pos_material_selection_choose_alternative($candidates);
-            if (!is_array($chosen)) throw new RuntimeException('No approved Brochure paper alternative is available.');
-            // The choice is server-authored from the active branch's stock and
-            // is never supplied as a customer/staff material selection.
-            $selection = printflow_pos_material_selection_resolve(67, [(int)$chosen['item_id']]);
+        if ($assignmentRows !== null) {
+            $selection = printflow_pos_material_selection_resolve_assignments($serviceId, $assignmentRows, $customization);
+        } elseif ($serviceId === 71) {
+            $selection = printflow_pos_material_selection_resolve_customization($serviceId, $customization);
         } else {
-            $selection = $selection ?? printflow_pos_material_selection_resolve_customization($serviceId, $customization);
+            // No verified POS field identifies these production materials.
+            // Their exact rule, quantity, and branch stock are checked when
+            // staff select them in Production Assignment.
+            return [];
         }
         $selectedRules = [];
         foreach ($selection as $selectedMaterial) {
@@ -624,10 +575,14 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
             printflow_pos_service_stock_add_demand($demand, $itemId, (float)$selection['required_linear_ft'], (string)$item['name'], 'Ft');
             continue;
         }
+        if (array_key_exists('pos_material_assignments', $line)) {
+            $customization['pos_material_assignments'] = $assigned;
+        }
         $rules = printflow_pos_service_stock_rules($serviceId, $customization, $hasAssignedMaterials, $branchId, (float)$quantity, $demand);
         if ($rules !== []) $tracked = true;
         if ($serviceId !== 40) $assigned = printflow_pos_service_line_job_materials($line);
-        if (isset(printflow_pos_material_selection_registry()[$serviceId])) $assigned = [];
+        if (isset(printflow_pos_material_selection_registry()[$serviceId])
+            && !array_key_exists('pos_material_assignments', $line)) $assigned = [];
 
         $lineMinimums = [];
         foreach ($rules as $rule) {

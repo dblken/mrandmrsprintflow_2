@@ -5373,10 +5373,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         function posSelectedServiceMaterialIds(serviceId, customization, body, overlay) {
-            const checkedIds = Array.from(body?.querySelectorAll('[data-pos-material-id]:checked') || [])
-                .map(input => Number(input.dataset.posMaterialId || input.value))
-                .filter(id => Number.isInteger(id) && id > 0);
-            if (Number(serviceId) !== 71) return checkedIds;
+            // Production materials are selected later in Custom Orders. The
+            // only POS material identity currently determined by a customer
+            // specification is Sintraboard Board Thickness.
+            if (Number(serviceId) !== 71) return [];
 
             let fieldMap = {};
             try {
@@ -5390,9 +5390,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const mappedEntry = Object.entries(options).find(([label]) => String(label).trim().replace(/\s+/g, ' ').toLowerCase() === selectedValue);
             const selectedId = mappedEntry ? Number(mappedEntry[1]) : 0;
             if (!Number.isInteger(selectedId) || selectedId <= 0) return [];
-            const thicknessIds = checkedIds.filter(id => [206, 207].includes(id));
-            if (thicknessIds.length > 0 && (thicknessIds.length !== 1 || thicknessIds[0] !== selectedId)) return [];
-            return [selectedId, ...checkedIds.filter(id => ![206, 207].includes(id))];
+            return [selectedId];
         }
 
         function posApplySelectedServiceDimension(customization, body, overlay) {
@@ -5551,6 +5549,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 : Number(serviceId) === 40
                     ? posCollectTarpaulinStockCustomization()
                     : posCollectServiceStockCustomization();
+            // Do not show transient red material/dimension precheck errors
+            // while required specifications are still being entered. The Add
+            // handler performs and displays this same field validation before
+            // it starts its authoritative stock check.
+            if (typeof validateServiceOrderForm === 'function' && !validateServiceOrderForm().valid) {
+                posSetServiceStockState(false, '', '');
+                return { valid: true, deferred: true };
+            }
             if (Number(serviceId) === 40) {
                 const width = Number(serviceCustomization.width);
                 const height = Number(serviceCustomization.height);

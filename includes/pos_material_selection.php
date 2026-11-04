@@ -125,11 +125,37 @@ function printflow_pos_material_selection_resolve_customization(int $serviceId, 
         $submittedThicknessIds = array_values(array_filter($selectedIds, static function ($id): bool {
             return is_scalar($id) && filter_var($id, FILTER_VALIDATE_INT) !== false && in_array((int)$id, [206, 207], true);
         }));
-        if ($fieldSelectedId === null || count($submittedThicknessIds) !== 1 || (int)$submittedThicknessIds[0] !== $fieldSelectedId) {
+        // Board Thickness is the only POS material identity. Optional print
+        // layers are chosen later in Production Assignment, never in this form.
+        if ($fieldSelectedId === null || count($selectedIds) !== 1 || count($submittedThicknessIds) !== 1 || (int)$submittedThicknessIds[0] !== $fieldSelectedId) {
             throw new InvalidArgumentException('Please select Sintra 3mm or Sintra 5mm.');
         }
     }
     return printflow_pos_material_selection_resolve($serviceId, $selectedIds);
+}
+
+/** Resolve materials explicitly chosen by staff during Production Assignment. */
+function printflow_pos_material_selection_resolve_assignments(int $serviceId, array $assignments, array $customization = []): array
+{
+    $ids = [];
+    foreach ($assignments as $assignment) {
+        if (!is_array($assignment)) throw new InvalidArgumentException('A production material assignment is invalid.');
+        $rawId = $assignment['item_id'] ?? $assignment['id'] ?? null;
+        if (!is_scalar($rawId) || filter_var($rawId, FILTER_VALIDATE_INT) === false) {
+            throw new InvalidArgumentException('A production material identity is invalid.');
+        }
+        $id = (int)$rawId;
+        if ($id <= 0) throw new InvalidArgumentException('A production material identity is invalid.');
+        if (!in_array($id, $ids, true)) $ids[] = $id;
+    }
+    if ($serviceId === 71) {
+        $fieldSelectedId = printflow_pos_sintraboard_selected_item_id($customization['board_thickness'] ?? null);
+        $assignedBoards = array_values(array_filter($ids, static fn(int $id): bool => in_array($id, [206, 207], true)));
+        if ($fieldSelectedId === null || count($assignedBoards) !== 1 || $assignedBoards[0] !== $fieldSelectedId) {
+            throw new InvalidArgumentException('The production material must match the selected Sintra board thickness.');
+        }
+    }
+    return printflow_pos_material_selection_resolve($serviceId, $ids);
 }
 
 function printflow_pos_material_selection_group_label(int $serviceId, string $group): string
@@ -178,36 +204,6 @@ function printflow_pos_material_selection_resolve(int $serviceId, array $selecte
         }
     }
     return array_values($selected);
-}
-
-/**
- * Choose an internal required alternative in its configured registry order.
- * Candidates must already have passed identity, approval, UOM, and demand
- * validation. Prefer the first candidate with enough branch stock; if none
- * has enough, return the first valid candidate so the normal stock validator
- * can report its exact shortage without bypassing validation.
- */
-function printflow_pos_material_selection_choose_alternative(array $candidates): ?array
-{
-    foreach ($candidates as $candidate) {
-        if (!is_array($candidate)
-            || (int)($candidate['item_id'] ?? 0) <= 0
-            || !is_numeric($candidate['required'] ?? null)
-            || !is_finite((float)$candidate['required'])
-            || (float)$candidate['required'] <= 0
-            || !is_numeric($candidate['available'] ?? null)
-            || !is_finite((float)$candidate['available'])
-            || (float)$candidate['available'] < 0
-            || !is_numeric($candidate['already_required'] ?? 0)
-            || !is_finite((float)($candidate['already_required'] ?? 0))) {
-            throw new InvalidArgumentException('An internal material alternative could not be safely evaluated for stock.');
-        }
-        if ((float)$candidate['available'] - (float)($candidate['already_required'] ?? 0)
-            + 0.000001 >= (float)$candidate['required']) {
-            return $candidate;
-        }
-    }
-    return $candidates[0] ?? null;
 }
 
 /**
