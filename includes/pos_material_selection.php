@@ -35,6 +35,32 @@ function printflow_pos_material_selection_allowed_ids(int $serviceId): array
     return array_map('intval', array_keys(printflow_pos_material_selection_registry()[$serviceId] ?? []));
 }
 
+/**
+ * Unselected optional Sintraboard layers do not participate in thickness
+ * stock validation. This keeps stale/incomplete optional rule metadata from
+ * blocking the selected board while leaving selected layers subject to the
+ * normal strict rule, approval, and stock checks.
+ */
+function printflow_pos_material_selection_filter_unselected_optional_rules(int $serviceId, array $rows, array $selection): array
+{
+    if ($serviceId !== 71) return $rows;
+
+    $selectedIds = [];
+    foreach ($selection as $selected) {
+        if (is_array($selected) && filter_var($selected['item_id'] ?? null, FILTER_VALIDATE_INT) !== false) {
+            $selectedIds[(int)$selected['item_id']] = true;
+        }
+    }
+    $policy = printflow_pos_material_selection_registry()[71] ?? [];
+    return array_values(array_filter($rows, static function ($row) use ($selectedIds, $policy): bool {
+        if (!is_array($row)) return true;
+        $itemId = filter_var($row['item_id'] ?? null, FILTER_VALIDATE_INT);
+        if ($itemId === false || !isset($policy[(int)$itemId])) return true;
+        $definition = $policy[(int)$itemId];
+        return ($definition['role'] ?? '') !== 'optional' || isset($selectedIds[(int)$itemId]);
+    }));
+}
+
 function printflow_pos_material_selection_service_type(int $serviceId): ?string
 {
     return [39 => 'Plates', 67 => 'Brochure', 64 => 'Poster Printing', 71 => 'Sintraboard Standees', 36 => 'Decals/Stickers (Print/Cut)'][$serviceId] ?? null;

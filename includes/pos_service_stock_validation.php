@@ -223,6 +223,14 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
     if ($rules === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $errorCount)) {
         throw new RuntimeException('The POS service material rules could not be loaded.');
     }
+    $selection = null;
+    if ($serviceId === 71) {
+        // Resolve the explicit Board Thickness choice before checking rule-set
+        // consistency. Pp Stkr Matte 98 is a separate optional staff choice;
+        // when omitted, its rule/audit state must not block board validation.
+        $selection = printflow_pos_material_selection_resolve_customization($serviceId, $customization);
+        $rules = printflow_pos_material_selection_filter_unselected_optional_rules($serviceId, $rules ?: [], $selection);
+    }
     $rules = printflow_pos_select_service_material_rule_set($serviceId, $rules ?: []);
 
     if ($usesSelectionPolicy) {
@@ -307,7 +315,7 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
             // is never supplied as a customer/staff material selection.
             $selection = printflow_pos_material_selection_resolve(67, [(int)$chosen['item_id']]);
         } else {
-            $selection = printflow_pos_material_selection_resolve_customization($serviceId, $customization);
+            $selection = $selection ?? printflow_pos_material_selection_resolve_customization($serviceId, $customization);
         }
         $selectedRules = [];
         foreach ($selection as $selectedMaterial) {

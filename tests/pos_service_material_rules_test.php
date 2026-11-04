@@ -149,6 +149,34 @@ $auditedSintraLegacyRows = [
     ['id' => 27, 'service_id' => null, 'service_type' => 'Sintraboard Standees', 'item_id' => 1, 'material_name' => 'Ac Mc', 'rule_type' => 'OPTIONAL', 'qty_multiplier' => null, 'qty_multiplier_approved' => 0, 'qty_multiplier_approved_by' => null, 'qty_multiplier_approved_at' => null, 'qty_multiplier_basis' => null, 'qty_multiplier_approved_basis' => null],
     ['id' => 28, 'service_id' => null, 'service_type' => 'Sintraboard Standees', 'item_id' => 7, 'material_name' => 'Sp Mc', 'rule_type' => 'OPTIONAL', 'qty_multiplier' => '1.00', 'qty_multiplier_approved' => 0, 'qty_multiplier_approved_by' => null, 'qty_multiplier_approved_at' => null, 'qty_multiplier_basis' => null, 'qty_multiplier_approved_basis' => null],
 ];
+$productionPpRuleWithIncompleteApproval = [
+    'id' => 26, 'service_id' => 71, 'service_type' => 'Sintraboard Standees', 'item_id' => 23,
+    'material_name' => 'Pp Stkr Matte 98', 'rule_type' => 'REQUIRED', 'qty_multiplier' => '1.00',
+    'qty_multiplier_approved' => 1, 'qty_multiplier_approved_by' => 22,
+    'qty_multiplier_approved_at' => '2026-11-03 12:26:33',
+    'qty_multiplier_basis' => null, 'qty_multiplier_approved_basis' => null,
+];
+$productionSintraRules = array_merge(
+    [$productionPpRuleWithIncompleteApproval],
+    $auditedSintraStableRows,
+    $auditedSintraLegacyRows
+);
+foreach ([206, 207] as $selectedBoardId) {
+    $boardSelection = printflow_pos_material_selection_resolve(71, [$selectedBoardId]);
+    $boardRules = printflow_pos_material_selection_filter_unselected_optional_rules(71, $productionSintraRules, $boardSelection);
+    $resolvedBoardRules = printflow_pos_select_service_material_rule_set(71, $boardRules);
+    $assert(!in_array(23, array_map('intval', array_column($resolvedBoardRules, 'item_id')), true)
+        && in_array($selectedBoardId, array_map('intval', array_column($resolvedBoardRules, 'item_id')), true),
+        'Production-shaped item 26 metadata cannot block selected Sintra item ' . $selectedBoardId . ' when the optional Pp layer is omitted.');
+}
+$selectedPpLayer = printflow_pos_material_selection_resolve(71, [206, 23]);
+$selectedPpRules = printflow_pos_material_selection_filter_unselected_optional_rules(71, $productionSintraRules, $selectedPpLayer);
+$assert(in_array(23, array_map('intval', array_column($selectedPpRules, 'item_id')), true),
+    'Pp Stkr Matte 98 remains in validation when staff intentionally selects the optional layer.');
+$expectRuntimeError(
+    static fn() => printflow_pos_select_service_material_rule_set(71, $selectedPpRules),
+    'An Admin must review the service-material configuration'
+);
 $auditedSintraResolved = printflow_pos_select_service_material_rule_set(71, array_merge($auditedSintraStableRows, $auditedSintraLegacyRows));
 $assert(array_column($auditedSintraResolved, 'id') === [26, 35, 52]
     && array_column($auditedSintraResolved, 'material_name') === ['Pp Stkr Matte', 'Sintra 3mm', 'Sintra 5mm'],
@@ -337,6 +365,12 @@ $approvalTimestampSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('s
 $basisSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_basis', true)");
 $approvedBasisSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved_basis', true)");
 $approvedMultiplierCheck = strpos($stockRulesBlock, 'printflow_pos_approved_service_multiplier(');
+$sintraSelectionResolve = strpos($stockRulesBlock, '$selection = printflow_pos_material_selection_resolve_customization($serviceId, $customization);');
+$optionalRuleFilter = strpos($stockRulesBlock, 'printflow_pos_material_selection_filter_unselected_optional_rules($serviceId, $rules ?: [], $selection)');
+$strictRuleResolution = strpos($stockRulesBlock, 'printflow_pos_select_service_material_rule_set($serviceId, $rules ?: [])');
+$assert($sintraSelectionResolve !== false && $optionalRuleFilter !== false && $strictRuleResolution !== false
+    && $sintraSelectionResolve < $optionalRuleFilter && $optionalRuleFilter < $strictRuleResolution,
+    'Sintraboard resolves the selected thickness and removes only omitted optional-layer rules before strict stable/legacy conflict validation.');
 $assert($schemaCheck !== false && $approvalSchemaCheck !== false && $approverSchemaCheck !== false
     && $approvalTimestampSchemaCheck !== false && $query !== false
     && $schemaCheck < $query && $approvalSchemaCheck < $query
