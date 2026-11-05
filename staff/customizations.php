@@ -11926,10 +11926,14 @@ window.pfServiceFieldCatalog = (() => {
             },
             async removeMaterial(jomId) {
                 if (!jomId || !this.beginModalAction()) return;
-                if (!window.confirm('Remove this material assignment? This is allowed only before production starts and before inventory is deducted. The correction will be recorded.')) {
+                const assignedRow = (Array.isArray(this.currentJo && this.currentJo.materials) ? this.currentJo.materials : [])
+                    .find(material => String(material.id || '') === String(jomId));
+                const materialName = String(assignedRow && (assignedRow.item_name || assignedRow.name) || 'this material');
+                if (!window.confirm(`Remove ${materialName} from this assignment? The correction will be recorded. This is available only before production starts and before inventory is deducted.`)) {
                     this.endModalAction();
                     return;
                 }
+                let serverRemovalConfirmed = false;
                 try {
                     const fd = new FormData();
                     fd.append('action', 'remove_material');
@@ -11941,46 +11945,67 @@ window.pfServiceFieldCatalog = (() => {
                         this.showStaffAlert('Material Not Changed', result.error || result.message || 'The assignment could not be safely changed.');
                         return;
                     }
-                    await this.refreshMaterials();
-                    this.showStaffAlert('Assignment Corrected', result.message || 'The undeducted assignment was removed and recorded.');
+                    serverRemovalConfirmed = true;
+                    const currentMaterials = Array.isArray(this.currentJo && this.currentJo.materials) ? this.currentJo.materials : [];
+                    const removedRow = currentMaterials.find(material => String(material.id || '') === String(jomId));
+                    const removedItemId = String(removedRow && removedRow.item_id || '');
+                    this.currentJo = {
+                        ...this.currentJo,
+                        materials: currentMaterials.filter(material => String(material.id || '') !== String(jomId)),
+                    };
+                    if (removedItemId && String(this.newMaterialId || '') === removedItemId) {
+                        this.newMaterialId = '';
+                    }
+                    const refreshed = await this.refreshMaterials();
+                    this.showStaffAlert(
+                        refreshed ? 'Assignment Corrected' : 'Assignment Removed',
+                        refreshed
+                            ? (result.message || 'The undeducted assignment was removed and recorded. It can be selected again if appropriate.')
+                            : 'The assignment was removed and recorded, but the material list could not refresh. Reload the order before making another change.'
+                    );
                 } catch (error) {
-                    this.showStaffAlert('Material Not Changed', 'The assignment could not be verified. Refresh the order and try again.');
+                    this.showStaffAlert(
+                        serverRemovalConfirmed ? 'Assignment Removed' : 'Material Not Changed',
+                        serverRemovalConfirmed
+                            ? 'The assignment was removed and recorded, but the material list could not refresh. Reload the order before making another change.'
+                            : 'The assignment could not be verified. Refresh the order and try again.'
+                    );
                 } finally {
                     this.endModalAction();
                 }
             },
             async refreshMaterials() {
                 const jid = await this.resolveEffectiveJobId();
-                if (!jid) return;
+                if (!jid) return false;
                 const isStoreOrderDetail = ['ORDER', 'CUSTOMIZATION'].includes(String((this.currentJo && this.currentJo.order_type) || '').toUpperCase()) && this.currentJo && this.currentJo.order_id;
                 const res = isStoreOrderDetail
                     ? await this.fetchOrderModalSummary(this.currentJo.order_id, { includeAssignments: true, ensureJob: true })
                     : await (await fetch(`../admin/job_orders_api.php?action=get_order&id=${jid}`)).json();
-                if(res.success) {
-                    const previousJo = this.currentJo || {};
-                    const merged = this.applyStaffOrderDetailMerge(
-                        {
-                            ...previousJo,
-                            order_type: previousJo.order_type || 'JOB',
-                            order_id: previousJo.order_id || res.data.order_id,
-                            job_order_id: jid,
-                        },
-                        res.data
-                    );
-                    if ((previousJo.order_type || '').toUpperCase() === 'CUSTOMIZATION') {
-                        merged.status = previousJo.status || merged.status;
-                        merged.payment_proof_status = previousJo.payment_proof_status || merged.payment_proof_status;
-                        merged.payment_proof_path = previousJo.payment_proof_path || merged.payment_proof_path;
-                        merged.payment_submitted_amount = previousJo.payment_submitted_amount !== null && previousJo.payment_submitted_amount !== undefined ? previousJo.payment_submitted_amount : merged.payment_submitted_amount;
-                        merged.final_price = previousJo.final_price !== null && previousJo.final_price !== undefined ? previousJo.final_price : merged.final_price;
-                        merged.estimated_total = previousJo.estimated_total !== null && previousJo.estimated_total !== undefined ? previousJo.estimated_total : merged.estimated_total;
-                        merged.estimated_price = previousJo.estimated_price !== null && previousJo.estimated_price !== undefined ? previousJo.estimated_price : merged.estimated_price;
-                    }
-                    this.currentJo = merged;
-                    for(const m of (this.currentJo.materials || [])) {
-                        if(m.track_by_roll == 1) this.loadAvailableRolls(m.item_id);
-                    }
+                if (!res || !res.success || !res.data) return false;
+                const previousJo = this.currentJo || {};
+                const merged = this.applyStaffOrderDetailMerge(
+                    {
+                        ...previousJo,
+                        order_type: previousJo.order_type || 'JOB',
+                        order_id: previousJo.order_id || res.data.order_id,
+                        job_order_id: jid,
+                    },
+                    res.data
+                );
+                if ((previousJo.order_type || '').toUpperCase() === 'CUSTOMIZATION') {
+                    merged.status = previousJo.status || merged.status;
+                    merged.payment_proof_status = previousJo.payment_proof_status || merged.payment_proof_status;
+                    merged.payment_proof_path = previousJo.payment_proof_path || merged.payment_proof_path;
+                    merged.payment_submitted_amount = previousJo.payment_submitted_amount !== null && previousJo.payment_submitted_amount !== undefined ? previousJo.payment_submitted_amount : merged.payment_submitted_amount;
+                    merged.final_price = previousJo.final_price !== null && previousJo.final_price !== undefined ? previousJo.final_price : merged.final_price;
+                    merged.estimated_total = previousJo.estimated_total !== null && previousJo.estimated_total !== undefined ? previousJo.estimated_total : merged.estimated_total;
+                    merged.estimated_price = previousJo.estimated_price !== null && previousJo.estimated_price !== undefined ? previousJo.estimated_price : merged.estimated_price;
                 }
+                this.currentJo = merged;
+                for(const m of (this.currentJo.materials || [])) {
+                    if(m.track_by_roll == 1) this.loadAvailableRolls(m.item_id);
+                }
+                return true;
             },
             async markReadyForPickup() {
                 if (!this.beginModalAction()) return;
