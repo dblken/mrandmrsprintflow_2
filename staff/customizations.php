@@ -10523,6 +10523,13 @@ window.pfServiceFieldCatalog = (() => {
             },
             schedulePayMongoPolling() {
                 if (this.paymongoPollTimer) window.clearTimeout(this.paymongoPollTimer);
+                const orderSource = String(this.currentJo?.order_source || '').trim().toLowerCase();
+                // POS Set Price drafts have no customer PayMongo payment yet.
+                // Do not start payment polling until the order has payment data.
+                if (this.isPosPricingMode() && orderSource === 'pos_draft' && !this.paymongoPayment) {
+                    this.paymongoPollTimer = null;
+                    return;
+                }
                 const status = String(this.paymongoPayment?.status || '').toLowerCase();
                 if (['paid', 'failed', 'expired', 'cancelled'].includes(status)) return;
                 this.paymongoPollTimer = window.setTimeout(() => this.pollPayMongoPayment(), 5000);
