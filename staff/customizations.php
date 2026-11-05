@@ -5303,11 +5303,11 @@ window.pfServiceFieldCatalog = (() => {
                     );
                     merged.customer_type = this.normalizeCustomerType(merged.customer_type, merged.transaction_count);
                     merged.customer_profile_picture = merged.customer_profile_picture || merged.profile_picture || merged.customer_picture || '';
-                    this.currentJo = merged;
+                    this.currentJo = this.applyPosSetPriceDeepLinkOverride(merged);
                     this.paymongoPayment = merged.provider_payment || this.paymongoPayment || null;
                     this.restoreSavedInkUsage();
                     this.maybeApplyAutoMaterialSuggestion();
-                    this.modalCache[cacheKey] = merged;
+                    this.modalCache[cacheKey] = this.currentJo;
                     this.modalCacheLoadedAt[cacheKey] = Date.now();
                 } catch (e) {
                     console.warn('Deferred modal assignments load failed:', e);

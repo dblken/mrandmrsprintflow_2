@@ -304,3 +304,27 @@ function printflow_pos_material_selection_validate_saved_consumption(int $servic
     }
     return array_values($byId);
 }
+
+/**
+ * Return only an existing, server-authored POS material snapshot. POS drafts
+ * may intentionally defer production-material choices to Production
+ * Assignment; an absent or empty snapshot therefore means no auto-assignment,
+ * not a failed required-alternative selection. Non-empty snapshots remain
+ * strictly validated before they can become job material assignments.
+ */
+function printflow_pos_material_selection_saved_consumption_for_customization(int $serviceId, array $customization): array
+{
+    if (!array_key_exists('pos_material_consumption', $customization)
+        || $customization['pos_material_consumption'] === null
+        || $customization['pos_material_consumption'] === []) {
+        return [];
+    }
+    if (!is_array($customization['pos_material_consumption'])) {
+        throw new InvalidArgumentException('Saved POS selected-material consumption is malformed.');
+    }
+
+    return printflow_pos_material_selection_validate_saved_consumption(
+        $serviceId,
+        $customization['pos_material_consumption']
+    );
+}

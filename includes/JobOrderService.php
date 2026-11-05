@@ -1073,8 +1073,7 @@ class JobOrderService {
     /** Convert a saved server-validated POS selection into deferred job assignments. */
     private static function posSelectedMaterialsForCustomization(int $serviceId, array $custom): array {
         if (!isset(printflow_pos_material_selection_registry()[$serviceId])) return [];
-        $rows = is_array($custom['pos_material_consumption'] ?? null) ? $custom['pos_material_consumption'] : [];
-        $verified = printflow_pos_material_selection_validate_saved_consumption($serviceId, $rows);
+        $verified = printflow_pos_material_selection_saved_consumption_for_customization($serviceId, $custom);
         $materials = [];
         foreach ($verified as $consumption) {
             $quantity = (float)$consumption['rounded_demand'];

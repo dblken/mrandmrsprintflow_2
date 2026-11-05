@@ -80,6 +80,21 @@ $saved = [[
 $verifiedSaved = printflow_pos_material_selection_validate_saved_consumption(36, $saved);
 $assert(count($verifiedSaved) === 1, 'A server-authored approved selected-material calculation validates for deferred job assignment.');
 $assert($verifiedSaved[0]['selection_context'] === ['size' => 'Custom', 'layout' => 'without_layout', 'thickness' => '3mm'], 'Selected size, layout, and thickness context remains attached to the saved consumption snapshot.');
+$deferredServiceIds = [39, 67, 64, 71, 36];
+foreach ($deferredServiceIds as $deferredServiceId) {
+    $assert(printflow_pos_material_selection_saved_consumption_for_customization(
+        $deferredServiceId,
+        ['service_id' => $deferredServiceId, 'pos_selected_material_ids' => []]
+    ) === [],
+        'A POS draft without a saved material snapshot defers service ' . $deferredServiceId . ' material selection to Production Assignment.');
+}
+$assert(printflow_pos_material_selection_saved_consumption_for_customization(67, ['service_id' => 67, 'pos_material_consumption' => []]) === [],
+    'An explicitly empty material snapshot does not force a production alternative during Set Price job creation.');
+$fails(static fn() => printflow_pos_material_selection_saved_consumption_for_customization(67, ['pos_material_consumption' => 'invalid']),
+    'A malformed non-array POS material snapshot remains rejected.');
+$jobServiceSource = (string)file_get_contents(dirname(__DIR__) . '/includes/JobOrderService.php');
+$assert(str_contains($jobServiceSource, 'printflow_pos_material_selection_saved_consumption_for_customization($serviceId, $custom)'),
+    'Job creation consumes only an optional, strictly validated server-authored POS material snapshot.');
 $fails(static function () use ($saved): void {
     $tampered = $saved;
     $tampered[0]['rounded_demand'] = 1;
