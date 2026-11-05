@@ -81,6 +81,7 @@ require_once __DIR__ . '/../includes/job_order_summary.php';
 require_once __DIR__ . '/../includes/change_item_workflow.php';
 require_once __DIR__ . '/../includes/service_field_priority_helper.php';
 require_once __DIR__ . '/../includes/pos_set_price_helpers.php';
+require_once __DIR__ . '/../includes/pos_material_selection.php';
 require_once __DIR__ . '/../includes/job_order_list_helpers.php';
 require_once __DIR__ . '/../includes/admin_transaction_visibility.php';
 
@@ -951,6 +952,7 @@ function jo_api_material_context_for_assignment(int $orderId, ?string $orderType
     }
     $serviceType = trim((string)($job['service_type'] ?? $job['job_title'] ?? ''));
     return array_merge($context, [
+        'serviceId' => printflow_pos_material_selection_service_id_for_label($serviceType),
         'serviceType' => $serviceType,
         'serviceName' => $serviceType,
         'serviceLabel' => $serviceType !== '' ? $serviceType : 'this service',
@@ -3053,7 +3055,14 @@ try {
             $price = jo_api_parse_final_price($_POST['price'] ?? '');
             $priceOverrideConfirmed = !empty($_POST['price_override_confirmed']);
             jo_api_require_staff_branch($joStaffBranch, $id);
-            $assignmentErrors = printflow_job_production_assignment_errors($id);
+            $assignmentContext = jo_api_material_context_for_assignment($id, 'JOB');
+            $savedAssignmentRows = JobOrderService::getScopedMaterialsPublic($id, false, false);
+            $savedAssignmentIds = array_map(static fn(array $row): int => (int)($row['item_id'] ?? 0), $savedAssignmentRows);
+            $selectionErrors = printflow_production_assignment_selection_errors(
+                (int)($assignmentContext['serviceId'] ?? 0),
+                $savedAssignmentIds
+            );
+            $assignmentErrors = array_merge($selectionErrors, printflow_job_production_assignment_errors($id));
             if (!empty($assignmentErrors)) {
                 jo_api_json_response([
                     'success' => false,
@@ -3212,6 +3221,19 @@ try {
             }
             $posJob = $jobRows[0] ?? null;
             $posOrderId = (int)($posJob['order_id'] ?? 0);
+            $assignmentJobId = (int)($posJob['job_id'] ?? (strtoupper((string)$orderType) === 'JOB' ? $orderId : 0));
+            if ($assignmentJobId > 0) {
+                $selectionPolicy = printflow_production_assignment_selection_registry()[(int)($materialContext['serviceId'] ?? 0)] ?? [];
+                if ($selectionPolicy !== []) {
+                    $existingAssignments = JobOrderService::getScopedMaterialsPublic($assignmentJobId, false, false);
+                    $existingAssignmentIds = array_map(static fn(array $row): int => (int)($row['item_id'] ?? 0), $existingAssignments);
+                    $groupErrors = printflow_production_assignment_selection_errors(
+                        (int)$materialContext['serviceId'],
+                        array_merge($existingAssignmentIds, [$itemId])
+                    );
+                    if ($groupErrors !== []) throw new Exception((string)reset($groupErrors));
+                }
+            }
             $posSource = strtolower(trim((string)($posJob['order_source'] ?? '')));
             $sessionMarksPos = $posOrderId > 0 && in_array(
                 $posOrderId,

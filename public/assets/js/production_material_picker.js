@@ -263,13 +263,52 @@
     }
 
     function statusLabel(state) {
-        if (!state || !['recommended', 'optional'].includes(state.tier)) return '';
-        const classification = state.ruleType === 'REQUIRED'
-            ? 'Required'
-            : state.ruleType === 'OPTIONAL' || state.tier === 'optional'
-                ? 'Optional'
-                : 'Recommended';
-        return state.inStock === false ? classification + ' · Out of stock' : classification;
+        // Rule type remains available to server validation and Admin audit,
+        // but Production Assignment choices do not display it as a usage
+        // instruction. Keep only the actionable stock failure visible here.
+        return state && state.inStock === false ? 'Out of stock' : '';
+    }
+
+    // Enforce only mutual-exclusion groups. No mapped row is a mandatory
+    // usage choice merely because service_material_rules stores REQUIRED.
+    function validateAssignmentGroups(serviceId, itemIds, rules) {
+        const id = Number(serviceId);
+        const knownRules = Array.isArray(rules) ? rules : [];
+        const policyRows = knownRules.filter(rule => Number(rule && rule.service_id) === id
+            && ['alternative', 'optional', 'multi_optional'].includes(String(rule && rule.selection_role || '')));
+        const groups = new Map();
+        policyRows.forEach(rule => {
+            const role = String(rule.selection_role || '');
+            const group = String(rule.selection_group || '');
+            if (role !== 'alternative' || !group) return;
+            if (!groups.has(group)) groups.set(group, {
+                selected: new Set(),
+                label: groupLabelsForSelection(group)
+            });
+        });
+        const selected = new Set((Array.isArray(itemIds) ? itemIds : []).map(Number).filter(value => Number.isInteger(value) && value > 0));
+        policyRows.forEach(rule => {
+            const group = String(rule.selection_group || '');
+            if (String(rule.selection_role || '') !== 'alternative' || !groups.has(group)) return;
+            const itemId = Number(rule.item_id);
+            if (selected.has(itemId)) groups.get(group).selected.add(itemId);
+        });
+        for (const state of groups.values()) {
+            if (state.selected.size > 1) return `Choose only one material from the ${state.label.toLowerCase()} options.`;
+        }
+        return '';
+    }
+
+    function groupLabelsForSelection(group) {
+        return ({
+            plate_media: 'Plate material',
+            brochure_paper: 'Brochure paper',
+            poster_paper: 'Poster paper',
+            sintra_thickness: 'Board Thickness',
+            tarpaulin_roll: 'Tarpaulin roll',
+            decal_base: 'sticker base material',
+            decal_finishes: 'sticker finish'
+        })[group] || group.replace(/_/g, ' ');
     }
 
     function classifyItem(item, context, rules) {
@@ -358,11 +397,14 @@
             : tier === 'unverified'
                 ? 'Usage not verified'
             : tier === 'unrelated'
-                ? 'Not suggested for ' + serviceLabel
-                : tier === 'optional' ? 'Optional / related material' : 'Recommended for this job';
+                ? 'Not listed for ' + serviceLabel
+                : '';
         return {
             tier, family, selectable, directSelectable, overrideable, inStock, reason, serviceKind,
-            ruleType: exactRuleType === 'REQUIRED' || exactRuleType === 'OPTIONAL' ? exactRuleType : ''
+            ruleType: exactRuleType === 'REQUIRED' || exactRuleType === 'OPTIONAL' ? exactRuleType : '',
+            selectionGroup: String(exactRule && exactRule.selection_group || ''),
+            selectionRole: String(exactRule && exactRule.selection_role || ''),
+            groupRequired: Boolean(exactRule && exactRule.group_required)
         };
     }
 
@@ -379,12 +421,12 @@
             colored_sticker: 'Colored cut sticker',
             sticker_media: 'Sticker / adhesive material',
             reflective: 'Reflective cut material',
-            laminate: 'Optional sticker finishing',
+            laminate: 'Sticker finishing material',
             heat_vinyl: 'T-shirt heat-transfer material',
             tarpaulin: 'Tarpaulin material',
             eyelet: '4 standard eyelets included; add only extras',
             mug: 'Blank mug',
-            mug_box: 'Optional mug packaging',
+            mug_box: 'Mug packaging material',
             pvc_id: 'PVC ID material',
             unverified: 'Usage not verified'
         };
@@ -560,7 +602,7 @@
     }
 
     return {
-        normalize, materialText, familyFor, canonicalCategoryKind, classifyServiceFromName, classifyService, classifyItem, statusLabel,
+        normalize, materialText, familyFor, canonicalCategoryKind, classifyServiceFromName, classifyService, classifyItem, statusLabel, validateAssignmentGroups,
         descriptionFor, searchScore, rankItems, inkModeFor, tarpaulinRollWidthFor, calculateTarpaulinLinearLength, getAutoSelectCandidate
     };
 });

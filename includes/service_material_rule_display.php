@@ -108,7 +108,7 @@ function printflow_service_material_rule_display_groups(array $activeServices, a
                 }
                 $row['service_id'] = $serviceId;
                 $row['service_name'] = $definition['name'];
-                $selectionPolicy = printflow_pos_material_selection_registry()[$serviceId][(int)($row['item_id'] ?? 0)] ?? null;
+                $selectionPolicy = printflow_production_assignment_selection_registry()[$serviceId][(int)($row['item_id'] ?? 0)] ?? null;
                 $row['selection_group'] = is_array($selectionPolicy) ? ($selectionPolicy['group'] ?? null) : null;
                 $row['selection_role'] = is_array($selectionPolicy) ? (string)($selectionPolicy['role'] ?? '') : '';
                 $row['group_required'] = is_array($selectionPolicy) && !empty($selectionPolicy['group_required']);

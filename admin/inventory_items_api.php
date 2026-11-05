@@ -14,6 +14,7 @@ require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/inventory_stock_status.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
 require_once __DIR__ . '/../includes/inventory_material_configuration.php';
+require_once __DIR__ . '/../includes/service_material_rule_display.php';
 
 printflow_ensure_inv_items_threshold_schema();
 printflow_ensure_inv_item_branch_thresholds_table();
@@ -126,8 +127,11 @@ try {
                 } else { $item['roll_equivalent'] = null; }
             }
             unset($item);
+            $rulesHaveServiceId = function_exists('db_table_has_column')
+                && db_table_has_column('service_material_rules', 'service_id', true);
+            $serviceIdColumn = $rulesHaveServiceId ? 'r.service_id' : 'NULL AS service_id';
             $materialRules = db_query(
-                "SELECT r.service_type, r.item_id, r.rule_type,
+                "SELECT r.service_type, {$serviceIdColumn}, r.item_id, r.rule_type,
                         i.name AS item_name, c.name AS category_name
                  FROM service_material_rules r
                  JOIN inv_items i ON i.id = r.item_id
@@ -144,6 +148,19 @@ try {
                 http_response_code(500);
                 echo json_encode(['success' => false, 'error' => 'Service material mappings could not be loaded.']);
                 exit;
+            }
+            if ($production_picker) {
+                $assignmentPolicy = printflow_production_assignment_selection_registry();
+                foreach ($materialRules as &$rule) {
+                    $serviceId = printflow_service_material_rule_display_service_id($rule);
+                    $itemId = (int)($rule['item_id'] ?? 0);
+                    $selection = $serviceId ? ($assignmentPolicy[$serviceId][$itemId] ?? null) : null;
+                    $rule['service_id'] = $serviceId;
+                    $rule['selection_group'] = is_array($selection) ? ($selection['group'] ?? null) : null;
+                    $rule['selection_role'] = is_array($selection) ? (string)($selection['role'] ?? '') : '';
+                    $rule['group_required'] = is_array($selection) && !empty($selection['group_required']);
+                }
+                unset($rule);
             }
             $activeServices = db_query(
                 "SELECT service_id, name, category

@@ -174,9 +174,9 @@ $auditedSintraLegacyRows = [
 $productionPpRuleWithIncompleteApproval = [
     'id' => 26, 'service_id' => 71, 'service_type' => 'Sintraboard Standees', 'item_id' => 23,
     'material_name' => 'Pp Stkr Matte 98', 'rule_type' => 'REQUIRED', 'qty_multiplier' => '1.00',
-    'qty_multiplier_approved' => 1, 'qty_multiplier_approved_by' => 22,
-    'qty_multiplier_approved_at' => '2026-11-03 12:26:33',
-    'qty_multiplier_basis' => null, 'qty_multiplier_approved_basis' => null,
+    'qty_multiplier_approved' => 0, 'qty_multiplier_approved_by' => null,
+    'qty_multiplier_approved_at' => null,
+    'qty_multiplier_basis' => 'AREA_SQFT', 'qty_multiplier_approved_basis' => null,
 ];
 $productionSintraRules = array_merge(
     [$productionPpRuleWithIncompleteApproval],
@@ -195,9 +195,40 @@ $selectedPpLayer = printflow_pos_material_selection_resolve(71, [206, 23]);
 $selectedPpRules = printflow_pos_material_selection_filter_unselected_optional_rules(71, $productionSintraRules, $selectedPpLayer);
 $assert(in_array(23, array_map('intval', array_column($selectedPpRules, 'item_id')), true),
     'Pp Stkr Matte 98 remains in validation when staff intentionally selects the optional layer.');
+$resolvedSelectedPpRules = printflow_pos_select_service_material_rule_set(71, $selectedPpRules);
+$assert(in_array(23, array_map('intval', array_column($resolvedSelectedPpRules, 'item_id')), true),
+    'The exact live REQUIRED/unapproved Pp row remains available for strict checks when explicitly selected.');
 $expectRuntimeError(
-    static fn() => printflow_pos_select_service_material_rule_set(71, $selectedPpRules),
-    'An Admin must review the service-material configuration'
+    static fn() => printflow_pos_approved_service_multiplier(
+        $productionPpRuleWithIncompleteApproval['qty_multiplier'],
+        $productionPpRuleWithIncompleteApproval['qty_multiplier_approved'],
+        $productionPpRuleWithIncompleteApproval['qty_multiplier_approved_by'],
+        $productionPpRuleWithIncompleteApproval['qty_multiplier_approved_at']
+    ),
+    'no valid Admin-approved multiplier'
+);
+$optionalPpRuleWithIncompleteApproval = $productionPpRuleWithIncompleteApproval;
+$optionalPpRuleWithIncompleteApproval['rule_type'] = 'OPTIONAL';
+$optionalPpRules = array_merge([$optionalPpRuleWithIncompleteApproval], $auditedSintraStableRows, $auditedSintraLegacyRows);
+$optionalPpSelectedRules = printflow_pos_material_selection_filter_unselected_optional_rules(
+    71,
+    $optionalPpRules,
+    printflow_pos_material_selection_resolve(71, [206])
+);
+$assert(!in_array(23, array_map('intval', array_column($optionalPpSelectedRules, 'item_id')), true),
+    'The corrected OPTIONAL Pp rule is omitted from validation when staff selects only a Sintra board.');
+$selectedOptionalPpRules = printflow_pos_material_selection_filter_unselected_optional_rules(71, $optionalPpRules, $selectedPpLayer);
+$resolvedSelectedOptionalPpRules = printflow_pos_select_service_material_rule_set(71, $selectedOptionalPpRules);
+$assert(in_array(23, array_map('intval', array_column($resolvedSelectedOptionalPpRules, 'item_id')), true),
+    'The corrected OPTIONAL row remains available for strict checks when explicitly selected.');
+$expectRuntimeError(
+    static fn() => printflow_pos_approved_service_multiplier(
+        $optionalPpRuleWithIncompleteApproval['qty_multiplier'],
+        $optionalPpRuleWithIncompleteApproval['qty_multiplier_approved'],
+        $optionalPpRuleWithIncompleteApproval['qty_multiplier_approved_by'],
+        $optionalPpRuleWithIncompleteApproval['qty_multiplier_approved_at']
+    ),
+    'no valid Admin-approved multiplier'
 );
 $auditedSintraResolved = printflow_pos_select_service_material_rule_set(71, array_merge($auditedSintraStableRows, $auditedSintraLegacyRows));
 $assert(array_column($auditedSintraResolved, 'id') === [26, 35, 52]
@@ -385,6 +416,7 @@ $approvalSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_ma
 $approverSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved_by', true)");
 $approvalTimestampSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved_at', true)");
 $basisSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_basis', true)");
+$selectedBasisValidation = strpos($stockRulesBlock, 'if ($basis !== $consumptionBasis || $approvedBasis !== $basis)');
 $approvedBasisSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved_basis', true)");
 $approvedMultiplierCheck = strpos($stockRulesBlock, 'printflow_pos_approved_service_multiplier(');
 $sintraSelectionResolve = strpos($stockRulesBlock, '$selection = $assignmentRows !== null');
@@ -407,6 +439,9 @@ $assert($schemaCheck !== false && $approvalSchemaCheck !== false && $approverSch
 $assert($basisSchemaCheck !== false && $approvedBasisSchemaCheck !== false
     && $basisSchemaCheck < $query && $approvedBasisSchemaCheck < $query,
     'Selection-based services require the explicit and Admin-approved consumption basis before reading rules.');
+$assert($selectedBasisValidation !== false
+    && str_contains($stockRulesBlock, 'requires an Admin-approved '),
+    'A manually selected optional material still fails clearly when its stored basis is missing or unapproved.');
 $assert($approvedMultiplierCheck !== false && $approvedMultiplierCheck < strpos($stockRulesBlock, '$required[] = ['),
     'Unapproved multipliers fail before a required demand entry can be accumulated.');
 $assert(str_contains($stockRulesBlock, 'r.qty_multiplier_approved'), 'The runtime selects the explicit approval state.');

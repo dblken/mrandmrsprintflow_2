@@ -3137,6 +3137,7 @@ $online_closed_count = 0;
                                     <!-- A. Materials Selection -->
                                     <div style="display:flex; flex-direction:column; gap:12px;">
                                         <label style="font-size:12px; font-weight:700; color:#374151;">[1] Core Materials <span style="color:#dc2626;">*</span></label>
+                                        <div style="margin-top:-6px;color:#64748b;font-size:11px;line-height:1.45;">Record only the material(s) actually used for this job; leave unused mapped materials unselected.</div>
                                         
                                         <!-- Searchable Selection (collapsible) -->
                                         <div style="min-width:0;">
@@ -3171,7 +3172,6 @@ $online_closed_count = 0;
                                                                 :disabled="!item.compatibility.selectable"
                                                                 :aria-disabled="item.compatibility.selectable ? 'false' : 'true'"
                                                                 :aria-selected="isMaterialSelected(item.id) ? 'true' : 'false'"
-                                                                :aria-describedby="'production-material-status-' + item.id"
                                                                 :data-compatibility="item.compatibility.tier"
                                                                 :title="item.compatibility.overrideable ? 'Double-click, or focus and press Enter or Space, to review this manual override.' : item.compatibility.reason"
                                                                 @mouseenter="materialListActiveIndex = index"
@@ -3187,11 +3187,11 @@ $online_closed_count = 0;
                                                                     Selected
                                                                 </span>
                                                             </span>
-                                                            <span class="production-material-option__status" :id="'production-material-status-' + item.id" x-text="materialStatusLabel(item)"></span>
+                                                            <span class="production-material-option__status" x-show="materialStatusLabel(item)" x-text="materialStatusLabel(item)" aria-live="polite"></span>
                                                         </button>
                                                     </template>
                                                     <div x-show="availableMaterialsForCurrentOrder.length === 0" class="production-material-empty" x-text="materialPickerEmptyMessage">
-                                                        No recommended materials configured for this service.
+                                                        No materials available for this service.
                                                     </div>
                                                 </div>
                                                 <div x-show="!hasVerifiedMaterialSuggestions" style="margin-top:7px; color:#64748b; font-size:10px; line-height:1.4;">
@@ -8417,7 +8417,7 @@ window.pfServiceFieldCatalog = (() => {
             },
             get materialPickerEmptyMessage() {
                 if (!this.hasVerifiedMaterialSuggestions) {
-                    return 'No recommended materials configured for this service.';
+                    return 'No materials available for this service.';
                 }
                 return 'No materials match this search.';
             },
@@ -8441,7 +8441,7 @@ window.pfServiceFieldCatalog = (() => {
                     : '';
                 if (classificationLabel) return `${classificationLabel}${stockSuffix}`;
                 if (state.tier === 'unverified') return 'Usage not verified';
-                return state.reason || 'Not applicable';
+                return state.reason || '';
             },
             isMaterialSelected(itemId) {
                 const id = String(itemId || '');
@@ -10378,6 +10378,18 @@ window.pfServiceFieldCatalog = (() => {
                 const pendingToConfirm = [...this.pendingMaterials, ...extraMaterials].find(material => material && material.manual_confirmation_required && !material.manual_quantity_confirmed);
                 if (pendingToConfirm) {
                     errors.material = errors.material || `Confirm the actual usage for ${pendingToConfirm.name || 'the selected material'} before saving.`;
+                }
+                const assignmentContext = this.materialCompatibilityContext || {};
+                const selectedAssignmentIds = [...savedMaterials, ...this.pendingMaterials, ...extraMaterials]
+                    .map(material => Number(material && (material.item_id || material.id)))
+                    .filter(itemId => Number.isInteger(itemId) && itemId > 0);
+                if (window.PrintFlowProductionMaterials && typeof window.PrintFlowProductionMaterials.validateAssignmentGroups === 'function') {
+                    const selectionError = window.PrintFlowProductionMaterials.validateAssignmentGroups(
+                        Number(assignmentContext.serviceId || 0),
+                        selectedAssignmentIds,
+                        this.materialRules
+                    );
+                    if (selectionError) errors.material = errors.material || selectionError;
                 }
                 const invalidPending = [...this.pendingMaterials, ...extraMaterials].find(material => {
                     if (!material) return false;

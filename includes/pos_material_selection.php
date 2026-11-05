@@ -30,6 +30,91 @@ function printflow_pos_material_selection_registry(): array
     ];
 }
 
+/**
+ * Production Assignment selection rules are explicit and keyed by service and
+ * inventory IDs. They describe which saved alternatives are mutually
+ * exclusive; they do not change the POS service-specification workflow.
+ */
+function printflow_production_assignment_selection_registry(): array
+{
+    $registry = printflow_pos_material_selection_registry();
+    $registry[40] = [];
+    foreach ([13, 14, 15, 16] as $itemId) {
+        $registry[40][$itemId] = [
+            'group' => 'tarpaulin_roll',
+            'role' => 'alternative',
+            'group_required' => true,
+        ];
+    }
+    return $registry;
+}
+
+/** Exact active service names and verified service-material aliases only. */
+function printflow_pos_material_selection_service_id_for_label(string $serviceLabel): int
+{
+    $label = strtolower(trim(preg_replace('/\\s+/', ' ', $serviceLabel) ?? $serviceLabel));
+    $known = [
+        36 => ['decals/stickers (print/cut)', 'decals / stickers (print/cut)', 'stickers/decals', 'stickers /decals', 'stickers', 'decal', 'decals'],
+        39 => ['plates'],
+        40 => ['tarpaulin', 'tarpaulin printing'],
+        64 => ['poster printing'],
+        67 => ['brochure'],
+        71 => ['sintraboard standees'],
+    ];
+    foreach ($known as $serviceId => $aliases) {
+        if (in_array($label, $aliases, true)) return (int)$serviceId;
+    }
+    return 0;
+}
+
+/**
+ * Prevent incompatible alternatives from being assigned together in
+ * Production Assignment. Empty groups are valid because mapped rows are
+ * choices, not usage requirements, regardless of the stored rule_type.
+ */
+function printflow_production_assignment_selection_errors(int $serviceId, array $itemIds): array
+{
+    $policy = printflow_production_assignment_selection_registry()[$serviceId] ?? [];
+    if ($policy === []) return [];
+
+    $selected = [];
+    foreach ($itemIds as $rawId) {
+        if (!is_scalar($rawId) || filter_var($rawId, FILTER_VALIDATE_INT) === false) continue;
+        $id = (int)$rawId;
+        if ($id > 0) $selected[$id] = true;
+    }
+
+    $groups = [];
+    foreach ($policy as $itemId => $entry) {
+        if (($entry['role'] ?? '') !== 'alternative' || empty($entry['group'])) continue;
+        $group = (string)$entry['group'];
+        if (!isset($groups[$group])) {
+            $groups[$group] = [
+                'label' => printflow_pos_material_selection_group_label($serviceId, $group),
+                'selected_ids' => [],
+            ];
+        }
+        if (isset($selected[(int)$itemId])) $groups[$group]['selected_ids'][] = (int)$itemId;
+    }
+
+    $errors = [];
+    foreach ($groups as $state) {
+        $count = count($state['selected_ids']);
+        if ($count > 1) {
+            $errors['material_selection'] = 'Choose only one material from the ' . strtolower($state['label']) . ' options.';
+            continue;
+        }
+    }
+    return $errors;
+}
+
+/** True when a REQUIRED row is a staff choice, rather than an automatic assignment. */
+function printflow_pos_material_selection_is_staff_choice(int $serviceId, int $itemId): bool
+{
+    $entry = printflow_production_assignment_selection_registry()[$serviceId][$itemId] ?? null;
+    return is_array($entry) && in_array((string)($entry['role'] ?? ''), ['alternative', 'optional', 'multi_optional'], true);
+}
+
 function printflow_pos_material_selection_allowed_ids(int $serviceId): array
 {
     return array_map('intval', array_keys(printflow_pos_material_selection_registry()[$serviceId] ?? []));
