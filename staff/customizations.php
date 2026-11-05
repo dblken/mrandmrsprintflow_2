@@ -4554,16 +4554,20 @@ window.pfServiceFieldCatalog = (() => {
                 const item = material && this.getInventoryItem(material.item_id);
                 if (!material || !item) return;
                 const estimate = this.estimateMaterialUsage(item);
-                material.estimated_qty = estimate.status === 'estimated' ? estimate.quantity : null;
+                const isTarpaulinMaterial = this.isVersionedTarpaulinMaterial(material.item_id);
+                const hasReliableEstimate = estimate.status === 'estimated';
+                if (!isTarpaulinMaterial) material.manual_confirmation_required = !hasReliableEstimate;
+                material.estimated_qty = hasReliableEstimate ? estimate.quantity : null;
                 material.usage_estimate_reason = estimate.reason || '';
                 material.usage_method = estimate.method || item.consumption_method || 'manual';
-                if (estimate.status === 'estimated') {
+                if (hasReliableEstimate) {
                     material.qty = estimate.quantity;
                     material.manual_quantity_confirmed = true;
                     material.actual_usage_overridden = false;
                     material.metadata = { ...(material.metadata || {}), material_usage: { estimate: estimate.quantity, actual: estimate.quantity, method: material.usage_method, staff_confirmed: true, overridden: false } };
+                    this.clearPendingMaterialConfirmationError(material);
                 } else {
-                    material.manual_quantity_confirmed = false;
+                    if (!isTarpaulinMaterial) material.manual_quantity_confirmed = false;
                     if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
                     material.metadata.material_usage = {
                         ...(material.metadata.material_usage || {}),

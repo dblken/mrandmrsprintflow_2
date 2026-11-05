@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { estimate: estimateMaterialConsumption } = require('../public/assets/js/material_consumption_estimator.js');
 
 const page = fs.readFileSync(path.join(__dirname, '..', 'staff', 'customizations.php'), 'utf8');
 const inputBindingMatch = page.match(/@input="([^"]*handlePendingMaterialQtyInput\(pm, \$event\.target\.value, \$event\.target, \$event\)[^"]*)"/);
@@ -191,10 +192,13 @@ const recalcMaterial = { ...item, qty: 1, estimated_qty: null, manual_confirmati
 const manualRecalcContext = {
     pendingMaterials: [recalcMaterial],
     getInventoryItem: () => ({ id: 503 }),
-    estimateMaterialUsage: () => ({ status: 'manual', quantity: null, reason: 'No reliable estimate is configured.', method: 'manual' })
+    estimateMaterialUsage: () => ({ status: 'manual', quantity: null, reason: 'No reliable estimate is configured.', method: 'manual' }),
+    isVersionedTarpaulinMaterial: () => false,
+    clearPendingMaterialConfirmationError: methods.clearPendingMaterialConfirmationError
 };
 methods.recalculatePendingMaterial.call(manualRecalcContext, 0);
 assert.equal(recalcMaterial.qty, 1, 'Manual recalculation does not overwrite the entered actual quantity.');
+assert.equal(recalcMaterial.manual_confirmation_required, true, 'A manual recalculation explicitly restores the confirmation requirement.');
 assert.equal(recalcMaterial.manual_quantity_confirmed, false, 'A refreshed manual estimate requires actual usage confirmation.');
 assert.equal(recalcMaterial.metadata.material_usage.staff_confirmed, false, 'Recalculation keeps confirmation metadata consistent with the unconfirmed state.');
 assert.equal(validateEstimatedMaterial(recalcMaterial), false, 'Recalculated manual usage remains blocked until staff confirms it.');
@@ -202,14 +206,44 @@ dispatchActualUsageInput(context(''), recalcMaterial, '1');
 assert.equal(validateEstimatedMaterial(recalcMaterial), true, 'An explicit valid quantity after recalculation passes final validation.');
 
 const estimatedRecalcMaterial = { ...recalcMaterial, qty: 4, estimated_qty: null, manual_quantity_confirmed: true, metadata: {} };
-methods.recalculatePendingMaterial.call({
+const exactRecalcWarning = `Confirm the actual usage for ${estimatedRecalcMaterial.name} before saving.`;
+const estimatedRecalcContext = {
     pendingMaterials: [estimatedRecalcMaterial],
     getInventoryItem: () => ({ id: 504 }),
-    estimateMaterialUsage: () => ({ status: 'estimated', quantity: 2, reason: '', method: 'configured' })
+    estimateMaterialUsage: () => ({ status: 'estimated', quantity: 2, reason: '', method: 'configured' }),
+    isVersionedTarpaulinMaterial: () => false,
+    productionErrors: { material: exactRecalcWarning },
+    footerActionError: 'A separate footer error must remain visible.',
+    clearPendingMaterialConfirmationError: methods.clearPendingMaterialConfirmationError
+};
+methods.recalculatePendingMaterial.call({
+    ...estimatedRecalcContext
 }, 0);
 assert.equal(estimatedRecalcMaterial.qty, 2, 'The explicit Recalculate Estimate action applies its new reliable estimate.');
 assert.equal(estimatedRecalcMaterial.metadata.material_usage.actual, 2, 'Estimate recalculation synchronizes the actual usage metadata.');
+assert.equal(estimatedRecalcMaterial.manual_confirmation_required, false, 'A reliable estimate removes the manual-confirmation requirement.');
 assert.equal(estimatedRecalcMaterial.manual_quantity_confirmed, true, 'A newly reliable estimate follows the existing confirmed-estimate workflow.');
+assert.equal(estimatedRecalcMaterial.metadata.material_usage.staff_confirmed, true, 'The estimate and persisted confirmation metadata remain consistent.');
+assert.equal(estimatedRecalcContext.productionErrors.material, '', 'Recalculating a reliable estimate clears its exact stale confirmation warning.');
+assert.equal(estimatedRecalcContext.footerActionError, 'A separate footer error must remain visible.', 'Recalculation preserves an unrelated footer error.');
+assert.equal(validateEstimatedMaterial(estimatedRecalcMaterial), true, 'A valid recalculated estimate passes final assignment validation without staff retyping it.');
+
+const acMcFallback = { ...item, name: 'Ac Mc', item_id: 1, qty: 1, estimated_qty: null, manual_confirmation_required: false, manual_quantity_confirmed: true, actual_usage_overridden: false, metadata: {} };
+assert.equal(estimateMaterialConsumption({ name: 'Ac Mc', unit_of_measure: 'pcs', material_format: 'piece', consumption_method: '' }, { quantity: 1 }).status, 'manual',
+    'Ac Mc without a configured consumption method is not a trustworthy automatic material estimate.');
+const acMcContext = {
+    pendingMaterials: [acMcFallback],
+    getInventoryItem: () => ({ id: 1, name: 'Ac Mc', unit_of_measure: 'pcs', material_format: 'piece', consumption_method: '' }),
+    estimateMaterialUsage: () => ({ status: 'manual', quantity: null, reason: 'Enter and confirm the actual material usage.', method: 'manual' }),
+    isVersionedTarpaulinMaterial: () => false,
+    clearPendingMaterialConfirmationError: methods.clearPendingMaterialConfirmationError
+};
+methods.recalculatePendingMaterial.call(acMcContext, 0);
+assert.equal(acMcFallback.qty, 1, 'An unconfigured material keeps the displayed fallback quantity for staff review.');
+assert.equal(acMcFallback.estimated_qty, null, 'The order-quantity fallback is not mislabeled as a consumption estimate.');
+assert.equal(acMcFallback.manual_confirmation_required, true, 'An order-quantity fallback cannot silently satisfy actual-usage confirmation.');
+assert.equal(acMcFallback.manual_quantity_confirmed, false, 'An unconfigured fallback remains unconfirmed.');
+assert.equal(validateEstimatedMaterial(acMcFallback), false, 'The final validator blocks an unconfigured fallback until staff confirms actual usage.');
 
 const invalidItem = { ...item, metadata: {}, manual_quantity_confirmed: true };
 const invalidContext = context(confirmationError);
