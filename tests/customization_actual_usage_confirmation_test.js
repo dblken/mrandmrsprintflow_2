@@ -3,6 +3,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { estimate: estimateMaterialConsumption } = require('../public/assets/js/material_consumption_estimator.js');
 
+// The extracted production-assignment validator normally runs in a browser.
+// Provide the optional global resolver as absent so the Node harness exercises
+// the same local validation path without requiring a DOM.
+globalThis.window = { PrintFlowProductionMaterials: null };
+
 const page = fs.readFileSync(path.join(__dirname, '..', 'staff', 'customizations.php'), 'utf8');
 const inputBindingMatch = page.match(/@input="([^"]*handlePendingMaterialQtyInput\(pm, \$event\.target\.value, \$event\.target, \$event\)[^"]*)"/);
 assert(inputBindingMatch, 'Rendered Actual Usage input binds the displayed pm row, browser value, and input element.');

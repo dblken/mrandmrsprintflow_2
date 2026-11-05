@@ -3385,7 +3385,44 @@ try {
         case 'remove_material':
             $jomId = (int)($_POST['id'] ?? 0);
             if (!$jomId) throw new Exception("ID required.");
-            throw new Exception('Assigned materials cannot be removed once they have been set.');
+            jo_api_require_staff_mutation();
+            $hasStoreOrderId = db_table_has_column('job_order_materials', 'std_order_id');
+            $identitySql = 'SELECT job_order_id' . ($hasStoreOrderId ? ', std_order_id' : '')
+                . ' FROM job_order_materials WHERE id = ? LIMIT 1';
+            $assignmentIdentity = db_query($identitySql, 'i', [$jomId]) ?: [];
+            if ($assignmentIdentity === []) {
+                throw new Exception('Material assignment not found.');
+            }
+            $linkedJobId = (int)($assignmentIdentity[0]['job_order_id'] ?? 0);
+            $linkedOrderId = (int)($assignmentIdentity[0]['std_order_id'] ?? 0);
+            if ($linkedJobId > 0) {
+                $jobOrderRows = db_query('SELECT order_id, branch_id FROM job_orders WHERE id = ? LIMIT 1', 'i', [$linkedJobId]) ?: [];
+                if ($jobOrderRows === []) {
+                    throw new Exception('Production job not found.');
+                }
+                $jobOrderId = (int)($jobOrderRows[0]['order_id'] ?? 0);
+                if ($joStaffBranch !== null) {
+                    $jobBranchId = (int)($jobOrderRows[0]['branch_id'] ?? 0);
+                    $orderBranchMatches = $jobOrderId > 0 && printflow_order_in_branch($jobOrderId, $joStaffBranch);
+                    if (($jobBranchId > 0 && $jobBranchId !== $joStaffBranch && !$orderBranchMatches)
+                        || ($jobBranchId <= 0 && !$orderBranchMatches)) {
+                        throw new Exception('Unauthorized');
+                    }
+                }
+                if ($jobOrderId > 0) {
+                    jo_api_require_staff_order_branch($joStaffBranch, $jobOrderId);
+                }
+            } elseif ($linkedOrderId > 0) {
+                jo_api_require_staff_order_branch($joStaffBranch, $linkedOrderId);
+            } else {
+                throw new JoApiConflictException('This assignment is not linked to an order or production job and cannot be corrected safely.');
+            }
+            try {
+                JobOrderService::removeMaterial($jomId, (int)get_user_id(), $linkedJobId, $linkedJobId > 0 ? null : $linkedOrderId);
+            } catch (DomainException $safeBlock) {
+                throw new JoApiConflictException($safeBlock->getMessage());
+            }
+            jo_api_json_response(['success' => true, 'message' => 'Undeducted material assignment removed and correction audit recorded.']);
             break;
 
         case 'change_item_create':

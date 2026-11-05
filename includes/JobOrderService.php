@@ -15,6 +15,7 @@ require_once __DIR__ . '/revision_workflow.php';
 require_once __DIR__ . '/service_design_fee.php';
 require_once __DIR__ . '/pos_quantity_validation.php';
 require_once __DIR__ . '/pos_material_selection.php';
+require_once __DIR__ . '/material_assignment_removal_policy.php';
 
 class JobOrderService {
     private static array $columnExistsCache = [];
@@ -1556,10 +1557,151 @@ class JobOrderService {
     /**
      * Remove a material from a job order.
      */
-    public static function removeMaterial($jomId) {
-        // Can only remove if not yet deducted
-        $sql = "DELETE FROM job_order_materials WHERE id = ? AND deducted_at IS NULL";
-        return db_execute($sql, 'i', [$jomId]);
+    public static function materialRemovalSafetyError(array $assignment, array $linkedJobs, array $ledgerRows): string {
+        return printflow_material_assignment_removal_safety_error($assignment, $linkedJobs, $ledgerRows);
+    }
+
+    public static function removeMaterial($jomId, ?int $actorUserId = null, ?int $expectedJobId = null, ?int $expectedOrderId = null): bool {
+        global $conn;
+        $id = (int)$jomId;
+        if ($id <= 0) {
+            throw new InvalidArgumentException('Material assignment ID is required.');
+        }
+
+        $started = !printflow_db_in_transaction($conn);
+        if ($started && !printflow_db_transaction_depth_bump($conn)) {
+            throw new RuntimeException('Unable to start the material correction transaction.');
+        }
+
+        try {
+            $assignmentErrorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+            $assignmentRows = db_query('SELECT * FROM job_order_materials WHERE id = ? LIMIT 1 FOR UPDATE', 'i', [$id]);
+            if ($assignmentRows === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $assignmentErrorCount)) {
+                throw new RuntimeException('Unable to verify the material assignment before correction.');
+            }
+            if ($assignmentRows === []) {
+                throw new RuntimeException('Material assignment not found.');
+            }
+            $assignment = $assignmentRows[0];
+            $jobId = (int)($assignment['job_order_id'] ?? 0);
+            $storeOrderId = (int)($assignment['std_order_id'] ?? 0);
+            if (($expectedJobId !== null && $jobId !== $expectedJobId)
+                || ($expectedOrderId !== null && $storeOrderId !== $expectedOrderId)) {
+                throw new DomainException('The assignment link changed while it was being corrected. Refresh the order and try again.');
+            }
+            $linkedJobs = [];
+            if ($jobId > 0) {
+                $jobErrorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+                $linkedJobs = db_query('SELECT id, order_id, branch_id, status FROM job_orders WHERE id = ? LIMIT 1 FOR UPDATE', 'i', [$jobId]);
+                if ($linkedJobs === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $jobErrorCount)) {
+                    throw new RuntimeException('Unable to verify the linked production job before correction.');
+                }
+            } elseif ($storeOrderId > 0) {
+                $jobErrorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+                $linkedJobs = db_query('SELECT id, order_id, branch_id, status FROM job_orders WHERE order_id = ? ORDER BY id ASC FOR UPDATE', 'i', [$storeOrderId]);
+                if ($linkedJobs === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $jobErrorCount)) {
+                    throw new RuntimeException('Unable to verify the linked production jobs before correction.');
+                }
+            } else {
+                throw new RuntimeException('This assignment is not linked to a production job.');
+            }
+
+            $ledgerRows = [];
+            $itemId = (int)($assignment['item_id'] ?? 0);
+            foreach ($linkedJobs as $job) {
+                $linkedJobId = (int)($job['id'] ?? 0);
+                $branchId = (int)($job['branch_id'] ?? 0);
+                if ($branchId <= 0 && (int)($job['order_id'] ?? 0) > 0) {
+                    $orderRows = db_query('SELECT branch_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [(int)$job['order_id']]) ?: [];
+                    $branchId = (int)($orderRows[0]['branch_id'] ?? 0);
+                }
+                if ($linkedJobId <= 0 || $branchId <= 0 || $itemId <= 0) {
+                    throw new RuntimeException('The assignment is missing a verifiable job, branch, or inventory-item link.');
+                }
+                $ledgerErrorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+                $jobLedger = db_query(
+                    "SELECT id FROM inventory_transactions
+                     WHERE UPPER(ref_type) = 'JOB_ORDER' AND ref_id = ? AND item_id = ?
+                       AND branch_id = ? AND UPPER(direction) = 'OUT' LIMIT 1 FOR UPDATE",
+                    'iii',
+                    [$linkedJobId, $itemId, $branchId]
+                );
+                if ($jobLedger === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $ledgerErrorCount)) {
+                    throw new RuntimeException('Unable to verify inventory history; the assignment was not changed.');
+                }
+                if ($jobLedger !== []) {
+                    $ledgerRows = array_merge($ledgerRows, $jobLedger);
+                }
+            }
+
+            $safetyError = self::materialRemovalSafetyError($assignment, $linkedJobs, $ledgerRows);
+            if ($safetyError !== '') {
+                throw new DomainException($safetyError);
+            }
+
+            $itemRows = db_query('SELECT name FROM inv_items WHERE id = ? LIMIT 1', 'i', [$itemId]) ?: [];
+            if ($itemRows === []) {
+                throw new RuntimeException('The assigned inventory item could not be identified for the correction audit.');
+            }
+            $actor = (int)($actorUserId ?? (function_exists('get_user_id') ? get_user_id() : 0));
+            $actorRows = $actor > 0 ? (db_query('SELECT user_id FROM users WHERE user_id = ? LIMIT 1', 'i', [$actor]) ?: []) : [];
+            if ($actorRows === []) {
+                throw new RuntimeException('A valid staff account is required to record the assignment correction audit.');
+            }
+            $auditDetails = json_encode([
+                'assignment_id' => $id,
+                'job_order_id' => $jobId > 0 ? $jobId : null,
+                'store_order_id' => $storeOrderId > 0 ? $storeOrderId : null,
+                'linked_job_ids' => array_values(array_map(static fn(array $job): int => (int)($job['id'] ?? 0), $linkedJobs)),
+                'item_id' => $itemId,
+                'item_name' => (string)($itemRows[0]['name'] ?? ''),
+                'quantity' => $assignment['quantity'] ?? null,
+                'uom' => $assignment['uom'] ?? null,
+                'roll_id' => isset($assignment['roll_id']) ? (int)$assignment['roll_id'] : null,
+                'computed_required_length_ft' => $assignment['computed_required_length_ft'] ?? null,
+                'unit_cost_at_assignment' => $assignment['unit_cost_at_assignment'] ?? null,
+                'notes' => $assignment['notes'] ?? null,
+                'metadata' => $assignment['metadata'] ?? null,
+                'job_statuses' => array_values(array_map(static fn(array $job): string => (string)($job['status'] ?? ''), $linkedJobs)),
+                'reason' => 'Undeducted pre-production assignment correction',
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if ($auditDetails === false || db_execute(
+                'INSERT INTO activity_logs (user_id, action, details, created_at) VALUES (?, ?, ?, NOW())',
+                'iss',
+                [$actor, 'Production material assignment corrected', $auditDetails]
+            ) === false) {
+                throw new RuntimeException('Unable to save the assignment correction audit; no assignment was changed.');
+            }
+
+            $affected = db_execute_affected_rows(
+                "DELETE FROM job_order_materials
+                 WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')",
+                'i',
+                [$id]
+            );
+            if ($affected !== 1) {
+                throw new RuntimeException('The assignment changed during correction. Refresh the order; no assignment was removed.');
+            }
+
+            if ($started) {
+                if (!$conn->commit()) {
+                    $conn->rollback();
+                    $GLOBALS['printflow_db_transaction_depth'] = 0;
+                    throw new RuntimeException('Unable to commit the material correction; the assignment was not changed.');
+                }
+                $GLOBALS['printflow_db_transaction_depth'] = 0;
+            }
+            return true;
+        } catch (Throwable $error) {
+            if ($started) {
+                if ((int)($GLOBALS['printflow_db_transaction_depth'] ?? 0) > 0) {
+                    printflow_db_transaction_depth_pop($conn, false);
+                } elseif ($conn instanceof mysqli && ($conn->in_transaction ?? false)) {
+                    $conn->rollback();
+                }
+            }
+            throw $error;
+        }
     }
 
     /**

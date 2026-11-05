@@ -6327,6 +6327,10 @@ window.pfServiceFieldCatalog = (() => {
                     'dimensions_design_input_mode',
                     'upload_design_design_input_mode',
                     'material_name',
+                    'pos_selected_material_ids',
+                    'pos_material_dimension_unit',
+                    'pos_material_consumption',
+                    'pos_selected_material_consumption',
                 ].includes(token) || token.includes('design_input_mode');
             },
             staffCustomizationIsInternalLabel(label) {
@@ -6344,10 +6348,6 @@ window.pfServiceFieldCatalog = (() => {
                     && Object.prototype.hasOwnProperty.call(value, 'has_priority_field')) {
                     return true;
                 }
-                if (Object.prototype.hasOwnProperty.call(value, 'field_label')
-                    && Object.prototype.hasOwnProperty.call(value, 'selected_value')) {
-                    return true;
-                }
                 return false;
             },
             staffCustomizationValueText(value) {
@@ -6357,10 +6357,14 @@ window.pfServiceFieldCatalog = (() => {
                 if (Array.isArray(value)) {
                     return value
                         .filter((entry) => entry !== null && entry !== undefined && String(entry).trim() !== '')
-                        .map((entry) => String(entry).trim())
+                        .map((entry) => this.staffCustomizationValueText(entry))
+                        .filter(Boolean)
                         .join(', ');
                 }
                 if (value !== null && typeof value === 'object') {
+                    if (Object.prototype.hasOwnProperty.call(value, 'selected_value')) {
+                        return this.staffCustomizationValueText(value.selected_value);
+                    }
                     return '';
                 }
                 return value === null || value === undefined ? '' : String(value).trim();
@@ -7811,8 +7815,7 @@ window.pfServiceFieldCatalog = (() => {
             formatCustomValuePlain(v) {
                 if (v == null) return '';
                 if (this.staffCustomizationIsInternalValue(v)) return '';
-                if (typeof v === 'object') return '';
-                return String(v);
+                return this.staffCustomizationValueText(v);
             },
             isDisplayableLink(v) {
                 if (v == null || typeof v === 'object') return false;
@@ -8468,7 +8471,17 @@ window.pfServiceFieldCatalog = (() => {
                 const assigned = (Array.isArray(this.currentJo && this.currentJo.materials) ? this.currentJo.materials : [])
                     .some(material => String(material.item_id || '') === selectedId);
                 if (assigned) {
-                    this.showStaffAlert('Material Locked', 'Assigned materials can no longer be removed once they have been set.');
+                    const matchingAssignments = this.currentJo.materials.filter(material => String(material.item_id || '') === selectedId);
+                    const assignment = matchingAssignments.find(material => {
+                        const stamp = String(material.deducted_at || '').trim();
+                        return stamp === '' || stamp === '0000-00-00 00:00:00';
+                    }) || matchingAssignments[0];
+                    const deductedAt = String(assignment && assignment.deducted_at || '').trim();
+                    if (!assignment || (deductedAt !== '' && deductedAt !== '0000-00-00 00:00:00')) {
+                        this.showStaffAlert('Material Already Deducted', 'This assignment cannot be removed here because inventory has already been deducted. Use the authorized inventory correction workflow.');
+                    } else {
+                        this.removeMaterial(assignment.id);
+                    }
                     return;
                 }
                 if (this.isMaterialSelected(item.id)) return;
@@ -11912,7 +11925,29 @@ window.pfServiceFieldCatalog = (() => {
                 return item && item.category_id == 1;
             },
             async removeMaterial(jomId) {
-                this.showStaffAlert('Material Locked', 'Assigned materials can no longer be removed once they have been set.');
+                if (!jomId || !this.beginModalAction()) return;
+                if (!window.confirm('Remove this material assignment? This is allowed only before production starts and before inventory is deducted. The correction will be recorded.')) {
+                    this.endModalAction();
+                    return;
+                }
+                try {
+                    const fd = new FormData();
+                    fd.append('action', 'remove_material');
+                    fd.append('id', String(jomId));
+                    fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                    const response = await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd, credentials: 'same-origin' });
+                    const result = await response.json();
+                    if (!response.ok || !result.success) {
+                        this.showStaffAlert('Material Not Changed', result.error || result.message || 'The assignment could not be safely changed.');
+                        return;
+                    }
+                    await this.refreshMaterials();
+                    this.showStaffAlert('Assignment Corrected', result.message || 'The undeducted assignment was removed and recorded.');
+                } catch (error) {
+                    this.showStaffAlert('Material Not Changed', 'The assignment could not be verified. Refresh the order and try again.');
+                } finally {
+                    this.endModalAction();
+                }
             },
             async refreshMaterials() {
                 const jid = await this.resolveEffectiveJobId();
