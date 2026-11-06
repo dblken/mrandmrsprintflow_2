@@ -62,6 +62,9 @@ $assert(count(printflow_pos_material_selection_resolve(36, [18])) === 1, 'Nextje
 $assert(count(printflow_pos_material_selection_resolve(36, [])) === 0, 'Nextjet remains optional and is not forced.');
 $fails(static fn() => printflow_pos_material_selection_resolve(36, [18, 22]), 'Only one decal base may be selected.');
 $fails(static fn() => printflow_pos_material_selection_resolve(36, [999]), 'A material outside the explicit service mapping is rejected.');
+$fails(static fn() => printflow_pos_material_selection_resolve_assignments(36, [['item_id' => 999]]), 'A Production Assignment material outside the service mapping is rejected.');
+$assert(count(printflow_pos_material_selection_resolve_assignments(67, [['item_id' => '212']])) === 1,
+    'Production Assignment accepts string material IDs that normalize to mapped inventory IDs.');
 $demand = printflow_pos_material_demand_for_area(2, 3, 'ft', 2, 0.2);
 $assert(abs($demand['area_sqft'] - 6.0) < 1e-9 && abs($demand['raw_demand'] - 2.4) < 1e-9 && $demand['rounded_demand'] === 3, 'Fractional area demand is rounded up to whole inventory units.');
 $inches = printflow_pos_material_demand_for_area(24, 36, 'in', 1, 1);

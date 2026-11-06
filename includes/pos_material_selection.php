@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/pos_service_stock_helpers.php';
+
 /**
  * Explicit POS alternative/optional material policy. Inventory IDs are the
  * confirmed catalog identities; no service/material name inference is used.
@@ -245,6 +247,103 @@ function printflow_pos_material_selection_resolve_customization(int $serviceId, 
     return printflow_pos_material_selection_resolve($serviceId, $selectedIds);
 }
 
+/**
+ * Stable service-type aliases used when loading authoritative Production
+ * Assignment mappings from service_material_rules.
+ */
+function printflow_production_assignment_service_type_aliases(int $serviceId): array
+{
+    if ($serviceId === 40) return ['Tarpaulin Printing', 'Tarpaulin'];
+    if ($serviceId === 63) return ['Mugs'];
+    return printflow_pos_service_material_type_aliases($serviceId);
+}
+
+/**
+ * Active inventory item IDs explicitly mapped to the service in
+ * service_material_rules. Soft-fails closed to an empty list when the
+ * database is unavailable so offline unit tests keep using the registry.
+ */
+function printflow_production_assignment_db_mapped_item_ids(int $serviceId): array
+{
+    if ($serviceId <= 0) return [];
+    // Test-only override so offline unit tests can prove DB-mapped IDs pass
+    // without requiring a live database connection.
+    if (isset($GLOBALS['PRINTFLOW_TEST_PRODUCTION_ASSIGNMENT_DB_MAPPED_IDS'])
+        && is_array($GLOBALS['PRINTFLOW_TEST_PRODUCTION_ASSIGNMENT_DB_MAPPED_IDS'])) {
+        $override = $GLOBALS['PRINTFLOW_TEST_PRODUCTION_ASSIGNMENT_DB_MAPPED_IDS'][$serviceId] ?? [];
+        return array_values(array_filter(array_map(
+            static function ($value): int {
+                $id = filter_var($value, FILTER_VALIDATE_INT);
+                return ($id === false || (int)$id <= 0) ? 0 : (int)$id;
+            },
+            is_array($override) ? $override : []
+        )));
+    }
+    if (!function_exists('db_query')) return [];
+    try {
+        $aliases = printflow_production_assignment_service_type_aliases($serviceId);
+        $hasServiceIdColumn = function_exists('db_table_has_column')
+            && db_table_has_column('service_material_rules', 'service_id', true);
+        if ($aliases !== []) {
+            require_once __DIR__ . '/service_material_rule_identity.php';
+            $scope = printflow_service_material_rule_identity_scope(
+                $serviceId,
+                $aliases,
+                'r',
+                $hasServiceIdColumn
+            );
+            $rows = db_query(
+                "SELECT DISTINCT r.item_id
+                 FROM service_material_rules r
+                 INNER JOIN inv_items i ON i.id = r.item_id
+                 WHERE {$scope['sql']}
+                   AND UPPER(TRIM(COALESCE(i.status, ''))) = 'ACTIVE'",
+                $scope['types'],
+                $scope['params']
+            );
+        } elseif ($hasServiceIdColumn) {
+            $rows = db_query(
+                "SELECT DISTINCT r.item_id
+                 FROM service_material_rules r
+                 INNER JOIN inv_items i ON i.id = r.item_id
+                 WHERE r.service_id = ?
+                   AND UPPER(TRIM(COALESCE(i.status, ''))) = 'ACTIVE'",
+                'i',
+                [$serviceId]
+            );
+        } else {
+            return [];
+        }
+    } catch (Throwable $error) {
+        return [];
+    }
+    if (!is_array($rows)) return [];
+    $ids = [];
+    foreach ($rows as $row) {
+        $itemId = filter_var($row['item_id'] ?? null, FILTER_VALIDATE_INT);
+        if ($itemId !== false && (int)$itemId > 0) $ids[(int)$itemId] = true;
+    }
+    return array_map('intval', array_keys($ids));
+}
+
+/**
+ * Eligible Production Assignment item IDs for a service: the explicit selection
+ * policy plus every active authoritative service_material_rules mapping.
+ */
+function printflow_production_assignment_allowed_item_ids(int $serviceId): array
+{
+    $ids = [];
+    foreach (array_keys(printflow_production_assignment_selection_registry()[$serviceId] ?? []) as $itemId) {
+        $normalized = filter_var($itemId, FILTER_VALIDATE_INT);
+        if ($normalized !== false && (int)$normalized > 0) $ids[(int)$normalized] = true;
+    }
+    foreach (printflow_production_assignment_db_mapped_item_ids($serviceId) as $itemId) {
+        $ids[(int)$itemId] = true;
+    }
+    if ($serviceId === 63) $ids[37] = true;
+    return array_map('intval', array_keys($ids));
+}
+
 /** Resolve materials explicitly chosen by staff during Production Assignment. */
 function printflow_pos_material_selection_resolve_assignments(int $serviceId, array $assignments, array $customization = []): array
 {
@@ -252,6 +351,7 @@ function printflow_pos_material_selection_resolve_assignments(int $serviceId, ar
     foreach ($assignments as $assignment) {
         if (!is_array($assignment)) throw new InvalidArgumentException('A production material assignment is invalid.');
         $rawId = $assignment['item_id'] ?? $assignment['id'] ?? null;
+        // Normalize string/int IDs the same way the Set Price payload does.
         if (!is_scalar($rawId) || filter_var($rawId, FILTER_VALIDATE_INT) === false) {
             throw new InvalidArgumentException('A production material identity is invalid.');
         }
@@ -266,7 +366,43 @@ function printflow_pos_material_selection_resolve_assignments(int $serviceId, ar
             throw new InvalidArgumentException('The production material must match the selected Sintra board thickness.');
         }
     }
-    return printflow_pos_material_selection_resolve($serviceId, $ids);
+
+    // Production Assignment must accept every active mapped material for this
+    // service. The POS form allowlist remains separate and is not reused here
+    // as a closed world, because Admin mappings can include additional items
+    // (for example interchangeable sticker colors) that staff legitimately use.
+    if (!isset(printflow_pos_material_selection_registry()[$serviceId])
+        && !isset(printflow_production_assignment_selection_registry()[$serviceId])
+        && $serviceId !== 63) {
+        // Services without a selection policy still validate stock on the
+        // assigned rows without a closed material-identity allowlist.
+        return array_map(static fn(int $id): array => [
+            'item_id' => $id,
+            'group' => null,
+            'role' => 'mapped',
+            'group_required' => false,
+        ], $ids);
+    }
+
+    $allowed = array_fill_keys(printflow_production_assignment_allowed_item_ids($serviceId), true);
+    $policy = printflow_production_assignment_selection_registry()[$serviceId] ?? [];
+    $selected = [];
+    foreach ($ids as $id) {
+        if (!isset($allowed[$id])) {
+            throw new InvalidArgumentException(
+                'Material #' . $id . ' is not mapped to this service. Refresh Production Assignment and choose a currently mapped material.'
+            );
+        }
+        $definition = $policy[$id] ?? ['group' => null, 'role' => 'mapped', 'group_required' => false];
+        $selected[$id] = $definition + ['item_id' => $id];
+    }
+
+    $groupErrors = printflow_production_assignment_selection_errors($serviceId, $ids);
+    if ($groupErrors !== []) {
+        throw new InvalidArgumentException((string)reset($groupErrors));
+    }
+
+    return array_values($selected);
 }
 
 function printflow_pos_material_selection_group_label(int $serviceId, string $group): string

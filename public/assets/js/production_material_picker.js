@@ -239,21 +239,30 @@
     }
 
     function matchingContextRule(item, context, rules) {
+        const itemId = Number(item && item.id);
+        const serviceId = Number(context && context.serviceId);
         let candidates = [
             context && context.serviceType,
             context && context.serviceName,
             context && context.serviceLabel,
             context && context.serviceCategory
         ].map(normalize).filter(Boolean);
-        const serviceId = Number(context && context.serviceId);
         if (serviceId === 36) {
             const identityValues = [context && context.serviceType, context && context.serviceName]
                 .map(normalize).filter(Boolean);
             const knownIdentities = (SERVICE_RULE_IDENTITY_ALIASES[serviceId] || []).map(normalize);
+            // Fail closed on stale/conflicting Decals identity before any
+            // service_id shortcut can inherit another service's materials.
             if (!identityValues.length || identityValues.some(identity => !knownIdentities.includes(identity))) return null;
             // Prefer canonical service-specific rows and avoid generic category
             // labels that can collide with rules belonging to other services.
             candidates = [...(SERVICE_RULE_TYPE_ALIASES[serviceId] || []).map(normalize), ...identityValues];
+        }
+        if (Number.isInteger(itemId) && itemId > 0 && Number.isInteger(serviceId) && serviceId > 0) {
+            const byServiceId = (Array.isArray(rules) ? rules : []).find(rule =>
+                Number(rule && rule.item_id) === itemId && Number(rule && rule.service_id) === serviceId
+            );
+            if (byServiceId) return byServiceId;
         }
         for (const candidate of candidates) {
             const rule = matchingRule(item, candidate, rules);
