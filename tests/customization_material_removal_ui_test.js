@@ -33,6 +33,8 @@ function compileMethod(name, args, asyncMethod = false) {
 const removeMaterial = compileMethod('removeMaterial', 'jomId', true);
 const isMaterialSelected = compileMethod('isMaterialSelected', 'itemId');
 const selectMaterialCandidate = compileMethod('selectMaterialCandidate', 'item, deliberateKeyboardAction = false');
+const refreshMaterials = compileMethod('refreshMaterials', '', true);
+const applyPosSetPriceDeepLinkOverride = compileMethod('applyPosSetPriceDeepLinkOverride', 'row');
 
 async function runSuccessCase(itemId, itemName) {
     const assigned = { id: 900 + itemId, item_id: itemId, item_name: itemName, deducted_at: null };
@@ -40,6 +42,9 @@ async function runSuccessCase(itemId, itemName) {
         currentJo: { order_id: 1234, job_order_id: 2345, order_type: 'JOB', materials: [assigned] },
         newMaterialId: String(itemId),
         pendingMaterials: [],
+        jobPriceInput: '400.00',
+        showDetailsModal: true,
+        assignmentActionFeedback: '',
         productionErrors: { material: '' },
         actionBusy: false,
         refreshed: 0,
@@ -73,7 +78,10 @@ async function runSuccessCase(itemId, itemName) {
     assert.deepEqual(ctx.currentJo.materials, [], `${itemName} assignment is pruned from UI state after API success`);
     assert.equal(ctx.newMaterialId, '', `${itemName} stale picker value is cleared`);
     assert.equal(isMaterialSelected.call(ctx, itemId), false, `${itemName} is no longer marked assigned`);
-    assert.equal(ctx.alerts[0]?.title, 'Assignment Corrected');
+    assert.match(ctx.assignmentActionFeedback, /correction recorded/i);
+    assert.equal(ctx.alerts.length, 0, 'A successful correction uses inline feedback instead of an overlay popup');
+    assert.equal(ctx.showDetailsModal, true, 'Removal keeps the current Set Price/Production Assignment modal open');
+    assert.equal(ctx.jobPriceInput, '400.00', 'Removal preserves the entered price');
 
     selectMaterialCandidate.call(ctx, { id: itemId, compatibility: { selectable: true, directSelectable: true } });
     assert.deepEqual(ctx.selectedAgain, [String(itemId)], `${itemName} can be selected again after correction`);
@@ -113,18 +121,54 @@ async function runRefreshFailureCase() {
     global.fetch = async () => ({ ok: true, async json() { return { success: true }; } });
     await removeMaterial.call(ctx, assigned.id);
     assert.deepEqual(ctx.currentJo.materials, [], 'Successful removal clears stale selection even when the refresh request fails');
-    assert.equal(ctx.alerts[0]?.title, 'Assignment Removed');
-    assert.match(ctx.alerts[0]?.message || '', /Reload the order/);
+    assert.match(ctx.assignmentActionFeedback, /Reload the order/);
+    assert.equal(ctx.alerts.length, 0, 'A refresh warning after confirmed removal stays inline');
     assert.equal(isMaterialSelected.call(ctx, 207), false, 'A refresh failure does not leave a stale assigned badge');
+}
+
+async function runPosDraftRefreshCase() {
+    const jobPriceInput = '400.00';
+    const pending = [{ item_id: 207, qty: 2 }];
+    const ctx = {
+        currentJo: {
+            id: 1234, order_id: 1234, job_order_id: 2345, order_type: 'ORDER',
+            order_source: 'pos_draft', status: 'APPROVED', materials: [],
+        },
+        detailContextMode: 'pos_pricing',
+        deepLinkExpectedStatus: 'APPROVED',
+        deepLinkSourceOrderId: '1234',
+        jobPriceInput,
+        pendingMaterials: pending,
+        isPosPricingMode() { return this.detailContextMode === 'pos_pricing'; },
+        resolveEffectiveJobId: async () => 2345,
+        async fetchOrderModalSummary(orderId, options) {
+            assert.equal(String(orderId), '1234');
+            assert.equal(options.includeAssignments, true);
+            assert.equal(options.ensureJob, true);
+            return { success: true, data: { order_id: 1234, order_source: 'pos_draft', order_type: 'ORDER', status: 'DRAFT', materials: [] } };
+        },
+        applyStaffOrderDetailMerge(previous, incoming) { return { ...previous, ...incoming }; },
+        applyPosSetPriceDeepLinkOverride,
+        loadAvailableRolls() {},
+    };
+
+    const refreshed = await refreshMaterials.call(ctx);
+    assert.equal(refreshed, true);
+    assert.equal(ctx.currentJo.status, 'APPROVED', 'A POS draft refresh restores only the Set Price presentation stage');
+    assert.equal(ctx.currentJo.order_source, 'pos_draft');
+    assert.equal(ctx.jobPriceInput, jobPriceInput, 'Entered Set Price value survives assignment refresh');
+    assert.equal(ctx.pendingMaterials, pending, 'Other in-progress assignment form state survives refresh');
 }
 
 (async () => {
     await runSuccessCase(206, 'Sintra 3mm');
     await runSuccessCase(207, 'Sintra 5mm');
+    await runSuccessCase(212, 'C2S Board');
     await runRejectedCase('This material has already been marked as deducted.');
     await runRejectedCase('Materials can only be corrected before production starts.');
     await runRefreshFailureCase();
-    console.log('Custom Orders material removal and reselection UI tests passed for Sintra 3mm, Sintra 5mm, and protected removals.');
+    await runPosDraftRefreshCase();
+    console.log('Custom Orders material removal/reselection and POS Set Price refresh tests passed for Sintra 3mm, Sintra 5mm, and protected removals.');
 })().catch(error => {
     console.error(error);
     process.exitCode = 1;

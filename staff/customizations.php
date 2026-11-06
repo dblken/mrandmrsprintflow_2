@@ -3131,6 +3131,7 @@ $online_closed_count = 0;
                                     <h3 style="font-size:14px; font-weight:700; color:#1f2937; text-transform:uppercase; letter-spacing:0.025em; margin:0;">Production Assignment</h3>
                                     <span style="font-size:11px; background:#f3f4f6; color:#6b7280; padding:4px 10px; border-radius:100px; font-weight:600;" x-text="materialCompatibilityContext.serviceLabel"></span>
                                 </div>
+                                <div x-show="assignmentActionFeedback" x-cloak role="status" aria-live="polite" style="margin:-6px 0 14px;padding:9px 12px;border:1px solid #99f6e4;border-radius:8px;background:#f0fdfa;color:#115e59;font-size:12px;line-height:1.45;" x-text="assignmentActionFeedback"></div>
 
                                 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:20px;">
                                     
@@ -4960,6 +4961,7 @@ window.pfServiceFieldCatalog = (() => {
             customDateTo: '',
             actionBusy: false,
             footerActionError: '',
+            assignmentActionFeedback: '',
             alertModal: {
                 show: false,
                 title: 'System Message',
@@ -5340,6 +5342,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.previewFile = '';
                 this.designFilesExpandedKeys = {};
                 this.currentJo = {};
+                this.assignmentActionFeedback = '';
                 this.clearDeepLinkParams();
                 if (wasPosPricing) {
                     window.location.href = this.staffApiUrl('pos.php?from_customizations=1');
@@ -9671,6 +9674,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.detailRetryPayload = { id, orderType };
                 this.loadingModalAssignments = false;
                 this.footerActionError = '';
+                this.assignmentActionFeedback = '';
                 this.pendingMaterials = [];
                 this.resetMaterialForm();
                 this.resetInkForm();
@@ -11926,6 +11930,7 @@ window.pfServiceFieldCatalog = (() => {
             },
             async removeMaterial(jomId) {
                 if (!jomId || !this.beginModalAction()) return;
+                this.assignmentActionFeedback = '';
                 const assignedRow = (Array.isArray(this.currentJo && this.currentJo.materials) ? this.currentJo.materials : [])
                     .find(material => String(material.id || '') === String(jomId));
                 const materialName = String(assignedRow && (assignedRow.item_name || assignedRow.name) || 'this material');
@@ -11957,19 +11962,15 @@ window.pfServiceFieldCatalog = (() => {
                         this.newMaterialId = '';
                     }
                     const refreshed = await this.refreshMaterials();
-                    this.showStaffAlert(
-                        refreshed ? 'Assignment Corrected' : 'Assignment Removed',
-                        refreshed
-                            ? (result.message || 'The undeducted assignment was removed and recorded. It can be selected again if appropriate.')
-                            : 'The assignment was removed and recorded, but the material list could not refresh. Reload the order before making another change.'
-                    );
+                    this.assignmentActionFeedback = refreshed
+                        ? (result.message || 'The undeducted assignment was removed and recorded. It can be selected again if appropriate.')
+                        : 'The assignment was removed and recorded, but the material list could not refresh. Reload the order before making another change.';
                 } catch (error) {
-                    this.showStaffAlert(
-                        serverRemovalConfirmed ? 'Assignment Removed' : 'Material Not Changed',
-                        serverRemovalConfirmed
-                            ? 'The assignment was removed and recorded, but the material list could not refresh. Reload the order before making another change.'
-                            : 'The assignment could not be verified. Refresh the order and try again.'
-                    );
+                    if (serverRemovalConfirmed) {
+                        this.assignmentActionFeedback = 'The assignment was removed and recorded, but the material list could not refresh. Reload the order before making another change.';
+                    } else {
+                        this.showStaffAlert('Material Not Changed', 'The assignment could not be verified. Refresh the order and try again.');
+                    }
                 } finally {
                     this.endModalAction();
                 }
@@ -12001,7 +12002,10 @@ window.pfServiceFieldCatalog = (() => {
                     merged.estimated_total = previousJo.estimated_total !== null && previousJo.estimated_total !== undefined ? previousJo.estimated_total : merged.estimated_total;
                     merged.estimated_price = previousJo.estimated_price !== null && previousJo.estimated_price !== undefined ? previousJo.estimated_price : merged.estimated_price;
                 }
-                this.currentJo = merged;
+                // Preserve the Set Price presentation state for matching POS drafts.
+                // The authoritative database status remains Draft; this override only
+                // restores the stage that owns the Production Assignment controls.
+                this.currentJo = this.applyPosSetPriceDeepLinkOverride(merged);
                 for(const m of (this.currentJo.materials || [])) {
                     if(m.track_by_roll == 1) this.loadAvailableRolls(m.item_id);
                 }
