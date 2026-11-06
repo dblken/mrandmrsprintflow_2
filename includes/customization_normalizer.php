@@ -13,13 +13,38 @@ function printflow_customization_key_token(string $key): string {
 function printflow_customization_value_text($value): string {
     if (is_bool($value)) return $value ? 'Yes' : 'No';
     if (is_array($value)) {
+        // Internal Tarpaulin selection/calculation payloads are associative
+        // arrays (version, width_ft, item_id, …). Flattening their values into
+        // "linear_ft_v1, 2, 2, …" must never surface as a customer specification.
+        $version = strtolower(trim((string)($value['version'] ?? '')));
+        if (
+            in_array($version, ['linear_ft_v1', 'panel_joining_v2'], true)
+            && (
+                isset($value['item_id'])
+                || isset($value['required_linear_ft'])
+                || isset($value['roll_width_ft'])
+            )
+        ) {
+            return '';
+        }
         $parts = [];
         foreach ($value as $entry) {
             if (is_scalar($entry) && trim((string)$entry) !== '') $parts[] = trim((string)$entry);
         }
-        return implode(', ', $parts);
+        $joined = implode(', ', $parts);
+        if (
+            preg_match('/^(?:linear_ft_v1|panel_joining_v2)\b/i', $joined)
+            && preg_match('/\d+\s*,\s*\d+/', $joined)
+        ) {
+            return '';
+        }
+        return $joined;
     }
-    return is_scalar($value) ? trim((string)$value) : '';
+    $text = is_scalar($value) ? trim((string)$value) : '';
+    if (preg_match('/^(?:linear_ft_v1|panel_joining_v2)\b/i', $text)) {
+        return '';
+    }
+    return $text;
 }
 
 function printflow_customization_value_fingerprint(string $value): string {
@@ -75,6 +100,11 @@ function printflow_customization_field_meta(string $key): array {
         'product_id', 'config_id', 'source', 'source_page', 'form_type', 'cart_key',
         'design_input_mode', 'dimensions_design_input_mode', 'calculated_unit_price', 'calculated_estimated_price',
         'price_unconfigured', 'material_name',
+        'pos_tarpaulin_selection', 'postarpaulinselection',
+        'pos_selected_material_ids', 'posselectedmaterialids',
+        'pos_material_dimension_unit', 'posmaterialdimensionunit',
+        'pos_material_consumption', 'posmaterialconsumption',
+        'pos_selected_material_consumption', 'posselectedmaterialconsumption',
         'design_upload_path', 'design_file', 'design_mime', 'design_upload_mime',
         'design_image', 'design_image_path',
         'reference_upload', 'reference_upload_name', 'upload_reference',

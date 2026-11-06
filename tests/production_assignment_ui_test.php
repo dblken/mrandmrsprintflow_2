@@ -10,6 +10,10 @@ $assertions = [
     'only truly blocked compatibility states are disabled' => str_contains($source, ':disabled="!item.compatibility.selectable"') && str_contains($source, ':aria-disabled="item.compatibility.selectable'),
     'keyboard material selection is wired' => str_contains($source, '@keydown.arrow-down.prevent') && str_contains($source, '@keydown.enter.prevent'),
     'one click queues the material with an editable Actual Usage field' => str_contains($source, 'queueMaterialFromPicker(item') && str_contains($source, 'Actual Usage:') && !str_contains($source, '>Add actual usage</button>') && !str_contains($source, '>Confirm Actual Usage</button>'),
+    'Tarpaulin assignment exposes editable Width and Height plus linear Actual Usage' => str_contains($source, 'handlePendingTarpaulinDimensionInput')
+        && str_contains($source, 'customer_width_ft')
+        && str_contains($source, 'customer_height_ft')
+        && str_contains($source, 'Actual Usage is linear roll length'),
     'Tarpaulin auto-selects the fitted roll and can prefill calculated Actual Usage' => str_contains($source, 'maybeAutoSelectTarpaulinRoll') && str_contains($source, 'tarpaulin_linear_ft') && str_contains($source, 'out.Width') && str_contains($source, 'out.Height'),
     'secondary add-to-content button is removed' => !str_contains($source, '>Add to Order Content</button>'),
     'selected state persists for queued and saved materials' => str_contains($source, "'is-selected': isMaterialSelected(item.id)") && str_contains($source, 'isMaterialSelected(itemId)'),
@@ -46,7 +50,7 @@ $assertions = [
     'detail modal preserves submitted specs and avoids service-profile filtering' => str_contains($source, 'let specs = isDetail || options.skipServiceFilter === true') && str_contains($source, 'submittedSpecs') && str_contains($source, 'this.staffFilterSpecsByServiceForm(normalized, item)'),
     'item customization payload is preserved for fulfillment logic' => str_contains($source, 'const customization = merged') && !str_contains($source, 'const customization = this.normalizeSpecAliases(merged)'),
     'spec rendering uses one normalization pipeline' => str_contains($source, 'staffBuildItemDisplaySpecs') && str_contains($source, 'staffEnrichDimensionSpecs'),
-    'internal POS stock metadata is excluded by exact keys' => str_contains($source, "'pos_selected_material_ids'") && str_contains($source, "'pos_material_dimension_unit'") && str_contains($source, "'pos_material_consumption'"),
+    'internal POS stock metadata is excluded by exact keys' => str_contains($source, "'pos_selected_material_ids'") && str_contains($source, "'pos_material_dimension_unit'") && str_contains($source, "'pos_material_consumption'") && str_contains($source, "'pos_tarpaulin_selection'"),
     'assigned undeducted material can invoke the guarded correction request' => str_contains($source, "this.removeMaterial(assignment.id)") && str_contains($source, "fd.append('csrf_token'") && str_contains($source, 'await this.refreshMaterials();'),
     'deducted assigned material stays protected in the UI' => str_contains($source, 'Material Already Deducted') && str_contains($source, 'authorized inventory correction workflow'),
     'canonical dimensions label is never suppressed by width height aliases' => str_contains($source, "key !== 'Dimensions'") && str_contains($source, "key !== 'Size / Dimensions'"),

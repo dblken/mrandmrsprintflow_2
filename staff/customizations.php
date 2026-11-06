@@ -3206,13 +3206,30 @@ $online_closed_count = 0;
                                                 <div style="display:flex; align-items:center; justify-content:space-between; background:#f1f5f9; border-radius:8px; padding:8px 12px; font-size:12px; border:1px solid #e2e8f0; gap:10px;">
                                                     <div style="min-width:0;">
                                                         <div style="font-weight:600; color:#1e293b;" x-text="pm.name + (pm.size_variant ? ' · ' + pm.size_variant : '')"></div>
-                                                        <div style="margin-top:3px;color:#64748b;font-size:11px;">Enter the actual quantity used in the inventory unit.</div>
+                                                        <div x-show="isPendingTarpaulinMaterial(pm)" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;">
+                                                            <label style="display:grid;gap:3px;color:#334155;font-size:11px;font-weight:700;">Width (ft)
+                                                                <input type="number" min="0.01" step="any" inputmode="decimal"
+                                                                       :value="pm.customer_width_ft"
+                                                                       @input="handlePendingTarpaulinDimensionInput(pm, 'width', $event.target.value)"
+                                                                       aria-label="Tarpaulin customer width in feet"
+                                                                       style="width:100%;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
+                                                            </label>
+                                                            <label style="display:grid;gap:3px;color:#334155;font-size:11px;font-weight:700;">Height (ft)
+                                                                <input type="number" min="0.01" step="any" inputmode="decimal"
+                                                                       :value="pm.customer_height_ft"
+                                                                       @input="handlePendingTarpaulinDimensionInput(pm, 'height', $event.target.value)"
+                                                                       aria-label="Tarpaulin customer height in feet"
+                                                                       style="width:100%;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
+                                                            </label>
+                                                        </div>
+                                                        <div style="margin-top:3px;color:#64748b;font-size:11px;" x-text="isPendingTarpaulinMaterial(pm) ? 'Actual Usage is linear roll length in the inventory unit (ft), calculated from Width × Height and roll width.' : 'Enter the actual quantity used in the inventory unit.'"></div>
                                                         <label style="display:block;color:#334155;font-size:11px;margin-top:5px;font-weight:700;">Actual Usage:
                                                             <input type="number" min="0.001" step="any" :value="pm.qty" @beforeinput="markPendingMaterialQtyEdit(pm, $event.target, $event)" @keydown="markPendingMaterialQtyKeyEdit(pm, $event.target, $event)" @keyup="clearPendingMaterialQtyKeyEdit($event.target)" @pointerdown="markPendingMaterialQtyPointerEdit(pm, $event.target, $event)" @pointerup="clearPendingMaterialQtyPointerEdit($event.target)" @pointercancel="clearPendingMaterialQtyPointerEdit($event.target)" @input="handlePendingMaterialQtyInput(pm, $event.target.value, $event.target, $event)" @blur="handlePendingMaterialQtyBlur(pm, $event.target, $event)" aria-label="Actual material usage quantity"
                                                                    style="width:84px;margin:0 3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
                                                             <span x-text="pm.uom"></span>
                                                         </label>
-                                                        <div x-show="!pm.manual_quantity_confirmed" style="margin-top:5px;color:#b45309;font-weight:700;">Enter a valid actual quantity before saving.</div>
+                                                        <div x-show="pm.dimension_fit_error" x-text="pm.dimension_fit_error" role="alert" style="margin-top:5px;color:#b91c1c;font-weight:700;"></div>
+                                                        <div x-show="!pm.manual_quantity_confirmed && !pm.dimension_fit_error" style="margin-top:5px;color:#b45309;font-weight:700;">Enter a valid actual quantity before saving.</div>
                                                         <div x-show="pendingMaterialStockError(pm)" x-text="pendingMaterialStockError(pm)" role="alert" style="margin-top:5px;color:#b91c1c;font-weight:700;"></div>
                                                     </div>
                                                     <button type="button" @click="removePendingMaterial(idx)" title="Remove material" aria-label="Remove material"
@@ -4595,11 +4612,84 @@ window.pfServiceFieldCatalog = (() => {
                 const rollWidth = item && window.PrintFlowProductionMaterials
                     ? window.PrintFlowProductionMaterials.tarpaulinRollWidthFor(item)
                     : null;
-                const jobWidth = Number(width ?? this.currentJo?.width_ft ?? 0);
-                const jobHeight = Number(height ?? this.currentJo?.height_ft ?? 0);
-                const jobQuantity = Number(quantity ?? this.currentJo?.quantity ?? 0);
+                const orderDimensions = this.resolveOrderDimensions(this.currentJo);
+                const jobWidth = Number(width ?? orderDimensions.width ?? this.currentJo?.width_ft ?? 0);
+                const jobHeight = Number(height ?? orderDimensions.height ?? this.currentJo?.height_ft ?? 0);
+                const contextQty = Number((this.materialCompatibilityContext || {}).customerQuantity || 0);
+                const jobQuantity = Number(quantity ?? contextQty ?? this.currentJo?.quantity ?? 0);
                 if (!rollWidth || !window.PrintFlowProductionMaterials?.calculateTarpaulinLinearLength) return null;
                 return window.PrintFlowProductionMaterials.calculateTarpaulinLinearLength(jobWidth, jobHeight, jobQuantity, rollWidth);
+            },
+            isPendingTarpaulinMaterial(material) {
+                const context = this.materialCompatibilityContext || {};
+                if (!(Number(context.serviceId) === 40 || context.serviceKind === 'tarpaulin')) return false;
+                if (!material) return false;
+                if (material.usage_method === 'tarpaulin_linear_ft') return true;
+                const item = this.getInventoryItem(material.item_id);
+                if (!item || !window.PrintFlowProductionMaterials?.tarpaulinRollWidthFor) return false;
+                return !!window.PrintFlowProductionMaterials.tarpaulinRollWidthFor(item);
+            },
+            handlePendingTarpaulinDimensionInput(material, field, value) {
+                if (!material || !this.isPendingTarpaulinMaterial(material)) return;
+                const raw = String(value ?? '').trim();
+                const parsed = raw === '' ? '' : Number(raw);
+                if (field === 'width') material.customer_width_ft = parsed;
+                if (field === 'height') material.customer_height_ft = parsed;
+                this.recalculatePendingTarpaulinFromDimensions(material);
+            },
+            recalculatePendingTarpaulinFromDimensions(material) {
+                if (!material || !this.isPendingTarpaulinMaterial(material)) return false;
+                const width = Number(material.customer_width_ft);
+                const height = Number(material.customer_height_ft);
+                if (!(width > 0) || !(height > 0)) {
+                    material.qty = '';
+                    material.estimated_qty = null;
+                    material.manual_quantity_confirmed = false;
+                    material.dimension_fit_error = 'Enter positive Width and Height (ft) for this Tarpaulin assignment.';
+                    return false;
+                }
+                const calc = this.tarpaulinCalculationForItem(material.item_id, width, height);
+                if (!calc || !(Number(calc.required_linear_ft) > 0)) {
+                    // Do not leave an incompatible roll selected with a stale usage value.
+                    const removedName = material.name || 'Tarpaulin roll';
+                    const index = (this.pendingMaterials || []).indexOf(material);
+                    if (index >= 0) this.pendingMaterials.splice(index, 1);
+                    this.productionErrors.material = `"${removedName}" cannot fit ${width} × ${height} ft. Choose another mapped roll or adjust Width/Height.`;
+                    this.showStaffAlert(
+                        'Roll Does Not Fit',
+                        `"${removedName}" cannot fit ${width} × ${height} ft (including rotation). Select another Tarpaulin roll.`
+                    );
+                    return false;
+                }
+                const qty = Number(Number(calc.required_linear_ft).toFixed(3));
+                material.qty = qty;
+                material.estimated_qty = qty;
+                material.dimension_fit_error = '';
+                material.usage_method = 'tarpaulin_linear_ft';
+                material.usage_estimate_reason = 'Calculated from assignment Width × Height against the selected Tarpaulin roll width.';
+                material.manual_confirmation_required = true;
+                material.manual_quantity_confirmed = true;
+                material.actual_usage_overridden = false;
+                if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
+                material.metadata.material_usage = {
+                    estimate: qty,
+                    actual: qty,
+                    method: 'tarpaulin_linear_ft',
+                    staff_confirmed: true,
+                    manual_actual_usage_confirmed: true,
+                    overridden: false,
+                    roll_width_ft: calc.roll_width_ft || null,
+                    orientation: calc.orientation || null,
+                    customer_width_ft: width,
+                    customer_height_ft: height,
+                };
+                material.metadata.customer_width_ft = width;
+                material.metadata.customer_height_ft = height;
+                this.clearPendingMaterialConfirmationError(material);
+                if (this.productionErrors.material && /cannot fit/i.test(this.productionErrors.material)) {
+                    this.productionErrors.material = '';
+                }
+                return true;
             },
             persistedPosTarpaulinSelection() {
                 const items = Array.isArray(this.currentJo?.items) ? this.currentJo.items : [];
@@ -6228,6 +6318,8 @@ window.pfServiceFieldCatalog = (() => {
                     'pos_material_dimension_unit',
                     'pos_material_consumption',
                     'pos_selected_material_consumption',
+                    'pos_tarpaulin_selection',
+                    'postarpaulinselection',
                 ].includes(token) || token.includes('design_input_mode');
             },
             staffCustomizationIsInternalLabel(label) {
@@ -6237,12 +6329,30 @@ window.pfServiceFieldCatalog = (() => {
                 const token = this.staffCustomizationKeyToken(raw);
                 if (token.includes('staff_priority') || token.includes('priority_request')) return true;
                 if (/^staff\s+priority(\s+request)?$/i.test(raw)) return true;
+                if (/^pos\s+tarpaulin\s+selection$/i.test(raw)) return true;
                 return false;
             },
             staffCustomizationIsInternalValue(value) {
-                if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+                if (!value || typeof value !== 'object') return false;
+                if (Array.isArray(value)) {
+                    // Associative selection payloads sometimes arrive as value lists
+                    // (e.g. "linear_ft_v1, 2, 2, …") after PHP array flattening.
+                    const joined = value
+                        .filter((entry) => entry !== null && entry !== undefined && String(entry).trim() !== '')
+                        .map((entry) => String(entry).trim())
+                        .join(', ');
+                    if (/linear_ft_v1|panel_joining_v2/i.test(joined) && /\d+\s*,\s*\d+/.test(joined)) {
+                        return true;
+                    }
+                    return false;
+                }
                 if (Object.prototype.hasOwnProperty.call(value, 'is_urgent_request')
                     && Object.prototype.hasOwnProperty.call(value, 'has_priority_field')) {
+                    return true;
+                }
+                const version = String(value.version || '').toLowerCase();
+                if ((version === 'linear_ft_v1' || version === 'panel_joining_v2')
+                    && (value.item_id || value.required_linear_ft || value.roll_width_ft)) {
                     return true;
                 }
                 return false;
@@ -6264,7 +6374,12 @@ window.pfServiceFieldCatalog = (() => {
                     }
                     return '';
                 }
-                return value === null || value === undefined ? '' : String(value).trim();
+                const text = value === null || value === undefined ? '' : String(value).trim();
+                // Flattened POS Tarpaulin selection metadata must never appear as a customer answer.
+                if (/^linear_ft_v1\b/i.test(text) || /^panel_joining_v2\b/i.test(text)) {
+                    return '';
+                }
+                return text;
             },
             staffCustomizationValueFingerprint(value) {
                 return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -8520,6 +8635,9 @@ window.pfServiceFieldCatalog = (() => {
                 const entryUom = this.getMaterialEntryUom(itemId);
                 const context = this.materialCompatibilityContext || {};
                 const isTarpaulin = Number(context.serviceId) === 40 || context.serviceKind === 'tarpaulin';
+                const orderDimensions = this.resolveOrderDimensions(this.currentJo);
+                let customerWidthFt = orderDimensions.width > 0 ? orderDimensions.width : '';
+                let customerHeightFt = orderDimensions.height > 0 ? orderDimensions.height : '';
                 let qty = '';
                 let estimatedQty = null;
                 let usageReason = '';
@@ -8527,22 +8645,37 @@ window.pfServiceFieldCatalog = (() => {
                 let calc = null;
                 if (isTarpaulin && window.PrintFlowProductionMaterials) {
                     const persisted = this.persistedPosTarpaulinSelection();
+                    if (persisted) {
+                        if (!(customerWidthFt > 0) && Number(persisted.width_ft) > 0) {
+                            customerWidthFt = Number(persisted.width_ft);
+                        }
+                        if (!(customerHeightFt > 0) && Number(persisted.height_ft) > 0) {
+                            customerHeightFt = Number(persisted.height_ft);
+                        }
+                    }
                     if (persisted && Number(persisted.item_id) === Number(item.id)
                         && Number.isFinite(Number(persisted.required_linear_ft))
-                        && Number(persisted.required_linear_ft) > 0) {
+                        && Number(persisted.required_linear_ft) > 0
+                        && (!(customerWidthFt > 0) || Math.abs(Number(persisted.width_ft || 0) - Number(customerWidthFt)) < 0.000001)
+                        && (!(customerHeightFt > 0) || Math.abs(Number(persisted.height_ft || 0) - Number(customerHeightFt)) < 0.000001)) {
                         calc = {
                             required_linear_ft: Number(persisted.required_linear_ft),
                             roll_width_ft: Number(persisted.roll_width_ft || 0),
                             orientation: persisted.orientation || '',
                         };
                     } else {
-                        calc = this.tarpaulinCalculationForItem(item.id);
+                        calc = this.tarpaulinCalculationForItem(
+                            item.id,
+                            customerWidthFt > 0 ? customerWidthFt : null,
+                            customerHeightFt > 0 ? customerHeightFt : null
+                        );
                     }
                     if (calc && Number.isFinite(Number(calc.required_linear_ft)) && Number(calc.required_linear_ft) > 0) {
                         qty = Number(Number(calc.required_linear_ft).toFixed(3));
                         estimatedQty = qty;
                         usageReason = 'Calculated from customer Width × Height against the selected Tarpaulin roll width.';
-                        quantityConfirmed = options.autoSelected === true;
+                        // Prefill from known customer dimensions is an explicit calculated usage.
+                        quantityConfirmed = options.autoSelected === true || (customerWidthFt > 0 && customerHeightFt > 0);
                     }
                 }
                 this.pendingMaterials.push({
@@ -8553,7 +8686,12 @@ window.pfServiceFieldCatalog = (() => {
                     uom: entryUom,
                     roll_id: '',
                     notes: '',
+                    customer_width_ft: isTarpaulin ? customerWidthFt : '',
+                    customer_height_ft: isTarpaulin ? customerHeightFt : '',
+                    dimension_fit_error: '',
                     metadata: {
+                        customer_width_ft: isTarpaulin ? customerWidthFt : null,
+                        customer_height_ft: isTarpaulin ? customerHeightFt : null,
                         material_usage: {
                             estimate: estimatedQty,
                             actual: qty === '' ? null : qty,
@@ -8563,6 +8701,8 @@ window.pfServiceFieldCatalog = (() => {
                             overridden: false,
                             roll_width_ft: calc && calc.roll_width_ft ? calc.roll_width_ft : null,
                             orientation: calc && calc.orientation ? calc.orientation : null,
+                            customer_width_ft: isTarpaulin ? customerWidthFt : null,
+                            customer_height_ft: isTarpaulin ? customerHeightFt : null,
                         }
                     },
                     estimated_qty: estimatedQty,
@@ -10459,6 +10599,18 @@ window.pfServiceFieldCatalog = (() => {
                 const pendingToConfirm = [...this.pendingMaterials, ...extraMaterials].find(material => material && material.manual_confirmation_required && !material.manual_quantity_confirmed);
                 if (pendingToConfirm) {
                     errors.material = errors.material || `Enter a valid actual quantity for ${pendingToConfirm.name || 'the selected material'} before saving.`;
+                }
+                const tarpDimIssue = [...this.pendingMaterials, ...extraMaterials].find((material) => {
+                    if (!material || !this.isPendingTarpaulinMaterial(material)) return false;
+                    if (material.dimension_fit_error) return true;
+                    const width = Number(material.customer_width_ft);
+                    const height = Number(material.customer_height_ft);
+                    return !(width > 0 && height > 0);
+                });
+                if (tarpDimIssue) {
+                    errors.material = errors.material
+                        || tarpDimIssue.dimension_fit_error
+                        || `Enter Tarpaulin Width and Height for ${tarpDimIssue.name || 'the selected roll'} before saving.`;
                 }
                 const pendingStockIssue = [...this.pendingMaterials, ...extraMaterials]
                     .map(material => this.pendingMaterialStockError && this.pendingMaterialStockError(material))
