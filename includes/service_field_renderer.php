@@ -2611,6 +2611,223 @@ function initPfDesignUploadGroups(root) {
     });
 }
 
+function pfSelectLooksLikeDimensionField(select) {
+    if (!select || select.tagName !== 'SELECT') return false;
+    if (select.classList.contains('pf-select-custom-size')) return true;
+    const key = String(select.getAttribute('data-field-key') || select.name || '').toLowerCase();
+    if (/(^|_)(size|sizes|dimension|dimensions)(_|$)/.test(key)) return true;
+    const row = select.closest('.shopee-form-row');
+    const label = row ? String(row.querySelector('.pf-field-label-text, .shopee-form-label')?.textContent || '').toLowerCase() : '';
+    return /\b(dimension|dimensions|size|sizes)\b/.test(label);
+}
+
+function pfDimensionSelectSelectableOptions(select) {
+    return [...(select?.options || [])].filter((opt) => !opt.disabled && String(opt.value || '') !== '');
+}
+
+function pfCloseDimensionSelectPicker(shell) {
+    if (!shell) return;
+    const menu = shell.querySelector('.pf-dim-select-menu');
+    const trigger = shell.querySelector('.pf-dim-select-trigger');
+    if (menu) menu.hidden = true;
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+}
+
+function pfSyncDimensionSelectTrigger(shell) {
+    if (!shell) return;
+    const select = shell.querySelector('select');
+    const trigger = shell.querySelector('.pf-dim-select-trigger');
+    if (!select || !trigger) return;
+    const selected = select.options[select.selectedIndex];
+    const label = selected && !selected.disabled && selected.value
+        ? selected.text
+        : (select.options[0]?.text || 'Select Dimensions');
+    const labelEl = trigger.querySelector('.pf-dim-select-trigger-label');
+    if (labelEl) labelEl.textContent = label;
+    else trigger.textContent = label;
+}
+
+function pfRenderDimensionSelectMenu(shell) {
+    const select = shell.querySelector('select');
+    const menu = shell.querySelector('.pf-dim-select-menu');
+    const error = shell.querySelector('.pf-dim-select-error');
+    const retry = shell.querySelector('.pf-dim-select-retry');
+    const trigger = shell.querySelector('.pf-dim-select-trigger');
+    if (!select || !menu || !trigger) return false;
+    const options = pfDimensionSelectSelectableOptions(select);
+    menu.innerHTML = '';
+    if (options.length === 0) {
+        trigger.disabled = true;
+        trigger.setAttribute('aria-disabled', 'true');
+        if (error) {
+            error.hidden = false;
+            error.textContent = 'Dimension options could not be loaded for this service. Retry or reopen the form.';
+        }
+        if (retry) retry.hidden = false;
+        pfCloseDimensionSelectPicker(shell);
+        return false;
+    }
+    trigger.disabled = false;
+    trigger.removeAttribute('aria-disabled');
+    if (error) {
+        error.hidden = true;
+        error.textContent = '';
+    }
+    if (retry) retry.hidden = true;
+    options.forEach((opt) => {
+        const li = document.createElement('li');
+        li.setAttribute('role', 'presentation');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pf-dim-select-option';
+        btn.setAttribute('role', 'option');
+        btn.setAttribute('data-value', opt.value);
+        btn.setAttribute('aria-selected', select.value === opt.value ? 'true' : 'false');
+        btn.textContent = opt.text;
+        btn.addEventListener('click', function() {
+            select.value = opt.value;
+            select.dispatchEvent(new Event('input', { bubbles: true }));
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            pfSyncDimensionSelectTrigger(shell);
+            pfCloseDimensionSelectPicker(shell);
+            if (typeof pfSyncSelectOthersWrap === 'function') pfSyncSelectOthersWrap(select);
+            if (typeof updateConditionalFields === 'function') updateConditionalFields();
+            if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
+            trigger.focus();
+        });
+        li.appendChild(btn);
+        menu.appendChild(li);
+    });
+    pfSyncDimensionSelectTrigger(shell);
+    return true;
+}
+
+function pfOpenDimensionSelectPicker(shell) {
+    if (!shell) return false;
+    const ready = pfRenderDimensionSelectMenu(shell);
+    if (!ready) return false;
+    const menu = shell.querySelector('.pf-dim-select-menu');
+    const trigger = shell.querySelector('.pf-dim-select-trigger');
+    document.querySelectorAll('.pf-dim-select-shell').forEach(function(other) {
+        if (other !== shell) pfCloseDimensionSelectPicker(other);
+    });
+    if (menu) menu.hidden = false;
+    if (trigger) trigger.setAttribute('aria-expanded', 'true');
+    const selected = menu ? menu.querySelector('.pf-dim-select-option[aria-selected="true"]') : null;
+    const first = menu ? menu.querySelector('.pf-dim-select-option') : null;
+    (selected || first)?.focus();
+    return true;
+}
+
+function pfInitDimensionSelectPickers(root) {
+    const scope = (root && typeof root.querySelectorAll === 'function') ? root : document;
+    scope.querySelectorAll('select').forEach(function(select) {
+        if (!pfSelectLooksLikeDimensionField(select)) return;
+        if (select.closest('.pf-dim-select-shell')) {
+            const existingShell = select.closest('.pf-dim-select-shell');
+            pfRenderDimensionSelectMenu(existingShell);
+            return;
+        }
+        if (select.dataset.pfDimPickerBound === '1') return;
+        select.dataset.pfDimPickerBound = '1';
+
+        const shell = document.createElement('div');
+        shell.className = 'pf-dim-select-shell';
+        shell.setAttribute('data-pf-dim-select-shell', '1');
+        const parent = select.parentNode;
+        if (!parent) return;
+        parent.insertBefore(shell, select);
+        shell.appendChild(select);
+
+        const trigger = document.createElement('button');
+        trigger.type = 'button';
+        trigger.className = 'shopee-opt-btn pf-dim-select-trigger';
+        trigger.setAttribute('aria-haspopup', 'listbox');
+        trigger.setAttribute('aria-expanded', 'false');
+        trigger.innerHTML = '<span class="pf-dim-select-trigger-label"></span><span aria-hidden="true">▾</span>';
+        shell.appendChild(trigger);
+
+        const menu = document.createElement('ul');
+        menu.className = 'pf-dim-select-menu';
+        menu.setAttribute('role', 'listbox');
+        menu.hidden = true;
+        shell.appendChild(menu);
+
+        const error = document.createElement('div');
+        error.className = 'pf-dim-select-error';
+        error.hidden = true;
+        shell.appendChild(error);
+
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'pf-dim-select-retry';
+        retry.textContent = 'Retry loading dimensions';
+        retry.hidden = true;
+        shell.appendChild(retry);
+
+        trigger.addEventListener('click', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (menu.hidden) pfOpenDimensionSelectPicker(shell);
+            else pfCloseDimensionSelectPicker(shell);
+        });
+        trigger.addEventListener('keydown', function(event) {
+            if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                pfOpenDimensionSelectPicker(shell);
+            } else if (event.key === 'Escape') {
+                pfCloseDimensionSelectPicker(shell);
+            }
+        });
+        menu.addEventListener('keydown', function(event) {
+            const options = [...menu.querySelectorAll('.pf-dim-select-option')];
+            const current = document.activeElement;
+            const idx = options.indexOf(current);
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                pfCloseDimensionSelectPicker(shell);
+                trigger.focus();
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                (options[Math.min(options.length - 1, idx + 1)] || options[0])?.focus();
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                (options[Math.max(0, idx - 1)] || options[0])?.focus();
+            } else if (event.key === 'Home') {
+                event.preventDefault();
+                options[0]?.focus();
+            } else if (event.key === 'End') {
+                event.preventDefault();
+                options[options.length - 1]?.focus();
+            }
+        });
+        retry.addEventListener('click', function(event) {
+            event.preventDefault();
+            pfRenderDimensionSelectMenu(shell);
+            if (!menu.hidden || pfDimensionSelectSelectableOptions(select).length > 0) {
+                pfOpenDimensionSelectPicker(shell);
+            }
+        });
+        select.addEventListener('change', function() {
+            pfSyncDimensionSelectTrigger(shell);
+        });
+        pfRenderDimensionSelectMenu(shell);
+    });
+
+    if (!window.__pfDimSelectPickerDocBound) {
+        window.__pfDimSelectPickerDocBound = true;
+        document.addEventListener('click', function(event) {
+            document.querySelectorAll('.pf-dim-select-shell').forEach(function(shell) {
+                if (!shell.contains(event.target)) pfCloseDimensionSelectPicker(shell);
+            });
+        });
+        document.addEventListener('keydown', function(event) {
+            if (event.key !== 'Escape') return;
+            document.querySelectorAll('.pf-dim-select-shell').forEach(pfCloseDimensionSelectPicker);
+        });
+    }
+}
+
 function initServiceFieldRenderer(root) {
     const scope = (root && typeof root.querySelectorAll === 'function') ? root : document;
     const q = (selector) => scope.querySelectorAll(selector);
@@ -2721,7 +2938,12 @@ function initServiceFieldRenderer(root) {
         initPfFieldHelpTooltips(document);
     }
     pfPrepareServiceFormDimensions(scope);
+    pfInitDimensionSelectPickers(scope);
 }
+
+window.pfInitDimensionSelectPickers = pfInitDimensionSelectPickers;
+window.pfSelectLooksLikeDimensionField = pfSelectLooksLikeDimensionField;
+window.pfDimensionSelectSelectableOptions = pfDimensionSelectSelectableOptions;
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initServiceFieldRenderer);

@@ -168,6 +168,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             min-height: 2.25rem;
         }
 
+        /* Native <select> pickers break under display:flex/inline-flex in Chromium. */
+        select.shopee-opt-btn {
+            display: inline-block !important;
+            align-items: normal;
+            justify-content: normal;
+            text-align: left;
+        }
+
         .shopee-opt-btn:hover {
             border-color: var(--staff-primary);
             background: var(--staff-toolbar-hover-bg);
@@ -318,11 +326,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             color: #374151 !important;
         }
 
-        /* Native <select> menus break under overflow:hidden from .shopee-opt-btn. */
+        /* Native <select> menus break under overflow:hidden + flex from .shopee-opt-btn.
+           Dimension fields use a custom listbox; keep native selects usable as fallback. */
         #service-modal-overlay select.shopee-opt-btn {
             appearance: none;
             -webkit-appearance: none;
             -moz-appearance: none;
+            display: inline-block !important;
             overflow: visible !important;
             pointer-events: auto !important;
             cursor: pointer !important;
@@ -334,6 +344,95 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             background-position: right 0.75rem center;
             background-size: 1rem;
             padding-right: 2.5rem !important;
+        }
+
+        #service-modal-overlay .pf-dim-select-shell {
+            position: relative;
+            width: 175px;
+            max-width: 100%;
+        }
+
+        #service-modal-overlay .pf-dim-select-shell > select.shopee-opt-btn {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0 !important;
+            margin: -1px;
+            overflow: hidden !important;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0 !important;
+            opacity: 0;
+            pointer-events: none !important;
+        }
+
+        #service-modal-overlay .pf-dim-select-trigger {
+            width: 100%;
+            justify-content: space-between;
+            text-align: left;
+            gap: 8px;
+        }
+
+        #service-modal-overlay .pf-dim-select-trigger[disabled] {
+            opacity: 0.65;
+            cursor: not-allowed !important;
+        }
+
+        #service-modal-overlay .pf-dim-select-menu {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: calc(100% + 4px);
+            z-index: 40;
+            margin: 0;
+            padding: 6px 0;
+            list-style: none;
+            max-height: 220px;
+            overflow-y: auto;
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+        }
+
+        #service-modal-overlay .pf-dim-select-menu[hidden] {
+            display: none !important;
+        }
+
+        #service-modal-overlay .pf-dim-select-option {
+            width: 100%;
+            border: 0;
+            background: transparent;
+            text-align: left;
+            padding: 8px 12px;
+            font-size: 0.875rem;
+            color: #0f172a;
+            cursor: pointer;
+        }
+
+        #service-modal-overlay .pf-dim-select-option:hover,
+        #service-modal-overlay .pf-dim-select-option[aria-selected="true"] {
+            background: #f1f5f9;
+        }
+
+        #service-modal-overlay .pf-dim-select-error {
+            margin-top: 8px;
+            color: #b91c1c;
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1.35;
+        }
+
+        #service-modal-overlay .pf-dim-select-retry {
+            margin-top: 6px;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #0f172a;
+            border-radius: 6px;
+            padding: 4px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
         }
 
         #service-modal-overlay select.shopee-opt-btn option {

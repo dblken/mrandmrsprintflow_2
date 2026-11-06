@@ -56,8 +56,10 @@ $assert(str_contains($scripts, 'pfIsCustomSizeOptionValue'),
     'Custom Size option values open the guided panel');
 
 $pos = (string)file_get_contents(dirname(__DIR__) . '/staff/pos.php');
-$assert(str_contains($pos, 'overflow: visible !important')
-    && str_contains($pos, '#service-modal-overlay select.shopee-opt-btn'),
-    'POS modal CSS keeps native dimension selects interactive');
+$assert(str_contains($pos, 'display: inline-block !important')
+    && str_contains($pos, 'select.shopee-opt-btn'),
+    'POS CSS prevents flex layout from breaking dimension selects');
+$assert(str_contains($scripts, 'pfInitDimensionSelectPickers'),
+    'Brochure dimensions select is enhanced with the custom picker');
 
 echo "POS Brochure dimensions select tests passed.\n";
