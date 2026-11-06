@@ -10,10 +10,12 @@ $assertions = [
     'only truly blocked compatibility states are disabled' => str_contains($source, ':disabled="!item.compatibility.selectable"') && str_contains($source, ':aria-disabled="item.compatibility.selectable'),
     'keyboard material selection is wired' => str_contains($source, '@keydown.arrow-down.prevent') && str_contains($source, '@keydown.enter.prevent'),
     'one click queues the material with an editable Actual Usage field' => str_contains($source, 'queueMaterialFromPicker(item') && str_contains($source, 'Actual Usage:') && !str_contains($source, '>Add actual usage</button>') && !str_contains($source, '>Confirm Actual Usage</button>'),
-    'Tarpaulin assignment exposes editable Width and Height plus linear Actual Usage' => str_contains($source, 'handlePendingTarpaulinDimensionInput')
+    'Tarpaulin assignment exposes side-by-side Width/Height without a visible Actual Usage input' => str_contains($source, 'handlePendingTarpaulinDimensionInput')
+        && str_contains($source, 'pos-tarp-assignment-dims')
         && str_contains($source, 'customer_width_ft')
         && str_contains($source, 'customer_height_ft')
-        && str_contains($source, 'Actual Usage is linear roll length'),
+        && str_contains($source, 'x-show="!isPendingTarpaulinMaterial(pm)"')
+        && str_contains($source, 'calculated_linear_ft'),
     'Tarpaulin auto-selects the fitted roll and can prefill calculated Actual Usage' => str_contains($source, 'maybeAutoSelectTarpaulinRoll') && str_contains($source, 'tarpaulin_linear_ft') && str_contains($source, 'out.Width') && str_contains($source, 'out.Height'),
     'secondary add-to-content button is removed' => !str_contains($source, '>Add to Order Content</button>'),
     'selected state persists for queued and saved materials' => str_contains($source, "'is-selected': isMaterialSelected(item.id)") && str_contains($source, 'isMaterialSelected(itemId)'),

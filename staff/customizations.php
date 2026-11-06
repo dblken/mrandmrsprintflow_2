@@ -3206,30 +3206,30 @@ $online_closed_count = 0;
                                                 <div style="display:flex; align-items:center; justify-content:space-between; background:#f1f5f9; border-radius:8px; padding:8px 12px; font-size:12px; border:1px solid #e2e8f0; gap:10px;">
                                                     <div style="min-width:0;">
                                                         <div style="font-weight:600; color:#1e293b;" x-text="pm.name + (pm.size_variant ? ' · ' + pm.size_variant : '')"></div>
-                                                        <div x-show="isPendingTarpaulinMaterial(pm)" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;">
-                                                            <label style="display:grid;gap:3px;color:#334155;font-size:11px;font-weight:700;">Width (ft)
+                                                        <div x-show="isPendingTarpaulinMaterial(pm)" class="pos-tarp-assignment-dims" style="display:flex; flex-direction:row; align-items:flex-end; gap:8px; margin-top:6px; width:100%;">
+                                                            <label style="flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:3px; color:#334155; font-size:11px; font-weight:700;">Width (ft)
                                                                 <input type="number" min="0.01" step="any" inputmode="decimal"
                                                                        :value="pm.customer_width_ft"
                                                                        @input="handlePendingTarpaulinDimensionInput(pm, 'width', $event.target.value)"
                                                                        aria-label="Tarpaulin customer width in feet"
-                                                                       style="width:100%;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
+                                                                       style="width:100%; box-sizing:border-box; padding:3px 5px; border:1px solid #cbd5e1; border-radius:5px;">
                                                             </label>
-                                                            <label style="display:grid;gap:3px;color:#334155;font-size:11px;font-weight:700;">Height (ft)
+                                                            <label style="flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:3px; color:#334155; font-size:11px; font-weight:700;">Height (ft)
                                                                 <input type="number" min="0.01" step="any" inputmode="decimal"
                                                                        :value="pm.customer_height_ft"
                                                                        @input="handlePendingTarpaulinDimensionInput(pm, 'height', $event.target.value)"
                                                                        aria-label="Tarpaulin customer height in feet"
-                                                                       style="width:100%;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
+                                                                       style="width:100%; box-sizing:border-box; padding:3px 5px; border:1px solid #cbd5e1; border-radius:5px;">
                                                             </label>
                                                         </div>
-                                                        <div style="margin-top:3px;color:#64748b;font-size:11px;" x-text="isPendingTarpaulinMaterial(pm) ? 'Actual Usage is linear roll length in the inventory unit (ft), calculated from Width × Height and roll width.' : 'Enter the actual quantity used in the inventory unit.'"></div>
-                                                        <label style="display:block;color:#334155;font-size:11px;margin-top:5px;font-weight:700;">Actual Usage:
+                                                        <div x-show="!isPendingTarpaulinMaterial(pm)" style="margin-top:3px;color:#64748b;font-size:11px;">Enter the actual quantity used in the inventory unit.</div>
+                                                        <label x-show="!isPendingTarpaulinMaterial(pm)" style="display:block;color:#334155;font-size:11px;margin-top:5px;font-weight:700;">Actual Usage:
                                                             <input type="number" min="0.001" step="any" :value="pm.qty" @beforeinput="markPendingMaterialQtyEdit(pm, $event.target, $event)" @keydown="markPendingMaterialQtyKeyEdit(pm, $event.target, $event)" @keyup="clearPendingMaterialQtyKeyEdit($event.target)" @pointerdown="markPendingMaterialQtyPointerEdit(pm, $event.target, $event)" @pointerup="clearPendingMaterialQtyPointerEdit($event.target)" @pointercancel="clearPendingMaterialQtyPointerEdit($event.target)" @input="handlePendingMaterialQtyInput(pm, $event.target.value, $event.target, $event)" @blur="handlePendingMaterialQtyBlur(pm, $event.target, $event)" aria-label="Actual material usage quantity"
                                                                    style="width:84px;margin:0 3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
                                                             <span x-text="pm.uom"></span>
                                                         </label>
                                                         <div x-show="pm.dimension_fit_error" x-text="pm.dimension_fit_error" role="alert" style="margin-top:5px;color:#b91c1c;font-weight:700;"></div>
-                                                        <div x-show="!pm.manual_quantity_confirmed && !pm.dimension_fit_error" style="margin-top:5px;color:#b45309;font-weight:700;">Enter a valid actual quantity before saving.</div>
+                                                        <div x-show="!isPendingTarpaulinMaterial(pm) && !pm.manual_quantity_confirmed && !pm.dimension_fit_error" style="margin-top:5px;color:#b45309;font-weight:700;">Enter a valid actual quantity before saving.</div>
                                                         <div x-show="pendingMaterialStockError(pm)" x-text="pendingMaterialStockError(pm)" role="alert" style="margin-top:5px;color:#b91c1c;font-weight:700;"></div>
                                                     </div>
                                                     <button type="button" @click="removePendingMaterial(idx)" title="Remove material" aria-label="Remove material"
@@ -4662,15 +4662,22 @@ window.pfServiceFieldCatalog = (() => {
                     return false;
                 }
                 const qty = Number(Number(calc.required_linear_ft).toFixed(3));
+                // Inventory deduction quantity stays linear roll feet — never W×H area.
                 material.qty = qty;
                 material.estimated_qty = qty;
+                material.uom = material.uom || 'ft';
                 material.dimension_fit_error = '';
                 material.usage_method = 'tarpaulin_linear_ft';
-                material.usage_estimate_reason = 'Calculated from assignment Width × Height against the selected Tarpaulin roll width.';
+                material.usage_estimate_reason = 'Calculated linear roll length from assignment Width × Height and roll width.';
                 material.manual_confirmation_required = true;
                 material.manual_quantity_confirmed = true;
                 material.actual_usage_overridden = false;
                 if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
+                material.metadata.calculation_version = 'linear_ft_v1';
+                material.metadata.calculated_linear_ft = qty;
+                material.metadata.inventory_uom = 'ft';
+                material.metadata.customer_width_ft = width;
+                material.metadata.customer_height_ft = height;
                 material.metadata.material_usage = {
                     estimate: qty,
                     actual: qty,
@@ -4680,11 +4687,11 @@ window.pfServiceFieldCatalog = (() => {
                     overridden: false,
                     roll_width_ft: calc.roll_width_ft || null,
                     orientation: calc.orientation || null,
+                    run_length_per_piece_ft: calc.run_length_per_piece_ft || null,
                     customer_width_ft: width,
                     customer_height_ft: height,
+                    calculated_linear_ft: qty,
                 };
-                material.metadata.customer_width_ft = width;
-                material.metadata.customer_height_ft = height;
                 this.clearPendingMaterialConfirmationError(material);
                 if (this.productionErrors.material && /cannot fit/i.test(this.productionErrors.material)) {
                     this.productionErrors.material = '';
@@ -8690,6 +8697,9 @@ window.pfServiceFieldCatalog = (() => {
                     customer_height_ft: isTarpaulin ? customerHeightFt : '',
                     dimension_fit_error: '',
                     metadata: {
+                        calculation_version: isTarpaulin && estimatedQty !== null ? 'linear_ft_v1' : null,
+                        calculated_linear_ft: isTarpaulin && estimatedQty !== null ? estimatedQty : null,
+                        inventory_uom: isTarpaulin ? entryUom : null,
                         customer_width_ft: isTarpaulin ? customerWidthFt : null,
                         customer_height_ft: isTarpaulin ? customerHeightFt : null,
                         material_usage: {
@@ -8701,8 +8711,10 @@ window.pfServiceFieldCatalog = (() => {
                             overridden: false,
                             roll_width_ft: calc && calc.roll_width_ft ? calc.roll_width_ft : null,
                             orientation: calc && calc.orientation ? calc.orientation : null,
+                            run_length_per_piece_ft: calc && calc.run_length_per_piece_ft ? calc.run_length_per_piece_ft : null,
                             customer_width_ft: isTarpaulin ? customerWidthFt : null,
                             customer_height_ft: isTarpaulin ? customerHeightFt : null,
+                            calculated_linear_ft: isTarpaulin && estimatedQty !== null ? estimatedQty : null,
                         }
                     },
                     estimated_qty: estimatedQty,

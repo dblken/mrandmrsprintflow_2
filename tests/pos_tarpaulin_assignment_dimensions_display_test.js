@@ -176,15 +176,21 @@ assert.ok(
     'PHP display specs still expose customer dimension values'
 );
 
-// --- Assignment Width/Height + linear-ft Actual Usage ---
+// --- Assignment Width/Height side-by-side; no visible Tarpaulin Actual Usage ---
 assert.match(customSource, /handlePendingTarpaulinDimensionInput/, 'assignment row supports editable Tarpaulin Width/Height');
-assert.match(customSource, /customer_width_ft/, 'pending materials store customer width separately from Actual Usage');
-assert.match(customSource, /customer_height_ft/, 'pending materials store customer height separately from Actual Usage');
+assert.match(customSource, /pos-tarp-assignment-dims/, 'Tarpaulin Width/Height share one side-by-side row container');
+assert.match(customSource, /display:flex;\s*flex-direction:row/, 'Width and Height render side by side in one row');
+assert.match(customSource, /customer_width_ft/, 'pending materials store customer width separately from inventory qty');
+assert.match(customSource, /customer_height_ft/, 'pending materials store customer height separately from inventory qty');
 assert.match(customSource, /recalculatePendingTarpaulinFromDimensions/, 'editing dimensions recalculates/revalidates roll fit');
 assert.match(customSource, /cannot fit/, 'incompatible dimensions remove/clear the selected roll');
-assert.match(customSource, /Actual Usage is linear roll length/, 'UI copy keeps Actual Usage distinct from Width/Height');
+assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\)"[\s\S]*Actual Usage:/,
+    'visible Actual Usage input is hidden for Tarpaulin rows');
+assert.match(customSource, /calculated_linear_ft/, 'assignment metadata audits calculated linear-ft deduction separately from dimensions');
 assert.match(pickerSource, /required_linear_ft/, 'picker calculates linear feet consumption');
 assert.match(pickerSource, /unit_of_measure|TARPAULIN \(FT\)|rollWidth/, 'roll fit uses inventory roll width semantics');
+assert.match(customSource, /pendingMaterialStockError/, 'branch stock check runs against calculated usage before save');
+assert.match(customSource, /validate_service_materials/, 'save path revalidates assigned material stock before persisting');
 
 const recalcMethod = extractObjectMethod(
     customSource,
@@ -213,10 +219,23 @@ const runtime = new Function(`return ({
         if (!(w > 0) || !(h > 0)) return null;
         if (w > roll && h > roll) return null;
         const run = w <= roll ? h : w;
-        return { required_linear_ft: run, roll_width_ft: roll, orientation: w <= roll ? 'original' : 'rotated' };
+        return {
+            required_linear_ft: run,
+            roll_width_ft: roll,
+            orientation: w <= roll ? 'original' : 'rotated',
+            run_length_per_piece_ft: run
+        };
     },
     clearPendingMaterialConfirmationError() {},
     showStaffAlert() { this._alerted = true; },
+    pendingMaterialStockError(material) {
+        const available = 1;
+        const needed = Number(material.qty || 0);
+        if (needed > available) {
+            return 'Insufficient 3ft Tarpaulin stock: requested ' + needed + ' ft, available ' + available + ' ft in this branch.';
+        }
+        return '';
+    }
 });`)();
 
 runtime.pendingMaterials = [{
@@ -234,9 +253,20 @@ runtime.pendingMaterials = [{
 const material = runtime.pendingMaterials[0];
 assert.strictEqual(runtime.isPendingTarpaulinMaterial(material), true);
 assert.strictEqual(runtime.recalculatePendingTarpaulinFromDimensions(material), true);
-assert.strictEqual(material.qty, 2, '2×2 on 3ft roll keeps Actual Usage as 2 linear ft');
-assert.strictEqual(material.customer_width_ft, 2);
-assert.strictEqual(material.customer_height_ft, 2);
+assert.strictEqual(material.qty, 2, '2×2 on 3ft roll saves/deducts 2 linear ft, not 4 sq ft');
+assert.strictEqual(material.metadata.calculated_linear_ft, 2, 'audit metadata stores calculated linear-ft deduction');
+assert.strictEqual(material.metadata.customer_width_ft, 2, 'audit metadata stores customer width separately');
+assert.strictEqual(material.metadata.customer_height_ft, 2, 'audit metadata stores customer height separately');
+assert.notStrictEqual(material.qty, 2 * 2, 'deduction quantity is not Width × Height area');
+
+material.customer_width_ft = 3;
+material.customer_height_ft = 4;
+assert.strictEqual(runtime.recalculatePendingTarpaulinFromDimensions(material), true,
+    'dimension edits recalculate usage while the roll still fits');
+assert.strictEqual(material.qty, 4, '3×4 on 3ft roll consumes 4 linear ft along the roll');
+
+assert.match(runtime.pendingMaterialStockError({ qty: 2, uom: 'ft' }), /Insufficient/,
+    'insufficient branch stock blocks using calculated linear-ft demand');
 
 material.customer_width_ft = 6;
 material.customer_height_ft = 6;
@@ -245,8 +275,12 @@ assert.strictEqual(runtime.recalculatePendingTarpaulinFromDimensions(material), 
 assert.strictEqual(runtime.pendingMaterials.length, 0, 'incompatible roll is removed from the assignment queue');
 assert.ok(runtime._alerted, 'staff receives a clear unfit-roll alert');
 
+assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\)"[\s\S]{0,240}Actual Usage:/,
+    'non-Tarpaulin services retain the Actual Usage input');
+
 console.log(JSON.stringify({
-    selection_source: 'pos_tarpaulin_selection written by POS stock validation / checkout (linear_ft_v1 roll fit + required_linear_ft)',
-    inventory_uom: 'ft linear roll length (required_linear_ft); Width/Height remain customer finished dimensions',
+    formula: 'required_linear_ft = min run length after fitting either finished dimension across roll width (linear_ft_v1)',
+    example_2x2_on_3ft: 'required_linear_ft = 2',
+    inventory_uom: 'ft linear roll length saved as assignment quantity (manual_v1 deduction)',
     status: 'POS Tarpaulin assignment dimensions + display regression tests passed.'
 }, null, 2));
