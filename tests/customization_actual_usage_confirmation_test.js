@@ -77,7 +77,7 @@ function dispatchSameValueEditWithoutInput(ctx, material, value) {
     return target;
 }
 
-const confirmationError = 'Confirm the actual usage for Pp Stkr Matte 98 before saving.';
+const confirmationError = 'Enter a valid actual quantity for Pp Stkr Matte 98 before saving.';
 const item = {
     name: 'Pp Stkr Matte 98',
     uom: 'pcs',
@@ -186,7 +186,7 @@ assert.equal(validateEstimatedMaterial(item), true, 'The same pending material p
 
 for (const qty of ['1', '2', '5']) {
     const pieceMaterial = { ...item, name: `Piece material ${qty}`, uom: 'pcs', qty: 1, estimated_qty: null, manual_confirmation_required: true, manual_quantity_confirmed: false, metadata: { material_usage: { staff_confirmed: false } } };
-    const pieceContext = context(`Confirm the actual usage for ${pieceMaterial.name} before saving.`);
+    const pieceContext = context(`Enter a valid actual quantity for ${pieceMaterial.name} before saving.`);
     dispatchActualUsageInput(pieceContext, pieceMaterial, qty);
     assert.equal(pieceMaterial.qty, Number(qty), `Valid piece quantity ${qty} is retained.`);
     assert.equal(validateEstimatedMaterial(pieceMaterial), true, `Valid piece quantity ${qty} passes final assignment validation.`);
@@ -204,7 +204,7 @@ for (const [itemId, name] of [[206, 'Sintra 3mm'], [207, 'Sintra 5mm']]) {
         manual_quantity_confirmed: false,
         metadata: { material_usage: { method: 'manual', staff_confirmed: false } }
     };
-    const sintraContext = context(`Confirm the actual usage for ${name} before saving.`);
+    const sintraContext = context(`Enter a valid actual quantity for ${name} before saving.`);
     dispatchActualUsageInput(sintraContext, sintraMaterial, '2');
     assert.equal(sintraMaterial.qty, 2, `${name} Actual Usage input updates the selected material quantity.`);
     assert.equal(sintraMaterial.uom, 'pcs', `${name} retains its configured inventory unit.`);
@@ -254,7 +254,7 @@ dispatchActualUsageInput(context(''), recalcMaterial, '1');
 assert.equal(validateEstimatedMaterial(recalcMaterial), true, 'An explicit valid quantity after recalculation passes final validation.');
 
 const estimatedRecalcMaterial = { ...recalcMaterial, qty: 4, estimated_qty: 2, manual_quantity_confirmed: true, metadata: {} };
-const exactRecalcWarning = `Confirm the actual usage for ${estimatedRecalcMaterial.name} before saving.`;
+const exactRecalcWarning = `Enter a valid actual quantity for ${estimatedRecalcMaterial.name} before saving.`;
 const estimatedRecalcContext = {
     pendingMaterials: [estimatedRecalcMaterial],
     getInventoryItem: () => ({ id: 504 }),
@@ -355,7 +355,7 @@ for (const material of [
     { ...item, name: 'Sticker Blue', item_id: 31, uom: 'ft', estimated_qty: null, manual_confirmation_required: true, manual_quantity_confirmed: false },
     { ...item, name: 'Hologram Roll', item_id: 44, uom: 'ft', qty: 1.5, estimated_qty: 1, manual_confirmation_required: false }
 ]) {
-    const materialContext = context(`Confirm the actual usage for ${material.name} before saving.`);
+    const materialContext = context(`Enter a valid actual quantity for ${material.name} before saving.`);
     dispatchActualUsageInput(materialContext, material, material.qty);
     assert.equal(material.manual_quantity_confirmed, true, `${material.name} accepts a valid actual quantity in its unit.`);
     assert.equal(materialContext.productionErrors.material, '', `${material.name} clears its own confirmation message.`);
@@ -363,10 +363,10 @@ for (const material of [
     assert.equal(validateEstimatedMaterial(material), true, `${material.name} passes the final validator after its bound input event.`);
 }
 
-const otherMaterialWarning = context('Confirm the actual usage for Nextjet before saving.');
+const otherMaterialWarning = context('Enter a valid actual quantity for Nextjet before saving.');
 dispatchActualUsageInput(otherMaterialWarning, { ...item, name: 'Sticker Blue', metadata: {} }, '2');
-assert.equal(otherMaterialWarning.productionErrors.material, 'Confirm the actual usage for Nextjet before saving.', 'Editing another material does not clear its warning.');
-assert.equal(otherMaterialWarning.footerActionError, 'Confirm the actual usage for Nextjet before saving.', 'Editing another material does not clear its footer warning.');
+assert.equal(otherMaterialWarning.productionErrors.material, 'Enter a valid actual quantity for Nextjet before saving.', 'Editing another material does not clear its warning.');
+assert.equal(otherMaterialWarning.footerActionError, 'Enter a valid actual quantity for Nextjet before saving.', 'Editing another material does not clear its footer warning.');
 
 const duplicateFeedbackContext = {
     productionErrors: { material: confirmationError, ink_set: '', ink_consumption: '' },

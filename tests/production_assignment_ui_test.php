@@ -9,7 +9,7 @@ $assertions = [
     'picker has an internal bounded scroller' => str_contains($source, '.production-material-results') && str_contains($source, 'max-height: 260px'),
     'only truly blocked compatibility states are disabled' => str_contains($source, ':disabled="!item.compatibility.selectable"') && str_contains($source, ':aria-disabled="item.compatibility.selectable'),
     'keyboard material selection is wired' => str_contains($source, '@keydown.arrow-down.prevent') && str_contains($source, '@keydown.enter.prevent'),
-    'selecting a material does not queue it before actual quantity entry' => str_contains($source, "newMaterialQty: ''") && str_contains($source, '>Add actual usage</button>') && str_contains($source, 'isValidPosMaterialQuantity(newMaterialQty,newMaterialId)'),
+    'one click queues the material with an editable Actual Usage field' => str_contains($source, 'queueMaterialFromPicker(item)') && str_contains($source, "qty: ''") && str_contains($source, 'Actual Usage:') && !str_contains($source, '>Add actual usage</button>') && !str_contains($source, '>Confirm Actual Usage</button>'),
     'secondary add-to-content button is removed' => !str_contains($source, '>Add to Order Content</button>'),
     'selected state persists for queued and saved materials' => str_contains($source, "'is-selected': isMaterialSelected(item.id)") && str_contains($source, 'isMaterialSelected(itemId)'),
     'selected state includes visible check badge' => str_contains($source, 'production-material-option__selected-badge') && str_contains($source, 'Selected'),

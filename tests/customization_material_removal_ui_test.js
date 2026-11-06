@@ -40,8 +40,9 @@ const reopenAssignedMaterialUsage = compileMethod('reopenAssignedMaterialUsage',
 
 assert.match(page, /x-show="canReopenMaterialUsage\(m\)"[\s\S]*?@click="reopenAssignedMaterialUsage\(m\.id\)"[\s\S]*?Edit Actual Usage/,
     'Saved assignment rows expose an explicit actual-usage correction action when safe.');
-assert.match(page, /x-if="isVersionedTarpaulinMaterial\(pm\.item_id\)"[\s\S]*?Linear Ft:[\s\S]*?x-if="!isVersionedTarpaulinMaterial\(pm\.item_id\)"[\s\S]*?Actual Usage:/,
-    'Only the versioned Tarpaulin workflow uses its dedicated linear-feet controls; other selected materials get Actual Usage.');
+assert.match(page, /Actual Usage:[\s\S]*?:value="pm\.qty"[\s\S]*?x-text="pm\.uom"/,
+    'Queued materials expose one Actual Usage field in the material inventory unit.');
+assert.doesNotMatch(page, /Linear Ft:/, 'Legacy Linear Ft pending-material controls stay removed in favor of Actual Usage.');
 
 async function runSuccessCase(itemId, itemName) {
     const assigned = { id: 900 + itemId, item_id: itemId, item_name: itemName, deducted_at: null };
@@ -65,6 +66,12 @@ async function runSuccessCase(itemId, itemName) {
         handleMaterialSelection(id) { this.selectedAgain.push(String(id)); },
         syncInkSelectionWithMaterial() {},
         addMaterialToQueue() { this.queuedAgain += 1; },
+        queueMaterialFromPicker(item) {
+            this.selectedAgain.push(String(item.id));
+            this.queuedAgain += 1;
+            this.pendingMaterials.push({ item_id: item.id, qty: '', manual_quantity_confirmed: false });
+            this.materialListExpanded = true;
+        },
         materialClassification() { return { selectable: true, directSelectable: true }; },
         removePendingMaterial() {},
         isMaterialSelected,
@@ -92,7 +99,8 @@ async function runSuccessCase(itemId, itemName) {
 
     selectMaterialCandidate.call(ctx, { id: itemId, compatibility: { selectable: true, directSelectable: true } });
     assert.deepEqual(ctx.selectedAgain, [String(itemId)], `${itemName} can be selected again after correction`);
-    assert.equal(ctx.queuedAgain, 1, `${itemName} reselection follows the normal queue path`);
+    assert.equal(ctx.queuedAgain, 1, `${itemName} reselection one-click queues the material again`);
+    assert.equal(ctx.pendingMaterials.length, 1, `${itemName} appears in the pending assignment list after reselection`);
 }
 
 async function runRejectedCase(reason) {
