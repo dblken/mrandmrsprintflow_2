@@ -18,6 +18,7 @@ require_once __DIR__ . '/../../includes/pos_set_price_helpers.php';
 require_once __DIR__ . '/../../includes/JobOrderService.php';
 require_once __DIR__ . '/../../includes/pos_quantity_validation.php';
 require_once __DIR__ . '/../../includes/pos_service_stock_validation.php';
+require_once __DIR__ . '/../../includes/pos_service_quantity_update.php';
 
 function pos_cart_staff_facing_service_material_error(string $message, array $requestData): string
 {
@@ -520,6 +521,7 @@ if ($action !== 'get' && !verify_csrf_token((string)($data['csrf_token'] ?? ''))
 try {
     pos_cart_ensure_tarpaulin_line_ids();
     $cartBeforeAction = array_values($_SESSION['pos_cart'] ?? []);
+    $jobQuantityRollback = null;
     $posBranchId = printflow_pos_authorized_branch_id();
     if ($action !== 'clear') printflow_pos_assert_cart_branch($posBranchId);
     switch ($action) {
@@ -801,10 +803,18 @@ try {
                     if ((int)($item['product_id'] ?? 0) === 40 && is_array($item['customization'] ?? null)) {
                         unset($item['customization']['pos_tarpaulin_selection']);
                     }
-                    // Preserve the selected layout / design-line identity, then
-                    // rebuild unit price + one-time design fee from server config.
+                    // Preserve layout / design-line identity and confirmed Set Price
+                    // completion. Rebuild unit + one-time fee from server config,
+                    // then scale the confirmed final total and material demand.
                     $serviceCustomization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
                     $preservedDesignLineId = trim((string)($serviceCustomization['pos_design_line_id'] ?? ''));
+                    $preservedCartLineId = trim((string)($item['pos_cart_line_id'] ?? ''));
+                    $wasPriceSet = !empty($item['price_set']);
+                    $previousOverride = $item['line_total_override'] ?? null;
+                    $previousDesignFee = (float)($item['design_fee'] ?? ($serviceCustomization['design_fee'] ?? 0));
+                    $existingAssignments = is_array($item['pos_material_assignments'] ?? null)
+                        ? $item['pos_material_assignments']
+                        : null;
                     $serviceId = (int)($serviceCustomization['service_id'] ?? $item['product_id'] ?? 0);
                     $serviceFieldConfigs = ($serviceId > 0 && function_exists('get_service_field_config'))
                         ? get_service_field_config($serviceId)
@@ -827,12 +837,53 @@ try {
                     if ($preservedDesignLineId !== '') {
                         $item['customization']['pos_design_line_id'] = $preservedDesignLineId;
                     }
-                    // Quantity changes invalidate a previously staff-set final
-                    // line total so checkout uses the recalculated estimate
-                    // until Set Price is applied again.
+                    if ($preservedCartLineId !== '') {
+                        $item['pos_cart_line_id'] = $preservedCartLineId;
+                    }
                     if ($previousQty !== $qty) {
-                        unset($item['line_total_override']);
-                        $item['price_set'] = false;
+                        printflow_pos_apply_quantity_change_to_confirmed_service_pricing(
+                            $item,
+                            $previousQty > 0 ? $previousQty : $qty,
+                            $qty,
+                            $wasPriceSet,
+                            $previousOverride,
+                            $previousDesignFee
+                        );
+                        $linkedJobId = printflow_pos_resolve_linked_service_job_id($item);
+                        $scaledFromJob = [];
+                        if ($linkedJobId > 0) {
+                            $jobSnapshot = printflow_pos_snapshot_job_quantity_materials($linkedJobId);
+                            $hasJobMaterials = !empty($jobSnapshot['materials']);
+                            if ($hasJobMaterials || $wasPriceSet) {
+                                $jobQuantityRollback = [
+                                    'job_id' => $linkedJobId,
+                                    'snapshot' => $jobSnapshot,
+                                ];
+                                $scaledFromJob = printflow_pos_sync_job_quantity_and_scale_materials(
+                                    $linkedJobId,
+                                    $previousQty > 0 ? $previousQty : $qty,
+                                    $qty
+                                );
+                            }
+                        }
+                        if ($scaledFromJob !== []) {
+                            $item['pos_material_assignments'] = $scaledFromJob;
+                        } elseif (is_array($existingAssignments) && $existingAssignments !== []) {
+                            $item['pos_material_assignments'] = printflow_pos_scale_material_assignment_rows(
+                                $existingAssignments,
+                                $previousQty > 0 ? $previousQty : $qty,
+                                $qty
+                            );
+                        } elseif (is_array($existingAssignments)) {
+                            $item['pos_material_assignments'] = $existingAssignments;
+                        }
+                    } elseif ($wasPriceSet) {
+                        // Same quantity refresh still keeps confirmation flags.
+                        $item['price_set'] = true;
+                        if ($previousOverride !== null && $previousOverride !== '') {
+                            $item['line_total_override'] = round((float)$previousOverride, 2);
+                            $item['price'] = round((float)$previousOverride, 2);
+                        }
                     }
                     if ((float)($item['design_fee'] ?? 0) > 0 && !printflow_order_items_has_design_fee_column()) {
                         throw new PosCartValidationException(['layout' => 'The design-fee database migration is required before this layout can be ordered.']);
@@ -1112,6 +1163,16 @@ try {
     ]);
 
 } catch (PosCartValidationException $e) {
+    if (isset($jobQuantityRollback['job_id'], $jobQuantityRollback['snapshot'])) {
+        try {
+            printflow_pos_restore_job_quantity_materials(
+                (int)$jobQuantityRollback['job_id'],
+                (array)$jobQuantityRollback['snapshot']
+            );
+        } catch (Throwable $ignoredRollback) {
+            // Cart restore below remains authoritative for the staff session.
+        }
+    }
     if (isset($cartBeforeAction) && session_status() === PHP_SESSION_ACTIVE) {
         $_SESSION['pos_cart'] = $cartBeforeAction;
     }
@@ -1123,6 +1184,16 @@ try {
         'cart' => array_values($_SESSION['pos_cart'] ?? [])
     ]);
 } catch (Exception $e) {
+    if (isset($jobQuantityRollback['job_id'], $jobQuantityRollback['snapshot'])) {
+        try {
+            printflow_pos_restore_job_quantity_materials(
+                (int)$jobQuantityRollback['job_id'],
+                (array)$jobQuantityRollback['snapshot']
+            );
+        } catch (Throwable $ignoredRollback) {
+            // Cart restore below remains authoritative for the staff session.
+        }
+    }
     if (isset($cartBeforeAction) && session_status() === PHP_SESSION_ACTIVE) {
         $_SESSION['pos_cart'] = $cartBeforeAction;
     }

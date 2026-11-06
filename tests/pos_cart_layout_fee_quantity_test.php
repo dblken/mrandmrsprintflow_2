@@ -117,8 +117,10 @@ expect_layout_qty(str_contains($handler, "case 'update':")
     'POS cart quantity update recalculates service line pricing server-side');
 expect_layout_qty(str_contains($handler, 'pos_design_line_id'),
     'quantity update preserves the design-line identity');
-expect_layout_qty(str_contains($handler, "\$item['price_set'] = false"),
-    'quantity change clears a stale Set Price override so totals stay authoritative');
+expect_layout_qty(str_contains($handler, 'printflow_pos_apply_quantity_change_to_confirmed_service_pricing'),
+    'quantity change preserves confirmed Set Price totals while repricing');
+expect_layout_qty(!str_contains($handler, "\$item['price_set'] = false"),
+    'quantity change does not clear a confirmed price_set flag');
 
 $pos = (string)file_get_contents(dirname(__DIR__) . '/staff/pos.php');
 expect_layout_qty(str_contains($pos, 'posCartItemDisplayedLineTotal')
