@@ -310,6 +310,8 @@ class InventoryManager {
      * For non-roll items, records a simple OUT transaction.
      */
     public static function issueStock($itemId, $quantity, $uom = null, $refType = 'ADJUSTMENT', $refId = null, $notes = '', $ignoreRollCheck = false, $allowNegativeBypass = false, $branchId = null, $transactionDate = null) {
+        global $conn;
+
         self::ensureBranchScopedSchema();
 
         $item = self::getItem($itemId);

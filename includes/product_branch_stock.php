@@ -334,6 +334,8 @@ function printflow_record_product_inventory_transaction(
     ?int $branchId = null,
     ?string $transactionId = null
 ) {
+    global $conn;
+
     if (!printflow_db_in_transaction($conn)) {
         printflow_ensure_product_inventory_transaction_schema();
     }
