@@ -65,9 +65,6 @@ const dimensionsControl = {
     dataset: { otherOption: 'Others' }
 };
 const unitControl = { name: 'dimensions_unit', type: 'hidden', value: 'ft' };
-const directionControl = { value: 'automatic' };
-const allowanceModeControl = { value: 'included' };
-const allowanceControl = { value: '0' };
 const input = {
     value: '1',
     name: 'quantity',
@@ -121,9 +118,6 @@ const fieldsBody = {
         if (selector.includes('.custom-dim-height')) return heightField;
         if (selector === 'select[name="dimensions"]') return dimensionsControl;
         if (selector.includes('input[name*="dimension" i]')) return unitControl;
-        if (selector.includes('[name="joining_direction"]')) return directionControl;
-        if (selector.includes('[name="joining_allowance_mode"]')) return allowanceModeControl;
-        if (selector.includes('[name="joining_allowance_ft"]')) return allowanceControl;
         return null;
     }
 };

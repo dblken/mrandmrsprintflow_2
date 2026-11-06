@@ -4748,7 +4748,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 overlay.dataset.materialDimensionFieldKey = String(data.material_dimension_field_key || '');
                 overlay.dataset.materialSelectionFieldMap = JSON.stringify(data.material_selection_field_map || {});
                 body.innerHTML = data.fields_html;
-                if (Number(serviceId) === 40) posEnsureTarpaulinJoiningControls(body);
                 footerActions.style.display = 'block';
                 isAddingToOrder = false;
                 setServiceAddButtonBusy(false);
@@ -5301,9 +5300,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return text;
             }
             if (Number(serviceId) === 40) {
-                // Tarpaulin dimensions and joining inputs are still validated
-                // and block Add to Order. Only surface stock/roll availability
-                // failures here; ordinary precheck text belongs to field validation.
+                // Tarpaulin dimensions still block Add to Order. Only surface
+                // stock/roll availability failures here; ordinary precheck text
+                // belongs to field validation. Joining direction/allowance are
+                // no longer collected on new POS Tarpaulin orders.
                 if (/no active tarpaulin roll width can fit|tarpaulin roll.*(?:no longer active|no longer available)|cannot be cut as continuous pieces from the available open rolls/i.test(text)) {
                     return text;
                 }
@@ -5311,7 +5311,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
             // Preserve actual dimension-entry validation. Configuration or
             // material-consumption explanations are not shown in POS feedback.
-            if (/^(?:width|height) must be|^the selected (?:size|option).*physical (?:width|height|dimensions)|^the configured dimension field|^this service must have one explicit dimension unit|^enter valid custom width|^additional allowance must be/i.test(text)) {
+            if (/^(?:width|height) must be|^the selected (?:size|option).*physical (?:width|height|dimensions)|^the configured dimension field|^this service must have one explicit dimension unit|^enter valid custom width/i.test(text)) {
                 return text;
             }
             if (/could not be verified|unable to validate|try again|network error/i.test(text)) {
@@ -5506,32 +5506,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     customization.height = pair.height;
                 }
             }
-            const joiningDirection = body.querySelector('[name="joining_direction"]');
-            const allowanceMode = body.querySelector('[name="joining_allowance_mode"]');
-            const allowance = body.querySelector('[name="joining_allowance_ft"]');
-            customization.joining_direction = joiningDirection ? joiningDirection.value : 'automatic';
-            customization.joining_allowance_mode = allowanceMode ? allowanceMode.value : 'included';
-            customization.joining_allowance_ft = allowance ? allowance.value : '0';
+            // Joining direction / seams / allowance are no longer collected for
+            // new POS Tarpaulin orders. Backend material planning keeps reading
+            // historical values when present and otherwise defaults safely.
+            delete customization.joining_direction;
+            delete customization.joining_allowance_mode;
+            delete customization.joining_allowance_ft;
             const quantity = posServiceQuantityInput();
             if (quantity) customization.quantity = quantity.value;
             return customization;
-        }
-
-        function posEnsureTarpaulinJoiningControls(body) {
-            if (!body || body.querySelector('.pos-tarpaulin-joining-controls')) return;
-            const wrap = document.createElement('div');
-            wrap.className = 'pos-tarpaulin-joining-controls';
-            wrap.style.cssText = 'display:grid;gap:10px;margin:12px 0;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc';
-            wrap.innerHTML = '<label style="display:grid;gap:5px;font-size:12px;font-weight:700;color:#334155">Joining Direction <select name="joining_direction" class="input-field"><option value="automatic">Automatic</option><option value="vertical">Vertical seams</option><option value="horizontal">Horizontal seams</option></select></label>'
-                + '<label style="display:grid;gap:5px;font-size:12px;font-weight:700;color:#334155">Joining Allowance <select name="joining_allowance_mode" class="input-field"><option value="included">Included in requested size</option><option value="additional">Additional allowance</option></select></label>'
-                + '<label data-tarp-allowance-wrap style="display:none;gap:5px;font-size:12px;font-weight:700;color:#334155">Additional Allowance (ft) <input name="joining_allowance_ft" type="number" min="0" step="any" value="0" class="input-field"><small style="font-weight:400">Total per finished Tarpaulin, not per seam.</small></label>';
-            const firstQuantity = body.querySelector('.quantity-container, input[name="quantity"]')?.closest('.shopee-form-row');
-            body.insertBefore(wrap, firstQuantity || null);
-            const mode = wrap.querySelector('[name="joining_allowance_mode"]');
-            const allowanceWrap = wrap.querySelector('[data-tarp-allowance-wrap]');
-            const syncAllowance = () => { allowanceWrap.style.display = mode.value === 'additional' ? 'grid' : 'none'; };
-            mode.addEventListener('change', syncAllowance);
-            syncAllowance();
         }
 
         async function posValidateServiceStockNow(serviceId, quantityRaw, customization = null) {
@@ -5560,15 +5543,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (Number(serviceId) === 40) {
                 const width = Number(serviceCustomization.width);
                 const height = Number(serviceCustomization.height);
-                const allowance = Number(serviceCustomization.joining_allowance_ft);
                 const validDim = (value) => Number.isFinite(value) && value > 0 && value <= 100;
                 if (!validDim(width) || !validDim(height)) {
                     const message = !validDim(width) ? 'Width must be greater than 0 and at most 100 feet.' : 'Height must be greater than 0 and at most 100 feet.';
-                    posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId));
-                    return { valid: false, message };
-                }
-                if (serviceCustomization.joining_allowance_mode === 'additional' && (!Number.isFinite(allowance) || allowance < 0)) {
-                    const message = 'Additional allowance must be a finite nonnegative number of feet.';
                     posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId));
                     return { valid: false, message };
                 }
