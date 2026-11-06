@@ -179,6 +179,32 @@ for (const qty of ['1', '2', '5']) {
     assert.equal(validateEstimatedMaterial(pieceMaterial), true, `Valid piece quantity ${qty} passes final assignment validation.`);
 }
 
+for (const [itemId, name] of [[206, 'Sintra 3mm'], [207, 'Sintra 5mm']]) {
+    const sintraMaterial = {
+        ...item,
+        item_id: itemId,
+        name,
+        uom: 'pcs',
+        qty: 1,
+        estimated_qty: null,
+        manual_confirmation_required: true,
+        manual_quantity_confirmed: false,
+        metadata: { material_usage: { method: 'manual', staff_confirmed: false } }
+    };
+    const sintraContext = context(`Confirm the actual usage for ${name} before saving.`);
+    dispatchActualUsageInput(sintraContext, sintraMaterial, '2');
+    assert.equal(sintraMaterial.qty, 2, `${name} Actual Usage input updates the selected material quantity.`);
+    assert.equal(sintraMaterial.uom, 'pcs', `${name} retains its configured inventory unit.`);
+    assert.equal(sintraMaterial.manual_quantity_confirmed, true, `${name} has an explicit staff confirmation marker.`);
+    assert.equal(sintraMaterial.metadata.material_usage.actual, 2, `${name} actual quantity reaches the material-usage metadata.`);
+    assert.equal(sintraMaterial.metadata.material_usage.staff_confirmed, true);
+    assert.equal(validateEstimatedMaterial(sintraMaterial), true, `${name} valid whole-piece use passes the final client validator.`);
+}
+
+assert.match(page, /fdMaterial\.append\('quantity', pm\.qty\)/, 'The confirmed Actual Usage value is posted as the assignment quantity.');
+assert.match(page, /fdMaterial\.append\('uom', pm\.uom\)/, 'The configured inventory UOM is posted with the assignment quantity.');
+assert.match(page, /fdMaterial\.append\('metadata', JSON\.stringify\(pm\.metadata \|\| \{\}\)\)/, 'Actual Usage confirmation metadata reaches the Set Price save request.');
+
 const firstMaterial = { ...item, name: 'Piece material', item_id: 501, uom: 'pcs', qty: 1, estimated_qty: null, manual_confirmation_required: true, manual_quantity_confirmed: false, metadata: {} };
 const secondMaterial = { ...item, name: 'Length material', item_id: 502, uom: 'ft', qty: 1, estimated_qty: null, manual_confirmation_required: true, manual_quantity_confirmed: false, metadata: {} };
 const multipleContext = context('');
@@ -346,5 +372,141 @@ assert.equal(duplicateFeedbackContext.footerActionError, 'A separate stock valid
 const unrelatedErrorContext = context('Insufficient stock for this material.');
 dispatchActualUsageInput(unrelatedErrorContext, { ...item, metadata: {} }, '2');
 assert.equal(unrelatedErrorContext.productionErrors.material, 'Insufficient stock for this material.', 'Unrelated validation errors are preserved.');
+
+// --- System autofill on material selection (Set Price / Production Assignment) ---
+const helperStart = page.indexOf('            isValidPendingMaterialActualQty(qty, uom) {');
+const helperEnd = page.indexOf('            maybeApplyAutoMaterialSuggestion() {', helperStart);
+assert(helperStart >= 0 && helperEnd > helperStart, 'System autofill confirmation helpers are present.');
+const queueStart = page.indexOf('            addMaterialToQueue(options = {}) {');
+const queueEnd = page.indexOf('            removePendingMaterial(index) {', queueStart);
+assert(queueStart >= 0 && queueEnd > queueStart, 'addMaterialToQueue is present for regression coverage.');
+const queueMethods = new Function(`return ({${page.slice(helperStart, helperEnd)}${page.slice(queueStart, queueEnd)}\n});`)();
+assert.equal(typeof queueMethods.addMaterialToQueue, 'function', 'addMaterialToQueue is extractable for regression coverage.');
+assert.equal(typeof queueMethods.pendingMaterialUsageConfirmationState, 'function', 'Selection confirmation helper is extractable.');
+
+function queueMaterialFromSystemAutofill({
+    itemId = 101,
+    name = 'C2s Board',
+    uom = 'sheet',
+    qty = 1,
+    consumptionMethod = '',
+    estimate = null,
+    isPos = true,
+} = {}) {
+    const inventoryItem = {
+        id: itemId,
+        name,
+        unit_of_measure: uom,
+        size_variant: uom === 'sheet' ? 'A4' : '',
+        consumption_method: consumptionMethod,
+        current_stock: 104,
+    };
+    const ctx = {
+        newMaterialId: itemId,
+        newMaterialQty: qty,
+        newMaterialRollId: '',
+        newMaterialNotes: '',
+        newMaterialHeight: 0,
+        newMaterialMetadata: {},
+        newMaterialUsageEstimate: estimate,
+        pendingMaterials: [],
+        materialListExpanded: true,
+        selectedMaterialStockError: '',
+        allInventoryItems: [inventoryItem],
+        materialClassification: () => ({ selectable: true }),
+        isVersionedTarpaulinMaterial: () => false,
+        isPosSetPriceFlow: () => isPos,
+        isValidPosMaterialQuantity: () => true,
+        normalizePosMaterialQuantity: (value) => Number(value),
+        normalizeMaterialQtyValue: (value, fallback = 1) => {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+        },
+        getMaterialEntryUom: () => uom,
+        estimateMaterialUsage: () => estimate || { status: 'manual', quantity: null, reason: 'Enter and confirm the actual material usage.', method: 'manual' },
+        isSticker: () => false,
+        showStaffAlert() {},
+        resetMaterialForm() {
+            this.newMaterialId = '';
+            this.newMaterialQty = 1;
+            this.newMaterialUsageEstimate = null;
+        },
+        isValidPendingMaterialActualQty: queueMethods.isValidPendingMaterialActualQty,
+        pendingMaterialUsageConfirmationState: queueMethods.pendingMaterialUsageConfirmationState,
+        addMaterialToQueue: queueMethods.addMaterialToQueue,
+    };
+    queueMethods.addMaterialToQueue.call(ctx, { keepListOpen: true, allowQuantityAdjustment: true });
+    return { ctx, material: ctx.pendingMaterials[0], inventoryItem };
+}
+
+const c2sCase = queueMaterialFromSystemAutofill({
+    name: 'C2s Board',
+    uom: 'sheet',
+    qty: 1,
+    consumptionMethod: '',
+    estimate: { status: 'manual', quantity: null, reason: 'Enter and confirm the actual material usage.', method: 'manual' },
+});
+assert.equal(c2sCase.material.qty, 1, 'Selecting C2s Board keeps the system-autofilled order quantity.');
+assert.equal(c2sCase.material.uom, 'sheet', 'C2s Board retains its sheet unit.');
+assert.equal(c2sCase.material.manual_quantity_confirmed, true, 'System autofill of order quantity is confirmed without retyping.');
+assert.equal(c2sCase.material.metadata.material_usage.actual, 1, 'Submitted actual usage matches the autofilled quantity.');
+assert.equal(c2sCase.material.metadata.material_usage.staff_confirmed, true, 'Staff-confirmed metadata follows the autofilled actual.');
+assert.equal(c2sCase.material.metadata.material_usage.manual_actual_usage_confirmed, true, 'Manual-path autofill is marked as accepted actual usage.');
+assert.equal(validateEstimatedMaterial(c2sCase.material), true, 'Confirm Set Price accepts autofilled C2s Board usage without editing.');
+
+for (const sample of [
+    { name: 'Brochure Paper', uom: 'sheet', qty: 1, method: 'per_piece', estimate: { status: 'estimated', quantity: 1, method: 'PER_PIECE' } },
+    { name: 'Sintraboard 3mm', uom: 'pcs', qty: 2, method: 'per_piece', estimate: { status: 'estimated', quantity: 2, method: 'PER_PIECE' } },
+    { name: 'Sintraboard 5mm', uom: 'pcs', qty: 1, method: 'per_piece', estimate: { status: 'estimated', quantity: 1, method: 'PER_PIECE' } },
+    { name: 'Pp Stkr Matte 98', uom: 'pcs', qty: 3, method: '', estimate: { status: 'manual', quantity: null, reason: 'Enter and confirm the actual material usage.', method: 'manual' } },
+    { name: 'Plates', uom: 'pcs', qty: 1, method: 'per_piece', estimate: { status: 'estimated', quantity: 1, method: 'PER_PIECE' } },
+    { name: 'Poster Printing Sheet', uom: 'sheet', qty: 1, method: 'sheet_yield', estimate: { status: 'estimated', quantity: 1, method: 'SHEET_YIELD' } },
+    { name: 'Stickers Decals', uom: 'ft', qty: 2.5, method: 'by_length', estimate: { status: 'estimated', quantity: 2.5, method: 'BY_LENGTH' } },
+    { name: 'Mugs', uom: 'pcs', qty: 1, method: '', estimate: { status: 'manual', quantity: null, reason: 'Enter and confirm the actual material usage.', method: 'manual' } },
+]) {
+    const queued = queueMaterialFromSystemAutofill({
+        itemId: Math.abs(sample.name.length * 17),
+        name: sample.name,
+        uom: sample.uom,
+        qty: sample.qty,
+        consumptionMethod: sample.method,
+        estimate: sample.estimate,
+    });
+    assert.equal(queued.material.qty, sample.qty, `${sample.name} keeps its system-calculated actual usage quantity.`);
+    assert.equal(queued.material.uom, sample.uom, `${sample.name} keeps its configured unit.`);
+    assert.equal(queued.material.manual_quantity_confirmed, true, `${sample.name} is confirmed from system autofill without retyping.`);
+    assert.equal(queued.material.metadata.material_usage.actual, sample.qty, `${sample.name} payload actual matches the queued quantity.`);
+    assert.equal(validateEstimatedMaterial(queued.material), true, `${sample.name} passes Set Price validation after system autofill.`);
+}
+
+const onlineOpsCase = queueMaterialFromSystemAutofill({
+    name: 'Online Ops C2s Board',
+    uom: 'sheet',
+    qty: 1,
+    isPos: false,
+    estimate: { status: 'manual', quantity: null, reason: 'Enter and confirm the actual material usage.', method: 'manual' },
+});
+assert.equal(onlineOpsCase.material.manual_quantity_confirmed, true, 'Online Operations system autofill is confirmed without retyping.');
+assert.equal(validateEstimatedMaterial(onlineOpsCase.material), true, 'Online Operations Confirm Set Price accepts system autofill.');
+
+const emptyUsage = queueMaterialFromSystemAutofill({
+    name: 'Missing Usage',
+    qty: 0,
+    estimate: { status: 'manual', quantity: null, reason: 'Enter and confirm the actual material usage.', method: 'manual' },
+});
+assert.equal(emptyUsage.ctx.pendingMaterials.length, 0, 'Zero/invalid system quantity is not queued as a confirmed assignment.');
+
+const optionalOmitted = {
+    currentJo: { materials: [{ item_id: 206, qty: 1, uom: 'pcs' }], ink_usage: [] },
+    pendingMaterials: [],
+    productionErrors: {},
+    requiresInk: false,
+    posMaterialQuantityError: () => '',
+};
+assert.equal(validationMethod.call(optionalOmitted, [], []), true, 'Optional materials can remain omitted while a required assignment is already saved.');
+
+const savedMatchesDeduction = c2sCase.material;
+assert.equal(Number(savedMatchesDeduction.qty), Number(savedMatchesDeduction.metadata.material_usage.actual),
+    'Saved assignment quantity matches the deduction/actual usage input.');
 
 console.log('customization_actual_usage_confirmation_test: PASS');

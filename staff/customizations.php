@@ -3207,7 +3207,7 @@ $online_closed_count = 0;
                                                     <div style="min-width:0;">
                                                         <div style="font-weight:600; color:#1e293b;" x-text="pm.name + (pm.size_variant ? ' · ' + pm.size_variant : '')"></div>
                                                         <div style="margin-top:3px;color:#64748b;font-size:11px;" x-text="materialUsageSummary(pm)"></div>
-                                                        <template x-if="isTarpaulin(pm.item_id)">
+                                                        <template x-if="isVersionedTarpaulinMaterial(pm.item_id)">
                                                             <div style="display:flex;flex-wrap:wrap;gap:8px;color:#64748b;font-size:11px;margin-top:5px;">
                                                                 <label>Linear Ft:
                                                                     <input type="number" min="0.001" step="any" x-model.number="pm.qty" aria-label="Required linear feet"
@@ -3219,7 +3219,7 @@ $online_closed_count = 0;
                                                                 </label>
                                                             </div>
                                                         </template>
-                                                        <template x-if="!isTarpaulin(pm.item_id)">
+                                                        <template x-if="!isVersionedTarpaulinMaterial(pm.item_id)">
                                                             <label style="display:block;color:#334155;font-size:11px;margin-top:5px;font-weight:700;">Actual Usage:
                                                                 <input type="number" min="1" step="any" :value="pm.qty" @beforeinput="markPendingMaterialQtyEdit(pm, $event.target, $event)" @keydown="markPendingMaterialQtyKeyEdit(pm, $event.target, $event)" @keyup="clearPendingMaterialQtyKeyEdit($event.target)" @pointerdown="markPendingMaterialQtyPointerEdit(pm, $event.target, $event)" @pointerup="clearPendingMaterialQtyPointerEdit($event.target)" @pointercancel="clearPendingMaterialQtyPointerEdit($event.target)" @input="handlePendingMaterialQtyInput(pm, $event.target.value, $event.target, $event)" @blur="handlePendingMaterialQtyBlur(pm, $event.target, $event)" aria-label="Actual material usage quantity"
                                                                        style="width:72px;margin:0 3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
@@ -3538,6 +3538,10 @@ $online_closed_count = 0;
                                         <span style="color:#06A1A1; font-weight:600; margin-left:8px;" x-show="m.deducted_at">✓ Deducted</span>
                                     </div>
                                 </div>
+                                <button type="button" x-show="canReopenMaterialUsage(m)" @click="reopenAssignedMaterialUsage(m.id)"
+                                        style="flex-shrink:0;margin-left:10px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:6px 9px;color:#334155;font-size:11px;font-weight:700;cursor:pointer;">
+                                    Edit Actual Usage
+                                </button>
                             </div>
                         </template>
                     </div>
@@ -4687,6 +4691,31 @@ window.pfServiceFieldCatalog = (() => {
             getDefaultMaterialQty(itemId) {
                 if (!this.isPcsMaterial(itemId)) return 1;
                 return this.normalizeMaterialQtyValue(this.currentJo && this.currentJo.quantity ? this.currentJo.quantity : 1, 1);
+            },
+            /**
+             * True when qty is a positive actual-usage value that matches the
+             * material unit (whole numbers for pcs/sheet; fractional feet allowed).
+             */
+            isValidPendingMaterialActualQty(qty, uom) {
+                const amount = Number(qty);
+                if (!Number.isFinite(amount) || amount <= 0) return false;
+                const wholeUnit = ['pcs', 'pc', 'piece', 'pieces', 'sheet', 'sheets'].includes(String(uom || '').toLowerCase());
+                return !(wholeUnit && !Number.isInteger(amount));
+            },
+            /**
+             * Selection-time system autofill (order qty or configured estimate) is
+             * accepted for that assignment once the material is queued. Browser
+             * autofill / empty / invalid values still fail validation.
+             */
+            pendingMaterialUsageConfirmationState(normalizedQty, uom, hasReliableEstimate, isTarpaulinMaterial) {
+                const systemAutofillConfirmed = !isTarpaulinMaterial
+                    && this.isValidPendingMaterialActualQty(normalizedQty, uom);
+                return {
+                    staff_confirmed: isTarpaulinMaterial || hasReliableEstimate || systemAutofillConfirmed,
+                    manual_actual_usage_confirmed: !isTarpaulinMaterial && !hasReliableEstimate && systemAutofillConfirmed,
+                    manual_confirmation_required: !isTarpaulinMaterial && !hasReliableEstimate,
+                    manual_quantity_confirmed: isTarpaulinMaterial || hasReliableEstimate || systemAutofillConfirmed,
+                };
             },
             /**
              * Deterministic auto-select: when there is exactly one unambiguous, in-stock,
@@ -10281,13 +10310,20 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 const usageEstimate = isTarpaulinMaterial ? null : (this.newMaterialUsageEstimate || this.estimateMaterialUsage(item));
                 const hasReliableEstimate = !!(usageEstimate && usageEstimate.status === 'estimated');
+                const entryUom = this.getMaterialEntryUom(this.newMaterialId);
+                const usageConfirm = this.pendingMaterialUsageConfirmationState(
+                    normalizedQty,
+                    entryUom,
+                    hasReliableEstimate,
+                    isTarpaulinMaterial
+                );
                 if (!isTarpaulinMaterial) {
                     meta.material_usage = {
                         estimate: hasReliableEstimate ? usageEstimate.quantity : null,
                         actual: normalizedQty,
                         method: hasReliableEstimate ? usageEstimate.method : (item.consumption_method || 'manual'),
-                        staff_confirmed: hasReliableEstimate,
-                        manual_actual_usage_confirmed: false,
+                        staff_confirmed: usageConfirm.staff_confirmed,
+                        manual_actual_usage_confirmed: usageConfirm.manual_actual_usage_confirmed,
                         overridden: false
                     };
                 }
@@ -10296,15 +10332,15 @@ window.pfServiceFieldCatalog = (() => {
                     name: item.name,
                     size_variant: item.size_variant || '',
                     qty: normalizedQty,
-                    uom: this.getMaterialEntryUom(this.newMaterialId),
+                    uom: entryUom,
                     roll_id: this.newMaterialRollId || '',
                     notes: this.newMaterialNotes,
                     metadata: meta,
                     estimated_qty: hasReliableEstimate ? usageEstimate.quantity : null,
                     usage_method: hasReliableEstimate ? usageEstimate.method : (item.consumption_method || 'manual'),
                     usage_estimate_reason: hasReliableEstimate ? '' : (usageEstimate?.reason || 'No reliable estimate is configured; confirm actual usage.'),
-                    manual_confirmation_required: !isTarpaulinMaterial && !hasReliableEstimate,
-                    manual_quantity_confirmed: isTarpaulinMaterial || hasReliableEstimate,
+                    manual_confirmation_required: usageConfirm.manual_confirmation_required,
+                    manual_quantity_confirmed: usageConfirm.manual_quantity_confirmed,
                     actual_usage_overridden: false
                 });
                 // Reset form
@@ -10351,13 +10387,20 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 const usageEstimate = isTarpaulinMaterial ? null : (this.newMaterialUsageEstimate || this.estimateMaterialUsage(item));
                 const hasReliableEstimate = !!(usageEstimate && usageEstimate.status === 'estimated');
+                const entryUom = this.getMaterialEntryUom(this.newMaterialId);
+                const usageConfirm = this.pendingMaterialUsageConfirmationState(
+                    normalizedQty,
+                    entryUom,
+                    hasReliableEstimate,
+                    isTarpaulinMaterial
+                );
                 if (!isTarpaulinMaterial) {
                     meta.material_usage = {
                         estimate: hasReliableEstimate ? usageEstimate.quantity : null,
                         actual: normalizedQty,
                         method: hasReliableEstimate ? usageEstimate.method : (item.consumption_method || 'manual'),
-                        staff_confirmed: hasReliableEstimate,
-                        manual_actual_usage_confirmed: false,
+                        staff_confirmed: usageConfirm.staff_confirmed,
+                        manual_actual_usage_confirmed: usageConfirm.manual_actual_usage_confirmed,
                         overridden: false
                     };
                 }
@@ -10365,15 +10408,15 @@ window.pfServiceFieldCatalog = (() => {
                 return {
                     item_id: this.newMaterialId,
                     qty: normalizedQty,
-                    uom: this.getMaterialEntryUom(this.newMaterialId),
+                    uom: entryUom,
                     roll_id: this.newMaterialRollId || '',
                     notes: this.newMaterialNotes || '',
                     metadata: meta,
                     estimated_qty: hasReliableEstimate ? usageEstimate.quantity : null,
                     usage_method: hasReliableEstimate ? usageEstimate.method : (item.consumption_method || 'manual'),
                     usage_estimate_reason: hasReliableEstimate ? '' : (usageEstimate?.reason || 'No reliable estimate is configured.'),
-                    manual_confirmation_required: !isTarpaulinMaterial && !hasReliableEstimate,
-                    manual_quantity_confirmed: isTarpaulinMaterial || hasReliableEstimate,
+                    manual_confirmation_required: usageConfirm.manual_confirmation_required,
+                    manual_quantity_confirmed: usageConfirm.manual_quantity_confirmed,
                     actual_usage_overridden: false
                 };
             },
