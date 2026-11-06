@@ -4894,6 +4894,50 @@ window.pfServiceFieldCatalog = (() => {
             isPosPricingMode() {
                 return this.detailContextMode === 'pos_pricing';
             },
+            markPosSetPriceTiming(label) {
+                try {
+                    const key = String(label || '').trim();
+                    if (!key) return;
+                    if (typeof performance !== 'undefined' && typeof performance.mark === 'function') {
+                        performance.mark('pf_pos_set_price_' + key);
+                    }
+                    window.__pfPosSetPriceTiming = window.__pfPosSetPriceTiming || {};
+                    window.__pfPosSetPriceTiming[key] = Date.now();
+                } catch (e) {
+                    // Timing is diagnostic only; never block Set Price.
+                }
+            },
+            async openPosSetPriceTargetModal(sourceOrderId) {
+                const parsedSourceOrderId = parseInt(sourceOrderId, 10);
+                if (Number.isNaN(parsedSourceOrderId) || parsedSourceOrderId <= 0) {
+                    this.showStaffAlert(
+                        'Set Price Unavailable',
+                        'The POS handoff is missing a valid draft order ID. Return to POS and try Set Price again.'
+                    );
+                    return false;
+                }
+                this.markPosSetPriceTiming('modal_fetch_start');
+                // Open by exact source_order_id from POS create_pending_customization —
+                // never match by service name alone.
+                await this.viewDetails(parsedSourceOrderId, 'ORDER');
+                this.markPosSetPriceTiming('modal_ready');
+                if (this.detailError) {
+                    this.showStaffAlert(
+                        'Set Price Unavailable',
+                        this.detailError || 'The selected POS item could not be loaded for pricing. Return to POS and try Set Price again.'
+                    );
+                    return false;
+                }
+                const openedOrderId = parseInt(this.currentJo && (this.currentJo.order_id || this.currentJo.id), 10) || 0;
+                if (!this.showDetailsModal || openedOrderId !== parsedSourceOrderId) {
+                    this.showStaffAlert(
+                        'Set Price Unavailable',
+                        'The selected POS item could not be opened for pricing. Return to POS and try Set Price again.'
+                    );
+                    return false;
+                }
+                return true;
+            },
             isPosSetPriceFlow() {
                 if (this.isPosPricingMode() || this.isPosPricingReturnFlow(this.currentJo)) return true;
                 if (String(this.currentJo?.order_source || '').toLowerCase() === 'pos') return true;
@@ -8627,67 +8671,9 @@ window.pfServiceFieldCatalog = (() => {
                 this.$watch('showDetailsModal', (isOpen) => {
                     if (!isOpen) this.clearDeepLinkParams();
                 });
-                await this.loadOrders();
-                await Promise.allSettled([
-                    this.loadMachines(),
-                    this.loadAllInventoryItems()
-                ]);
 
-                // Keep stock values in sync with admin-side ledger deductions.
-                // This page otherwise fetches `current_stock` only once on load and would show stale stock.
-                window.pfStaffCustomizationsAbortActiveRequests = () => {
-                    if (ordersAbortController) {
-                        ordersAbortController.abort();
-                        ordersAbortController = null;
-                    }
-                    if (countsAbortController) {
-                        countsAbortController.abort();
-                        countsAbortController = null;
-                    }
-                };
-                if (!window.pfStaffCustomizationsInventoryPollListenerAttached) {
-                    window.pfStaffCustomizationsInventoryPollListenerAttached = true;
-                    document.addEventListener('turbo:before-cache', () => {
-                        if (window.pfStaffCustomizationsInventoryPoll) {
-                            clearInterval(window.pfStaffCustomizationsInventoryPoll);
-                            window.pfStaffCustomizationsInventoryPoll = null;
-                        }
-                        if (window.pfStaffCustomizationsOrdersPoll) {
-                            clearInterval(window.pfStaffCustomizationsOrdersPoll);
-                            window.pfStaffCustomizationsOrdersPoll = null;
-                        }
-                        if (window.pfStaffCustomizationsAbortActiveRequests) {
-                            window.pfStaffCustomizationsAbortActiveRequests();
-                        }
-                    });
-                }
-                if (window.pfStaffCustomizationsInventoryPoll) {
-                    clearInterval(window.pfStaffCustomizationsInventoryPoll);
-                }
-                window.pfStaffCustomizationsInventoryPoll = setInterval(() => {
-                    if (document.visibilityState !== 'visible') return;
-                    this.loadAllInventoryItems().catch(() => {});
-                }, this.inventoryPollMs);
-
-                if (!window.pfStaffCustomizationsOrdersPollListenerAttached) {
-                    window.pfStaffCustomizationsOrdersPollListenerAttached = true;
-                    document.addEventListener('visibilitychange', () => {
-                        if (document.visibilityState === 'visible') {
-                            this.loadOrders({ silent: true }).catch(() => {});
-                        }
-                    });
-                    window.addEventListener('focus', () => {
-                        this.loadOrders({ silent: true }).catch(() => {});
-                    });
-                }
-                if (window.pfStaffCustomizationsOrdersPoll) {
-                    clearInterval(window.pfStaffCustomizationsOrdersPoll);
-                }
-                window.pfStaffCustomizationsOrdersPoll = setInterval(() => {
-                    this.loadOrders({ silent: true }).catch(() => {});
-                }, this.ordersPollMs);
-                
-                // Auto-open modal if order_id is in URL
+                // Parse deep-link params before any list fetch so POS Set Price
+                // can open the target modal without waiting on Custom Orders.
                 const params = new URLSearchParams(window.location.search);
                 const orderId = params.get('order_id');
                 const sourceOrderId = params.get('source_order_id');
@@ -8706,6 +8692,8 @@ window.pfServiceFieldCatalog = (() => {
                 const deepLinkHints = this.resolveOrderDetailHints(
                     orderId ? { order_id: parseInt(orderId, 10) || 0 } : {}
                 );
+                const parsedPosSourceOrderId = parseInt(sourceOrderId || '0', 10) || 0;
+                const isPosSetPriceHandoff = this.isPosPricingMode() && parsedPosSourceOrderId > 0;
 
                 if (initialStatus) {
                     // Map common statuses to tabs
@@ -8763,52 +8751,144 @@ window.pfServiceFieldCatalog = (() => {
                     this.activeStatus = this.isPosSimplifiedView ? 'PENDING' : 'INQUIRY';
                 }
 
-                if (this.isPosPricingMode() && sourceOrderId) {
-                    const parsedSourceOrderId = parseInt(sourceOrderId, 10);
-                    if (!Number.isNaN(parsedSourceOrderId) && parsedSourceOrderId > 0) {
-                        // Set Price drafts are intentionally excluded from the
-                        // operational job lookup. Open the source order through
-                        // the staff order-modal endpoint, which authorizes the
-                        // POS draft and includes its linked job/assignment data.
-                        await this.viewDetails(parsedSourceOrderId, 'ORDER');
-                        this.clearDeepLinkParams();
-                    }
-                } else if (orderId) {
-                    const jobType = (params.get('job_type') || 'ORDER').toUpperCase();
-                    const parsedOrderId = parseInt(orderId, 10);
-                    if (jobType === 'ORDER') {
-                        await this.viewDetails(parsedOrderId, 'ORDER', deepLinkHints);
-                    } else {
-                        await this.viewDetails(parsedOrderId, jobType);
-                    }
-                    if (openChangedItem) {
-                        await this.focusOpenChangeItemDeepLink(expectedChangeItemId);
-                    } else if (params.get('focus_add_details') === '1') {
-                        await this.focusAddDetailsDeepLink(this.deepLinkRevisionRequestId, this.deepLinkOrderItemId);
-                    } else if (this.detailError) {
-                        this.showStaffAlert('Order Not Found', this.detailError);
+                if (isPosSetPriceHandoff) {
+                    this.markPosSetPriceTiming('handoff_start');
+                    // Inventory is required for Production Assignment / Actual Usage;
+                    // start it in parallel with the target-order modal fetch.
+                    const inventoryPromise = this.loadAllInventoryItems().catch((error) => {
+                        console.warn('[Customizations] Inventory preload failed during POS Set Price:', error);
+                    });
+                    const machinesPromise = this.loadMachines().catch((error) => {
+                        console.warn('[Customizations] Machine preload failed during POS Set Price:', error);
+                    });
+
+                    // Set Price drafts are intentionally excluded from the
+                    // operational job lookup. Open the source order through
+                    // the staff order-modal endpoint, which authorizes the
+                    // POS draft and includes its linked job/assignment data.
+                    try {
+                        await this.openPosSetPriceTargetModal(parsedPosSourceOrderId);
+                    } catch (error) {
+                        console.error('[Customizations] POS Set Price handoff failed:', error);
+                        this.showStaffAlert(
+                            'Set Price Unavailable',
+                            (error && error.message) || 'The selected POS item could not be loaded for pricing. Return to POS and try Set Price again.'
+                        );
                     }
                     this.clearDeepLinkParams();
-                } else if (sourceOrderId) {
-                    const parsedSourceOrderId = parseInt(sourceOrderId, 10);
-                    if (!Number.isNaN(parsedSourceOrderId) && parsedSourceOrderId > 0) {
-                        const resolveEndpoint = this.adminApiUrl(
-                            `job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(parsedSourceOrderId)}`
-                        );
-                        const resolved = await this.parseJsonResponse(
-                            await fetch(resolveEndpoint),
-                            'Resolve job for order',
-                            resolveEndpoint
-                        );
 
-                        if (resolved.success && resolved.job_id) {
-                            await this.viewDetails(parseInt(resolved.job_id, 10), 'JOB');
+                    // Load the Custom Orders list/counts after the modal is usable.
+                    // silent:true avoids wiping modalCache / staff-entered draft state.
+                    this.loadOrders({ silent: true, force: true }).then(() => {
+                        this.markPosSetPriceTiming('orders_list_ready');
+                    }).catch((error) => {
+                        console.warn('[Customizations] Background Custom Orders list failed after Set Price modal open:', error);
+                        this.markPosSetPriceTiming('orders_list_failed');
+                    });
+
+                    await Promise.allSettled([inventoryPromise, machinesPromise]);
+                    this.markPosSetPriceTiming('inventory_ready');
+                    if (this.showDetailsModal) {
+                        this.$nextTick(() => this.maybeAutoSelectTarpaulinRoll());
+                    }
+                } else {
+                    await this.loadOrders();
+                    await Promise.allSettled([
+                        this.loadMachines(),
+                        this.loadAllInventoryItems()
+                    ]);
+
+                    if (orderId) {
+                        const jobType = (params.get('job_type') || 'ORDER').toUpperCase();
+                        const parsedOrderId = parseInt(orderId, 10);
+                        if (jobType === 'ORDER') {
+                            await this.viewDetails(parsedOrderId, 'ORDER', deepLinkHints);
                         } else {
-                            await this.viewDetails(parsedSourceOrderId, 'ORDER');
+                            await this.viewDetails(parsedOrderId, jobType);
+                        }
+                        if (openChangedItem) {
+                            await this.focusOpenChangeItemDeepLink(expectedChangeItemId);
+                        } else if (params.get('focus_add_details') === '1') {
+                            await this.focusAddDetailsDeepLink(this.deepLinkRevisionRequestId, this.deepLinkOrderItemId);
+                        } else if (this.detailError) {
+                            this.showStaffAlert('Order Not Found', this.detailError);
                         }
                         this.clearDeepLinkParams();
+                    } else if (sourceOrderId) {
+                        const parsedSourceOrderId = parseInt(sourceOrderId, 10);
+                        if (!Number.isNaN(parsedSourceOrderId) && parsedSourceOrderId > 0) {
+                            const resolveEndpoint = this.adminApiUrl(
+                                `job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(parsedSourceOrderId)}`
+                            );
+                            const resolved = await this.parseJsonResponse(
+                                await fetch(resolveEndpoint),
+                                'Resolve job for order',
+                                resolveEndpoint
+                            );
+
+                            if (resolved.success && resolved.job_id) {
+                                await this.viewDetails(parseInt(resolved.job_id, 10), 'JOB');
+                            } else {
+                                await this.viewDetails(parsedSourceOrderId, 'ORDER');
+                            }
+                            this.clearDeepLinkParams();
+                        }
                     }
                 }
+
+                // Keep stock values in sync with admin-side ledger deductions.
+                // This page otherwise fetches `current_stock` only once on load and would show stale stock.
+                window.pfStaffCustomizationsAbortActiveRequests = () => {
+                    if (ordersAbortController) {
+                        ordersAbortController.abort();
+                        ordersAbortController = null;
+                    }
+                    if (countsAbortController) {
+                        countsAbortController.abort();
+                        countsAbortController = null;
+                    }
+                };
+                if (!window.pfStaffCustomizationsInventoryPollListenerAttached) {
+                    window.pfStaffCustomizationsInventoryPollListenerAttached = true;
+                    document.addEventListener('turbo:before-cache', () => {
+                        if (window.pfStaffCustomizationsInventoryPoll) {
+                            clearInterval(window.pfStaffCustomizationsInventoryPoll);
+                            window.pfStaffCustomizationsInventoryPoll = null;
+                        }
+                        if (window.pfStaffCustomizationsOrdersPoll) {
+                            clearInterval(window.pfStaffCustomizationsOrdersPoll);
+                            window.pfStaffCustomizationsOrdersPoll = null;
+                        }
+                        if (window.pfStaffCustomizationsAbortActiveRequests) {
+                            window.pfStaffCustomizationsAbortActiveRequests();
+                        }
+                    });
+                }
+                if (window.pfStaffCustomizationsInventoryPoll) {
+                    clearInterval(window.pfStaffCustomizationsInventoryPoll);
+                }
+                window.pfStaffCustomizationsInventoryPoll = setInterval(() => {
+                    if (document.visibilityState !== 'visible') return;
+                    this.loadAllInventoryItems().catch(() => {});
+                }, this.inventoryPollMs);
+
+                if (!window.pfStaffCustomizationsOrdersPollListenerAttached) {
+                    window.pfStaffCustomizationsOrdersPollListenerAttached = true;
+                    document.addEventListener('visibilitychange', () => {
+                        if (document.visibilityState !== 'visible') return;
+                        // Never let a silent list refresh close or reset an open Set Price modal.
+                        this.loadOrders({ silent: true }).catch(() => {});
+                    });
+                    window.addEventListener('focus', () => {
+                        this.loadOrders({ silent: true }).catch(() => {});
+                    });
+                }
+                if (window.pfStaffCustomizationsOrdersPoll) {
+                    clearInterval(window.pfStaffCustomizationsOrdersPoll);
+                }
+                window.pfStaffCustomizationsOrdersPoll = setInterval(() => {
+                    this.loadOrders({ silent: true }).catch(() => {});
+                }, this.ordersPollMs);
             },
 
             async fetchOrderSummaryPage(page, signal = undefined) {
@@ -8989,8 +9069,19 @@ window.pfServiceFieldCatalog = (() => {
                 if (!silent && this.orders.length === 0) this.loadingOrders = true;
                 this.ordersError = '';
                 if (!silent) {
+                    // Keep the open detail cache so a list refresh cannot wipe an
+                    // in-progress Set Price / Production Assignment modal.
+                    const preserveKey = this.showDetailsModal ? String(this._lastDetailCacheKey || '') : '';
+                    const preservedDetail = preserveKey ? this.modalCache[preserveKey] : null;
+                    const preservedAt = preserveKey ? this.modalCacheLoadedAt[preserveKey] : null;
                     this.modalCache = {};
                     this.modalCacheLoadedAt = {};
+                    if (preserveKey && preservedDetail) {
+                        this.modalCache[preserveKey] = preservedDetail;
+                        if (preservedAt) {
+                            this.modalCacheLoadedAt[preserveKey] = preservedAt;
+                        }
+                    }
                 }
                 try {
                     // Drop stale optimistic overrides before applying freshly fetched rows.

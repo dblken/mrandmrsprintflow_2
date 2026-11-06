@@ -60,12 +60,13 @@ pos_modal_access_assert(
         && str_contains($customizations, 'get_order_for_modal.php'),
     'customizations deep link opens the modal through get_order_for_modal'
 );
-preg_match('/if \(this\.isPosPricingMode\(\) && sourceOrderId\) \{(.*?)\n                \} else if \(orderId\)/s', $customizations, $posPricingDeepLink);
 pos_modal_access_assert(
-    isset($posPricingDeepLink[1])
-        && str_contains($posPricingDeepLink[1], "this.viewDetails(parsedSourceOrderId, 'ORDER')")
-        && !str_contains($posPricingDeepLink[1], 'resolve_job_for_order'),
-    'Set Price draft deep link opens the draft order directly instead of resolving it to an operational job query'
+    str_contains($customizations, 'openPosSetPriceTargetModal')
+        && str_contains($customizations, "await this.viewDetails(parsedSourceOrderId, 'ORDER')")
+        && str_contains($customizations, 'isPosSetPriceHandoff')
+        && str_contains($customizations, "this.loadOrders({ silent: true, force: true })")
+        && !preg_match('/isPosSetPriceHandoff[\s\S]*?resolve_job_for_order[\s\S]*?openPosSetPriceTargetModal/', $customizations),
+    'Set Price draft deep link opens the draft order directly before the Custom Orders list and without resolving it to an operational job query'
 );
 pos_modal_access_assert(
     str_contains($customizations, "source === 'pos_draft' && isMatchingOrder && current === 'DRAFT'")
