@@ -315,33 +315,50 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                 $allowSelectOthers = !empty($config['allow_others']);
                 $rawOptions = array_values($config['options'] ?? []);
                 $presetValues = [];
+                $hasCustomSizeOption = false;
+                $hasOthersOption = false;
                 foreach ($rawOptions as $opt) {
                     $ov = is_array($opt) ? trim((string)($opt['value'] ?? '')) : trim((string)$opt);
-                    if ($ov !== '') {
-                        $presetValues[$ov] = true;
+                    if ($ov === '') {
+                        continue;
+                    }
+                    $presetValues[$ov] = true;
+                    if (strcasecmp($ov, 'Custom Size') === 0) {
+                        $hasCustomSizeOption = true;
+                    }
+                    if (strcasecmp($ov, 'Others') === 0) {
+                        $hasOthersOption = true;
                     }
                 }
-                $hasOthersInList = isset($presetValues['Others']);
+                $hasOthersInList = $hasOthersOption || $hasCustomSizeOption;
                 $selectOptions = $rawOptions;
+                // Prefer an existing Custom Size option over injecting a second
+                // "Others" choice that would duplicate the Custom Size label.
+                $otherOptionValue = printflow_service_field_custom_size_option_value($config);
                 if ($allowSelectOthers && !$hasOthersInList) {
                     $selectOptions[] = ['value' => 'Others', 'price' => 0];
+                    $otherOptionValue = 'Others';
+                    $hasOthersInList = true;
                 }
                 $othersAvailable = $hasOthersInList || $allowSelectOthers;
 
                 $savedOtherText = trim((string)($saved_customization[$field_label . ' (Other)'] ?? ''));
                 $selectSaved = trim((string)$saved_value);
-                if ($othersAvailable && $selectSaved !== '' && $selectSaved !== 'Others' && !isset($presetValues[$selectSaved])) {
-                    $selectSaved = 'Others';
+                if ($othersAvailable && $selectSaved !== ''
+                    && !printflow_service_field_is_custom_size_option_value($selectSaved)
+                    && !isset($presetValues[$selectSaved])) {
+                    $selectSaved = $otherOptionValue;
                     if ($savedOtherText === '') {
                         $savedOtherText = trim((string)$saved_value);
                     }
                 }
 
-                $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field pf-select-with-others' . (printflow_service_field_uses_custom_size_panel($field_key, $config) ? ' pf-select-custom-size' : '') . '" data-field-key="' . htmlspecialchars($field_key) . '"' . ($is_design_fee_field ? ' data-design-fee-field="1"' : '') . ' data-other-option="Others" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
+                $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field pf-select-with-others' . (printflow_service_field_uses_custom_size_panel($field_key, $config) ? ' pf-select-custom-size' : '') . '" data-field-key="' . htmlspecialchars($field_key) . '"' . ($is_design_fee_field ? ' data-design-fee-field="1"' : '') . ' data-other-option="' . htmlspecialchars($otherOptionValue, ENT_QUOTES, 'UTF-8') . '" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
                 $placeholder = preg_match('/upload\s+design|design\s+upload/i', (string)$config['label'])
                     ? 'Choose an option'
                     : 'Select ' . $label;
                 $html .= '<option value="" selected disabled>' . $placeholder . '</option>';
+                $seenCustomSizeValues = [];
                 foreach ($selectOptions as $option) {
                     $optionValue = is_array($option) ? ($option['value'] ?? '') : $option;
                     $optionPrice = is_array($option) ? ($option['price'] ?? 0) : 0;
@@ -349,6 +366,18 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                     
                     // Skip if this option is already defined in a nested field
                     if (isset($nestedValuesSet[strtolower(trim($optionValue))])) continue;
+
+                    // Keep a single Custom Size / Others entry when both exist.
+                    if (printflow_service_field_is_custom_size_option_value((string)$optionValue)) {
+                        if ((string)$optionValue !== $otherOptionValue) {
+                            continue;
+                        }
+                        $dedupeKey = strtolower($otherOptionValue);
+                        if (isset($seenCustomSizeValues[$dedupeKey])) {
+                            continue;
+                        }
+                        $seenCustomSizeValues[$dedupeKey] = true;
+                    }
                     
                     $value = htmlspecialchars($optionValue);
                     $displayValue = htmlspecialchars(pf_service_option_label(printflow_service_custom_size_option_label((string)$optionValue, $field_key, $config)));
@@ -359,7 +388,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                 $html .= '</select>';
 
                 if ($othersAvailable) {
-                    $showOthersInput = ($selectSaved === 'Others');
+                    $showOthersInput = printflow_service_field_is_custom_size_option_value($selectSaved)
+                        || ($selectSaved === $otherOptionValue);
                     if (printflow_service_field_uses_custom_size_panel($field_key, $config)) {
                         $html .= printflow_render_field_custom_size_others_wrap(
                             $field_key,
@@ -383,29 +413,44 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $allowRadioOthers = !empty($config['allow_others']);
             $rawOptions = array_values($config['options'] ?? []);
             $presetValues = [];
+            $hasCustomSizeOption = false;
+            $hasOthersOption = false;
             foreach ($rawOptions as $opt) {
                 $ov = is_array($opt) ? trim((string)($opt['value'] ?? '')) : trim((string)$opt);
-                if ($ov !== '') {
-                    $presetValues[$ov] = true;
+                if ($ov === '') {
+                    continue;
+                }
+                $presetValues[$ov] = true;
+                if (strcasecmp($ov, 'Custom Size') === 0) {
+                    $hasCustomSizeOption = true;
+                }
+                if (strcasecmp($ov, 'Others') === 0) {
+                    $hasOthersOption = true;
                 }
             }
-            $hasOthersInList = isset($presetValues['Others']);
+            $hasOthersInList = $hasOthersOption || $hasCustomSizeOption;
             $radioOptions = $rawOptions;
+            $otherOptionValue = printflow_service_field_custom_size_option_value($config);
             if ($allowRadioOthers && !$hasOthersInList) {
                 $radioOptions[] = ['value' => 'Others', 'price' => 0];
+                $otherOptionValue = 'Others';
+                $hasOthersInList = true;
             }
             $othersAvailable = $hasOthersInList || $allowRadioOthers;
 
             $savedOtherText = trim((string)($saved_customization[$field_label . ' (Other)'] ?? ''));
             $radioSaved = trim((string)$saved_value);
-            if ($othersAvailable && $radioSaved !== '' && $radioSaved !== 'Others' && !isset($presetValues[$radioSaved])) {
-                $radioSaved = 'Others';
+            if ($othersAvailable && $radioSaved !== ''
+                && !printflow_service_field_is_custom_size_option_value($radioSaved)
+                && !isset($presetValues[$radioSaved])) {
+                $radioSaved = $otherOptionValue;
                 if ($savedOtherText === '') {
                     $savedOtherText = trim((string)$saved_value);
                 }
             }
 
             $html .= '<div class="shopee-opt-group">';
+            $seenCustomSizeValues = [];
             foreach ($radioOptions as $idx => $option) {
                 $optionValue = is_array($option) ? ($option['value'] ?? '') : $option;
                 $nestedFields = is_array($option) ? ($option['nested_fields'] ?? []) : [];
@@ -415,6 +460,16 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                 }
                 if (empty($nestedFields) && isset($nestedValuesSet[strtolower(trim((string)$optionValue))])) {
                     continue;
+                }
+                if (printflow_service_field_is_custom_size_option_value((string)$optionValue)) {
+                    if ((string)$optionValue !== $otherOptionValue) {
+                        continue;
+                    }
+                    $dedupeKey = strtolower($otherOptionValue);
+                    if (isset($seenCustomSizeValues[$dedupeKey])) {
+                        continue;
+                    }
+                    $seenCustomSizeValues[$dedupeKey] = true;
                 }
 
                 $value = htmlspecialchars((string)$optionValue);
@@ -430,7 +485,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $html .= '</div>';
 
             if ($othersAvailable) {
-                $showOthersInput = ($radioSaved === 'Others');
+                $showOthersInput = printflow_service_field_is_custom_size_option_value($radioSaved)
+                    || ($radioSaved === $otherOptionValue);
                 if (printflow_service_field_uses_custom_size_panel($field_key, $config)) {
                     $html .= printflow_render_field_custom_size_others_wrap(
                         $field_key,
@@ -1224,6 +1280,11 @@ function handleNestedFields(radio, fieldKey, optionIndex) {
     if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
 }
 
+function pfIsCustomSizeOptionValue(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'others' || normalized === 'custom size' || normalized === 'customsize';
+}
+
 function pfSyncRadioOthersWrap(radio) {
     if (!radio || !radio.name) return;
     const wrap = document.getElementById('radio-others-' + radio.name);
@@ -1236,7 +1297,7 @@ function pfSyncRadioOthersWrap(radio) {
             val = r.value;
         }
     });
-    const show = val === 'Others';
+    const show = pfIsCustomSizeOptionValue(val);
     wrap.style.display = show ? 'block' : 'none';
     if (wrap.querySelector('.pf-custom-size-panel')) {
         if (!show) {
@@ -1285,7 +1346,8 @@ function pfSyncSelectOthersWrap(select) {
     const wrap = document.getElementById('select-others-' + select.name);
     if (!wrap) return;
     const otherValue = select.getAttribute('data-other-option') || 'Others';
-    const show = select.value === otherValue;
+    const selected = String(select.value || '');
+    const show = selected === otherValue || pfIsCustomSizeOptionValue(selected);
     wrap.style.display = show ? 'block' : 'none';
     if (wrap.querySelector('.pf-custom-size-panel')) {
         if (!show) {

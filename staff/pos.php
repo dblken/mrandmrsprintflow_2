@@ -318,10 +318,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             color: #374151 !important;
         }
 
+        /* Native <select> menus break under overflow:hidden from .shopee-opt-btn. */
         #service-modal-overlay select.shopee-opt-btn {
             appearance: none;
             -webkit-appearance: none;
             -moz-appearance: none;
+            overflow: visible !important;
+            pointer-events: auto !important;
+            cursor: pointer !important;
+            z-index: 2;
             color: #0f172a !important;
             background-color: #ffffff !important;
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
