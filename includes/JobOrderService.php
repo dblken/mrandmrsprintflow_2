@@ -333,6 +333,10 @@ class JobOrderService {
             $metadata = self::decodeMaterialMetadata($material['metadata'] ?? null);
             $laminationItemId = (int)($metadata['lamination_item_id'] ?? 0);
             $laminationLength = (float)($metadata['lamination_length_ft'] ?? 0);
+            if (($metadata['actual_usage_version'] ?? '') === 'manual_v1') {
+                $laminationItemId = 0;
+                $laminationLength = 0.0;
+            }
             if ($laminationItemId > 0 && $laminationLength > 0) {
                 if (!isset($itemsById[$laminationItemId])) {
                     $laminationItem = InventoryManager::getItem($laminationItemId);
@@ -352,9 +356,6 @@ class JobOrderService {
         $issues = [];
         foreach ($demandByItem as $itemId => $required) {
             $inventoryItem = $itemsById[$itemId];
-            if (empty($inventoryItem['track_by_roll']) && !empty($inventoryItem['allow_negative_stock'])) {
-                continue;
-            }
             $available = (float)InventoryManager::getStockOnHand((int)$itemId, $branchId);
             if ($required > $available) {
                 $issues[] = [
@@ -446,6 +447,9 @@ class JobOrderService {
         $computed = (float)($material['computed_required_length_ft'] ?? 0);
         $quantity = (float)($material['quantity'] ?? 0);
         $meta = self::decodeMaterialMetadata($material['metadata'] ?? null);
+        if (($meta['actual_usage_version'] ?? '') === 'manual_v1') {
+            return is_finite($quantity) && $quantity > 0 ? $quantity : 0.0;
+        }
         $jobId = (int)($jobRow['id'] ?? $material['job_order_id'] ?? 0);
         if (printflow_tarpaulin_assert_versioned_job($meta, $jobId, $jobRow)) {
             // Versioned assignments already store the authoritative linear-ft
@@ -493,6 +497,12 @@ class JobOrderService {
         array $pendingMaterials,
         array $itemsById
     ): bool {
+        $materialMetadata = self::decodeMaterialMetadata($material['metadata'] ?? null);
+        // Staff-confirmed manual assignments represent material actually used;
+        // never suppress one selected roll because another roll is wider.
+        if (($materialMetadata['actual_usage_version'] ?? '') === 'manual_v1') {
+            return false;
+        }
         $item = $itemsById[(int)($material['item_id'] ?? 0)] ?? null;
         if ($item === null || !self::itemIsRollWithNominalWidth($item)) {
             return false;
@@ -1073,24 +1083,9 @@ class JobOrderService {
 
     /** Convert a saved server-validated POS selection into deferred job assignments. */
     private static function posSelectedMaterialsForCustomization(int $serviceId, array $custom): array {
-        if (!isset(printflow_pos_material_selection_registry()[$serviceId])) return [];
-        $verified = printflow_pos_material_selection_saved_consumption_for_customization($serviceId, $custom);
-        $materials = [];
-        foreach ($verified as $consumption) {
-            $quantity = (float)$consumption['rounded_demand'];
-            $materials[] = [
-                'item_id' => (int)$consumption['item_id'],
-                'quantity' => $quantity,
-                'uom' => (string)$consumption['uom'],
-                'computed_len' => 0,
-                'metadata' => [
-                    'pos_selected_material_consumption' => $consumption,
-                    'source' => 'pos_explicit_material_selection',
-                    'manual_assignment' => false,
-                ],
-            ];
-        }
-        return $materials;
+        // POS records customer specifications only. Staff select production
+        // materials and enter actual quantities in Production Assignment.
+        return [];
     }
 
     /**
@@ -1367,7 +1362,20 @@ class JobOrderService {
             $orderType = (!empty($isJob)) ? 'JOB' : 'ORDER';
         }
         $qty = (float)$qty;
-        $isVersionedTarpaulin = is_array($metadata) && printflow_tarpaulin_is_versioned_metadata($metadata);
+        // New assignments use the quantity entered by staff in the inventory
+        // unit. Strip legacy dimension-derived metadata at the write boundary;
+        // historical saved rows remain untouched and readable.
+        if (is_array($metadata)) {
+            foreach ([
+                'tarpaulin_calculation_version', 'tarpaulin_panel_plan', 'tarpaulin_required_linear_ft',
+                'tarpaulin_roll_width_ft', 'tarpaulin_run_length_per_piece_ft', 'computed_required_length_ft',
+                'width_ft', 'height_ft', 'finished_quantity', 'orientation',
+            ] as $calculationKey) unset($metadata[$calculationKey]);
+            foreach (['lamination_item_id', 'lamination_roll_id', 'lamination_length_ft', 'waste_length_ft'] as $derivedKey) {
+                unset($metadata[$derivedKey]);
+            }
+        }
+        $isVersionedTarpaulin = false;
         $item = InventoryManager::getItem($itemId);
         if (!$item) throw new Exception("Item not found.");
         if ($isVersionedTarpaulin) {
@@ -1387,15 +1395,8 @@ class JobOrderService {
             $metadata = [];
         }
 
-        // Calculate computed length if track_by_roll
-        $computed_len = 0;
-        if ($track_by_roll) {
-            if (isset($metadata['height_ft']) && (float)$metadata['height_ft'] > 0) {
-                $computed_len = (float)$metadata['height_ft'] * $qty;
-            } else {
-                $computed_len = ($uom === 'ft') ? $qty : 0;
-            }
-        }
+        // For rolls, the saved length is the manually entered inventory-unit qty.
+        $computed_len = !empty($track_by_roll) ? $qty : 0;
 
         $colId = 'job_order_id';
         if ($orderType === 'ORDER' && self::tableHasColumn('job_order_materials', 'std_order_id')) {
@@ -1411,84 +1412,8 @@ class JobOrderService {
             $liveJobId = (int)$orderId;
         }
 
-        if ($isVersionedTarpaulin) {
-            if (!$track_by_roll || (int)($liveJobId ?? 0) <= 0) {
-                throw new RuntimeException('The linear_ft_v1 calculation can only be assigned to a linked Tarpaulin job and active roll material.');
-            }
-            printflow_tarpaulin_assert_versioned_job($metadata, (int)$liveJobId);
-        }
-
-        if ($track_by_roll) {
-            $jobLookupId = (int)($liveJobId ?? 0);
-            if ($jobLookupId <= 0 && $orderType === 'JOB') {
-                $jobLookupId = (int)$orderId;
-            }
-            $jobRowForLength = null;
-            if ($jobLookupId > 0) {
-                $job = db_query('SELECT id, order_id, order_item_id, height_ft, width_ft, quantity FROM job_orders WHERE id = ? LIMIT 1', 'i', [$jobLookupId]);
-                $jobRowForLength = $job[0] ?? null;
-            }
-            if ($isVersionedTarpaulin) {
-                $rollWidth = printflow_tarpaulin_parse_nominal_width($item);
-                if ($rollWidth <= 0 || $jobRowForLength === null) {
-                    throw new RuntimeException('The versioned Tarpaulin assignment is missing a valid roll width or linked job dimensions.');
-                }
-                if (($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION) {
-                    $selection = printflow_tarpaulin_saved_panel_selection_for_job((int)$jobLookupId, $jobRowForLength);
-                    $submittedPanelPlan = $metadata['tarpaulin_panel_plan'] ?? null;
-                    if (!$selection || (int)($selection['item_id'] ?? 0) !== (int)$itemId
-                        || (int)($selection['branch_id'] ?? 0) !== (int)JobOrderService::getJobBranchIdPublic((int)$jobLookupId)
-                        || abs((float)($selection['required_linear_ft'] ?? 0) - $qty) > 0.001
-                        || !is_array($submittedPanelPlan)
-                        || !printflow_tarpaulin_panel_plans_match($submittedPanelPlan, $selection)) {
-                        throw new RuntimeException('The Set Price Tarpaulin assignment does not match the saved POS panel plan. Reopen Set Price and use the validated material and quantity.');
-                    }
-                    $qty = (float)$selection['required_linear_ft'];
-                    $computed_len = $qty;
-                    $metadata = array_merge($metadata, [
-                        'width_ft' => (float)$selection['width_ft'], 'height_ft' => (float)$selection['height_ft'],
-                        'finished_quantity' => (int)$selection['finished_quantity'], 'roll_width_ft' => $rollWidth,
-                        'orientation' => (string)$selection['orientation'], 'run_length_per_piece_ft' => (float)$selection['run_length_per_panel_ft'],
-                        'computed_required_length_ft' => $qty, 'tarpaulin_panel_plan' => $selection,
-                    ]);
-                } else {
-                    $calculation = printflow_tarpaulin_calculate_linear_length(
-                        $jobRowForLength['width_ft'] ?? null,
-                        $jobRowForLength['height_ft'] ?? null,
-                        $jobRowForLength['quantity'] ?? null,
-                        $rollWidth
-                    );
-                    $qty = (float)$calculation['required_linear_ft'];
-                    $computed_len = $qty;
-                    $metadata = array_merge($metadata, [
-                        'tarpaulin_calculation_version' => PRINTFLOW_TARPAULIN_CALCULATION_VERSION,
-                        'width_ft' => $calculation['width_ft'], 'height_ft' => $calculation['height_ft'],
-                        'finished_quantity' => $calculation['finished_quantity'], 'roll_width_ft' => $calculation['roll_width_ft'],
-                        'orientation' => $calculation['orientation'], 'run_length_per_piece_ft' => $calculation['run_length_per_piece_ft'],
-                        'computed_required_length_ft' => $calculation['required_linear_ft'],
-                    ]);
-                }
-            }
-            if ($computed_len <= 0 && $jobRowForLength !== null) {
-                $jH = (float)($jobRowForLength['height_ft'] ?? 0);
-                $jW = (float)($jobRowForLength['width_ft'] ?? 0);
-                $jQ = (float)($jobRowForLength['quantity'] ?? 1);
-                $computed_len = max($jH, $jW) * $jQ;
-            }
-            if ($jobRowForLength !== null) {
-                $metadata['manual_assignment'] = true;
-                $computed_len = self::resolveRollMaterialLengthFt(
-                    [
-                        'quantity' => $qty,
-                        'computed_required_length_ft' => $computed_len,
-                        'metadata' => $metadata,
-                    ],
-                    $jobRowForLength
-                );
-            }
-        }
-
         $metadata['manual_assignment'] = true;
+        $metadata['actual_usage_version'] = 'manual_v1';
         $metaJson = !empty($metadata) ? json_encode($metadata) : null;
 
         // Check for duplicates
@@ -1715,7 +1640,9 @@ class JobOrderService {
         $status = 'READY';
         foreach ($order['materials'] as $m) {
             $stock = InventoryManager::getStockOnHand($m['item_id'], $branchId);
-            $required = $m['track_by_roll'] ? $m['computed_required_length_ft'] : $m['quantity'];
+            $meta = self::decodeMaterialMetadata($m['metadata'] ?? null);
+            $required = !empty($m['track_by_roll']) && ($meta['actual_usage_version'] ?? '') !== 'manual_v1'
+                ? $m['computed_required_length_ft'] : $m['quantity'];
             
             if ($stock <= 0) {
                 return 'MISSING';
@@ -1759,7 +1686,10 @@ class JobOrderService {
         $materials = self::getScopedMaterials((int)$orderId, false);
         $total = 0.0;
         foreach ($materials as $m) {
-            $qty = (float)((float)($m['computed_required_length_ft'] ?? 0) > 0 ? $m['computed_required_length_ft'] : $m['quantity']);
+            $meta = self::decodeMaterialMetadata($m['metadata'] ?? null);
+            $qty = !empty($m['track_by_roll']) && ($meta['actual_usage_version'] ?? '') !== 'manual_v1'
+                ? (float)($m['computed_required_length_ft'] ?? 0)
+                : (float)($m['quantity'] ?? 0);
             $total += $qty * (float)($m['unit_cost_at_assignment'] ?? 0);
         }
         return $total;
@@ -2200,7 +2130,21 @@ class JobOrderService {
                     throw new RuntimeException('An assigned inventory material no longer exists.');
                 }
                 $itemId = (int)($m['item_id'] ?? 0);
-                $beforeStock = InventoryManager::getStockOnHand($itemId, $branchId);
+                $assignmentMetadata = self::decodeMaterialMetadata($m['metadata'] ?? null);
+                if (($assignmentMetadata['actual_usage_version'] ?? '') === 'manual_v1') {
+                    if (strcasecmp(trim((string)($m['uom'] ?? '')), trim((string)($item['unit_of_measure'] ?? ''))) !== 0) {
+                        throw new RuntimeException('The saved actual-usage unit no longer matches ' . (string)($item['name'] ?? 'the inventory item') . '. Refresh the assignment before deduction.');
+                    }
+                    try {
+                        $manualQty = printflow_pos_parse_positive_material_quantity($m['quantity'] ?? null, $item);
+                    } catch (InvalidArgumentException $quantityError) {
+                        throw new RuntimeException('The saved actual usage is not a valid positive quantity in ' . (string)($item['unit_of_measure'] ?? 'the inventory unit') . '.');
+                    }
+                    if (abs($manualQty - (float)($m['quantity'] ?? 0)) > 0.000001) {
+                        throw new RuntimeException('The saved actual usage changed after assignment; no inventory was deducted.');
+                    }
+                }
+                $beforeStock = InventoryManager::getStockOnHandForUpdate($itemId, $branchId);
                 $debugLog('material_before', [
                     'assignment_id' => (int)($m['id'] ?? 0),
                     'job_order_id' => (int)$orderId,
@@ -2243,6 +2187,17 @@ class JobOrderService {
                             'length_needed' => $lengthNeeded,
                         ]);
                         throw new RuntimeException('Assigned roll material requires a positive length.');
+                    }
+
+                    if ($lengthNeeded > $beforeStock + 0.000001) {
+                        throw new RuntimeException(sprintf(
+                            'Insufficient %s stock for this branch: requested %s %s; available %s %s.',
+                            (string)($item['name'] ?? 'Material'),
+                            rtrim(rtrim(number_format($lengthNeeded, 2, '.', ''), '0'), '.'),
+                            (string)($item['unit_of_measure'] ?? 'ft'),
+                            rtrim(rtrim(number_format($beforeStock, 2, '.', ''), '0'), '.'),
+                            (string)($item['unit_of_measure'] ?? 'ft')
+                        ));
                     }
 
                     try {
@@ -2347,6 +2302,17 @@ class JobOrderService {
                             'quantity' => $quantityNeeded,
                         ]);
                         throw new RuntimeException('Assigned material requires a positive quantity.');
+                    }
+                    $beforeStock = InventoryManager::getStockOnHandForUpdate($itemId, $branchId);
+                    if ($quantityNeeded > $beforeStock + 0.000001) {
+                        throw new RuntimeException(sprintf(
+                            'Insufficient %s stock for this branch: requested %s %s; available %s %s.',
+                            (string)($item['name'] ?? 'Material'),
+                            rtrim(rtrim(number_format($quantityNeeded, 2, '.', ''), '0'), '.'),
+                            (string)($item['unit_of_measure'] ?? ''),
+                            rtrim(rtrim(number_format($beforeStock, 2, '.', ''), '0'), '.'),
+                            (string)($item['unit_of_measure'] ?? '')
+                        ));
                     }
                     $deductionResult = InventoryManager::issueStock(
                         $m['item_id'], 

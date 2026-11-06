@@ -447,51 +447,18 @@ $stockRulesEnd = strpos($validator, 'function printflow_pos_service_line_job_mat
 $stockRulesBlock = $stockRulesStart !== false && $stockRulesEnd !== false
     ? substr($validator, $stockRulesStart, $stockRulesEnd - $stockRulesStart)
     : '';
-$schemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier', true)");
-$query = strpos($stockRulesBlock, 'SELECT r.id AS rule_id, ');
-$tarpaulinExit = strpos($stockRulesBlock, 'if ($serviceId === 40) return [];');
 $stockValidationStart = strpos($validator, 'function printflow_pos_validate_service_stock(');
 $stockValidationBlock = $stockValidationStart !== false ? substr($validator, $stockValidationStart) : '';
-$tarpaulinDedicatedPath = strpos($stockValidationBlock, 'if ($serviceId === 40) {');
-$genericRulesCall = strpos($stockValidationBlock, 'printflow_pos_service_stock_rules($serviceId, $customization, $hasAssignedMaterials, $branchId, (float)$quantity, $demand)');
-$approvalSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved', true)");
-$approverSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved_by', true)");
-$approvalTimestampSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved_at', true)");
-$basisSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_basis', true)");
-$selectedBasisValidation = strpos($stockRulesBlock, 'if ($basis !== $consumptionBasis || $approvedBasis !== $basis)');
-$approvedBasisSchemaCheck = strpos($stockRulesBlock, "db_table_has_column('service_material_rules', 'qty_multiplier_approved_basis', true)");
-$approvedMultiplierCheck = strpos($stockRulesBlock, 'printflow_pos_approved_service_multiplier(');
-$sintraSelectionResolve = strpos($stockRulesBlock, '$selection = $assignmentRows !== null');
-$assignmentSelectionResolve = strpos($stockRulesBlock, 'printflow_pos_material_selection_resolve_assignments($serviceId, $assignmentRows, $customization)');
-$deferredRuleReturn = strpos($stockRulesBlock, 'if ($usesSelectionPolicy && $serviceId !== 71 && $assignmentRows === null) return [];');
-$optionalRuleFilter = strpos($stockRulesBlock, 'printflow_pos_material_selection_filter_unselected_optional_rules($serviceId, $rules ?: [], $selection)');
-$strictRuleResolution = strpos($stockRulesBlock, 'printflow_pos_select_service_material_rule_set($serviceId, $rules ?: [])');
-$assert($sintraSelectionResolve !== false && $optionalRuleFilter !== false && $strictRuleResolution !== false
-    && $sintraSelectionResolve < $optionalRuleFilter && $optionalRuleFilter < $strictRuleResolution,
-    'Sintraboard resolves the specification-selected thickness and excludes the unselected optional Pp rule before strict stable/legacy conflict validation.');
-$assert($assignmentSelectionResolve !== false && $deferredRuleReturn !== false
-    && str_contains($stockValidationBlock, '!array_key_exists(\'pos_material_assignments\', $line)) $assigned = [];')
-    && str_contains($stockValidationBlock, '$customization[\'pos_material_assignments\'] = $assigned;'),
-    'Unresolved production-material services defer POS stock rules, while explicit Production Assignment rows retain strict selected-rule validation.');
-$assert($schemaCheck !== false && $approvalSchemaCheck !== false && $approverSchemaCheck !== false
-    && $approvalTimestampSchemaCheck !== false && $query !== false
-    && $schemaCheck < $query && $approvalSchemaCheck < $query
-    && $approverSchemaCheck < $query && $approvalTimestampSchemaCheck < $query,
-    'All four production multiplier/approval/audit schema guards run before the dependent query.');
-$assert($basisSchemaCheck !== false && $approvedBasisSchemaCheck !== false
-    && $basisSchemaCheck < $query && $approvedBasisSchemaCheck < $query,
-    'Selection-based services require the explicit and Admin-approved consumption basis before reading rules.');
-$assert($selectedBasisValidation !== false
-    && str_contains($stockRulesBlock, 'requires an Admin-approved '),
-    'A manually selected optional material still fails clearly when its stored basis is missing or unapproved.');
-$manualPpBypass = strpos($stockRulesBlock, 'printflow_pos_sintraboard_manual_actual_usage_is_confirmed(');
-$manualPpContinue = $manualPpBypass === false ? false : strpos($stockRulesBlock, 'if ($manualActual !== null) continue;', $manualPpBypass);
-$manualPpPolicyRole = strpos($stockRulesBlock, "\$selectedMaterial['role'] ?? ''") !== false
-    && strpos($stockRulesBlock, "=== 'optional'") !== false;
-$assert($manualPpBypass !== false && $manualPpContinue !== false
-    && $manualPpPolicyRole
-    && $manualPpContinue < $selectedBasisValidation,
-    'Only the policy-OPTIONAL Sintraboard Pp layer with an explicitly confirmed actual assignment skips automatic basis approval, even if a legacy stored rule type is stale; unconfirmed selections still hit strict approval validation.');
+$assignmentSelectionResolve = strpos($stockValidationBlock, 'printflow_pos_material_selection_resolve_assignments($serviceId, $assignmentRows, $customization)');
+$assert(str_contains($stockRulesBlock, 'return [];')
+    && !str_contains($stockRulesBlock, 'qty_multiplier')
+    && !str_contains($stockRulesBlock, 'printflow_pos_material_demand_for_area'),
+    'The compatibility rule resolver does not create multiplier- or dimension-derived material demand.');
+$assert($assignmentSelectionResolve !== false
+    && str_contains($stockValidationBlock, '!array_key_exists(\'pos_material_assignments\', $line)')
+    && str_contains($stockValidationBlock, 'printflow_pos_service_line_job_materials($line)')
+    && str_contains($stockValidationBlock, 'printflow_pos_service_stock_add_demand('),
+    'Customer specifications defer exact material checks, while explicit manual assignment quantities are validated as demand.');
 $lineMaterialsStart = strpos($validator, 'function printflow_pos_service_line_job_materials(');
 $lineMaterialsEnd = strpos($validator, 'function printflow_pos_validate_service_stock(', $lineMaterialsStart ?: 0);
 $lineMaterialsBlock = $lineMaterialsStart !== false && $lineMaterialsEnd !== false
@@ -499,19 +466,6 @@ $lineMaterialsBlock = $lineMaterialsStart !== false && $lineMaterialsEnd !== fal
     : '';
 $assert(str_contains($lineMaterialsBlock, '\'metadata\' => is_array($metadata) ? $metadata : []'),
     'Manual confirmation metadata survives normalization so the validator can distinguish confirmed actual usage from an estimate.');
-$assignedActualDemand = strpos($stockValidationBlock, '$assignedById[$itemId] = ($assignedById[$itemId] ?? 0.0) + (float)$material[\'quantity\'];');
-$stockDemandAdd = strpos($stockValidationBlock, 'printflow_pos_service_stock_add_demand(');
-$assert($assignedActualDemand !== false && $stockDemandAdd !== false
-    && str_contains($stockValidationBlock, '$lineQty = max((float)$minimum[\'quantity\'], (float)($assignedById[$itemId] ?? 0));'),
-    'The validated actual Pp assignment quantity remains part of the standard branch-stock demand and is not skipped with the estimate.');
-$assert($approvedMultiplierCheck !== false && $approvedMultiplierCheck < strpos($stockRulesBlock, '$required[] = ['),
-    'Unapproved multipliers fail before a required demand entry can be accumulated.');
-$assert(str_contains($stockRulesBlock, 'r.qty_multiplier_approved'), 'The runtime selects the explicit approval state.');
-$assert(str_contains($stockRulesBlock, 'printflow_service_material_rule_identity_scope($serviceId, $ruleTypes,')
-    && str_contains($stockRulesBlock, 'NULL AS service_id'), 'POS rule lookup uses stable service IDs when available with explicit legacy alias fallback before migration.');
-$assert($tarpaulinExit !== false && $tarpaulinExit < $schemaCheck, 'Tarpaulin exits before checking or querying qty_multiplier.');
-$assert($tarpaulinDedicatedPath !== false && $genericRulesCall !== false && $tarpaulinDedicatedPath < $genericRulesCall,
-    'Tarpaulin is validated through its dedicated roll path before generic multiplier rules are consulted.');
 $assert(
     str_contains($jobOrderService, "return 'Decals/Stickers (Print/Cut)';")
         && str_contains($jobOrderService, "strpos($" . "cat_lower, 'sticker') !== false || strpos($" . "cat_lower, 'decal') !== false"),

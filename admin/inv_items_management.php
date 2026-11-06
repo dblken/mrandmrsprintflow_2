@@ -865,7 +865,7 @@ if (isset($_GET['ajax'])) {
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
                     <div>
                         <h2 style="font-size:16px;margin:0;color:#1f2937;">Service Material Rules</h2>
-                        <p style="font-size:12px;color:#64748b;margin:5px 0 0;">Only an Admin can save multipliers or approve configured materials. Changing a multiplier clears its previous approval and audit.</p>
+                        <p style="font-size:12px;color:#64748b;margin:5px 0 0;">Staff records actual material usage in the inventory unit during Production Assignment. The multiplier and basis fields below are retained for configuration history and audit; they do not calculate current assignment quantities. Existing approval controls and audit history remain available.</p>
                     </div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
                         <button type="button" class="toolbar-btn" onclick="pfLoadServiceMaterialRules()">Refresh rules</button>

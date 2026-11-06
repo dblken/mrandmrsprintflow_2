@@ -3201,34 +3201,32 @@ $online_closed_count = 0;
                                             </div>
                                         </div>
 
+                                        <div x-show="newMaterialId" x-cloak style="padding:10px 12px;border:1px solid #bfdbfe;border-radius:8px;background:#eff6ff;">
+                                            <div style="font-size:12px;font-weight:700;color:#1e3a8a;" x-text="(getInventoryItem(newMaterialId)?.name || 'Selected material') + ' · enter actual usage' "></div>
+                                            <label style="display:block;margin-top:7px;font-size:11px;font-weight:700;color:#334155;">Actual Usage
+                                                <input type="number" min="0.001" step="any" :value="newMaterialQty" @input="handleMaterialQtyInput($event.target.value)" aria-label="Actual material usage quantity" style="width:110px;margin:0 4px;padding:6px 7px;border:1px solid #cbd5e1;border-radius:6px;">
+                                                <span x-text="getMaterialEntryUom(newMaterialId)"></span>
+                                            </label>
+                                            <div x-show="selectedMaterialStockError" x-text="selectedMaterialStockError" role="alert" style="margin-top:6px;color:#b91c1c;font-size:11px;font-weight:700;"></div>
+                                            <div style="margin-top:7px;display:flex;gap:8px;">
+                                                <button type="button" @click="addMaterialToQueue({keepListOpen:true})" :disabled="!isValidPosMaterialQuantity(newMaterialQty,newMaterialId) || !!selectedMaterialStockError" style="border:1px solid #0f766e;background:#0f766e;color:#fff;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;">Add actual usage</button>
+                                                <button type="button" @click="resetMaterialForm()" style="border:1px solid #cbd5e1;background:#fff;color:#475569;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;">Cancel</button>
+                                            </div>
+                                        </div>
+
                                         <div x-show="pendingMaterials.length > 0" style="display:flex; flex-direction:column; gap:6px;">
                                             <template x-for="(pm, idx) in pendingMaterials" :key="idx">
                                                 <div style="display:flex; align-items:center; justify-content:space-between; background:#f1f5f9; border-radius:8px; padding:8px 12px; font-size:12px; border:1px solid #e2e8f0; gap:10px;">
                                                     <div style="min-width:0;">
                                                         <div style="font-weight:600; color:#1e293b;" x-text="pm.name + (pm.size_variant ? ' · ' + pm.size_variant : '')"></div>
-                                                        <div style="margin-top:3px;color:#64748b;font-size:11px;" x-text="materialUsageSummary(pm)"></div>
-                                                        <template x-if="isVersionedTarpaulinMaterial(pm.item_id)">
-                                                            <div style="display:flex;flex-wrap:wrap;gap:8px;color:#64748b;font-size:11px;margin-top:5px;">
-                                                                <label>Linear Ft:
-                                                                    <input type="number" min="0.001" step="any" x-model.number="pm.qty" aria-label="Required linear feet"
-                                                                           style="width:72px;margin-left:3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
-                                                                </label>
-                                                                <label>Height:
-                                                                    <input type="number" min="0" step="any" x-model.number="pm.metadata.height_ft" aria-label="Material height"
-                                                                           style="width:72px;margin-left:3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
-                                                                </label>
-                                                            </div>
-                                                        </template>
-                                                        <template x-if="!isVersionedTarpaulinMaterial(pm.item_id)">
-                                                            <label style="display:block;color:#334155;font-size:11px;margin-top:5px;font-weight:700;">Actual Usage:
-                                                                <input type="number" min="1" step="any" :value="pm.qty" @beforeinput="markPendingMaterialQtyEdit(pm, $event.target, $event)" @keydown="markPendingMaterialQtyKeyEdit(pm, $event.target, $event)" @keyup="clearPendingMaterialQtyKeyEdit($event.target)" @pointerdown="markPendingMaterialQtyPointerEdit(pm, $event.target, $event)" @pointerup="clearPendingMaterialQtyPointerEdit($event.target)" @pointercancel="clearPendingMaterialQtyPointerEdit($event.target)" @input="handlePendingMaterialQtyInput(pm, $event.target.value, $event.target, $event)" @blur="handlePendingMaterialQtyBlur(pm, $event.target, $event)" aria-label="Actual material usage quantity"
-                                                                       style="width:72px;margin:0 3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
-                                                                <span x-text="pm.uom"></span>
-                                                            </label>
-                                                            <div x-show="pm.manual_confirmation_required && !pm.manual_quantity_confirmed" style="margin-top:5px;color:#b45309;font-weight:700;">Review the actual usage, then confirm before saving.</div>
-                                                            <button type="button" x-show="pm.manual_confirmation_required && !pm.manual_quantity_confirmed" @click="confirmPendingMaterialUsage(pm)" style="margin-top:5px;border:1px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer;">Confirm Actual Usage</button>
-                                                            <button type="button" x-show="pm.estimated_qty !== null && pm.estimated_qty !== undefined" @click="recalculatePendingMaterial(idx)" style="margin:5px 0 0 5px;border:1px solid #cbd5e1;background:#fff;color:#475569;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;">Recalculate Estimate</button>
-                                                        </template>
+                                                        <div style="margin-top:3px;color:#64748b;font-size:11px;">Enter the actual quantity used in the inventory unit.</div>
+                                                        <label style="display:block;color:#334155;font-size:11px;margin-top:5px;font-weight:700;">Actual Usage:
+                                                            <input type="number" min="0.001" step="any" :value="pm.qty" @beforeinput="markPendingMaterialQtyEdit(pm, $event.target, $event)" @keydown="markPendingMaterialQtyKeyEdit(pm, $event.target, $event)" @keyup="clearPendingMaterialQtyKeyEdit($event.target)" @pointerdown="markPendingMaterialQtyPointerEdit(pm, $event.target, $event)" @pointerup="clearPendingMaterialQtyPointerEdit($event.target)" @pointercancel="clearPendingMaterialQtyPointerEdit($event.target)" @input="handlePendingMaterialQtyInput(pm, $event.target.value, $event.target, $event)" @blur="handlePendingMaterialQtyBlur(pm, $event.target, $event)" aria-label="Actual material usage quantity"
+                                                                   style="width:84px;margin:0 3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
+                                                            <span x-text="pm.uom"></span>
+                                                        </label>
+                                                        <div x-show="pm.manual_confirmation_required && !pm.manual_quantity_confirmed" style="margin-top:5px;color:#b45309;font-weight:700;">Enter and confirm the actual quantity before saving.</div>
+                                                        <button type="button" x-show="pm.manual_confirmation_required && !pm.manual_quantity_confirmed" @click="confirmPendingMaterialUsage(pm)" style="margin-top:5px;border:1px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer;">Confirm Actual Usage</button>
                                                     </div>
                                                     <button type="button" @click="removePendingMaterial(idx)" title="Remove material" aria-label="Remove material"
                                                             style="flex-shrink:0; display:flex; align-items:center; gap:4px; color:#b91c1c; border:1px solid #fecaca; background:#fff5f5; border-radius:6px; padding:5px 9px; cursor:pointer; font-weight:700; font-size:11px;">
@@ -3513,28 +3511,10 @@ $online_closed_count = 0;
                                 <div>
                                     <div style="font-size:12px; font-weight:600; color:#1f2937;">
                                         <span x-text="m.item_name"></span>
-                                        <span x-show="m.track_by_roll == 0 && m.quantity > 0" style="margin-left:4px; font-weight:800; color:#06A1A1;" x-text="'x' + Number(m.quantity)"></span>
-                                        <template x-if="m.track_by_roll == 1">
-                                            <span style="margin-left:4px; font-weight:800; color:#06A1A1;" x-text="'x' + Number(m.computed_required_length_ft)"></span>
-                                        </template>
+                                        <span x-show="m.quantity > 0" style="margin-left:4px; font-weight:800; color:#06A1A1;" x-text="Number(m.quantity) + ' ' + (m.uom || 'inventory units')"></span>
                                     </div>
                                     <div style="font-size:11px; color:#6b7280; margin-top:2px;">
-                                        <span x-show="m.track_by_roll == 1">
-                                            Req: <span x-text="m.computed_required_length_ft"></span>'
-                                            <span x-show="m.roll_code"> (Roll: <span x-text="m.roll_code"></span>)</span>
-                                            <span x-show="!m.roll_code"> (Auto Pick Roll)</span>
-                                        </span>
-                                        <span x-show="m.track_by_roll == 0">Qty: <span x-text="m.quantity"></span></span>
-                                        <template x-if="m.metadata && m.metadata.lamination_item_id">
-                                            <div style="color:#059669; font-weight:600; margin-top:4px;">
-                                                + Lamination (Auto Pick Roll) — <span x-text="m.metadata.lamination_length_ft"></span>'
-                                            </div>
-                                        </template>
-                                        <template x-if="m.metadata && m.metadata.waste_length_ft !== undefined">
-                                            <div style="color:#b45309; margin-top:2px;">
-                                                Recorded Waste: <span x-text="m.metadata.waste_length_ft"></span>'
-                                            </div>
-                                        </template>
+                                        <span>Actual usage</span>
                                         <span style="color:#06A1A1; font-weight:600; margin-left:8px;" x-show="m.deducted_at">✓ Deducted</span>
                                     </div>
                                 </div>
@@ -4332,7 +4312,7 @@ window.pfServiceFieldCatalog = (() => {
             inventoryPollMs: 20000,
             ordersPollMs: 30000,
             newMaterialId: '',
-            newMaterialQty: 1,
+            newMaterialQty: '',
             materialQtyManuallyEdited: false,
             newMaterialUsageEstimate: null,
             newMaterialHeight: 0,
@@ -4421,7 +4401,9 @@ window.pfServiceFieldCatalog = (() => {
                 const counts = {};
                 deductedMaterials.forEach(m => {
                     const name = m.item_name;
-                    const q = parseFloat(m.track_by_roll == 1 ? m.computed_required_length_ft : m.quantity) || 0;
+                    const meta = typeof m.metadata === 'string' ? (() => { try { return JSON.parse(m.metadata); } catch (e) { return {}; } })() : (m.metadata || {});
+                    const manualUsage = meta.actual_usage_version === 'manual_v1';
+                    const q = parseFloat(m.track_by_roll == 1 && !manualUsage ? m.computed_required_length_ft : m.quantity) || 0;
                     counts[name] = (counts[name] || 0) + q;
                 });
                 const summary = Object.entries(counts).map(([name, count]) => {
@@ -4434,27 +4416,11 @@ window.pfServiceFieldCatalog = (() => {
                 return this.allInventoryItems.find(i => String(i.id) === String(itemId)) || null;
             },
             estimateMaterialUsage(item, order = null) {
-                if (!item || !window.PrintFlowMaterialConsumption || this.isVersionedTarpaulinMaterial(item.id)) return { status: 'manual', quantity: null, reason: 'Use the existing verified Tarpaulin calculation or confirm actual usage.' };
-                const dims = this.currentJo ? this.resolveOrderDimensions(this.currentJo) : { width: 0, height: 0 };
-                const source = order || {};
-                return window.PrintFlowMaterialConsumption.estimate(item, {
-                    quantity: Number(source.quantity ?? this.currentJo?.quantity ?? 0),
-                    width_ft: Number(source.width_ft ?? dims.width ?? 0),
-                    height_ft: Number(source.height_ft ?? dims.height ?? 0),
-                    required_material_length: source.required_material_length
-                        ?? this.currentJo?.required_material_length_ft
-                        ?? this.currentJo?.verified_material_length_ft
-                });
+                return { status: 'manual', quantity: null, method: 'manual', reason: 'Staff enters actual usage in the inventory unit.' };
             },
             materialUsageSummary(material) {
                 const item = this.getInventoryItem(material.item_id) || material;
-                const stock = Number(item.current_stock || 0);
-                const stockLabel = `Available: ${stock} ${item.unit_of_measure || material.uom || 'pcs'}`;
-                const format = item.material_format ? ` · ${String(item.material_format).replace('_', ' ')}` : '';
-                if (material.estimated_qty !== null && material.estimated_qty !== undefined) {
-                    return `${stockLabel}${format} · Estimated Usage: ${material.estimated_qty} ${material.uom}`;
-                }
-                return `${stockLabel}${format} · ${material.usage_estimate_reason || 'Manual confirmation required.'}`;
+                return `Actual quantity is recorded in ${material.uom || item.unit_of_measure || 'the inventory unit'}.`;
             },
             markPendingMaterialQtyEdit(material, input, event) {
                 const allowedEditTypes = new Set(['insertText', 'insertFromPaste', 'insertFromDrop', 'insertCompositionText', 'deleteContentBackward', 'deleteContentForward', 'deleteByCut', 'deleteByDrag', 'historyUndo', 'historyRedo']);
@@ -4514,19 +4480,16 @@ window.pfServiceFieldCatalog = (() => {
                     this.clearPendingMaterialQtyPointerEdit(input);
                 }
                 material.qty = raw === '' ? '' : qty;
-                const wholeUnit = ['pcs', 'pc', 'piece', 'pieces', 'sheet', 'sheets'].includes(String(material.uom || '').toLowerCase());
-                material.manual_quantity_confirmed = explicitEdit && Number.isFinite(qty) && qty > 0 && (!wholeUnit || Number.isInteger(qty));
-                material.actual_usage_overridden = material.estimated_qty !== null && material.estimated_qty !== undefined;
+                material.manual_quantity_confirmed = explicitEdit && this.isValidPosMaterialQuantity(raw, material.item_id);
+                material.actual_usage_overridden = false;
                 if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
                 material.metadata.material_usage = {
-                    ...(material.metadata.material_usage || {}),
-                    estimate: material.estimated_qty,
+                    estimate: null,
                     actual: Number.isFinite(qty) ? qty : null,
-                    method: material.usage_method || 'manual',
+                    method: 'manual',
                     staff_confirmed: material.manual_quantity_confirmed,
-                    manual_actual_usage_confirmed: material.manual_quantity_confirmed === true
-                        && (material.manual_confirmation_required === true || material.actual_usage_overridden === true),
-                    overridden: material.actual_usage_overridden
+                    manual_actual_usage_confirmed: material.manual_quantity_confirmed === true && material.manual_confirmation_required === true,
+                    overridden: false
                 };
                 if (material.manual_quantity_confirmed) this.clearPendingMaterialConfirmationError(material);
             },
@@ -4543,51 +4506,43 @@ window.pfServiceFieldCatalog = (() => {
             },
             confirmPendingMaterialUsage(material) {
                 const qty = Number(material && material.qty);
-                if (!Number.isFinite(qty) || qty <= 0 || (['pcs', 'pc', 'piece', 'pieces', 'sheet', 'sheets'].includes(String(material.uom).toLowerCase()) && !Number.isInteger(qty))) {
+                if (!this.isValidPosMaterialQuantity(material && material.qty, material && material.item_id)) {
                     this.productionErrors.material = 'Enter a valid positive actual material quantity before confirming.';
                     return;
                 }
                 material.manual_quantity_confirmed = true;
                 if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
                 material.metadata.material_usage = {
-                    ...(material.metadata.material_usage || {}), estimate: material.estimated_qty ?? null,
-                    actual: qty, method: material.usage_method || 'manual', staff_confirmed: true,
-                    manual_actual_usage_confirmed: material.manual_confirmation_required === true || material.actual_usage_overridden === true,
-                    overridden: material.actual_usage_overridden === true
+                    ...(material.metadata.material_usage || {}), estimate: null,
+                    actual: qty, method: 'manual', staff_confirmed: true,
+                    manual_actual_usage_confirmed: material.manual_confirmation_required === true,
+                    overridden: false
                 };
                 this.clearPendingMaterialConfirmationError(material);
             },
             recalculatePendingMaterial(index) {
                 const material = this.pendingMaterials[index];
-                const item = material && this.getInventoryItem(material.item_id);
-                if (!material || !item) return;
-                const estimate = this.estimateMaterialUsage(item);
-                const isTarpaulinMaterial = this.isVersionedTarpaulinMaterial(material.item_id);
-                const hasReliableEstimate = estimate.status === 'estimated';
-                if (!isTarpaulinMaterial) material.manual_confirmation_required = !hasReliableEstimate;
-                material.estimated_qty = hasReliableEstimate ? estimate.quantity : null;
-                material.usage_estimate_reason = estimate.reason || '';
-                material.usage_method = estimate.method || item.consumption_method || 'manual';
-                if (hasReliableEstimate) {
-                    material.qty = estimate.quantity;
-                    material.manual_quantity_confirmed = true;
-                    material.actual_usage_overridden = false;
-                    material.metadata = { ...(material.metadata || {}), material_usage: { estimate: estimate.quantity, actual: estimate.quantity, method: material.usage_method, staff_confirmed: true, manual_actual_usage_confirmed: false, overridden: false } };
-                    this.clearPendingMaterialConfirmationError(material);
-                } else {
-                    if (!isTarpaulinMaterial) material.manual_quantity_confirmed = false;
-                    if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
-                    material.metadata.material_usage = {
-                        ...(material.metadata.material_usage || {}),
-                        estimate: null,
-                        actual: material.qty !== '' && material.qty !== null && material.qty !== undefined && Number.isFinite(Number(material.qty)) ? Number(material.qty) : null,
-                        method: material.usage_method || 'manual',
-                        staff_confirmed: false,
-                        manual_actual_usage_confirmed: false,
-                        overridden: material.actual_usage_overridden === true
-                    };
-                    material.usage_estimate_reason = estimate.reason || 'No reliable estimate is configured.';
-                }
+                if (!material) return;
+                // Legacy button handler retained for saved-page compatibility:
+                // there is no estimate to recalculate in manual-usage mode.
+                // Preserve the typed amount, but require the normal explicit
+                // confirmation gesture again after any recalculation action.
+                material.estimated_qty = null;
+                material.required_minimum_qty = null;
+                material.usage_method = 'manual';
+                material.manual_confirmation_required = true;
+                material.manual_quantity_confirmed = false;
+                material.actual_usage_overridden = false;
+                if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
+                const actual = Number(material.qty);
+                material.metadata.material_usage = {
+                    estimate: null,
+                    actual: Number.isFinite(actual) && actual > 0 ? actual : null,
+                    method: 'manual',
+                    staff_confirmed: false,
+                    manual_actual_usage_confirmed: false,
+                    overridden: false
+                };
             },
             isCurrentTarpaulinService() {
                 const linkedId = Number(this.currentJo?.linked_order_item_id || this.currentJo?.order_item_id || 0);
@@ -4612,10 +4567,6 @@ window.pfServiceFieldCatalog = (() => {
                 return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
             },
             isValidPosMaterialQuantity(value, itemId = null) {
-                if (this.isVersionedTarpaulinMaterial(itemId || this.newMaterialId)) {
-                    const number = Number(String(value ?? '').trim());
-                    return Number.isFinite(number) && number > 0;
-                }
                 const item = this.getInventoryItem(itemId || this.newMaterialId);
                 return !!(item && window.PrintFlowMaterialConsumption
                     && window.PrintFlowMaterialConsumption.parseMaterialQuantity(value, item) !== null);
@@ -4631,21 +4582,8 @@ window.pfServiceFieldCatalog = (() => {
                 for (const material of materials) {
                     const itemId = material && material.item_id;
                     const amount = Number(material && (material.qty ?? material.quantity));
-                    if (this.isVersionedTarpaulinMaterial(itemId)) {
-                        if (!Number.isFinite(amount) || amount <= 0) return 'POS Tarpaulin lengths must be positive linear feet.';
-                        const meta = material && material.metadata && typeof material.metadata === 'object' ? material.metadata : {};
-                        if (meta.tarpaulin_calculation_version === 'linear_ft_v1') {
-                            const calculation = this.tarpaulinCalculationForItem(itemId, meta.width_ft, meta.height_ft, meta.finished_quantity);
-                            if (!calculation || Math.abs(amount - calculation.required_linear_ft) > 0.001) {
-                                return 'Tarpaulin material length must match the calculated roll length for its dimensions and quantity.';
-                            }
-                        }
-                        continue;
-                    }
                     if (!this.isValidPosMaterialQuantity(amount, itemId)) {
-                        return this.isVersionedTarpaulinMaterial(material && material.item_id)
-                            ? 'POS Tarpaulin lengths must be positive linear feet.'
-                            : 'A POS material quantity does not match its configured unit and consumption method.';
+                        return 'Enter a valid positive actual quantity in each material inventory unit.';
                     }
                 }
                 return '';
@@ -4688,80 +4626,49 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 return item.unit_of_measure || 'pcs';
             },
-            getDefaultMaterialQty(itemId) {
-                if (!this.isPcsMaterial(itemId)) return 1;
-                return this.normalizeMaterialQtyValue(this.currentJo && this.currentJo.quantity ? this.currentJo.quantity : 1, 1);
-            },
-            /**
-             * True when qty is a positive actual-usage value that matches the
-             * material unit (whole numbers for pcs/sheet; fractional feet allowed).
-             */
-            isValidPendingMaterialActualQty(qty, uom) {
+            /** Validate staff-entered quantity using the inventory UOM parser. */
+            isValidPendingMaterialActualQty(qty, uom, itemId = null) {
                 const amount = Number(qty);
                 if (!Number.isFinite(amount) || amount <= 0) return false;
-                const wholeUnit = ['pcs', 'pc', 'piece', 'pieces', 'sheet', 'sheets'].includes(String(uom || '').toLowerCase());
-                return !(wholeUnit && !Number.isInteger(amount));
+                const item = this.getInventoryItem(itemId);
+                return !!(item && window.PrintFlowMaterialConsumption
+                    && window.PrintFlowMaterialConsumption.parseMaterialQuantity(qty, item) !== null);
             },
             /**
-             * Selection-time system autofill (order qty or configured estimate) is
-             * accepted for that assignment once the material is queued. Browser
-             * autofill / empty / invalid values still fail validation.
+             * Confirmation is required for every actual-usage row. No estimate or
+             * order-quantity autofill can confirm a material assignment.
              */
             pendingMaterialUsageConfirmationState(normalizedQty, uom, hasReliableEstimate, isTarpaulinMaterial) {
-                const systemAutofillConfirmed = !isTarpaulinMaterial
-                    && this.isValidPendingMaterialActualQty(normalizedQty, uom);
                 return {
-                    staff_confirmed: isTarpaulinMaterial || hasReliableEstimate || systemAutofillConfirmed,
-                    manual_actual_usage_confirmed: !isTarpaulinMaterial && !hasReliableEstimate && systemAutofillConfirmed,
-                    manual_confirmation_required: !isTarpaulinMaterial && !hasReliableEstimate,
-                    manual_quantity_confirmed: isTarpaulinMaterial || hasReliableEstimate || systemAutofillConfirmed,
+                    staff_confirmed: false,
+                    manual_actual_usage_confirmed: false,
+                    manual_confirmation_required: true,
+                    manual_quantity_confirmed: false,
                 };
             },
             /**
-             * Deterministic auto-select: when there is exactly one unambiguous, in-stock,
-             * canonically-mapped material match for this job's specs, pre-fill it into the
-             * selected-material queue. Staff can still remove/change it before saving.
-             * No-op if materials are already assigned/queued, or if no safe match exists.
+             * Admin-approved service_material_rules rate for the current job's
+             * selectable material. Unapproved rows are ignored so the UI cannot
+             * invent a minimum the server would reject differently.
              */
+            approvedMaterialRuleForItem(itemId) {
+                // Multipliers remain stored as Admin history, but no longer
+                // determine a staff-entered actual usage quantity.
+                return null;
+            },
+            /** Legacy compatibility stub; active assignments use staff-entered quantity. */
+            resolveAreaDemandDimensions(jo = null) {
+                return null;
+            },
+            /** Legacy compatibility stub; no active minimum is derived from service rules. */
+            selectionMaterialDemandForItem(itemId) {
+                return null;
+            },
+            /** Compatibility hook retained for older page callers; active manual flow is a no-op. */
             maybeApplyAutoMaterialSuggestion() {
-                if (!this.currentJo) return;
-                if (this.modalWorkflowStatus(this.currentJo) !== 'APPROVED') return;
-                if (Array.isArray(this.currentJo.materials) && this.currentJo.materials.length > 0) return;
-                if (this.pendingMaterials.length > 0) return;
-                if (!window.PrintFlowProductionMaterials || !Array.isArray(this.allInventoryItems) || !this.allInventoryItems.length) return;
-                if (Number(this.currentJo?.service_id || this.currentJo?.items?.[0]?.service_id || 0) === 40) {
-                    const savedSelection = this.persistedPosTarpaulinSelection();
-                    const savedItem = savedSelection && this.getInventoryItem(savedSelection.item_id);
-                    if (savedItem && ['linear_ft_v1', 'panel_joining_v2'].includes(savedSelection.version)) {
-                        this.handleMaterialSelection(savedItem.id);
-                        this.newMaterialQty = Number(savedSelection.required_linear_ft);
-                        this.newMaterialHeight = Number(savedSelection.height_ft);
-                        this.newMaterialMetadata = {
-                            ...(this.newMaterialMetadata || {}),
-                            tarpaulin_calculation_version: savedSelection.version,
-                            tarpaulin_orientation: savedSelection.orientation,
-                            tarpaulin_roll_width_ft: Number(savedSelection.roll_width_ft),
-                            tarpaulin_run_length_per_piece_ft: Number(savedSelection.run_length_per_panel_ft || savedSelection.run_length_per_piece_ft),
-                            tarpaulin_required_linear_ft: Number(savedSelection.required_linear_ft),
-                            panel_plan: savedSelection.version === 'panel_joining_v2' ? savedSelection : null,
-                        };
-                        if (!this.selectedMaterialStockError) this.addMaterialToQueue();
-                        return;
-                    }
-                }
-                const match = window.PrintFlowProductionMaterials.getAutoSelectCandidate(
-                    this.allInventoryItems, this.materialCompatibilityContext, this.materialRules
-                );
-                if (!match) return;
-                this.handleMaterialSelection(match.id);
-                if (this.isVersionedTarpaulinMaterial(match.id)) {
-                    if (!this.selectedMaterialStockError) this.addMaterialToQueue();
-                } else {
-                    // Queue the suggestion even when its current quantity exceeds stock;
-                    // the editable actual-usage field and blocking stock validation let
-                    // staff correct it before saving without bypassing validation.
-                    this.addMaterialToQueue({ allowQuantityAdjustment: true });
-                }
+                // Production materials and their actual quantities are selected explicitly by staff.
+                // Order dimensions and legacy Auto-select candidates never populate this queue.
+                return;
             },
             handleMaterialSelection(selectedId) {
                 this.newMaterialId = selectedId;
@@ -4769,80 +4676,21 @@ window.pfServiceFieldCatalog = (() => {
                 this.availableRollsList = [];
                 this.materialQtyManuallyEdited = false;
                 this.newMaterialUsageEstimate = null;
-                
-                // Auto-fill from canonical order dimensions when available.
-                if (this.currentJo && selectedId) {
-                    const dims = this.resolveOrderDimensions(this.currentJo);
-                    const jW = dims.width;
-                    const jH = dims.height;
-                    const jQ = parseFloat(this.currentJo.quantity || 1);
-                    
-                    if (this.isVersionedTarpaulinMaterial(selectedId)) {
-                        const savedSelection = this.persistedPosTarpaulinSelection();
-                        if (savedSelection?.version === 'panel_joining_v2') {
-                            if (Number(savedSelection.item_id) !== Number(selectedId)) {
-                                this.newMaterialMetadata = { ...(this.newMaterialMetadata || {}), tarpaulin_calculation_version: 'panel_joining_v2', panel_plan: savedSelection, tarpaulin_required_linear_ft: Number(savedSelection.required_linear_ft) };
-                                this.newMaterialQty = 0;
-                                this.newMaterialHeight = 0;
-                                return;
-                            }
-                            this.newMaterialQty = Number(savedSelection.required_linear_ft);
-                            this.newMaterialHeight = Number(savedSelection.run_length_per_panel_ft || 0);
-                            this.newMaterialMetadata = { ...(this.newMaterialMetadata || {}), tarpaulin_calculation_version: 'panel_joining_v2', panel_plan: savedSelection, tarpaulin_required_linear_ft: Number(savedSelection.required_linear_ft), tarpaulin_roll_width_ft: Number(savedSelection.roll_width_ft), tarpaulin_orientation: savedSelection.orientation };
-                            if (this.isRollTracked(selectedId)) this.loadAvailableRolls(selectedId);
-                            return;
-                        }
-                        const calculation = this.tarpaulinCalculationForItem(selectedId, jW, jH, jQ);
-                        this.newMaterialQty = calculation ? calculation.required_linear_ft : '';
-                        this.newMaterialHeight = jH > 0 ? jH : 0;
-                        this.newMaterialMetadata = {
-                            ...(this.newMaterialMetadata || {}),
-                            tarpaulin_calculation_version: 'linear_ft_v1',
-                            tarpaulin_orientation: calculation?.orientation || '',
-                            tarpaulin_roll_width_ft: calculation?.roll_width_ft || 0,
-                            tarpaulin_run_length_per_piece_ft: calculation?.run_length_per_piece_ft || 0,
-                            tarpaulin_required_linear_ft: calculation?.required_linear_ft || 0,
-                        };
-                    } else if (this.isRollTracked(selectedId)) {
-                        const longest = Math.max(jH, jW);
-                        this.newMaterialQty = longest > 0 ? longest : 1;
-                        this.newMaterialHeight = 0;
-                    } else {
-                        this.newMaterialQty = jQ || 1;
-                        this.newMaterialHeight = 0;
-                    }
-                } else {
-                    this.newMaterialQty = this.getDefaultMaterialQty(selectedId);
-                    this.newMaterialHeight = 0;
-                }
-
-                const selectedItem = this.getInventoryItem(selectedId);
-                if (selectedItem && !this.isVersionedTarpaulinMaterial(selectedId)) {
-                    const estimate = this.estimateMaterialUsage(selectedItem);
-                    this.newMaterialUsageEstimate = estimate;
-                    if (estimate.status === 'estimated') this.newMaterialQty = estimate.quantity;
-                } else {
-                    this.newMaterialUsageEstimate = null;
-                }
-
+                this.newMaterialQty = '';
+                this.newMaterialHeight = 0;
+                this.newMaterialMetadata = {};
                 if (this.isRollTracked(selectedId)) {
                     this.loadAvailableRolls(selectedId);
                 }
             },
             handleMaterialQtyInput(value) {
                 this.materialQtyManuallyEdited = true;
-                this.newMaterialQty = this.isPosSetPriceFlow()
-                    ? String(value ?? '')
-                    : this.normalizeMaterialQtyValue(value, 1);
+                this.newMaterialQty = String(value ?? '');
             },
             getMaterialRequiredStock(itemId, qty = 0, height = 0, metadata = {}) {
                 const parsedQty = parseFloat(qty || 0);
                 if (parsedQty <= 0) return 0;
-                if (this.isVersionedTarpaulinMaterial(itemId)) {
-                    if (metadata && ['linear_ft_v1', 'panel_joining_v2'].includes(metadata.tarpaulin_calculation_version)) return parsedQty;
-                    const parsedHeight = parseFloat(height || 0);
-                    return parsedHeight > 0 ? parsedQty * parsedHeight : parsedQty;
-                }
+                // All active assignments represent actual inventory-unit quantities.
                 return parsedQty;
             },
             getQueuedMaterialRequiredStock(itemId) {
@@ -4855,40 +4703,19 @@ window.pfServiceFieldCatalog = (() => {
                 const item = this.getInventoryItem(this.newMaterialId);
                 if (!item) return '';
                 if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) {
-                    return this.isVersionedTarpaulinMaterial(this.newMaterialId)
-                        ? 'POS Tarpaulin lengths must be positive linear feet.'
-                        : 'Enter a positive quantity that matches the selected material unit and configured consumption method.';
+                    return 'Enter a valid positive actual quantity in the selected material inventory unit.';
                 }
                 const available = parseFloat(item.current_stock || 0);
                 const queued = this.getQueuedMaterialRequiredStock(this.newMaterialId);
-                const savedPanelSelection = this.persistedPosTarpaulinSelection();
-                const calculation = this.isVersionedTarpaulinMaterial(this.newMaterialId)
-                    ? (this.newMaterialMetadata?.tarpaulin_calculation_version === 'panel_joining_v2'
-                        ? { required_linear_ft: Number(this.newMaterialMetadata.tarpaulin_required_linear_ft || 0) }
-                        : this.tarpaulinCalculationForItem(this.newMaterialId))
-                    : null;
-                if (this.isVersionedTarpaulinMaterial(this.newMaterialId) && !calculation) {
-                    return 'The selected Tarpaulin roll cannot fit these dimensions, including rotation.';
-                }
-                const needed = this.isVersionedTarpaulinMaterial(this.newMaterialId)
-                    ? Number(calculation.required_linear_ft)
-                    : this.getMaterialRequiredStock(this.newMaterialId, this.newMaterialQty, this.newMaterialHeight);
+                const needed = this.getMaterialRequiredStock(this.newMaterialId, this.newMaterialQty);
                 const enteredQty = Number(this.newMaterialQty);
-                if (this.isPosSetPriceFlow() && savedPanelSelection?.version === 'panel_joining_v2'
-                    && (Number(savedPanelSelection.item_id) !== Number(this.newMaterialId)
-                        || Math.abs(Number(savedPanelSelection.required_linear_ft) - enteredQty) > 0.001)) {
-                    return 'Use the roll material and exact length from the validated Tarpaulin panel plan.';
-                }
                 if (!Number.isFinite(enteredQty) || enteredQty <= 0) {
-                    return 'Material quantity must be at least 1.';
-                }
-                if (this.isVersionedTarpaulinMaterial(this.newMaterialId) && Math.abs(enteredQty - needed) > 0.001) {
-                    return `Required Tarpaulin length for this roll is ${needed} Ft.`;
+                    return 'Enter a positive actual material quantity.';
                 }
                 if (needed <= 0) return '';
                 const remaining = Math.max(0, available - queued);
                 if (needed > remaining) {
-                    return `${item.name} has only ${remaining} ${item.unit_of_measure || 'pcs'} left in this branch, but ${needed} is needed.`;
+                    return `Insufficient ${item.name} stock: requested ${needed} ${item.unit_of_measure || 'units'}, available ${remaining} ${item.unit_of_measure || 'units'} in this branch.`;
                 }
                 return '';
             },
@@ -8524,7 +8351,6 @@ window.pfServiceFieldCatalog = (() => {
                 this.handleMaterialSelection(String(item.id));
                 this.productionErrors.material = '';
                 this.syncInkSelectionWithMaterial();
-                this.addMaterialToQueue({ keepListOpen: true, allowQuantityAdjustment: true });
             },
             requestMaterialOverride(item) {
                 const state = item && (item.compatibility || this.materialClassification(item));
@@ -8547,7 +8373,6 @@ window.pfServiceFieldCatalog = (() => {
                 this.handleMaterialSelection(String(item.id));
                 this.productionErrors.material = '';
                 this.syncInkSelectionWithMaterial();
-                this.addMaterialToQueue({ keepListOpen: true, allowQuantityAdjustment: true });
                 this.cancelMaterialOverride();
             },
             get materialOverrideTitle() {
@@ -10251,15 +10076,12 @@ window.pfServiceFieldCatalog = (() => {
                     this.showStaffAlert('Material Unavailable', 'This material is not available for a new assignment on the current service.');
                     return;
                 }
-                const isTarpaulinMaterial = this.isVersionedTarpaulinMaterial(this.newMaterialId);
-                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) {
-                    this.showStaffAlert('Invalid Quantity', 'Enter a positive quantity that matches the selected material unit and configured consumption method.');
+                if (!this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) {
+                    this.showStaffAlert('Invalid Quantity', 'Enter a valid positive actual quantity in the material inventory unit.');
                     return;
                 }
-                const normalizedQty = isTarpaulinMaterial
-                    ? Number(this.newMaterialQty)
-                    : (this.isPosSetPriceFlow() ? this.normalizePosMaterialQuantity(this.newMaterialQty, this.newMaterialId) : this.normalizeMaterialQtyValue(this.newMaterialQty, 1));
-                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && !this.isPosSetPriceFlow() && normalizedQty < 1)) {
+                const normalizedQty = this.normalizePosMaterialQuantity(this.newMaterialQty, this.newMaterialId);
+                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0) {
                     this.showStaffAlert('Invalid Quantity', 'Material quantity must be positive.');
                     return;
                 }
@@ -10272,61 +10094,17 @@ window.pfServiceFieldCatalog = (() => {
                 // Check if already in pending queue
                 const existing = this.pendingMaterials.find(m => m.item_id == this.newMaterialId);
                 if (existing) {
-                    existing.qty = isTarpaulinMaterial
-                        ? normalizedQty
-                        : (this.isPosSetPriceFlow()
-                            ? Number(((parseFloat(existing.qty) || 0) + normalizedQty).toFixed(2))
-                            : this.normalizeMaterialQtyValue((parseFloat(existing.qty) || 0) + normalizedQty, 1));
-                    if (existing.manual_confirmation_required === true) {
-                        existing.manual_quantity_confirmed = false;
-                        existing.actual_usage_overridden = false;
-                    }
-                    if (isTarpaulinMaterial) {
-                        existing.metadata = { ...existing.metadata, ...this.newMaterialMetadata, height_ft: this.newMaterialHeight };
-                    } else if (existing.metadata && existing.metadata.material_usage) {
-                        existing.metadata.material_usage.actual = existing.qty;
-                        existing.metadata.material_usage.staff_confirmed = existing.manual_quantity_confirmed === true;
-                        existing.metadata.material_usage.manual_actual_usage_confirmed = false;
-                    }
+                    existing.qty = normalizedQty;
+                    existing.manual_quantity_confirmed = false;
+                    existing.actual_usage_overridden = false;
+                    existing.metadata = { ...(existing.metadata || {}), material_usage: { estimate: null, actual: normalizedQty, method: 'manual', staff_confirmed: false, manual_actual_usage_confirmed: false, overridden: false } };
                     // Reset input
                     this.resetMaterialForm();
                     return;
                 }
 
-                let meta = {};
-                if (this.isVersionedTarpaulinMaterial(this.newMaterialId)) {
-                    meta.height_ft = this.newMaterialHeight;
-                    meta.width_ft = Number(this.currentJo?.width_ft || 0);
-                    meta.finished_quantity = Number(this.currentJo?.quantity || 0);
-                    meta.finishing = this.newMaterialMetadata.finishing || '';
-                    meta.tarpaulin_calculation_version = this.newMaterialMetadata.tarpaulin_calculation_version || 'linear_ft_v1';
-                    if (meta.tarpaulin_calculation_version === 'panel_joining_v2') meta.tarpaulin_panel_plan = this.newMaterialMetadata.panel_plan;
-                    meta.tarpaulin_orientation = this.newMaterialMetadata.tarpaulin_orientation || '';
-                    meta.tarpaulin_roll_width_ft = Number(this.newMaterialMetadata.tarpaulin_roll_width_ft || 0);
-                    meta.tarpaulin_run_length_per_piece_ft = Number(this.newMaterialMetadata.tarpaulin_run_length_per_piece_ft || 0);
-                    meta.tarpaulin_required_linear_ft = Number(this.newMaterialMetadata.tarpaulin_required_linear_ft || normalizedQty);
-                } else if (this.isSticker(this.newMaterialId)) {
-                    meta.lamination = this.newMaterialMetadata.lamination || '';
-                }
-                const usageEstimate = isTarpaulinMaterial ? null : (this.newMaterialUsageEstimate || this.estimateMaterialUsage(item));
-                const hasReliableEstimate = !!(usageEstimate && usageEstimate.status === 'estimated');
+                const meta = { material_usage: { estimate: null, actual: normalizedQty, method: 'manual', staff_confirmed: false, manual_actual_usage_confirmed: false, overridden: false } };
                 const entryUom = this.getMaterialEntryUom(this.newMaterialId);
-                const usageConfirm = this.pendingMaterialUsageConfirmationState(
-                    normalizedQty,
-                    entryUom,
-                    hasReliableEstimate,
-                    isTarpaulinMaterial
-                );
-                if (!isTarpaulinMaterial) {
-                    meta.material_usage = {
-                        estimate: hasReliableEstimate ? usageEstimate.quantity : null,
-                        actual: normalizedQty,
-                        method: hasReliableEstimate ? usageEstimate.method : (item.consumption_method || 'manual'),
-                        staff_confirmed: usageConfirm.staff_confirmed,
-                        manual_actual_usage_confirmed: usageConfirm.manual_actual_usage_confirmed,
-                        overridden: false
-                    };
-                }
                 this.pendingMaterials.push({
                     item_id: this.newMaterialId,
                     name: item.name,
@@ -10336,11 +10114,12 @@ window.pfServiceFieldCatalog = (() => {
                     roll_id: this.newMaterialRollId || '',
                     notes: this.newMaterialNotes,
                     metadata: meta,
-                    estimated_qty: hasReliableEstimate ? usageEstimate.quantity : null,
-                    usage_method: hasReliableEstimate ? usageEstimate.method : (item.consumption_method || 'manual'),
-                    usage_estimate_reason: hasReliableEstimate ? '' : (usageEstimate?.reason || 'No reliable estimate is configured; confirm actual usage.'),
-                    manual_confirmation_required: usageConfirm.manual_confirmation_required,
-                    manual_quantity_confirmed: usageConfirm.manual_quantity_confirmed,
+                    estimated_qty: null,
+                    required_minimum_qty: null,
+                    usage_method: 'manual',
+                    usage_estimate_reason: '',
+                    manual_confirmation_required: true,
+                    manual_quantity_confirmed: false,
                     actual_usage_overridden: false
                 });
                 // Reset form
@@ -10353,58 +10132,17 @@ window.pfServiceFieldCatalog = (() => {
             },
             buildCurrentMaterialPayload() {
                 if (!this.newMaterialId) return null;
-                const isTarpaulinMaterial = this.isVersionedTarpaulinMaterial(this.newMaterialId);
-                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) return null;
-                const normalizedQty = isTarpaulinMaterial
-                    ? Number(this.newMaterialQty)
-                    : (this.isPosSetPriceFlow() ? this.normalizePosMaterialQuantity(this.newMaterialQty, this.newMaterialId) : this.normalizeMaterialQtyValue(this.newMaterialQty, 1));
-                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && !this.isPosSetPriceFlow() && normalizedQty < 1)) return null;
+                if (!this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) return null;
+                const normalizedQty = this.normalizePosMaterialQuantity(this.newMaterialQty, this.newMaterialId);
+                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0) return null;
                 this.newMaterialQty = normalizedQty;
                 const item = this.allInventoryItems.find(i => i.id == this.newMaterialId);
                 if (!item) return null;
                 if (!this.materialClassification(item).selectable) return null;
 
-                let meta = {};
-                if (this.isVersionedTarpaulinMaterial(this.newMaterialId)) {
-                    meta.height_ft = this.newMaterialHeight;
-                    meta.width_ft = Number(this.currentJo?.width_ft || 0);
-                    meta.finished_quantity = Number(this.currentJo?.quantity || 0);
-                    meta.finishing = this.newMaterialMetadata.finishing || '';
-                    meta.tarpaulin_calculation_version = this.newMaterialMetadata.tarpaulin_calculation_version || 'linear_ft_v1';
-                    if (meta.tarpaulin_calculation_version === 'panel_joining_v2') meta.tarpaulin_panel_plan = this.newMaterialMetadata.panel_plan;
-                    meta.tarpaulin_orientation = this.newMaterialMetadata.tarpaulin_orientation || '';
-                    meta.tarpaulin_roll_width_ft = Number(this.newMaterialMetadata.tarpaulin_roll_width_ft || 0);
-                    meta.tarpaulin_run_length_per_piece_ft = Number(this.newMaterialMetadata.tarpaulin_run_length_per_piece_ft || 0);
-                    meta.tarpaulin_required_linear_ft = Number(this.newMaterialMetadata.tarpaulin_required_linear_ft || normalizedQty);
-                } else if (this.isSticker(this.newMaterialId)) {
-                    const orderedHeight = parseFloat(this.currentJo.height_ft || 0) > 0 ? parseFloat(this.currentJo.height_ft || 0) : 1;
-                    meta.waste_length_ft = Math.max(0, (parseFloat(this.newMaterialQty) || 0) - orderedHeight);
-                    if (this.newMaterialMetadata.lamination) {
-                        meta.lamination_item_id = this.newMaterialMetadata.lamination;
-                        meta.lamination_roll_id = this.newMaterialMetadata.lamination_roll_id || null;
-                        meta.lamination_length_ft = this.newMaterialQty;
-                    }
-                }
-                const usageEstimate = isTarpaulinMaterial ? null : (this.newMaterialUsageEstimate || this.estimateMaterialUsage(item));
-                const hasReliableEstimate = !!(usageEstimate && usageEstimate.status === 'estimated');
+                const meta = {};
                 const entryUom = this.getMaterialEntryUom(this.newMaterialId);
-                const usageConfirm = this.pendingMaterialUsageConfirmationState(
-                    normalizedQty,
-                    entryUom,
-                    hasReliableEstimate,
-                    isTarpaulinMaterial
-                );
-                if (!isTarpaulinMaterial) {
-                    meta.material_usage = {
-                        estimate: hasReliableEstimate ? usageEstimate.quantity : null,
-                        actual: normalizedQty,
-                        method: hasReliableEstimate ? usageEstimate.method : (item.consumption_method || 'manual'),
-                        staff_confirmed: usageConfirm.staff_confirmed,
-                        manual_actual_usage_confirmed: usageConfirm.manual_actual_usage_confirmed,
-                        overridden: false
-                    };
-                }
-
+                meta.material_usage = { estimate: null, actual: normalizedQty, method: 'manual', staff_confirmed: false, manual_actual_usage_confirmed: false, overridden: false };
                 return {
                     item_id: this.newMaterialId,
                     qty: normalizedQty,
@@ -10412,11 +10150,12 @@ window.pfServiceFieldCatalog = (() => {
                     roll_id: this.newMaterialRollId || '',
                     notes: this.newMaterialNotes || '',
                     metadata: meta,
-                    estimated_qty: hasReliableEstimate ? usageEstimate.quantity : null,
-                    usage_method: hasReliableEstimate ? usageEstimate.method : (item.consumption_method || 'manual'),
-                    usage_estimate_reason: hasReliableEstimate ? '' : (usageEstimate?.reason || 'No reliable estimate is configured.'),
-                    manual_confirmation_required: usageConfirm.manual_confirmation_required,
-                    manual_quantity_confirmed: usageConfirm.manual_quantity_confirmed,
+                    estimated_qty: null,
+                    required_minimum_qty: null,
+                    usage_method: 'manual',
+                    usage_estimate_reason: '',
+                    manual_confirmation_required: true,
+                    manual_quantity_confirmed: false,
                     actual_usage_overridden: false
                 };
             },
@@ -11878,12 +11617,9 @@ window.pfServiceFieldCatalog = (() => {
             },
             async addMaterial() {
                 if(!this.newMaterialId) return;
-                const isTarpaulinMaterial = this.isVersionedTarpaulinMaterial(this.newMaterialId);
-                const normalizedQty = isTarpaulinMaterial
-                    ? Number(this.newMaterialQty)
-                    : this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
-                if (!Number.isFinite(normalizedQty) || normalizedQty <= 0 || (!isTarpaulinMaterial && normalizedQty < 1)) {
-                    this.showStaffAlert('Invalid Quantity', 'Material quantity must be at least 1.');
+                const normalizedQty = this.normalizePosMaterialQuantity(this.newMaterialQty, this.newMaterialId);
+                if (normalizedQty === null || !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) {
+                    this.showStaffAlert('Invalid Quantity', 'Enter a valid positive actual quantity in this material’s inventory unit.');
                     return;
                 }
                 this.newMaterialQty = normalizedQty;
@@ -11908,29 +11644,10 @@ window.pfServiceFieldCatalog = (() => {
                 fd.append('roll_id', this.newMaterialRollId);
                 fd.append('notes', this.newMaterialNotes);
                 
-                // Construct metadata based on category
-                let meta = {};
-                if (this.isVersionedTarpaulinMaterial(this.newMaterialId)) {
-                    meta.height_ft = this.newMaterialHeight;
-                    meta.width_ft = Number(this.currentJo?.width_ft || 0);
-                    meta.finished_quantity = Number(this.currentJo?.quantity || 0);
-                    meta.finishing = this.newMaterialMetadata.finishing || '';
-                    meta.tarpaulin_calculation_version = this.newMaterialMetadata.tarpaulin_calculation_version || 'linear_ft_v1';
-                    if (meta.tarpaulin_calculation_version === 'panel_joining_v2') meta.tarpaulin_panel_plan = this.newMaterialMetadata.panel_plan;
-                    meta.tarpaulin_orientation = this.newMaterialMetadata.tarpaulin_orientation || '';
-                    meta.tarpaulin_roll_width_ft = Number(this.newMaterialMetadata.tarpaulin_roll_width_ft || 0);
-                    meta.tarpaulin_run_length_per_piece_ft = Number(this.newMaterialMetadata.tarpaulin_run_length_per_piece_ft || 0);
-                    meta.tarpaulin_required_linear_ft = Number(this.newMaterialMetadata.tarpaulin_required_linear_ft || normalizedQty);
-                } else if (this.isSticker(this.newMaterialId)) {
-                    // STICKER LOGIC
-                    let orderedHeight = this.currentJo.height_ft > 0 ? this.currentJo.height_ft : 1;
-                    meta.waste_length_ft = Math.max(0, normalizedQty - orderedHeight);
-                    if (this.newMaterialMetadata.lamination) {
-                        meta.lamination_item_id = this.newMaterialMetadata.lamination;
-                        meta.lamination_roll_id = this.newMaterialMetadata.lamination_roll_id || null;
-                        meta.lamination_length_ft = normalizedQty; // Lamination length matches consumed vinyl length
-                    }
-                }
+                // Current assignments persist only the selected item and the exact
+                // quantity staff entered. Legacy dimension/lamination metadata is
+                // retained on historical rows but is not generated for new rows.
+                const meta = { material_usage: { estimate: null, actual: normalizedQty, method: 'manual', staff_confirmed: true } };
                 fd.append('metadata', JSON.stringify(meta));
 
                 const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
@@ -11944,7 +11661,7 @@ window.pfServiceFieldCatalog = (() => {
 
             resetMaterialForm() {
                 this.newMaterialId = '';
-                this.newMaterialQty = 1;
+                this.newMaterialQty = '';
                 this.materialQtyManuallyEdited = false;
                 this.newMaterialUsageEstimate = null;
                 this.newMaterialHeight = 0;
@@ -12038,7 +11755,7 @@ window.pfServiceFieldCatalog = (() => {
                 }
             },
             canReopenMaterialUsage(material) {
-                if (!this.isPosSetPriceFlow() || !material || this.isVersionedTarpaulinMaterial(material.item_id)) return false;
+                if (!this.isPosSetPriceFlow() || !material) return false;
                 if ((Array.isArray(this.pendingMaterials) ? this.pendingMaterials : [])
                     .some(row => String(row.item_id || '') === String(material.item_id || ''))) return false;
                 const assignments = (Array.isArray(this.currentJo?.materials) ? this.currentJo.materials : [])

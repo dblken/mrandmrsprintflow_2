@@ -12,17 +12,18 @@ function printflow_pos_parse_positive_quantity($value): int
     return (int)$raw;
 }
 
-/**
- * Parse a production material quantity using the inventory item's configured
- * UOM and consumption method. Fractional values are allowed only for the
- * already-supported, explicitly measured linear-foot workflow.
- */
+/** Parse a positive staff-entered quantity in the item's saved inventory UOM. */
 function printflow_pos_parse_positive_material_quantity($value, array $item): float
 {
     $uom = strtolower(trim((string)($item['unit_of_measure'] ?? '')));
-    $method = strtolower(trim((string)($item['consumption_method'] ?? '')));
-    $allowsMeasuredFeet = $uom === 'ft' && in_array($method, ['by_length', 'manual'], true);
-    if (!$allowsMeasuredFeet) {
+    if ($uom === '') {
+        throw new InvalidArgumentException('The inventory item must have a configured unit of measure.');
+    }
+    $wholeUnit = in_array($uom, [
+        'pc', 'pcs', 'piece', 'pieces', 'sheet', 'sheets', 'roll', 'rolls',
+        'unit', 'units', 'set', 'sets', 'bottle', 'bottles', 'pack', 'packs',
+    ], true);
+    if ($wholeUnit) {
         if (is_float($value) && is_finite($value) && floor($value) === $value) {
             $value = sprintf('%.0f', $value);
         }
@@ -34,15 +35,15 @@ function printflow_pos_parse_positive_material_quantity($value, array $item): fl
     }
 
     if (!is_string($value) && !is_int($value) && !is_float($value)) {
-        throw new InvalidArgumentException('Measured material quantity must be a positive number of feet with at most two decimal places.');
+        throw new InvalidArgumentException('Material quantity must be a positive amount in its inventory unit with at most two decimal places.');
     }
     $raw = trim((string)$value);
     if (!preg_match('/^(?:0|[1-9][0-9]{0,7})(?:\.[0-9]{1,2})?$/', $raw)) {
-        throw new InvalidArgumentException('Measured material quantity must be a positive number of feet with at most two decimal places.');
+        throw new InvalidArgumentException('Material quantity must be a positive amount in its inventory unit with at most two decimal places.');
     }
     $quantity = (float)$raw;
     if (!is_finite($quantity) || $quantity <= 0 || $quantity > 99999999.99) {
-        throw new InvalidArgumentException('Measured material quantity must be a positive number of feet with at most two decimal places.');
+        throw new InvalidArgumentException('Material quantity must be a positive amount in its inventory unit with at most two decimal places.');
     }
     return $quantity;
 }

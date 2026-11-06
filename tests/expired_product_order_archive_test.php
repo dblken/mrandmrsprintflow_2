@@ -62,17 +62,20 @@ $assert(strpos($orders, 'printflow_expired_product_order_cleanup($staffBranchId,
 $assert(substr_count($orders, 'printflow_expired_product_order_exclude_archived_sql') >= 2, 'main list and KPI queries exclude due rows if cleanup is delayed');
 $assert(strpos($orderDataApi, 'printflow_expired_product_order_overdue_for_display_sql') !== false, 'legacy order list/details API hides overdue online product orders');
 $assert(strpos($orderDetails, 'printflow_expired_product_order_overdue_for_display_sql') !== false, 'direct order details route hides overdue online product orders');
-$assert(strpos($staffApi, 'printflow_expired_product_order_cleanup($staffBranchId, 100)') !== false, 'direct archived API requests run the page-load fallback');
 $assert(strpos($retentionDoc, 'Asia/Manila') !== false && strpos($retentionDoc, '* * * * *') !== false, 'scheduler/timezone operations are documented');
 $assert(is_string($retentionDocNormalized) && stripos($retentionDocNormalized, 'payment submissions, linked job records, and inventory movement rows do not block') !== false, 'documentation explains the non-payment-child deletion policy');
-$assert(strpos($orders, 'ajax=archived') !== false, 'staff orders keeps archived ajax shortcut');
-$assert(strpos($staffApi, 'printflow_staff_archived_expired_orders_payload') !== false, 'staff API loads archived payload');
-$assert(strpos($orders, 'btn-open-archived-orders') !== false && strpos($orders, 'openArchivedOrdersModal') !== false, 'staff orders archived modal UI');
-$assert(strpos($products, 'printflowInitClearArchivedExpiredOrders') !== false, 'admin products binds clear archived handler on page init');
-$assert(strpos($products, 'PF_PRODUCTS_CSRF') !== false, 'admin products exposes CSRF for clear archived');
 $assert(strpos($orders, 'fp_display_status') !== false, 'filter panel includes Paid/Expired/Completed');
-$assert(strpos($products, 'Clear Archived Expired Orders') !== false, 'admin products page has clear button label');
-$assert(strpos($api, 'printflow_expired_product_order_purge_archived') !== false, 'admin API purges only eligible archived orders');
+$assert(strpos($orders, 'btn-open-archived-orders') === false && strpos($orders, 'openArchivedOrdersModal') === false, 'staff Product Orders Archived UI is removed');
+$assert(strpos($orders, 'archivedOrdersModal') === false, 'staff archived orders modal markup is removed');
+$assert(strpos($orders, "ajax'] === 'archived'") !== false && strpos($orders, '410') !== false, 'legacy staff ajax=archived shortcut returns gone instead of listing');
+$assert(strpos($staffApi, 'http_response_code(410)') !== false, 'legacy staff archived API returns gone');
+$assert(strpos($products, 'openArchiveModal') === false && strpos($products, 'archive-storage-overlay') === false, 'admin Products Archived Items UI is removed');
+$assert(strpos($products, 'Clear Archived Expired Orders') === false && strpos($products, 'printflowInitClearArchivedExpiredOrders') === false, 'admin Clear Archived Expired Orders UI is removed');
+$assert(strpos($products, "status != 'Archived'") !== false, 'active product lists still exclude archived product status without deleting rows');
+$assert(strpos($api, 'http_response_code(410)') !== false, 'legacy clear-archived API returns gone');
+$assert(strpos($helpers, 'function printflow_expired_product_order_cleanup') !== false
+    && strpos($helpers, 'function printflow_expired_product_order_exclude_archived_sql') !== false,
+    '24-hour cleanup helpers remain available for cron and list exclusion');
 
 // Contract examples for the SQL threshold: timestamps at or younger than 24
 // hours are retained, while older timestamps are due. This is a pure

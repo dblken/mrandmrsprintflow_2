@@ -102,15 +102,23 @@ $checkout = (string)file_get_contents($root . '/staff/api/pos_checkout.php');
 $customizations = (string)file_get_contents($root . '/staff/customizations.php');
 $jobService = (string)file_get_contents($root . '/includes/JobOrderService.php');
 $jobApi = (string)file_get_contents($root . '/admin/job_orders_api.php');
-$assert(str_contains($validation, 'printflow_pos_tarpaulin_open_rolls((int)$row[\'id\'], $branchId)'), 'Availability uses open rolls scoped to the selected branch without schema side effects.');
-$assert(str_contains($validation, 'tarpaulin_selections') && str_contains($cart, "['pos_tarpaulin_selection'] = \$selection"), 'The server stores its resolved selection in the POS session cart.');
-$assert(str_contains($checkout, 'pos_checkout_pair_tarpaulin_cart_lines') && str_contains($checkout, 'pos_cart_line_id'), 'Checkout uses unique server-generated cart line IDs.');
-$assert(strpos($checkout, 'pos_checkout_pair_tarpaulin_cart_lines($items') < strpos($checkout, 'printflow_pos_validate_service_stock($items, $checkout_branch_id)'), 'Checkout pairs lines before revalidating combined branch stock.');
-$assert(str_contains($checkout, 'pos_checkout_parse_positive_quantity($item[\'qty\']') && str_contains($checkout, 'printflow_pos_authorized_branch_id'), 'Checkout quantity and authorized cart branch are validated server-side.');
-$assert(str_contains($customizations, 'persistedPosTarpaulinSelection') && str_contains($customizations, 'panel_joining_v2'), 'Set Price reuses the saved panel plan and calculation marker.');
-$assert(str_contains($customizations, 'isVersionedTarpaulinMaterial(itemId)') && str_contains($customizations, 'return serviceId === 40;'), 'Set Price creates the new calculation marker only for linked Tarpaulin service 40.');
-$assert(str_contains($jobApi, 'printflow_tarpaulin_saved_panel_selection_for_job('), 'Set Price preserves the server-saved panel plan and selected item.');
-$assert(str_contains($jobService, 'tarpaulin_calculation_version') && str_contains($jobService, 'legacy manual-assignment heuristic away'), 'New versioned assignments bypass legacy heuristics while legacy metadata remains on the old path.');
-$assert(str_contains($jobApi, 'printflow_tarpaulin_assert_versioned_job') && str_contains($jobService, 'printflow_tarpaulin_assert_versioned_job'), 'The material-assignment API and deduction service require persisted Tarpaulin job identity before accepting the marker.');
+$validatorBody = substr($validation, strpos($validation, 'function printflow_pos_validate_service_stock('));
+$assert(str_contains($validatorBody, 'if (!array_key_exists(\'pos_material_assignments\', $line))')
+    && !str_contains($validatorBody, 'printflow_pos_tarpaulin_selection('),
+    'Current Tarpaulin POS stock checks do not select rolls or calculate consumption from dimensions.');
+$assert(!str_contains($checkout, 'pos_checkout_pair_tarpaulin_cart_lines'),
+    'Current checkout does not require a calculated Tarpaulin panel plan.');
+$assert(str_contains($checkout, 'pos_checkout_validate_assigned_service_materials($items, $pos_pending_orders_snapshot)')
+    && str_contains($checkout, 'validatePendingMaterialStockPublic($jobId, $qty)'),
+    'Checkout revalidates the material and actual quantity saved in Production Assignment.');
+$assert(str_contains($jobApi, "\$metadata['actual_usage_version'] = 'manual_v1';")
+    && str_contains($jobApi, 'getStockOnHandForUpdate($itemId, $branchId)'),
+    'Tarpaulin assignment saves the entered inventory-unit length and checks current branch stock.');
+$assert(str_contains($customizations, 'Enter the actual quantity used in the inventory unit.')
+    && str_contains($customizations, 'track_by_roll == 1 && !manualUsage ? m.computed_required_length_ft : m.quantity'),
+    'Set Price accepts staff-entered Tarpaulin usage and reports the actual saved roll quantity.');
+$assert(str_contains($jobService, "'actual_usage_version'] ?? '') === 'manual_v1'")
+    && str_contains($jobService, 'return is_finite($quantity) && $quantity > 0 ? $quantity : 0.0;'),
+    'New Tarpaulin deductions use saved manual quantity while historical rows retain their legacy calculation path.');
 
 echo "POS Tarpaulin material calculation tests passed.\n";

@@ -1,12 +1,13 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { estimate: estimateMaterialConsumption } = require('../public/assets/js/material_consumption_estimator.js');
+const materialConsumption = require('../public/assets/js/material_consumption_estimator.js');
+const { estimate: estimateMaterialConsumption } = materialConsumption;
 
 // The extracted production-assignment validator normally runs in a browser.
 // Provide the optional global resolver as absent so the Node harness exercises
 // the same local validation path without requiring a DOM.
-globalThis.window = { PrintFlowProductionMaterials: null };
+globalThis.window = { PrintFlowProductionMaterials: null, PrintFlowMaterialConsumption: materialConsumption };
 
 const page = fs.readFileSync(path.join(__dirname, '..', 'staff', 'customizations.php'), 'utf8');
 const inputBindingMatch = page.match(/@input="([^"]*handlePendingMaterialQtyInput\(pm, \$event\.target\.value, \$event\.target, \$event\)[^"]*)"/);
@@ -24,7 +25,7 @@ const keyupBinding = new Function('pm', '$event', 'clearPendingMaterialQtyKeyEdi
 const pointerdownBinding = new Function('pm', '$event', 'markPendingMaterialQtyPointerEdit', `${pointerdownBindingMatch[1]};`);
 const blurBinding = new Function('pm', '$event', 'handlePendingMaterialQtyBlur', `${blurBindingMatch[1]};`);
 const start = page.indexOf('            markPendingMaterialQtyEdit(material, input, event) {');
-const end = page.indexOf('            isCurrentTarpaulinService() {', start);
+const end = page.indexOf('            tarpaulinCalculationForItem(itemId', start);
 assert(start >= 0 && end > start, 'Actual Usage methods are present in the staff page.');
 const methods = new Function(`return ({${page.slice(start, end)}\n});`)();
 const validationStart = page.indexOf('            validateProductionAssignments(extraMaterials = [], extraInks = []) {');
@@ -44,6 +45,12 @@ function context(error) {
     return {
         productionErrors: { material: error },
         footerActionError: error,
+        __material: null,
+        getInventoryItem() {
+            const material = this.__material;
+            return material ? { ...material, unit_of_measure: material.unit_of_measure || material.uom } : null;
+        },
+        isValidPosMaterialQuantity: methods.isValidPosMaterialQuantity,
         handlePendingMaterialQtyInput: methods.handlePendingMaterialQtyInput,
         clearPendingMaterialQtyPointerEdit: methods.clearPendingMaterialQtyPointerEdit,
         clearPendingMaterialConfirmationError: methods.clearPendingMaterialConfirmationError
@@ -51,6 +58,7 @@ function context(error) {
 }
 
 function dispatchActualUsageInput(ctx, material, value, {isTrusted = true, inputType = 'insertText'} = {}) {
+    ctx.__material = material;
     const boundHandler = methods.handlePendingMaterialQtyInput.bind(ctx);
     const target = { value: String(material.qty ?? ''), dataset: {}, getBoundingClientRect: () => ({right: 100, left: 0}) };
     const event = { target, isTrusted, inputType };
@@ -61,6 +69,7 @@ function dispatchActualUsageInput(ctx, material, value, {isTrusted = true, input
 }
 
 function dispatchSameValueEditWithoutInput(ctx, material, value) {
+    ctx.__material = material;
     const target = { value: String(value ?? ''), dataset: {} };
     beforeInputBinding(material, { target, isTrusted: true, inputType: 'insertText' }, methods.markPendingMaterialQtyEdit.bind(ctx));
     // A native input control may not dispatch `input` if the final value is unchanged.
@@ -83,7 +92,9 @@ const item = {
 assert.equal(item.manual_quantity_confirmed, false, 'A prefilled quantity alone is not confirmation.');
 assert.equal(validateEstimatedMaterial(item), false, 'Untouched prefilled manual usage remains blocked by the final assignment validator.');
 const untouchedTarget = { value: '1', dataset: {} };
-blurBinding(item, { target: untouchedTarget }, methods.handlePendingMaterialQtyBlur.bind(context('')));
+const untouchedContext = context('');
+untouchedContext.__material = item;
+blurBinding(item, { target: untouchedTarget }, methods.handlePendingMaterialQtyBlur.bind(untouchedContext));
 assert.equal(item.manual_quantity_confirmed, false, 'Focusing and leaving an untouched prefilled value does not confirm it.');
 
 const sameValueContext = context(confirmationError);
@@ -136,6 +147,7 @@ assert.equal(validateEstimatedMaterial(syntheticItem), false, 'Programmatic inpu
 
 const keyboardItem = { ...item, qty: 1, manual_quantity_confirmed: false, metadata: {} };
 const keyboardContext = context(confirmationError);
+keyboardContext.__material = keyboardItem;
 const keyboardTarget = { value: '2', dataset: {}, getBoundingClientRect: () => ({right: 100, left: 0}) };
 keydownBinding(keyboardItem, { target: keyboardTarget, isTrusted: true, key: '2' }, methods.markPendingMaterialQtyKeyEdit.bind(keyboardContext));
 actualUsageInputBinding(keyboardItem, { target: keyboardTarget, isTrusted: true, inputType: '' }, methods.handlePendingMaterialQtyInput.bind(keyboardContext));
@@ -144,6 +156,7 @@ assert.equal(validateEstimatedMaterial(keyboardItem), true, 'Keyboard-edited qua
 
 const mouseItem = { ...item, qty: 1, manual_quantity_confirmed: false, metadata: {} };
 const mouseContext = context(confirmationError);
+mouseContext.__material = mouseItem;
 const mouseTarget = { value: '2', dataset: {}, getBoundingClientRect: () => ({right: 100, left: 0}) };
 pointerdownBinding(mouseItem, { target: mouseTarget, isTrusted: true, pointerType: 'mouse', clientX: 95 }, methods.markPendingMaterialQtyPointerEdit.bind(mouseContext));
 actualUsageInputBinding(mouseItem, { target: mouseTarget, isTrusted: true, inputType: '' }, methods.handlePendingMaterialQtyInput.bind(mouseContext));
@@ -240,12 +253,12 @@ assert.equal(validateEstimatedMaterial(recalcMaterial), false, 'Recalculated man
 dispatchActualUsageInput(context(''), recalcMaterial, '1');
 assert.equal(validateEstimatedMaterial(recalcMaterial), true, 'An explicit valid quantity after recalculation passes final validation.');
 
-const estimatedRecalcMaterial = { ...recalcMaterial, qty: 4, estimated_qty: null, manual_quantity_confirmed: true, metadata: {} };
+const estimatedRecalcMaterial = { ...recalcMaterial, qty: 4, estimated_qty: 2, manual_quantity_confirmed: true, metadata: {} };
 const exactRecalcWarning = `Confirm the actual usage for ${estimatedRecalcMaterial.name} before saving.`;
 const estimatedRecalcContext = {
     pendingMaterials: [estimatedRecalcMaterial],
     getInventoryItem: () => ({ id: 504 }),
-    estimateMaterialUsage: () => ({ status: 'estimated', quantity: 2, reason: '', method: 'configured' }),
+    estimateMaterialUsage: () => ({ status: 'manual', quantity: null, reason: 'Manual entry only.', method: 'manual' }),
     isVersionedTarpaulinMaterial: () => false,
     productionErrors: { material: exactRecalcWarning },
     footerActionError: 'A separate footer error must remain visible.',
@@ -254,14 +267,15 @@ const estimatedRecalcContext = {
 methods.recalculatePendingMaterial.call({
     ...estimatedRecalcContext
 }, 0);
-assert.equal(estimatedRecalcMaterial.qty, 2, 'The explicit Recalculate Estimate action applies its new reliable estimate.');
-assert.equal(estimatedRecalcMaterial.metadata.material_usage.actual, 2, 'Estimate recalculation synchronizes the actual usage metadata.');
-assert.equal(estimatedRecalcMaterial.manual_confirmation_required, false, 'A reliable estimate removes the manual-confirmation requirement.');
-assert.equal(estimatedRecalcMaterial.manual_quantity_confirmed, true, 'A newly reliable estimate follows the existing confirmed-estimate workflow.');
-assert.equal(estimatedRecalcMaterial.metadata.material_usage.staff_confirmed, true, 'The estimate and persisted confirmation metadata remain consistent.');
-assert.equal(estimatedRecalcContext.productionErrors.material, '', 'Recalculating a reliable estimate clears its exact stale confirmation warning.');
+assert.equal(estimatedRecalcMaterial.qty, 4, 'Manual mode never replaces staff quantity with a prior estimate.');
+assert.equal(estimatedRecalcMaterial.estimated_qty, null, 'Recalculation clears the stale automatic estimate.');
+assert.equal(estimatedRecalcMaterial.metadata.material_usage.actual, 4, 'Manual mode retains the entered quantity in metadata.');
+assert.equal(estimatedRecalcMaterial.manual_confirmation_required, true, 'Manual mode continues to require explicit usage confirmation.');
+assert.equal(estimatedRecalcMaterial.manual_quantity_confirmed, false, 'Recalculation cannot auto-confirm usage.');
+assert.equal(estimatedRecalcMaterial.metadata.material_usage.staff_confirmed, false, 'Recalculation cannot create staff confirmation metadata.');
+assert.equal(estimatedRecalcContext.productionErrors.material, exactRecalcWarning, 'Manual recalculation does not silently clear the confirmation warning.');
 assert.equal(estimatedRecalcContext.footerActionError, 'A separate footer error must remain visible.', 'Recalculation preserves an unrelated footer error.');
-assert.equal(validateEstimatedMaterial(estimatedRecalcMaterial), true, 'A valid recalculated estimate passes final assignment validation without staff retyping it.');
+assert.equal(validateEstimatedMaterial(estimatedRecalcMaterial), false, 'Recalculation cannot pass final validation without explicit confirmation.');
 
 const acMcFallback = { ...item, name: 'Ac Mc', item_id: 1, qty: 1, estimated_qty: null, manual_confirmation_required: false, manual_quantity_confirmed: true, actual_usage_overridden: false, metadata: {} };
 assert.equal(estimateMaterialConsumption({ name: 'Ac Mc', unit_of_measure: 'pcs', material_format: 'piece', consumption_method: '' }, { quantity: 1 }).status, 'manual',
@@ -373,8 +387,8 @@ const unrelatedErrorContext = context('Insufficient stock for this material.');
 dispatchActualUsageInput(unrelatedErrorContext, { ...item, metadata: {} }, '2');
 assert.equal(unrelatedErrorContext.productionErrors.material, 'Insufficient stock for this material.', 'Unrelated validation errors are preserved.');
 
-// --- System autofill on material selection (Set Price / Production Assignment) ---
-const helperStart = page.indexOf('            isValidPendingMaterialActualQty(qty, uom) {');
+// --- Manual actual usage on material selection (Set Price / Production Assignment) ---
+const helperStart = page.indexOf('            isValidPendingMaterialActualQty(qty, uom, itemId = null) {');
 const helperEnd = page.indexOf('            maybeApplyAutoMaterialSuggestion() {', helperStart);
 assert(helperStart >= 0 && helperEnd > helperStart, 'System autofill confirmation helpers are present.');
 const queueStart = page.indexOf('            addMaterialToQueue(options = {}) {');
@@ -403,7 +417,7 @@ function queueMaterialFromSystemAutofill({
     };
     const ctx = {
         newMaterialId: itemId,
-        newMaterialQty: qty,
+    newMaterialQty: qty,
         newMaterialRollId: '',
         newMaterialNotes: '',
         newMaterialHeight: 0,
@@ -413,6 +427,7 @@ function queueMaterialFromSystemAutofill({
         materialListExpanded: true,
         selectedMaterialStockError: '',
         allInventoryItems: [inventoryItem],
+        getInventoryItem(id) { return this.allInventoryItems.find(row => String(row.id) === String(id)) || null; },
         materialClassification: () => ({ selectable: true }),
         isVersionedTarpaulinMaterial: () => false,
         isPosSetPriceFlow: () => isPos,
@@ -428,7 +443,7 @@ function queueMaterialFromSystemAutofill({
         showStaffAlert() {},
         resetMaterialForm() {
             this.newMaterialId = '';
-            this.newMaterialQty = 1;
+            this.newMaterialQty = '';
             this.newMaterialUsageEstimate = null;
         },
         isValidPendingMaterialActualQty: queueMethods.isValidPendingMaterialActualQty,
@@ -446,13 +461,15 @@ const c2sCase = queueMaterialFromSystemAutofill({
     consumptionMethod: '',
     estimate: { status: 'manual', quantity: null, reason: 'Enter and confirm the actual material usage.', method: 'manual' },
 });
-assert.equal(c2sCase.material.qty, 1, 'Selecting C2s Board keeps the system-autofilled order quantity.');
+assert.equal(c2sCase.material.qty, 1, 'The entered C2s Board actual quantity is preserved exactly.');
 assert.equal(c2sCase.material.uom, 'sheet', 'C2s Board retains its sheet unit.');
-assert.equal(c2sCase.material.manual_quantity_confirmed, true, 'System autofill of order quantity is confirmed without retyping.');
+assert.equal(c2sCase.material.manual_quantity_confirmed, false, 'Queueing a material does not auto-confirm the entered quantity.');
 assert.equal(c2sCase.material.metadata.material_usage.actual, 1, 'Submitted actual usage matches the autofilled quantity.');
-assert.equal(c2sCase.material.metadata.material_usage.staff_confirmed, true, 'Staff-confirmed metadata follows the autofilled actual.');
-assert.equal(c2sCase.material.metadata.material_usage.manual_actual_usage_confirmed, true, 'Manual-path autofill is marked as accepted actual usage.');
-assert.equal(validateEstimatedMaterial(c2sCase.material), true, 'Confirm Set Price accepts autofilled C2s Board usage without editing.');
+assert.equal(c2sCase.material.metadata.material_usage.staff_confirmed, false, 'Queueing does not create staff-confirmation metadata.');
+assert.equal(c2sCase.material.metadata.material_usage.manual_actual_usage_confirmed, false, 'A manually entered amount is not attested before explicit confirmation.');
+assert.equal(validateEstimatedMaterial(c2sCase.material), false, 'Set Price requires explicit confirmation of the manual amount.');
+dispatchActualUsageInput(context(''), c2sCase.material, '1');
+assert.equal(validateEstimatedMaterial(c2sCase.material), true, 'Confirmed C2s Board actual usage passes Set Price validation.');
 
 for (const sample of [
     { name: 'Brochure Paper', uom: 'sheet', qty: 1, method: 'per_piece', estimate: { status: 'estimated', quantity: 1, method: 'PER_PIECE' } },
@@ -472,11 +489,13 @@ for (const sample of [
         consumptionMethod: sample.method,
         estimate: sample.estimate,
     });
-    assert.equal(queued.material.qty, sample.qty, `${sample.name} keeps its system-calculated actual usage quantity.`);
+    assert.equal(queued.material.qty, sample.qty, `${sample.name} keeps the staff-entered actual usage quantity.`);
     assert.equal(queued.material.uom, sample.uom, `${sample.name} keeps its configured unit.`);
-    assert.equal(queued.material.manual_quantity_confirmed, true, `${sample.name} is confirmed from system autofill without retyping.`);
+    assert.equal(queued.material.manual_quantity_confirmed, false, `${sample.name} is not auto-confirmed when queued.`);
     assert.equal(queued.material.metadata.material_usage.actual, sample.qty, `${sample.name} payload actual matches the queued quantity.`);
-    assert.equal(validateEstimatedMaterial(queued.material), true, `${sample.name} passes Set Price validation after system autofill.`);
+    assert.equal(validateEstimatedMaterial(queued.material), false, `${sample.name} requires explicit actual-usage confirmation.`);
+    dispatchActualUsageInput(context(''), queued.material, String(sample.qty));
+    assert.equal(validateEstimatedMaterial(queued.material), true, `${sample.name} passes Set Price after actual usage is confirmed.`);
 }
 
 const onlineOpsCase = queueMaterialFromSystemAutofill({
@@ -486,15 +505,17 @@ const onlineOpsCase = queueMaterialFromSystemAutofill({
     isPos: false,
     estimate: { status: 'manual', quantity: null, reason: 'Enter and confirm the actual material usage.', method: 'manual' },
 });
-assert.equal(onlineOpsCase.material.manual_quantity_confirmed, true, 'Online Operations system autofill is confirmed without retyping.');
-assert.equal(validateEstimatedMaterial(onlineOpsCase.material), true, 'Online Operations Confirm Set Price accepts system autofill.');
+assert.equal(onlineOpsCase.material.manual_quantity_confirmed, false, 'Online Operations does not auto-confirm a queued manual quantity.');
+assert.equal(validateEstimatedMaterial(onlineOpsCase.material), false, 'Online Operations requires explicit actual-usage confirmation.');
+dispatchActualUsageInput(context(''), onlineOpsCase.material, '1');
+assert.equal(validateEstimatedMaterial(onlineOpsCase.material), true, 'Online Operations accepts the explicitly confirmed manual quantity.');
 
 const emptyUsage = queueMaterialFromSystemAutofill({
     name: 'Missing Usage',
     qty: 0,
     estimate: { status: 'manual', quantity: null, reason: 'Enter and confirm the actual material usage.', method: 'manual' },
 });
-assert.equal(emptyUsage.ctx.pendingMaterials.length, 0, 'Zero/invalid system quantity is not queued as a confirmed assignment.');
+assert.equal(emptyUsage.ctx.pendingMaterials.length, 0, 'Zero/invalid actual usage is not queued.');
 
 const optionalOmitted = {
     currentJo: { materials: [{ item_id: 206, qty: 1, uom: 'pcs' }], ink_usage: [] },

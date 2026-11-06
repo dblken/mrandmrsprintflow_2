@@ -130,8 +130,28 @@ try {
             $rulesHaveServiceId = function_exists('db_table_has_column')
                 && db_table_has_column('service_material_rules', 'service_id', true);
             $serviceIdColumn = $rulesHaveServiceId ? 'r.service_id' : 'NULL AS service_id';
+            $hasMultiplierColumn = function_exists('db_table_has_column')
+                && db_table_has_column('service_material_rules', 'qty_multiplier', true);
+            $hasMultiplierApprovalColumn = function_exists('db_table_has_column')
+                && db_table_has_column('service_material_rules', 'qty_multiplier_approved', true);
+            $hasApproverColumn = function_exists('db_table_has_column')
+                && db_table_has_column('service_material_rules', 'qty_multiplier_approved_by', true);
+            $hasApprovalTimestampColumn = function_exists('db_table_has_column')
+                && db_table_has_column('service_material_rules', 'qty_multiplier_approved_at', true);
+            $hasMultiplierBasisColumn = function_exists('db_table_has_column')
+                && db_table_has_column('service_material_rules', 'qty_multiplier_basis', true);
+            $hasApprovedBasisColumn = function_exists('db_table_has_column')
+                && db_table_has_column('service_material_rules', 'qty_multiplier_approved_basis', true);
+            $multiplierSelect = $hasMultiplierColumn ? 'r.qty_multiplier' : 'NULL AS qty_multiplier';
+            $approvalSelect = $hasMultiplierApprovalColumn ? 'r.qty_multiplier_approved' : 'NULL AS qty_multiplier_approved';
+            $approverSelect = $hasApproverColumn ? 'r.qty_multiplier_approved_by' : 'NULL AS qty_multiplier_approved_by';
+            $approvedAtSelect = $hasApprovalTimestampColumn ? 'r.qty_multiplier_approved_at' : 'NULL AS qty_multiplier_approved_at';
+            $basisSelect = $hasMultiplierBasisColumn ? 'r.qty_multiplier_basis' : 'NULL AS qty_multiplier_basis';
+            $approvedBasisSelect = $hasApprovedBasisColumn ? 'r.qty_multiplier_approved_basis' : 'NULL AS qty_multiplier_approved_basis';
             $materialRules = db_query(
                 "SELECT r.service_type, {$serviceIdColumn}, r.item_id, r.rule_type,
+                        {$multiplierSelect}, {$approvalSelect}, {$approverSelect}, {$approvedAtSelect},
+                        {$basisSelect}, {$approvedBasisSelect},
                         i.name AS item_name, c.name AS category_name
                  FROM service_material_rules r
                  JOIN inv_items i ON i.id = r.item_id

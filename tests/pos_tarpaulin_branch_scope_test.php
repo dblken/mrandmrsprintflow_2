@@ -8,5 +8,8 @@ catch (RuntimeException $e) { $assert(str_contains($e->getMessage(), 'not author
 $cartSource = file_get_contents(dirname(__DIR__) . '/staff/api/pos_cart_handler.php');
 $checkoutSource = file_get_contents(dirname(__DIR__) . '/staff/api/pos_checkout.php');
 $assert(str_contains($cartSource, 'return $hasTarpaulin ? printflow_pos_authorized_branch_id() : pos_cart_branch_id();'), 'Only carts containing Tarpaulin use the authorized selected-branch resolver.');
-$assert(str_contains($checkoutSource, '$checkout_branch_id = printflow_pos_authorized_branch_id();'), 'Tarpaulin checkout revalidates using the authorized selected branch.');
+$assert(str_contains($checkoutSource, '$checkout_branch_id = (int)$sessionContext[\'branch_id\'];')
+    && str_contains($checkoutSource, "if (\$checkout_branch_id < 1)")
+    && str_contains($checkoutSource, 'printflow_pos_assert_cart_branch($retryBranchId)'),
+    'Checkout and retry validate saved assignment stock only against the session authorized branch.');
 echo "Tarpaulin branch policy tests passed.\n";

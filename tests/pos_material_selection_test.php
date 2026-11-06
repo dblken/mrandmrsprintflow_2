@@ -93,8 +93,9 @@ $assert(printflow_pos_material_selection_saved_consumption_for_customization(67,
 $fails(static fn() => printflow_pos_material_selection_saved_consumption_for_customization(67, ['pos_material_consumption' => 'invalid']),
     'A malformed non-array POS material snapshot remains rejected.');
 $jobServiceSource = (string)file_get_contents(dirname(__DIR__) . '/includes/JobOrderService.php');
-$assert(str_contains($jobServiceSource, 'printflow_pos_material_selection_saved_consumption_for_customization($serviceId, $custom)'),
-    'Job creation consumes only an optional, strictly validated server-authored POS material snapshot.');
+$assert(!str_contains($jobServiceSource, 'printflow_pos_material_selection_saved_consumption_for_customization($serviceId, $custom)')
+    && str_contains($jobServiceSource, "'actual_usage_version'] ?? '') === 'manual_v1'"),
+    'Active job creation no longer consumes POS-calculated material snapshots; manual assignment records are authoritative.');
 $fails(static function () use ($saved): void {
     $tampered = $saved;
     $tampered[0]['rounded_demand'] = 1;
@@ -138,17 +139,14 @@ $assert(str_contains($cartSource, 'if (isset(printflow_pos_material_selection_re
 $assert(str_contains($checkoutSource, 'unset($customization[\'pos_material_consumption\'])')
     && str_contains($checkoutSource, "'pos_material_consumption'] = array_values((array)\$consumptionRows)"), 'Checkout discards client calculation data and persists the server-validated consumption snapshot.');
 $stockSource = (string)file_get_contents(dirname(__DIR__) . '/includes/pos_service_stock_validation.php');
-$assert(str_contains($stockSource, 'if ($usesSelectionPolicy && $serviceId !== 71 && $assignmentRows === null) return [];')
+$assert(str_contains($stockSource, '!array_key_exists(\'pos_material_assignments\', $line)')
     && str_contains($stockSource, 'printflow_pos_material_selection_resolve_assignments($serviceId, $assignmentRows, $customization)')
-    && !str_contains($stockSource, 'printflow_pos_material_selection_choose_alternative($candidates)')
-    && str_contains($stockSource, 'printflow_pos_approved_service_multiplier('),
-    'Brochure production alternatives are deferred in POS and resolved from explicit Production Assignment rows under approved rules.');
-$assert(str_contains($stockSource, '$materialSelectionsByLine[$lineIndex][] = [')
-    && str_contains($stockSource, "'item_id' => (int)\$rule['item_id']")
-    && str_contains($stockSource, "'selection_group' => \$rule['selection_group'] ?? null"),
-    'Only the explicitly assigned Brochure paper is retained in the server-authored material consumption snapshot for order/job assignment.');
-$assert(str_contains($jobServiceSource, 'self::syncPosSelectedMaterialsForStoreOrder($orderId)')
-    && str_contains($jobServiceSource, "'source' => 'pos_explicit_material_selection'"), 'Pre-existing linked jobs receive idempotent assignment rows without changing their deduction timing.');
+    && !str_contains($stockSource, 'printflow_pos_approved_service_multiplier(')
+    && !str_contains($stockSource, 'printflow_pos_material_demand_for_area('),
+    'Customer dimensions do not calculate or create POS material demand; explicit assignments are validated using the selected item and entered quantity.');
+$assert(str_contains($jobServiceSource, "['actual_usage_version'] ?? '') === 'manual_v1'")
+    && str_contains($jobServiceSource, 'return is_finite($quantity) && $quantity > 0 ? $quantity : 0.0;'),
+    'Roll and measured-unit deductions use the exact saved manual quantity for new assignment rows.');
 $assert(str_contains($cartSource, "case 'validate_service_materials':")
     && str_contains($cartSource, "\$cartItem['pos_material_assignments'] = \$materials")
     && str_contains($cartSource, 'printflow_pos_validate_service_stock(')

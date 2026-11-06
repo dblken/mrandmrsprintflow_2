@@ -50,11 +50,9 @@ function pos_checkout_validate_assigned_service_materials(array $items, array $p
             continue;
         }
         $customization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
-        $selectionServiceId = (int)($customization['service_id'] ?? $item['id'] ?? 0);
-        // This order's explicitly selected materials are revalidated below by
-        // the shared selection-policy stock validator. Old pending-job rows
-        // must not make unselected alternative materials mandatory at checkout.
-        if (isset(printflow_pos_material_selection_registry()[$selectionServiceId])) continue;
+        // Production Assignment records the actual material and quantity.
+        // Revalidate those saved quantities for every service at checkout;
+        // alternatives left unassigned are naturally omitted.
         $pendingOrderId = (int)($item['pending_order_id'] ?? 0);
         $productId = (int)($item['id'] ?? 0);
         $sessionPendingOrderId = (int)($pendingOrders[$productId] ?? 0);
@@ -103,14 +101,6 @@ function pos_checkout_validate_assigned_service_materials(array $items, array $p
 }
 
 /** Pair every Tarpaulin checkout entry to exactly one server-session cart line. */
-function pos_checkout_pair_tarpaulin_cart_lines(array &$items, array $sessionCart, int $branchId): ?string
-{
-    $result = printflow_tarpaulin_pair_cart_lines($items, $sessionCart, $branchId);
-    if (empty($result['ok'])) return (string)($result['error'] ?? 'Tarpaulin checkout cart lines could not be verified.');
-    $items = (array)$result['items'];
-    return null;
-}
-
 function pos_payload_item_is_service(array $item): bool {
     if (!empty($item['is_service'])) {
         return true;
@@ -463,17 +453,6 @@ function pos_checkout_pair_design_fee_lines(array &$items, array $sessionCart): 
         $items[$index]['customization'] = is_array($sessionItem['customization'] ?? null) ? $sessionItem['customization'] : [];
     }
     return null;
-}
-
-function pos_checkout_contains_tarpaulin(array $items): bool
-{
-    foreach ($items as $item) {
-        if (!is_array($item)) continue;
-        $customization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
-        if (((int)($item['id'] ?? $item['product_id'] ?? 0) === 40 || (int)($customization['service_id'] ?? 0) === 40)
-            && (!empty($item['is_service']) || !empty($customization['service_id']))) return true;
-    }
-    return false;
 }
 
 function pos_checkout_verify_csrf(string $token, array $sessionContext): bool {
@@ -1388,43 +1367,6 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         exit;
     }
 
-    if ($product_id === 40) {
-        try {
-            $branchId = $posBranchId;
-            $cartLines = array_values((array)($_SESSION['pos_cart'] ?? []));
-            $validation = printflow_pos_validate_service_stock($cartLines, $branchId);
-            if (empty($validation['ok'])) {
-                throw new RuntimeException('Tarpaulin stock changed or could not be verified. Return to the POS cart and validate again.', 409);
-            }
-            $targetId = trim((string)($item['pos_cart_line_id'] ?? ''));
-            $matches = [];
-            foreach ($cartLines as $index => $cartLine) {
-                if ((int)($cartLine['product_id'] ?? 0) === $product_id
-                    && hash_equals((string)($cartLine['pos_cart_line_id'] ?? ''), $targetId)) $matches[] = $index;
-            }
-            if ($targetId === '' || count($matches) !== 1) throw new RuntimeException('The Tarpaulin cart line could not be uniquely verified. Refresh the POS cart and try again.', 409);
-            $targetIndex = $matches[0];
-            $cartLine = $cartLines[$targetIndex];
-            $lineCustom = is_array($cartLine['customization'] ?? null) ? $cartLine['customization'] : [];
-            if ((int)($cartLine['qty'] ?? 0) !== $qty
-                || abs((float)($lineCustom['width'] ?? 0) - (float)($customization['width'] ?? 0)) >= 0.000001
-                || abs((float)($lineCustom['height'] ?? 0) - (float)($customization['height'] ?? 0)) >= 0.000001) {
-                throw new RuntimeException('The Tarpaulin dimensions or quantity no longer match the validated cart line.', 409);
-            }
-            $selection = $targetIndex >= 0
-                ? ($validation['tarpaulin_selections'][$targetIndex] ?? null)
-                : null;
-            if (!is_array($selection)) {
-                throw new RuntimeException('The server-validated Tarpaulin roll selection could not be matched to this Set Price item.', 409);
-            }
-            $customization['pos_tarpaulin_selection'] = $selection;
-        } catch (Throwable $tarpaulinError) {
-            http_response_code((int)$tarpaulinError->getCode() === 409 ? 409 : 400);
-            echo json_encode(['success' => false, 'message' => $tarpaulinError->getMessage()]);
-            exit;
-        }
-    }
-    
     // Mark as POS source
     $customization['source'] = 'POS';
     pos_normalize_media_upload_keys($customization);
@@ -1751,19 +1693,18 @@ if (!empty($sessionContext['pos_checkout_orders'][$checkoutToken])) {
 }
 if ($isPayMongo && !empty($sessionContext['pos_paymongo_checkouts'][$checkoutToken])) {
     $existingOrderId = (int)$sessionContext['pos_paymongo_checkouts'][$checkoutToken];
-    if (pos_checkout_contains_tarpaulin($items) || pos_checkout_contains_tarpaulin((array)($sessionContext['pos_cart'] ?? []))) {
-        try {
-            $tarpaulinBranchId = printflow_pos_authorized_branch_id();
-            $tarpaulinCart = array_values((array)($sessionContext['pos_cart'] ?? []));
-            $pairingError = pos_checkout_pair_tarpaulin_cart_lines($items, $tarpaulinCart, $tarpaulinBranchId);
-            if ($pairingError !== null) throw new RuntimeException($pairingError);
-            $retryValidation = printflow_pos_validate_service_stock($items, $tarpaulinBranchId);
-            if (empty($retryValidation['ok'])) throw new RuntimeException('Tarpaulin stock changed or could not be verified. Revalidate the cart before retrying QR Ph.');
-        } catch (Throwable $tarpaulinRetryError) {
-            http_response_code(409);
-            echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => $tarpaulinRetryError->getMessage()]);
-            exit;
-        }
+    try {
+        $retryBranchId = printflow_pos_authorized_branch_id();
+        printflow_pos_assert_cart_branch($retryBranchId);
+        $retryStockError = pos_checkout_validate_assigned_service_materials(
+            (array)($data['items'] ?? []),
+            (array)($sessionContext['pos_pending_orders'] ?? [])
+        );
+        if ($retryStockError !== null) throw new RuntimeException($retryStockError);
+    } catch (Throwable $retryStockError) {
+        http_response_code(409);
+        echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => $retryStockError->getMessage()]);
+        exit;
     }
     $preparedOrder = pos_prepare_order_for_paymongo_checkout(
         $existingOrderId,
@@ -1850,37 +1791,11 @@ foreach ($items as $item) {
         exit;
     }
 }
-if (pos_checkout_contains_tarpaulin($items) || pos_checkout_contains_tarpaulin($sessionCart)) {
-    try {
-        $checkout_branch_id = printflow_pos_authorized_branch_id();
-    } catch (Throwable $branchError) {
-        http_response_code(409);
-        echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => $branchError->getMessage()]);
-        exit;
-    }
-    $pairingError = pos_checkout_pair_tarpaulin_cart_lines($items, $sessionCart, $checkout_branch_id);
-    if ($pairingError !== null) {
-        http_response_code(409);
-        echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => $pairingError]);
-        exit;
-    }
-}
 $pos_branch_id = $checkout_branch_id;
 
-// Replace Tarpaulin's client-supplied selection with the server-authored
-// selection stored in the POS session cart. Match dimensions and quantity so
-// a reordered or modified checkout payload cannot borrow another line's roll.
-$sessionCart = array_values((array)($sessionContext['pos_cart'] ?? []));
-$tarpaulinPairingError = pos_checkout_pair_tarpaulin_cart_lines($items, $sessionCart, $checkout_branch_id);
-if ($tarpaulinPairingError !== null) {
-    http_response_code(409);
-    echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => $tarpaulinPairingError]);
-    exit;
-}
-
-// Discard any client-authored material calculation before the server resolves
-// selected material IDs against current rules, Admin approval, dimensions,
-// quantity, branch stock, and the configured area-rate multiplier.
+// Discard legacy/client-authored material estimates. Current material identity
+// and actual quantity are recorded in Production Assignment and revalidated
+// against branch stock below before checkout proceeds.
 foreach ($items as $lineIndex => $checkoutItem) {
     if (!is_array($checkoutItem)) continue;
     $customization = is_array($checkoutItem['customization'] ?? null) ? $checkoutItem['customization'] : [];
@@ -1906,10 +1821,7 @@ if (empty($serviceStockValidation['ok'])) {
     echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => $message]);
     exit;
 }
-// Material selection data is authored by the server stock validator. Never
-// carry a client-supplied calculation into the saved order item: the verified
-// IDs, dimensions, multiplier, and rounded demand are the audit source for the
-// deferred job-completion deduction.
+// The compatibility validator currently emits no calculated material demand.
 foreach ((array)($serviceStockValidation['material_selections_by_line'] ?? []) as $lineIndex => $consumptionRows) {
     if (!isset($items[$lineIndex]) || !is_array($items[$lineIndex])) continue;
     $customization = is_array($items[$lineIndex]['customization'] ?? null) ? $items[$lineIndex]['customization'] : [];
