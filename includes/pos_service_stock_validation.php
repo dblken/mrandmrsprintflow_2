@@ -285,6 +285,28 @@ function printflow_pos_service_stock_rules(int $serviceId, array $customization,
             if (!$storedTypeIsValid) {
                 throw new RuntimeException($expectedNames[$itemId] . ' must be configured as ' . $expectedRuleType . ' for this selection workflow.');
             }
+            if ($serviceId === 71 && $itemId === 23 && ($selectedMaterial['role'] ?? '') === 'optional') {
+                $manualActual = null;
+                foreach ($assignmentRows ?? [] as $assignment) {
+                    if (!is_array($assignment) || (int)($assignment['item_id'] ?? 0) !== $itemId) continue;
+                    $assignmentQty = (float)($assignment['quantity'] ?? $assignment['qty'] ?? 0);
+                    if (printflow_pos_sintraboard_manual_actual_usage_is_confirmed(
+                        $serviceId,
+                        $itemId,
+                        (string)$selectedMaterial['role'],
+                        $assignment,
+                        $assignmentQty
+                    )) {
+                        $manualActual = $assignment;
+                        break;
+                    }
+                }
+                // A deliberately selected optional layer may use a staff-confirmed
+                // quantity directly in its catalog UOM. It does not need an
+                // unverified area estimate; the assigned quantity still enters
+                // the branch stock check below and is persisted for deduction.
+                if ($manualActual !== null) continue;
+            }
             $basis = strtoupper(trim((string)($rule['qty_multiplier_basis'] ?? '')));
             $approvedBasis = strtoupper(trim((string)($rule['qty_multiplier_approved_basis'] ?? '')));
             if ($basis !== $consumptionBasis || $approvedBasis !== $basis) {
@@ -403,6 +425,7 @@ function printflow_pos_service_line_job_materials(array $line): array
                 'quantity' => (float)$quantity,
                 'name' => (string)$item['name'],
                 'uom' => (string)($item['unit_of_measure'] ?? ''),
+                'metadata' => is_array($metadata) ? $metadata : [],
             ];
             if (is_array($metadata)) {
                 $laminationId = (int)($metadata['lamination_item_id'] ?? 0);

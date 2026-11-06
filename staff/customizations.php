@@ -4520,6 +4520,8 @@ window.pfServiceFieldCatalog = (() => {
                     actual: Number.isFinite(qty) ? qty : null,
                     method: material.usage_method || 'manual',
                     staff_confirmed: material.manual_quantity_confirmed,
+                    manual_actual_usage_confirmed: material.manual_quantity_confirmed === true
+                        && (material.manual_confirmation_required === true || material.actual_usage_overridden === true),
                     overridden: material.actual_usage_overridden
                 };
                 if (material.manual_quantity_confirmed) this.clearPendingMaterialConfirmationError(material);
@@ -4546,6 +4548,7 @@ window.pfServiceFieldCatalog = (() => {
                 material.metadata.material_usage = {
                     ...(material.metadata.material_usage || {}), estimate: material.estimated_qty ?? null,
                     actual: qty, method: material.usage_method || 'manual', staff_confirmed: true,
+                    manual_actual_usage_confirmed: material.manual_confirmation_required === true || material.actual_usage_overridden === true,
                     overridden: material.actual_usage_overridden === true
                 };
                 this.clearPendingMaterialConfirmationError(material);
@@ -4565,7 +4568,7 @@ window.pfServiceFieldCatalog = (() => {
                     material.qty = estimate.quantity;
                     material.manual_quantity_confirmed = true;
                     material.actual_usage_overridden = false;
-                    material.metadata = { ...(material.metadata || {}), material_usage: { estimate: estimate.quantity, actual: estimate.quantity, method: material.usage_method, staff_confirmed: true, overridden: false } };
+                    material.metadata = { ...(material.metadata || {}), material_usage: { estimate: estimate.quantity, actual: estimate.quantity, method: material.usage_method, staff_confirmed: true, manual_actual_usage_confirmed: false, overridden: false } };
                     this.clearPendingMaterialConfirmationError(material);
                 } else {
                     if (!isTarpaulinMaterial) material.manual_quantity_confirmed = false;
@@ -4576,6 +4579,7 @@ window.pfServiceFieldCatalog = (() => {
                         actual: material.qty !== '' && material.qty !== null && material.qty !== undefined && Number.isFinite(Number(material.qty)) ? Number(material.qty) : null,
                         method: material.usage_method || 'manual',
                         staff_confirmed: false,
+                        manual_actual_usage_confirmed: false,
                         overridden: material.actual_usage_overridden === true
                     };
                     material.usage_estimate_reason = estimate.reason || 'No reliable estimate is configured.';
@@ -10244,11 +10248,16 @@ window.pfServiceFieldCatalog = (() => {
                         : (this.isPosSetPriceFlow()
                             ? Number(((parseFloat(existing.qty) || 0) + normalizedQty).toFixed(2))
                             : this.normalizeMaterialQtyValue((parseFloat(existing.qty) || 0) + normalizedQty, 1));
+                    if (existing.manual_confirmation_required === true) {
+                        existing.manual_quantity_confirmed = false;
+                        existing.actual_usage_overridden = false;
+                    }
                     if (isTarpaulinMaterial) {
                         existing.metadata = { ...existing.metadata, ...this.newMaterialMetadata, height_ft: this.newMaterialHeight };
                     } else if (existing.metadata && existing.metadata.material_usage) {
                         existing.metadata.material_usage.actual = existing.qty;
                         existing.metadata.material_usage.staff_confirmed = existing.manual_quantity_confirmed === true;
+                        existing.metadata.material_usage.manual_actual_usage_confirmed = false;
                     }
                     // Reset input
                     this.resetMaterialForm();
@@ -10278,6 +10287,7 @@ window.pfServiceFieldCatalog = (() => {
                         actual: normalizedQty,
                         method: hasReliableEstimate ? usageEstimate.method : (item.consumption_method || 'manual'),
                         staff_confirmed: hasReliableEstimate,
+                        manual_actual_usage_confirmed: false,
                         overridden: false
                     };
                 }
@@ -10347,6 +10357,7 @@ window.pfServiceFieldCatalog = (() => {
                         actual: normalizedQty,
                         method: hasReliableEstimate ? usageEstimate.method : (item.consumption_method || 'manual'),
                         staff_confirmed: hasReliableEstimate,
+                        manual_actual_usage_confirmed: false,
                         overridden: false
                     };
                 }

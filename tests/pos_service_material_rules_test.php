@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/includes/pos_service_stock_helpers.php';
 require_once dirname(__DIR__) . '/includes/pos_material_selection.php';
+require_once dirname(__DIR__) . '/includes/pos_quantity_validation.php';
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -217,6 +218,47 @@ $optionalPpSelectedRules = printflow_pos_material_selection_filter_unselected_op
 );
 $assert(!in_array(23, array_map('intval', array_column($optionalPpSelectedRules, 'item_id')), true),
     'The corrected OPTIONAL Pp rule is omitted from validation when staff selects only a Sintra board.');
+$manualPpAssignment = [
+    'item_id' => 23,
+    'quantity' => 3.0,
+    'metadata' => ['material_usage' => [
+        'actual' => 3.0,
+        'staff_confirmed' => true,
+        'manual_actual_usage_confirmed' => true,
+    ]],
+];
+$assert(printflow_pos_sintraboard_manual_actual_usage_is_confirmed(71, 23, 'optional', $manualPpAssignment, 3.0),
+    'An explicitly confirmed Pp Stkr Matte 98 quantity in the inventory UOM does not depend on an unapproved area-rate estimate.');
+$assert(!printflow_pos_sintraboard_manual_actual_usage_is_confirmed(71, 23, 'OPTIONAL', [
+    'item_id' => 23, 'quantity' => 3.0,
+    'metadata' => ['material_usage' => ['actual' => 3.0, 'staff_confirmed' => true, 'manual_actual_usage_confirmed' => false]],
+], 3.0), 'A merely staff-confirmed estimate is not accepted as a manually confirmed actual quantity.');
+$assert(!printflow_pos_sintraboard_manual_actual_usage_is_confirmed(71, 23, 'required', $manualPpAssignment, 3.5),
+    'Manual actual-usage handling is available only to a material whose explicit service-selection role is OPTIONAL.');
+$assert(!printflow_pos_sintraboard_manual_actual_usage_is_confirmed(71, 23, 'OPTIONAL', $manualPpAssignment, 4.0),
+    'The confirmed actual quantity must match the submitted inventory quantity exactly.');
+$assert(!printflow_pos_sintraboard_manual_actual_usage_is_confirmed(71, 23, 'OPTIONAL', $manualPpAssignment, 0.0),
+    'Zero quantity cannot satisfy the manual actual-usage path.');
+$ppInventoryQuantity = printflow_pos_parse_positive_material_quantity('3', [
+    'unit_of_measure' => 'pcs', 'consumption_method' => 'manual',
+]);
+$assert($ppInventoryQuantity === 3.0, 'A selected Pp actual quantity is validated and retained in the inventory item UOM without applying a square-foot rate.');
+$expectRuntimeError(static fn() => printflow_pos_parse_positive_material_quantity('1.5', [
+    'unit_of_measure' => 'pcs', 'consumption_method' => 'manual',
+]), 'positive whole number');
+$manualPpDemand = [];
+printflow_pos_service_stock_add_demand($manualPpDemand, 23, $ppInventoryQuantity, 'Pp Stkr Matte 98', 'pcs');
+$assert(($manualPpDemand[23]['quantity'] ?? null) === 3.0,
+    'The manually confirmed quantity is passed unchanged to the normal stock-demand accumulator.');
+$jobOrderServiceSource = file_get_contents(dirname(__DIR__) . '/includes/JobOrderService.php');
+$manualDeductionStart = strpos($jobOrderServiceSource, '// Non-roll deduction');
+$manualDeductionBlock = $manualDeductionStart === false ? '' : substr($jobOrderServiceSource, $manualDeductionStart, 2400);
+$assert(str_contains($manualDeductionBlock, '$quantityNeeded = (float)($m[\'quantity\'] ?? 0);')
+    && str_contains($manualDeductionBlock, 'InventoryManager::issueStock(')
+    && str_contains($manualDeductionBlock, '$m[\'item_id\']')
+    && str_contains($manualDeductionBlock, '$quantityNeeded')
+    && str_contains($manualDeductionBlock, '$m[\'uom\']'),
+    'A manually confirmed Pp assignment is deducted through the existing non-roll ledger path using its saved quantity and inventory UOM, without requiring an estimated multiplier.');
 $selectedOptionalPpRules = printflow_pos_material_selection_filter_unselected_optional_rules(71, $optionalPpRules, $selectedPpLayer);
 $resolvedSelectedOptionalPpRules = printflow_pos_select_service_material_rule_set(71, $selectedOptionalPpRules);
 $assert(in_array(23, array_map('intval', array_column($resolvedSelectedOptionalPpRules, 'item_id')), true),
@@ -442,6 +484,26 @@ $assert($basisSchemaCheck !== false && $approvedBasisSchemaCheck !== false
 $assert($selectedBasisValidation !== false
     && str_contains($stockRulesBlock, 'requires an Admin-approved '),
     'A manually selected optional material still fails clearly when its stored basis is missing or unapproved.');
+$manualPpBypass = strpos($stockRulesBlock, 'printflow_pos_sintraboard_manual_actual_usage_is_confirmed(');
+$manualPpContinue = $manualPpBypass === false ? false : strpos($stockRulesBlock, 'if ($manualActual !== null) continue;', $manualPpBypass);
+$manualPpPolicyRole = strpos($stockRulesBlock, "\$selectedMaterial['role'] ?? ''") !== false
+    && strpos($stockRulesBlock, "=== 'optional'") !== false;
+$assert($manualPpBypass !== false && $manualPpContinue !== false
+    && $manualPpPolicyRole
+    && $manualPpContinue < $selectedBasisValidation,
+    'Only the policy-OPTIONAL Sintraboard Pp layer with an explicitly confirmed actual assignment skips automatic basis approval, even if a legacy stored rule type is stale; unconfirmed selections still hit strict approval validation.');
+$lineMaterialsStart = strpos($validator, 'function printflow_pos_service_line_job_materials(');
+$lineMaterialsEnd = strpos($validator, 'function printflow_pos_validate_service_stock(', $lineMaterialsStart ?: 0);
+$lineMaterialsBlock = $lineMaterialsStart !== false && $lineMaterialsEnd !== false
+    ? substr($validator, $lineMaterialsStart, $lineMaterialsEnd - $lineMaterialsStart)
+    : '';
+$assert(str_contains($lineMaterialsBlock, '\'metadata\' => is_array($metadata) ? $metadata : []'),
+    'Manual confirmation metadata survives normalization so the validator can distinguish confirmed actual usage from an estimate.');
+$assignedActualDemand = strpos($stockValidationBlock, '$assignedById[$itemId] = ($assignedById[$itemId] ?? 0.0) + (float)$material[\'quantity\'];');
+$stockDemandAdd = strpos($stockValidationBlock, 'printflow_pos_service_stock_add_demand(');
+$assert($assignedActualDemand !== false && $stockDemandAdd !== false
+    && str_contains($stockValidationBlock, '$lineQty = max((float)$minimum[\'quantity\'], (float)($assignedById[$itemId] ?? 0));'),
+    'The validated actual Pp assignment quantity remains part of the standard branch-stock demand and is not skipped with the estimate.');
 $assert($approvedMultiplierCheck !== false && $approvedMultiplierCheck < strpos($stockRulesBlock, '$required[] = ['),
     'Unapproved multipliers fail before a required demand entry can be accumulated.');
 $assert(str_contains($stockRulesBlock, 'r.qty_multiplier_approved'), 'The runtime selects the explicit approval state.');

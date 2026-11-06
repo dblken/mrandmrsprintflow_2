@@ -1641,6 +1641,10 @@ if (isset($_GET['ajax'])) {
         var approved = String(rule.qty_multiplier_approved) === '1';
         var auditPresent = rule.qty_multiplier_approved_by && rule.qty_multiplier_approved_at;
         var status = approved && auditPresent ? 'Approved by Admin #' + escapeHtml(rule.qty_multiplier_approved_by) + ' at ' + escapeHtml(rule.qty_multiplier_approved_at) : (approved ? 'Approval audit incomplete; reapproval required' : 'Not approved');
+        var sintraManualPp = serviceId === 71 && itemId === 23 && !required;
+        if (sintraManualPp && !approved) {
+            status = 'Rate is not approved for automatic estimates; confirmed manual actual usage is allowed.';
+        }
         var readOnly = rule.read_only === true || rule.display_source === 'dedicated_pos_rule';
         var ruleId = Number(rule.id || 0);
         var basisServices = [36,39,64,67,71].includes(serviceId);
@@ -1665,7 +1669,7 @@ if (isset($_GET['ajax'])) {
             ? '<button type="button" class="toolbar-btn" onclick="pfCreateServiceMaterialRule(' + serviceId + ',' + itemId + ',this)">Create unapproved rule</button>'
             : '<button type="button" class="toolbar-btn" onclick="pfSaveServiceMaterialMultiplier(' + ruleId + ',this)">Save multiplier</button>'));
         if (!readOnly && rule.configuration_blocked !== true && rule.configured !== false && required && basisReady && multiplierReady) actions += ' <button type="button" class="toolbar-btn" onclick="pfApproveServiceMaterialRule(' + ruleId + ',this)">Approve REQUIRED</button>';
-        else if (!readOnly && rule.configuration_blocked !== true && rule.configured !== false && !required) actions += ' <span style="color:#64748b;font-size:12px;">Optional · approval not applicable</span>';
+        else if (!readOnly && rule.configuration_blocked !== true && rule.configured !== false && !required) actions += ' <span style="color:#64748b;font-size:12px;">' + (sintraManualPp ? 'Optional · manual selection; automatic rate approval is separate' : 'Optional · approval not applicable') + '</span>';
         var multiplierCell = readOnly ? escapeHtml(multiplier) + ' (POS-managed)' : (rule.configuration_blocked === true ? 'Unavailable' : (rule.configured === false ? 'Not configured' : '<input id="serviceMaterialMultiplier-' + ruleId + '" type="number" min="0.01" max="99999999.99" step="0.01" value="' + escapeHtml(multiplier) + '" aria-label="' + escapeHtml(basisLabel) + ' for rule ' + ruleId + '" style="width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;">' + (basisServices ? '<small style="display:block;color:#64748b">' + escapeHtml(basisLabel) + '</small>' : '')));
         if (readOnly) status = 'Dedicated active Mugs POS rule';
         var roleLabel = rule.selection_role === 'alternative' ? 'Alternative · ' + (rule.group_required ? 'choose one' : 'optional') : (rule.selection_role === 'optional' ? 'Optional, manual selection' : (rule.selection_role === 'multi_optional' ? 'Optional finish, multi-select' : ''));

@@ -163,6 +163,32 @@ function printflow_pos_material_selection_item_names(int $serviceId): array
     ][$serviceId] ?? [];
 }
 
+/**
+ * Pp Stkr Matte 98 is an optional Sintraboard layer. A staff-confirmed actual
+ * quantity is already expressed in the inventory item's UOM, so it can be
+ * stock-checked and later deducted directly without inventing an area rate.
+ */
+function printflow_pos_sintraboard_manual_actual_usage_is_confirmed(int $serviceId, int $itemId, string $selectionRole, array $assignment, float $quantity): bool
+{
+    // The explicit assignment policy is authoritative for this optional layer;
+    // a legacy REQUIRED value in service_material_rules must not turn it into
+    // a mandatory estimate or force approval when staff records actual usage.
+    if ($serviceId !== 71 || $itemId !== 23 || strtolower(trim($selectionRole)) !== 'optional'
+        || !is_finite($quantity) || $quantity <= 0) return false;
+
+    $metadata = $assignment['metadata'] ?? [];
+    if (is_string($metadata)) $metadata = json_decode($metadata, true);
+    if (!is_array($metadata)) return false;
+    $usage = $metadata['material_usage'] ?? null;
+    if (!is_array($usage)
+        || ($usage['manual_actual_usage_confirmed'] ?? false) !== true
+        || ($usage['staff_confirmed'] ?? false) !== true
+        || !is_numeric($usage['actual'] ?? null)
+        || !is_finite((float)$usage['actual'])) return false;
+
+    return abs((float)$usage['actual'] - $quantity) <= 0.000001;
+}
+
 /** Staff-facing selector labels; canonical inventory identity checks use item_names(). */
 function printflow_pos_material_selection_display_name(int $serviceId, int $itemId, string $fallback): string
 {

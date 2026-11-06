@@ -91,6 +91,7 @@ dispatchSameValueEditWithoutInput(sameValueContext, item, '1');
 assert.equal(item.qty, 1, 'Same-value edit preserves the explicit actual quantity.');
 assert.equal(item.manual_quantity_confirmed, true, 'An explicit edit gesture confirms a valid prefilled quantity even when no native input event is emitted.');
 assert.equal(item.metadata.material_usage.staff_confirmed, true, 'Same-value edit synchronizes the staff-confirmed metadata.');
+assert.equal(item.metadata.material_usage.manual_actual_usage_confirmed, true, 'An explicitly edited manual quantity is distinguishable from an automatic estimate in the Set Price payload.');
 assert.equal(sameValueContext.productionErrors.material, '', 'Same-value edit clears its confirmation warning.');
 assert.equal(validateEstimatedMaterial(item), true, 'Same-value explicit entry passes the final assignment validator.');
 
@@ -103,6 +104,7 @@ actualUsageInputBinding(autofillItem, autofillEvent, methods.handlePendingMateri
 assert.equal(autofillItem.qty, 2, 'An autofill-like value update is reflected in the displayed pending row.');
 assert.equal(autofillItem.manual_quantity_confirmed, false, 'Autofill replacement text does not count as explicit staff confirmation.');
 assert.equal(autofillItem.metadata.material_usage.staff_confirmed, false, 'Autofill does not set confirmation audit metadata.');
+assert.equal(autofillItem.metadata.material_usage.manual_actual_usage_confirmed, false, 'Autofill cannot attest a manually confirmed actual quantity.');
 assert.equal(validateEstimatedMaterial(autofillItem), false, 'Autofilled manual usage remains blocked by final validation.');
 
 const racedInputItem = { ...item, qty: 1, manual_quantity_confirmed: false, metadata: {} };
@@ -129,6 +131,7 @@ const syntheticItem = { ...item, qty: 1, manual_quantity_confirmed: false, metad
 dispatchActualUsageInput(context(''), syntheticItem, '2', { isTrusted: false });
 assert.equal(syntheticItem.qty, 2, 'A programmatic value update reaches the shared state handler.');
 assert.equal(syntheticItem.manual_quantity_confirmed, false, 'Synthetic programmatic input is not accepted as explicit staff confirmation.');
+assert.equal(syntheticItem.metadata.material_usage.manual_actual_usage_confirmed, false, 'Programmatic input cannot mark an actual material quantity as staff-confirmed.');
 assert.equal(validateEstimatedMaterial(syntheticItem), false, 'Programmatic input alone cannot pass final assignment validation.');
 
 const keyboardItem = { ...item, qty: 1, manual_quantity_confirmed: false, metadata: {} };
@@ -163,6 +166,7 @@ dispatchActualUsageInput(inputContext, item, '1');
 assert.equal(item.manual_quantity_confirmed, true, 'A valid edited actual quantity confirms usage.');
 assert.equal(item.metadata.material_usage.actual, 1, 'The entered quantity is retained without conversion.');
 assert.equal(item.metadata.material_usage.staff_confirmed, true, 'Confirmation metadata follows the state.');
+assert.equal(item.metadata.material_usage.manual_actual_usage_confirmed, true, 'The explicit actual-usage confirmation is included with its exact quantity.');
 assert.equal(inputContext.productionErrors.material, '', 'Editing valid usage clears its stale confirmation warning.');
 assert.equal(inputContext.footerActionError, '', 'Editing valid usage clears its matching stale footer copy.');
 assert.equal(validateEstimatedMaterial(item), true, 'The same pending material passes the final assignment validator after the rendered input event.');
