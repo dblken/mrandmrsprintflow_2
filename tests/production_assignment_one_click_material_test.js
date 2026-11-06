@@ -9,11 +9,12 @@ const page = fs.readFileSync(path.join(__dirname, '..', 'staff', 'customizations
 
 assert.doesNotMatch(page, />Add actual usage<\/button>/, 'Intermediate Add actual usage step is removed');
 assert.doesNotMatch(page, />Confirm Actual Usage<\/button>/, 'Redundant Confirm Actual Usage button is removed');
-assert.match(page, /queueMaterialFromPicker\(item\)/, 'Picker click queues through queueMaterialFromPicker');
+assert.match(page, /queueMaterialFromPicker\(item/, 'Picker click queues through queueMaterialFromPicker');
 assert.match(page, /Enter a valid actual quantity before saving\./, 'Blank usage prompts staff to enter a quantity');
+assert.match(page, /maybeAutoSelectTarpaulinRoll/, 'Tarpaulin restores automatic roll selection for Production Assignment');
 
 const selectStart = page.indexOf('            selectMaterialCandidate(item, deliberateKeyboardAction = false) {');
-const queueStart = page.indexOf('            queueMaterialFromPicker(item) {');
+const queueStart = page.indexOf('            queueMaterialFromPicker(item');
 const end = page.indexOf('            get materialOverrideTitle() {', queueStart);
 assert.ok(selectStart >= 0 && queueStart > selectStart && end > queueStart, 'selectMaterialCandidate and queueMaterialFromPicker are present');
 const methods = new Function(`return ({${page.slice(selectStart, end).replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '')}\n});`)();
@@ -44,9 +45,12 @@ const ctx = {
   currentJo: { materials: [] },
   productionErrors: { material: '' },
   materialListExpanded: false,
+  materialCompatibilityContext: { serviceId: 67, serviceKind: 'brochure' },
   materialClassification() { return { selectable: true, directSelectable: true, inStock: true, tier: 'recommended' }; },
   getMaterialEntryUom() { return 'sheet'; },
   getInventoryItem(id) { return Number(id) === 212 ? item : null; },
+  persistedPosTarpaulinSelection() { return null; },
+  tarpaulinCalculationForItem() { return null; },
   resetMaterialForm() {},
   syncInkSelectionWithMaterial() {},
   showStaffAlert() {},

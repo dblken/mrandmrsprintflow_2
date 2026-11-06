@@ -5088,6 +5088,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (window.PrintFlowReceiptScanner && this.currentJo.order_id) {
                     window.PrintFlowReceiptScanner.markOrderOpened(this.currentJo.order_id, 'staff-customizations');
                 }
+                this.$nextTick(() => this.maybeAutoSelectTarpaulinRoll());
             },
             async fetchOrderModalSummary(orderId, options = {}) {
                 const parsedOrderId = parseInt(orderId, 10);
@@ -6625,7 +6626,23 @@ window.pfServiceFieldCatalog = (() => {
                 if (height <= 0) {
                     height = parsePositive(materialService.primaryCustom?.height || materialService.primaryCustom?.height_ft);
                 }
-                return { width, height, hasDimensions: width > 0 && height > 0 };
+                const unitRaw = String(
+                    rawSpecs.pos_material_dimension_unit
+                    || rawSpecs.dimensions_unit
+                    || rawSpecs.unit
+                    || rawSpecs['Dimensions Unit']
+                    || (profile && profile.dimensionField && profile.dimensionField.unit)
+                    || 'ft'
+                ).trim().toLowerCase();
+                let factor = 1;
+                if (['in', 'inch', 'inches', '"'].includes(unitRaw)) factor = 1 / 12;
+                else if (unitRaw === 'cm') factor = 1 / 30.48;
+                else if (unitRaw === 'mm') factor = 1 / 304.8;
+                if (factor !== 1) {
+                    width = width > 0 ? width * factor : 0;
+                    height = height > 0 ? height * factor : 0;
+                }
+                return { width, height, hasDimensions: width > 0 && height > 0, unit: 'ft' };
             },
             staffExtractDimensionParts(specs, dimensionField) {
                 if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return null;
@@ -6711,7 +6728,8 @@ window.pfServiceFieldCatalog = (() => {
             },
             staffEnrichDimensionSpecs(specs, item) {
                 if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return specs || {};
-                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                const serviceId = this.staffResolveItemServiceId(item);
+                const profile = this.staffGetServiceSpecProfile(serviceId);
                 const dimensionField = profile && profile.dimensionField ? profile.dimensionField : null;
                 const out = { ...specs };
                 let parts = this.staffExtractDimensionParts(out, dimensionField);
@@ -6719,6 +6737,53 @@ window.pfServiceFieldCatalog = (() => {
                     parts = this.staffExtractDimensionParts(out, null);
                 }
                 if (!parts) return out;
+
+                const unitText = String(
+                    out['Dimensions Unit']
+                    || out.pos_material_dimension_unit
+                    || out.dimensions_unit
+                    || out.unit
+                    || (dimensionField && dimensionField.unit)
+                    || 'ft'
+                ).trim() || 'ft';
+                const unitShort = /^(in|inch|inches)$/i.test(unitText) ? 'in'
+                    : (/^cm$/i.test(unitText) ? 'cm'
+                        : (/^mm$/i.test(unitText) ? 'mm' : 'ft'));
+
+                // Tarpaulin Order Details shows separate Width/Height cards so
+                // staff can verify the customer dimensions that drive roll fit.
+                if (Number(serviceId) === 40 && parts.width && parts.height) {
+                    const widthNum = parseFloat(parts.width);
+                    const heightNum = parseFloat(parts.height);
+                    if (Number.isFinite(widthNum) && Number.isFinite(heightNum) && widthNum > 0 && heightNum > 0) {
+                        out.Width = String(widthNum).replace(/\.?0+$/, '') + ' ' + unitShort;
+                        out.Height = String(heightNum).replace(/\.?0+$/, '') + ' ' + unitShort;
+                        out['Dimensions Unit'] = unitShort;
+                        const fieldKey = dimensionField && dimensionField.key ? String(dimensionField.key) : 'dimensions';
+                        const stripKeys = new Set([
+                            fieldKey,
+                            fieldKey + '_width',
+                            fieldKey + '_height',
+                            'Dimensions',
+                            'Dimension',
+                            'Size',
+                            'Size / Dimensions',
+                            ...this.staffDimensionDisplayStripKeys().filter((key) => !['width', 'height', 'Width', 'Height', 'width_ft', 'height_ft'].includes(key))
+                        ]);
+                        Object.keys(out).forEach((key) => {
+                            if (key === 'Width' || key === 'Height' || key === 'Dimensions Unit') return;
+                            const meta = this.staffCustomizationFieldMeta(key);
+                            const bucket = this.staffCanonicalSpecBucket(key, meta.group);
+                            if (bucket === 'dimensions' || bucket === 'dimensions_part'
+                                || meta.group === 'dimensions' || meta.group === 'width' || meta.group === 'height'
+                                || meta.group === 'total_area' || stripKeys.has(key)) {
+                                delete out[key];
+                            }
+                        });
+                        // Keep separate Width/Height cards; the shared dedupe strips dimension parts.
+                        return out;
+                    }
+                }
 
                 const displayLabel = 'Dimensions';
                 const displayValue = this.staffFormatDimensionDisplayValue(parts);
@@ -6760,6 +6825,11 @@ window.pfServiceFieldCatalog = (() => {
                 if (meta.hidden || meta.design) return false;
 
                 const labelToken = this.staffCustomizationKeyToken(label);
+                if (Number(profile.serviceId) === 40
+                    && (label === 'Width' || label === 'Height' || label === 'Dimensions Unit'
+                        || meta.group === 'width' || meta.group === 'height')) {
+                    return true;
+                }
                 if (label === 'Dimensions' || label === 'Size / Dimensions' || meta.group === 'dimensions') {
                     return profile.allowedGroups.has('dimensions')
                         || profile.allowedGroups.has('width')
@@ -8359,11 +8429,12 @@ window.pfServiceFieldCatalog = (() => {
                 this.cancelMaterialOverride();
             },
             /**
-             * One click: append the material to the assignment queue with a blank
-             * Actual Usage field. No intermediate "Add actual usage" step and no
-             * invented quantity from dimensions, multipliers, or order qty.
+             * One click: append the material to the assignment queue.
+             * Non-Tarpaulin services keep a blank Actual Usage field.
+             * Tarpaulin prefills calculated linear footage from Width×Height and
+             * the selected roll width; staff can still edit before save.
              */
-            queueMaterialFromPicker(item) {
+            queueMaterialFromPicker(item, options = {}) {
                 if (!item || !this.materialClassification(item).selectable) {
                     this.showStaffAlert('Material Unavailable', 'This material is not available for a new assignment on the current service.');
                     return;
@@ -8378,36 +8449,86 @@ window.pfServiceFieldCatalog = (() => {
                     return;
                 }
                 const entryUom = this.getMaterialEntryUom(itemId);
+                const context = this.materialCompatibilityContext || {};
+                const isTarpaulin = Number(context.serviceId) === 40 || context.serviceKind === 'tarpaulin';
+                let qty = '';
+                let estimatedQty = null;
+                let usageReason = '';
+                let quantityConfirmed = false;
+                let calc = null;
+                if (isTarpaulin && window.PrintFlowProductionMaterials) {
+                    const persisted = this.persistedPosTarpaulinSelection();
+                    if (persisted && Number(persisted.item_id) === Number(item.id)
+                        && Number.isFinite(Number(persisted.required_linear_ft))
+                        && Number(persisted.required_linear_ft) > 0) {
+                        calc = {
+                            required_linear_ft: Number(persisted.required_linear_ft),
+                            roll_width_ft: Number(persisted.roll_width_ft || 0),
+                            orientation: persisted.orientation || '',
+                        };
+                    } else {
+                        calc = this.tarpaulinCalculationForItem(item.id);
+                    }
+                    if (calc && Number.isFinite(Number(calc.required_linear_ft)) && Number(calc.required_linear_ft) > 0) {
+                        qty = Number(Number(calc.required_linear_ft).toFixed(3));
+                        estimatedQty = qty;
+                        usageReason = 'Calculated from customer Width × Height against the selected Tarpaulin roll width.';
+                        quantityConfirmed = options.autoSelected === true;
+                    }
+                }
                 this.pendingMaterials.push({
                     item_id: item.id,
                     name: item.name,
                     size_variant: item.size_variant || '',
-                    qty: '',
+                    qty,
                     uom: entryUom,
                     roll_id: '',
                     notes: '',
                     metadata: {
                         material_usage: {
-                            estimate: null,
-                            actual: null,
-                            method: 'manual',
-                            staff_confirmed: false,
-                            manual_actual_usage_confirmed: false,
-                            overridden: false
+                            estimate: estimatedQty,
+                            actual: qty === '' ? null : qty,
+                            method: isTarpaulin && estimatedQty !== null ? 'tarpaulin_linear_ft' : 'manual',
+                            staff_confirmed: quantityConfirmed,
+                            manual_actual_usage_confirmed: quantityConfirmed,
+                            overridden: false,
+                            roll_width_ft: calc && calc.roll_width_ft ? calc.roll_width_ft : null,
+                            orientation: calc && calc.orientation ? calc.orientation : null,
                         }
                     },
-                    estimated_qty: null,
+                    estimated_qty: estimatedQty,
                     required_minimum_qty: null,
-                    usage_method: 'manual',
-                    usage_estimate_reason: '',
+                    usage_method: isTarpaulin && estimatedQty !== null ? 'tarpaulin_linear_ft' : 'manual',
+                    usage_estimate_reason: usageReason,
                     manual_confirmation_required: true,
-                    manual_quantity_confirmed: false,
+                    manual_quantity_confirmed: quantityConfirmed,
                     actual_usage_overridden: false
                 });
                 this.resetMaterialForm();
                 this.productionErrors.material = '';
                 this.materialListExpanded = true;
                 this.syncInkSelectionWithMaterial();
+            },
+            maybeAutoSelectTarpaulinRoll() {
+                if (!this.currentJo || !window.PrintFlowProductionMaterials) return;
+                const context = this.materialCompatibilityContext || {};
+                if (Number(context.serviceId) !== 40 && context.serviceKind !== 'tarpaulin') return;
+                if ((this.pendingMaterials || []).length > 0) return;
+                if ((Array.isArray(this.currentJo.materials) ? this.currentJo.materials : []).length > 0) return;
+                let candidate = null;
+                const persisted = this.persistedPosTarpaulinSelection();
+                if (persisted && Number(persisted.item_id) > 0) {
+                    candidate = (this.allInventoryItems || []).find((item) => Number(item.id) === Number(persisted.item_id)) || null;
+                }
+                if (!candidate) {
+                    candidate = window.PrintFlowProductionMaterials.getAutoSelectCandidate(
+                        this.allInventoryItems || [],
+                        context,
+                        this.materialRules || []
+                    );
+                }
+                if (!candidate || !this.materialClassification(candidate).selectable) return;
+                this.queueMaterialFromPicker(candidate, { autoSelected: true });
             },
             get materialOverrideTitle() {
                 const state = this.materialOverrideCandidate && this.materialClassification(this.materialOverrideCandidate);
@@ -10765,6 +10886,7 @@ window.pfServiceFieldCatalog = (() => {
                     this.materialRules = Array.isArray(res.material_rules) ? res.material_rules : [];
                     this.activeProductionServices = Array.isArray(res.active_services) ? res.active_services : [];
                     this.laminationItemsList = this.allInventoryItems.filter(i => i.name.toUpperCase().includes('LAMINATE'));
+                    this.$nextTick(() => this.maybeAutoSelectTarpaulinRoll());
                 }
             },
 

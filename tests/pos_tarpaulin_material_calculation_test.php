@@ -103,9 +103,10 @@ $customizations = (string)file_get_contents($root . '/staff/customizations.php')
 $jobService = (string)file_get_contents($root . '/includes/JobOrderService.php');
 $jobApi = (string)file_get_contents($root . '/admin/job_orders_api.php');
 $validatorBody = substr($validation, strpos($validation, 'function printflow_pos_validate_service_stock('));
-$assert(str_contains($validatorBody, 'if (!array_key_exists(\'pos_material_assignments\', $line))')
-    && !str_contains($validatorBody, 'printflow_pos_tarpaulin_selection('),
-    'Current Tarpaulin POS stock checks do not select rolls or calculate consumption from dimensions.');
+$assert(str_contains($validatorBody, "if (\$serviceId === 40 && !array_key_exists('pos_material_assignments', \$line))")
+    && str_contains($validatorBody, 'printflow_pos_tarpaulin_selection(')
+    && str_contains($validation, 'printflow_tarpaulin_resolve_candidate('),
+    'Tarpaulin POS stock checks select the narrowest mapped roll from Width/Height using linear_ft_v1.');
 $assert(!str_contains($checkout, 'pos_checkout_pair_tarpaulin_cart_lines'),
     'Current checkout does not require a calculated Tarpaulin panel plan.');
 $assert(str_contains($checkout, 'pos_checkout_validate_assigned_service_materials($items, $pos_pending_orders_snapshot)')

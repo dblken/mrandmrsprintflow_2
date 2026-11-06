@@ -240,6 +240,21 @@ tarpContext.customerHeight = 4;
 const tarpAutoSelect = picker.getAutoSelectCandidate(tarpInventory, tarpContext, []);
 assert.strictEqual(tarpAutoSelect && tarpAutoSelect.name, '4ft Tarpaulin');
 
+// 2 × 2 ft → narrowest fitting 3 ft roll; usage is 2 linear ft.
+const twoByTwoContext = context('Tarpaulin Printing');
+twoByTwoContext.customerWidth = 2;
+twoByTwoContext.customerHeight = 2;
+assert.strictEqual(picker.getAutoSelectCandidate(tarpInventory, twoByTwoContext, []).name, '3ft Tarpaulin');
+assert.strictEqual(picker.calculateTarpaulinLinearLength(2, 2, 1, 3).required_linear_ft, 2);
+
+// 6 × 6 ft → 6 ft roll; usage is 6 linear ft.
+const sixBySixContext = context('Tarpaulin Printing');
+sixBySixContext.customerWidth = 6;
+sixBySixContext.customerHeight = 6;
+assert.strictEqual(picker.getAutoSelectCandidate(tarpInventory, sixBySixContext, []).name, '6ft Tarpaulin');
+assert.strictEqual(picker.calculateTarpaulinLinearLength(6, 6, 1, 6).required_linear_ft, 6);
+assert.strictEqual(picker.calculateTarpaulinLinearLength(6, 6, 1, 3), null, 'A 3 ft roll cannot fit 6 × 6 ft even with rotation.');
+
 // Ambiguous case: two rolls of the same smallest fitting width -> do not auto-select.
 const ambiguousTarpInventory = [item('4ft Tarpaulin A'), item('4ft Tarpaulin B'), item('6ft Tarpaulin')];
 const ambiguousAutoSelect = picker.getAutoSelectCandidate(ambiguousTarpInventory, tarpContext, []);

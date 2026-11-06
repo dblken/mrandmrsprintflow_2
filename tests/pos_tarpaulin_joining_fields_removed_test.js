@@ -14,6 +14,9 @@ const calcSource = fs.readFileSync(path.join(root, 'includes/tarpaulin_material_
 assert.doesNotMatch(posSource, /posEnsureTarpaulinJoiningControls/, 'POS no longer injects Tarpaulin joining controls');
 assert.doesNotMatch(posSource, /Joining Direction|Vertical seams|Horizontal seams|Joining Allowance|pos-tarpaulin-joining-controls|name="joining_direction"|name="joining_allowance_mode"|name="joining_allowance_ft"|Additional Allowance \(ft\)/,
     'POS Tarpaulin order form no longer renders joining direction/seams/allowance inputs');
+assert.match(posSource, /posEnsureTarpaulinDimensionInputs/, 'POS Tarpaulin restores separate Width/Height dimension inputs');
+assert.match(posSource, /data-pos-tarp-width="1"/, 'POS Tarpaulin Width input is present');
+assert.match(posSource, /data-pos-tarp-height="1"/, 'POS Tarpaulin Height input is present');
 assert.doesNotMatch(estimateSource, /joining_direction|joining_allowance|Vertical seams|Horizontal seams/,
     'Estimated Price does not depend on removed Tarpaulin joining fields');
 assert.match(stockSource, /\$customization\['joining_direction'\] \?\? 'automatic'/,

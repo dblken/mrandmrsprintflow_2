@@ -9,13 +9,14 @@ $mugsRule = file_get_contents($root . '/includes/pos_mugs_release_rule.php');
 $assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
 $assert(str_contains($validator, 'if ($serviceId === 63)') && str_contains($validator, "(int)\$material['item_id'] !== 37")
     && str_contains($mugsRule, 'printflow_pos_mugs_release_material_rule'), 'Dedicated Mugs inventory item validation remains present.');
-$assert(str_contains($validator, "if (!array_key_exists('pos_material_assignments', \$line))")
-    && str_contains($validator, 'if ($serviceId === 40)')
-    && !str_contains(substr($validator, strpos($validator, 'function printflow_pos_validate_service_stock(')), 'printflow_pos_tarpaulin_selection('),
-    'POS service stock validation defers material demand to manually assigned actual usage, including Tarpaulin.');
+$validateBody = substr($validator, strpos($validator, 'function printflow_pos_validate_service_stock('));
+$assert(str_contains($validateBody, "if (\$serviceId === 40 && !array_key_exists('pos_material_assignments', \$line))")
+    && str_contains($validateBody, 'printflow_pos_tarpaulin_selection(')
+    && str_contains($validator, 'printflow_tarpaulin_resolve_candidate('),
+    'POS Tarpaulin Add to Order resolves the narrowest mapped roll from Width/Height before staff Actual Usage.');
 $assert(!str_contains($checkout, 'pos_checkout_pair_tarpaulin_cart_lines')
     && str_contains($checkout, 'pos_checkout_validate_assigned_service_materials($items, $pos_pending_orders_snapshot)'),
-    'Checkout validates actual assigned material quantities and no longer requires an automatic Tarpaulin panel plan.');
+    'Checkout validates actual assigned material quantities; joining panel pairing stays out of checkout.');
 $assert(str_contains($cart, 'pos_cart_validate_service_payload')
     && str_contains($cart, 'printflow_pos_validate_service_stock('),
     'Tarpaulin service specifications and available explicit assignments still pass through POS validation.');
@@ -30,9 +31,14 @@ $assert(str_contains($jobService, 'printflow_tarpaulin_panel_plans_match')
     && str_contains($jobApi, "\$metadata['actual_usage_version'] = 'manual_v1';")
     && str_contains($jobApi, '$rawQuantity = trim((string)($_POST[\'quantity\'] ?? \'\'))'),
     'Historical panel-plan deduction support remains readable while new assignments store manual actual usage.');
-$assert(str_contains($validator, 'POS captures customer specifications only. Exact material and')
+$assert(str_contains($validator, 'Non-Tarpaulin POS captures customer specifications only. Exact')
     && str_contains($validator, "'tarpaulin_selections' => \$tarpaulinSelections"),
-    'The current POS validator leaves Tarpaulin material choices empty until staff records actual usage.');
+    'Non-Tarpaulin services still defer material demand; Tarpaulin selections are returned for cart persistence.');
+$posUi = (string)file_get_contents($root . '/staff/pos.php');
+$assert(!str_contains($posUi, 'Joining Direction')
+    && !str_contains($posUi, 'Joining Allowance')
+    && !str_contains($posUi, 'pos-tarpaulin-joining-controls'),
+    'Joining Direction / Allowance remain absent from the Tarpaulin POS form.');
 $retryBlock = strpos($checkout, 'if ($isPayMongo && !empty($sessionContext[\'pos_paymongo_checkouts\'][$checkoutToken]))');
 $retryValidate = strpos($checkout, 'pos_checkout_validate_assigned_service_materials(', $retryBlock === false ? 0 : $retryBlock);
 $retryPayment = strpos($checkout, "printflow_provider_payment_create_qrph(", $retryBlock === false ? 0 : $retryBlock);

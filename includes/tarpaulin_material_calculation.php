@@ -151,21 +151,45 @@ function printflow_tarpaulin_dimension($value, string $label): float
     return $number;
 }
 
+/** Convert a supported customer dimension unit into a feet multiplier. */
+function printflow_tarpaulin_dimension_unit_to_ft_factor($unit): float
+{
+    $normalized = strtolower(trim((string)$unit));
+    return match ($normalized) {
+        '', 'ft', 'feet', 'foot' => 1.0,
+        'in', 'inch', 'inches', '"' => 1.0 / 12.0,
+        'cm' => 1.0 / 30.48,
+        'mm' => 1.0 / 304.8,
+        default => throw new InvalidArgumentException('Unsupported Tarpaulin dimension unit. Use ft, in, cm, or mm.'),
+    };
+}
+
 /** Canonical server-side parser for separate or saved WxH Tarpaulin dimensions. */
 function printflow_tarpaulin_normalize_dimensions(array $customization): array
 {
     $width = $customization['width'] ?? $customization['width_ft'] ?? $customization['Width'] ?? null;
     $height = $customization['height'] ?? $customization['height_ft'] ?? $customization['Height'] ?? null;
+    $unit = $customization['pos_material_dimension_unit']
+        ?? $customization['dimensions_unit']
+        ?? $customization['unit']
+        ?? $customization['Dimensions Unit']
+        ?? 'ft';
     if (($width === null || $height === null) && isset($customization['dimensions'])) {
         $dimensions = trim((string)$customization['dimensions']);
-        if (preg_match('/^\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(?:ft)?\s*$/i', $dimensions, $match)) {
+        if (preg_match('/^\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(?:ft|feet|foot|in|inch|inches|cm|mm)?\s*$/i', $dimensions, $match)) {
             $width ??= $match[1];
             $height ??= $match[2];
+            if (preg_match('/(ft|feet|foot|in|inch|inches|cm|mm)\s*$/i', $dimensions, $unitMatch)) {
+                $unit = $unitMatch[1];
+            }
         }
     }
+    $factor = printflow_tarpaulin_dimension_unit_to_ft_factor($unit);
+    $widthFt = is_numeric($width) ? ((float)$width * $factor) : $width;
+    $heightFt = is_numeric($height) ? ((float)$height * $factor) : $height;
     return [
-        printflow_tarpaulin_dimension($width, 'Width'),
-        printflow_tarpaulin_dimension($height, 'Height'),
+        printflow_tarpaulin_dimension($widthFt, 'Width'),
+        printflow_tarpaulin_dimension($heightFt, 'Height'),
     ];
 }
 

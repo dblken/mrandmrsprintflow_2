@@ -42,10 +42,11 @@ foreach ([$stock, $assignment, $service, $counterUi, $adminUi, $js] as $source) 
 }
 
 $assert(str_contains($stock, 'if (!array_key_exists(\'pos_material_assignments\', $line))')
-    && str_contains($stock, '// POS captures customer specifications only. Exact material and')
+    && str_contains($stock, '// Non-Tarpaulin POS captures customer specifications only. Exact')
     && str_contains($stock, '// Current service material quantities are entered by staff in Production')
-    && !str_contains($stock, 'printflow_pos_material_demand_for_area('),
-    'POS stock validation does not estimate material demand from dimensions, multiplier, or order quantity.');
+    && !str_contains($stock, 'printflow_pos_material_demand_for_area(')
+    && str_contains($stock, 'printflow_tarpaulin_resolve_candidate('),
+    'Non-Tarpaulin POS stock validation stays assignment-based; Tarpaulin uses mapped linear roll-fit without area multipliers.');
 $assert(str_contains($assignment, '$rawQuantity = trim((string)($_POST[\'quantity\'] ?? \'\'))')
     && str_contains($assignment, 'getStockOnHandForUpdate($itemId, $branchId)')
     && str_contains($assignment, 'requested %s %s; available %s %s')

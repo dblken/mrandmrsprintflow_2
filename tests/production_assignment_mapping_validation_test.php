@@ -120,8 +120,8 @@ $stockSource = (string)file_get_contents(dirname(__DIR__) . '/includes/pos_servi
 $assert(str_contains($stockSource, 'printflow_pos_material_selection_resolve_assignments($serviceId, $assignmentRows, $customization)'),
     'Set Price stock validation still routes assignment identity through resolve_assignments.');
 $staff = (string)file_get_contents(dirname(__DIR__) . '/staff/customizations.php');
-$assert(str_contains($staff, 'queueMaterialFromPicker(item)')
-    && str_contains($staff, "qty: ''")
+$assert(str_contains($staff, 'queueMaterialFromPicker(item')
+    && (str_contains($staff, "qty: ''") || str_contains($staff, "let qty = ''"))
     && !str_contains($staff, '>Add actual usage</button>'),
     'One-click Production Assignment selection remains in place.');
 
