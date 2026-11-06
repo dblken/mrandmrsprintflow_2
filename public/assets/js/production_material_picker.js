@@ -397,12 +397,29 @@
 
         const stock = Number.parseFloat(item && item.current_stock);
         const inStock = Number.isFinite(stock) && stock > 0;
-        const directSelectable = (tier === 'recommended' || tier === 'optional') && inStock;
-        const overrideable = (tier === 'unrelated' || tier === 'unverified') && inStock;
+        const serviceId = Number(context && context.serviceId);
+        // Services with Production Assignment / Set Price mapping validation must
+        // only queue authoritatively mapped inventory IDs. Family heuristics may
+        // still rank lookalikes, but they must not become assignable without a
+        // service_material_rules row (or dedicated Mug mapping).
+        const requiresAuthoritativeMapping = [36, 39, 64, 67, 71].includes(serviceId);
+        const authoritativelyMapped = !!exactRule
+            || (serviceId === 63 && Number(item && item.id) === 37);
+        let directSelectable = (tier === 'recommended' || tier === 'optional') && inStock;
+        let overrideable = (tier === 'unrelated' || tier === 'unverified') && inStock;
+        if (requiresAuthoritativeMapping) {
+            directSelectable = authoritativelyMapped && directSelectable;
+            overrideable = false;
+            if (!authoritativelyMapped && inStock && (tier === 'recommended' || tier === 'optional')) {
+                tier = 'unrelated';
+            }
+        }
         const selectable = directSelectable || overrideable;
         const serviceLabel = String((context && (context.serviceLabel || context.serviceType)) || 'this service').trim();
         const reason = !inStock
             ? 'Out of stock'
+            : !authoritativelyMapped && requiresAuthoritativeMapping
+                ? 'Not mapped for ' + serviceLabel
             : tier === 'unverified'
                 ? 'Usage not verified'
             : tier === 'unrelated'
@@ -410,6 +427,7 @@
                 : '';
         return {
             tier, family, selectable, directSelectable, overrideable, inStock, reason, serviceKind,
+            authoritativelyMapped,
             ruleType: exactRuleType === 'REQUIRED' || exactRuleType === 'OPTIONAL' ? exactRuleType : '',
             selectionGroup: String(exactRule && exactRule.selection_group || ''),
             selectionRole: String(exactRule && exactRule.selection_role || ''),

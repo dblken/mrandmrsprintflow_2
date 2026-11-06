@@ -247,7 +247,25 @@ function pfpm_classify_item(array $item, array $context, array $rules = []): arr
     elseif ($serviceKind === 'unknown') $tier = $rule ? $tier : 'unverified';
     if ($family === 'unverified' || ($family === 'other' && $tier === 'unrelated')) $tier = 'unverified';
     if ($family === 'pvc_id') $tier = 'unrelated';
-    return ['tier' => $tier, 'family' => $family, 'serviceKind' => $serviceKind, 'applicable' => in_array($tier, ['recommended', 'optional'], true)];
+    $serviceId = filter_var($context['serviceId'] ?? null, FILTER_VALIDATE_INT);
+    $serviceId = $serviceId === false ? 0 : (int)$serviceId;
+    $requiresAuthoritativeMapping = in_array($serviceId, [36, 39, 64, 67, 71], true);
+    $authoritativelyMapped = $rule !== null
+        || ($serviceId === 63 && (int)($item['id'] ?? 0) === 37);
+    if ($requiresAuthoritativeMapping && !$authoritativelyMapped && in_array($tier, ['recommended', 'optional'], true)) {
+        $tier = 'unrelated';
+    }
+    $applicable = in_array($tier, ['recommended', 'optional'], true);
+    if ($requiresAuthoritativeMapping) {
+        $applicable = $applicable && $authoritativelyMapped;
+    }
+    return [
+        'tier' => $tier,
+        'family' => $family,
+        'serviceKind' => $serviceKind,
+        'authoritativelyMapped' => $authoritativelyMapped,
+        'applicable' => $applicable,
+    ];
 }
 
 function pfpm_material_rules(): array

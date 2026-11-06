@@ -298,6 +298,23 @@ assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.selectionRol
 assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.tier, 'recommended', 'required rule remains selectable in the recommendation-ranked list');
 assert.strictEqual(byName(stickerRuleRows, 'Hologram').compatibility.ruleType, 'OPTIONAL', 'Hologram retains its explicit OPTIONAL rule');
 assert.strictEqual(byName(stickerRuleRows, 'Hologram').compatibility.tier, 'optional');
+
+// Material #55 = STICKER GREEN (active colored sticker). Without an authoritative
+// service_material_rules row for service 36 it must not be assignable.
+const stickerGreen = { id: 55, name: 'STICKER GREEN', current_stock: 12, unit_of_measure: 'pcs', category_name: 'STICKER (Colored)' };
+const stickerGreenUnmapped = picker.classifyItem(stickerGreen, {
+    serviceId: 36, serviceType: 'Decals/Stickers (Print/Cut)', serviceLabel: 'Stickers /Decals'
+}, stickerRules);
+assert.strictEqual(stickerGreenUnmapped.authoritativelyMapped, false, 'Material #55 is not mapped to Stickers/Decals without a rule row');
+assert.strictEqual(stickerGreenUnmapped.directSelectable, false, 'Unmapped material #55 cannot be one-click assigned');
+assert.strictEqual(stickerGreenUnmapped.overrideable, false, 'Unmapped material #55 cannot be override-assigned for mapping-policy services');
+assert.strictEqual(stickerGreenUnmapped.selectable, false, 'Unmapped material #55 is not selectable for Set Price submission');
+const stickerGreenMapped = picker.classifyItem(stickerGreen, {
+    serviceId: 36, serviceType: 'Decals/Stickers (Print/Cut)', serviceLabel: 'Stickers /Decals'
+}, [...stickerRules, { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 55, rule_type: 'OPTIONAL' }]);
+assert.strictEqual(stickerGreenMapped.authoritativelyMapped, true, 'Material #55 becomes mapped only when a rule row exists');
+assert.strictEqual(stickerGreenMapped.directSelectable, true, 'Mapped material #55 is one-click assignable');
+
 const canonicalSticker = picker.rankItems(stickerRuleInventory, {
     serviceId: 36, serviceType: 'Decals/Stickers (Print/Cut)'
 }, stickerRules, '');
