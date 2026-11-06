@@ -708,7 +708,7 @@ try {
                     'customization' => $preparedCustomization ?? (is_array($customization) ? $customization : []),
                     'is_service' => $is_service,
                 ];
-                $_SESSION['pos_cart'][] = [
+                $newCartLine = [
                     'product_id' => $product_id,
                     'name' => $name,
                     'price' => $price,
@@ -719,6 +719,12 @@ try {
                     'pos_cart_line_id' => $is_service && $product_id === 40 ? pos_cart_new_tarpaulin_line_id($_SESSION['pos_cart']) : null,
                     'price_set' => pos_cart_resolve_price_set_on_add($is_service, $data, $cartSeed),
                 ];
+                if ($is_service) {
+                    $newCartLine['design_fee'] = (float)($preparedCustomization['design_fee'] ?? $designFee ?? 0);
+                    $newCartLine['estimated_price'] = (float)($preparedCustomization['calculated_estimated_price'] ?? ($price * $qty + $newCartLine['design_fee']));
+                    $newCartLine['quantity'] = $qty;
+                }
+                $_SESSION['pos_cart'][] = $newCartLine;
             }
             break;
 
@@ -774,6 +780,7 @@ try {
                 $item = &$_SESSION['pos_cart'][$index];
                 $isServiceItem = pos_cart_item_is_service($item);
                 $item['is_service'] = $isServiceItem;
+                $previousQty = (int)($item['qty'] ?? 0);
                 if (!$isServiceItem) {
                     $pos_branch_id = pos_cart_branch_id();
                     $item['stock'] = pos_cart_effective_product_stock((int)$item['product_id'], $pos_branch_id);
@@ -793,6 +800,42 @@ try {
                     $item['stock'] = null;
                     if ((int)($item['product_id'] ?? 0) === 40 && is_array($item['customization'] ?? null)) {
                         unset($item['customization']['pos_tarpaulin_selection']);
+                    }
+                    // Preserve the selected layout / design-line identity, then
+                    // rebuild unit price + one-time design fee from server config.
+                    $serviceCustomization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+                    $preservedDesignLineId = trim((string)($serviceCustomization['pos_design_line_id'] ?? ''));
+                    $serviceId = (int)($serviceCustomization['service_id'] ?? $item['product_id'] ?? 0);
+                    $serviceFieldConfigs = ($serviceId > 0 && function_exists('get_service_field_config'))
+                        ? get_service_field_config($serviceId)
+                        : [];
+                    if (!empty($serviceFieldConfigs) && function_exists('printflow_apply_layout_canonical_to_customization')) {
+                        printflow_apply_layout_canonical_to_customization($serviceCustomization, $serviceFieldConfigs);
+                    }
+                    $item['customization'] = $serviceCustomization;
+                    $item['qty'] = $qty;
+                    $item['quantity'] = $qty;
+                    if (!function_exists('printflow_apply_service_line_pricing_to_cart_item')) {
+                        require_once dirname(__DIR__, 2) . '/includes/service_design_fee.php';
+                    }
+                    $repriced = printflow_apply_service_line_pricing_to_cart_item($item);
+                    if (empty($repriced['ok'])) {
+                        throw new PosCartValidationException([
+                            'price' => (string)($repriced['message'] ?? 'Service price could not be recalculated for the new quantity.'),
+                        ]);
+                    }
+                    if ($preservedDesignLineId !== '') {
+                        $item['customization']['pos_design_line_id'] = $preservedDesignLineId;
+                    }
+                    // Quantity changes invalidate a previously staff-set final
+                    // line total so checkout uses the recalculated estimate
+                    // until Set Price is applied again.
+                    if ($previousQty !== $qty) {
+                        unset($item['line_total_override']);
+                        $item['price_set'] = false;
+                    }
+                    if ((float)($item['design_fee'] ?? 0) > 0 && !printflow_order_items_has_design_fee_column()) {
+                        throw new PosCartValidationException(['layout' => 'The design-fee database migration is required before this layout can be ordered.']);
                     }
                 }
                 $item['qty'] = $qty;
@@ -1009,6 +1052,37 @@ try {
             }
         ));
     }
+
+    // Refresh estimated service pricing for cart reload / persistence so a
+    // quantity-changed line keeps layout mode and the one-time fee once.
+    if (!function_exists('printflow_apply_service_line_pricing_to_cart_item')) {
+        require_once dirname(__DIR__, 2) . '/includes/service_design_fee.php';
+    }
+    foreach ($_SESSION['pos_cart'] as $refreshIndex => &$refreshItem) {
+        if (!pos_cart_item_is_service((array)$refreshItem)) {
+            continue;
+        }
+        if (!empty($refreshItem['price_set']) || (isset($refreshItem['line_total_override']) && $refreshItem['line_total_override'] !== null && $refreshItem['line_total_override'] !== '')) {
+            continue;
+        }
+        $refreshCustomization = is_array($refreshItem['customization'] ?? null) ? $refreshItem['customization'] : [];
+        $preservedDesignLineId = trim((string)($refreshCustomization['pos_design_line_id'] ?? ''));
+        $serviceId = (int)($refreshCustomization['service_id'] ?? $refreshItem['product_id'] ?? 0);
+        $serviceFieldConfigs = ($serviceId > 0 && function_exists('get_service_field_config'))
+            ? get_service_field_config($serviceId)
+            : [];
+        if (!empty($serviceFieldConfigs) && function_exists('printflow_apply_layout_canonical_to_customization')) {
+            printflow_apply_layout_canonical_to_customization($refreshCustomization, $serviceFieldConfigs);
+            $refreshItem['customization'] = $refreshCustomization;
+        }
+        $refreshItem['quantity'] = (int)($refreshItem['qty'] ?? $refreshItem['quantity'] ?? 1);
+        $repriced = printflow_apply_service_line_pricing_to_cart_item($refreshItem);
+        if (!empty($repriced['ok']) && $preservedDesignLineId !== '') {
+            $refreshItem['customization']['pos_design_line_id'] = $preservedDesignLineId;
+        }
+        $_SESSION['pos_cart'][$refreshIndex] = $refreshItem;
+    }
+    unset($refreshItem);
 
     // Release the session before per-item stock lookups so checkout cannot block
     // behind cart refreshes when the cart grows to several lines.

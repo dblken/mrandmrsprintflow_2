@@ -3582,17 +3582,39 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         function posCartItemEstimatedUnitPrice(item) {
             const c = item && item.customization ? item.customization : {};
-            const qty = Math.max(1, parseInt(item?.qty, 10) || 1);
-            const lineTotal = parseFloat(c.calculated_estimated_price);
-            if (Number.isFinite(lineTotal) && lineTotal > 0) {
-                return lineTotal / qty;
-            }
+            // Prefer the stored per-unit amount. Never divide a line total that
+            // already includes the one-time layout/design fee by quantity —
+            // that incorrectly spreads Without Layout fee across units.
             const unit = parseFloat(c.calculated_unit_price);
             if (Number.isFinite(unit) && unit > 0) {
                 return unit;
             }
             const cartUnit = parseFloat(item?.price);
-            return Number.isFinite(cartUnit) ? cartUnit : 0;
+            if (Number.isFinite(cartUnit) && cartUnit > 0) {
+                return cartUnit;
+            }
+            const qty = Math.max(1, parseInt(item?.qty, 10) || 1);
+            const lineTotal = parseFloat(c.calculated_estimated_price);
+            const fee = Math.max(0, Number(item?.design_fee ?? c.design_fee) || 0);
+            if (Number.isFinite(lineTotal) && lineTotal > 0) {
+                return Math.max(0, (lineTotal - fee) / qty);
+            }
+            return 0;
+        }
+
+        function posCartItemDisplayedLineTotal(item) {
+            if (!item) return 0;
+            if (item.line_total_override !== null && item.line_total_override !== undefined) {
+                return Math.max(0, Number(item.line_total_override) || 0);
+            }
+            const unit = parseFloat(item.price) || 0;
+            const qty = Math.max(1, parseInt(item.qty, 10) || 1);
+            const fee = Math.max(0, Number(item.design_fee ?? item.customization?.design_fee) || 0);
+            const estimated = parseFloat(item.estimated_price ?? item.customization?.calculated_estimated_price);
+            if (Number.isFinite(estimated) && estimated > 0) {
+                return estimated;
+            }
+            return (unit * qty) + fee;
         }
 
         function posVariantOptionsList(product) {
@@ -7538,9 +7560,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const unitPrice = posCartItemEstimatedUnitPrice(item);
                     const pricingComplete = posCartItemStaffPricingComplete(item);
                     const countsInTotal = posCartItemCountsInCheckoutTotal(item);
-                    const confirmedLineTotal = item.line_total_override !== null && item.line_total_override !== undefined
-                        ? Math.max(0, Number(item.line_total_override) || 0)
-                        : ((parseFloat(item.price) || 0) * (item.qty || 1)) + Math.max(0, Number(item.design_fee ?? item.customization?.design_fee) || 0);
+                    const confirmedLineTotal = posCartItemDisplayedLineTotal(item);
                     if (countsInTotal) {
                         currentTotal += confirmedLineTotal;
                     }

@@ -24,6 +24,7 @@ $assert(!preg_match('/price:\s*0,\s*\n\s*qty:.*is_service:\s*true/s', $posSource
 
 $cartSource = (string) file_get_contents(__DIR__ . '/../staff/api/pos_cart_handler.php');
 $assert(str_contains($cartSource, 'printflow_calculate_service_unit_price'), 'Cart handler recalculates service unit price');
+$assert(str_contains($cartSource, 'printflow_apply_service_line_pricing_to_cart_item'), 'Cart quantity updates rebuild authoritative service line totals');
 
 $checkoutSource = (string) file_get_contents(__DIR__ . '/../staff/api/pos_checkout.php');
 $assert(str_contains($checkoutSource, 'pos_checkout_validate_service_item_prices'), 'Checkout validates service prices server-side');
