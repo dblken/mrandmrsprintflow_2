@@ -6780,7 +6780,6 @@ window.pfServiceFieldCatalog = (() => {
                 if (!parts) {
                     parts = this.staffExtractDimensionParts(out, null);
                 }
-                if (!parts) return out;
 
                 const unitText = String(
                     out['Dimensions Unit']
@@ -6794,40 +6793,66 @@ window.pfServiceFieldCatalog = (() => {
                     : (/^cm$/i.test(unitText) ? 'cm'
                         : (/^mm$/i.test(unitText) ? 'mm' : 'ft'));
 
-                // Tarpaulin Order Details shows separate Width/Height cards so
-                // staff can verify the customer dimensions that drive roll fit.
-                if (Number(serviceId) === 40 && parts.width && parts.height) {
-                    const widthNum = parseFloat(parts.width);
-                    const heightNum = parseFloat(parts.height);
-                    if (Number.isFinite(widthNum) && Number.isFinite(heightNum) && widthNum > 0 && heightNum > 0) {
-                        out.Width = String(widthNum).replace(/\.?0+$/, '') + ' ' + unitShort;
-                        out.Height = String(heightNum).replace(/\.?0+$/, '') + ' ' + unitShort;
-                        out['Dimensions Unit'] = unitShort;
-                        const fieldKey = dimensionField && dimensionField.key ? String(dimensionField.key) : 'dimensions';
+                // Tarpaulin Order Details must show the customer Width × Height
+                // (and unit), not a lone "Dimensions Unit" row. Actual Usage
+                // remains a separate linear-ft material field.
+                if (Number(serviceId) === 40) {
+                    const widthNum = parts && parts.width != null ? parseFloat(parts.width) : NaN;
+                    const heightNum = parts && parts.height != null ? parseFloat(parts.height) : NaN;
+                    const hasCustomerDims = Number.isFinite(widthNum) && Number.isFinite(heightNum)
+                        && widthNum > 0 && heightNum > 0;
+                    const fieldKey = dimensionField && dimensionField.key ? String(dimensionField.key) : 'dimensions';
+                    const stripUnitOnly = () => {
+                        delete out['Dimensions Unit'];
+                        delete out.dimensions_unit;
+                        delete out.unit;
+                        delete out.pos_material_dimension_unit;
+                    };
+                    if (hasCustomerDims) {
+                        const wText = String(widthNum).replace(/\.?0+$/, '');
+                        const hText = String(heightNum).replace(/\.?0+$/, '');
+                        out.Width = wText + ' ' + unitShort;
+                        out.Height = hText + ' ' + unitShort;
+                        out.Dimensions = wText + ' × ' + hText + ' ' + unitShort;
+                        stripUnitOnly();
                         const stripKeys = new Set([
                             fieldKey,
                             fieldKey + '_width',
                             fieldKey + '_height',
-                            'Dimensions',
                             'Dimension',
                             'Size',
                             'Size / Dimensions',
-                            ...this.staffDimensionDisplayStripKeys().filter((key) => !['width', 'height', 'Width', 'Height', 'width_ft', 'height_ft'].includes(key))
+                            ...this.staffDimensionDisplayStripKeys().filter((key) => !['width', 'height', 'Width', 'Height', 'width_ft', 'height_ft', 'dimensions', 'Dimensions'].includes(key))
                         ]);
                         Object.keys(out).forEach((key) => {
-                            if (key === 'Width' || key === 'Height' || key === 'Dimensions Unit') return;
+                            if (key === 'Width' || key === 'Height' || key === 'Dimensions') return;
                             const meta = this.staffCustomizationFieldMeta(key);
                             const bucket = this.staffCanonicalSpecBucket(key, meta.group);
                             if (bucket === 'dimensions' || bucket === 'dimensions_part'
                                 || meta.group === 'dimensions' || meta.group === 'width' || meta.group === 'height'
-                                || meta.group === 'total_area' || stripKeys.has(key)) {
+                                || meta.group === 'total_area' || stripKeys.has(key)
+                                || this.staffCustomizationKeyToken(key) === 'dimensions_unit') {
                                 delete out[key];
                             }
                         });
-                        // Keep separate Width/Height cards; the shared dedupe strips dimension parts.
                         return out;
                     }
+                    // Unit present without Width/Height is a handoff/data error —
+                    // never leave staff with only "Dimensions Unit: ft".
+                    stripUnitOnly();
+                    out.Dimensions = 'Missing Width × Height — return to POS, enter Tarpaulin dimensions, then open Set Price again.';
+                    Object.keys(out).forEach((key) => {
+                        if (key === 'Dimensions') return;
+                        const token = this.staffCustomizationKeyToken(key);
+                        if (token === 'dimensions_unit' || token === 'unit' || token === 'pos_material_dimension_unit'
+                            || token === 'width' || token === 'height' || token === 'width_ft' || token === 'height_ft') {
+                            delete out[key];
+                        }
+                    });
+                    return out;
                 }
+
+                if (!parts) return out;
 
                 const displayLabel = 'Dimensions';
                 const displayValue = this.staffFormatDimensionDisplayValue(parts);

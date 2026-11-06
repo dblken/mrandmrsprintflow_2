@@ -5396,6 +5396,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         function posApplySelectedServiceDimension(customization, body, overlay) {
             if (!customization || !body || !overlay) return;
+            // Service 40 uses dedicated Width/Height inputs; never clear those
+            // from the shared preset-dimension parser.
+            if (Number(overlay.dataset.serviceId || customization.service_id || 0) === 40) {
+                return;
+            }
             const fieldKey = String(overlay.dataset.materialDimensionFieldKey || '').trim();
             if (!fieldKey) return;
             const control = Array.from(body.querySelectorAll('select, input[type="radio"]')).find((field) =>
@@ -6282,7 +6287,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
             });
 
-            posApplySelectedServiceDimension(customization, body, overlay);
+            if (Number(serviceId) === 40) {
+                // Tarpaulin Width/Height come from dedicated POS inputs
+                // (posEnsureTarpaulinDimensionInputs). The shared preset parser
+                // must not blank those values when the dimensions select is
+                // empty, "Others", or otherwise non-parseable — that was wiping
+                // customer dimensions before cart/Set Price persistence.
+                Object.assign(customization, posCollectTarpaulinStockCustomization());
+            } else {
+                posApplySelectedServiceDimension(customization, body, overlay);
+            }
 
             if (serviceId === 67) {
                 delete customization.pos_selected_material_ids;
