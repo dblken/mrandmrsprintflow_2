@@ -170,17 +170,9 @@ try {
                 exit;
             }
             if ($production_picker) {
-                $assignmentPolicy = printflow_production_assignment_selection_registry();
-                foreach ($materialRules as &$rule) {
-                    $serviceId = printflow_service_material_rule_display_service_id($rule);
-                    $itemId = (int)($rule['item_id'] ?? 0);
-                    $selection = $serviceId ? ($assignmentPolicy[$serviceId][$itemId] ?? null) : null;
-                    $rule['service_id'] = $serviceId;
-                    $rule['selection_group'] = is_array($selection) ? ($selection['group'] ?? null) : null;
-                    $rule['selection_role'] = is_array($selection) ? (string)($selection['role'] ?? '') : '';
-                    $rule['group_required'] = is_array($selection) && !empty($selection['group_required']);
-                }
-                unset($rule);
+                $materialRules = printflow_production_assignment_material_rules_with_registry(
+                    is_array($materialRules) ? $materialRules : []
+                );
             }
             $activeServices = db_query(
                 "SELECT service_id, name, category

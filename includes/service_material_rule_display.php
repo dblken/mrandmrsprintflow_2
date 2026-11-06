@@ -19,7 +19,21 @@ function printflow_service_material_rule_display_registry(): array
         ], 'item_names' => [1 => 'AC MC', 2 => 'AC PH', 3 => 'AC EURO', 4 => 'AC THAI', 5 => 'AC NMC', 6 => 'AC HOME', 7 => 'SP MC', 8 => 'SP PH', 9 => 'SP EURO', 10 => 'SP THAI', 11 => 'SP NMC']],
         64 => ['name' => 'Poster Printing', 'service_types' => ['Poster Printing'], 'material_names' => ['C2s Board', 'C2S Special Paper'], 'item_names' => [212 => 'C2s Board', 211 => 'C2S Special Paper']],
         71 => ['name' => 'Sintraboard Standees', 'service_types' => ['Sintraboard Standees'], 'material_names' => ['Sintra 5mm', 'Sintra 3mm 32', 'Pp Stkr Matte 98'], 'item_names' => [207 => 'Sintra 5mm', 206 => 'Sintra 3mm 32', 23 => 'Pp Stkr Matte 98']],
-        36 => ['name' => 'Stickers /Decals', 'service_types' => ['Decals/Stickers (Print/Cut)'], 'material_names' => ['Nextjet', 'Gloss Laminate', 'Matte Laminate', 'Hologram'], 'item_names' => [18 => 'Nextjet', 20 => 'Gloss Laminate', 21 => 'Matte Laminate', 22 => 'Hologram']],
+        36 => [
+            'name' => 'Stickers /Decals',
+            'service_types' => ['Decals/Stickers (Print/Cut)'],
+            'material_names' => array_values(array_unique(array_merge(
+                ['Nextjet', 'Gloss Laminate', 'Matte Laminate', 'Hologram'],
+                array_values(printflow_stickers_decals_colored_sticker_item_names()),
+                array_map(static fn(string $name): string => ucwords(strtolower($name)), printflow_stickers_decals_colored_sticker_item_names())
+            ))),
+            'item_names' => [
+                18 => 'Nextjet',
+                20 => 'Gloss Laminate',
+                21 => 'Matte Laminate',
+                22 => 'Hologram',
+            ] + printflow_stickers_decals_colored_sticker_item_names(),
+        ],
         40 => ['name' => 'Tarpaulin', 'service_types' => ['Tarpaulin Printing'], 'material_names' => ['3ft Tarpaulin', '4ft Tarpaulin', '5ft Tarpaulin', '6ft Tarpaulin']],
     ];
 }

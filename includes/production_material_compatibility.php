@@ -250,7 +250,9 @@ function pfpm_classify_item(array $item, array $context, array $rules = []): arr
     $serviceId = filter_var($context['serviceId'] ?? null, FILTER_VALIDATE_INT);
     $serviceId = $serviceId === false ? 0 : (int)$serviceId;
     $requiresAuthoritativeMapping = in_array($serviceId, [36, 39, 64, 67, 71], true);
+    $stickersDecalsColoredIds = [51, 52, 53, 54, 55, 56, 57, 58];
     $authoritativelyMapped = $rule !== null
+        || ($serviceId === 36 && in_array((int)($item['id'] ?? 0), $stickersDecalsColoredIds, true))
         || ($serviceId === 63 && (int)($item['id'] ?? 0) === 37);
     if ($requiresAuthoritativeMapping && !$authoritativelyMapped && in_array($tier, ['recommended', 'optional'], true)) {
         $tier = 'unrelated';

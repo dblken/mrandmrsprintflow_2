@@ -9,11 +9,36 @@ require_once __DIR__ . '/pos_service_stock_helpers.php';
  * Multipliers are Admin-approved and interpreted using each service's
  * explicit consumption basis.
  */
+/**
+ * Verified Stickers/Decals colored cut-sticker inventory IDs from the active
+ * STICKER (Colored) catalog. Names are exact inventory identities.
+ */
+function printflow_stickers_decals_colored_sticker_item_names(): array
+{
+    return [
+        51 => 'STICKER BLACK',
+        52 => 'STICKER WHITE',
+        53 => 'STICKER RED',
+        54 => 'STICKER BLUE',
+        55 => 'STICKER GREEN',
+        56 => 'STICKER GOLD',
+        57 => 'STICKER SILVER',
+        58 => 'STICKER YELLOW',
+    ];
+}
+
 function printflow_pos_material_selection_registry(): array
 {
     $alternatives = static function (string $group, array $itemIds, bool $required = true): array {
         $rows = [];
         foreach ($itemIds as $itemId) $rows[(int)$itemId] = ['group' => $group, 'role' => 'alternative', 'group_required' => $required];
+        return $rows;
+    };
+    $multiOptional = static function (string $group, array $itemIds): array {
+        $rows = [];
+        foreach ($itemIds as $itemId) {
+            $rows[(int)$itemId] = ['group' => $group, 'role' => 'multi_optional', 'group_required' => false];
+        }
         return $rows;
     };
     return [
@@ -23,12 +48,14 @@ function printflow_pos_material_selection_registry(): array
         71 => $alternatives('sintra_thickness', [207,206]) + [23 => ['group' => null, 'role' => 'optional', 'group_required' => false]],
         // Nextjet remains OPTIONAL per the confirmed database correction.
         // At most one selected base may be consumed; no base is forced here.
+        // Colored sticker rolls are optional Production Assignment choices for
+        // Stickers/Decals only; they are never auto-selected or required.
         36 => [
             18 => ['group' => 'decal_base', 'role' => 'alternative', 'group_required' => false],
             22 => ['group' => 'decal_base', 'role' => 'alternative', 'group_required' => false],
             20 => ['group' => 'decal_finishes', 'role' => 'multi_optional', 'group_required' => false],
             21 => ['group' => 'decal_finishes', 'role' => 'multi_optional', 'group_required' => false],
-        ],
+        ] + $multiOptional('colored_sticker', array_keys(printflow_stickers_decals_colored_sticker_item_names())),
     ];
 }
 
@@ -161,8 +188,71 @@ function printflow_pos_material_selection_item_names(int $serviceId): array
         67 => [212 => 'C2s Board', 211 => 'C2S Special Paper'],
         64 => [212 => 'C2s Board', 211 => 'C2S Special Paper'],
         71 => [207 => 'Sintra 5mm', 206 => 'Sintra 3mm 32', 23 => 'Pp Stkr Matte 98'],
-        36 => [18 => 'Nextjet', 20 => 'Gloss Laminate', 21 => 'Matte Laminate', 22 => 'Hologram'],
+        36 => [
+            18 => 'Nextjet',
+            20 => 'Gloss Laminate',
+            21 => 'Matte Laminate',
+            22 => 'Hologram',
+        ] + printflow_stickers_decals_colored_sticker_item_names(),
     ][$serviceId] ?? [];
+}
+
+/**
+ * Ensure Production Assignment picker rules include every explicit selection-
+ * registry item even when the matching service_material_rules row has not been
+ * inserted yet. Does not invent IDs outside the registry.
+ */
+function printflow_production_assignment_material_rules_with_registry(array $materialRules): array
+{
+    $assignmentPolicy = printflow_production_assignment_selection_registry();
+    $displayRegistry = function_exists('printflow_service_material_rule_display_registry')
+        ? printflow_service_material_rule_display_registry()
+        : [];
+    $existing = [];
+    foreach ($materialRules as &$rule) {
+        if (!is_array($rule)) continue;
+        $serviceId = printflow_service_material_rule_display_service_id($rule);
+        if ($serviceId === null && isset($rule['service_id'])) {
+            $candidate = filter_var($rule['service_id'], FILTER_VALIDATE_INT);
+            $serviceId = $candidate === false ? null : (int)$candidate;
+        }
+        $itemId = filter_var($rule['item_id'] ?? null, FILTER_VALIDATE_INT);
+        if ($serviceId === null || $itemId === false || (int)$itemId <= 0) continue;
+        $selection = $assignmentPolicy[(int)$serviceId][(int)$itemId] ?? null;
+        $rule['service_id'] = (int)$serviceId;
+        $rule['selection_group'] = is_array($selection) ? ($selection['group'] ?? null) : ($rule['selection_group'] ?? null);
+        $rule['selection_role'] = is_array($selection) ? (string)($selection['role'] ?? '') : (string)($rule['selection_role'] ?? '');
+        $rule['group_required'] = is_array($selection) ? !empty($selection['group_required']) : !empty($rule['group_required']);
+        $existing[(int)$serviceId][(int)$itemId] = true;
+    }
+    unset($rule);
+
+    foreach ($assignmentPolicy as $serviceId => $items) {
+        $serviceId = (int)$serviceId;
+        $serviceType = printflow_pos_material_selection_service_type($serviceId)
+            ?? (($displayRegistry[$serviceId]['service_types'][0] ?? null));
+        if (!is_string($serviceType) || $serviceType === '') continue;
+        $names = printflow_pos_material_selection_item_names($serviceId);
+        foreach ($items as $itemId => $selection) {
+            $itemId = (int)$itemId;
+            if ($itemId <= 0 || isset($existing[$serviceId][$itemId])) continue;
+            if (!is_array($selection)) continue;
+            $role = (string)($selection['role'] ?? '');
+            $materialRules[] = [
+                'service_id' => $serviceId,
+                'service_type' => $serviceType,
+                'item_id' => $itemId,
+                'item_name' => (string)($names[$itemId] ?? ''),
+                'rule_type' => in_array($role, ['optional', 'multi_optional'], true) ? 'OPTIONAL' : 'REQUIRED',
+                'selection_group' => $selection['group'] ?? null,
+                'selection_role' => $role,
+                'group_required' => !empty($selection['group_required']),
+                'registry_synthetic' => true,
+            ];
+            $existing[$serviceId][$itemId] = true;
+        }
+    }
+    return $materialRules;
 }
 
 /**
@@ -408,6 +498,7 @@ function printflow_pos_material_selection_resolve_assignments(int $serviceId, ar
 function printflow_pos_material_selection_group_label(int $serviceId, string $group): string
 {
     if ($serviceId === 71 && $group === 'sintra_thickness') return 'Board Thickness';
+    if ($serviceId === 36 && $group === 'colored_sticker') return 'Colored sticker';
     return ucwords(str_replace('_', ' ', $group));
 }
 

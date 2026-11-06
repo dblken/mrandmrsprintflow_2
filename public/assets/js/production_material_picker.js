@@ -316,7 +316,8 @@
             sintra_thickness: 'Board Thickness',
             tarpaulin_roll: 'Tarpaulin roll',
             decal_base: 'sticker base material',
-            decal_finishes: 'sticker finish'
+            decal_finishes: 'sticker finish',
+            colored_sticker: 'colored sticker'
         })[group] || group.replace(/_/g, ' ');
     }
 
@@ -401,10 +402,16 @@
         // Services with Production Assignment / Set Price mapping validation must
         // only queue authoritatively mapped inventory IDs. Family heuristics may
         // still rank lookalikes, but they must not become assignable without a
-        // service_material_rules row (or dedicated Mug mapping).
+        // verified mapping (rule row, Stickers/Decals colored registry, or Mug).
         const requiresAuthoritativeMapping = [36, 39, 64, 67, 71].includes(serviceId);
+        const stickersDecalsColoredIds = new Set([51, 52, 53, 54, 55, 56, 57, 58]);
         const authoritativelyMapped = !!exactRule
+            || (serviceId === 36 && stickersDecalsColoredIds.has(Number(item && item.id)))
             || (serviceId === 63 && Number(item && item.id) === 37);
+        if (authoritativelyMapped && !exactRule && requiresAuthoritativeMapping
+            && (tier === 'unrelated' || tier === 'unverified')) {
+            tier = 'optional';
+        }
         let directSelectable = (tier === 'recommended' || tier === 'optional') && inStock;
         let overrideable = (tier === 'unrelated' || tier === 'unverified') && inStock;
         if (requiresAuthoritativeMapping) {

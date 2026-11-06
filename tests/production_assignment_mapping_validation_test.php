@@ -81,35 +81,25 @@ $assert(in_array(212, printflow_production_assignment_allowed_item_ids(67), true
 $assert(!in_array(999, printflow_production_assignment_allowed_item_ids(67), true),
     'Unmapped IDs stay outside the allowed Production Assignment set.');
 
-// Material #55 is STICKER GREEN in the inventory catalog dump. Verified selection
-// registries and migration pairs do not map it to Stickers/Decals (36) or any
-// other Production Assignment policy service. Do not invent a mapping here.
-$assert(!in_array(55, printflow_pos_material_selection_allowed_ids(36), true),
-    'Material #55 is outside the Stickers/Decals POS selection registry.');
-$assert(!in_array(55, array_map('intval', array_keys(printflow_production_assignment_selection_registry()[36] ?? [])), true),
-    'Material #55 is outside the Stickers/Decals Production Assignment selection registry.');
+// Material #55 is STICKER GREEN. It is now an explicit Stickers/Decals mapping
+// and must remain unmapped for Sintraboard.
+$assert(in_array(55, printflow_pos_material_selection_allowed_ids(36), true),
+    'Material #55 is mapped in the Stickers/Decals selection registry.');
 $assert(!in_array(55, array_map('intval', array_keys(printflow_production_assignment_selection_registry()[71] ?? [])), true),
     'Material #55 is outside the Sintraboard Production Assignment selection registry.');
-$fails(
-    static fn() => printflow_pos_material_selection_resolve_assignments(36, [['item_id' => 55, 'quantity' => 1]]),
-    'Material #55 is not mapped',
-    'Unmapped material #55 is rejected for Stickers/Decals and is not silently remapped.'
-);
+$stickerGreenMapped = printflow_pos_material_selection_resolve_assignments(36, [
+    ['item_id' => '55', 'quantity' => 1],
+]);
+$assert(count($stickerGreenMapped) === 1 && (int)$stickerGreenMapped[0]['item_id'] === 55,
+    'Material #55 passes Stickers/Decals Set Price validation.');
 $fails(
     static fn() => printflow_pos_material_selection_resolve_assignments(71, [
         ['item_id' => 206, 'quantity' => 1],
         ['item_id' => 55, 'quantity' => 1],
     ], ['board_thickness' => 'Sintra 3mm']),
     'Material #55 is not mapped',
-    'Unmapped material #55 is rejected for Sintraboard even when paired with a valid board.'
+    'Material #55 remains rejected for Sintraboard and is not silently remapped.'
 );
-$GLOBALS['PRINTFLOW_TEST_PRODUCTION_ASSIGNMENT_DB_MAPPED_IDS'] = [36 => [55, 18]];
-$stickerGreenMapped = printflow_pos_material_selection_resolve_assignments(36, [
-    ['item_id' => '55', 'quantity' => 1],
-]);
-$assert(count($stickerGreenMapped) === 1 && (int)$stickerGreenMapped[0]['item_id'] === 55,
-    'If Admin later maps material #55 to Stickers/Decals, Set Price accepts that authoritative mapping.');
-unset($GLOBALS['PRINTFLOW_TEST_PRODUCTION_ASSIGNMENT_DB_MAPPED_IDS']);
 
 $item = ['id' => 250, 'name' => 'Extra Brochure Stock', 'category_name' => 'Print', 'status' => 'ACTIVE'];
 $matched = pfpm_matching_context_rule($item, [

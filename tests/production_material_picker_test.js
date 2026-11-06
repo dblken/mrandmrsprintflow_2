@@ -299,21 +299,31 @@ assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.tier, 'recom
 assert.strictEqual(byName(stickerRuleRows, 'Hologram').compatibility.ruleType, 'OPTIONAL', 'Hologram retains its explicit OPTIONAL rule');
 assert.strictEqual(byName(stickerRuleRows, 'Hologram').compatibility.tier, 'optional');
 
-// Material #55 = STICKER GREEN (active colored sticker). Without an authoritative
-// service_material_rules row for service 36 it must not be assignable.
-const stickerGreen = { id: 55, name: 'STICKER GREEN', current_stock: 12, unit_of_measure: 'pcs', category_name: 'STICKER (Colored)' };
-const stickerGreenUnmapped = picker.classifyItem(stickerGreen, {
+// Material #55 = STICKER GREEN. Stickers/Decals (36) now maps the eight colored
+// sticker IDs; Sintraboard must still reject them.
+const stickerColors = [
+    { id: 51, name: 'STICKER BLACK' }, { id: 52, name: 'STICKER WHITE' },
+    { id: 53, name: 'STICKER RED' }, { id: 54, name: 'STICKER BLUE' },
+    { id: 55, name: 'STICKER GREEN' }, { id: 56, name: 'STICKER GOLD' },
+    { id: 57, name: 'STICKER SILVER' }, { id: 58, name: 'STICKER YELLOW' }
+];
+stickerColors.forEach(color => {
+    const mapped = picker.classifyItem({ ...color, current_stock: 12, unit_of_measure: 'ft', category_name: 'STICKER (Colored)' }, {
+        serviceId: 36, serviceType: 'Decals/Stickers (Print/Cut)', serviceLabel: 'Stickers /Decals'
+    }, stickerRules);
+    assert.strictEqual(mapped.authoritativelyMapped, true, `${color.name} (#${color.id}) is mapped for Stickers/Decals`);
+    assert.strictEqual(mapped.directSelectable, true, `${color.name} (#${color.id}) is one-click assignable`);
+    assert.strictEqual(mapped.overrideable, false, `${color.name} (#${color.id}) does not use override for mapping-policy services`);
+    const sintraBlocked = picker.classifyItem({ ...color, current_stock: 12, unit_of_measure: 'ft', category_name: 'STICKER (Colored)' }, {
+        serviceId: 71, serviceType: 'Sintraboard Standees', serviceLabel: 'Sintraboard Standees'
+    }, []);
+    assert.strictEqual(sintraBlocked.authoritativelyMapped, false, `${color.name} (#${color.id}) is not mapped for Sintraboard`);
+    assert.strictEqual(sintraBlocked.directSelectable, false, `${color.name} (#${color.id}) is not selectable for Sintraboard`);
+});
+const unmappedOther = picker.classifyItem({ id: 999, name: 'Random Supply', current_stock: 12, category_name: 'MATERIALS' }, {
     serviceId: 36, serviceType: 'Decals/Stickers (Print/Cut)', serviceLabel: 'Stickers /Decals'
 }, stickerRules);
-assert.strictEqual(stickerGreenUnmapped.authoritativelyMapped, false, 'Material #55 is not mapped to Stickers/Decals without a rule row');
-assert.strictEqual(stickerGreenUnmapped.directSelectable, false, 'Unmapped material #55 cannot be one-click assigned');
-assert.strictEqual(stickerGreenUnmapped.overrideable, false, 'Unmapped material #55 cannot be override-assigned for mapping-policy services');
-assert.strictEqual(stickerGreenUnmapped.selectable, false, 'Unmapped material #55 is not selectable for Set Price submission');
-const stickerGreenMapped = picker.classifyItem(stickerGreen, {
-    serviceId: 36, serviceType: 'Decals/Stickers (Print/Cut)', serviceLabel: 'Stickers /Decals'
-}, [...stickerRules, { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 55, rule_type: 'OPTIONAL' }]);
-assert.strictEqual(stickerGreenMapped.authoritativelyMapped, true, 'Material #55 becomes mapped only when a rule row exists');
-assert.strictEqual(stickerGreenMapped.directSelectable, true, 'Mapped material #55 is one-click assignable');
+assert.strictEqual(unmappedOther.selectable, false, 'Unrelated unmapped materials remain unselectable for Stickers/Decals');
 
 const canonicalSticker = picker.rankItems(stickerRuleInventory, {
     serviceId: 36, serviceType: 'Decals/Stickers (Print/Cut)'
