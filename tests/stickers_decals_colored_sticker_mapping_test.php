@@ -56,6 +56,16 @@ $multiColor = printflow_pos_material_selection_resolve_assignments($serviceId, [
 ]);
 $assert(array_column($multiColor, 'item_id') === [55, 51], 'Multiple colored stickers may be selected together.');
 
+$multiBaseAndFinish = printflow_pos_material_selection_resolve_assignments($serviceId, [
+    ['item_id' => 18, 'quantity' => 1],
+    ['item_id' => 22, 'quantity' => 1],
+    ['item_id' => 21, 'quantity' => 1],
+]);
+$assert(array_column($multiBaseAndFinish, 'item_id') === [18, 22, 21],
+    'Nextjet, Hologram, and Matte Laminate may be selected together without a one-base limit.');
+$assert(printflow_production_assignment_selection_errors($serviceId, [18, 22, 21]) === [],
+    'Production Assignment mutual-exclusion no longer blocks multiple Stickers/Decals materials.');
+
 $fails(
     static fn() => printflow_pos_material_selection_resolve_assignments($serviceId, [['item_id' => 212, 'quantity' => 1]]),
     'not mapped to this service',
@@ -95,7 +105,13 @@ $stockSource = (string)file_get_contents(dirname(__DIR__) . '/includes/pos_servi
 $assert(str_contains($stockSource, 'printflow_pos_material_selection_resolve_assignments')
     && str_contains($stockSource, 'printflow_pos_service_stock_exceeds_available'),
     'Branch stock validation remains wired after colored sticker mapping.');
-$assert(str_contains((string)file_get_contents(dirname(__DIR__) . '/staff/customizations.php'), 'queueMaterialFromPicker(item)'),
+$staff = (string)file_get_contents(dirname(__DIR__) . '/staff/customizations.php');
+$assert(str_contains($staff, 'queueMaterialFromPicker(item)'),
     'One-click Production Assignment selection remains in place.');
+$assert(str_contains($staff, 'pendingMaterialStockError(pm)')
+    && str_contains($staff, 'Insufficient ${item.name} stock: requested'),
+    'Insufficient stock for any selected material still surfaces a material-specific message.');
+$assert(str_contains($staff, 'this.removeMaterial(assignment.id)'),
+    'Undeducted assignments remain removable through the existing safe workflow.');
 
 echo "stickers_decals_colored_sticker_mapping_test: PASS\n";

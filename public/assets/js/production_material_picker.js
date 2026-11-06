@@ -315,9 +315,10 @@
             poster_paper: 'Poster paper',
             sintra_thickness: 'Board Thickness',
             tarpaulin_roll: 'Tarpaulin roll',
-            decal_base: 'sticker base material',
-            decal_finishes: 'sticker finish',
-            colored_sticker: 'colored sticker'
+            decal_base: 'sticker material',
+            decal_finishes: 'sticker material',
+            colored_sticker: 'sticker material',
+            sticker_media: 'sticker material'
         })[group] || group.replace(/_/g, ' ');
     }
 

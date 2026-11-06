@@ -57,10 +57,16 @@ $fails(static fn() => printflow_pos_material_selection_resolve(71, []), 'Sintrab
 $assert(count(printflow_pos_material_selection_resolve(71, [206, 23])) === 2, 'Optional printed sticker material can accompany one Sintra thickness.');
 $assert(count(printflow_pos_material_selection_resolve(71, [206])) === 1, 'Optional printed sticker material is not forced.');
 $fails(static fn() => printflow_pos_material_selection_resolve(71, [206, 207]), 'Both Sintra thicknesses cannot be selected.');
-$assert(count(printflow_pos_material_selection_resolve(36, [22, 20, 21])) === 3, 'Hologram base with multiple selected finishes is accepted.');
+$assert(count(printflow_pos_material_selection_resolve(36, [22, 20, 21])) === 3, 'Hologram with multiple selected finishes is accepted.');
 $assert(count(printflow_pos_material_selection_resolve(36, [18])) === 1, 'Nextjet can be selected without a finish.');
-$assert(count(printflow_pos_material_selection_resolve(36, [])) === 0, 'Nextjet remains optional and is not forced.');
-$fails(static fn() => printflow_pos_material_selection_resolve(36, [18, 22]), 'Only one decal base may be selected.');
+$assert(count(printflow_pos_material_selection_resolve(36, [])) === 0, 'Mapped sticker materials remain optional and are not forced.');
+$assert(count(printflow_pos_material_selection_resolve(36, [18, 22, 21])) === 3,
+    'Nextjet, Hologram, and Matte Laminate may be selected together for one Stickers/Decals job.');
+$assert(count(printflow_pos_material_selection_resolve_assignments(36, [
+    ['item_id' => 18, 'quantity' => 1],
+    ['item_id' => 22, 'quantity' => 1],
+    ['item_id' => 21, 'quantity' => 1],
+])) === 3, 'Production Assignment accepts multiple mapped sticker materials together.');
 $fails(static fn() => printflow_pos_material_selection_resolve(36, [999]), 'A material outside the explicit service mapping is rejected.');
 $fails(static fn() => printflow_pos_material_selection_resolve_assignments(36, [['item_id' => 999]]), 'A Production Assignment material outside the service mapping is rejected.');
 $assert(count(printflow_pos_material_selection_resolve_assignments(67, [['item_id' => '212']])) === 1,
@@ -73,7 +79,7 @@ $fails(static fn() => printflow_pos_material_demand_for_area(0, 2, 'ft', 1, 1), 
 $fails(static fn() => printflow_pos_material_demand_for_area(2, 2, 'unsupported', 1, 1), 'Unsupported dimension units must fail.');
 $selectedDemand = printflow_pos_material_demand_for_area(2, 3, 'ft', 2, 0.2);
 $saved = [[
-    'rule_id' => 16, 'item_id' => 18, 'material_name' => 'Nextjet', 'selection_role' => 'alternative', 'selection_group' => 'decal_base',
+    'rule_id' => 16, 'item_id' => 18, 'material_name' => 'Nextjet', 'selection_role' => 'multi_optional', 'selection_group' => 'sticker_media',
     'uom' => 'pcs', 'dimensions' => ['width' => 2, 'height' => 3, 'unit' => 'ft'],
     'selection_context' => ['size' => 'Custom', 'layout' => 'without_layout', 'thickness' => '3mm'], 'order_quantity' => 2,
     'multiplier' => 0.2, 'multiplier_basis' => 'inventory_units_per_sqft', 'area_sqft' => $selectedDemand['area_sqft'],

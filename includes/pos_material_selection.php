@@ -46,16 +46,15 @@ function printflow_pos_material_selection_registry(): array
         67 => $alternatives('brochure_paper', [212,211]),
         64 => $alternatives('poster_paper', [212,211]),
         71 => $alternatives('sintra_thickness', [207,206]) + [23 => ['group' => null, 'role' => 'optional', 'group_required' => false]],
-        // Nextjet remains OPTIONAL per the confirmed database correction.
-        // At most one selected base may be consumed; no base is forced here.
-        // Colored sticker rolls are optional Production Assignment choices for
-        // Stickers/Decals only; they are never auto-selected or required.
+        // Stickers/Decals Production Assignment allows any combination of mapped
+        // materials staff actually used (bases, finishes, and colored rolls).
+        // No sticker material is auto-selected or mutually exclusive here.
         36 => [
-            18 => ['group' => 'decal_base', 'role' => 'alternative', 'group_required' => false],
-            22 => ['group' => 'decal_base', 'role' => 'alternative', 'group_required' => false],
-            20 => ['group' => 'decal_finishes', 'role' => 'multi_optional', 'group_required' => false],
-            21 => ['group' => 'decal_finishes', 'role' => 'multi_optional', 'group_required' => false],
-        ] + $multiOptional('colored_sticker', array_keys(printflow_stickers_decals_colored_sticker_item_names())),
+            18 => ['group' => 'sticker_media', 'role' => 'multi_optional', 'group_required' => false],
+            22 => ['group' => 'sticker_media', 'role' => 'multi_optional', 'group_required' => false],
+            20 => ['group' => 'sticker_media', 'role' => 'multi_optional', 'group_required' => false],
+            21 => ['group' => 'sticker_media', 'role' => 'multi_optional', 'group_required' => false],
+        ] + $multiOptional('sticker_media', array_keys(printflow_stickers_decals_colored_sticker_item_names())),
     ];
 }
 
@@ -498,7 +497,9 @@ function printflow_pos_material_selection_resolve_assignments(int $serviceId, ar
 function printflow_pos_material_selection_group_label(int $serviceId, string $group): string
 {
     if ($serviceId === 71 && $group === 'sintra_thickness') return 'Board Thickness';
-    if ($serviceId === 36 && $group === 'colored_sticker') return 'Colored sticker';
+    if ($serviceId === 36 && in_array($group, ['colored_sticker', 'sticker_media', 'decal_base', 'decal_finishes'], true)) {
+        return 'Sticker material';
+    }
     return ucwords(str_replace('_', ' ', $group));
 }
 

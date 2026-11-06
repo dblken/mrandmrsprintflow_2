@@ -289,13 +289,13 @@ const stickerRuleInventory = [
     { id: 22, name: 'Hologram', current_stock: 2003, unit_of_measure: 'pcs', category_name: 'MATERIALS' }
 ];
 const stickerRules = [
-    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 18, rule_type: 'REQUIRED', selection_group: 'decal_base', selection_role: 'alternative', group_required: false },
-    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 22, rule_type: 'OPTIONAL', selection_group: 'decal_base', selection_role: 'alternative', group_required: false }
+    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 18, rule_type: 'OPTIONAL', selection_group: 'sticker_media', selection_role: 'multi_optional', group_required: false },
+    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 22, rule_type: 'OPTIONAL', selection_group: 'sticker_media', selection_role: 'multi_optional', group_required: false }
 ];
 const stickerRuleRows = picker.rankItems(stickerRuleInventory, stickerRuleContext, stickerRules, '');
-assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.ruleType, 'REQUIRED', 'service ID 36 resolves its canonical REQUIRED rule despite a UI service-label alias');
-assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.selectionRole, 'alternative', 'selection guidance comes from the explicit service/item group policy.');
-assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.tier, 'recommended', 'required rule remains selectable in the recommendation-ranked list');
+assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.ruleType, 'OPTIONAL', 'service ID 36 resolves its mapped sticker rule despite a UI service-label alias');
+assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.selectionRole, 'multi_optional', 'selection guidance comes from the explicit service/item group policy.');
+assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.tier, 'optional', 'mapped sticker media remains selectable in the recommendation-ranked list');
 assert.strictEqual(byName(stickerRuleRows, 'Hologram').compatibility.ruleType, 'OPTIONAL', 'Hologram retains its explicit OPTIONAL rule');
 assert.strictEqual(byName(stickerRuleRows, 'Hologram').compatibility.tier, 'optional');
 
@@ -328,11 +328,11 @@ assert.strictEqual(unmappedOther.selectable, false, 'Unrelated unmapped material
 const canonicalSticker = picker.rankItems(stickerRuleInventory, {
     serviceId: 36, serviceType: 'Decals/Stickers (Print/Cut)'
 }, stickerRules, '');
-assert.strictEqual(byName(canonicalSticker, 'Nextjet').compatibility.ruleType, 'REQUIRED', 'canonical Decals identity resolves the required rule');
+assert.strictEqual(byName(canonicalSticker, 'Nextjet').compatibility.ruleType, 'OPTIONAL', 'canonical Decals identity resolves the mapped sticker rule');
 const validStickerAlias = picker.rankItems(stickerRuleInventory, {
     serviceId: 36, serviceType: 'Stickers /Decals'
 }, stickerRules, '');
-assert.strictEqual(byName(validStickerAlias, 'Nextjet').compatibility.ruleType, 'REQUIRED', 'known Decals alias resolves the canonical required rule');
+assert.strictEqual(byName(validStickerAlias, 'Nextjet').compatibility.ruleType, 'OPTIONAL', 'known Decals alias resolves the mapped sticker rule');
 const conflictingSticker = picker.rankItems(stickerRuleInventory, {
     serviceId: 36, serviceType: 'Poster Printing', serviceLabel: 'Poster Printing', serviceCategory: 'Print'
 }, stickerRules, '');
@@ -371,8 +371,10 @@ const assignmentRuleRows = [
     { service_id: 39, service_type: 'Plates', item_id: 1, rule_type: 'REQUIRED', selection_group: 'plate_media', selection_role: 'alternative', group_required: true },
     { service_id: 40, service_type: 'Tarpaulin Printing', item_id: 13, rule_type: 'REQUIRED', selection_group: 'tarpaulin_roll', selection_role: 'alternative', group_required: true },
     { service_id: 40, service_type: 'Tarpaulin Printing', item_id: 14, rule_type: 'REQUIRED', selection_group: 'tarpaulin_roll', selection_role: 'alternative', group_required: true },
-    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 20, rule_type: 'OPTIONAL', selection_group: 'decal_finishes', selection_role: 'multi_optional', group_required: false },
-    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 21, rule_type: 'OPTIONAL', selection_group: 'decal_finishes', selection_role: 'multi_optional', group_required: false }
+    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 18, rule_type: 'OPTIONAL', selection_group: 'sticker_media', selection_role: 'multi_optional', group_required: false },
+    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 22, rule_type: 'OPTIONAL', selection_group: 'sticker_media', selection_role: 'multi_optional', group_required: false },
+    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 20, rule_type: 'OPTIONAL', selection_group: 'sticker_media', selection_role: 'multi_optional', group_required: false },
+    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 21, rule_type: 'OPTIONAL', selection_group: 'sticker_media', selection_role: 'multi_optional', group_required: false }
 ];
 for (const state of [
     { tier: 'recommended', ruleType: 'REQUIRED', selectionRole: 'alternative', selectionGroup: 'brochure_paper', inStock: true },
@@ -386,7 +388,13 @@ assert.strictEqual(picker.validateAssignmentGroups(67, [], assignmentRuleRows), 
 assert.match(picker.validateAssignmentGroups(67, [212, 211], assignmentRuleRows), /choose only one/i, 'Both Brochure papers are still rejected together.');
 assert.strictEqual(picker.validateAssignmentGroups(71, [206, 23], assignmentRuleRows), '', 'Sintra 3mm and intentionally selected optional layer are valid together.');
 assert.strictEqual(picker.validateAssignmentGroups(71, [207], assignmentRuleRows), '', 'Sintra 5mm is accepted without requiring unused Pp.');
-assert.strictEqual(picker.validateAssignmentGroups(36, [], assignmentRuleRows), '', 'No decal base or finish is forced.');
+assert.strictEqual(picker.validateAssignmentGroups(36, [], assignmentRuleRows), '', 'No sticker material is forced.');
+assert.strictEqual(picker.validateAssignmentGroups(36, [18, 22, 21], assignmentRuleRows), '',
+    'Nextjet, Hologram, and Matte Laminate may be assigned together for Stickers/Decals.');
+assert.strictEqual(picker.validateAssignmentGroups(36, [55, 51, 20], assignmentRuleRows.concat([
+    { service_id: 36, item_id: 55, selection_group: 'sticker_media', selection_role: 'multi_optional' },
+    { service_id: 36, item_id: 51, selection_group: 'sticker_media', selection_role: 'multi_optional' }
+])), '', 'Multiple colored stickers plus a finish may be assigned together.');
 assert.strictEqual(picker.validateAssignmentGroups(63, [], assignmentRuleRows), '', 'Mugs remains outside shared alternative validation.');
 assert.strictEqual(picker.validateAssignmentGroups(40, [13], assignmentRuleRows), '', 'One dimension-selected Tarpaulin roll is accepted.');
 assert.match(picker.validateAssignmentGroups(40, [13, 14], assignmentRuleRows), /choose only one/i, 'Multiple Tarpaulin roll widths remain prohibited.');

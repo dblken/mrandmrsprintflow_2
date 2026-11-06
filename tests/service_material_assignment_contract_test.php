@@ -25,9 +25,9 @@ $assert(isset(printflow_production_assignment_selection_errors(67, [212, 211])['
 $assert(printflow_production_assignment_selection_errors(71, [206, 23]) === [], 'Sintra 3mm plus the manually selected optional sticker layer is accepted.');
 $assert(printflow_production_assignment_selection_errors(71, [207]) === [], 'Sintra 5mm alone is accepted.');
 $assert(isset(printflow_production_assignment_selection_errors(71, [206, 207])['material_selection']), 'Both Sintra thicknesses cannot be assigned to one job.');
-$assert(printflow_production_assignment_selection_errors(36, []) === [], 'No decal base material is forced.');
-$assert(isset(printflow_production_assignment_selection_errors(36, [18, 22])['material_selection']), 'Nextjet and Hologram are mutually exclusive base alternatives.');
-$assert(printflow_production_assignment_selection_errors(36, [18, 20, 21]) === [], 'One decal base may be combined with multiple optional finishes.');
+$assert(printflow_production_assignment_selection_errors(36, []) === [], 'No sticker material is forced.');
+$assert(printflow_production_assignment_selection_errors(36, [18, 22]) === [], 'Nextjet and Hologram may be assigned together for Stickers/Decals.');
+$assert(printflow_production_assignment_selection_errors(36, [18, 22, 21]) === [], 'Multiple mapped sticker materials including finishes may be assigned together.');
 $assert(isset(printflow_production_assignment_selection_errors(40, [13, 14])['material_selection']), 'Tarpaulin roll widths are alternatives and cannot all be assigned together.');
 $assert(printflow_production_assignment_selection_errors(63, [37]) === [], 'The dedicated Mugs path remains outside shared alternative-group behavior.');
 $conflictingPlateRule = $required + ['name' => 'AC MC'];
