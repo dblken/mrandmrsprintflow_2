@@ -140,7 +140,14 @@ function printflow_pos_service_line_job_materials(array $line): array
             try {
                 $quantity = printflow_pos_parse_positive_material_quantity($material['quantity'] ?? $material['qty'] ?? null, $item);
             } catch (InvalidArgumentException $error) {
-                throw new RuntimeException('Material quantity must match its inventory unit.');
+                $itemName = trim((string)($item['name'] ?? ''));
+                $itemUom = trim((string)($item['unit_of_measure'] ?? ''));
+                throw new RuntimeException(
+                    ($itemName !== '' ? $itemName : 'Material #' . $itemId)
+                    . ' quantity must match its inventory unit'
+                    . ($itemUom !== '' ? ' (' . $itemUom . ')' : '')
+                    . '.'
+                );
             }
             $resolved[] = [
                 'item_id' => $itemId,

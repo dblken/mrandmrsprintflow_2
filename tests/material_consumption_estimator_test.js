@@ -11,14 +11,17 @@ for (const method of ['per_piece', 'sheet_yield', 'dimension_sheet', 'by_length'
 
 for (const uom of ['pcs', 'pc', 'piece', 'sheet', 'sheets', 'roll', 'unit', 'set', 'bottle', 'pack']) {
     assert.equal(parseMaterialQuantity('1', { unit_of_measure: uom }), 1, `${uom} accepts a positive whole quantity`);
+    assert.equal(parseMaterialQuantity('1.00', { unit_of_measure: uom }), 1, `${uom} accepts DECIMAL-stored whole quantities`);
     assert.equal(parseMaterialQuantity('0.5', { unit_of_measure: uom }), null, `${uom} rejects fractional discrete quantities`);
 }
 for (const uom of ['ft', 'm', 'cm', 'mm', 'l', 'liter', 'ml', 'kg', 'g']) {
     assert.equal(parseMaterialQuantity('0.25', { unit_of_measure: uom, consumption_method: 'dimension_sheet' }), 0.25, `${uom} preserves staff-entered fractions independent of method`);
+    assert.equal(parseMaterialQuantity('1.00', { unit_of_measure: uom }), 1, `${uom} accepts whole measured amounts`);
 }
 for (const invalid of ['', '0', '-1', 'NaN', 'Infinity', '1e2', '1.234', '100000000']) {
     assert.equal(parseMaterialQuantity(invalid, { unit_of_measure: 'ft' }), null, `${JSON.stringify(invalid)} is rejected`);
 }
 assert.equal(parseMaterialQuantity('1.5', { unit_of_measure: 'pcs' }), null);
+assert.equal(parseMaterialQuantity('1.01', { unit_of_measure: 'pcs' }), null);
 assert.equal(parseMaterialQuantity('1', { unit_of_measure: '' }), null);
 console.log('PASS: staff-entered material quantity validation uses UOM only; estimators remain manual');

@@ -15,8 +15,10 @@
         const uom = String(item && item.unit_of_measure || '').trim().toLowerCase();
         if (!uom) return null;
         const raw = String(value ?? '').trim();
+        // Whole units also accept DECIMAL round-trips such as "1.00" from saved
+        // assignments; fractional discrete values like "1.5" remain invalid.
         const pattern = WHOLE_UNITS.has(uom)
-            ? /^[1-9][0-9]{0,7}$/
+            ? /^[1-9][0-9]{0,7}(?:\.0+)?$/
             : /^(?:0|[1-9][0-9]{0,7})(?:\.[0-9]{1,2})?$/;
         if (!pattern.test(raw)) return null;
         const quantity = Number(raw);

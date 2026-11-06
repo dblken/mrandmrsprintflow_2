@@ -31,7 +31,9 @@ $measuredFt = ['unit_of_measure' => 'ft', 'consumption_method' => 'per_piece'];
 if (printflow_pos_parse_positive_material_quantity('0.25', $measuredFt) !== 0.25
     || printflow_pos_parse_positive_material_quantity('7.50', $measuredFt) !== 7.5
     || printflow_pos_parse_positive_material_quantity('2', $measuredFt) !== 2.0
-    || printflow_pos_parse_positive_material_quantity(2.0, ['unit_of_measure' => 'pcs', 'consumption_method' => 'per_piece']) !== 2.0) {
+    || printflow_pos_parse_positive_material_quantity(2.0, ['unit_of_measure' => 'pcs', 'consumption_method' => 'per_piece']) !== 2.0
+    || printflow_pos_parse_positive_material_quantity('1.00', ['unit_of_measure' => 'pcs', 'consumption_method' => 'per_piece']) !== 1.0
+    || printflow_pos_parse_positive_material_quantity('1.00', $measuredFt) !== 1.0) {
     throw new RuntimeException('Staff-entered inventory-unit quantities must preserve valid fractions and whole-unit values.');
 }
 foreach ([['pcs', 'by_length'], ['sheet', 'per_piece'], ['unit', 'manual']] as [$uom, $method]) {

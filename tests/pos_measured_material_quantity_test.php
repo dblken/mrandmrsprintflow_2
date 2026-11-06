@@ -15,7 +15,8 @@ $assert(printflow_pos_parse_positive_material_quantity('24.75', $ftByLength) ===
 $assert(printflow_pos_parse_positive_material_quantity('0.5', $ftManual) === 0.5, 'Staff-entered fractional feet do not depend on the obsolete consumption method.');
 $assert(printflow_pos_parse_positive_material_quantity('0.75', ['unit_of_measure' => 'l', 'consumption_method' => 'per_piece']) === 0.75, 'Fractional liters are accepted in the inventory unit without an estimator method.');
 $assert(printflow_pos_parse_positive_material_quantity('24', $pieces) === 24.0, 'Piece quantities remain whole.');
-foreach ([['0.5', $pieces], ['0.5', ['unit_of_measure' => 'sheets']], ['0', ['unit_of_measure' => 'ft']], ['-1', ['unit_of_measure' => 'pcs']]] as [$value, $item]) {
+$assert(printflow_pos_parse_positive_material_quantity('1.00', $pieces) === 1.0, 'Saved DECIMAL whole pcs quantities round-trip.');
+foreach ([['0.5', $pieces], ['1.5', $pieces], ['0.5', ['unit_of_measure' => 'sheets']], ['0', ['unit_of_measure' => 'ft']], ['-1', ['unit_of_measure' => 'pcs']]] as [$value, $item]) {
     try {
         printflow_pos_parse_positive_material_quantity($value, $item);
     } catch (InvalidArgumentException $error) {

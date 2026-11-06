@@ -11,8 +11,8 @@ $assert = static function (bool $condition, string $message): void {
 // Actual usage is preserved as entered in the item's inventory UOM. Discrete
 // units remain whole; measured units retain supported precision.
 $uomCases = [
-    ['2', 'pcs', 2.0], ['1', 'sheet', 1.0], ['0.75', 'ft', 0.75],
-    ['1.25', 'l', 1.25], ['0.5', 'm', 0.5],
+    ['2', 'pcs', 2.0], ['1.00', 'pcs', 1.0], ['1', 'sheet', 1.0], ['0.75', 'ft', 0.75],
+    ['1.00', 'ft', 1.0], ['1.25', 'l', 1.25], ['0.5', 'm', 0.5],
 ];
 foreach ($uomCases as [$entered, $uom, $expected]) {
     $actual = printflow_pos_parse_positive_material_quantity($entered, [

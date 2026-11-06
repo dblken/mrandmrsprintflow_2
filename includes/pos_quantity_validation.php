@@ -24,8 +24,18 @@ function printflow_pos_parse_positive_material_quantity($value, array $item): fl
         'unit', 'units', 'set', 'sets', 'bottle', 'bottles', 'pack', 'packs',
     ], true);
     if ($wholeUnit) {
-        if (is_float($value) && is_finite($value) && floor($value) === $value) {
+        // Accept already-canonical floats and DECIMAL round-trips such as
+        // "1.00" from job_order_materials.quantity. Still reject fractional
+        // discrete quantities like "1.5" or "1.01".
+        if (is_float($value) && is_finite($value) && floor($value) === $value && $value > 0) {
             $value = sprintf('%.0f', $value);
+        } elseif (is_int($value) && $value > 0) {
+            $value = (string)$value;
+        } elseif (is_string($value)) {
+            $rawWhole = trim($value);
+            if (preg_match('/^[1-9][0-9]{0,7}(?:\.0+)?$/', $rawWhole) === 1) {
+                $value = (string)(int)(float)$rawWhole;
+            }
         }
         $quantity = (float)printflow_pos_parse_positive_quantity($value);
         if ($quantity > 99999999.99) {

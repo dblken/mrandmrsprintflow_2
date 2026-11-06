@@ -3263,7 +3263,14 @@ try {
             try {
                 $qty = printflow_pos_parse_positive_material_quantity($rawQuantity, $quantityItem);
             } catch (InvalidArgumentException $quantityError) {
-                throw new Exception('Material quantity must be a valid positive amount in its inventory unit.');
+                $quantityName = trim((string)($quantityItem['name'] ?? ''));
+                $quantityUom = trim((string)($quantityItem['unit_of_measure'] ?? ''));
+                throw new Exception(
+                    ($quantityName !== '' ? $quantityName : 'Material #' . $itemId)
+                    . ' quantity must be a valid positive amount in its inventory unit'
+                    . ($quantityUom !== '' ? ' (' . $quantityUom . ')' : '')
+                    . '.'
+                );
             }
             $uom = (string)($quantityItem['unit_of_measure'] ?? $uom);
             $startedMaterialTransaction = !printflow_db_in_transaction($conn);
@@ -3335,11 +3342,33 @@ try {
                 $assignments = JobOrderService::getScopedMaterialsPublic($jobId, false, false);
                 $candidateMaterials = [];
                 foreach ($assignments as $assignment) {
+                    $assignmentItemId = (int)($assignment['item_id'] ?? 0);
+                    $assignmentItem = InventoryManager::getItem($assignmentItemId);
+                    if (!$assignmentItem || strtoupper((string)($assignmentItem['status'] ?? 'ACTIVE')) !== 'ACTIVE') {
+                        throw new Exception('An existing assigned material is no longer active. Refresh Set Price and try again.');
+                    }
+                    try {
+                        $assignmentQty = printflow_pos_parse_positive_material_quantity(
+                            $assignment['quantity'] ?? null,
+                            $assignmentItem
+                        );
+                    } catch (InvalidArgumentException $assignmentQuantityError) {
+                        $assignmentName = trim((string)($assignmentItem['name'] ?? ''));
+                        $assignmentUom = trim((string)($assignmentItem['unit_of_measure'] ?? ''));
+                        throw new Exception(
+                            ($assignmentName !== '' ? $assignmentName : 'Material #' . $assignmentItemId)
+                            . ' quantity must match its inventory unit'
+                            . ($assignmentUom !== '' ? ' (' . $assignmentUom . ')' : '')
+                            . '.'
+                        );
+                    }
                     $assignmentMetadata = $assignment['metadata'] ?? [];
                     if (is_string($assignmentMetadata)) $assignmentMetadata = json_decode($assignmentMetadata, true);
                     $candidateMaterials[] = [
-                        'item_id' => (int)($assignment['item_id'] ?? 0),
-                        'quantity' => $assignment['quantity'] ?? null,
+                        'item_id' => $assignmentItemId,
+                        // Re-canonicalize each saved row with that item's own UOM
+                        // before mixed pcs/ft POS stock validation.
+                        'quantity' => $assignmentQty,
                         'metadata' => is_array($assignmentMetadata) ? $assignmentMetadata : [],
                     ];
                 }
@@ -3349,7 +3378,11 @@ try {
                     'metadata' => is_array($metadata) ? $metadata : [],
                 ];
                 $cartLines[$targetIndex]['pos_material_assignments'] = $candidateMaterials;
-                $stockCheck = printflow_pos_validate_service_stock($cartLines, $branchId);
+                try {
+                    $stockCheck = printflow_pos_validate_service_stock($cartLines, $branchId);
+                } catch (RuntimeException $stockValidationError) {
+                    throw new Exception($stockValidationError->getMessage());
+                }
                 if (empty($stockCheck['ok'])) {
                     $issue = $stockCheck['issues'][0] ?? [];
                     $uom = trim((string)($issue['uom'] ?? ''));
