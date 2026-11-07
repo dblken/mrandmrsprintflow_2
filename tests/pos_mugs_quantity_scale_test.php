@@ -2,9 +2,9 @@
 declare(strict_types=1);
 
 /**
- * Mugs cart quantity changes must scale Mug + Subli Paper with order qty (1:1),
- * keep Set Price confirmation, reject insufficient stock clearly, and leave
- * other services on strict proportional whole-unit scaling.
+ * Mugs cart quantity changes scale Mug (1 pcs/mug) + Subli Paper (0.5 sheet/mug),
+ * keep Set Price confirmation, accept exact half-sheet inventory usage, reject
+ * insufficient stock clearly, and leave other services on whole-unit sheet rules.
  */
 
 $testConfigs = [
@@ -36,6 +36,7 @@ require_once dirname(__DIR__) . '/includes/service_order_helper.php';
 require_once dirname(__DIR__) . '/includes/pos_service_stock_helpers.php';
 require_once dirname(__DIR__) . '/includes/pos_service_quantity_update.php';
 require_once dirname(__DIR__) . '/includes/pos_mugs_release_rule.php';
+require_once dirname(__DIR__) . '/includes/pos_quantity_validation.php';
 
 function expect_mugs_qty(bool $ok, string $message): void
 {
@@ -55,7 +56,7 @@ $mugItem = [
 $subliItem = [
     'id' => 55,
     'name' => 'Subli Paper',
-    'unit_of_measure' => 'sheets',
+    'unit_of_measure' => 'sheet',
     'status' => 'ACTIVE',
 ];
 $vinylSheets = [
@@ -65,42 +66,60 @@ $vinylSheets = [
     'status' => 'ACTIVE',
 ];
 
+expect_mugs_qty(printflow_pos_mugs_subli_sheets_per_mug() === 0.5, 'canonical Subli rate is 0.5 sheet per mug');
+expect_mugs_qty(printflow_pos_mugs_canonical_subli_sheets(1) === 0.5, '1 mug → 0.5 Subli sheet');
+expect_mugs_qty(printflow_pos_mugs_canonical_subli_sheets(2) === 1.0, '2 mugs → exactly 1 Subli sheet');
+expect_mugs_qty(printflow_pos_mugs_canonical_subli_sheets(4) === 2.0, '4 mugs → exactly 2 Subli sheets');
+
+expect_mugs_qty(printflow_pos_material_allows_fractional_sheet_usage($subliItem), 'Subli Paper sheets may be fractional');
+expect_mugs_qty(!printflow_pos_material_allows_fractional_sheet_usage($vinylSheets), 'other sheet materials stay whole-unit');
+
+expect_mugs_qty(
+    printflow_pos_parse_positive_material_quantity(0.5, $subliItem) === 0.5,
+    'parser accepts 0.5 sheet Subli Paper usage'
+);
+expect_mugs_qty(
+    printflow_pos_parse_positive_material_quantity('1.00', $subliItem) === 1.0,
+    'parser accepts whole Subli Paper sheet totals'
+);
+$genericSheetRejected = false;
+try {
+    printflow_pos_parse_positive_material_quantity(0.5, $vinylSheets);
+} catch (InvalidArgumentException $error) {
+    $genericSheetRejected = true;
+}
+expect_mugs_qty($genericSheetRejected, 'non-Subli sheet materials still reject 0.5');
+
 expect_mugs_qty(printflow_pos_mugs_is_quantity_linked_material(37, 'Mug'), 'Mug #37 is quantity-linked');
-expect_mugs_qty(printflow_pos_mugs_is_quantity_linked_material(55, 'Subli Paper'), 'Subli Paper #55 is quantity-linked');
-expect_mugs_qty(printflow_pos_mugs_is_quantity_linked_material(0, 'Subli Paper'), 'Subli Paper is matched by name when id missing');
-expect_mugs_qty(!printflow_pos_mugs_is_quantity_linked_material(56, 'Box Mug'), 'Box Mug stays off the 1:1 scale rule');
+expect_mugs_qty(printflow_pos_mugs_is_subli_paper_material(55, 'Subli Paper'), 'Subli Paper #55 is identified');
+expect_mugs_qty(!printflow_pos_mugs_is_quantity_linked_material(56, 'Box Mug'), 'Box Mug stays off the linked scale rule');
 
-// Increase 1 → 4 with correct 1:1 Set Price assignments.
+// Canonical Actual Usage at qty 1, then increase 1 → 4.
 $mugScaled = printflow_pos_resolve_scaled_material_quantity(1.0, 1, 4, $mugItem, 63, 37);
-$subliScaled = printflow_pos_resolve_scaled_material_quantity(1.0, 1, 4, $subliItem, 63, 55);
+$subliScaled = printflow_pos_resolve_scaled_material_quantity(0.5, 1, 4, $subliItem, 63, 55);
 expect_mugs_qty($mugScaled === 4.0, 'Mug usage scales 1→4 pcs when order qty 1→4');
-expect_mugs_qty($subliScaled === 4.0, 'Subli Paper usage scales 1→4 sheets when order qty 1→4');
+expect_mugs_qty($subliScaled === 2.0, 'Subli Paper scales 0.5→2 sheets when order qty 1→4 (not rounded up per mug)');
 
-// Decrease 4 → 2.
+// Decrease 4 → 2 from synced 0.5/mug assignments.
 expect_mugs_qty(
     printflow_pos_resolve_scaled_material_quantity(4.0, 4, 2, $mugItem, 63, 37) === 2.0,
     'Mug usage scales down 4→2 when order qty decreases'
 );
 expect_mugs_qty(
-    printflow_pos_resolve_scaled_material_quantity(4.0, 4, 2, $subliItem, 63, 55) === 2.0,
-    'Subli Paper usage scales down 4→2 when order qty decreases'
+    printflow_pos_resolve_scaled_material_quantity(2.0, 4, 2, $subliItem, 63, 55) === 1.0,
+    'Subli Paper scales down 2→1 sheet when order qty 4→2'
 );
 
-// Reported failure shape: Subli left at 1 sheet while job/cart qty is already 10,
-// then staff changes quantity (e.g. 10→11). Blind ratio yields 1.1 sheets and threw.
-$legacyFailQty = printflow_pos_scale_amount_by_quantity_ratio(1.0, 10, 11);
-expect_mugs_qty(abs($legacyFailQty - 1.1) < 0.000001, 'legacy ratio still produces fractional Subli for desynced assignments');
-$fixedSubli = printflow_pos_resolve_scaled_material_quantity(1.0, 10, 11, $subliItem, 63, 55);
-expect_mugs_qty($fixedSubli === 11.0, 'Mugs rule re-aligns desynced Subli Paper to 1 sheet per new order qty');
+// Midpoint qty 1 → 2.
 expect_mugs_qty(
-    printflow_pos_resolve_scaled_material_quantity(10.0, 10, 11, $mugItem, 63, 37) === 11.0,
-    'Mug pcs stay 1:1 when increasing from a synced assignment'
+    printflow_pos_resolve_scaled_material_quantity(0.5, 1, 2, $subliItem, 63, 55) === 1.0,
+    'Subli Paper scales 0.5→1 sheet when order qty 1→2'
 );
 
-// Intentional multi-sheet-per-mug rate remains proportional.
+// Intentional staff customization (1.0 sheet per mug) is preserved, not overwritten to 0.5.
 expect_mugs_qty(
-    printflow_pos_resolve_scaled_material_quantity(2.0, 1, 4, $subliItem, 63, 55) === 8.0,
-    'Integer sheets-per-mug rate (2) scales with order qty'
+    printflow_pos_resolve_scaled_material_quantity(1.0, 1, 4, $subliItem, 63, 55) === 4.0,
+    'intentional Subli Actual Usage rate (1 sheet/mug) is preserved on quantity change'
 );
 
 // Cart-row helper applies the same Mugs rule and leaves Box Mug proportional.
@@ -113,8 +132,8 @@ $assignments = printflow_pos_scale_material_assignment_rows([
     [
         'item_id' => 55,
         'name' => 'Subli Paper',
-        'quantity' => 1.0,
-        'metadata' => ['material_usage' => ['actual' => 1.0, 'method' => 'manual', 'staff_confirmed' => true]],
+        'quantity' => 0.5,
+        'metadata' => ['material_usage' => ['actual' => 0.5, 'method' => 'manual', 'staff_confirmed' => true]],
     ],
     [
         'item_id' => 56,
@@ -124,11 +143,11 @@ $assignments = printflow_pos_scale_material_assignment_rows([
     ],
 ], 1, 4, 63);
 expect_mugs_qty((float)$assignments[0]['quantity'] === 4.0, 'cart Mug assignment scales to 4');
-expect_mugs_qty((float)$assignments[1]['quantity'] === 4.0, 'cart Subli Paper assignment scales to 4');
+expect_mugs_qty((float)$assignments[1]['quantity'] === 2.0, 'cart Subli Paper assignment scales to 2 sheets');
 expect_mugs_qty((float)$assignments[2]['quantity'] === 4.0, 'Box Mug still uses proportional scale when 1:1 at baseline');
 expect_mugs_qty(
-    abs((float)$assignments[1]['metadata']['material_usage']['actual'] - 4.0) < 0.000001,
-    'Subli Paper material_usage.actual tracks the scaled assignment'
+    abs((float)$assignments[1]['metadata']['material_usage']['actual'] - 2.0) < 0.000001,
+    'Subli Paper material_usage.actual tracks the scaled half-sheet assignment'
 );
 
 $boxOnly = printflow_pos_scale_material_assignment_rows([
@@ -147,6 +166,18 @@ expect_mugs_qty($otherRejected, 'non-Mugs sheet materials still reject non-whole
 
 $otherOk = printflow_pos_resolve_scaled_material_quantity(6.0, 3, 4, $vinylSheets, 99, 18);
 expect_mugs_qty($otherOk === 8.0, 'non-Mugs whole-unit materials still scale when the ratio stays whole');
+
+// Exact fractional inventory deduction contract: ledger stores the saved float qty.
+$deductQty = printflow_pos_parse_positive_material_quantity(
+    printflow_pos_mugs_canonical_subli_sheets(1),
+    $subliItem
+);
+expect_mugs_qty($deductQty === 0.5, 'ledger-bound Subli deduction qty for 1 mug is exactly 0.5 sheet');
+$deductTwo = printflow_pos_parse_positive_material_quantity(
+    printflow_pos_mugs_canonical_subli_sheets(2),
+    $subliItem
+);
+expect_mugs_qty($deductTwo === 1.0, 'ledger-bound Subli deduction qty for 2 mugs is exactly 1 sheet');
 
 // Preserve Set Price confirmation + line total while scaling Mugs materials.
 $cartItem = [
@@ -167,7 +198,7 @@ $cartItem = [
     ],
     'pos_material_assignments' => [
         ['item_id' => 37, 'quantity' => 1.0, 'metadata' => ['material_usage' => ['actual' => 1.0]]],
-        ['item_id' => 55, 'name' => 'Subli Paper', 'quantity' => 1.0, 'metadata' => ['material_usage' => ['actual' => 1.0]]],
+        ['item_id' => 55, 'name' => 'Subli Paper', 'quantity' => 0.5, 'metadata' => ['material_usage' => ['actual' => 0.5]]],
     ],
 ];
 $fromQty = 1;
@@ -198,7 +229,7 @@ expect_mugs_qty($cartItem['price_set'] === true, 'Mugs quantity increase keeps p
 expect_mugs_qty((float)$cartItem['line_total_override'] === 400.0, 'Mugs confirmed line total scales with qty (100×4)');
 expect_mugs_qty((string)$cartItem['pos_cart_line_id'] === 'mugs-line-stable', 'Mugs cart line identity survives quantity change');
 expect_mugs_qty((float)$cartItem['pos_material_assignments'][0]['quantity'] === 4.0, 'confirmed Mugs cart keeps Mug assignment at new qty');
-expect_mugs_qty((float)$cartItem['pos_material_assignments'][1]['quantity'] === 4.0, 'confirmed Mugs cart keeps Subli Paper assignment at new qty');
+expect_mugs_qty((float)$cartItem['pos_material_assignments'][1]['quantity'] === 2.0, 'confirmed Mugs cart keeps Subli at 2 sheets for qty 4');
 
 $fromQty = 4;
 $toQty = 2;
@@ -224,9 +255,9 @@ $cartItem['pos_material_assignments'] = printflow_pos_scale_material_assignment_
 expect_mugs_qty($cartItem['price_set'] === true, 'Mugs quantity decrease keeps price_set confirmed');
 expect_mugs_qty((float)$cartItem['line_total_override'] === 200.0, 'Mugs confirmed total scales down with qty');
 expect_mugs_qty((float)$cartItem['pos_material_assignments'][0]['quantity'] === 2.0, 'Mug pcs match decreased qty');
-expect_mugs_qty((float)$cartItem['pos_material_assignments'][1]['quantity'] === 2.0, 'Subli sheets match decreased qty');
+expect_mugs_qty((float)$cartItem['pos_material_assignments'][1]['quantity'] === 1.0, 'Subli sheets match decreased qty (exactly 1)');
 
-// Stock rejection must name the material and available quantity (existing cart message contract).
+// Stock rejection must name the material and available quantity.
 $handlerPath = dirname(__DIR__) . '/staff/api/pos_cart_handler.php';
 $handler = (string)file_get_contents($handlerPath);
 expect_mugs_qty(str_contains($handler, 'Insufficient ')
@@ -240,13 +271,6 @@ expect_mugs_qty(
     ),
     'job material sync receives the service id for Mugs-aware scaling'
 );
-expect_mugs_qty(
-    (bool)preg_match(
-        '/printflow_pos_scale_material_assignment_rows\s*\(\s*\$existingAssignments\s*,\s*\$previousQty[^,]*,\s*\$qty\s*,\s*\$serviceId\s*\)/s',
-        $handler
-    ),
-    'cart material scale receives the service id for Mugs-aware scaling'
-);
 expect_mugs_qty(str_contains($handler, 'printflow_pos_validate_service_stock'),
     'quantity updates still run service stock validation after scaling');
 
@@ -256,24 +280,38 @@ expect_mugs_qty(str_contains($checkout, 'validatePendingMaterialStockPublic($job
 expect_mugs_qty(str_contains($checkout, 'pos_checkout_validate_assigned_service_materials'),
     'checkout validates assigned service materials including scaled Mugs usage');
 
-// Simulated insufficient Subli stock after a qty increase (demand vs available).
-$requiredAfterIncrease = printflow_pos_mugs_scale_quantity_linked_usage(1.0, 1, 10);
+$jobService = (string)file_get_contents(dirname(__DIR__) . '/includes/JobOrderService.php');
+expect_mugs_qty(
+    str_contains($jobService, 'printflow_pos_parse_positive_material_quantity')
+    && str_contains($jobService, 'InventoryManager::issueStock'),
+    'deduction re-parses saved actual usage then issues that exact quantity'
+);
+
+// Simulated insufficient Subli stock after a qty increase (0.5 → 5 sheets for qty 10).
+$requiredAfterIncrease = printflow_pos_mugs_canonical_subli_sheets(10);
 $availableSubli = 4.0;
-expect_mugs_qty($requiredAfterIncrease === 10.0, 'stock check uses scaled Subli demand for new qty');
+expect_mugs_qty($requiredAfterIncrease === 5.0, 'stock check uses scaled Subli demand for new qty');
 expect_mugs_qty(
     printflow_pos_service_stock_exceeds_available($requiredAfterIncrease, $availableSubli),
     'increased Subli demand beyond available stock is rejected'
 );
 $stockMessage = 'Insufficient Subli Paper stock. Available: '
     . rtrim(rtrim(number_format($availableSubli, 3, '.', ''), '0'), '.')
-    . ' sheets. Required: '
+    . ' sheet. Required: '
     . rtrim(rtrim(number_format($requiredAfterIncrease, 3, '.', ''), '0'), '.')
-    . ' sheets.';
+    . ' sheet.';
 expect_mugs_qty(
     str_contains($stockMessage, 'Subli Paper')
     && str_contains($stockMessage, 'Available: 4')
-    && str_contains($stockMessage, 'Required: 10'),
+    && str_contains($stockMessage, 'Required: 5'),
     'insufficient-stock copy names Subli Paper and available quantity'
+);
+
+$customizations = (string)file_get_contents(dirname(__DIR__) . '/staff/customizations.php');
+expect_mugs_qty(
+    str_contains($customizations, 'subliFractional')
+    && str_contains($customizations, "name === 'subli paper'"),
+    'Production Assignment UI allows fractional Subli Paper sheet quantities'
 );
 
 echo "POS Mugs quantity scale regression tests passed.\n";

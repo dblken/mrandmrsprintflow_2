@@ -24,6 +24,18 @@ foreach ([['0.5', $pieces], ['1.5', $pieces], ['0.5', ['unit_of_measure' => 'she
     }
     throw new RuntimeException('Invalid or fractional discrete-unit usage was accepted.');
 }
+$assert(
+    printflow_pos_parse_positive_material_quantity('0.5', [
+        'id' => 55,
+        'name' => 'Subli Paper',
+        'unit_of_measure' => 'sheet',
+    ]) === 0.5,
+    'Subli Paper alone may use half-sheets in the sheet inventory UOM.'
+);
+$assert(
+    !printflow_pos_material_allows_fractional_sheet_usage(['unit_of_measure' => 'sheets', 'name' => 'C2s Board']),
+    'Generic sheet materials remain whole-unit only.'
+);
 
 $files = [
     'service stock validation' => file_get_contents(__DIR__ . '/../includes/pos_service_stock_validation.php'),

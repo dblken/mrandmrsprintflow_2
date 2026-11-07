@@ -12,6 +12,21 @@ function printflow_pos_parse_positive_quantity($value): int
     return (int)$raw;
 }
 
+/**
+ * Subli Paper (#55) is inventoried in sheets but Mugs consume half-sheets
+ * (0.5 sheet per mug). Other sheet materials remain whole-unit only.
+ */
+function printflow_pos_material_allows_fractional_sheet_usage(array $item): bool
+{
+    $uom = strtolower(trim((string)($item['unit_of_measure'] ?? '')));
+    if (!in_array($uom, ['sheet', 'sheets'], true)) {
+        return false;
+    }
+    $itemId = (int)($item['id'] ?? $item['item_id'] ?? 0);
+    $name = strtolower(trim((string)($item['name'] ?? '')));
+    return $itemId === 55 || $name === 'subli paper';
+}
+
 /** Parse a positive staff-entered quantity in the item's saved inventory UOM. */
 function printflow_pos_parse_positive_material_quantity($value, array $item): float
 {
@@ -23,7 +38,8 @@ function printflow_pos_parse_positive_material_quantity($value, array $item): fl
         'pc', 'pcs', 'piece', 'pieces', 'sheet', 'sheets', 'roll', 'rolls',
         'unit', 'units', 'set', 'sets', 'bottle', 'bottles', 'pack', 'packs',
     ], true);
-    if ($wholeUnit) {
+    $allowFractionalSheet = printflow_pos_material_allows_fractional_sheet_usage($item);
+    if ($wholeUnit && !$allowFractionalSheet) {
         // Accept already-canonical floats and DECIMAL round-trips such as
         // "1.00" from job_order_materials.quantity. Still reject fractional
         // discrete quantities like "1.5" or "1.01".
@@ -47,7 +63,14 @@ function printflow_pos_parse_positive_material_quantity($value, array $item): fl
     if (!is_string($value) && !is_int($value) && !is_float($value)) {
         throw new InvalidArgumentException('Material quantity must be a positive amount in its inventory unit with at most two decimal places.');
     }
-    $raw = trim((string)$value);
+    if (is_float($value) && is_finite($value)) {
+        $raw = rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
+        if ($raw === '') {
+            $raw = '0';
+        }
+    } else {
+        $raw = trim((string)$value);
+    }
     if (!preg_match('/^(?:0|[1-9][0-9]{0,7})(?:\.[0-9]{1,2})?$/', $raw)) {
         throw new InvalidArgumentException('Material quantity must be a positive amount in its inventory unit with at most two decimal places.');
     }

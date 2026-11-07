@@ -10658,8 +10658,15 @@ window.pfServiceFieldCatalog = (() => {
                     if (!material) return false;
                     const qty = Number(material.qty ?? material.quantity);
                     if (!Number.isFinite(qty) || qty <= 0) return true;
-                    const wholeUnit = ['pcs', 'pc', 'piece', 'pieces', 'sheet', 'sheets'].includes(String(material.uom || '').toLowerCase());
-                    if (wholeUnit && !Number.isInteger(qty)) return true;
+                    const uom = String(material.uom || '').toLowerCase();
+                    const wholeUnit = ['pcs', 'pc', 'piece', 'pieces', 'sheet', 'sheets'].includes(uom);
+                    const itemId = Number(material.item_id || material.id || 0);
+                    const name = String(material.name || material.item_name || '').trim().toLowerCase();
+                    // Subli Paper sheets may be half-sheets (0.5 per mug); other
+                    // discrete sheet/pcs materials remain whole-unit only.
+                    const subliFractional = (uom === 'sheet' || uom === 'sheets')
+                        && (itemId === 55 || name === 'subli paper');
+                    if (wholeUnit && !subliFractional && !Number.isInteger(qty)) return true;
                     return false;
                 });
                 if (invalidPending) errors.material = errors.material || 'Material usage must be a positive quantity in the material inventory unit.';

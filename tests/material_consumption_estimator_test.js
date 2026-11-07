@@ -14,6 +14,21 @@ for (const uom of ['pcs', 'pc', 'piece', 'sheet', 'sheets', 'roll', 'unit', 'set
     assert.equal(parseMaterialQuantity('1.00', { unit_of_measure: uom }), 1, `${uom} accepts DECIMAL-stored whole quantities`);
     assert.equal(parseMaterialQuantity('0.5', { unit_of_measure: uom }), null, `${uom} rejects fractional discrete quantities`);
 }
+assert.equal(
+    parseMaterialQuantity('0.5', { id: 55, name: 'Subli Paper', unit_of_measure: 'sheet' }),
+    0.5,
+    'Subli Paper accepts half-sheet usage in sheet UOM'
+);
+assert.equal(
+    parseMaterialQuantity('1.5', { id: 55, name: 'Subli Paper', unit_of_measure: 'sheets' }),
+    1.5,
+    'Subli Paper accepts multi half-sheet totals'
+);
+assert.equal(
+    parseMaterialQuantity('0.5', { id: 18, name: 'Vinyl Matte', unit_of_measure: 'sheets' }),
+    null,
+    'Non-Subli sheet materials still reject fractional quantities'
+);
 for (const uom of ['ft', 'm', 'cm', 'mm', 'l', 'liter', 'ml', 'kg', 'g']) {
     assert.equal(parseMaterialQuantity('0.25', { unit_of_measure: uom, consumption_method: 'dimension_sheet' }), 0.25, `${uom} preserves staff-entered fractions independent of method`);
     assert.equal(parseMaterialQuantity('1.00', { unit_of_measure: uom }), 1, `${uom} accepts whole measured amounts`);

@@ -49,7 +49,7 @@ function printflow_pos_mugs_assert_dedicated_mug_assigned(array $assigned): void
 
 /**
  * Materials that follow the owner-confirmed Mugs order-qty usage rule:
- * 1 Mug (#37) + 1 Subli Paper (#55) per ordered mug quantity.
+ * 1 Mug (#37) pcs + 0.5 sheet Subli Paper (#55) per ordered mug quantity.
  * Box Mug and other mapped rows stay on generic proportional scaling.
  */
 function printflow_pos_mugs_is_quantity_linked_material(int $itemId, string $itemName = ''): bool
@@ -60,17 +60,56 @@ function printflow_pos_mugs_is_quantity_linked_material(int $itemId, string $ite
     return strtolower(trim($itemName)) === 'subli paper';
 }
 
+function printflow_pos_mugs_is_subli_paper_material(int $itemId, string $itemName = ''): bool
+{
+    if ($itemId === 55) {
+        return true;
+    }
+    return strtolower(trim($itemName)) === 'subli paper';
+}
+
+/** Confirmed Subli Paper usage rate: 0.5 sheet per ordered mug. */
+function printflow_pos_mugs_subli_sheets_per_mug(): float
+{
+    return 0.5;
+}
+
+/** Canonical Subli Paper sheets for an order quantity (1→0.5, 2→1, 4→2). */
+function printflow_pos_mugs_canonical_subli_sheets(int $orderQty): float
+{
+    if ($orderQty < 1) {
+        throw new InvalidArgumentException('Mugs order quantity must be a positive whole number.');
+    }
+    return round(printflow_pos_mugs_subli_sheets_per_mug() * $orderQty, 2);
+}
+
 /**
  * Resolve Mug / Subli Paper usage for a cart quantity change.
- * Prefer an integer units-per-order rate from the saved assignment; otherwise
- * enforce the documented 1 unit per ordered mug.
+ * Scales the saved per-order rate so intentional staff Actual Usage is kept.
+ * Subli Paper falls back to 0.5 sheet/mug only when the saved rate cannot be
+ * represented as a positive two-decimal inventory quantity.
+ * Mug blanks stay whole pcs (1:1 fallback).
  */
-function printflow_pos_mugs_scale_quantity_linked_usage(float $currentQty, int $fromQty, int $toQty): float
-{
+function printflow_pos_mugs_scale_quantity_linked_usage(
+    float $currentQty,
+    int $fromQty,
+    int $toQty,
+    int $itemId = 0,
+    string $itemName = ''
+): float {
     if ($fromQty < 1 || $toQty < 1 || !is_finite($currentQty) || $currentQty <= 0) {
         throw new InvalidArgumentException('Mugs material scale inputs are invalid.');
     }
     $rate = $currentQty / $fromQty;
+
+    if (printflow_pos_mugs_is_subli_paper_material($itemId, $itemName)) {
+        $rate2 = round($rate, 2);
+        if ($rate2 > 0.0 && abs($rate - $rate2) < 1.0e-9) {
+            return round($rate2 * $toQty, 2);
+        }
+        return printflow_pos_mugs_canonical_subli_sheets($toQty);
+    }
+
     $rateNearest = (int)round($rate);
     if ($rateNearest >= 1 && abs($rate - $rateNearest) < 1.0e-6) {
         return (float)($rateNearest * $toQty);
