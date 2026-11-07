@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/service_design_fee.php';
 require_once __DIR__ . '/pos_quantity_validation.php';
+require_once __DIR__ . '/pos_mugs_release_rule.php';
 
 if (!function_exists('printflow_pos_scale_amount_by_quantity_ratio')) {
     /** Scale a positive amount by toQty/fromQty using cent-scale integer math for money-safe callers. */
@@ -23,15 +24,57 @@ if (!function_exists('printflow_pos_scale_amount_by_quantity_ratio')) {
     }
 }
 
+if (!function_exists('printflow_pos_inventory_uom_is_whole_unit')) {
+    function printflow_pos_inventory_uom_is_whole_unit(string $uom): bool
+    {
+        return in_array(strtolower(trim($uom)), [
+            'pc', 'pcs', 'piece', 'pieces', 'sheet', 'sheets', 'roll', 'rolls',
+            'unit', 'units', 'set', 'sets', 'bottle', 'bottles', 'pack', 'packs',
+        ], true);
+    }
+}
+
+if (!function_exists('printflow_pos_resolve_scaled_material_quantity')) {
+    /**
+     * Scale one assigned material for a cart/job quantity change.
+     * Mugs (#63) Mug + Subli Paper follow the 1-per-order-qty rule; other
+     * materials keep strict proportional scaling (whole units must stay whole).
+     */
+    function printflow_pos_resolve_scaled_material_quantity(
+        float $currentQty,
+        int $fromQty,
+        int $toQty,
+        array $item,
+        int $serviceId = 0,
+        int $itemId = 0
+    ): float {
+        $name = (string)($item['name'] ?? '');
+        if ($serviceId === 63 && printflow_pos_mugs_is_quantity_linked_material($itemId, $name)) {
+            $scaledQty = printflow_pos_mugs_scale_quantity_linked_usage($currentQty, $fromQty, $toQty);
+            return printflow_pos_parse_positive_material_quantity($scaledQty, $item);
+        }
+
+        $scaledQty = printflow_pos_scale_amount_by_quantity_ratio($currentQty, $fromQty, $toQty);
+        if (printflow_pos_inventory_uom_is_whole_unit((string)($item['unit_of_measure'] ?? ''))) {
+            $nearest = (float)round($scaledQty);
+            if ($nearest >= 1.0 && abs($scaledQty - $nearest) < 1.0e-6) {
+                $scaledQty = $nearest;
+            }
+        }
+        return printflow_pos_parse_positive_material_quantity($scaledQty, $item);
+    }
+}
+
 if (!function_exists('printflow_pos_scale_material_assignment_rows')) {
     /**
      * Proportionally scale saved material quantities for a cart-line quantity change.
      * Keeps the same item_id / metadata identity; never substitutes materials.
+     * When $serviceId is Mugs (63), Mug + Subli Paper use the 1:1 order-qty rule.
      *
      * @param list<array<string,mixed>> $rows
      * @return list<array<string,mixed>>
      */
-    function printflow_pos_scale_material_assignment_rows(array $rows, int $fromQty, int $toQty): array
+    function printflow_pos_scale_material_assignment_rows(array $rows, int $fromQty, int $toQty, int $serviceId = 0): array
     {
         if ($fromQty < 1 || $toQty < 1) {
             throw new InvalidArgumentException('Material scale quantities must be positive whole numbers.');
@@ -52,7 +95,12 @@ if (!function_exists('printflow_pos_scale_material_assignment_rows')) {
             if (!is_numeric($rawQty) || !is_finite((float)$rawQty) || (float)$rawQty <= 0) {
                 throw new InvalidArgumentException('A material assignment quantity could not be scaled.');
             }
-            $nextQty = printflow_pos_scale_amount_by_quantity_ratio((float)$rawQty, $fromQty, $toQty);
+            $itemName = trim((string)($row['name'] ?? $row['item_name'] ?? ''));
+            if ($serviceId === 63 && printflow_pos_mugs_is_quantity_linked_material($itemId, $itemName)) {
+                $nextQty = printflow_pos_mugs_scale_quantity_linked_usage((float)$rawQty, $fromQty, $toQty);
+            } else {
+                $nextQty = printflow_pos_scale_amount_by_quantity_ratio((float)$rawQty, $fromQty, $toQty);
+            }
             $copy = $row;
             $copy['quantity'] = $nextQty;
             $copy['qty'] = $nextQty;
@@ -65,7 +113,11 @@ if (!function_exists('printflow_pos_scale_material_assignment_rows')) {
                 if (isset($metadata['material_usage']) && is_array($metadata['material_usage'])) {
                     $usage = $metadata['material_usage'];
                     if (isset($usage['actual']) && is_numeric($usage['actual'])) {
-                        $usage['actual'] = printflow_pos_scale_amount_by_quantity_ratio((float)$usage['actual'], $fromQty, $toQty);
+                        if ($serviceId === 63 && printflow_pos_mugs_is_quantity_linked_material($itemId, $itemName)) {
+                            $usage['actual'] = printflow_pos_mugs_scale_quantity_linked_usage((float)$usage['actual'], $fromQty, $toQty);
+                        } else {
+                            $usage['actual'] = printflow_pos_scale_amount_by_quantity_ratio((float)$usage['actual'], $fromQty, $toQty);
+                        }
                     }
                     $metadata['material_usage'] = $usage;
                 }
@@ -266,10 +318,11 @@ if (!function_exists('printflow_pos_sync_job_quantity_and_scale_materials')) {
     /**
      * Update the linked draft job/order-item quantity and proportionally scale
      * undeducted material assignments. Returns cart-shaped assignment rows.
+     * Pass $serviceId so Mugs (63) can apply Mug + Subli Paper 1:1 scaling.
      *
      * @return list<array{item_id:int,quantity:float,metadata:array}>
      */
-    function printflow_pos_sync_job_quantity_and_scale_materials(int $jobId, int $fromQty, int $toQty): array
+    function printflow_pos_sync_job_quantity_and_scale_materials(int $jobId, int $fromQty, int $toQty, int $serviceId = 0): array
     {
         if ($jobId <= 0) {
             return [];
@@ -338,9 +391,15 @@ if (!function_exists('printflow_pos_sync_job_quantity_and_scale_materials')) {
             if (!$item) {
                 throw new RuntimeException('An assigned inventory material no longer exists.');
             }
-            $scaledQty = printflow_pos_scale_amount_by_quantity_ratio((float)($material['quantity'] ?? 0), $baselineQty, $toQty);
             try {
-                $scaledQty = printflow_pos_parse_positive_material_quantity($scaledQty, $item);
+                $scaledQty = printflow_pos_resolve_scaled_material_quantity(
+                    (float)($material['quantity'] ?? 0),
+                    $baselineQty,
+                    $toQty,
+                    $item,
+                    $serviceId,
+                    $itemId
+                );
             } catch (InvalidArgumentException $error) {
                 $name = trim((string)($item['name'] ?? ('Material #' . $itemId)));
                 throw new RuntimeException(

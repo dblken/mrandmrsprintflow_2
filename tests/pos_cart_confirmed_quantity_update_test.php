@@ -192,7 +192,7 @@ expect_confirmed_qty(str_contains($handler, 'printflow_pos_validate_service_stoc
     'stock validation remains wired for quantity updates');
 
 $checkout = (string)file_get_contents(dirname(__DIR__) . '/staff/api/pos_checkout.php');
-expect_confirmed_qty(str_contains($checkout, 'validatePendingMaterialStockPublic($jobId, $qty)'),
+expect_confirmed_qty(str_contains($checkout, 'validatePendingMaterialStockPublic($jobId, $quantity)'),
     'checkout revalidates materials against the cart quantity');
 expect_confirmed_qty(str_contains($checkout, 'pos_checkout_validate_service_item_prices'),
     'checkout still validates service prices server-side');

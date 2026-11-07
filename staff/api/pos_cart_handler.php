@@ -871,7 +871,8 @@ try {
                                 $scaledFromJob = printflow_pos_sync_job_quantity_and_scale_materials(
                                     $linkedJobId,
                                     $previousQty > 0 ? $previousQty : $qty,
-                                    $qty
+                                    $qty,
+                                    $serviceId
                                 );
                             }
                         }
@@ -881,7 +882,8 @@ try {
                             $item['pos_material_assignments'] = printflow_pos_scale_material_assignment_rows(
                                 $existingAssignments,
                                 $previousQty > 0 ? $previousQty : $qty,
-                                $qty
+                                $qty,
+                                $serviceId
                             );
                         } elseif (is_array($existingAssignments)) {
                             $item['pos_material_assignments'] = $existingAssignments;

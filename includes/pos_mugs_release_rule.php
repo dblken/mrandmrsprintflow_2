@@ -46,3 +46,34 @@ function printflow_pos_mugs_assert_dedicated_mug_assigned(array $assigned): void
     }
     throw new RuntimeException('The dedicated Mug material must be assigned for this service.');
 }
+
+/**
+ * Materials that follow the owner-confirmed Mugs order-qty usage rule:
+ * 1 Mug (#37) + 1 Subli Paper (#55) per ordered mug quantity.
+ * Box Mug and other mapped rows stay on generic proportional scaling.
+ */
+function printflow_pos_mugs_is_quantity_linked_material(int $itemId, string $itemName = ''): bool
+{
+    if ($itemId === 37 || $itemId === 55) {
+        return true;
+    }
+    return strtolower(trim($itemName)) === 'subli paper';
+}
+
+/**
+ * Resolve Mug / Subli Paper usage for a cart quantity change.
+ * Prefer an integer units-per-order rate from the saved assignment; otherwise
+ * enforce the documented 1 unit per ordered mug.
+ */
+function printflow_pos_mugs_scale_quantity_linked_usage(float $currentQty, int $fromQty, int $toQty): float
+{
+    if ($fromQty < 1 || $toQty < 1 || !is_finite($currentQty) || $currentQty <= 0) {
+        throw new InvalidArgumentException('Mugs material scale inputs are invalid.');
+    }
+    $rate = $currentQty / $fromQty;
+    $rateNearest = (int)round($rate);
+    if ($rateNearest >= 1 && abs($rate - $rateNearest) < 1.0e-6) {
+        return (float)($rateNearest * $toQty);
+    }
+    return (float)$toQty;
+}
