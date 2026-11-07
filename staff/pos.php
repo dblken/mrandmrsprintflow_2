@@ -21,7 +21,11 @@ $posPayMongoQrphAvailable = $posPayMongoAvailable
 // Require staff or admin role
 require_role(['Admin', 'Staff']);
 printflow_require_staff_module('pos');
-$GLOBALS['printflow_allow_past_needed_date'] = true;
+// Needed Date must not accept past calendar days in the Manila business timezone.
+$GLOBALS['printflow_allow_past_needed_date'] = false;
+$pos_business_today = function_exists('printflow_pos_business_today')
+    ? printflow_pos_business_today()
+    : (new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
 
 // Resolve and lock staff branch into session
 $_pos_branch_ctx = init_branch_context(false);
@@ -3499,6 +3503,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         };
         let posLastServiceCardEl = null;
         const POS_CSRF_TOKEN = document.body.dataset.csrf || '';
+        const POS_BUSINESS_TODAY = <?php echo json_encode($pos_business_today, JSON_UNESCAPED_SLASHES); ?>;
+
+        /** Asia/Manila business calendar day from the server; never use UTC browser midnight. */
+        function posBusinessToday() {
+            const raw = String(POS_BUSINESS_TODAY || '').trim();
+            return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '';
+        }
+
+        function posNeededDateIsNotBeforeToday(value) {
+            const day = String(value || '').trim().slice(0, 10);
+            const today = posBusinessToday();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || today === '') return false;
+            return day >= today;
+        }
 
         function posCatalogImageUrl(product) {
             if (!product) return POS_DEFAULT_CATALOG_IMG;
@@ -4943,9 +4961,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 else if (typeof initPfDesignUploadGroups === 'function') initPfDesignUploadGroups(body);
                 initPosEstimatedPrice(body, parseFloat(data.base_price) || 0);
                 posBindServiceStockValidation(serviceId);
-                if (typeof posAllowPastNeededDateInputs === 'function') {
-                    posAllowPastNeededDateInputs(body);
-                }
+                posEnforceNeededDateMinimum(body);
             } catch (e) {
                 body.innerHTML = '<p style="color:#ef4444;text-align:center;padding:1rem;">Network error. Please try again.</p>';
             }
@@ -6220,10 +6236,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         return;
                     }
                     if (input.type === 'date' && value && posServiceFieldIsNeededDate(input.name, row)) {
-                        const today = new Date().toISOString().split('T')[0];
-                        if (value < today) {
+                        if (!posNeededDateIsNotBeforeToday(value)) {
                             addError(row, input, input.name, 'Needed date cannot be in the past.');
+                            if (typeof input.setCustomValidity === 'function') {
+                                input.setCustomValidity('Needed date cannot be in the past.');
+                            }
                             return;
+                        }
+                        if (typeof input.setCustomValidity === 'function') {
+                            input.setCustomValidity('');
                         }
                     }
                     if (!value) addError(row, input);
@@ -7251,7 +7272,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 inputHtml = `<input type="file" id="custom_field_${idx}" name="${reqName}"${multipleAttr} accept="${(req.accept || '').replace(/"/g, '&quot;')}" style="${baseStyle}" data-field-name="${reqName}">`;
                 div.innerHTML = label + inputHtml;
             } else if (req.type === 'date') {
-                const minAttr = ` min="${new Date().toISOString().split('T')[0]}"`;
+                const today = posBusinessToday() || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+                const minAttr = ` min="${today}"`;
                 inputHtml = `<input type="date" id="custom_field_${idx}" name="${reqName}"${minAttr} style="${baseStyle}" data-field-name="${reqName}">`;
                 div.innerHTML = label + inputHtml;
             } else {
@@ -8200,14 +8222,34 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             text.textContent = message;
         }
 
-        function posAllowPastNeededDateInputs(root) {
+        function posEnforceNeededDateMinimum(root) {
             const scope = root || document;
+            const today = posBusinessToday();
+            if (!today) return;
             scope.querySelectorAll('input[type="date"]').forEach(function(input) {
-                const name = String(input.name || '').toLowerCase();
-                const id = String(input.id || '').toLowerCase();
-                if (name === 'needed_date' || id === 'needed_date' || name.indexOf('needed_date') !== -1) {
-                    input.removeAttribute('min');
+                if (!posServiceFieldIsNeededDate(input.name || input.id, input.closest('.shopee-form-row'))) {
+                    return;
                 }
+                input.min = today;
+                input.setAttribute('min', today);
+                const syncValidity = () => {
+                    const value = String(input.value || '').trim();
+                    if (value && !posNeededDateIsNotBeforeToday(value)) {
+                        input.setCustomValidity('Needed date cannot be in the past.');
+                        const row = input.closest('.shopee-form-row');
+                        if (row) markServiceFieldInvalid(row, 'Needed date cannot be in the past.');
+                    } else {
+                        input.setCustomValidity('');
+                        const row = input.closest('.shopee-form-row');
+                        if (row) clearServiceFieldError(row);
+                    }
+                };
+                if (!input.dataset.pfNeededDateBound) {
+                    input.dataset.pfNeededDateBound = '1';
+                    input.addEventListener('change', syncValidity);
+                    input.addEventListener('input', syncValidity);
+                }
+                syncValidity();
             });
         }
 

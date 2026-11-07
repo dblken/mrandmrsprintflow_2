@@ -21,9 +21,10 @@ $assert($lintExit === 0, 'pos_service_fields.php has valid PHP syntax');
 
 $assert(
     !preg_match('/echo\s+[\'"][^\'"]*date\s*\(\s*[\'"]Y-m-d[\'"]/s', $source)
-        && str_contains($source, '$needed_date_min = !empty($GLOBALS[\'printflow_allow_past_needed_date\']) ? \'\' : date(\'Y-m-d\');')
-        && str_contains($source, '$needed_date_min_attr = $needed_date_min !== \'\' ? \' min="\''),
-    'needed_date min defaults to today but honors the existing POS allow-past-date workflow'
+        && str_contains($source, "\$GLOBALS['printflow_allow_past_needed_date'] = false")
+        && str_contains($source, 'printflow_pos_business_today()')
+        && str_contains($source, '$needed_date_min_attr = \' min="\''),
+    'needed_date min is always the Manila business today for POS service forms'
 );
 $assert(
     str_contains($source, 'catch (Throwable $renderError)')

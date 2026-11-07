@@ -33,9 +33,9 @@ if (empty($service)) {
 }
 $service = $service[0];
 
-if (printflow_pos_can_custom_transaction_datetime()) {
-    $GLOBALS['printflow_allow_past_needed_date'] = true;
-}
+// Needed Date is always bounded to the Manila business calendar day.
+// Custom transaction datetime (sale stamp) is unrelated and must not reopen past Needed Dates.
+$GLOBALS['printflow_allow_past_needed_date'] = false;
 
 $branches = db_query("SELECT id, branch_name FROM branches WHERE status = 'Active' ORDER BY branch_name ASC") ?: [];
 
@@ -61,8 +61,10 @@ try {
             $sel = ($staff_branch_id == $b['id']) ? ' selected' : '';
             $branch_options .= '<option value="' . (int)$b['id'] . '"' . $sel . '>' . htmlspecialchars($b['branch_name']) . '</option>';
         }
-        $needed_date_min = !empty($GLOBALS['printflow_allow_past_needed_date']) ? '' : date('Y-m-d');
-        $needed_date_min_attr = $needed_date_min !== '' ? ' min="' . htmlspecialchars($needed_date_min, ENT_QUOTES, 'UTF-8') . '"' : '';
+        $needed_date_min = function_exists('printflow_pos_business_today')
+            ? printflow_pos_business_today()
+            : date('Y-m-d');
+        $needed_date_min_attr = ' min="' . htmlspecialchars($needed_date_min, ENT_QUOTES, 'UTF-8') . '"';
         echo '
     <div class="shopee-form-row">
         <div class="shopee-form-label">Branch *</div>

@@ -151,13 +151,29 @@ function pf_service_option_label($value) {
 /**
  * Render a single field based on configuration
  */
-/** HTML min attribute for service date fields (Needed Date may allow past dates in POS backdate mode). */
+/**
+ * HTML min attribute for service date fields.
+ * Needed Date uses the Asia/Manila business calendar day so staff cannot pick a past date.
+ * The legacy printflow_allow_past_needed_date flag is ignored for Needed Date.
+ */
 function printflow_service_field_date_min_attr(string $fieldKey): string
 {
-    if ($fieldKey === 'needed_date' && !empty($GLOBALS['printflow_allow_past_needed_date'])) {
+    if (!function_exists('printflow_pos_business_today')) {
+        $datetimeHelper = __DIR__ . '/inventory_business_datetime.php';
+        if (is_file($datetimeHelper)) {
+            require_once $datetimeHelper;
+        }
+    }
+    $today = function_exists('printflow_pos_business_today')
+        ? printflow_pos_business_today()
+        : date('Y-m-d');
+    if ($fieldKey === 'needed_date') {
+        return ' min="' . htmlspecialchars($today, ENT_QUOTES, 'UTF-8') . '"';
+    }
+    if (!empty($GLOBALS['printflow_allow_past_needed_date'])) {
         return '';
     }
-    return ' min="' . date('Y-m-d') . '"';
+    return ' min="' . htmlspecialchars($today, ENT_QUOTES, 'UTF-8') . '"';
 }
 
 function printflow_service_field_is_branch_field(string $fieldKey, array $config = []): bool

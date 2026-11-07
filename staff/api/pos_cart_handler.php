@@ -337,7 +337,13 @@ function pos_cart_date_value_not_before_today(string $value): bool
     if (!preg_match('/^(\d{4}-\d{2}-\d{2})/', $value, $matches)) {
         return false;
     }
-    return $matches[1] >= date('Y-m-d');
+    if (!function_exists('printflow_pos_business_today')) {
+        require_once dirname(__DIR__, 2) . '/includes/inventory_business_datetime.php';
+    }
+    $today = function_exists('printflow_pos_business_today')
+        ? printflow_pos_business_today()
+        : date('Y-m-d');
+    return $matches[1] >= $today;
 }
 
 function pos_cart_config_applies(array $config, array $customization, array $fieldConfigs = [], string $fieldKey = ''): bool
