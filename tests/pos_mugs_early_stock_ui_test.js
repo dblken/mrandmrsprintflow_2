@@ -19,8 +19,8 @@ assert.match(pos, /posBindServiceStockValidation\(serviceId\)/, 'opening the Mug
 assert.match(pos, /scheduleValidation\(\)/, 'quantity typing and +/- revalidate Mug stock');
 assert.match(
   pos,
-  /Number\(serviceId\) !== 63\) \{\s*posSetServiceStockState\(false, '', ''\);\s*return \{ valid: true, deferred: true \};/,
-  'only non-Mugs services defer stock while the form is incomplete'
+  /Number\(serviceId\) !== 63\s*&&\s*!\(paperEarlyStock && paperDimsReady\)\) \{\s*posSetServiceStockState\(false, '', ''\);\s*return \{ valid: true, deferred: true \};/,
+  'incomplete-form deferral still skips stock for non-Mugs services unless Brochure/Poster dims are ready'
 );
 
 const silence = fs.readFileSync(path.join(__dirname, 'pos_mugs_success_silence_test.js'), 'utf8');

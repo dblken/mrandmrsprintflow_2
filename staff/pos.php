@@ -5517,7 +5517,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (!text) return '';
             // Keep genuine stock failures visible, including the legacy
             // "only N available; M required" wording used by cart validation.
-            if (/out of stock|insufficient stock|not enough stock|low stock|has only\s+[\d,.]+.*available.*required|only\s+[\d,.]+.*available.*required|cannot be cut as continuous pieces from the available open rolls/i.test(text)) {
+            // Brochure/Poster messages often say "Insufficient {name} stock".
+            if (/out of stock|insufficient\b.*\bstock|not enough stock|low stock|has only\s+[\d,.]+.*available.*required|only\s+[\d,.]+.*available.*required|cannot be cut as continuous pieces from the available open rolls/i.test(text)) {
+                return text;
+            }
+            // Brochure / Poster mapping and dimension precheck failures must remain visible.
+            if ([67, 64].includes(Number(serviceId))
+                && /preferred .+ material|inventory item #|material stock|select valid dimensions|could not be verified|inactive|renamed|unavailable|no active material rule|approved .+ multiplier|consumption rule/i.test(text)) {
                 return text;
             }
             if (Number(serviceId) === 71 && text.startsWith('May kailangan bang linawin tungkol sa material na gagamitin?')) {
@@ -5588,6 +5594,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (overlay && overlay.dataset.materialDimensionUnit) customization.pos_material_dimension_unit = overlay.dataset.materialDimensionUnit;
             posApplySelectedServiceDimension(customization, body, overlay);
             const serviceId = Number(overlay?.dataset.serviceId || customization.service_id || 0);
+            if (serviceId > 0) customization.service_id = serviceId;
             if (serviceId === 67) {
                 delete customization.pos_selected_material_ids;
             } else {
@@ -5787,12 +5794,23 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             // handler performs and displays this same field validation before
             // it starts its authoritative stock check. Mugs still loads the
             // mapped Mug capacity so quantity limits are visible immediately.
-            // Brochure / Poster Printing validate once Dimensions + Qty are
-            // complete (same incomplete-form deferral as other services).
+            // Brochure / Poster Printing revalidate as soon as Dimensions + Qty
+            // are present (Needed Date / other fields must not hide stock).
+            const paperEarlyStock = [67, 64].includes(Number(serviceId));
+            const paperDimsReady = paperEarlyStock
+                && Number(serviceCustomization.width) > 0
+                && Number(serviceCustomization.height) > 0
+                && ['ft', 'in', 'cm', 'mm'].includes(String(serviceCustomization.pos_material_dimension_unit || '').toLowerCase());
             if (typeof validateServiceOrderForm === 'function' && !validateServiceOrderForm().valid
-                && Number(serviceId) !== 63) {
+                && Number(serviceId) !== 63
+                && !(paperEarlyStock && paperDimsReady)) {
                 posSetServiceStockState(false, '', '');
                 return { valid: true, deferred: true };
+            }
+            if (paperEarlyStock && !paperDimsReady) {
+                const message = 'Select valid Dimensions before checking material stock.';
+                posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId) || message);
+                return { valid: false, message };
             }
             if (Number(serviceId) === 40) {
                 const width = Number(serviceCustomization.width);

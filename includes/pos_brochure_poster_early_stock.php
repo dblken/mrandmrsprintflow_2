@@ -1,9 +1,16 @@
 <?php
 /**
  * Early POS capacity checks for Brochure (67) and Poster Printing (64).
- * Preferred mapped substrates: Brochure → C2S Special Paper #211,
- * Poster Printing → C2s Board #212. Demand uses Admin-approved AREA_SQFT
- * multipliers and never writes inventory transactions.
+ *
+ * Preferred mapped substrates (by inventory item ID):
+ * - Brochure → C2S Special Paper #211 (pcs)
+ * - Poster Printing → C2s Board #212 (sheet)
+ *
+ * Demand uses the Admin-approved service_material_rules multiplier for that
+ * mapped item. Discrete sheet/pcs papers consume inventory units per ordered
+ * piece (PER_ITEM / inventory-units-per-item, default 1.0), matching the
+ * Poster primary usage ceiling. AREA_SQFT rules still apply when that is the
+ * approved basis. This path never writes inventory transactions.
  */
 
 require_once __DIR__ . '/pos_material_selection.php';
@@ -32,6 +39,13 @@ function printflow_pos_brochure_poster_expected_service_name(int $serviceId): st
         64 => 'Poster Printing',
         default => '',
     };
+}
+
+function printflow_pos_brochure_poster_uom_is_discrete(string $uom): bool
+{
+    return in_array(strtolower(trim($uom)), [
+        'sheet', 'sheets', 'pc', 'pcs', 'piece', 'pieces',
+    ], true);
 }
 
 /**
@@ -69,9 +83,9 @@ function printflow_pos_brochure_poster_assert_mapped_item(int $serviceId, ?array
  * Resolve customer width/height/unit from the POS customization payload.
  *
  * @param array<string,mixed> $customization
- * @return array{width:float,height:float,unit:string}
+ * @return array{width:float,height:float,unit:string}|null
  */
-function printflow_pos_brochure_poster_dimensions(array $customization): array
+function printflow_pos_brochure_poster_dimensions_or_null(array $customization): ?array
 {
     $width = $customization['width'] ?? null;
     $height = $customization['height'] ?? null;
@@ -82,10 +96,10 @@ function printflow_pos_brochure_poster_dimensions(array $customization): array
     if (!is_numeric($width) || !is_numeric($height)
         || !is_finite((float)$width) || !is_finite((float)$height)
         || (float)$width <= 0 || (float)$height <= 0) {
-        throw new InvalidArgumentException('Select valid Dimensions before checking Brochure/Poster material stock.');
+        return null;
     }
     if (!in_array($unit, ['ft', 'in', 'cm', 'mm'], true)) {
-        throw new InvalidArgumentException('Select Dimensions with a supported unit before checking Brochure/Poster material stock.');
+        return null;
     }
     return [
         'width' => (float)$width,
@@ -95,16 +109,48 @@ function printflow_pos_brochure_poster_dimensions(array $customization): array
 }
 
 /**
- * Load the Admin-approved AREA_SQFT multiplier for the preferred mapped item.
- * Test override: $GLOBALS['PRINTFLOW_TEST_BROCHURE_POSTER_MULTIPLIERS'][$serviceId][$itemId].
+ * @param array<string,mixed> $customization
+ * @return array{width:float,height:float,unit:string}
  */
-function printflow_pos_brochure_poster_approved_multiplier(int $serviceId, int $itemId): float
+function printflow_pos_brochure_poster_dimensions(array $customization): array
 {
+    $dimensions = printflow_pos_brochure_poster_dimensions_or_null($customization);
+    if ($dimensions === null) {
+        throw new InvalidArgumentException('Select valid Dimensions before checking Brochure/Poster material stock.');
+    }
+    return $dimensions;
+}
+
+/**
+ * Load the Admin-approved multiplier row for the preferred mapped item.
+ * Test override: $GLOBALS['PRINTFLOW_TEST_BROCHURE_POSTER_RULES'][$serviceId][$itemId]
+ *   = ['multiplier' => float, 'basis' => 'PER_ITEM'|'AREA_SQFT']
+ *
+ * @return array{multiplier:float,basis:string}
+ */
+function printflow_pos_brochure_poster_approved_rule(int $serviceId, int $itemId): array
+{
+    if (isset($GLOBALS['PRINTFLOW_TEST_BROCHURE_POSTER_RULES'])
+        && is_array($GLOBALS['PRINTFLOW_TEST_BROCHURE_POSTER_RULES'])) {
+        $override = $GLOBALS['PRINTFLOW_TEST_BROCHURE_POSTER_RULES'][$serviceId][$itemId] ?? null;
+        if (is_array($override)
+            && is_numeric($override['multiplier'] ?? null)
+            && is_finite((float)$override['multiplier'])
+            && (float)$override['multiplier'] > 0) {
+            $basis = strtoupper(trim((string)($override['basis'] ?? 'PER_ITEM')));
+            if (!in_array($basis, ['PER_ITEM', 'AREA_SQFT', 'INVENTORY_UNITS_PER_ITEM', 'INVENTORY_UNITS_PER_SQFT'], true)) {
+                $basis = 'PER_ITEM';
+            }
+            return ['multiplier' => (float)$override['multiplier'], 'basis' => $basis];
+        }
+    }
+
+    // Legacy test override that only supplied a positive multiplier.
     if (isset($GLOBALS['PRINTFLOW_TEST_BROCHURE_POSTER_MULTIPLIERS'])
         && is_array($GLOBALS['PRINTFLOW_TEST_BROCHURE_POSTER_MULTIPLIERS'])) {
-        $override = $GLOBALS['PRINTFLOW_TEST_BROCHURE_POSTER_MULTIPLIERS'][$serviceId][$itemId] ?? null;
-        if (is_numeric($override) && is_finite((float)$override) && (float)$override > 0) {
-            return (float)$override;
+        $legacy = $GLOBALS['PRINTFLOW_TEST_BROCHURE_POSTER_MULTIPLIERS'][$serviceId][$itemId] ?? null;
+        if (is_numeric($legacy) && is_finite((float)$legacy) && (float)$legacy > 0) {
+            return ['multiplier' => (float)$legacy, 'basis' => 'PER_ITEM'];
         }
     }
 
@@ -124,69 +170,40 @@ function printflow_pos_brochure_poster_approved_multiplier(int $serviceId, int $
          WHERE {$scope['sql']}
            AND r.item_id = ?
          ORDER BY r.id DESC
-         LIMIT 5",
+         LIMIT 8",
         $scope['types'] . 'i',
         array_merge($scope['params'], [$itemId])
     );
     if ($rows === false) {
         throw new RuntimeException(
-            'The ' . $serviceLabel . ' material multiplier could not be loaded. Try again or ask an Admin to review the service-material mapping.'
-        );
-    }
-    if ($rows === []) {
-        throw new RuntimeException(
-            'No active material rule maps inventory item #' . $itemId . ' to ' . $serviceLabel
-            . '. Ask an Admin to configure and approve the AREA_SQFT multiplier before adding this service.'
+            'The ' . $serviceLabel . ' material consumption rule could not be loaded. Try again or ask an Admin to review the service-material mapping.'
         );
     }
 
-    $row = null;
     foreach ($rows as $candidate) {
         if (!is_array($candidate)) continue;
-        $basis = strtoupper(trim((string)($candidate['qty_multiplier_approved_basis']
-            ?? $candidate['qty_multiplier_basis']
-            ?? '')));
-        if ($basis !== '' && $basis !== 'AREA_SQFT' && $basis !== 'INVENTORY_UNITS_PER_SQFT') {
+        try {
+            $multiplier = printflow_pos_approved_service_multiplier(
+                $candidate['qty_multiplier'] ?? null,
+                $candidate['qty_multiplier_approved'] ?? null,
+                $candidate['qty_multiplier_approved_by'] ?? null,
+                $candidate['qty_multiplier_approved_at'] ?? null
+            );
+        } catch (RuntimeException $error) {
             continue;
         }
-        $row = $candidate;
-        break;
-    }
-    if ($row === null) {
-        $row = is_array($rows[0] ?? null) ? $rows[0] : null;
-    }
-    if ($row === null) {
-        throw new RuntimeException(
-            'No usable AREA_SQFT material rule was found for ' . $serviceLabel . ' item #' . $itemId . '.'
-        );
+        $approvedBasis = strtoupper(trim((string)($candidate['qty_multiplier_approved_basis'] ?? '')));
+        $storedBasis = strtoupper(trim((string)($candidate['qty_multiplier_basis'] ?? '')));
+        $basis = $approvedBasis !== '' ? $approvedBasis : $storedBasis;
+        if ($basis === '') {
+            $basis = 'PER_ITEM';
+        }
+        return ['multiplier' => $multiplier, 'basis' => $basis];
     }
 
-    $approvedBasis = strtoupper(trim((string)($row['qty_multiplier_approved_basis'] ?? '')));
-    $storedBasis = strtoupper(trim((string)($row['qty_multiplier_basis'] ?? '')));
-    if ($approvedBasis !== 'AREA_SQFT'
-        && $storedBasis !== 'INVENTORY_UNITS_PER_SQFT'
-        && $storedBasis !== 'AREA_SQFT') {
-        throw new RuntimeException(
-            'The configured ' . $serviceLabel . ' multiplier for inventory item #' . $itemId
-            . ' must use the AREA_SQFT / inventory-units-per-sqft basis.'
-        );
-    }
-
-    try {
-        return printflow_pos_approved_service_multiplier(
-            $row['qty_multiplier'] ?? null,
-            $row['qty_multiplier_approved'] ?? null,
-            $row['qty_multiplier_approved_by'] ?? null,
-            $row['qty_multiplier_approved_at'] ?? null
-        );
-    } catch (RuntimeException $error) {
-        throw new RuntimeException(
-            'REQUIRED material item #' . $itemId . ' for ' . $serviceLabel
-            . ' has no valid Admin-approved AREA_SQFT multiplier. An Admin must configure and approve it before this service can be added.',
-            0,
-            $error
-        );
-    }
+    // Dedicated early capacity for mapped discrete print papers: 1 inventory
+    // unit per ordered piece when Admin has not yet approved a rate row.
+    return ['multiplier' => 1.0, 'basis' => 'PER_ITEM'];
 }
 
 /**
@@ -194,7 +211,7 @@ function printflow_pos_brochure_poster_approved_multiplier(int $serviceId, int $
  *
  * @param array<string,mixed> $line
  * @param array<string,mixed>|null $itemOverride test-only inventory row
- * @return array{item_id:int,name:string,uom:string,required:float,multiplier:float,area_sqft:float,raw_demand:float}
+ * @return array{item_id:int,name:string,uom:string,required:float,multiplier:float,basis:string,area_sqft:?float,raw_demand:float}
  */
 function printflow_pos_brochure_poster_early_demand(array $line, int $branchId, ?array $itemOverride = null): array
 {
@@ -216,26 +233,52 @@ function printflow_pos_brochure_poster_early_demand(array $line, int $branchId, 
         $item = InventoryManager::getItem($itemId);
     }
     $item = printflow_pos_brochure_poster_assert_mapped_item($serviceId, $item);
+    $uom = trim((string)($item['unit_of_measure'] ?? ''));
+    if ($uom === '') {
+        $uom = $serviceId === 67 ? 'pcs' : 'sheet';
+    }
 
     $quantity = printflow_pos_parse_positive_quantity($line['qty'] ?? null);
-    $dimensions = printflow_pos_brochure_poster_dimensions($customization);
-    $multiplier = printflow_pos_brochure_poster_approved_multiplier($serviceId, $itemId);
-    $calculation = printflow_pos_material_demand_for_area(
-        $dimensions['width'],
-        $dimensions['height'],
-        $dimensions['unit'],
-        $quantity,
-        $multiplier
-    );
+    $rule = printflow_pos_brochure_poster_approved_rule($serviceId, $itemId);
+    $multiplier = (float)$rule['multiplier'];
+    $basis = strtoupper(trim((string)$rule['basis']));
+    $areaSqFt = null;
+    $rawDemand = null;
+    $required = null;
+
+    $useArea = in_array($basis, ['AREA_SQFT', 'INVENTORY_UNITS_PER_SQFT'], true);
+    // Discrete sheet/pcs papers use per-piece demand even when a legacy
+    // AREA_SQFT label remains on the rule row — area×rate under-counts A4
+    // print media relative to one inventory unit per ordered piece.
+    if ($useArea && !printflow_pos_brochure_poster_uom_is_discrete($uom)) {
+        $dimensions = printflow_pos_brochure_poster_dimensions($customization);
+        $calculation = printflow_pos_material_demand_for_area(
+            $dimensions['width'],
+            $dimensions['height'],
+            $dimensions['unit'],
+            $quantity,
+            $multiplier
+        );
+        $areaSqFt = (float)$calculation['area_sqft'];
+        $rawDemand = (float)$calculation['raw_demand'];
+        $required = (float)$calculation['rounded_demand'];
+        $basis = 'AREA_SQFT';
+    } else {
+        $calculation = printflow_pos_material_demand_for_items($quantity, $multiplier);
+        $rawDemand = (float)$calculation['raw_demand'];
+        $required = (float)$calculation['rounded_demand'];
+        $basis = 'PER_ITEM';
+    }
 
     return [
         'item_id' => $itemId,
         'name' => (string)$item['name'],
-        'uom' => (string)($item['unit_of_measure'] ?? 'sheet'),
-        'required' => (float)$calculation['rounded_demand'],
-        'multiplier' => (float)$multiplier,
-        'area_sqft' => (float)$calculation['area_sqft'],
-        'raw_demand' => (float)$calculation['raw_demand'],
+        'uom' => $uom,
+        'required' => $required,
+        'multiplier' => $multiplier,
+        'basis' => $basis,
+        'area_sqft' => $areaSqFt,
+        'raw_demand' => $rawDemand,
         'branch_id' => $branchId,
     ];
 }

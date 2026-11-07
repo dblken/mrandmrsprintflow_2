@@ -743,6 +743,9 @@ try {
             $serviceId = (int)($data['service_id'] ?? $data['product_id'] ?? 0);
             $qty = pos_cart_parse_positive_quantity($data['qty'] ?? null);
             $customization = is_array($data['customization'] ?? null) ? $data['customization'] : [];
+            if ($serviceId > 0 && empty($customization['service_id'])) {
+                $customization['service_id'] = $serviceId;
+            }
             $candidate = [
                 'product_id' => $serviceId,
                 'qty' => $qty,
