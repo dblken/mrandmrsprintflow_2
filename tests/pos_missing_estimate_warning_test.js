@@ -115,11 +115,22 @@ function simulateConfirmServiceModalWarning({ basePrice, qty, withoutLayoutPrice
     quantity: String(safeQty),
   };
 
-  const lineEstimate = Number(
-    customization.calculated_estimated_price != null
-      ? customization.calculated_estimated_price
-      : pricing.estimatedTotal
-  );
+  // Mirror staff/pos.php posResolveFinalLineEstimate (display recalculate first).
+  function posResolveFinalLineEstimate(pricingObj, customizationObj) {
+    const candidates = [
+      pricingObj && pricingObj.estimatedTotal,
+      customizationObj && customizationObj.calculated_estimated_price,
+    ];
+    for (let i = 0; i < candidates.length; i++) {
+      const value = candidates[i];
+      if (value == null || value === '') continue;
+      const amount = typeof value === 'number' ? value : Number(value);
+      if (Number.isFinite(amount)) return amount;
+    }
+    return NaN;
+  }
+
+  const lineEstimate = posResolveFinalLineEstimate(pricing, customization);
   const warn = needsConfirm(lineEstimate);
 
   return {
@@ -163,9 +174,18 @@ assert.equal(zeroEstimate.estimatedTotal, 0, 'With Layout and no unit yields ₱
 assert.equal(zeroEstimate.lineEstimate, 0, 'Add to Order lineEstimate is 0');
 assert.equal(zeroEstimate.warn, true, '₱0 estimate still shows the warning');
 
-// Missing / invalid estimates remain warned.
+// Missing / invalid estimates remain warned (and must not be coerced via Number(null)===0 alone).
 assert.equal(needsConfirm(null), true, 'missing estimate stays warned');
 assert.equal(needsConfirm(NaN), true, 'NaN estimate stays warned');
+assert.ok(Number.isNaN((() => {
+  const candidates = [null, undefined, ''];
+  for (const value of candidates) {
+    if (value == null || value === '') continue;
+    const amount = Number(value);
+    if (Number.isFinite(amount)) return amount;
+  }
+  return NaN;
+})()), 'posResolveFinalLineEstimate returns NaN for missing candidates, not 0');
 
 // Qty / layout changes update estimate and warning together.
 const qtyChanged = simulateConfirmServiceModalWarning({
@@ -217,17 +237,28 @@ function extractFunctionBody(source, functionName) {
   return source.slice(startMatch.index, i);
 }
 
+assert.match(
+  posSource,
+  /function posResolveFinalLineEstimate\(pricing, customization\)/,
+  'POS defines shared final-line-estimate resolver for Add to Order'
+);
+assert.match(
+  posSource,
+  /pricing && pricing\.estimatedTotal/,
+  'resolver prefers recalculated estimatedTotal (same value that painted the display)'
+);
+
 for (const fnName of ['confirmServiceModal', 'confirmServiceModalLegacy']) {
   const body = extractFunctionBody(posSource, fnName);
   assert.match(
     body,
-    /posNeedsMissingEstimatedPriceConfirm\(lineEstimate\)/,
-    `${fnName} warns from final lineEstimate`
+    /posResolveFinalLineEstimate\(pricing, customization\)/,
+    `${fnName} resolves lineEstimate via posResolveFinalLineEstimate`
   );
   assert.match(
     body,
-    /calculated_estimated_price/,
-    `${fnName} uses calculated_estimated_price from applyServicePricing`
+    /posNeedsMissingEstimatedPriceConfirm\(lineEstimate\)/,
+    `${fnName} warns from final lineEstimate`
   );
   assert.match(
     body,
@@ -248,5 +279,15 @@ assert.doesNotMatch(
   'POS no longer warns from unit price alone before confirmMissingEstimatedPrice'
 );
 assert.doesNotMatch(posSource, /Mugs Price Required/, 'POS no longer hard-blocks Mugs fee-only estimates');
+assert.match(
+  posSource,
+  /service_estimated_price\.js'\);\s*\?>\?v=<\?php echo \(int\) \$pos_estimated_price_ver; \?>/,
+  'POS script tag appends ?v=filemtime outside the hashed path'
+);
+assert.match(
+  posSource,
+  /filemtime\(__DIR__\s*\.\s*'\/\.\.\/public\/assets\/js\/service_estimated_price\.js'\)/,
+  'POS estimator version comes from deployed file mtime'
+);
 
 console.log('POS missing-estimate warning regression tests passed.');

@@ -4833,9 +4833,29 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return window.printflowNeedsMissingEstimatedPriceConfirm(estimatedTotal);
             }
             if (estimatedTotal == null || estimatedTotal === '') return true;
-            const amount = Number(estimatedTotal);
+            const amount = typeof estimatedTotal === 'number' ? estimatedTotal : Number(estimatedTotal);
             if (!Number.isFinite(amount)) return true;
             return amount === 0;
+        }
+
+        /**
+         * Final line estimate for the missing-price warning must match the modal display:
+         * (unit × qty) + one-time layout/design fee. Prefer the value just returned by
+         * resolveServiceModalPricing()/recalculate() (what painted #pos-estimated-total).
+         * Do not coerce missing values through Number(null) === 0.
+         */
+        function posResolveFinalLineEstimate(pricing, customization) {
+            const candidates = [
+                pricing && pricing.estimatedTotal,
+                customization && customization.calculated_estimated_price,
+            ];
+            for (let i = 0; i < candidates.length; i++) {
+                const value = candidates[i];
+                if (value == null || value === '') continue;
+                const amount = typeof value === 'number' ? value : Number(value);
+                if (Number.isFinite(amount)) return amount;
+            }
+            return NaN;
         }
 
         async function confirmMissingEstimatedPrice() {
@@ -5446,11 +5466,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
             // Use the final line estimate (unit×qty + fee), not unit price alone.
             // Fee-only totals such as Without Layout ₱200 must not trigger this warning.
-            const lineEstimate = Number(
-                customization.calculated_estimated_price != null
-                    ? customization.calculated_estimated_price
-                    : pricing.estimatedTotal
-            );
+            const lineEstimate = posResolveFinalLineEstimate(pricing, customization);
             if (posNeedsMissingEstimatedPriceConfirm(lineEstimate)) {
                 const proceed = await confirmMissingEstimatedPrice();
                 if (!proceed) return;
@@ -6640,11 +6656,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 setCustomizationValue(customization, row, radio, radioValue);
             });
 
-            const lineEstimate = Number(
-                customization.calculated_estimated_price != null
-                    ? customization.calculated_estimated_price
-                    : pricing.estimatedTotal
-            );
+            // Same final estimate as the displayed ₱ amount (recalculate + fee).
+            // Never gate this confirm on unitPrice alone (fee-only Mugs would false-warn).
+            const lineEstimate = posResolveFinalLineEstimate(pricing, customization);
             if (posNeedsMissingEstimatedPriceConfirm(lineEstimate)) {
                 setServiceAddButtonBusy(false);
                 const addBtn = document.getElementById('sm-add-to-order-btn');
