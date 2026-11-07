@@ -19,7 +19,9 @@ $assert(str_contains($validateBody, "if (\$serviceId === 40 && !array_key_exists
     && str_contains($validator, 'printflow_tarpaulin_resolve_candidate('),
     'POS Tarpaulin Add to Order resolves the narrowest mapped roll from Width/Height before staff Actual Usage.');
 $assert(!str_contains($checkout, 'pos_checkout_pair_tarpaulin_cart_lines')
-    && str_contains($checkout, 'pos_checkout_validate_assigned_service_materials($items, $pos_pending_orders_snapshot)'),
+    && str_contains($checkout, 'pos_checkout_validate_assigned_service_materials(')
+    && str_contains($checkout, '$pos_pending_orders_snapshot')
+    && str_contains($checkout, '$sessionCart'),
     'Checkout validates actual assigned material quantities; joining panel pairing stays out of checkout.');
 $assert(str_contains($cart, 'pos_cart_validate_service_payload')
     && str_contains($cart, 'printflow_pos_validate_service_stock('),

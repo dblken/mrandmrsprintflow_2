@@ -23,6 +23,7 @@ require_once __DIR__ . '/../../includes/pos_custom_transaction_datetime.php';
 require_once __DIR__ . '/../../includes/pos_quantity_validation.php';
 require_once __DIR__ . '/../../includes/pos_service_stock_validation.php';
 require_once __DIR__ . '/../../includes/pos_branch_scope.php';
+require_once __DIR__ . '/../../includes/pos_checkout_service_materials.php';
 
 function pos_checkout_staff_facing_material_error(string $message, array $items): string
 {
@@ -44,57 +45,63 @@ function pos_checkout_parse_positive_quantity($value): int {
     }
 }
 
-function pos_checkout_validate_assigned_service_materials(array $items, array $pendingOrders): ?string {
+function pos_checkout_validate_assigned_service_materials(array $items, array $pendingOrders, array $sessionCart = []): ?string {
     foreach ($items as $item) {
         if (!is_array($item) || !pos_payload_item_is_service($item)) {
             continue;
         }
-        $customization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
         // Production Assignment records the actual material and quantity.
         // Revalidate those saved quantities for every service at checkout;
         // alternatives left unassigned are naturally omitted.
-        $pendingOrderId = (int)($item['pending_order_id'] ?? 0);
-        $productId = (int)($item['id'] ?? 0);
-        $sessionPendingOrderId = (int)($pendingOrders[$productId] ?? 0);
-        if ($pendingOrderId <= 0) {
-            $pendingOrderId = $sessionPendingOrderId;
+        // Prefer the server cart line's pending_order_id (written by Set Price /
+        // update_service_link). Do not require pos_pending_orders[serviceId] to
+        // match — that map is often missing/stale after Set Price return and was
+        // causing Poster Printing (and similar) checkout 409s despite valid assignments.
+        $resolved = printflow_pos_checkout_resolve_service_pending_order($item, $pendingOrders, $sessionCart);
+        if (($resolved['status'] ?? '') === 'error') {
+            return (string)($resolved['message'] ?? 'The assigned service materials could not be verified for this POS item. Open Set Price again and retry.');
         }
-        if ($pendingOrderId <= 0) {
+        if (($resolved['status'] ?? '') !== 'ok') {
             continue;
         }
-        if ($productId <= 0 || $sessionPendingOrderId !== $pendingOrderId) {
-            return 'The assigned service materials could not be verified for this POS item. Open Set Price again and retry.';
+        $pendingOrderId = (int)($resolved['pending_order_id'] ?? 0);
+        if ($pendingOrderId <= 0) {
+            continue;
         }
         $pendingItemId = (int)($item['pending_order_item_id'] ?? 0);
-        $jobSql = 'SELECT id FROM job_orders WHERE order_id = ?';
-        $jobTypes = 'i';
-        $jobParams = [$pendingOrderId];
-        if ($pendingItemId > 0 && db_table_has_column('job_orders', 'order_item_id')) {
-            $jobSql .= ' AND order_item_id = ?';
-            $jobTypes .= 'i';
-            $jobParams[] = $pendingItemId;
-        }
-        $jobs = db_query($jobSql . ' ORDER BY id ASC LIMIT 1', $jobTypes, $jobParams) ?: [];
-        $jobId = (int)($jobs[0]['id'] ?? 0);
-        if ($jobId <= 0) {
-            continue;
-        }
-        $assignments = JobOrderService::getScopedMaterialsPublic($jobId, false, false);
-        if ($assignments === []) {
-            continue;
+        if ($pendingItemId <= 0) {
+            $sessionLine = printflow_pos_checkout_match_session_service_line($item, $sessionCart);
+            if ($sessionLine !== null) {
+                $pendingItemId = (int)($sessionLine['pending_order_item_id'] ?? 0);
+            }
         }
         $qty = pos_checkout_parse_positive_quantity($item['qty'] ?? null);
-        try {
-            $issues = JobOrderService::validatePendingMaterialStockPublic($jobId, $qty);
-        } catch (RuntimeException $stockError) {
-            return $stockError->getMessage();
-        }
-        if ($issues !== []) {
-            $issue = $issues[0];
-            $uom = trim((string)($issue['uom'] ?? ''));
-            $required = rtrim(rtrim(number_format((float)$issue['required'], 3, '.', ''), '0'), '.');
-            $available = rtrim(rtrim(number_format((float)$issue['available'], 3, '.', ''), '0'), '.');
-            return (string)$issue['name'] . ' has only ' . $available . ($uom !== '' ? ' ' . $uom : '') . ' available; ' . $required . ($uom !== '' ? ' ' . $uom : '') . ' required.';
+        $stockError = printflow_pos_checkout_evaluate_pending_material_stock(
+            $pendingOrderId,
+            $pendingItemId,
+            $qty,
+            static function (int $orderId, int $orderItemId): int {
+                $jobSql = 'SELECT id FROM job_orders WHERE order_id = ?';
+                $jobTypes = 'i';
+                $jobParams = [$orderId];
+                if ($orderItemId > 0 && db_table_has_column('job_orders', 'order_item_id')) {
+                    $jobSql .= ' AND order_item_id = ?';
+                    $jobTypes .= 'i';
+                    $jobParams[] = $orderItemId;
+                }
+                $jobs = db_query($jobSql . ' ORDER BY id ASC LIMIT 1', $jobTypes, $jobParams) ?: [];
+                return (int)($jobs[0]['id'] ?? 0);
+            },
+            static function (int $jobId, int $quantity): array {
+                $assignments = JobOrderService::getScopedMaterialsPublic($jobId, false, false);
+                if ($assignments === []) {
+                    return [];
+                }
+                return JobOrderService::validatePendingMaterialStockPublic($jobId, $quantity);
+            }
+        );
+        if ($stockError !== null) {
+            return $stockError;
         }
     }
     return null;
@@ -1698,7 +1705,8 @@ if ($isPayMongo && !empty($sessionContext['pos_paymongo_checkouts'][$checkoutTok
         printflow_pos_assert_cart_branch($retryBranchId);
         $retryStockError = pos_checkout_validate_assigned_service_materials(
             (array)($data['items'] ?? []),
-            (array)($sessionContext['pos_pending_orders'] ?? [])
+            (array)($sessionContext['pos_pending_orders'] ?? []),
+            array_values((array)($sessionContext['pos_cart'] ?? []))
         );
         if ($retryStockError !== null) throw new RuntimeException($retryStockError);
     } catch (Throwable $retryStockError) {
@@ -1835,7 +1843,11 @@ foreach ((array)($serviceStockValidation['tarpaulin_selections'] ?? []) as $line
     $items[$lineIndex]['customization'] = $customization;
 }
 
-$serviceMaterialError = pos_checkout_validate_assigned_service_materials($items, $pos_pending_orders_snapshot);
+$serviceMaterialError = pos_checkout_validate_assigned_service_materials(
+    $items,
+    $pos_pending_orders_snapshot,
+    $sessionCart
+);
 if ($serviceMaterialError !== null) {
     http_response_code(409);
     echo json_encode(['success' => false, 'stage' => 'service_material_stock_validation', 'message' => pos_checkout_staff_facing_material_error($serviceMaterialError, $items)]);

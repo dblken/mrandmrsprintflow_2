@@ -109,8 +109,10 @@ $assert(str_contains($validatorBody, "if (\$serviceId === 40 && !array_key_exist
     'Tarpaulin POS stock checks select the narrowest mapped roll from Width/Height using linear_ft_v1.');
 $assert(!str_contains($checkout, 'pos_checkout_pair_tarpaulin_cart_lines'),
     'Current checkout does not require a calculated Tarpaulin panel plan.');
-$assert(str_contains($checkout, 'pos_checkout_validate_assigned_service_materials($items, $pos_pending_orders_snapshot)')
-    && str_contains($checkout, 'validatePendingMaterialStockPublic($jobId, $qty)'),
+$assert(str_contains($checkout, 'pos_checkout_validate_assigned_service_materials(')
+    && str_contains($checkout, '$pos_pending_orders_snapshot')
+    && str_contains($checkout, '$sessionCart')
+    && str_contains($checkout, 'validatePendingMaterialStockPublic($jobId, $quantity)'),
     'Checkout revalidates the material and actual quantity saved in Production Assignment.');
 $assert(str_contains($jobApi, "\$metadata['actual_usage_version'] = 'manual_v1';")
     && str_contains($jobApi, 'getStockOnHandForUpdate($itemId, $branchId)'),

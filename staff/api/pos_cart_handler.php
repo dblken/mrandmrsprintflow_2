@@ -961,6 +961,15 @@ try {
             }
 
             $_SESSION['pos_cart'][$index]['pending_order_id'] = $pending_order_id;
+            // Keep the service→draft map aligned with the cart line so checkout
+            // material revalidation can fall back to it when needed.
+            $linkedProductId = (int)($_SESSION['pos_cart'][$index]['product_id'] ?? 0);
+            if ($linkedProductId > 0) {
+                if (!isset($_SESSION['pos_pending_orders']) || !is_array($_SESSION['pos_pending_orders'])) {
+                    $_SESSION['pos_pending_orders'] = [];
+                }
+                $_SESSION['pos_pending_orders'][$linkedProductId] = $pending_order_id;
+            }
             if ($customization_id > 0) {
                 $_SESSION['pos_cart'][$index]['pending_customization_id'] = $customization_id;
             }

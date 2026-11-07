@@ -3522,10 +3522,6 @@ $online_closed_count = 0;
                                         <span style="color:#06A1A1; font-weight:600; margin-left:8px;" x-show="m.deducted_at">✓ Deducted</span>
                                     </div>
                                 </div>
-                                <button type="button" x-show="canReopenMaterialUsage(m)" @click="reopenAssignedMaterialUsage(m.id)"
-                                        style="flex-shrink:0;margin-left:10px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:6px 9px;color:#334155;font-size:11px;font-weight:700;cursor:pointer;">
-                                    Edit Actual Usage
-                                </button>
                             </div>
                         </template>
                     </div>
@@ -12141,15 +12137,13 @@ window.pfServiceFieldCatalog = (() => {
                 const item = this.allInventoryItems.find(i => i.id == itemId);
                 return item && item.category_id == 1;
             },
-            async removeMaterial(jomId, options = {}) {
+            async removeMaterial(jomId) {
                 if (!jomId || !this.beginModalAction()) return;
                 this.assignmentActionFeedback = '';
                 const assignedRow = (Array.isArray(this.currentJo && this.currentJo.materials) ? this.currentJo.materials : [])
                     .find(material => String(material.id || '') === String(jomId));
                 const materialName = String(assignedRow && (assignedRow.item_name || assignedRow.name) || 'this material');
-                const confirmationMessage = options.pendingMaterial
-                    ? `Reopen ${materialName} actual usage? The existing undeducted assignment will be corrected and audited. Enter and confirm the actual quantity, then save Set Price to reapply it. This is available only before production starts and before inventory is deducted.`
-                    : `Remove ${materialName} from this assignment? The correction will be recorded. This is available only before production starts and before inventory is deducted.`;
+                const confirmationMessage = `Remove ${materialName} from this assignment? The correction will be recorded. This is available only before production starts and before inventory is deducted.`;
                 if (!window.confirm(confirmationMessage)) {
                     this.endModalAction();
                     return;
@@ -12174,17 +12168,12 @@ window.pfServiceFieldCatalog = (() => {
                         ...this.currentJo,
                         materials: currentMaterials.filter(material => String(material.id || '') !== String(jomId)),
                     };
-                    if (options.pendingMaterial && !this.pendingMaterials.some(material => String(material.item_id || '') === String(options.pendingMaterial.item_id || ''))) {
-                        this.pendingMaterials.push(options.pendingMaterial);
-                    }
                     if (removedItemId && String(this.newMaterialId || '') === removedItemId) {
                         this.newMaterialId = '';
                     }
                     const refreshed = await this.refreshMaterials();
                     this.assignmentActionFeedback = refreshed
-                        ? (options.pendingMaterial
-                            ? `${materialName} was reopened for actual-usage entry. Confirm the quantity and save Set Price to restore the assignment.`
-                            : (result.message || 'The undeducted assignment was removed and recorded. It can be selected again if appropriate.'))
+                        ? (result.message || 'The undeducted assignment was removed and recorded. It can be selected again if appropriate.')
                         : 'The assignment was removed and recorded, but the material list could not refresh. Reload the order before making another change.';
                 } catch (error) {
                     if (serverRemovalConfirmed) {
@@ -12195,61 +12184,6 @@ window.pfServiceFieldCatalog = (() => {
                 } finally {
                     this.endModalAction();
                 }
-            },
-            canReopenMaterialUsage(material) {
-                if (!this.isPosSetPriceFlow() || !material) return false;
-                if ((Array.isArray(this.pendingMaterials) ? this.pendingMaterials : [])
-                    .some(row => String(row.item_id || '') === String(material.item_id || ''))) return false;
-                const assignments = (Array.isArray(this.currentJo?.materials) ? this.currentJo.materials : [])
-                    .filter(row => String(row.item_id || '') === String(material.item_id || ''));
-                if (assignments.length !== 1) return false;
-                const row = assignments[0];
-                const deductedAt = String(row.deducted_at || '').trim();
-                return !!row.id && (!deductedAt || deductedAt === '0000-00-00 00:00:00');
-            },
-            reopenAssignedMaterialUsage(jomId) {
-                const row = (Array.isArray(this.currentJo?.materials) ? this.currentJo.materials : [])
-                    .find(material => String(material.id || '') === String(jomId || ''));
-                if (!row || !this.canReopenMaterialUsage(row)) return;
-                const itemId = Number(row.item_id || 0);
-                const item = this.getInventoryItem(itemId);
-                if (!Number.isInteger(itemId) || itemId <= 0 || !item) {
-                    this.showStaffAlert('Material Not Changed', 'The inventory unit could not be verified. Refresh the order before correcting actual usage.');
-                    return;
-                }
-                let metadata = row.metadata;
-                if (typeof metadata === 'string') {
-                    try { metadata = JSON.parse(metadata); } catch (_) { metadata = {}; }
-                }
-                metadata = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? { ...metadata } : {};
-                const rawQuantity = row.quantity ?? '';
-                const numericQuantity = rawQuantity !== '' && Number.isFinite(Number(rawQuantity)) ? Number(rawQuantity) : null;
-                const usage = metadata.material_usage && typeof metadata.material_usage === 'object'
-                    ? { ...metadata.material_usage }
-                    : {};
-                usage.actual = numericQuantity;
-                usage.method = String(usage.method || item.consumption_method || 'manual');
-                usage.staff_confirmed = false;
-                usage.manual_actual_usage_confirmed = false;
-                usage.overridden = false;
-                metadata.material_usage = usage;
-                const pendingMaterial = {
-                    item_id: itemId,
-                    name: String(row.item_name || item.name || 'Material'),
-                    size_variant: String(row.size_variant || item.size_variant || ''),
-                    qty: rawQuantity,
-                    uom: this.getMaterialEntryUom(itemId),
-                    roll_id: row.roll_id || '',
-                    notes: row.notes || '',
-                    metadata,
-                    estimated_qty: Number.isFinite(Number(usage.estimate)) && Number(usage.estimate) > 0 ? Number(usage.estimate) : null,
-                    usage_method: usage.method,
-                    usage_estimate_reason: 'Reopened from a saved assignment for staff actual-usage confirmation.',
-                    manual_confirmation_required: true,
-                    manual_quantity_confirmed: false,
-                    actual_usage_overridden: false
-                };
-                this.removeMaterial(jomId, { pendingMaterial });
             },
             async refreshMaterials() {
                 const jid = await this.resolveEffectiveJobId();
