@@ -11,8 +11,9 @@ $sw = $read('public/sw.php');
 $manifest = $read('public/manifest.php');
 $shopConfig = $read('includes/shop_config.php');
 
-if (strpos($rules, 'Current service material quantities are entered by staff in Production') === false
-    || strpos($rules, 'return [];') === false) {
+if (strpos($rules, 'Non-Tarpaulin POS captures customer specifications only. Exact') === false
+    || strpos($rules, 'material and quantity are checked after staff records actual use.') === false
+    || strpos($rules, 'printflow_pos_material_demand_for_area(') !== false) {
     throw new RuntimeException('Active POS material demand must not be calculated from service multipliers or dimensions.');
 }
 if (strpos($rules, "if (!array_key_exists('pos_material_assignments', \$line))") === false

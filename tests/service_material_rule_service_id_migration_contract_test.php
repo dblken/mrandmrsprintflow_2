@@ -43,8 +43,10 @@ $assert(str_contains($freshSchema, '`service_id` int(11) DEFAULT NULL')
     && str_contains($freshSchema, '`qty_multiplier_basis` varchar(24) DEFAULT NULL')
     && str_contains($freshSchema, '`qty_multiplier_approved_basis` varchar(24) DEFAULT NULL')
     && str_contains($freshSchema, 'UNIQUE KEY `uq_smr_service_item`'), 'Fresh-install schema includes stable nullable identity, multiplier bases, and duplicate protection.');
-$assert(str_contains($identity, 'service_id = ?') && str_contains($identity, 'service_id IS NULL')
-    && str_contains($api, 'Stable service identity is not installed yet'), 'Runtime prefers stable IDs, supports explicit legacy rows, and refuses writes before migration.');
+$assert(str_contains($identity, 'service_id = ?') && str_contains($identity, 'service_id IS NULL'),
+    'Runtime identity helper prefers stable IDs and still supports explicit legacy rows.');
+$assert(str_contains($api, "http_response_code(410)") && str_contains($api, "'available' => false"),
+    'Admin configuration API remains as an unavailable stub; migration safety is enforced by the identity helper and migration script, not a live writer.');
 $assert(!preg_match('/(?:DELETE|UPDATE)\\s+service_material_rules[^;]*qty_multiplier|(?:DELETE|UPDATE)\\s+service_material_rules[^;]*qty_multiplier_approved/is', $migration), 'Migration never changes multiplier or approval fields.');
 
 echo "Service material service_id migration contract tests passed.\n";

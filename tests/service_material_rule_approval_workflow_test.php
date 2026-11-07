@@ -33,19 +33,18 @@ $assert($new['changed'] && !$new['approved'] && $new['approved_by'] === null && 
 
 $api = (string)file_get_contents(dirname(__DIR__) . '/admin/service_material_rules_api.php');
 $ui = (string)file_get_contents(dirname(__DIR__) . '/admin/inv_items_management.php');
-$assert(str_contains($api, 'printflow_service_material_rule_admin_allowed(get_user_type())')
-    && str_contains($api, "http_response_code(403)"), 'Direct API requests from Manager and Staff are denied by the tested exact Admin role guard.');
-$assert(str_contains($api, "verify_csrf_token((string)(\$_POST['csrf_token'] ?? '')") && str_contains($ui, "form.set('csrf_token', window.PF_INVENTORY_CSRF || '')"), 'Mutations require the existing CSRF token and UI submits it.');
-$assert(str_contains($api, "\$_POST['action'] ?? ''") && str_contains($api, 'qty_multiplier_approved_by = ?, qty_multiplier_approved_at = NOW()'), 'Approval records Admin ID and timestamp.');
-$assert(str_contains($api, 'qty_multiplier_approved_by') && str_contains($api, 'qty_multiplier_approved_at'), 'API reads and exposes approval audit fields.');
-$assert(str_contains($api, 'Only REQUIRED service material rules can be approved.') && str_contains($api, 'Set a valid positive multiplier before approving'), 'OPTIONAL approval and invalid/missing multipliers are rejected.');
-$assert(str_contains($api, 'qty_multiplier_approved = 0') && str_contains($api, 'qty_multiplier_approved_by = NULL, qty_multiplier_approved_at = NULL'), 'Multiplier changes clear approval and require an explicit separate approval action.');
-$assert(str_contains($ui, 'service_name') && str_contains($ui, 'material_name') && str_contains($ui, 'inventory_uom') && str_contains($ui, 'rule_type') && str_contains($ui, 'qty_multiplier_approved'), 'Admin UI shows service, material, UOM, rule type, multiplier, and approval status.');
-$assert(str_contains($ui, 'if (is_admin())') && !str_contains((string)file_get_contents(dirname(__DIR__) . '/admin/inventory_management.php'), 'serviceMaterialApprovalPanel'), 'Approval UI is rendered only in the Admin view; redirect stub remains untouched.');
-$assert(str_contains($api, 'WHERE r.id = ? FOR UPDATE'), 'Mutations lock the selected rule and preserve its ID and inventory mapping.');
-$assert(str_contains($api, 'printflow_pos_known_service_material_conflict') && str_contains($api, 'if ($action === \'approve\')'),
-    'Known Plates-only materials cannot be Admin-approved against Sintraboard Standees.');
-$assert(str_contains($ui, 'service-material-rule-actions') && str_contains($ui, 'overflow: visible'),
-    'Approval action cell escapes the generic clipped inventory table cell styling.');
+$assert(str_contains($api, "http_response_code(410)")
+    && str_contains($api, "'available' => false")
+    && str_contains($api, 'Service Material Rules configuration is unavailable'),
+    'The exclusive Admin configuration API is retired with a clear feature-unavailable response.');
+$assert(!preg_match('/\b(?:INSERT|UPDATE|DELETE)\b/i', $api), 'Retired API no longer mutates service material rules.');
+$assert(!str_contains($ui, 'serviceMaterialApprovalPanel')
+    && !str_contains($ui, 'Service Material Rules')
+    && !str_contains($ui, 'pfApproveServiceMaterialRule'),
+    'Inventory Items no longer hosts the approval UI or mutation controls.');
+$assert(!str_contains((string)file_get_contents(dirname(__DIR__) . '/admin/inventory_management.php'), 'serviceMaterialApprovalPanel'),
+    'Redirect stub remains untouched and does not reintroduce the panel.');
+$assert(is_file(dirname(__DIR__) . '/includes/service_material_rule_approval.php'),
+    'Shared approval helper remains available for readers and historical audit interpretation.');
 
 echo "Service material approval workflow tests passed.\n";

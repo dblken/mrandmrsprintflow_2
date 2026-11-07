@@ -102,15 +102,15 @@ $assert(!printflow_service_material_rule_display_row_is_editable('Sintraboard St
 $assert(printflow_service_material_rule_display_row_is_editable('Sintraboard Standees', 23, $active, 'Pp Stkr Matte 98'), 'The verified Sintraboard rule remains configurable.');
 $assert(!printflow_service_material_rule_display_row_is_editable('Sintraboard Standees', 23, $active, 'Changed inventory name'), 'Changed item identity cannot be mutated through the display API.');
 $assert(!printflow_service_material_rule_display_row_is_editable('Tarpaulin Printing', 13, array_filter($active, static fn($row) => (int)$row['service_id'] !== 40)), 'Inactive/missing service cannot receive rule changes.');
-$assert(str_contains($apiSource, "WHERE status = 'Activated'")
-    && str_contains($apiSource, 'printflow_service_material_rule_display_groups($activeServices ?: [], $ruleRows, $mugsRule)'), 'Admin API derives display groups from the activated service catalog and explicit registry.');
-$assert(!str_contains($apiSource, 'SELECT MIN(s2.service_id)')
-    && str_contains($apiSource, 'INNER JOIN inv_items i ON i.id = r.item_id AND UPPER(TRIM(i.status)) = \'ACTIVE\''), 'Fuzzy service-name joins are removed and inactive materials are not offered.');
-$assert(str_contains($apiSource, 'printflow_pos_service_material_type_aliases((int)$serviceId)')
-    && str_contains($apiSource, 'printflow_service_material_rule_identity_scope((int)$serviceId, $acceptedTypes, \'r\', $hasServiceIdColumn)'), 'Admin rule creation checks stable service IDs and explicit legacy aliases to prevent duplicate canonical rules.');
-$assert(str_contains($uiSource, 'Array.isArray(data.groups)')
-    && str_contains($uiSource, 'group.materials.map')
-    && str_contains($uiSource, 'No materials mapped yet.')
-    && str_contains($uiSource, 'Dedicated active Mugs POS rule'), 'Admin UI renders explicit groups, empty states, and the read-only Mugs POS rule.');
+$assert(str_contains($apiSource, "http_response_code(410)")
+    && str_contains($apiSource, "'available' => false"),
+    'Admin configuration API is unavailable after Service Material Rules UI removal.');
+$assert(!str_contains($uiSource, 'serviceMaterialApprovalPanel')
+    && !str_contains($uiSource, 'Dedicated active Mugs POS rule')
+    && !str_contains($uiSource, 'No materials mapped yet.'),
+    'Inventory Items no longer renders Service Material Rules display groups.');
+$assert(function_exists('printflow_service_material_rule_display_groups')
+    && function_exists('printflow_service_material_rule_display_registry'),
+    'Shared display helpers remain available for Production Assignment and related readers.');
 
 echo "Service material rule display tests passed.\n";

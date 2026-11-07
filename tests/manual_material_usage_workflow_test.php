@@ -43,7 +43,7 @@ foreach ([$stock, $assignment, $service, $counterUi, $adminUi, $js] as $source) 
 
 $assert(str_contains($stock, 'if (!array_key_exists(\'pos_material_assignments\', $line))')
     && str_contains($stock, '// Non-Tarpaulin POS captures customer specifications only. Exact')
-    && str_contains($stock, '// Current service material quantities are entered by staff in Production')
+    && str_contains($stock, '// material and quantity are checked after staff records actual use.')
     && !str_contains($stock, 'printflow_pos_material_demand_for_area(')
     && str_contains($stock, 'printflow_tarpaulin_resolve_candidate('),
     'Non-Tarpaulin POS stock validation stays assignment-based; Tarpaulin uses mapped linear roll-fit without area multipliers.');
@@ -66,8 +66,10 @@ $assert(str_contains($counterUi, 'Enter the actual quantity used in the inventor
     && str_contains($counterUi, 'manual_confirmation_required: true')
     && !str_contains($counterUi, 'minimum required quantity'),
     'Counter Staff sees an empty manual Actual Usage input; dimensions and estimates do not prefill or impose a minimum.');
-$assert(str_contains($adminUi, 'they do not calculate current assignment quantities'),
-    'Admin multiplier/basis values remain stored for history but are clearly marked as inactive for current quantities.');
+$assert(!str_contains($adminUi, 'serviceMaterialApprovalPanel')
+    && !str_contains($adminUi, 'Service Material Rules')
+    && is_file(dirname(__DIR__) . '/includes/service_material_rule_assignments.php'),
+    'Admin Service Material Rules configuration is removed from Inventory Items while shared rule/audit helpers remain for preserved history.');
 $assert(str_contains($js, 'function estimate()')
     && str_contains($js, "status: 'manual'")
     && !str_contains($js, 'demandForArea')

@@ -30,33 +30,16 @@ $assert(printflow_service_material_bulk_rule_state($approved, '1.25', 'AREA_SQFT
 
 $api = (string)file_get_contents(dirname(__DIR__) . '/admin/service_material_rules_api.php');
 $ui = (string)file_get_contents(dirname(__DIR__) . '/admin/inv_items_management.php');
-$assert(str_contains($api, 'Only REQUIRED service material rules can be approved.'), 'The direct API rejects attempts to approve OPTIONAL rules.');
-$assert(str_contains($api, "['bulk_preview', 'bulk_process']") && str_contains($api, "confirm_bulk") && str_contains($api, 'verify_csrf_token'), 'Bulk endpoints require the existing CSRF contract and explicit process confirmation.');
-$assert(str_contains($api, '$allowedServiceIds = [36, 39, 64, 67, 71]') && str_contains($api, 'GET_LOCK(?, 5)'), 'Bulk processing is restricted to the five approved active services and uses per-rule mutual exclusion.');
-$assert(str_contains($api, 'created_unapproved') && str_contains($api, 'qty_multiplier_approved_by = ?') && str_contains($api, 'Admin approval audit verification failed'), 'Creation remains unapproved and approval audit is verified after updates.');
-$assert(str_contains($api, 'Multiple canonical/alias rules exist') && str_contains($api, 'unsupported for '), 'Ambiguous duplicates and invalid UOMs fail closed with a row-level reason.');
-$assert(str_contains($api, "\$expectedBasis = printflow_pos_material_selection_consumption_basis(\$serviceId) ?? ''")
-    && str_contains($api, "\$expectedBasis = printflow_pos_material_selection_consumption_basis((int)\$requestedServiceId)")
-    && str_contains($api, "'PER_ITEM' ? 'inventory-units-per-plate/item'"),
-    'Admin single-row and bulk approval use the service-specific expected basis and explain the Plates per-item rate');
-$assert(str_contains($ui, 'Process All') && str_contains($ui, 'bulk_preview') && str_contains($ui, 'window.confirm(confirmation)') && str_contains($ui, 'serviceMaterialBulkResultRows'), 'The Admin UI previews, confirms, and reports detailed per-row results.');
-$assert(str_contains($ui, '&& required && basisReady && multiplierReady) actions +=')
-    && !str_contains($ui, "(required ? 'Approve REQUIRED' : 'Approve multiplier')"), 'Only REQUIRED rows with a saved valid basis and positive multiplier render an approval action; OPTIONAL rows explain approval does not apply.');
-$assert(str_contains($ui, 'pfReadServiceMaterialApiResponse') && str_contains($ui, 'invalid response (HTTP ') && str_contains($ui, 'pfSetServiceMaterialRowBusy'), 'Create, save, approve, and bulk requests parse errors safely and prevent duplicate row submissions.');
-$assert(str_contains($ui, "serviceId === 39 ? 'PER_ITEM' : 'AREA_SQFT'")
-    && str_contains($ui, 'Inventory Units Per Plate/Item')
-    && str_contains($ui, "serviceId === 39 && storedBasis !== 'PER_ITEM' ? '' : storedMultiplier")
-    && str_contains($ui, 'required && basisReady && multiplierReady')
-    && str_contains($ui, 'Prior area rate is not valid for standard Plates'),
-    'The Admin UI labels Plates as per-item, does not present a stale area rate as approved configuration, and withholds approval until the correct basis and positive rate are saved.');
-$assert(str_contains($api, '$dbErrorsBeforeRuleLookup = count(printflow_db_errors())') && str_contains($api, 'No create or approval is safe until this query succeeds.'), 'Bulk processing never treats a failed rule SELECT as a missing rule to create.');
-$assert(str_contains($api, 'service_material_rule_bulk_failure') && str_contains($api, 'Reference '), 'Failed rows include a reference linked to a structured server diagnostic without exposing raw DB details in the UI.');
-$assert(!str_contains($api, "'detail' => substr") && !str_contains($api, 'safeDetail'), 'Failure logs do not record raw exception text that could include SQL or connection details.');
-$assert(str_contains($api, 'WHERE id = ? LIMIT 1 FOR UPDATE') && str_contains($api, 'qty_multiplier_approved_basis') && str_contains($api, 'approved_at_is_null'), 'New-rule verification reads back the exact inserted ID and checks identity, multiplier, basis, and all approval audit fields.');
-$assert(str_contains($api, 'verification_reason') && str_contains($api, 'stage') && str_contains($api, 'service_material_rule_create_failure'), 'Creation failures log a safe stage and reference without raw database exception messages.');
-$assert(substr_count($api, 'pf_service_rule_identity_mismatch_fields(') >= 3 && str_contains($api, "'service_type'") && str_contains($api, "'item_id'") && str_contains($api, 'Stored identity mismatch in field(s):'), 'Single and bulk create responses identify the exact mismatched identity field without exposing raw database errors.');
-$assert(substr_count($api, 'FROM service_material_rules WHERE id = ? LIMIT 1 FOR UPDATE') >= 2 && !str_contains($api, "db_query('SELECT id, service_type, item_id, rule_type, qty_multiplier, qty_multiplier_approved FROM service_material_rules WHERE id = ? LIMIT 1'"), 'Both single-row and bulk creation verify the exact inserted ID with a direct prepared read and avoid db_query empty-result ambiguity.');
-$assert(str_contains($api, "'safe_reason' => \$safeFailureReason !== '' ? \$safeFailureReason") && str_contains($api, "'Reference ' . \$errorReference"), 'Bulk create verification failures retain a safe actionable reason and reference code while rolling back.');
-$assert(str_contains($ui, 'service-material-row-feedback') && str_contains($ui, 'pfSetServiceMaterialRowFeedback(trigger, error.message, true)'), 'Create/save/approve failures render beside the affected row while retaining global feedback.');
-$assert(str_contains($ui, 'Unapproved rule created successfully. Configure the multiplier and basis before approval.'), 'A successful create reports unapproved status and keeps configuration and approval as later explicit steps.');
+$assert(str_contains($api, "http_response_code(410)")
+    && str_contains($api, "'available' => false")
+    && str_contains($api, 'Service Material Rules configuration is unavailable'),
+    'Bulk/create/approve admin routes are retired behind a feature-unavailable response.');
+$assert(!str_contains($api, 'bulk_process') && !str_contains($api, 'bulk_preview') && !preg_match('/\b(?:INSERT|UPDATE|DELETE)\b/i', $api),
+    'Retired API no longer exposes bulk mutation actions or SQL writes.');
+$assert(!str_contains($ui, 'Process All')
+    && !str_contains($ui, 'serviceMaterialBulkResultRows')
+    && !str_contains($ui, 'pfProcessAllServiceMaterialRules'),
+    'Inventory Items no longer hosts Process All / bulk preview UI.');
+$assert(is_file(dirname(__DIR__) . '/includes/service_material_rule_bulk.php'),
+    'Shared bulk helper remains on disk for historical contract coverage without an active admin writer.');
 echo "Service material bulk workflow contract tests passed.\n";
