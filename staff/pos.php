@@ -5805,6 +5805,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 && Number(serviceCustomization.width) > 0
                 && Number(serviceCustomization.height) > 0
                 && ['ft', 'in', 'cm', 'mm'].includes(String(serviceCustomization.pos_material_dimension_unit || '').toLowerCase());
+            const stickerLaminateReady = Number(serviceId) === 36
+                && Object.values(serviceCustomization).some(value => {
+                    const selected = String(value || '').trim();
+                    return /^(?:Glossy Sticker (?:Printed|Cut Out)|Matte Sticker Printed)\b/i.test(selected)
+                        && /\d+(?:\.\d+)?\s*(?:ft|feet|foot|in|inch|inches|cm|mm|m|\")\s*[x×*]\s*\d+(?:\.\d+)?/i.test(selected);
+                });
             const plateTypeRaw = String(
                 serviceCustomization.type_of_plates
                 || serviceCustomization['Type Of Plates']
@@ -5827,6 +5833,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (typeof validateServiceOrderForm === 'function' && !validateServiceOrderForm().valid
                 && Number(serviceId) !== 63
                 && !(paperEarlyStock && paperDimsReady)
+                && !stickerLaminateReady
                 && !plateTypeSelected
                 && !sintraThicknessSelected) {
                 posSetServiceStockState(false, '', '');

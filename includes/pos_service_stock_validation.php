@@ -18,6 +18,7 @@ require_once __DIR__ . '/pos_plates_release_rule.php';
 require_once __DIR__ . '/pos_sintraboard_early_stock.php';
 require_once __DIR__ . '/pos_tarpaulin_release_rule.php';
 require_once __DIR__ . '/tarpaulin_material_calculation.php';
+require_once __DIR__ . '/pos_sticker_laminate_early_stock.php';
 
 /** Read open rolls without invoking InventoryManager's schema-ensure helper. */
 function printflow_pos_tarpaulin_open_rolls(int $itemId, int $branchId): array
@@ -28,7 +29,7 @@ function printflow_pos_tarpaulin_open_rolls(int $itemId, int $branchId): array
     }
     [$branchSql] = printflow_roll_branch_sql('branch_id', $branchId);
     $rows = db_query(
-        "SELECT id, roll_code, width_ft, remaining_length_ft, received_at, status FROM inv_rolls WHERE item_id = ? AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC, id ASC",
+        "SELECT id, branch_id, roll_code, width_ft, remaining_length_ft, received_at, status FROM inv_rolls WHERE item_id = ? AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC, id ASC",
         'ii',
         [$itemId, $branchId]
     );
@@ -387,6 +388,10 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
     $tarpaulinItemIds = [];
     $tarpaulinPhysicalIssues = [];
     $tarpaulinPlans = [];
+    $stickerLaminatePlans = [];
+    $stickerLaminateItemIds = [];
+    $stickerLaminateRollsByItem = [];
+    $stickerLaminatePhysicalIssues = [];
     $materialSelectionsByLine = [];
     $availabilityProbes = [];
     foreach (array_values($lines) as $lineIndex => $line) {
@@ -546,6 +551,47 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                 }
                 continue;
             }
+            // Stickers/Decals: validate only the laminate implied by the
+            // configured finish/size choice. Colored/base sticker materials
+            // remain a Production Assignment concern. This is a read-only
+            // physical-roll fit check and does not reserve or deduct stock.
+            if ($serviceId === 36) {
+                $selection = printflow_pos_sticker_laminate_selection(
+                    $line,
+                    printflow_pos_service_dimension_configs($serviceId) ?: []
+                );
+                if ($selection !== null) {
+                    $requestedBranch = (int)($customization['branch_id'] ?? 0);
+                    if ($requestedBranch > 0 && $requestedBranch !== $branchId) {
+                        throw new RuntimeException('Laminate stock must be validated for the selected POS branch. Reopen the service and try again.');
+                    }
+                    $itemId = (int)$selection['item_id'];
+                    $item = InventoryManager::getItem($itemId);
+                    if (!$item) throw new RuntimeException('The selected Sticker/Decals laminate is unavailable. Contact an administrator.');
+                    $rollWidthFt = printflow_pos_sticker_laminate_roll_width_ft($itemId, $item);
+                    $plan = printflow_pos_sticker_laminate_panel_plan($selection, $rollWidthFt);
+                    $rolls = array_values(array_filter(
+                        printflow_pos_sticker_laminate_filter_branch_rolls(
+                            printflow_pos_tarpaulin_open_rolls($itemId, $branchId),
+                            $branchId
+                        ),
+                        static function (array $roll) use ($rollWidthFt): bool {
+                            $physicalWidth = (float)($roll['width_ft'] ?? 0);
+                            // Legacy rolls without a width inherit only their
+                            // exact item's configured width; conflicting widths fail closed.
+                            return $physicalWidth <= 0 || abs($physicalWidth - $rollWidthFt) <= 0.01;
+                        }
+                    ));
+                    $stickerLaminateItemIds[$itemId] = true;
+                    $stickerLaminateRollsByItem[$itemId] = $rolls;
+                    $stickerLaminatePlans[$lineIndex] = [
+                        'item_id' => $itemId,
+                        'plan' => $plan,
+                    ];
+                    $tracked = true;
+                }
+                continue;
+            }
             // Other non-Tarpaulin POS captures customer specifications only. Exact
             // material and quantity are checked after staff records actual use.
             continue;
@@ -597,8 +643,47 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
         continue;
     }
 
-    $issues = array_values($tarpaulinPhysicalIssues);
+    $issues = array_values(array_merge($tarpaulinPhysicalIssues, $stickerLaminatePhysicalIssues));
     $materials = [];
+    if ($stickerLaminatePlans !== []) {
+        foreach (array_keys($stickerLaminateItemIds) as $itemId) {
+            $itemId = (int)$itemId;
+            $plansForItem = array_filter(
+                $stickerLaminatePlans,
+                static fn(array $entry): bool => (int)($entry['item_id'] ?? 0) === $itemId
+            );
+            $allocation = printflow_tarpaulin_allocate_cart_panels(
+                $plansForItem,
+                [$itemId => ($stickerLaminateRollsByItem[$itemId] ?? [])]
+            );
+            $requiredByItem = (array)($allocation['required_by_item'] ?? []);
+            $item = InventoryManager::getItem($itemId);
+            if (!$item || strtoupper((string)($item['status'] ?? '')) !== 'ACTIVE') {
+                throw new RuntimeException('A selected Sticker/Decals laminate is no longer active. Contact an administrator.');
+            }
+            $rolls = $stickerLaminateRollsByItem[$itemId] ?? [];
+            $available = array_sum(array_map(static fn(array $roll): float => max(0.0, (float)($roll['remaining_length_ft'] ?? 0)), $rolls));
+            $required = (float)($requiredByItem[$itemId] ?? 0.0);
+            $entry = [
+                'item_id' => $itemId,
+                'name' => (string)$item['name'],
+                'uom' => (string)($item['unit_of_measure'] ?? 'ft'),
+                'required' => $required,
+                'available' => $available,
+                'physical_roll_validation' => true,
+            ];
+            $materials[] = $entry;
+            if (empty($allocation['ok'])) {
+                $entry['out_of_stock'] = $available <= 0;
+                $entry['message'] = $available <= 0
+                    ? $entry['name'] . ' is out of stock at this branch.'
+                    : 'Insufficient ' . $entry['name'] . ' stock for the selected dimensions and quantity. Available: '
+                        . rtrim(rtrim(number_format($available, 3, '.', ''), '0'), '.')
+                        . ' ft across rolls, but the required panels do not fit the remaining roll lengths.';
+                $issues[] = $entry;
+            }
+        }
+    }
     foreach (array_unique(array_merge(array_keys($demand), array_keys($availabilityProbes))) as $itemId) {
         $required = $demand[$itemId] ?? ['quantity' => 0.0, 'name' => $availabilityProbes[$itemId]['name'] ?? '', 'uom' => $availabilityProbes[$itemId]['uom'] ?? ''];
         $availableOnly = !isset($demand[$itemId]) && isset($availabilityProbes[$itemId]);
