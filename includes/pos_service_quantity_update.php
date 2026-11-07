@@ -8,6 +8,7 @@ require_once __DIR__ . '/service_design_fee.php';
 require_once __DIR__ . '/pos_quantity_validation.php';
 require_once __DIR__ . '/pos_mugs_release_rule.php';
 require_once __DIR__ . '/pos_plates_release_rule.php';
+require_once __DIR__ . '/pos_poster_release_rule.php';
 
 if (!function_exists('printflow_pos_scale_amount_by_quantity_ratio')) {
     /** Scale a positive amount by toQty/fromQty using cent-scale integer math for money-safe callers. */
@@ -69,6 +70,11 @@ if (!function_exists('printflow_pos_resolve_scaled_material_quantity')) {
             $scaledQty = printflow_pos_plates_scale_blank_usage($toQty);
             return printflow_pos_parse_positive_material_quantity($scaledQty, $item);
         }
+        // Poster primary sheet/pcs: keep staff Actual Usage; reject if it exceeds the new order qty.
+        if (printflow_pos_poster_primary_usage_is_capped($serviceId, $itemId, $item)) {
+            printflow_pos_poster_assert_primary_usage($serviceId, $itemId, $currentQty, $toQty, $item);
+            return printflow_pos_parse_positive_material_quantity($currentQty, $item);
+        }
 
         $scaledQty = printflow_pos_scale_amount_by_quantity_ratio($currentQty, $fromQty, $toQty);
         $uom = (string)($item['unit_of_measure'] ?? '');
@@ -122,6 +128,7 @@ if (!function_exists('printflow_pos_scale_material_assignment_rows')) {
                 throw new InvalidArgumentException('A material assignment quantity could not be scaled.');
             }
             $itemName = trim((string)($row['name'] ?? $row['item_name'] ?? ''));
+            $posterItem = null;
             if ($serviceId === 63 && printflow_pos_mugs_is_quantity_linked_material($itemId, $itemName)) {
                 $nextQty = printflow_pos_mugs_scale_quantity_linked_usage(
                     (float)$rawQty,
@@ -133,7 +140,41 @@ if (!function_exists('printflow_pos_scale_material_assignment_rows')) {
             } elseif (printflow_pos_plates_is_quantity_linked_blank($serviceId, $itemId, $customization)) {
                 $nextQty = printflow_pos_plates_scale_blank_usage($toQty);
             } else {
-                $nextQty = printflow_pos_scale_amount_by_quantity_ratio((float)$rawQty, $fromQty, $toQty);
+                $rowUom = trim((string)($row['uom'] ?? $row['unit_of_measure'] ?? ''));
+                if (printflow_pos_poster_is_primary_paper_item($serviceId, $itemId)) {
+                    if (class_exists('InventoryManager')) {
+                        $loaded = InventoryManager::getItem($itemId);
+                        if (is_array($loaded)) {
+                            $posterItem = $loaded;
+                            if ($rowUom === '') {
+                                $rowUom = trim((string)($loaded['unit_of_measure'] ?? ''));
+                            }
+                            if ($itemName === '') {
+                                $itemName = trim((string)($loaded['name'] ?? ''));
+                            }
+                        }
+                    }
+                    if ($posterItem === null) {
+                        $posterItem = [
+                            'id' => $itemId,
+                            'name' => $itemName,
+                            'unit_of_measure' => $rowUom,
+                        ];
+                    }
+                }
+                if (printflow_pos_poster_primary_usage_is_capped($serviceId, $itemId, $posterItem, $rowUom)) {
+                    printflow_pos_poster_assert_primary_usage(
+                        $serviceId,
+                        $itemId,
+                        (float)$rawQty,
+                        $toQty,
+                        $posterItem,
+                        $rowUom
+                    );
+                    $nextQty = (float)$rawQty;
+                } else {
+                    $nextQty = printflow_pos_scale_amount_by_quantity_ratio((float)$rawQty, $fromQty, $toQty);
+                }
             }
             $copy = $row;
             $copy['quantity'] = $nextQty;
@@ -157,6 +198,13 @@ if (!function_exists('printflow_pos_scale_material_assignment_rows')) {
                             );
                         } elseif (printflow_pos_plates_is_quantity_linked_blank($serviceId, $itemId, $customization)) {
                             $usage['actual'] = printflow_pos_plates_scale_blank_usage($toQty);
+                        } elseif (printflow_pos_poster_primary_usage_is_capped(
+                            $serviceId,
+                            $itemId,
+                            $posterItem ?? null,
+                            trim((string)($row['uom'] ?? $row['unit_of_measure'] ?? ''))
+                        )) {
+                            $usage['actual'] = (float)$usage['actual'];
                         } else {
                             $usage['actual'] = printflow_pos_scale_amount_by_quantity_ratio((float)$usage['actual'], $fromQty, $toQty);
                         }
@@ -450,6 +498,11 @@ if (!function_exists('printflow_pos_sync_job_quantity_and_scale_materials')) {
                     $customization
                 );
             } catch (InvalidArgumentException $error) {
+                $detail = trim($error->getMessage());
+                // Preserve order-qty cap messages (Poster primary / similar) verbatim.
+                if ($detail !== '' && str_contains($detail, 'cannot exceed the order quantity')) {
+                    throw new RuntimeException($detail);
+                }
                 $name = trim((string)($item['name'] ?? ('Material #' . $itemId)));
                 throw new RuntimeException(
                     $name . ' cannot be scaled to the new quantity while staying in its inventory unit. Open Set Price and enter the actual usage for the new quantity.'

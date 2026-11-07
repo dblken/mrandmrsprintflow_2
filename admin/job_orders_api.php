@@ -3297,6 +3297,27 @@ try {
                     throw new Exception($plateUsageError->getMessage());
                 }
             }
+            // Poster Printing primary sheet/pcs substrate cannot exceed ordered quantity.
+            if ((int)($materialContext['serviceId'] ?? 0) === 64 && $assignmentJobId > 0) {
+                require_once __DIR__ . '/../includes/pos_poster_release_rule.php';
+                $posterJobQtyRows = db_query(
+                    'SELECT quantity FROM job_orders WHERE id = ? LIMIT 1',
+                    'i',
+                    [$assignmentJobId]
+                ) ?: [];
+                $posterOrderQty = (int)($posterJobQtyRows[0]['quantity'] ?? 0);
+                try {
+                    printflow_pos_poster_assert_primary_usage(
+                        64,
+                        $itemId,
+                        (float)$qty,
+                        $posterOrderQty,
+                        is_array($quantityItem) ? $quantityItem : null
+                    );
+                } catch (InvalidArgumentException $posterUsageError) {
+                    throw new Exception($posterUsageError->getMessage());
+                }
+            }
             $uom = (string)($quantityItem['unit_of_measure'] ?? $uom);
             $startedMaterialTransaction = !printflow_db_in_transaction($conn);
             if ($startedMaterialTransaction && !$conn->begin_transaction()) {

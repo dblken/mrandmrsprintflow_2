@@ -4512,6 +4512,8 @@ window.pfServiceFieldCatalog = (() => {
                 if (!material || !this.isValidPosMaterialQuantity(material.qty, material.item_id)) return '';
                 const plateUsageError = this.platesBlankUsageError(material);
                 if (plateUsageError) return plateUsageError;
+                const posterUsageError = this.posterPrimaryUsageError(material);
+                if (posterUsageError) return posterUsageError;
                 const item = this.getInventoryItem(material.item_id);
                 if (!item) return '';
                 const available = Number(item.current_stock || 0);
@@ -4519,6 +4521,37 @@ window.pfServiceFieldCatalog = (() => {
                 const uom = material.uom || item.unit_of_measure || 'units';
                 if (!(needed > 0) || !(needed > available)) return '';
                 return `Insufficient ${item.name} stock: requested ${needed} ${uom}, available ${available} ${uom} in this branch.`;
+            },
+            /**
+             * Poster Printing poster_paper alternatives (212 / 211): Actual Usage
+             * cannot exceed ordered qty when inventory UOM is sheet or pcs.
+             */
+            posterPrimaryUsageError(material) {
+                const context = this.materialCompatibilityContext || {};
+                const serviceId = Number(context.serviceId || this.currentJo?.service_id || 0);
+                if (serviceId !== 64 || !material) return '';
+                const itemId = Number(material.item_id || 0);
+                // Registry-backed primary substrates only — not name inference.
+                const posterPrimaryIds = [212, 211];
+                if (!posterPrimaryIds.includes(itemId)) return '';
+                const item = this.getInventoryItem(itemId);
+                const uom = String(material.uom || item?.unit_of_measure || '').trim().toLowerCase();
+                if (!['sheet', 'sheets', 'pc', 'pcs', 'piece', 'pieces'].includes(uom)) return '';
+                const orderQty = Number(
+                    context.customerQuantity
+                    || this.currentJo?.quantity
+                    || this.currentJo?.qty
+                    || 0
+                );
+                const usageQty = Number(material.qty ?? material.quantity);
+                if (!Number.isInteger(orderQty) || orderQty < 1) return '';
+                if (!Number.isFinite(usageQty) || usageQty <= 0) return '';
+                if (usageQty > orderQty) {
+                    const displayUom = String(material.uom || item?.unit_of_measure || 'units').trim() || 'units';
+                    const name = String(item?.name || material.name || material.item_name || 'Material').trim();
+                    return `${name} usage cannot exceed the order quantity (${orderQty} ${displayUom}).`;
+                }
+                return '';
             },
             /**
              * Plates plate_media blanks: Actual Usage cannot exceed ordered qty
