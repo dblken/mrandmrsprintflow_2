@@ -2,6 +2,7 @@
 declare(strict_types=1);
 $root = dirname(__DIR__);
 $validator = file_get_contents($root . '/includes/pos_service_stock_validation.php');
+$tarpaulinCalculation = file_get_contents($root . '/includes/tarpaulin_material_calculation.php');
 $cart = file_get_contents($root . '/staff/api/pos_cart_handler.php');
 $checkout = file_get_contents($root . '/staff/api/pos_checkout.php');
 $jobApi = file_get_contents($root . '/admin/job_orders_api.php');
@@ -16,8 +17,9 @@ $assert(str_contains($validator, 'if ($serviceId === 63)')
 $validateBody = substr($validator, strpos($validator, 'function printflow_pos_validate_service_stock('));
 $assert(str_contains($validateBody, "if (\$serviceId === 40 && !array_key_exists('pos_material_assignments', \$line))")
     && str_contains($validateBody, 'printflow_pos_tarpaulin_selection(')
-    && str_contains($validator, 'printflow_tarpaulin_resolve_candidate('),
-    'POS Tarpaulin Add to Order resolves the narrowest mapped roll from Width/Height before staff Actual Usage.');
+    && str_contains($validator, 'printflow_tarpaulin_resolve_roll_fit(')
+    && str_contains($tarpaulinCalculation, 'printflow_tarpaulin_allocate_cart_panels('),
+    'POS Tarpaulin Add to Order checks feasible physical roll combinations before staff Actual Usage.');
 $assert(!str_contains($checkout, 'pos_checkout_pair_tarpaulin_cart_lines')
     && str_contains($checkout, 'pos_checkout_validate_assigned_service_materials(')
     && str_contains($checkout, '$pos_pending_orders_snapshot')

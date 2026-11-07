@@ -98,8 +98,8 @@ $assert(!str_contains($pos, 'Joining Direction')
     && !str_contains($pos, 'pos-tarpaulin-joining-controls'),
     'Joining Direction / Allowance remain absent from POS.');
 $assert(str_contains($stock, 'printflow_pos_tarpaulin_selection(')
-    && str_contains($stock, 'printflow_tarpaulin_resolve_candidate(')
+    && str_contains($stock, 'printflow_tarpaulin_resolve_roll_fit(')
     && str_contains($stock, 'No active Tarpaulin roll width can fit these dimensions, including rotation.'),
-    'POS stock validation restores mapped roll-fit selection without joining seams.');
+    'POS stock validation resolves a feasible roll-width combination from mapped stock without adding unconfigured seam allowance.');
 
 echo "POS Tarpaulin dimension roll selection tests passed.\n";

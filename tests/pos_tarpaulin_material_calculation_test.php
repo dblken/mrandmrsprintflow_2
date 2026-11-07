@@ -97,6 +97,7 @@ $assert(!$ambiguous['ok'] && $ambiguous['reason'] === 'ambiguous', 'Equally rank
 
 $root = dirname(__DIR__);
 $validation = (string)file_get_contents($root . '/includes/pos_service_stock_validation.php');
+$tarpaulinCalculation = (string)file_get_contents($root . '/includes/tarpaulin_material_calculation.php');
 $cart = (string)file_get_contents($root . '/staff/api/pos_cart_handler.php');
 $checkout = (string)file_get_contents($root . '/staff/api/pos_checkout.php');
 $customizations = (string)file_get_contents($root . '/staff/customizations.php');
@@ -105,8 +106,9 @@ $jobApi = (string)file_get_contents($root . '/admin/job_orders_api.php');
 $validatorBody = substr($validation, strpos($validation, 'function printflow_pos_validate_service_stock('));
 $assert(str_contains($validatorBody, "if (\$serviceId === 40 && !array_key_exists('pos_material_assignments', \$line))")
     && str_contains($validatorBody, 'printflow_pos_tarpaulin_selection(')
-    && str_contains($validation, 'printflow_tarpaulin_resolve_candidate('),
-    'Tarpaulin POS stock checks select the narrowest mapped roll from Width/Height using linear_ft_v1.');
+    && str_contains($validation, 'printflow_tarpaulin_resolve_roll_fit(')
+    && str_contains($tarpaulinCalculation, 'printflow_tarpaulin_allocate_cart_panels('),
+    'Tarpaulin POS availability uses physical width combinations and the shared whole-panel roll allocator.');
 $assert(!str_contains($checkout, 'pos_checkout_pair_tarpaulin_cart_lines'),
     'Current checkout does not require a calculated Tarpaulin panel plan.');
 $assert(str_contains($checkout, 'pos_checkout_validate_assigned_service_materials(')

@@ -28,7 +28,7 @@ function printflow_pos_tarpaulin_open_rolls(int $itemId, int $branchId): array
     }
     [$branchSql] = printflow_roll_branch_sql('branch_id', $branchId);
     $rows = db_query(
-        "SELECT id, roll_code, remaining_length_ft, received_at, status FROM inv_rolls WHERE item_id = ? AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC, id ASC",
+        "SELECT id, roll_code, width_ft, remaining_length_ft, received_at, status FROM inv_rolls WHERE item_id = ? AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC, id ASC",
         'ii',
         [$itemId, $branchId]
     );
@@ -68,7 +68,17 @@ function printflow_pos_tarpaulin_candidates(int $branchId): array
         $itemId = (int)($row['id'] ?? 0);
         if ($mappedIds !== [] && !in_array($itemId, $mappedIds, true)) continue;
         if (printflow_tarpaulin_parse_nominal_width($row) <= 0) continue;
-        $row['open_rolls'] = printflow_pos_tarpaulin_open_rolls($itemId, $branchId);
+        $nominalWidth = printflow_tarpaulin_parse_nominal_width($row);
+        $row['open_rolls'] = array_values(array_filter(
+            printflow_pos_tarpaulin_open_rolls($itemId, $branchId),
+            static function (array $roll) use ($nominalWidth): bool {
+                // Newer physical-roll rows record width_ft. Some older rows
+                // leave it at zero; their authoritative item ID/name still
+                // determines width. A positive conflicting width is excluded.
+                $physicalWidth = (float)($roll['width_ft'] ?? 0);
+                return $physicalWidth <= 0 || abs($physicalWidth - $nominalWidth) <= 0.01;
+            }
+        ));
         $row['available_ft'] = array_sum(array_map(static fn(array $roll): float => max(0.0, (float)($roll['remaining_length_ft'] ?? 0)), $row['open_rolls']));
         $row['branch_id'] = $branchId;
         $candidates[] = $row;
@@ -83,9 +93,9 @@ function printflow_pos_tarpaulin_dimensions(array $customization): array
 }
 
 /**
- * Resolve the narrowest mapped Tarpaulin roll that fits customer width/height.
- * New POS orders use linear_ft_v1 (no joining/seam fields). Historical
- * panel_joining_v2 cart selections remain readable for backward compatibility.
+ * Resolve a feasible mapped Tarpaulin roll-width combination against physical
+ * branch rolls. Historical linear_ft_v1 and panel_joining_v2 snapshots remain
+ * readable for backward compatibility; new POS validations create roll_fit_v1.
  */
 function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $usedByItemDemand = []): array
 {
@@ -102,6 +112,14 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
     }
     $candidates = printflow_pos_tarpaulin_candidates($branchId);
     $stored = $customization['pos_tarpaulin_selection'] ?? null;
+    if (is_array($stored) && ($stored['version'] ?? '') === PRINTFLOW_TARPAULIN_ROLL_FIT_VERSION) {
+        if ((int)($stored['branch_id'] ?? 0) !== $branchId
+            || abs((float)($stored['width_ft'] ?? 0) - $width) > 0.000001
+            || abs((float)($stored['height_ft'] ?? 0) - $height) > 0.000001
+            || (int)($stored['finished_quantity'] ?? 0) !== $quantity) {
+            throw new RuntimeException('Tarpaulin dimensions, quantity, or branch changed after stock validation. Revalidate before continuing.');
+        }
+    }
     if (is_array($stored) && ($stored['version'] ?? '') === PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION && !empty($stored['item_id'])) {
         // Historical joining-based selections stay readable; new orders do not create them.
         $itemId = (int)$stored['item_id'];
@@ -169,7 +187,20 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
         ])];
     }
 
-    $resolved = printflow_tarpaulin_resolve_candidate($candidates, $width, $height, $quantity, $usedByItemDemand);
+    $usedByItemRoll = [];
+    // Preserve the exact physical rolls consumed by earlier Tarpaulin cart
+    // lines so each new candidate is checked against the same branch capacity.
+    foreach ($customization['_pos_tarpaulin_prior_selections'] ?? [] as $prior) {
+        if (!is_array($prior)) continue;
+        foreach ((array)($prior['roll_allocations_by_item'] ?? []) as $itemId => $allocations) {
+            foreach ((array)$allocations as $allocation) {
+                $rollId = (int)($allocation['roll_id'] ?? 0);
+                if ($rollId <= 0) continue;
+                $usedByItemRoll[(int)$itemId][$rollId] = ($usedByItemRoll[(int)$itemId][$rollId] ?? 0.0) + (float)($allocation['length_ft'] ?? 0);
+            }
+        }
+    }
+    $resolved = printflow_tarpaulin_resolve_roll_fit($candidates, $width, $height, $quantity, $usedByItemDemand, $usedByItemRoll);
     if (($resolved['reason'] ?? '') === 'incompatible') {
         return [
             'ok' => false,
@@ -197,6 +228,12 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
                 'available' => 0,
             ],
         ];
+    }
+    if (($resolved['reason'] ?? '') === 'search_limit') {
+        return ['ok' => false, 'reason' => 'search_limit', 'selection' => null, 'shortage' => [
+            'message' => 'The Tarpaulin roll-fit search reached its safe calculation limit. Reduce the quantity or ask an administrator to review the roll stock.',
+            'name' => 'Tarpaulin', 'uom' => 'Ft', 'required' => 0, 'available' => 0,
+        ]];
     }
     if (empty($resolved['ok'])) {
         $shortage = is_array($resolved['shortage'] ?? null) ? $resolved['shortage'] : [];
@@ -367,17 +404,25 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
         $quantity = printflow_pos_parse_positive_quantity($line['qty'] ?? null);
 
         if ($serviceId === 40 && !array_key_exists('pos_material_assignments', $line)) {
-            // Tarpaulin POS still resolves the narrowest mapped roll from
-            // customer Width/Height before Add to Order. Exact saved quantity
-            // remains staff Actual Usage in Production Assignment.
+            // Tarpaulin POS checks the smallest feasible full-width panel
+            // combination against branch-scoped physical rolls. Production
+            // Assignment still records actual material usage; no stock is
+            // reserved or deducted here.
             $demandByItem = [];
+            $priorSelections = [];
             foreach ($tarpaulinSelections as $priorSelection) {
                 if (!is_array($priorSelection)) continue;
-                $priorId = (int)($priorSelection['item_id'] ?? 0);
-                if ($priorId <= 0) continue;
-                $demandByItem[$priorId] = ($demandByItem[$priorId] ?? 0.0)
-                    + (float)($priorSelection['required_linear_ft'] ?? 0);
+                $priorSelections[] = $priorSelection;
+                $priorDemand = (array)($priorSelection['required_by_item'] ?? []);
+                if ($priorDemand === [] && (int)($priorSelection['item_id'] ?? 0) > 0) {
+                    $priorDemand[(int)$priorSelection['item_id']] = (float)($priorSelection['required_linear_ft'] ?? 0);
+                }
+                foreach ($priorDemand as $priorId => $requiredFt) {
+                    $priorId = (int)$priorId;
+                    if ($priorId > 0) $demandByItem[$priorId] = ($demandByItem[$priorId] ?? 0.0) + (float)$requiredFt;
+                }
             }
+            $line['customization']['_pos_tarpaulin_prior_selections'] = $priorSelections;
             $resolved = printflow_pos_tarpaulin_selection($line, $branchId, $demandByItem);
             if (empty($resolved['ok'])) {
                 $shortage = is_array($resolved['shortage'] ?? null) ? $resolved['shortage'] : [];
@@ -398,17 +443,20 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
             }
             $selection = is_array($resolved['selection'] ?? null) ? $resolved['selection'] : [];
             $tarpaulinSelections[$lineIndex] = $selection;
-            $itemId = (int)($selection['item_id'] ?? 0);
-            if ($itemId > 0) {
+            $requiredByItem = (array)($selection['required_by_item'] ?? []);
+            if ($requiredByItem === [] && (int)($selection['item_id'] ?? 0) > 0) {
+                $requiredByItem[(int)$selection['item_id']] = (float)($selection['required_linear_ft'] ?? 0);
+            }
+            $itemNames = [];
+            foreach ((array)($selection['material_items'] ?? []) as $selectedItemId => $selectedItem) {
+                if (is_array($selectedItem)) $itemNames[(int)$selectedItemId] = (string)($selectedItem['name'] ?? 'Tarpaulin roll');
+            }
+            foreach ($requiredByItem as $itemId => $requiredFt) {
+                $itemId = (int)$itemId;
+                if ($itemId <= 0) continue;
                 $tarpaulinItemIds[$itemId] = true;
                 $tracked = true;
-                printflow_pos_service_stock_add_demand(
-                    $demand,
-                    $itemId,
-                    (float)($selection['required_linear_ft'] ?? 0),
-                    (string)($selection['item_name'] ?? 'Tarpaulin roll'),
-                    'Ft'
-                );
+                printflow_pos_service_stock_add_demand($demand, $itemId, (float)$requiredFt, $itemNames[$itemId] ?? (string)($selection['item_name'] ?? 'Tarpaulin roll'), 'Ft');
             }
             continue;
         }
