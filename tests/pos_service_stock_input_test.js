@@ -56,7 +56,7 @@ const heightField = { value: '', matches(selector) { return selector === 'input,
 let customSizeVisible = false;
 let plateHasDimensionControls = true;
 let selectedPlateMaterial = null;
-const boardThicknessRadio = { tagName: 'INPUT', type: 'radio', name: 'board_thickness', value: '', checked: false, dataset: { fieldName: 'board_thickness' } };
+const boardThicknessRadio = { tagName: 'INPUT', type: 'radio', name: 'board_thickness', value: '', checked: false, dataset: { fieldName: 'board_thickness' }, matches(selector) { return selector === 'input, select, textarea'; } };
 // Production places the custom-size hidden fields before the actual preset
 // select, so a broad name*=dimension selector can resolve the wrong control.
 const dimensionsControl = {
@@ -296,6 +296,50 @@ for (const thicknessId of [206, 207]) {
     assert.deepEqual(Array.from(context.posCollectServiceStockCustomization().pos_selected_material_ids), [thicknessId],
         `Sintraboard Add to Order customization maps the configured Board Thickness choice to item ${thicknessId}`);
 }
+
+// Board thickness, branch, and quantity changes each trigger a fresh
+// server-authoritative availability request carrying the current state.
+elements['service-modal-overlay'].dataset.serviceId = '71';
+elements['service-modal-overlay'].dataset.materialDimensionFieldKey = 'sizes';
+elements['service-modal-overlay'].dataset.materialDimensionUnit = 'ft';
+elements['service-modal-overlay'].dataset.materialSelectionFieldMap = JSON.stringify({
+    field_key: 'board_thickness', options: { 'Sintra 3mm': 206, 'Sintra 5mm': 207 }
+});
+sizesSelect.name = 'sizes';
+sizesSelect.value = '1 Ft x 2 Ft';
+sizesSelect.options = [{ textContent: '1 Ft x 2 Ft' }];
+input.value = '1';
+branchField.value = '1';
+boardThicknessRadio.name = 'board_thickness';
+boardThicknessRadio.value = 'Sintra 3mm';
+boardThicknessRadio.checked = true;
+context.posBindServiceStockValidation(71);
+validations.shift(); // initial validation on modal open
+boardThicknessRadio.value = 'Sintra 5mm';
+fieldsBody.listeners.change({ target: boardThicknessRadio });
+assert.equal(timers.length, 1, 'Changing Sintraboard thickness schedules immediate stock revalidation.');
+timers.shift()();
+let sintraRequest = validations.shift();
+assert.deepEqual(Array.from(sintraRequest[2].pos_selected_material_ids), [207], 'Changing to 5mm updates validation to item 207 only.');
+assert.equal(sintraRequest[2].branch_id, '1', 'Thickness validation uses the currently selected branch.');
+input.value = '2';
+input.listeners.change();
+timers.shift()();
+sintraRequest = validations.shift();
+assert.equal(sintraRequest[1], '2', 'Changing quantity revalidates using the new quantity.');
+assert.deepEqual(Array.from(sintraRequest[2].pos_selected_material_ids), [207], 'Quantity changes preserve only the selected 5mm item.');
+branchField.value = '4';
+fieldsBody.listeners.change({ target: branchField });
+timers.shift()();
+sintraRequest = validations.shift();
+assert.equal(sintraRequest[2].branch_id, '4', 'Changing branch revalidates against the new branch.');
+assert.deepEqual(Array.from(sintraRequest[2].pos_selected_material_ids), [207], 'Branch changes do not switch the selected thickness.');
+assert.match(source, /!plateTypeSelected\s*&&\s*!sintraThicknessSelected\)/,
+    'Incomplete-form deferral still performs a stock check as soon as a valid Sintra thickness is selected.');
+assert.match(source, /if \(Number\(serviceId\) === 71 && sintraThicknessSelected\)[\s\S]*?sintraMaterial\.availability_only[\s\S]*?safeRequired > safeAvailable/,
+    'The Add to Order validation path blocks unavailable stock while allowing availability-only checks before dimensions are entered.');
+input.value = '1';
+branchField.value = '5';
 selectedPlateMaterial = { value: '23', type: 'checkbox', checked: true, dataset: { posMaterialId: '23', posMaterialGroup: 'optional' } };
 boardThicknessRadio.value = 'Sintra 3mm';
 boardThicknessRadio.checked = true;
@@ -430,8 +474,8 @@ assert.deepEqual(validations.shift().slice(0, 2), [42, '4'], 'typed quantity val
 elements['service-modal-overlay'].dataset.materialDimensionFieldKey = '';
 sizesSelect.value = '';
 context.posBindServiceStockValidation(40);
-assert.equal(listenerCounts.input, 14, 'each service modal opening, including the Plate type cases, registers one delegated stock input handler');
-assert.equal(listenerCounts.change, 14, 'each service modal opening, including the Plate type cases, registers one delegated stock change handler');
+assert.equal(listenerCounts.input, 15, 'each service modal opening, including Sintraboard and Plate type cases, registers one delegated stock input handler');
+assert.equal(listenerCounts.change, 15, 'each service modal opening, including Sintraboard and Plate type cases, registers one delegated stock change handler');
 assert.equal(validationControllers[0].aborted, true, 'opening another service modal aborts the prior delegated validation listeners');
 assert.equal(listenerOptions.input.signal, listenerOptions.change.signal, 'input and change handlers share the current modal listener lifetime');
 const initialTarpaulinRequest = validations.shift();

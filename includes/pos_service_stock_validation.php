@@ -15,6 +15,7 @@ require_once __DIR__ . '/pos_service_dimensions.php';
 require_once __DIR__ . '/pos_mugs_release_rule.php';
 require_once __DIR__ . '/pos_brochure_poster_early_stock.php';
 require_once __DIR__ . '/pos_plates_release_rule.php';
+require_once __DIR__ . '/pos_sintraboard_early_stock.php';
 require_once __DIR__ . '/pos_tarpaulin_release_rule.php';
 require_once __DIR__ . '/tarpaulin_material_calculation.php';
 
@@ -350,6 +351,7 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
     $tarpaulinPhysicalIssues = [];
     $tarpaulinPlans = [];
     $materialSelectionsByLine = [];
+    $availabilityProbes = [];
     foreach (array_values($lines) as $lineIndex => $line) {
         if (!is_array($line)) continue;
         $customization = is_array($line['customization'] ?? null) ? $line['customization'] : [];
@@ -471,6 +473,31 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                 }
                 continue;
             }
+            // Sintraboard: Board Thickness is the sole material choice. Resolve
+            // only its stable item/rule; dimensions determine demand, and an
+            // incomplete dimension form gets an availability-only probe.
+            if ($serviceId === 71) {
+                $sintraDemand = printflow_pos_sintraboard_early_demand($line, $branchId);
+                if ($sintraDemand !== null) {
+                    $tracked = true;
+                    $itemId = (int)$sintraDemand['item_id'];
+                    if (!empty($sintraDemand['available_only'])) {
+                        $availabilityProbes[$itemId] = [
+                            'name' => (string)$sintraDemand['name'],
+                            'uom' => (string)$sintraDemand['uom'],
+                        ];
+                    } else {
+                        printflow_pos_service_stock_add_demand(
+                            $demand,
+                            $itemId,
+                            (float)$sintraDemand['required'],
+                            (string)$sintraDemand['name'],
+                            (string)$sintraDemand['uom']
+                        );
+                    }
+                }
+                continue;
+            }
             // Other non-Tarpaulin POS captures customer specifications only. Exact
             // material and quantity are checked after staff records actual use.
             continue;
@@ -524,7 +551,9 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
 
     $issues = array_values($tarpaulinPhysicalIssues);
     $materials = [];
-    foreach ($demand as $itemId => $required) {
+    foreach (array_unique(array_merge(array_keys($demand), array_keys($availabilityProbes))) as $itemId) {
+        $required = $demand[$itemId] ?? ['quantity' => 0.0, 'name' => $availabilityProbes[$itemId]['name'] ?? '', 'uom' => $availabilityProbes[$itemId]['uom'] ?? ''];
+        $availableOnly = !isset($demand[$itemId]) && isset($availabilityProbes[$itemId]);
         $item = InventoryManager::getItem((int)$itemId);
         if (!$item || strtoupper((string)($item['status'] ?? 'ACTIVE')) !== 'ACTIVE') {
             throw new RuntimeException('A required POS service material is no longer active. Contact an administrator before adding this service.');
@@ -543,9 +572,13 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
             'uom' => (string)($item['unit_of_measure'] ?? ''),
             'required' => (float)$required['quantity'],
             'available' => $available,
+            'availability_only' => $availableOnly,
         ];
         $materials[] = $entry;
-        if (printflow_pos_service_stock_exceeds_available((float)$required['quantity'], $available)) $issues[] = $entry;
+        if ($availableOnly ? $available <= 0 : printflow_pos_service_stock_exceeds_available((float)$required['quantity'], $available)) {
+            $entry['out_of_stock'] = $available <= 0;
+            $issues[] = $entry;
+        }
     }
     return [
         'ok' => $issues === [],

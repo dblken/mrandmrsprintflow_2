@@ -5819,10 +5819,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const plateTypeItemId = Number(serviceId) === 39 ? (plateTypeItemIds[plateTypeRaw] || 0) : 0;
             const plateTypeReady = plateTypeItemId > 0;
             const plateTypeSelected = Number(serviceId) === 39 && plateTypeRaw !== '';
+            const sintraSelectedIds = Number(serviceId) === 71 && Array.isArray(serviceCustomization.pos_selected_material_ids)
+                ? serviceCustomization.pos_selected_material_ids.map(Number).filter(id => Number.isInteger(id) && id > 0)
+                : [];
+            const sintraSelectedItemId = sintraSelectedIds.length === 1 ? sintraSelectedIds[0] : 0;
+            const sintraThicknessSelected = Number(serviceId) === 71 && sintraSelectedItemId > 0;
             if (typeof validateServiceOrderForm === 'function' && !validateServiceOrderForm().valid
                 && Number(serviceId) !== 63
                 && !(paperEarlyStock && paperDimsReady)
-                && !plateTypeSelected) {
+                && !plateTypeSelected
+                && !sintraThicknessSelected) {
                 posSetServiceStockState(false, '', '');
                 return { valid: true, deferred: true };
             }
@@ -5888,6 +5894,54 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     return { valid: true, tracked: false };
                 }
                 const issues = Array.isArray(validation.issues) ? validation.issues : [];
+                if (Number(serviceId) === 71 && sintraThicknessSelected) {
+                    const sintraMaterial = materials.find(row => Number(row && row.item_id) === sintraSelectedItemId) || null;
+                    const available = Number(sintraMaterial && sintraMaterial.available);
+                    const required = Number(sintraMaterial && sintraMaterial.required);
+                    const safeAvailable = Number.isFinite(available) ? Math.max(0, available) : null;
+                    const safeRequired = Number.isFinite(required) ? Math.max(0, required) : null;
+                    if (!validation.tracked || !sintraMaterial || safeAvailable === null || safeRequired === null) {
+                        const message = 'Selected Sintraboard stock could not be verified. Try again.';
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message };
+                    }
+                    if (sintraMaterial.availability_only) {
+                        if (safeAvailable <= 0) {
+                            const message = `${sintraMaterial.name || 'Selected Sintra board'} is out of stock.`;
+                            posSetServiceStockState(true, '', message);
+                            return { valid: false, message, available: safeAvailable };
+                        }
+                        const unrelatedIssue = issues[0] || null;
+                        if (!validation.ok && unrelatedIssue) {
+                            const message = Number(unrelatedIssue.available) <= 0
+                                ? `${unrelatedIssue.name || 'Material'} is out of stock.`
+                                : `Insufficient ${unrelatedIssue.name || 'material'} stock. Available: ${formatQty(unrelatedIssue.available)} ${unrelatedIssue.uom || 'units'}. Required: ${formatQty(unrelatedIssue.required)} ${unrelatedIssue.uom || 'units'}.`;
+                            posSetServiceStockState(true, '', message);
+                            return { valid: false, message };
+                        }
+                        posSetServiceStockState(false, '', '');
+                        return { valid: true, tracked: true, deferred: true, available: safeAvailable };
+                    }
+                    const selectedIssue = issues.find(row => Number(row && row.item_id) === sintraSelectedItemId) || null;
+                    if (selectedIssue || safeRequired > safeAvailable) {
+                        const issue = selectedIssue || sintraMaterial;
+                        const message = Number(issue.available ?? safeAvailable) <= 0
+                            ? `${issue.name || sintraMaterial.name || 'Selected Sintra board'} is out of stock.`
+                            : `Insufficient ${issue.name || sintraMaterial.name || 'Sintra board'} stock. Available: ${formatQty(issue.available ?? safeAvailable)} ${issue.uom || sintraMaterial.uom || 'pcs'}. Required: ${formatQty(issue.required ?? safeRequired)} ${issue.uom || sintraMaterial.uom || 'pcs'}.`;
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message, available: safeAvailable, required: safeRequired };
+                    }
+                    if (!validation.ok && issues.length) {
+                        const issue = issues[0];
+                        const message = Number(issue.available) <= 0
+                            ? `${issue.name || 'Material'} is out of stock.`
+                            : `Insufficient ${issue.name || 'material'} stock. Available: ${formatQty(issue.available)} ${issue.uom || 'units'}. Required: ${formatQty(issue.required)} ${issue.uom || 'units'}.`;
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message };
+                    }
+                    posSetServiceStockState(false, '', '');
+                    return { valid: true, tracked: true, available: safeAvailable, required: safeRequired };
+                }
                 if (Number(serviceId) === 63 && mugMaterial) {
                     const available = Number(mugMaterial.available);
                     const safeAvailable = Number.isFinite(available) ? Math.max(0, available) : null;
