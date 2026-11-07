@@ -5526,6 +5526,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 && /preferred .+ material|inventory item #|material stock|select valid dimensions|could not be verified|inactive|renamed|unavailable|no active material rule|approved .+ multiplier|consumption rule/i.test(text)) {
                 return text;
             }
+            if (Number(serviceId) === 39
+                && /mapped plates material|plate material stock|inventory item #|inactive|renamed|unavailable|could not be verified/i.test(text)) {
+                return text;
+            }
             if (Number(serviceId) === 71 && text.startsWith('May kailangan bang linawin tungkol sa material na gagamitin?')) {
                 return text;
             }
@@ -5801,9 +5805,24 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 && Number(serviceCustomization.width) > 0
                 && Number(serviceCustomization.height) > 0
                 && ['ft', 'in', 'cm', 'mm'].includes(String(serviceCustomization.pos_material_dimension_unit || '').toLowerCase());
+            const plateTypeRaw = String(
+                serviceCustomization.type_of_plates
+                || serviceCustomization['Type Of Plates']
+                || ''
+            ).trim().toLowerCase().replace(/\s+/g, ' ');
+            const plateTypeItemIds = {
+                'new plate': 2,
+                'car and euro plate': 3,
+                'address plate': 6,
+                'adress plate': 6,
+            };
+            const plateTypeItemId = Number(serviceId) === 39 ? (plateTypeItemIds[plateTypeRaw] || 0) : 0;
+            const plateTypeReady = plateTypeItemId > 0;
+            const plateTypeSelected = Number(serviceId) === 39 && plateTypeRaw !== '';
             if (typeof validateServiceOrderForm === 'function' && !validateServiceOrderForm().valid
                 && Number(serviceId) !== 63
-                && !(paperEarlyStock && paperDimsReady)) {
+                && !(paperEarlyStock && paperDimsReady)
+                && !plateTypeSelected) {
                 posSetServiceStockState(false, '', '');
                 return { valid: true, deferred: true };
             }
@@ -5891,6 +5910,33 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     }
                     posSetServiceStockState(false, availabilityText, '');
                     return { valid: true, tracked: true, available: safeAvailable };
+                }
+                if (Number(serviceId) === 39 && plateTypeReady) {
+                    if (!validation.tracked) {
+                        const message = 'Plate material stock could not be verified. Try again.';
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message };
+                    }
+                    const plateMaterial = materials.find(row => Number(row && row.item_id) === plateTypeItemId) || null;
+                    const available = Number(plateMaterial && plateMaterial.available);
+                    const required = Number(plateMaterial && plateMaterial.required);
+                    const safeAvailable = Number.isFinite(available) ? Math.max(0, available) : null;
+                    const safeRequired = Number.isFinite(required) ? Math.max(0, required) : null;
+                    if (!plateMaterial || safeAvailable === null || safeRequired === null) {
+                        const message = 'Plate material stock could not be verified. Try again.';
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message };
+                    }
+                    const uom = plateMaterial.uom || 'pcs';
+                    const materialName = plateMaterial.name || 'Plate material';
+                    if (!validation.ok || issues.length || safeRequired > safeAvailable) {
+                        const issue = issues[0] || plateMaterial;
+                        const message = `Insufficient ${issue.name || materialName} stock. Available: ${formatQty(issue.available ?? safeAvailable)} ${issue.uom || uom}. Required: ${formatQty(issue.required ?? safeRequired)} ${issue.uom || uom}.`;
+                        posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId) || message);
+                        return { valid: false, message, available: safeAvailable, required: safeRequired };
+                    }
+                    posSetServiceStockState(false, '', '');
+                    return { valid: true, tracked: true, available: safeAvailable, required: safeRequired };
                 }
                 if (preferredPaperId > 0 && paperMaterial) {
                     const available = Number(paperMaterial.available);

@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/includes/pos_service_dimensions.php';
 require_once dirname(__DIR__) . '/includes/pos_material_selection.php';
+require_once dirname(__DIR__) . '/includes/pos_quantity_validation.php';
+require_once dirname(__DIR__) . '/includes/pos_service_stock_helpers.php';
+require_once dirname(__DIR__) . '/includes/pos_plates_release_rule.php';
 
 $assertions = 0;
 $assert = static function (bool $condition, string $message) use (&$assertions): void {
@@ -111,18 +114,22 @@ try {
 $assert($unsupportedUnit, 'unsupported units are rejected rather than treated as feet');
 $assert(printflow_pos_dimension_pair_from_option('8 x 11 x 14 Inch') === null,
     'three-axis labels are rejected as ambiguous physical dimensions');
+$earlySource = (string)file_get_contents(dirname(__DIR__) . '/includes/pos_brochure_poster_early_stock.php');
+$dimensionAt = strpos($earlySource, '$dimensions = printflow_pos_brochure_poster_dimensions($customization);');
+$areaAt = strpos($earlySource, 'printflow_pos_material_demand_for_area(', $dimensionAt === false ? 0 : $dimensionAt);
+$widthAt = strpos($earlySource, '$dimensions[\'width\']', $dimensionAt === false ? 0 : $dimensionAt);
+$heightAt = strpos($earlySource, '$dimensions[\'height\']', $dimensionAt === false ? 0 : $dimensionAt);
+$assert($dimensionAt !== false && $areaAt > $dimensionAt && $widthAt > $areaAt
+    && $heightAt > $areaAt,
+    'the Brochure/Poster backend early-stock path passes the validated selected dimensions into area demand');
 $validatorSource = (string)file_get_contents(dirname(__DIR__) . '/includes/pos_service_stock_validation.php');
-$resolveAt = strpos($validatorSource, '$resolvedDimensions = printflow_pos_resolve_service_dimension_selection(');
-$demandAt = strpos($validatorSource, 'printflow_pos_material_demand_for_area(', $resolveAt === false ? 0 : $resolveAt);
-$widthAssignmentAt = strpos($validatorSource, '$customization[\'width\'] = $resolvedDimensions[\'width\'];', $resolveAt === false ? 0 : $resolveAt);
-$assert($resolveAt !== false && $demandAt > $resolveAt && $widthAssignmentAt !== false && $widthAssignmentAt < $demandAt,
-    'the authoritative selected dimensions are applied before backend area demand is calculated');
-$plateBasisAt = strpos($validatorSource, "if (\$consumptionBasis === 'AREA_SQFT')");
-$plateDemandAt = strpos($validatorSource, 'printflow_pos_material_demand_for_items($quantity, $rule[\'multiplier\'])');
-$assert($plateBasisAt !== false && $plateDemandAt !== false
-    && str_contains($validatorSource, "'multiplier_basis' => 'inventory_units_per_item'")
-    && str_contains($validatorSource, "'multiplier_approved_basis' =>"),
-    'the stock validator skips dimension resolution for Plates and records the approved per-item quantity basis');
+$platesSource = (string)file_get_contents(dirname(__DIR__) . '/includes/pos_plates_release_rule.php');
+$plateBranchAt = strpos($validatorSource, '// Plates: early capacity');
+$plateDemandAt = strpos($validatorSource, 'printflow_pos_plates_early_demand($line, $branchId)', $plateBranchAt === false ? 0 : $plateBranchAt);
+$assert($plateBranchAt !== false && $plateDemandAt > $plateBranchAt
+    && str_contains($platesSource, 'return (float)$orderQty;')
+    && str_contains($platesSource, '1 inventory piece of the mapped blank per ordered plate'),
+    'the stock validator uses Plates quantity-based one-piece-per-ordered-plate demand without requiring dimensions');
 
 $unconfiguredSelection = false;
 try {

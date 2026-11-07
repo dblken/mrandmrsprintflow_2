@@ -14,6 +14,7 @@ require_once __DIR__ . '/pos_material_selection.php';
 require_once __DIR__ . '/pos_service_dimensions.php';
 require_once __DIR__ . '/pos_mugs_release_rule.php';
 require_once __DIR__ . '/pos_brochure_poster_early_stock.php';
+require_once __DIR__ . '/pos_plates_release_rule.php';
 require_once __DIR__ . '/pos_tarpaulin_release_rule.php';
 require_once __DIR__ . '/tarpaulin_material_calculation.php';
 
@@ -448,6 +449,26 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                     (string)$early['name'],
                     (string)$early['uom']
                 );
+                continue;
+            }
+            // Plates: early capacity for New Plate / Car And Euro / Address Plate
+            // against the mapped blank (1 pcs per ordered quantity).
+            if ($serviceId === 39) {
+                try {
+                    $plateDemand = printflow_pos_plates_early_demand($line, $branchId);
+                } catch (InvalidArgumentException $error) {
+                    throw new RuntimeException($error->getMessage());
+                }
+                if ($plateDemand !== null) {
+                    $tracked = true;
+                    printflow_pos_service_stock_add_demand(
+                        $demand,
+                        (int)$plateDemand['item_id'],
+                        (float)$plateDemand['required'],
+                        (string)$plateDemand['name'],
+                        (string)$plateDemand['uom']
+                    );
+                }
                 continue;
             }
             // Other non-Tarpaulin POS captures customer specifications only. Exact

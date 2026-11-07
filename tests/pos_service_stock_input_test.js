@@ -99,9 +99,13 @@ const sizesSelect = {
 };
 const radioDimension = {
     tagName: 'INPUT', type: 'radio', name: 'sizes', value: '', checked: false, dataset: {},
+    matches(selector) { return selector === 'input, select, textarea'; },
     closest(selector) { return selector === 'label' ? { textContent: this.labelText || '' } : null; }
 };
-const branchField = { name: 'branch_id', value: '5', type: 'hidden', dataset: {} };
+const branchField = {
+    name: 'branch_id', value: '5', type: 'hidden', dataset: {},
+    matches(selector) { return selector === 'input, select, textarea'; }
+};
 const fieldsBody = {
     listeners: {},
     contains(node) { return node === input; },
@@ -348,6 +352,49 @@ const plateAddCustomization = context.posCollectServiceStockCustomization();
 assert.equal(plateAddCustomization.type_of_plates, 'Motor Cycle Plate', 'the Plate type remains in the Add to Order customization');
 assert.equal(Object.hasOwn(plateAddCustomization, 'width'), false, 'the Add to Order customization remains quantity-based and dimension-free for Plates');
 assert.deepEqual(Array.from(plateAddCustomization.pos_selected_material_ids), [], 'the Add to Order payload does not force an internal Plate material choice');
+
+// Verified customer plate types run the immediate branch-scoped stock check
+// even while another required specification is incomplete. A type change
+// schedules a fresh check; the server remains authoritative on Add to Order.
+plateHasDimensionControls = false;
+elements['service-modal-overlay'].dataset.serviceId = '39';
+elements['service-modal-overlay'].dataset.materialDimensionFieldKey = '';
+branchField.value = '2';
+input.value = '3';
+for (const [type, itemId] of [
+    ['New Plate', 2],
+    ['Car And Euro Plate', 3],
+    ['Address Plate', 6],
+    ['Adress Plate', 6]
+]) {
+    radioDimension.name = 'type_of_plates';
+    radioDimension.value = type;
+    radioDimension.checked = true;
+    context.posBindServiceStockValidation(39);
+    const request = validations.shift();
+    assert.equal(request[2].type_of_plates, type, `${type} is sent to early stock validation`);
+    assert.equal(request[2].branch_id, '2', `${type} stock check uses the selected branch`);
+    assert.equal(request[1], '3', `${type} stock check uses current order quantity`);
+    assert.match(source, new RegExp(`'${type.toLowerCase()}'\\s*:\\s*${itemId}`),
+        `${type} uses the exact verified inventory item #${itemId}`);
+}
+radioDimension.value = 'New Plate';
+radioDimension.checked = true;
+context.posBindServiceStockValidation(39);
+validations.shift(); // initial check on modal open
+radioDimension.value = 'Car And Euro Plate';
+fieldsBody.listeners.change({ target: radioDimension });
+assert.equal(timers.length, 1, 'changing plate type schedules an immediate stock recheck');
+timers.shift()();
+const changedPlateRequest = validations.shift();
+assert.equal(changedPlateRequest[2].type_of_plates, 'Car And Euro Plate', 'type-change recheck carries the new selected Plate type');
+assert.equal(changedPlateRequest[2].branch_id, '2', 'type-change recheck retains current branch scope');
+branchField.value = '4';
+fieldsBody.listeners.change({ target: branchField });
+timers.shift()();
+const changedBranchRequest = validations.shift();
+assert.equal(changedBranchRequest[2].branch_id, '4', 'branch-change recheck carries the new branch');
+assert.equal(changedBranchRequest[2].type_of_plates, 'Car And Euro Plate', 'branch-change recheck retains selected plate type');
 plateHasDimensionControls = true;
 selectedPlateMaterial = null;
 radioDimension.checked = false;
@@ -383,8 +430,8 @@ assert.deepEqual(validations.shift().slice(0, 2), [42, '4'], 'typed quantity val
 elements['service-modal-overlay'].dataset.materialDimensionFieldKey = '';
 sizesSelect.value = '';
 context.posBindServiceStockValidation(40);
-assert.equal(listenerCounts.input, 9, 'each service modal opening registers one delegated stock input handler');
-assert.equal(listenerCounts.change, 9, 'each service modal opening registers one delegated stock change handler');
+assert.equal(listenerCounts.input, 14, 'each service modal opening, including the Plate type cases, registers one delegated stock input handler');
+assert.equal(listenerCounts.change, 14, 'each service modal opening, including the Plate type cases, registers one delegated stock change handler');
 assert.equal(validationControllers[0].aborted, true, 'opening another service modal aborts the prior delegated validation listeners');
 assert.equal(listenerOptions.input.signal, listenerOptions.change.signal, 'input and change handlers share the current modal listener lifetime');
 const initialTarpaulinRequest = validations.shift();
