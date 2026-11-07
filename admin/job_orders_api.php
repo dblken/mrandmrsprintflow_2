@@ -3272,6 +3272,31 @@ try {
                     . '.'
                 );
             }
+            // Plates blank Actual Usage cannot exceed ordered quantity (New Plate / blank-consuming types).
+            if ((int)($materialContext['serviceId'] ?? 0) === 39 && $assignmentJobId > 0) {
+                require_once __DIR__ . '/../includes/pos_plates_release_rule.php';
+                $plateCustomization = [];
+                if (!empty($materialContext['customization'][0]) && is_array($materialContext['customization'][0])) {
+                    $plateCustomization = $materialContext['customization'][0];
+                }
+                $plateJobQtyRows = db_query(
+                    'SELECT quantity FROM job_orders WHERE id = ? LIMIT 1',
+                    'i',
+                    [$assignmentJobId]
+                ) ?: [];
+                $plateOrderQty = (int)($plateJobQtyRows[0]['quantity'] ?? 0);
+                try {
+                    printflow_pos_plates_assert_blank_usage(
+                        39,
+                        $itemId,
+                        (float)$qty,
+                        $plateOrderQty,
+                        $plateCustomization
+                    );
+                } catch (InvalidArgumentException $plateUsageError) {
+                    throw new Exception($plateUsageError->getMessage());
+                }
+            }
             $uom = (string)($quantityItem['unit_of_measure'] ?? $uom);
             $startedMaterialTransaction = !printflow_db_in_transaction($conn);
             if ($startedMaterialTransaction && !$conn->begin_transaction()) {

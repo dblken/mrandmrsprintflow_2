@@ -266,7 +266,7 @@ expect_mugs_qty(str_contains($handler, 'Insufficient ')
     'stock rejection message identifies material availability');
 expect_mugs_qty(
     (bool)preg_match(
-        '/printflow_pos_sync_job_quantity_and_scale_materials\s*\(\s*\$linkedJobId\s*,\s*\$previousQty[^,]*,\s*\$qty\s*,\s*\$serviceId\s*\)/s',
+        '/printflow_pos_sync_job_quantity_and_scale_materials\s*\(\s*\$linkedJobId\s*,\s*\$previousQty[^,]*,\s*\$qty\s*,\s*\$serviceId\s*,\s*\$serviceCustomization\s*\)/s',
         $handler
     ),
     'job material sync receives the service id for Mugs-aware scaling'

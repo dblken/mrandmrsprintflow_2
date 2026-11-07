@@ -7,6 +7,7 @@
 require_once __DIR__ . '/service_design_fee.php';
 require_once __DIR__ . '/pos_quantity_validation.php';
 require_once __DIR__ . '/pos_mugs_release_rule.php';
+require_once __DIR__ . '/pos_plates_release_rule.php';
 
 if (!function_exists('printflow_pos_scale_amount_by_quantity_ratio')) {
     /** Scale a positive amount by toQty/fromQty using cent-scale integer math for money-safe callers. */
@@ -47,7 +48,8 @@ if (!function_exists('printflow_pos_resolve_scaled_material_quantity')) {
         int $toQty,
         array $item,
         int $serviceId = 0,
-        int $itemId = 0
+        int $itemId = 0,
+        array $customization = []
     ): float {
         $name = (string)($item['name'] ?? '');
         if ($itemId <= 0) {
@@ -61,6 +63,10 @@ if (!function_exists('printflow_pos_resolve_scaled_material_quantity')) {
                 $itemId,
                 $name
             );
+            return printflow_pos_parse_positive_material_quantity($scaledQty, $item);
+        }
+        if (printflow_pos_plates_is_quantity_linked_blank($serviceId, $itemId, $customization)) {
+            $scaledQty = printflow_pos_plates_scale_blank_usage($toQty);
             return printflow_pos_parse_positive_material_quantity($scaledQty, $item);
         }
 
@@ -89,8 +95,13 @@ if (!function_exists('printflow_pos_scale_material_assignment_rows')) {
      * @param list<array<string,mixed>> $rows
      * @return list<array<string,mixed>>
      */
-    function printflow_pos_scale_material_assignment_rows(array $rows, int $fromQty, int $toQty, int $serviceId = 0): array
-    {
+    function printflow_pos_scale_material_assignment_rows(
+        array $rows,
+        int $fromQty,
+        int $toQty,
+        int $serviceId = 0,
+        array $customization = []
+    ): array {
         if ($fromQty < 1 || $toQty < 1) {
             throw new InvalidArgumentException('Material scale quantities must be positive whole numbers.');
         }
@@ -119,6 +130,8 @@ if (!function_exists('printflow_pos_scale_material_assignment_rows')) {
                     $itemId,
                     $itemName
                 );
+            } elseif (printflow_pos_plates_is_quantity_linked_blank($serviceId, $itemId, $customization)) {
+                $nextQty = printflow_pos_plates_scale_blank_usage($toQty);
             } else {
                 $nextQty = printflow_pos_scale_amount_by_quantity_ratio((float)$rawQty, $fromQty, $toQty);
             }
@@ -142,6 +155,8 @@ if (!function_exists('printflow_pos_scale_material_assignment_rows')) {
                                 $itemId,
                                 $itemName
                             );
+                        } elseif (printflow_pos_plates_is_quantity_linked_blank($serviceId, $itemId, $customization)) {
+                            $usage['actual'] = printflow_pos_plates_scale_blank_usage($toQty);
                         } else {
                             $usage['actual'] = printflow_pos_scale_amount_by_quantity_ratio((float)$usage['actual'], $fromQty, $toQty);
                         }
@@ -345,12 +360,18 @@ if (!function_exists('printflow_pos_sync_job_quantity_and_scale_materials')) {
     /**
      * Update the linked draft job/order-item quantity and proportionally scale
      * undeducted material assignments. Returns cart-shaped assignment rows.
-     * Pass $serviceId so Mugs (63) can apply Mug + Subli Paper linked scaling.
+     * Pass $serviceId / $customization so Mugs and Plates blank scaling can apply.
      *
      * @return list<array{item_id:int,quantity:float,metadata:array}>
      */
-    function printflow_pos_sync_job_quantity_and_scale_materials(int $jobId, int $fromQty, int $toQty, int $serviceId = 0): array
-    {
+    function printflow_pos_sync_job_quantity_and_scale_materials(
+        int $jobId,
+        int $fromQty,
+        int $toQty,
+        int $serviceId = 0,
+        array $customization = []
+    ): array {
+
         if ($jobId <= 0) {
             return [];
         }
@@ -425,7 +446,8 @@ if (!function_exists('printflow_pos_sync_job_quantity_and_scale_materials')) {
                     $toQty,
                     $item,
                     $serviceId,
-                    $itemId
+                    $itemId,
+                    $customization
                 );
             } catch (InvalidArgumentException $error) {
                 $name = trim((string)($item['name'] ?? ('Material #' . $itemId)));

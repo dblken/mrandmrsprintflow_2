@@ -4510,6 +4510,8 @@ window.pfServiceFieldCatalog = (() => {
             },
             pendingMaterialStockError(material) {
                 if (!material || !this.isValidPosMaterialQuantity(material.qty, material.item_id)) return '';
+                const plateUsageError = this.platesBlankUsageError(material);
+                if (plateUsageError) return plateUsageError;
                 const item = this.getInventoryItem(material.item_id);
                 if (!item) return '';
                 const available = Number(item.current_stock || 0);
@@ -4517,6 +4519,39 @@ window.pfServiceFieldCatalog = (() => {
                 const uom = material.uom || item.unit_of_measure || 'units';
                 if (!(needed > 0) || !(needed > available)) return '';
                 return `Insufficient ${item.name} stock: requested ${needed} ${uom}, available ${available} ${uom} in this branch.`;
+            },
+            /**
+             * Plates plate_media blanks: Actual Usage cannot exceed ordered qty
+             * when the order consumes a new physical plate (New Plate, etc.).
+             */
+            platesBlankUsageError(material) {
+                const context = this.materialCompatibilityContext || {};
+                const serviceId = Number(context.serviceId || this.currentJo?.service_id || 0);
+                if (serviceId !== 39 || !material) return '';
+                const itemId = Number(material.item_id || 0);
+                const plateBlankIds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+                if (!plateBlankIds.includes(itemId)) return '';
+                const plateType = String(
+                    context.typeOfPlates
+                    || context.type_of_plates
+                    || (this.currentJo && (this.currentJo.type_of_plates || this.currentJo.customization_details?.type_of_plates))
+                    || ''
+                ).trim().toLowerCase();
+                if (/\b(reprint|existing|reuse|customer[ -]?owned)\b/.test(plateType)) return '';
+                const orderQty = Number(
+                    context.customerQuantity
+                    || this.currentJo?.quantity
+                    || this.currentJo?.qty
+                    || 0
+                );
+                const usageQty = Number(material.qty ?? material.quantity);
+                if (!Number.isInteger(orderQty) || orderQty < 1) return '';
+                if (!Number.isFinite(usageQty) || usageQty <= 0) return '';
+                if (usageQty > orderQty) {
+                    const label = orderQty === 1 ? 'plate' : 'plates';
+                    return `Plate usage cannot exceed the order quantity (${orderQty} ${label}).`;
+                }
+                return '';
             },
             /** @deprecated Kept for older callers; confirmation is the Actual Usage edit itself. */
             confirmPendingMaterialUsage(material) {

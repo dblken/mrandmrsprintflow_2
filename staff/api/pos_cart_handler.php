@@ -872,7 +872,8 @@ try {
                                     $linkedJobId,
                                     $previousQty > 0 ? $previousQty : $qty,
                                     $qty,
-                                    $serviceId
+                                    $serviceId,
+                                    $serviceCustomization
                                 );
                             }
                         }
@@ -883,7 +884,8 @@ try {
                                 $existingAssignments,
                                 $previousQty > 0 ? $previousQty : $qty,
                                 $qty,
-                                $serviceId
+                                $serviceId,
+                                $serviceCustomization
                             );
                         } elseif (is_array($existingAssignments)) {
                             $item['pos_material_assignments'] = $existingAssignments;
