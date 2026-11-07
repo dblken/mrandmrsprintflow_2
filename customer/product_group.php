@@ -1198,6 +1198,19 @@ function pfGroupSelectedSizeValue() {
     return active ? String(active.getAttribute('data-value') || '').trim() : '';
 }
 
+/**
+ * Customer-facing over-stock copy for size-based products.
+ * Example: Only 2 Small shirts are available.
+ */
+function pfGroupQuantityStockMessage(availableQty, sizeLabel) {
+    var max = Math.max(0, parseInt(availableQty, 10) || 0);
+    var size = String(sizeLabel || '').trim();
+    if (size) {
+        return 'Only ' + max + ' ' + size + ' shirts are available.';
+    }
+    return 'Only ' + max + ' items are available.';
+}
+
 function pfGroupCustomizationPayload(productId) {
     var cfg = pfGroupStockConfig(productId);
     if (!cfg || !cfg.has_variant_stock) {
@@ -1266,9 +1279,15 @@ function pfGroupRenderVariantOptions(productId) {
             optionsEl.querySelectorAll('.shopee-opt-btn').forEach(function (el) { el.classList.remove('active'); });
             btn.classList.add('active');
             if (errEl) errEl.hidden = true;
+            var qtyErr = document.getElementById('pf-group-qty-error');
+            if (qtyErr) {
+                qtyErr.hidden = true;
+                qtyErr.textContent = '';
+            }
             var selectedPrice = Number(row.price || 0);
             if (selectedPrice > 0) document.getElementById('pf-group-action-price').textContent = pfFormatMoney(selectedPrice);
             pfGroupSyncQuantityLimits(productId);
+            pfGroupValidateBeforeCheckout(productId);
         });
         optionsEl.appendChild(btn);
         if (stock > 0 && !firstSelectable) {
@@ -1346,7 +1365,7 @@ function pfGroupValidateBeforeCheckout(productId) {
     }
     if (qty > max) {
         if (qtyErr) {
-            qtyErr.textContent = 'Maximum available: ' + max;
+            qtyErr.textContent = pfGroupQuantityStockMessage(max, pfGroupSelectedSizeValue());
             qtyErr.hidden = false;
         }
         return false;

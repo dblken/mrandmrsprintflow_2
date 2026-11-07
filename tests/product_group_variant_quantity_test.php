@@ -21,6 +21,10 @@ $assert(strpos($groupPage, 'id="pf-group-qty"') !== false, 'group page renders q
 $assert(strpos($groupPage, '::-webkit-inner-spin-button') !== false && strpos($groupPage, '-webkit-appearance: none;') !== false, 'group quantity hides native browser spinners');
 $assert(strpos($groupPage, '#pf-group-branch:focus') !== false && strpos($groupPage, 'box-shadow: 0 0 0 3px rgba(15, 107, 147, 0.16)') !== false, 'group branch select uses custom focus styling');
 $assert(strpos($groupPage, 'customization: customization') !== false, 'group cart requests send customization payload');
+$assert(strpos($groupPage, 'function pfGroupQuantityStockMessage(availableQty, sizeLabel)') !== false, 'group page defines size-aware stock message helper');
+$assert(strpos($groupPage, "Only ' + max + ' ' + size + ' shirts are available.") !== false, 'over-stock message includes selected size and quantity');
+$assert(strpos($groupPage, 'Maximum available: ') === false, 'legacy Maximum available wording is removed from group page');
+$assert(strpos($groupPage, 'pfGroupQuantityStockMessage(max, pfGroupSelectedSizeValue())') !== false, 'qty validation uses selected size for the stock message');
 
 $assert(strpos($cartApi, 'function cart_key(int $product_id, ?int $variant_id, array $customization = [])') !== false, 'cart keys include customization');
 $assert(strpos($cartApi, "printflow_product_option_stock_validate(\$product_id, \$branch_id, \$customization") !== false, 'cart add validates option stock');
