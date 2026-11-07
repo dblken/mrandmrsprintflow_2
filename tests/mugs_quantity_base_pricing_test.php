@@ -108,8 +108,10 @@ $mugsRule = (string)file_get_contents($root . '/includes/pos_mugs_release_rule.p
 
 $assert(str_contains($admin, 'printflow_is_mugs_service($service_id)')
     && str_contains($admin, 'printflow_parse_mugs_selling_price_input')
-    && str_contains($admin, 'fg-mugs-base-price'),
-    'Admin persists Mugs services.price and exposes the per-piece selling-price field.');
+    && str_contains($admin, 'fg-mugs-base-price')
+    && str_contains($admin, "input.value = Number.isFinite(price) && price > 0 ? price.toFixed(2) : '';")
+    && !str_contains($admin, ": '100.00'"),
+    'Admin persists Mugs services.price without inventing ₱100 or copying inventory unit cost.');
 $assert(str_contains($helper, 'printflow_is_mugs_service($serviceId)')
     && str_contains($helper, 'Inventory average cost is not used'),
     'Unit pricing refuses unconfigured Mugs without falling back to average cost.');

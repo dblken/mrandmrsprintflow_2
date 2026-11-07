@@ -866,8 +866,8 @@ if (isset($_GET['ajax'])) {
 
                 <div class="form-group" id="fg-mugs-base-price" style="display:none;">
                     <label for="modal-price">Mugs selling price per piece (₱) <span style="color:red">*</span></label>
-                    <input type="number" id="modal-price" name="price" min="0.01" max="99999999.99" step="0.01" inputmode="decimal" placeholder="100.00">
-                    <small style="display:block;color:#6b7280;font-size:12px;margin-top:6px;">Quantity × this configured service price. Inventory average cost is never used as the selling price.</small>
+                    <input type="number" id="modal-price" name="price" min="0.01" max="99999999.99" step="0.01" inputmode="decimal" placeholder="Enter service selling price">
+                    <small style="display:block;color:#6b7280;font-size:12px;margin-top:6px;">Independent customer selling price from <code>services.price</code>. Do not copy the Mug inventory unit/average cost.</small>
                     <span id="err-price" class="field-error"></span>
                 </div>
 
@@ -995,7 +995,9 @@ function pfSyncMugsBasePriceField(svc) {
         return;
     }
     const price = svc && svc.price != null ? Number(svc.price) : NaN;
-    input.value = Number.isFinite(price) && price > 0 ? price.toFixed(2) : '100.00';
+    // Never invent a selling price (including the Mug inventory unit cost).
+    // Leave blank until an independent services.price is configured.
+    input.value = Number.isFinite(price) && price > 0 ? price.toFixed(2) : '';
 }
 window.PF_BASE_PATH = <?php echo json_encode($base_path); ?>;
 /* var: Turbo re-runs inline scripts; let/const would throw "already been declared". */
