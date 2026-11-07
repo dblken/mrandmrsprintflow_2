@@ -13,6 +13,7 @@ require_once __DIR__ . '/service_material_rule_identity.php';
 require_once __DIR__ . '/pos_material_selection.php';
 require_once __DIR__ . '/pos_service_dimensions.php';
 require_once __DIR__ . '/pos_mugs_release_rule.php';
+require_once __DIR__ . '/pos_brochure_poster_early_stock.php';
 require_once __DIR__ . '/pos_tarpaulin_release_rule.php';
 require_once __DIR__ . '/tarpaulin_material_calculation.php';
 
@@ -411,8 +412,6 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
 
         if (!array_key_exists('pos_material_assignments', $line)) {
             // Mugs keeps an owner-confirmed early capacity check before Add to Order.
-            // Other non-Tarpaulin services still defer exact material qty to Set Price /
-            // Production Assignment.
             if ($serviceId === 63) {
                 $rules = printflow_pos_service_stock_rules($serviceId, $customization);
                 foreach ($rules as $rule) {
@@ -432,7 +431,26 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                 }
                 continue;
             }
-            // Non-Tarpaulin POS captures customer specifications only. Exact
+            // Brochure / Poster Printing: early capacity against the preferred
+            // mapped paper using Admin-approved AREA_SQFT demand. Exact Actual
+            // Usage is still recorded later in Production Assignment.
+            if (printflow_pos_brochure_poster_is_early_stock_service($serviceId)) {
+                try {
+                    $early = printflow_pos_brochure_poster_early_demand($line, $branchId);
+                } catch (InvalidArgumentException $error) {
+                    throw new RuntimeException($error->getMessage());
+                }
+                $tracked = true;
+                printflow_pos_service_stock_add_demand(
+                    $demand,
+                    (int)$early['item_id'],
+                    (float)$early['required'],
+                    (string)$early['name'],
+                    (string)$early['uom']
+                );
+                continue;
+            }
+            // Other non-Tarpaulin POS captures customer specifications only. Exact
             // material and quantity are checked after staff records actual use.
             continue;
         }

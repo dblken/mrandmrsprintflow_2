@@ -37,9 +37,10 @@ $assert(str_contains($jobService, 'printflow_tarpaulin_panel_plans_match')
     && str_contains($jobApi, "\$metadata['actual_usage_version'] = 'manual_v1';")
     && str_contains($jobApi, '$rawQuantity = trim((string)($_POST[\'quantity\'] ?? \'\'))'),
     'Historical panel-plan deduction support remains readable while new assignments store manual actual usage.');
-$assert(str_contains($validator, 'Non-Tarpaulin POS captures customer specifications only. Exact')
+$assert(str_contains($validator, 'printflow_pos_brochure_poster_is_early_stock_service')
+    && str_contains($validator, 'Other non-Tarpaulin POS captures customer specifications only. Exact')
     && str_contains($validator, "'tarpaulin_selections' => \$tarpaulinSelections"),
-    'Non-Tarpaulin services still defer material demand; Tarpaulin selections are returned for cart persistence.');
+    'Brochure/Poster use early paper capacity checks; remaining non-Tarpaulin services still defer exact usage; Tarpaulin selections persist for cart.');
 $posUi = (string)file_get_contents($root . '/staff/pos.php');
 $assert(!str_contains($posUi, 'Joining Direction')
     && !str_contains($posUi, 'Joining Allowance')

@@ -5787,6 +5787,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             // handler performs and displays this same field validation before
             // it starts its authoritative stock check. Mugs still loads the
             // mapped Mug capacity so quantity limits are visible immediately.
+            // Brochure / Poster Printing validate once Dimensions + Qty are
+            // complete (same incomplete-form deferral as other services).
             if (typeof validateServiceOrderForm === 'function' && !validateServiceOrderForm().valid
                 && Number(serviceId) !== 63) {
                 posSetServiceStockState(false, '', '');
@@ -5826,11 +5828,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const validation = data.stock_validation || {};
                 const materials = Array.isArray(validation.materials) ? validation.materials : [];
                 const formatQty = value => String(Number(value || 0));
+                const preferredPaperId = Number(serviceId) === 67 ? 211
+                    : (Number(serviceId) === 64 ? 212 : 0);
                 const mugMaterial = Number(serviceId) === 63
                     ? (materials.find(row => Number(row.item_id) === 37) || materials[0] || null)
                     : null;
+                const paperMaterial = preferredPaperId > 0
+                    ? (materials.find(row => Number(row.item_id) === preferredPaperId) || materials[0] || null)
+                    : null;
                 if (Number(serviceId) === 63 && !validation.tracked) {
                     const message = 'Mug stock could not be verified. Try again.';
+                    posSetServiceStockState(true, '', message);
+                    return { valid: false, message };
+                }
+                if (preferredPaperId > 0 && !validation.tracked) {
+                    const message = 'Material stock could not be verified for this service. Try again.';
                     posSetServiceStockState(true, '', message);
                     return { valid: false, message };
                 }
@@ -5861,6 +5873,28 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     }
                     posSetServiceStockState(false, availabilityText, '');
                     return { valid: true, tracked: true, available: safeAvailable };
+                }
+                if (preferredPaperId > 0 && paperMaterial) {
+                    const available = Number(paperMaterial.available);
+                    const required = Number(paperMaterial.required);
+                    const safeAvailable = Number.isFinite(available) ? Math.max(0, available) : null;
+                    const safeRequired = Number.isFinite(required) ? Math.max(0, required) : null;
+                    if (safeAvailable === null || safeRequired === null) {
+                        const message = 'Material stock could not be verified for this service. Try again.';
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message };
+                    }
+                    const uom = paperMaterial.uom || 'sheet';
+                    const materialName = paperMaterial.name || 'Required material';
+                    const availabilityText = `Required ${materialName}: ${formatQty(safeRequired)} ${uom} · Available: ${formatQty(safeAvailable)} ${uom}`;
+                    if (!validation.ok || issues.length || safeRequired > safeAvailable) {
+                        const issue = issues[0] || paperMaterial;
+                        const message = `Insufficient ${issue.name || materialName} stock. Available: ${formatQty(issue.available ?? safeAvailable)} ${issue.uom || uom}. Required: ${formatQty(issue.required ?? safeRequired)} ${issue.uom || uom}.`;
+                        posSetServiceStockState(true, availabilityText, posServiceStockDisplayMessage(message, serviceId) || message);
+                        return { valid: false, message, available: safeAvailable, required: safeRequired };
+                    }
+                    posSetServiceStockState(false, availabilityText, '');
+                    return { valid: true, tracked: true, available: safeAvailable, required: safeRequired };
                 }
                 if (!validation.ok || issues.length) {
                     const issue = issues[0] || {};
