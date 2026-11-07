@@ -4950,7 +4950,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 overlay.dataset.materialDimensionFieldKey = String(data.material_dimension_field_key || '');
                 overlay.dataset.materialSelectionFieldMap = JSON.stringify(data.material_selection_field_map || {});
                 body.innerHTML = data.fields_html;
-                if (Number(serviceId) === 40) posEnsureTarpaulinDimensionInputs(body, overlay);
+                // Tarpaulin size comes from the Dimensions field only — do not
+                // inject redundant Width/Height inputs on the Order Details form.
                 footerActions.style.display = 'block';
                 isAddingToOrder = false;
                 setServiceAddButtonBusy(false);
@@ -5534,7 +5535,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
             // Preserve actual dimension-entry validation. Configuration or
             // material-consumption explanations are not shown in POS feedback.
-            if (/^(?:width|height) must be|^the selected (?:size|option).*physical (?:width|height|dimensions)|^the configured dimension field|^this service must have one explicit dimension unit|^enter valid custom width/i.test(text)) {
+            if (/^(?:width|height) must be|^select a valid dimensions option|^the selected (?:size|option).*physical (?:width|height|dimensions)|^the configured dimension field|^this service must have one explicit dimension unit|^enter valid custom width/i.test(text)) {
                 return text;
             }
             if (/could not be verified|unable to validate|try again|network error/i.test(text)) {
@@ -5721,12 +5722,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return match ? { width: match[1], height: match[2] } : null;
             };
             if (dimensionControl) customization.dimensions = String(dimensionControl.value || '').trim();
-            const explicitWidth = body.querySelector('[data-pos-tarp-width="1"], input[name="width"][data-pos-tarp-dimension="1"]');
-            const explicitHeight = body.querySelector('[data-pos-tarp-height="1"], input[name="height"][data-pos-tarp-dimension="1"]');
-            if (explicitWidth || explicitHeight) {
-                customization.width = String(explicitWidth ? explicitWidth.value : '').trim();
-                customization.height = String(explicitHeight ? explicitHeight.value : '').trim();
-            } else if (customSizeActive) {
+            // Size comes from the Dimensions field (preset label, Others custom
+            // panel, or renderer-synced hidden width/height). Separate POS
+            // Width/Height inputs are not collected on Order Details.
+            if (customSizeActive) {
                 customization.width = String(customWidth ? customWidth.value : '').trim();
                 customization.height = String(customHeight ? customHeight.value : '').trim();
             } else {
@@ -5737,9 +5736,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (pair) {
                     customization.width = pair.width;
                     customization.height = pair.height;
+                } else {
+                    const hiddenW = body.querySelector('[data-dimension-role="width"]');
+                    const hiddenH = body.querySelector('[data-dimension-role="height"]');
+                    if (hiddenW || hiddenH) {
+                        customization.width = String(hiddenW ? hiddenW.value : '').trim();
+                        customization.height = String(hiddenH ? hiddenH.value : '').trim();
+                    }
                 }
             }
-            const unitField = body.querySelector('[name="dimensions_unit"], [name="unit"], [data-pos-tarp-unit="1"]');
+            const unitField = body.querySelector('[name="dimensions_unit"], [name="unit"]');
             const overlay = document.getElementById('service-modal-overlay');
             customization.pos_material_dimension_unit = String(
                 unitField?.value || overlay?.dataset.materialDimensionUnit || customization.pos_material_dimension_unit || 'ft'
@@ -5751,58 +5757,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const quantity = posServiceQuantityInput();
             if (quantity) customization.quantity = quantity.value;
             return customization;
-        }
-
-        function posEnsureTarpaulinDimensionInputs(body, overlay) {
-            if (!body || body.querySelector('.pos-tarpaulin-dimension-controls')) return;
-            const unit = String(overlay?.dataset.materialDimensionUnit || 'ft').trim().toLowerCase() || 'ft';
-            const unitLabel = unit === 'in' ? 'in' : (unit === 'cm' ? 'cm' : (unit === 'mm' ? 'mm' : 'ft'));
-            const wrap = document.createElement('div');
-            wrap.className = 'pos-tarpaulin-dimension-controls';
-            wrap.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;';
-            wrap.innerHTML = ''
-                + '<label style="display:grid;gap:5px;font-size:12px;font-weight:700;color:#334155">Width (' + unitLabel + ')'
-                + '<input data-pos-tarp-width="1" data-pos-tarp-dimension="1" name="width" type="number" min="0.01" step="any" class="input-field" inputmode="decimal" placeholder="Width"></label>'
-                + '<label style="display:grid;gap:5px;font-size:12px;font-weight:700;color:#334155">Height (' + unitLabel + ')'
-                + '<input data-pos-tarp-height="1" data-pos-tarp-dimension="1" name="height" type="number" min="0.01" step="any" class="input-field" inputmode="decimal" placeholder="Height"></label>'
-                + '<input type="hidden" data-pos-tarp-unit="1" name="dimensions_unit" value="' + unitLabel + '">';
-            const firstQuantity = body.querySelector('.quantity-container, input[name="quantity"]')?.closest('.shopee-form-row');
-            body.insertBefore(wrap, firstQuantity || null);
-            const widthInput = wrap.querySelector('[data-pos-tarp-width="1"]');
-            const heightInput = wrap.querySelector('[data-pos-tarp-height="1"]');
-            const syncFromPreset = () => {
-                const activePreset = body.querySelector('.shopee-opt-btn.active[data-width][data-height]');
-                const hiddenW = body.querySelector('[data-dimension-role="width"], input[name="width"]:not([data-pos-tarp-dimension])');
-                const hiddenH = body.querySelector('[data-dimension-role="height"], input[name="height"]:not([data-pos-tarp-dimension])');
-                if (activePreset) {
-                    widthInput.value = activePreset.dataset.width || '';
-                    heightInput.value = activePreset.dataset.height || '';
-                } else if (hiddenW || hiddenH) {
-                    if (hiddenW && String(hiddenW.value || '').trim() !== '') widthInput.value = hiddenW.value;
-                    if (hiddenH && String(hiddenH.value || '').trim() !== '') heightInput.value = hiddenH.value;
-                }
-            };
-            const pushToHidden = () => {
-                body.querySelectorAll('[data-dimension-role="width"], input[name="width"]:not([data-pos-tarp-dimension])').forEach((el) => {
-                    el.value = widthInput.value;
-                });
-                body.querySelectorAll('[data-dimension-role="height"], input[name="height"]:not([data-pos-tarp-dimension])').forEach((el) => {
-                    el.value = heightInput.value;
-                });
-            };
-            widthInput.addEventListener('input', pushToHidden);
-            heightInput.addEventListener('input', pushToHidden);
-            body.addEventListener('click', (event) => {
-                if (event.target?.closest?.('.shopee-opt-btn[data-width][data-height], [data-dimension-choice]')) {
-                    setTimeout(syncFromPreset, 0);
-                }
-            });
-            body.addEventListener('change', (event) => {
-                if (event.target?.matches?.('select[name="dimensions"], select[name*="dimension" i]')) {
-                    setTimeout(syncFromPreset, 0);
-                }
-            });
-            syncFromPreset();
         }
 
         async function posValidateServiceStockNow(serviceId, quantityRaw, customization = null) {
@@ -5843,7 +5797,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const height = Number(serviceCustomization.height);
                 const validDim = (value) => Number.isFinite(value) && value > 0 && value <= 100;
                 if (!validDim(width) || !validDim(height)) {
-                    const message = !validDim(width) ? 'Width must be greater than 0 and at most 100 feet.' : 'Height must be greater than 0 and at most 100 feet.';
+                    const message = 'Select a valid Dimensions option before adding Tarpaulin.';
                     posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId));
                     return { valid: false, message };
                 }
@@ -6591,11 +6545,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
 
             if (Number(serviceId) === 40) {
-                // Tarpaulin Width/Height come from dedicated POS inputs
-                // (posEnsureTarpaulinDimensionInputs). The shared preset parser
-                // must not blank those values when the dimensions select is
-                // empty, "Others", or otherwise non-parseable — that was wiping
-                // customer dimensions before cart/Set Price persistence.
+                // Tarpaulin width/height are derived from the Dimensions field
+                // (and its Others custom panel). Re-collect after the form loop
+                // so the shared preset parser cannot blank them before cart save.
                 Object.assign(customization, posCollectTarpaulinStockCustomization());
             } else {
                 posApplySelectedServiceDimension(customization, body, overlay);

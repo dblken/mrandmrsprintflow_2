@@ -84,10 +84,15 @@ foreach ([13, 14, 15, 16] as $itemId) {
 $root = dirname(__DIR__);
 $pos = (string)file_get_contents($root . '/staff/pos.php');
 $stock = (string)file_get_contents($root . '/includes/pos_service_stock_validation.php');
-$assert(str_contains($pos, 'posEnsureTarpaulinDimensionInputs')
-    && str_contains($pos, 'data-pos-tarp-width="1"')
-    && str_contains($pos, 'data-pos-tarp-height="1"'),
-    'POS Tarpaulin Order Details exposes separate Width and Height numeric inputs.');
+$assert(!str_contains($pos, 'posEnsureTarpaulinDimensionInputs')
+    && !str_contains($pos, 'data-pos-tarp-width="1"')
+    && !str_contains($pos, 'data-pos-tarp-height="1"')
+    && !str_contains($pos, 'pos-tarpaulin-dimension-controls'),
+    'POS Tarpaulin Order Details does not inject separate Width/Height inputs.');
+$assert(str_contains($pos, 'function posCollectTarpaulinStockCustomization()')
+    && str_contains($pos, 'parsePair(dimensionControl')
+    && str_contains($pos, 'Select a valid Dimensions option before adding Tarpaulin.'),
+    'Tarpaulin size is derived from the Dimensions field for cart/stock collection.');
 $assert(!str_contains($pos, 'Joining Direction')
     && !str_contains($pos, 'Joining Allowance')
     && !str_contains($pos, 'pos-tarpaulin-joining-controls'),
