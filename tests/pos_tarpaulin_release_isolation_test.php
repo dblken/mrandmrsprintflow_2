@@ -7,8 +7,12 @@ $checkout = file_get_contents($root . '/staff/api/pos_checkout.php');
 $jobApi = file_get_contents($root . '/admin/job_orders_api.php');
 $mugsRule = file_get_contents($root . '/includes/pos_mugs_release_rule.php');
 $assert = static function (bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); };
-$assert(str_contains($validator, 'if ($serviceId === 63)') && str_contains($validator, "(int)\$material['item_id'] !== 37")
-    && str_contains($mugsRule, 'printflow_pos_mugs_release_material_rule'), 'Dedicated Mugs inventory item validation remains present.');
+$assert(str_contains($validator, 'if ($serviceId === 63)')
+    && str_contains($validator, 'printflow_pos_mugs_assert_dedicated_mug_assigned($assigned)')
+    && !str_contains($validator, "(int)\$material['item_id'] !== 37")
+    && str_contains($mugsRule, 'printflow_pos_mugs_release_material_rule')
+    && str_contains($mugsRule, 'function printflow_pos_mugs_assert_dedicated_mug_assigned'),
+    'Dedicated Mugs validation requires item #37 among assignments and does not reject shared mapped materials.');
 $validateBody = substr($validator, strpos($validator, 'function printflow_pos_validate_service_stock('));
 $assert(str_contains($validateBody, "if (\$serviceId === 40 && !array_key_exists('pos_material_assignments', \$line))")
     && str_contains($validateBody, 'printflow_pos_tarpaulin_selection(')

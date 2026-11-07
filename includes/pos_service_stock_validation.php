@@ -454,9 +454,9 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
             }
         }
         if ($serviceId === 63) {
-            foreach ($assigned as $material) {
-                if ((int)$material['item_id'] !== 37) throw new RuntimeException('The dedicated Mug material must be assigned for this service.');
-            }
+            // Require dedicated Mug #37 among assignments; allow other mapped
+            // materials (Subli Paper, Box Mug, etc.) alongside it.
+            printflow_pos_mugs_assert_dedicated_mug_assigned($assigned);
         }
         if ($serviceId === 40) {
             foreach ($assigned as $material) {

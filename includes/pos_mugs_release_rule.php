@@ -24,3 +24,25 @@ function printflow_pos_mugs_release_material_rule(int $serviceId, string $servic
         'service_type' => 'Mugs',
     ]];
 }
+
+/**
+ * Set Price / Production Assignment for Mugs (service 63) may include shared
+ * mapped materials such as Subli Paper or Box Mug. Those rows are valid when
+ * staff actually used them. The dedicated blank Mug inventory item (#37) must
+ * still be present among the assigned rows; other mapped item IDs must not be
+ * rejected merely for not being #37.
+ *
+ * @param list<array{item_id?:int|string}> $assigned
+ */
+function printflow_pos_mugs_assert_dedicated_mug_assigned(array $assigned): void
+{
+    foreach ($assigned as $material) {
+        if (!is_array($material)) {
+            continue;
+        }
+        if ((int)($material['item_id'] ?? 0) === 37) {
+            return;
+        }
+    }
+    throw new RuntimeException('The dedicated Mug material must be assigned for this service.');
+}
