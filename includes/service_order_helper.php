@@ -846,6 +846,19 @@ function printflow_calculate_service_unit_price(int $serviceId, array $customiza
     }
 
     $basePrice = (float)($rows[0]['base_price'] ?? 0);
+    if (!function_exists('printflow_is_mugs_service')) {
+        require_once __DIR__ . '/mugs_base_pricing.php';
+    }
+    // Mugs selling price is services.price per piece × quantity. Never substitute
+    // inventory average cost or other materials (e.g. Box Mug).
+    if (printflow_is_mugs_service($serviceId) && $basePrice < 0.01) {
+        return [
+            'ok' => false,
+            'unit_price' => 0.0,
+            'reason' => 'unconfigured',
+            'message' => 'Configure a positive Mugs per-piece selling price on the service record (services.price). Inventory average cost is not used.',
+        ];
+    }
 
     if (!function_exists('get_service_field_config')) {
         require_once __DIR__ . '/service_field_config_helper.php';

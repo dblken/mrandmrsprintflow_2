@@ -539,24 +539,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
         } elseif (empty($selectedBranchIsActive)) {
             $order_error = 'Please select a valid branch for pickup.';
         } else {
+            require_once __DIR__ . '/../includes/mugs_base_pricing.php';
+            require_once __DIR__ . '/../includes/service_design_fee.php';
             foreach ($items_to_review as $reviewItem) {
-                if (!review_item_is_product($reviewItem)) {
+                if (review_item_is_product($reviewItem)) {
+                    $productId = (int)($reviewItem['product_id'] ?? 0);
+                    if ($productId <= 0) {
+                        continue;
+                    }
+                    $reviewCustom = review_item_customization($reviewItem);
+                    $reviewQty = review_item_quantity($reviewItem);
+                    $authoritativePrice = review_catalog_unit_price($reviewItem);
+                    if ($authoritativePrice === null || $authoritativePrice < 0) {
+                        $order_error = 'A product or price changed while you were checking out. Please return to your cart and review it.';
+                        break;
+                    }
+                    $stockCheck = printflow_product_option_stock_validate($productId, $selected_branch_id, $reviewCustom, $reviewQty);
+                    if (!empty($stockCheck['uses_option_stock']) && empty($stockCheck['ok'])) {
+                        $order_error = (string)($stockCheck['message'] ?? 'Selected variant is out of stock.');
+                        break;
+                    }
                     continue;
                 }
-                $productId = (int)($reviewItem['product_id'] ?? 0);
-                if ($productId <= 0) {
+                if (!review_item_is_service($reviewItem)) {
                     continue;
                 }
                 $reviewCustom = review_item_customization($reviewItem);
+                $reviewServiceId = (int)($reviewItem['service_id'] ?? ($reviewCustom['service_id'] ?? 0));
+                if (!printflow_is_mugs_service($reviewServiceId)) {
+                    continue;
+                }
                 $reviewQty = review_item_quantity($reviewItem);
-                $authoritativePrice = review_catalog_unit_price($reviewItem);
-                if ($authoritativePrice === null || $authoritativePrice < 0) {
-                    $order_error = 'A product or price changed while you were checking out. Please return to your cart and review it.';
+                $mugStock = printflow_mugs_assert_quantity_within_branch_stock($reviewQty, $selected_branch_id);
+                if (empty($mugStock['ok'])) {
+                    $order_error = (string)($mugStock['message'] ?? 'Insufficient Mug stock for this branch.');
                     break;
                 }
-                $stockCheck = printflow_product_option_stock_validate($productId, $selected_branch_id, $reviewCustom, $reviewQty);
-                if (!empty($stockCheck['uses_option_stock']) && empty($stockCheck['ok'])) {
-                    $order_error = (string)($stockCheck['message'] ?? 'Selected variant is out of stock.');
+                $linePricing = printflow_calculate_service_line_pricing($reviewServiceId, $reviewCustom, $reviewQty);
+                if (empty($linePricing['ok'])) {
+                    $order_error = (string)($linePricing['message'] ?? 'Mugs price could not be verified at checkout.');
                     break;
                 }
             }

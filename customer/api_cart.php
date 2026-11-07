@@ -12,6 +12,10 @@ require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/customer_profile_completion.php';
 require_once __DIR__ . '/../includes/product_field_config_helper.php';
 require_once __DIR__ . '/../includes/product_pricing.php';
+require_once __DIR__ . '/../includes/mugs_base_pricing.php';
+require_once __DIR__ . '/../includes/service_design_fee.php';
+require_once __DIR__ . '/../includes/service_order_helper.php';
+require_once __DIR__ . '/../includes/service_field_config_helper.php';
 
 $session_user_type = trim((string)(get_user_type() ?? ''));
 if (!is_logged_in() || strcasecmp($session_user_type, 'Customer') !== 0) {
@@ -354,7 +358,15 @@ if ($action === 'update') {
     } else {
         $item = $_SESSION['cart'][$key];
         $isServiceLine = strtolower(trim((string)($item['source_page'] ?? ''))) === 'services'
-            || strtolower(trim((string)($item['type'] ?? ''))) === 'service';
+            || strtolower(trim((string)($item['type'] ?? ''))) === 'service'
+            || strtolower(trim((string)($item['item_type'] ?? ''))) === 'service';
+        $serviceId = (int)($item['service_id'] ?? ($item['customization']['service_id'] ?? 0));
+        $current_item_qty = (int)($_SESSION['cart'][$key]['quantity'] ?? 0);
+        $other_total = cart_count() - $current_item_qty;
+        if ($other_total + $quantity > CART_MAX) {
+            echo json_encode(['success' => false, 'message' => 'Your cart is full.', 'cart_count' => cart_count()]);
+            exit;
+        }
         if ((int)($item['product_id'] ?? 0) > 0 && !$isServiceLine) {
             $pricing = printflow_product_resolve_catalog_unit_price(
                 (int)$item['product_id'],
@@ -368,30 +380,39 @@ if ($action === 'update') {
             $_SESSION['cart'][$key]['price'] = (float)$pricing['unit_price'];
             $item['price'] = (float)$pricing['unit_price'];
         }
-        $stockCheck = printflow_product_option_stock_validate(
-            (int)($item['product_id'] ?? 0),
-            (int)($item['branch_id'] ?? 0),
-            (array)($item['customization'] ?? []),
-            $quantity
-        );
-        if (!empty($stockCheck['uses_option_stock']) && empty($stockCheck['ok'])) {
-            echo json_encode(['success' => false, 'message' => $stockCheck['message'] ?? 'Insufficient stock for selected variant.']);
-            exit;
-        }
-        if ((int)($item['product_id'] ?? 0) > 0 && empty($stockCheck['uses_option_stock'])) {
-            [$branchStock] = printflow_product_effective_stock((int)$item['product_id'], (int)($item['branch_id'] ?? 0));
-            if ($quantity > (int)$branchStock) {
-                echo json_encode(['success' => false, 'message' => 'Quantity exceeds available stock.']);
+        if ($isServiceLine && printflow_is_mugs_service($serviceId)) {
+            $mugStock = printflow_mugs_assert_quantity_within_branch_stock($quantity, (int)($item['branch_id'] ?? 0));
+            if (empty($mugStock['ok'])) {
+                echo json_encode(['success' => false, 'message' => (string)($mugStock['message'] ?? 'Insufficient Mug stock.')]);
                 exit;
             }
+            $_SESSION['cart'][$key]['quantity'] = $quantity;
+            $_SESSION['cart'][$key]['qty'] = $quantity;
+            $repriced = printflow_apply_service_line_pricing_to_cart_item($_SESSION['cart'][$key]);
+            if (empty($repriced['ok'])) {
+                echo json_encode(['success' => false, 'message' => (string)($repriced['message'] ?? 'Mugs price could not be recalculated.')]);
+                exit;
+            }
+        } else {
+            $stockCheck = printflow_product_option_stock_validate(
+                (int)($item['product_id'] ?? 0),
+                (int)($item['branch_id'] ?? 0),
+                (array)($item['customization'] ?? []),
+                $quantity
+            );
+            if (!empty($stockCheck['uses_option_stock']) && empty($stockCheck['ok'])) {
+                echo json_encode(['success' => false, 'message' => $stockCheck['message'] ?? 'Insufficient stock for selected variant.']);
+                exit;
+            }
+            if ((int)($item['product_id'] ?? 0) > 0 && empty($stockCheck['uses_option_stock'])) {
+                [$branchStock] = printflow_product_effective_stock((int)$item['product_id'], (int)($item['branch_id'] ?? 0));
+                if ($quantity > (int)$branchStock) {
+                    echo json_encode(['success' => false, 'message' => 'Quantity exceeds available stock.']);
+                    exit;
+                }
+            }
+            $_SESSION['cart'][$key]['quantity'] = $quantity;
         }
-        $current_item_qty  = $_SESSION['cart'][$key]['quantity'] ?? 0;
-        $other_total       = cart_count() - $current_item_qty;
-        if ($other_total + $quantity > CART_MAX) {
-            echo json_encode(['success' => false, 'message' => 'Your cart is full.', 'cart_count' => cart_count()]);
-            exit;
-        }
-        $_SESSION['cart'][$key]['quantity'] = $quantity;
     }
 
     if ($customer_id) sync_cart_to_db($customer_id);

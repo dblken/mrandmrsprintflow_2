@@ -9,9 +9,11 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/service_field_config_helper.php';
+require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/service_design_fee.php';
 require_once __DIR__ . '/../includes/product_field_config_helper.php';
 require_once __DIR__ . '/../includes/product_pricing.php';
+require_once __DIR__ . '/../includes/mugs_base_pricing.php';
 
 require_role('Customer');
 
@@ -57,9 +59,17 @@ foreach ($cart_items as $cartKey => &$cartItem) {
     $sourcePage = strtolower(trim((string)($cartItem['source_page'] ?? '')));
     $itemType = strtolower(trim((string)($cartItem['type'] ?? '')));
     if ($sourcePage === 'services' || $itemType === 'service') {
-        $feeResult = printflow_apply_configured_layout_fee_to_cart_item($cartItem);
-        if (empty($feeResult['ok'])) {
-            $cart_design_fee_errors[$cartKey] = (string)($feeResult['message'] ?? 'Service layout pricing could not be verified.');
+        $serviceId = (int)($cartItem['service_id'] ?? ($cartItem['customization']['service_id'] ?? 0));
+        if (printflow_is_mugs_service($serviceId)) {
+            $repriced = printflow_apply_service_line_pricing_to_cart_item($cartItem);
+            if (empty($repriced['ok'])) {
+                $cart_design_fee_errors[$cartKey] = (string)($repriced['message'] ?? 'Mugs price could not be verified.');
+            }
+        } else {
+            $feeResult = printflow_apply_configured_layout_fee_to_cart_item($cartItem);
+            if (empty($feeResult['ok'])) {
+                $cart_design_fee_errors[$cartKey] = (string)($feeResult['message'] ?? 'Service layout pricing could not be verified.');
+            }
         }
         $_SESSION['cart'][$cartKey] = $cartItem;
         continue;
