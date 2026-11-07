@@ -3229,7 +3229,10 @@ $online_closed_count = 0;
                                                             <span x-text="pm.uom"></span>
                                                         </label>
                                                         <div x-show="pm.dimension_fit_error" x-text="pm.dimension_fit_error" role="alert" style="margin-top:5px;color:#b91c1c;font-weight:700;"></div>
-                                                        <div x-show="showPendingMaterialUsageError(pm)" style="margin-top:5px;color:#b45309;font-weight:700;">Enter a valid actual quantity before saving.</div>
+                                                        <!-- Actual Usage message mounts only after Confirm Set Price (x-if, not x-show). -->
+                                                        <template x-if="productionAssignmentSubmitAttempted === true && showPendingMaterialUsageError(pm)">
+                                                            <div style="margin-top:5px;color:#b45309;font-weight:700;">Enter a valid actual quantity before saving.</div>
+                                                        </template>
                                                         <div x-show="pendingMaterialStockError(pm)" x-text="pendingMaterialStockError(pm)" role="alert" style="margin-top:5px;color:#b91c1c;font-weight:700;"></div>
                                                     </div>
                                                     <button type="button" @click="removePendingMaterial(idx)" title="Remove material" aria-label="Remove material"
@@ -4523,10 +4526,15 @@ window.pfServiceFieldCatalog = (() => {
             },
             /** Field-level Actual Usage hint only after Confirm Set Price is attempted. */
             showPendingMaterialUsageError(material) {
-                if (!this.productionAssignmentSubmitAttempted || !material) return false;
+                if (this.productionAssignmentSubmitAttempted !== true || !material) return false;
                 if (this.isPendingTarpaulinMaterial?.(material)) return false;
                 if (material.dimension_fit_error) return false;
                 return material.manual_quantity_confirmed !== true;
+            },
+            /** Clears deferred Actual Usage UI state when opening/closing a Production Assignment modal. */
+            resetProductionAssignmentValidationState() {
+                this.productionAssignmentSubmitAttempted = false;
+                this.productionErrors = { material: '', ink_set: '', ink_consumption: '' };
             },
             pendingMaterialStockError(material) {
                 if (!material || !this.isValidPosMaterialQuantity(material.qty, material.item_id)) return '';
@@ -4879,16 +4887,13 @@ window.pfServiceFieldCatalog = (() => {
                 if (!this.newMaterialId) return '';
                 const item = this.getInventoryItem(this.newMaterialId);
                 if (!item) return '';
-                if (this.isPosSetPriceFlow() && !this.isValidPosMaterialQuantity(this.newMaterialQty, this.newMaterialId)) {
-                    return 'Enter a valid positive actual quantity in the selected material inventory unit.';
-                }
+                // Quantity validity is deferred to Confirm Set Price / field-level messages.
+                // This getter only reports branch stock shortages for a positive entered qty.
                 const available = parseFloat(item.current_stock || 0);
                 const queued = this.getQueuedMaterialRequiredStock(this.newMaterialId);
                 const needed = this.getMaterialRequiredStock(this.newMaterialId, this.newMaterialQty);
                 const enteredQty = Number(this.newMaterialQty);
-                if (!Number.isFinite(enteredQty) || enteredQty <= 0) {
-                    return 'Enter a positive actual material quantity.';
-                }
+                if (!Number.isFinite(enteredQty) || enteredQty <= 0) return '';
                 if (needed <= 0) return '';
                 const remaining = Math.max(0, available - queued);
                 if (needed > remaining) {
@@ -5306,8 +5311,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.schedulePayMongoPolling();
                 this.jobPriceInput = this.resolveJobPriceInputDefault(this.currentJo);
                 this.syncJobPriceInputField();
-                this.productionErrors = { material: '', ink_set: '', ink_consumption: '' };
-                this.productionAssignmentSubmitAttempted = false;
+                this.resetProductionAssignmentValidationState();
                 this.restoreSavedInkUsage();
                 this.modalCache[cacheKey] = this.currentJo;
                 this.modalCacheLoadedAt[cacheKey] = Date.now();
@@ -5418,7 +5422,9 @@ window.pfServiceFieldCatalog = (() => {
                 this.previewFile = '';
                 this.designFilesExpandedKeys = {};
                 this.currentJo = {};
+                this.pendingMaterials = [];
                 this.assignmentActionFeedback = '';
+                this.resetProductionAssignmentValidationState();
                 this.clearDeepLinkParams();
                 if (wasPosPricing) {
                     window.location.href = this.staffApiUrl('pos.php?from_customizations=1');
@@ -10058,6 +10064,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.footerActionError = '';
                 this.assignmentActionFeedback = '';
                 this.pendingMaterials = [];
+                this.resetProductionAssignmentValidationState();
                 this.resetMaterialForm();
                 this.resetInkForm();
                 this.materialListExpanded = true;

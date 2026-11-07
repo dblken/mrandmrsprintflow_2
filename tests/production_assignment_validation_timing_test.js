@@ -8,7 +8,17 @@ globalThis.window = globalThis.window || { PrintFlowMaterialConsumption: materia
 const page = fs.readFileSync(path.join(__dirname, '..', 'staff', 'customizations.php'), 'utf8');
 
 assert.match(page, /productionAssignmentSubmitAttempted/, 'Submit-attempt gate exists for Actual Usage errors');
-assert.match(page, /showPendingMaterialUsageError\(pm\)/, 'Field-level usage error is gated by helper');
+assert.match(
+  page,
+  /x-if="productionAssignmentSubmitAttempted === true && showPendingMaterialUsageError\(pm\)"/,
+  'Field-level Actual Usage message mounts only after submit attempt'
+);
+assert.doesNotMatch(
+  page,
+  /x-show="showPendingMaterialUsageError\(pm\)"/,
+  'Actual Usage message must not use ungated x-show (avoids pre-submit visibility)'
+);
+assert.match(page, /resetProductionAssignmentValidationState\(\)/, 'Modal open/close resets deferred validation state');
 assert.match(page, /Please select at least one material to be used for this job\./, 'No-material message is configured');
 assert.doesNotMatch(
   page,
@@ -24,6 +34,10 @@ assert.match(
 const showStart = page.indexOf('            showPendingMaterialUsageError(material) {');
 const showEnd = page.indexOf('            pendingMaterialStockError(material) {', showStart);
 assert.ok(showStart >= 0 && showEnd > showStart, 'showPendingMaterialUsageError is present');
+
+const resetStart = page.indexOf('            resetProductionAssignmentValidationState() {');
+const resetEnd = page.indexOf('            pendingMaterialStockError(material) {', resetStart);
+assert.ok(resetStart >= 0 && resetEnd > resetStart, 'resetProductionAssignmentValidationState is present');
 
 const stockStart = page.indexOf('            pendingMaterialStockError(material) {');
 const stockEnd = page.indexOf('            /** @deprecated Kept for older callers', stockStart);
@@ -47,6 +61,10 @@ ${page.slice(stockStart, stockEnd).replace(/\r\n/g, '\n')}
 ${page.slice(qtyStart, qtyEnd)}
 ${page.slice(approvalStart, approvalEnd)}
 ${page.slice(validationStart, validationEnd)}
+});`)();
+
+const resetMethods = new Function(`return ({
+${page.slice(resetStart, resetEnd).replace(/\r\n/g, '\n')}
 });`)();
 
 const item = {
@@ -132,6 +150,40 @@ assert.equal(
   'Field-level Actual Usage error appears after failed submit'
 );
 
+const correctedRow = { ...blankRow, qty: 2, manual_quantity_confirmed: true };
+afterBlankSubmit.pendingMaterials = [correctedRow];
+assert.equal(
+  methods.showPendingMaterialUsageError.call(afterBlankSubmit, correctedRow),
+  false,
+  'Field-level Actual Usage error clears after entering a valid value'
+);
+afterBlankSubmit.productionErrors.material = 'Enter a valid actual quantity before saving.';
+assert.equal(
+  methods.validateProductionAssignments.call(afterBlankSubmit, [correctedRow], []),
+  true,
+  'Corrected valid assignment can save after a prior failed submit'
+);
+assert.equal(afterBlankSubmit.productionErrors.material, '', 'Material error clears once usage is valid');
+
+const staleFlagCtx = Object.assign(Object.create(methods), baseCtx({
+  pendingMaterials: [{ ...blankRow }],
+  productionAssignmentSubmitAttempted: true,
+  productionErrors: { material: 'Enter a valid actual quantity before saving.', ink_set: '', ink_consumption: '' },
+}));
+assert.equal(
+  methods.showPendingMaterialUsageError.call(staleFlagCtx, blankRow),
+  true,
+  'Stale submit-attempt flag would show the message'
+);
+resetMethods.resetProductionAssignmentValidationState.call(staleFlagCtx);
+assert.equal(staleFlagCtx.productionAssignmentSubmitAttempted, false, 'Modal reset clears submit-attempt flag');
+assert.equal(staleFlagCtx.productionErrors.material, '', 'Modal reset clears material errors');
+assert.equal(
+  methods.showPendingMaterialUsageError.call(staleFlagCtx, blankRow),
+  false,
+  'After modal reset, blank usage does not show Actual Usage error'
+);
+
 const noMaterialCtx = Object.assign(Object.create(methods), baseCtx({
   pendingMaterials: [],
   currentJo: { materials: [] },
@@ -176,6 +228,16 @@ assert.match(
   page,
   /:disabled="actionBusy \|\| approvalStockErrors\.length > 0 \|\| !isValidPosFinalPrice\(jobPriceInput\)"/,
   'Confirm Set Price remains clickable when only Actual Usage is blank (stock/price still gate)'
+);
+assert.match(
+  page,
+  /this\.resetProductionAssignmentValidationState\(\);\s*this\.resetMaterialForm\(\)/s,
+  'viewDetails resets validation state when opening a modal'
+);
+assert.match(
+  page,
+  /this\.pendingMaterials = \[\];\s*this\.assignmentActionFeedback = '';\s*this\.resetProductionAssignmentValidationState\(\);/s,
+  'closeDetailsModal clears pending materials and validation state'
 );
 
 console.log('production_assignment_validation_timing_test: PASS');
