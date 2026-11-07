@@ -218,9 +218,30 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
 
 function printflow_pos_service_stock_rules(int $serviceId, array $customization, bool $hasAssignedMaterials = false, int $branchId = 0, float $orderQuantity = 0, array $alreadyDemand = []): array
 {
-    // Current service material quantities are entered by staff in Production
-    // Assignment. Keep this compatibility function calculation-free.
-    return [];
+    // Early mapped demand is Mugs-only (service 63 → inventory item 37 at 1:1).
+    // Other services keep calculation-free POS capture; exact usage is staff-entered later.
+    if ($serviceId !== 63) {
+        return [];
+    }
+
+    $serviceRows = db_query(
+        'SELECT name FROM services WHERE service_id = ? LIMIT 1',
+        'i',
+        [$serviceId]
+    );
+    if ($serviceRows === false) {
+        throw new RuntimeException('The POS service material rules could not be loaded.');
+    }
+    $serviceName = trim((string)($serviceRows[0]['name'] ?? ''));
+    if ($serviceName === '') {
+        $serviceName = trim((string)($customization['service_type'] ?? 'Mugs'));
+    }
+
+    return printflow_pos_mugs_release_material_rule(
+        $serviceId,
+        $serviceName,
+        InventoryManager::getItem(37)
+    ) ?? [];
 }
 
 function printflow_pos_service_line_job_materials(array $line): array
@@ -388,6 +409,28 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
         }
 
         if (!array_key_exists('pos_material_assignments', $line)) {
+            // Mugs keeps an owner-confirmed early capacity check before Add to Order.
+            // Other non-Tarpaulin services still defer exact material qty to Set Price /
+            // Production Assignment.
+            if ($serviceId === 63) {
+                $rules = printflow_pos_service_stock_rules($serviceId, $customization);
+                foreach ($rules as $rule) {
+                    try {
+                        $required = printflow_pos_service_required_material_quantity($quantity, $rule['multiplier']);
+                    } catch (InvalidArgumentException $error) {
+                        throw new RuntimeException('A required Mug material quantity could not be calculated for this POS service.');
+                    }
+                    $tracked = true;
+                    printflow_pos_service_stock_add_demand(
+                        $demand,
+                        (int)$rule['item_id'],
+                        $required,
+                        (string)$rule['name'],
+                        (string)$rule['uom']
+                    );
+                }
+                continue;
+            }
             // Non-Tarpaulin POS captures customer specifications only. Exact
             // material and quantity are checked after staff records actual use.
             continue;

@@ -5791,8 +5791,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             // Do not show transient red material/dimension precheck errors
             // while required specifications are still being entered. The Add
             // handler performs and displays this same field validation before
-            // it starts its authoritative stock check.
-            if (typeof validateServiceOrderForm === 'function' && !validateServiceOrderForm().valid) {
+            // it starts its authoritative stock check. Mugs still loads the
+            // mapped Mug capacity so quantity limits are visible immediately.
+            if (typeof validateServiceOrderForm === 'function' && !validateServiceOrderForm().valid
+                && Number(serviceId) !== 63) {
                 posSetServiceStockState(false, '', '');
                 return { valid: true, deferred: true };
             }
@@ -5828,14 +5830,46 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     return { valid: false, message };
                 }
                 const validation = data.stock_validation || {};
+                const materials = Array.isArray(validation.materials) ? validation.materials : [];
+                const formatQty = value => String(Number(value || 0));
+                const mugMaterial = Number(serviceId) === 63
+                    ? (materials.find(row => Number(row.item_id) === 37) || materials[0] || null)
+                    : null;
+                if (Number(serviceId) === 63 && !validation.tracked) {
+                    const message = 'Mug stock could not be verified. Try again.';
+                    posSetServiceStockState(true, '', message);
+                    return { valid: false, message };
+                }
                 if (!validation.tracked) {
                     posSetServiceStockState(false, '', '');
                     return { valid: true, tracked: false };
                 }
                 const issues = Array.isArray(validation.issues) ? validation.issues : [];
+                if (Number(serviceId) === 63 && mugMaterial) {
+                    const available = Number(mugMaterial.available);
+                    const safeAvailable = Number.isFinite(available) ? Math.max(0, available) : null;
+                    if (safeAvailable === null) {
+                        const message = 'Mug stock could not be verified. Try again.';
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message };
+                    }
+                    const maxAllowed = Math.min(100, Math.floor(safeAvailable));
+                    if (input) {
+                        input.max = String(Math.max(0, maxAllowed));
+                        input.dataset.posMugAvailable = String(safeAvailable);
+                    }
+                    const availabilityText = `Available ${mugMaterial.name || 'Mug'}: ${formatQty(safeAvailable)} ${mugMaterial.uom || 'pcs'}`;
+                    if (!validation.ok || issues.length || qty > maxAllowed) {
+                        const issue = issues[0] || mugMaterial;
+                        const message = `Insufficient ${issue.name || 'Mug'} stock. Available: ${formatQty(issue.available ?? safeAvailable)} ${issue.uom || 'pcs'}. Required: ${formatQty(issue.required ?? qty)} ${issue.uom || 'pcs'}.`;
+                        posSetServiceStockState(true, availabilityText, posServiceStockDisplayMessage(message, serviceId) || message);
+                        return { valid: false, message, available: safeAvailable };
+                    }
+                    posSetServiceStockState(false, availabilityText, '');
+                    return { valid: true, tracked: true, available: safeAvailable };
+                }
                 if (!validation.ok || issues.length) {
                     const issue = issues[0] || {};
-                    const formatQty = value => String(Number(value || 0));
                     const message = `Insufficient ${issue.name || 'selected material'} stock. Available: ${formatQty(issue.available)} ${issue.uom || 'units'}. Required: ${formatQty(issue.required)} ${issue.uom || 'units'}.`;
                     posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId));
                     return { valid: false, message };
