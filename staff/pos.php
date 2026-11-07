@@ -4784,7 +4784,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (qtyEl) qtyEl.textContent = '1';
         }
 
-        function initPosEstimatedPrice(body, basePrice) {
+        function initPosEstimatedPrice(body, basePrice, serviceId) {
             destroyPosEstimatedPrice();
             const footer = document.getElementById('pos-estimated-price-display');
             if (!footer || typeof window.printflowInitServiceEstimatedPrice !== 'function') {
@@ -4792,6 +4792,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
             posEstimatedPriceController = window.printflowInitServiceEstimatedPrice(body, {
                 basePrice: basePrice,
+                serviceId: Number(serviceId) || 0,
+                requirePositiveUnit: Number(serviceId) === 63,
                 form: body,
                 estimatedTotalEl: footer.querySelector('#pos-estimated-total'),
                 qtyDisplayEl: footer.querySelector('#pos-qty-display')
@@ -4959,7 +4961,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 bindServiceValidationClearers(body);
                 if (typeof initServiceFieldRenderer === 'function') initServiceFieldRenderer(body);
                 else if (typeof initPfDesignUploadGroups === 'function') initPfDesignUploadGroups(body);
-                initPosEstimatedPrice(body, parseFloat(data.base_price) || 0);
+                initPosEstimatedPrice(body, parseFloat(data.base_price) || 0, serviceId);
                 posBindServiceStockValidation(serviceId);
                 posEnforceNeededDateMinimum(body);
             } catch (e) {
@@ -5425,6 +5427,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 );
             } catch (quantityError) {
                 await showPOSAlert('Quantity', quantityError.message || 'Enter a positive whole number.', 'warning');
+                return;
+            }
+            if (Number(serviceId) === 63 && priced.unitPrice <= 0) {
+                await showPOSAlert(
+                    'Mugs Price Required',
+                    'Configure the Mugs per-piece selling price in Admin → Services (services.price). The Without Layout fee is added once and cannot replace the Mug item price.',
+                    'warning'
+                );
                 return;
             }
             if (priced.unitPrice <= 0) {
@@ -6616,6 +6626,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 setCustomizationValue(customization, row, radio, radioValue);
             });
 
+            if (Number(serviceId) === 63 && priced.unitPrice <= 0) {
+                setServiceAddButtonBusy(false);
+                isAddingToOrder = false;
+                await showPOSAlert(
+                    'Mugs Price Required',
+                    'Configure the Mugs per-piece selling price in Admin → Services (services.price). The Without Layout fee is added once and cannot replace the Mug item price.',
+                    'warning'
+                );
+                return;
+            }
             if (priced.unitPrice <= 0) {
                 setServiceAddButtonBusy(false);
                 const addBtn = document.getElementById('sm-add-to-order-btn');

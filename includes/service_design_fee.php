@@ -328,6 +328,13 @@ if (!function_exists('printflow_apply_service_line_pricing_to_cart_item')) {
         }
         $pricing = printflow_calculate_service_line_pricing($serviceId, $custom, $quantity);
         if (empty($pricing['ok'])) {
+            if (!function_exists('printflow_is_mugs_service')) {
+                require_once __DIR__ . '/mugs_base_pricing.php';
+            }
+            if (printflow_is_mugs_service($serviceId)) {
+                // Never rebuild a Mugs line as layout-fee-only when unit price is missing.
+                return ['ok' => false, 'message' => (string)($pricing['message'] ?? 'Configure a positive Mugs per-piece selling price (services.price). The layout fee cannot replace the Mug item price.')];
+            }
             if (($pricing['reason'] ?? '') !== 'unconfigured') {
                 return ['ok' => false, 'message' => (string)($pricing['message'] ?? 'Service price could not be verified.')];
             }

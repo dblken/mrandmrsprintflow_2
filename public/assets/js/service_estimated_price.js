@@ -127,6 +127,9 @@
         options = options || {};
         const scope = options.form || container;
         const basePrice = parsePrice(options.basePrice || 0);
+        const serviceId = Number(options.serviceId || 0);
+        const requirePositiveUnit = options.requirePositiveUnit === true
+            || serviceId === 63; // Mugs: layout fee must never replace the per-piece price
         const estimatedTotalEl = options.estimatedTotalEl || (scope ? scope.querySelector('#estimated-total') : null);
         const qtyDisplayEl = options.qtyDisplayEl || (scope ? scope.querySelector('#qty-display') : null);
         const unitPriceInputEl = options.unitPriceInputEl || (scope ? scope.querySelector('#calculated-unit-price') : null);
@@ -142,6 +145,9 @@
             const quantity = /^[0-9]+$/.test(rawQuantity) ? Number(rawQuantity) : NaN;
             const quantityValid = Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= 100;
             const unitPrice = basePrice + optionsTotal;
+            // Formula: (configured unit × qty) + one-time layout fee.
+            // A missing unit price must not present the layout fee as the full estimate.
+            const unitConfigured = unitPrice >= 0.01;
 
             if (!quantityValid) {
                 // An empty or malformed edit is temporary UI state, not quantity 1.
@@ -153,6 +159,21 @@
                 if (estimatedPriceInputEl) estimatedPriceInputEl.value = '';
                 if (designFeeInputEl) designFeeInputEl.value = designFee.toFixed(2);
                 return { unitPrice: unitPrice, estimatedTotal: null, quantity: null, designFee: designFee };
+            }
+
+            if (requirePositiveUnit && !unitConfigured) {
+                if (estimatedTotalEl) estimatedTotalEl.textContent = '—';
+                if (qtyDisplayEl) qtyDisplayEl.textContent = String(quantity);
+                if (unitPriceInputEl) unitPriceInputEl.value = '0.00';
+                if (estimatedPriceInputEl) estimatedPriceInputEl.value = '';
+                if (designFeeInputEl) designFeeInputEl.value = designFee.toFixed(2);
+                return {
+                    unitPrice: 0,
+                    estimatedTotal: null,
+                    quantity: quantity,
+                    designFee: designFee,
+                    unitMissing: true
+                };
             }
 
             const safeQty = quantity;

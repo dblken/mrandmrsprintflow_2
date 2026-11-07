@@ -154,12 +154,16 @@ if ($needsMaterialDimensions && ($dimensionConfigRows === false || $dimensionDes
     exit;
 }
 
+require_once __DIR__ . '/../../includes/mugs_base_pricing.php';
+$basePrice = (float)($service['base_price'] ?? 0);
 header('Content-Type: application/json; charset=utf-8');
 echo json_encode([
     'success'       => true,
     'service_id'    => $service_id,
     'name'          => $service['name'],
-    'base_price'    => (float)($service['base_price'] ?? 0),
+    'base_price'    => $basePrice,
+    // Mugs unit selling price comes only from services.price (never inventory avg cost).
+    'price_configured' => !printflow_is_mugs_service($service_id) || $basePrice >= 0.01,
     'fields_html'   => $fields_html,
     'csrf_token'    => generate_csrf_token(),
     'staff_branch_id' => $staff_branch_id,

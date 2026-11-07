@@ -44,6 +44,25 @@ if (!function_exists('printflow_parse_mugs_selling_price_input')) {
     }
 }
 
+if (!function_exists('printflow_mugs_require_configured_selling_price')) {
+    /**
+     * Mugs may never fall back to a fee-only / zero unit total.
+     * Layout fees are additive once per design line; they do not replace services.price.
+     *
+     * @param array{ok?:bool,unit_price?:float,reason?:string,message?:string} $unitCalc
+     */
+    function printflow_mugs_require_configured_selling_price(array $unitCalc): ?string
+    {
+        if (!empty($unitCalc['ok']) && (float)($unitCalc['unit_price'] ?? 0) >= 0.01) {
+            return null;
+        }
+        if (($unitCalc['reason'] ?? '') === 'unconfigured') {
+            return (string)($unitCalc['message'] ?? 'Configure a positive Mugs per-piece selling price on the service record (services.price). Inventory average cost is not used.');
+        }
+        return (string)($unitCalc['message'] ?? 'Mugs per-piece selling price could not be calculated. The Without Layout fee cannot replace the Mug item price.');
+    }
+}
+
 if (!function_exists('printflow_mugs_line_totals_from_unit_price')) {
     /**
      * Quantity-based Mugs line: configured per-piece selling price × quantity.
