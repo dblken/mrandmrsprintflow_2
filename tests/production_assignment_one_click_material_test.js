@@ -51,6 +51,8 @@ const ctx = {
   getInventoryItem(id) { return Number(id) === 212 ? item : null; },
   resolveOrderDimensions() { return { width: 0, height: 0 }; },
   isPendingTarpaulinMaterial() { return false; },
+  platesBlankUsageError() { return ''; },
+  posterPrimaryUsageError() { return ''; },
   persistedPosTarpaulinSelection() { return null; },
   tarpaulinCalculationForItem() { return null; },
   resetMaterialForm() {},
@@ -72,10 +74,11 @@ const ctx = {
     return !!(inv && materialConsumption.parseMaterialQuantity(value, inv) !== null);
   },
   pendingMaterialStockError: stockMethods.pendingMaterialStockError,
+  productionAssignmentSubmitAttempted: false,
   posMaterialQuantityError(materials = []) {
     for (const material of materials) {
       if (!this.isValidPosMaterialQuantity(material.qty ?? material.quantity, material.item_id)) {
-        return 'Enter a valid positive actual quantity in each material inventory unit.';
+        return 'Enter a valid actual quantity before saving.';
       }
     }
     return '';
@@ -115,6 +118,12 @@ assert.equal(
   false,
   'Blank actual usage cannot save'
 );
+assert.equal(
+  blankSaveCtx.productionErrors.material,
+  'Enter a valid actual quantity before saving.',
+  'Blank usage after Confirm Set Price uses the field-level message'
+);
+assert.equal(blankSaveCtx.productionAssignmentSubmitAttempted, true, 'Submit attempt gates post-submit field errors');
 
 const readySaveCtx = {
   ...ctx,

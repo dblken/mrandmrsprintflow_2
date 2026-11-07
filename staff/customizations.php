@@ -3229,7 +3229,7 @@ $online_closed_count = 0;
                                                             <span x-text="pm.uom"></span>
                                                         </label>
                                                         <div x-show="pm.dimension_fit_error" x-text="pm.dimension_fit_error" role="alert" style="margin-top:5px;color:#b91c1c;font-weight:700;"></div>
-                                                        <div x-show="!isPendingTarpaulinMaterial(pm) && !pm.manual_quantity_confirmed && !pm.dimension_fit_error" style="margin-top:5px;color:#b45309;font-weight:700;">Enter a valid actual quantity before saving.</div>
+                                                        <div x-show="showPendingMaterialUsageError(pm)" style="margin-top:5px;color:#b45309;font-weight:700;">Enter a valid actual quantity before saving.</div>
                                                         <div x-show="pendingMaterialStockError(pm)" x-text="pendingMaterialStockError(pm)" role="alert" style="margin-top:5px;color:#b91c1c;font-weight:700;"></div>
                                                     </div>
                                                     <button type="button" @click="removePendingMaterial(idx)" title="Remove material" aria-label="Remove material"
@@ -4504,9 +4504,29 @@ window.pfServiceFieldCatalog = (() => {
                 const expectedMessages = [
                     `Confirm the actual usage for ${name} before saving.`,
                     `Enter a valid actual quantity for ${name} before saving.`,
+                    'Enter a valid actual quantity before saving.',
                 ];
                 if (expectedMessages.includes(this.productionErrors.material)) this.productionErrors.material = '';
                 if (expectedMessages.includes(this.footerActionError)) this.footerActionError = '';
+                // After a failed submit, re-run field validation so corrected rows clear
+                // and any still-invalid rows keep their post-submit messages.
+                if (this.productionAssignmentSubmitAttempted) {
+                    const remainingInvalid = [...(this.pendingMaterials || [])].some((row) => {
+                        if (!row || this.isPendingTarpaulinMaterial?.(row)) return false;
+                        return !row.manual_quantity_confirmed && !row.dimension_fit_error;
+                    });
+                    if (!remainingInvalid
+                        && this.productionErrors.material === 'Enter a valid actual quantity before saving.') {
+                        this.productionErrors.material = '';
+                    }
+                }
+            },
+            /** Field-level Actual Usage hint only after Confirm Set Price is attempted. */
+            showPendingMaterialUsageError(material) {
+                if (!this.productionAssignmentSubmitAttempted || !material) return false;
+                if (this.isPendingTarpaulinMaterial?.(material)) return false;
+                if (material.dimension_fit_error) return false;
+                return material.manual_quantity_confirmed !== true;
             },
             pendingMaterialStockError(material) {
                 if (!material || !this.isValidPosMaterialQuantity(material.qty, material.item_id)) return '';
@@ -4666,7 +4686,8 @@ window.pfServiceFieldCatalog = (() => {
                     const itemId = material && material.item_id;
                     const amount = Number(material && (material.qty ?? material.quantity));
                     if (!this.isValidPosMaterialQuantity(amount, itemId)) {
-                        return 'Enter a valid positive actual quantity in each material inventory unit.';
+                        // Single post-submit field copy — not the former red banner text.
+                        return 'Enter a valid actual quantity before saving.';
                     }
                 }
                 return '';
@@ -4938,13 +4959,10 @@ window.pfServiceFieldCatalog = (() => {
                 return issues;
             },
             get approvalStockErrors() {
+                // Stock / ink availability only. Blank Actual Usage is deferred until
+                // Confirm Set Price so the button remains clickable for first-submit validation.
                 const errors = [];
                 if (this.selectedMaterialStockError) errors.push(this.selectedMaterialStockError);
-                if (this.isPosSetPriceFlow()) {
-                    const saved = Array.isArray(this.currentJo?.materials) ? this.currentJo.materials : [];
-                    const invalidSavedOrQueued = this.posMaterialQuantityError([...saved, ...this.pendingMaterials]);
-                    if (invalidSavedOrQueued && !errors.includes(invalidSavedOrQueued)) errors.push(invalidSavedOrQueued);
-                }
                 this.pendingMaterials.forEach(pm => {
                     const message = this.pendingMaterialStockError(pm);
                     if (message && !errors.includes(message)) errors.push(message);
@@ -4963,6 +4981,8 @@ window.pfServiceFieldCatalog = (() => {
             inkYellow: '',
             useInk: false,
             productionErrors: { material: '', ink_set: '', ink_consumption: '' },
+            /** False until Confirm Set Price / Set Price is clicked; gates Actual Usage field errors. */
+            productionAssignmentSubmitAttempted: false,
             materialSearch: '',
             dateFilter: 'ALL',
             serviceFilter: 'ALL',
@@ -5287,6 +5307,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.jobPriceInput = this.resolveJobPriceInputDefault(this.currentJo);
                 this.syncJobPriceInputField();
                 this.productionErrors = { material: '', ink_set: '', ink_consumption: '' };
+                this.productionAssignmentSubmitAttempted = false;
                 this.restoreSavedInkUsage();
                 this.modalCache[cacheKey] = this.currentJo;
                 this.modalCacheLoadedAt[cacheKey] = Date.now();
@@ -10684,13 +10705,39 @@ window.pfServiceFieldCatalog = (() => {
                 this.useInk = this.requiresInk;
             },
             validateProductionAssignments(extraMaterials = [], extraInks = []) {
+                this.productionAssignmentSubmitAttempted = true;
                 const errors = { material: '', ink_set: '', ink_consumption: '' };
                 const savedMaterials = Array.isArray(this.currentJo.materials) ? this.currentJo.materials : [];
                 const savedInks = Array.isArray(this.currentJo.ink_usage) ? this.currentJo.ink_usage : [];
-                errors.material = this.posMaterialQuantityError([...savedMaterials, ...this.pendingMaterials, ...extraMaterials]);
-                const pendingToConfirm = [...this.pendingMaterials, ...extraMaterials].find(material => material && material.manual_confirmation_required && !material.manual_quantity_confirmed);
-                if (pendingToConfirm) {
-                    errors.material = errors.material || `Enter a valid actual quantity for ${pendingToConfirm.name || 'the selected material'} before saving.`;
+                const queuedMaterials = [...this.pendingMaterials, ...extraMaterials].filter(Boolean);
+                const allMaterials = [...savedMaterials, ...queuedMaterials];
+                if (allMaterials.length <= 0) {
+                    errors.material = 'Please select at least one material to be used for this job.';
+                } else {
+                    const invalidUsage = this.posMaterialQuantityError(allMaterials);
+                    if (invalidUsage) errors.material = invalidUsage;
+                    const pendingToConfirm = queuedMaterials.find(material => material && material.manual_confirmation_required && !material.manual_quantity_confirmed);
+                    if (pendingToConfirm) {
+                        errors.material = errors.material || 'Enter a valid actual quantity before saving.';
+                    }
+                    const invalidPending = queuedMaterials.find(material => {
+                        if (!material) return false;
+                        const qty = Number(material.qty ?? material.quantity);
+                        if (!Number.isFinite(qty) || qty <= 0) return true;
+                        const uom = String(material.uom || '').toLowerCase();
+                        const wholeUnit = ['pcs', 'pc', 'piece', 'pieces', 'sheet', 'sheets'].includes(uom);
+                        const itemId = Number(material.item_id || 0);
+                        const name = String(material.name || material.item_name || '').trim().toLowerCase();
+                        // Subli Paper sheets may be half-sheets (0.5 per mug); other
+                        // discrete sheet/pcs materials remain whole-unit only.
+                        const subliFractional = (uom === 'sheet' || uom === 'sheets')
+                            && (itemId === 55 || name === 'subli paper');
+                        if (wholeUnit && !subliFractional && !Number.isInteger(qty)) return true;
+                        return false;
+                    });
+                    if (invalidPending) {
+                        errors.material = errors.material || 'Enter a valid actual quantity before saving.';
+                    }
                 }
                 const tarpDimIssue = [...this.pendingMaterials, ...extraMaterials].find((material) => {
                     if (!material || !this.isPendingTarpaulinMaterial(material)) return false;
@@ -10721,25 +10768,6 @@ window.pfServiceFieldCatalog = (() => {
                         this.materialRules
                     );
                     if (selectionError) errors.material = errors.material || selectionError;
-                }
-                const invalidPending = [...this.pendingMaterials, ...extraMaterials].find(material => {
-                    if (!material) return false;
-                    const qty = Number(material.qty ?? material.quantity);
-                    if (!Number.isFinite(qty) || qty <= 0) return true;
-                    const uom = String(material.uom || '').toLowerCase();
-                    const wholeUnit = ['pcs', 'pc', 'piece', 'pieces', 'sheet', 'sheets'].includes(uom);
-                    const itemId = Number(material.item_id || material.id || 0);
-                    const name = String(material.name || material.item_name || '').trim().toLowerCase();
-                    // Subli Paper sheets may be half-sheets (0.5 per mug); other
-                    // discrete sheet/pcs materials remain whole-unit only.
-                    const subliFractional = (uom === 'sheet' || uom === 'sheets')
-                        && (itemId === 55 || name === 'subli paper');
-                    if (wholeUnit && !subliFractional && !Number.isInteger(qty)) return true;
-                    return false;
-                });
-                if (invalidPending) errors.material = errors.material || 'Material usage must be a positive quantity in the material inventory unit.';
-                if (savedMaterials.length + extraMaterials.length <= 0) {
-                    errors.material = errors.material || 'Please select and add a material.';
                 }
                 if (this.requiresInk) {
                     if (!this.inkCategorySelected && savedInks.length === 0) {

@@ -225,7 +225,9 @@ dispatchActualUsageInput(multipleContext, firstMaterial, '1');
 const multiplePending = [firstMaterial, secondMaterial];
 assert.equal(validationMethod.call({
     currentJo: { materials: [], ink_usage: [] }, pendingMaterials: multiplePending, productionErrors: {}, requiresInk: false,
-    posMaterialQuantityError: () => ''
+    posMaterialQuantityError: () => '',
+    isPendingTarpaulinMaterial: () => false,
+    pendingMaterialStockError: () => '',
 }, [], []), false, 'Confirming one row does not confirm another pending material.');
 dispatchSameValueEditWithoutInput(multipleContext, secondMaterial, '1');
 const materialsCopiedForSubmission = [...multiplePending];
@@ -233,7 +235,9 @@ assert.equal(materialsCopiedForSubmission[0], firstMaterial, 'Submission list co
 assert.equal(materialsCopiedForSubmission[1], secondMaterial, 'Submission list copy retains the second pending material object.');
 assert.equal(validationMethod.call({
     currentJo: { materials: [], ink_usage: [] }, pendingMaterials: [], productionErrors: {}, requiresInk: false,
-    posMaterialQuantityError: () => ''
+    posMaterialQuantityError: () => '',
+    isPendingTarpaulinMaterial: () => false,
+    pendingMaterialStockError: () => '',
 }, materialsCopiedForSubmission, []), true, 'Both independently confirmed materials pass the final submission validator.');
 
 const recalcMaterial = { ...item, qty: 1, estimated_qty: null, manual_confirmation_required: true, manual_quantity_confirmed: false, actual_usage_overridden: true, usage_method: 'manual', metadata: { material_usage: { actual: 1, staff_confirmed: false, overridden: true } } };
@@ -320,8 +324,13 @@ function validateEstimatedMaterial(material) {
         currentJo: { materials: [], ink_usage: [] },
         pendingMaterials: [],
         productionErrors: {},
+        productionAssignmentSubmitAttempted: false,
         requiresInk: false,
-        posMaterialQuantityError: () => ''
+        posMaterialQuantityError: () => '',
+        isPendingTarpaulinMaterial: () => false,
+        pendingMaterialStockError: () => '',
+        platesBlankUsageError: () => '',
+        posterPrimaryUsageError: () => '',
     };
     return validationMethod.call(validatorContext, [material], []);
 }
@@ -523,6 +532,8 @@ const optionalOmitted = {
     productionErrors: {},
     requiresInk: false,
     posMaterialQuantityError: () => '',
+    isPendingTarpaulinMaterial: () => false,
+    pendingMaterialStockError: () => '',
 };
 assert.equal(validationMethod.call(optionalOmitted, [], []), true, 'Optional materials can remain omitted while a required assignment is already saved.');
 
