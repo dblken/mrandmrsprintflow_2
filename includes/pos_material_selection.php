@@ -176,7 +176,14 @@ function printflow_pos_material_selection_filter_unselected_optional_rules(int $
 
 function printflow_pos_material_selection_service_type(int $serviceId): ?string
 {
-    return [39 => 'Plates', 67 => 'Brochure', 64 => 'Poster Printing', 71 => 'Sintraboard Standees', 36 => 'Decals/Stickers (Print/Cut)'][$serviceId] ?? null;
+    return [
+        39 => 'Plates',
+        40 => 'Tarpaulin',
+        67 => 'Brochure',
+        64 => 'Poster Printing',
+        71 => 'Sintraboard Standees',
+        36 => 'Decals/Stickers (Print/Cut)',
+    ][$serviceId] ?? null;
 }
 
 /** Exact item identities protect against inventory ID reuse or broad name matching. */
@@ -184,6 +191,7 @@ function printflow_pos_material_selection_item_names(int $serviceId): array
 {
     return [
         39 => [1 => 'AC MC', 2 => 'AC PH', 3 => 'AC EURO', 4 => 'AC THAI', 5 => 'AC NMC', 6 => 'AC HOME', 7 => 'SP MC', 8 => 'SP PH', 9 => 'SP EURO', 10 => 'SP THAI', 11 => 'SP NMC'],
+        40 => [13 => '3FT Tarpaulin', 14 => '4FT Tarpaulin', 15 => '5FT Tarpaulin', 16 => '6FT Tarpaulin'],
         67 => [212 => 'C2s Board', 211 => 'C2S Special Paper'],
         64 => [212 => 'C2s Board', 211 => 'C2S Special Paper'],
         71 => [207 => 'Sintra 5mm', 206 => 'Sintra 3mm 32', 23 => 'Pp Stkr Matte 98'],

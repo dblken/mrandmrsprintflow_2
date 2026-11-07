@@ -364,7 +364,12 @@
             if (family === 'sintra') tier = 'recommended';
             if (family === 'reflective' || family === 'colored_sticker') tier = 'optional';
         } else if (serviceKind === 'tarpaulin') {
-            if (family === 'tarpaulin') tier = 'recommended';
+            // Confirm Set Price requires an ACTIVE track_by_roll inventory item.
+            // Name-family lookalikes without roll tracking must not be assignable
+            // or auto-selected — they serialize the wrong canonical item ID.
+            if (family === 'tarpaulin') {
+                tier = Number(item && item.track_by_roll) === 1 ? 'recommended' : 'unrelated';
+            }
             if (family === 'eyelet') tier = 'optional';
         } else if (serviceKind === 'tshirt' && family === 'heat_vinyl') {
             tier = 'recommended';
@@ -403,11 +408,17 @@
         // Services with Production Assignment / Set Price mapping validation must
         // only queue authoritatively mapped inventory IDs. Family heuristics may
         // still rank lookalikes, but they must not become assignable without a
-        // verified mapping (rule row, Stickers/Decals colored registry, or Mug).
-        const requiresAuthoritativeMapping = [36, 39, 64, 67, 71].includes(serviceId);
+        // verified mapping (rule row, Stickers/Decals colored registry, Mug, or
+        // Tarpaulin mapped roll widths 13–16).
+        const requiresAuthoritativeMapping = [36, 39, 40, 64, 67, 71].includes(serviceId);
         const stickersDecalsColoredIds = new Set([51, 52, 53, 54, 55, 56, 57, 58]);
+        const tarpaulinMappedRollIds = new Set([13, 14, 15, 16]);
+        const isMappedTarpaulinRoll = serviceId === 40
+            && tarpaulinMappedRollIds.has(Number(item && item.id))
+            && Number(item && item.track_by_roll) === 1;
         const authoritativelyMapped = !!exactRule
             || (serviceId === 36 && stickersDecalsColoredIds.has(Number(item && item.id)))
+            || isMappedTarpaulinRoll
             || (serviceId === 63 && Number(item && item.id) === 37);
         if (authoritativelyMapped && !exactRule && requiresAuthoritativeMapping
             && (tier === 'unrelated' || tier === 'unverified')) {
@@ -416,10 +427,17 @@
         let directSelectable = (tier === 'recommended' || tier === 'optional') && inStock;
         let overrideable = (tier === 'unrelated' || tier === 'unverified') && inStock;
         if (requiresAuthoritativeMapping) {
-            directSelectable = authoritativelyMapped && directSelectable;
-            overrideable = false;
-            if (!authoritativelyMapped && inStock && (tier === 'recommended' || tier === 'optional')) {
-                tier = 'unrelated';
+            // Tarpaulin optional eyelets stay staff-selectable without a closed
+            // registry row; roll materials still require the mapped roll IDs.
+            if (serviceId === 40 && family === 'eyelet' && tier === 'optional' && inStock) {
+                directSelectable = true;
+                overrideable = false;
+            } else {
+                directSelectable = authoritativelyMapped && directSelectable;
+                overrideable = false;
+                if (!authoritativelyMapped && inStock && (tier === 'recommended' || tier === 'optional')) {
+                    tier = 'unrelated';
+                }
             }
         }
         const selectable = directSelectable || overrideable;
@@ -618,7 +636,10 @@
 
         const serviceKind = classifyService(context || {});
         if (serviceKind === 'tarpaulin') {
-            const fitted = rankTarpaulinRolls(recommended, context && context.customerWidth, context && context.customerHeight);
+            // Auto-select must serialize the same canonical inventory item_id as a
+            // manual click: ACTIVE mapped roll-tracked materials only.
+            const rollCandidates = recommended.filter(item => Number(item && item.track_by_roll) === 1);
+            const fitted = rankTarpaulinRolls(rollCandidates, context && context.customerWidth, context && context.customerHeight);
             if (!fitted.length) return null;
             if (fitted.length === 1) return fitted[0].item;
             const isClearWinner = fitted[0].tier < fitted[1].tier || fitted[0].rollWidth < fitted[1].rollWidth;

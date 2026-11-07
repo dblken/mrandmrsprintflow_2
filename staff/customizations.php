@@ -8682,7 +8682,8 @@ window.pfServiceFieldCatalog = (() => {
                     }
                 }
                 this.pendingMaterials.push({
-                    item_id: item.id,
+                    // Canonical inventory identity — same for auto-select and manual click.
+                    item_id: Number(item.id),
                     name: item.name,
                     size_variant: item.size_variant || '',
                     qty,
@@ -8732,10 +8733,16 @@ window.pfServiceFieldCatalog = (() => {
                 if (Number(context.serviceId) !== 40 && context.serviceKind !== 'tarpaulin') return;
                 if ((this.pendingMaterials || []).length > 0) return;
                 if ((Array.isArray(this.currentJo.materials) ? this.currentJo.materials : []).length > 0) return;
+                const isEligibleTarpaulinRoll = (item) => {
+                    if (!item || Number(item.track_by_roll) !== 1) return false;
+                    const state = this.materialClassification(item);
+                    return !!(state && state.selectable && state.directSelectable);
+                };
                 let candidate = null;
                 const persisted = this.persistedPosTarpaulinSelection();
                 if (persisted && Number(persisted.item_id) > 0) {
                     candidate = (this.allInventoryItems || []).find((item) => Number(item.id) === Number(persisted.item_id)) || null;
+                    if (!isEligibleTarpaulinRoll(candidate)) candidate = null;
                 }
                 if (!candidate) {
                     candidate = window.PrintFlowProductionMaterials.getAutoSelectCandidate(
@@ -8744,8 +8751,17 @@ window.pfServiceFieldCatalog = (() => {
                         this.materialRules || []
                     );
                 }
-                if (!candidate || !this.materialClassification(candidate).selectable) return;
+                if (!isEligibleTarpaulinRoll(candidate)) return;
                 this.queueMaterialFromPicker(candidate, { autoSelected: true });
+            },
+            /**
+             * Canonical inventory item_id for Confirm Set Price stock validation.
+             * Never fall back to a job_order_materials row primary key (`id`).
+             */
+            productionAssignmentInventoryItemId(material) {
+                const raw = material && material.item_id;
+                const id = Number(raw);
+                return Number.isFinite(id) && id > 0 ? id : 0;
             },
             get materialOverrideTitle() {
                 const state = this.materialOverrideCandidate && this.materialClassification(this.materialOverrideCandidate);
@@ -10853,7 +10869,7 @@ window.pfServiceFieldCatalog = (() => {
                             ...(Array.isArray(this.currentJo.materials) ? this.currentJo.materials : []),
                             ...materialsToSave,
                         ].map(material => ({
-                            item_id: Number(material.item_id || material.id || 0),
+                            item_id: this.productionAssignmentInventoryItemId(material),
                             quantity: material.quantity ?? material.qty,
                             metadata: material.metadata || {},
                         }));
@@ -11022,7 +11038,7 @@ window.pfServiceFieldCatalog = (() => {
                         ...(Array.isArray(this.currentJo.materials) ? this.currentJo.materials : []),
                         ...materialsToSave,
                     ].map(material => ({
-                        item_id: Number(material.item_id || material.id || 0),
+                        item_id: this.productionAssignmentInventoryItemId(material),
                         quantity: material.quantity ?? material.qty,
                         metadata: material.metadata || {},
                     }));

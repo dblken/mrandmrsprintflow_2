@@ -13,6 +13,7 @@ require_once __DIR__ . '/service_material_rule_identity.php';
 require_once __DIR__ . '/pos_material_selection.php';
 require_once __DIR__ . '/pos_service_dimensions.php';
 require_once __DIR__ . '/pos_mugs_release_rule.php';
+require_once __DIR__ . '/pos_tarpaulin_release_rule.php';
 require_once __DIR__ . '/tarpaulin_material_calculation.php';
 
 /** Read open rolls without invoking InventoryManager's schema-ensure helper. */
@@ -459,12 +460,18 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
             printflow_pos_mugs_assert_dedicated_mug_assigned($assigned);
         }
         if ($serviceId === 40) {
+            // Require at least one ACTIVE track_by_roll material among the posted
+            // assignments. Optional non-roll extras (e.g. eyelets) may accompany it,
+            // but a name-lookalike without roll tracking must not satisfy the check.
+            $resolvedTarpaulinItems = [];
             foreach ($assigned as $material) {
                 $item = InventoryManager::getItem((int)$material['item_id']);
-                if (!$item || empty($item['track_by_roll']) || strtoupper((string)($item['status'] ?? 'ACTIVE')) !== 'ACTIVE') {
+                if (!$item) {
                     throw new RuntimeException('Select an active Tarpaulin roll before saving its actual usage.');
                 }
+                $resolvedTarpaulinItems[] = $item;
             }
+            printflow_pos_tarpaulin_assert_resolved_active_roll($resolvedTarpaulinItems);
         }
         foreach ($assigned as $material) {
             $itemId = (int)$material['item_id'];

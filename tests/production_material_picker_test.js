@@ -10,7 +10,9 @@ const item = (name, stock = 10, extra = {}) => {
 };
 
 const inventory = [
-    item('MUG'), item('BOX MUG'), item('3ft Tarpaulin'), item('4ft Tarpaulin', 0),
+    item('MUG'), item('BOX MUG'),
+    item('3ft Tarpaulin', 10, { track_by_roll: 1, unit_of_measure: 'ft', category_name: 'TARPAULIN' }),
+    item('4ft Tarpaulin', 0, { track_by_roll: 1, unit_of_measure: 'ft', category_name: 'TARPAULIN' }),
     item('VINYL BLACK'), item('VINYL WHITE'), item('NEXJET'), item('PP STKR MATTE 98'),
     item('HOLOGRAM'), item('TRANSPARENT'), item('GLOSS LAMINATE'), item('MATTE LAMINATE'),
     item('STICKER BLACK'), item('STICKER SILVER'), item('3M Reflective'), item('AC EURO'),
@@ -62,9 +64,13 @@ assert.strictEqual(byName(tarpRows, '4ft Tarpaulin').compatibility.reason, 'Out 
 assert.strictEqual(picker.inkModeFor(byName(tarpRows, '3ft Tarpaulin')), 'tarp');
 
 // Regression: shorthand "TARP" naming and category-based naming must still be recognized
-// as tarpaulin material (root cause of the "Not suggested" bug).
+// as tarpaulin material (root cause of the "Not suggested" bug) when roll-tracked.
 const tarpShorthandRows = picker.rankItems(
-    [item('4FT TARP'), item('TARPAULIN 5FT'), item('Tarp Roll', 10, { category_name: 'TARPAULIN' })],
+    [
+        item('4FT TARP', 10, { track_by_roll: 1 }),
+        item('TARPAULIN 5FT', 10, { track_by_roll: 1 }),
+        item('Tarp Roll', 10, { category_name: 'TARPAULIN', track_by_roll: 1 }),
+    ],
     context('Tarpaulin Printing'), [], ''
 );
 assert.strictEqual(byName(tarpShorthandRows, '4FT TARP').compatibility.tier, 'recommended');
@@ -220,7 +226,8 @@ assert.strictEqual(picker.classifyItem(byName(inventory, 'AC EURO'), context('Pl
     .forEach(name => assert.strictEqual(picker.familyFor(item(name)), 'tarpaulin'));
 
 // --- Deterministic tarpaulin width matching / auto-select (no AI/ML) ---
-const tarpInventory = [item('3ft Tarpaulin'), item('4ft Tarpaulin'), item('5ft Tarpaulin'), item('6ft Tarpaulin')];
+const tarpRoll = (name, stock = 10, extra = {}) => item(name, stock, { track_by_roll: 1, unit_of_measure: 'ft', category_name: 'TARPAULIN', ...extra });
+const tarpInventory = [tarpRoll('3ft Tarpaulin'), tarpRoll('4ft Tarpaulin'), tarpRoll('5ft Tarpaulin'), tarpRoll('6ft Tarpaulin')];
 assert.strictEqual(picker.tarpaulinRollWidthFor(byName(tarpInventory, '4ft Tarpaulin')), 4);
 assert.strictEqual(picker.tarpaulinRollWidthFor(item('TARPAULIN 5FT')), 5);
 assert.strictEqual(picker.tarpaulinRollWidthFor(item('MUG')), null);
@@ -256,13 +263,45 @@ assert.strictEqual(picker.calculateTarpaulinLinearLength(6, 6, 1, 6).required_li
 assert.strictEqual(picker.calculateTarpaulinLinearLength(6, 6, 1, 3), null, 'A 3 ft roll cannot fit 6 × 6 ft even with rotation.');
 
 // Ambiguous case: two rolls of the same smallest fitting width -> do not auto-select.
-const ambiguousTarpInventory = [item('4ft Tarpaulin A'), item('4ft Tarpaulin B'), item('6ft Tarpaulin')];
+const ambiguousTarpInventory = [tarpRoll('4ft Tarpaulin A'), tarpRoll('4ft Tarpaulin B'), tarpRoll('6ft Tarpaulin')];
 const ambiguousAutoSelect = picker.getAutoSelectCandidate(ambiguousTarpInventory, tarpContext, []);
 assert.strictEqual(ambiguousAutoSelect, null);
 
 // No stock -> no auto-select.
-const outOfStockInventory = [item('4ft Tarpaulin', 0), item('6ft Tarpaulin', 0)];
+const outOfStockInventory = [tarpRoll('4ft Tarpaulin', 0), tarpRoll('6ft Tarpaulin', 0)];
 assert.strictEqual(picker.getAutoSelectCandidate(outOfStockInventory, tarpContext, []), null);
+
+// Name lookalike without track_by_roll must not auto-select or be directly selectable
+// for service 40 — Confirm Set Price rejects non-roll inventory IDs.
+const lookalikeOnly = [item('3ft Tarpaulin', 10, { track_by_roll: 0, unit_of_measure: 'pcs' })];
+const lookalikeContext = context('Tarpaulin Printing');
+lookalikeContext.serviceId = 40;
+lookalikeContext.customerWidth = 3;
+lookalikeContext.customerHeight = 8;
+assert.strictEqual(picker.getAutoSelectCandidate(lookalikeOnly, lookalikeContext, []), null);
+assert.strictEqual(picker.classifyItem(lookalikeOnly[0], lookalikeContext, []).directSelectable, false);
+assert.strictEqual(picker.classifyItem(lookalikeOnly[0], lookalikeContext, []).tier, 'unrelated');
+
+// Mapped ACTIVE roll (id 13) with system dimensions must auto-select and stay selectable.
+const mappedThreeFt = {
+    id: 13, name: '3ft Tarpaulin', current_stock: 100, unit_of_measure: 'ft',
+    category_name: 'TARPAULIN', track_by_roll: 1
+};
+const mappedFourFt = {
+    id: 14, name: '4ft Tarpaulin', current_stock: 100, unit_of_measure: 'ft',
+    category_name: 'TARPAULIN', track_by_roll: 1
+};
+const mappedCtx = context('Tarpaulin Printing');
+mappedCtx.serviceId = 40;
+mappedCtx.customerWidth = 3;
+mappedCtx.customerHeight = 8;
+const mappedAuto = picker.getAutoSelectCandidate([mappedThreeFt, mappedFourFt], mappedCtx, []);
+assert.strictEqual(mappedAuto && mappedAuto.id, 13, 'Auto-select returns the canonical mapped 3ft roll id');
+assert.strictEqual(picker.classifyItem(mappedThreeFt, mappedCtx, []).directSelectable, true);
+assert.strictEqual(picker.classifyItem(mappedThreeFt, mappedCtx, []).authoritativelyMapped, true);
+// Manual selection of the same roll uses the same identity.
+assert.strictEqual(Number(mappedAuto.id), 13);
+assert.strictEqual(picker.calculateTarpaulinLinearLength(3, 8, 1, 3).required_linear_ft, 8);
 
 // Single unambiguous recommended material for a non-tarpaulin service should still auto-select.
 const mugAutoSelect = picker.getAutoSelectCandidate(inventory, context('Souvenirs', { souvenir_type: 'Mug' }), []);

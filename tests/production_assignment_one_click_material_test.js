@@ -49,11 +49,18 @@ const ctx = {
   materialClassification() { return { selectable: true, directSelectable: true, inStock: true, tier: 'recommended' }; },
   getMaterialEntryUom() { return 'sheet'; },
   getInventoryItem(id) { return Number(id) === 212 ? item : null; },
+  resolveOrderDimensions() { return { width: 0, height: 0 }; },
+  isPendingTarpaulinMaterial() { return false; },
   persistedPosTarpaulinSelection() { return null; },
   tarpaulinCalculationForItem() { return null; },
   resetMaterialForm() {},
   syncInkSelectionWithMaterial() {},
   showStaffAlert() {},
+  productionAssignmentInventoryItemId(material) {
+    const id = Number(material && material.item_id);
+    return Number.isFinite(id) && id > 0 ? id : 0;
+  },
+  clearPendingMaterialConfirmationError() {},
   removePendingMaterial(index) {
     removedIndexes.push(index);
     this.pendingMaterials.splice(index, 1);
@@ -163,6 +170,65 @@ assert.deepEqual(deductedAlerts, ['Material Already Deducted'], 'Deducted assign
 assert.match(page, /Material Already Deducted/, 'Deducted assignments remain protected from picker removal');
 assert.match(page, /this\.removeMaterial\(assignment\.id\)/, 'Undeducted assigned materials use the safe removal path');
 assert.match(page, /fdMaterial\.append\('quantity', pm\.qty\)/, 'Saved assignment posts the manual Actual Usage quantity');
+assert.match(page, /productionAssignmentInventoryItemId\(material\)/, 'Confirm Set Price posts canonical inventory item_id only');
+assert.match(page, /isEligibleTarpaulinRoll/, 'Auto-select requires an eligible track_by_roll Tarpaulin candidate');
+assert.doesNotMatch(page, /material\.item_id \|\| material\.id \|\| 0/, 'JOM primary key is not posted as inventory item_id');
+
+// Auto-select and manual click must serialize the same canonical inventory item_id.
+const tarpItem = {
+  id: 13,
+  name: '3ft Tarpaulin',
+  track_by_roll: 1,
+  unit_of_measure: 'ft',
+  current_stock: 100,
+  compatibility: { selectable: true, directSelectable: true, inStock: true, tier: 'recommended' }
+};
+const tarpCtx = {
+  ...ctx,
+  pendingMaterials: [],
+  currentJo: { materials: [], quantity: 1 },
+  materialCompatibilityContext: { serviceId: 40, serviceKind: 'tarpaulin' },
+  materialClassification() {
+    return { selectable: true, directSelectable: true, inStock: true, tier: 'recommended' };
+  },
+  getMaterialEntryUom() { return 'ft'; },
+  getInventoryItem(id) { return Number(id) === 13 ? tarpItem : null; },
+  resolveOrderDimensions() { return { width: 3, height: 8 }; },
+  persistedPosTarpaulinSelection() {
+    return { item_id: 13, width_ft: 3, height_ft: 8, required_linear_ft: 8, roll_width_ft: 3, orientation: 'original' };
+  },
+  tarpaulinCalculationForItem() {
+    return { required_linear_ft: 8, roll_width_ft: 3, orientation: 'original', run_length_per_piece_ft: 8 };
+  },
+  allInventoryItems: [tarpItem],
+  materialRules: []
+};
+Object.assign(tarpCtx, methods);
+globalThis.window.PrintFlowProductionMaterials = {
+  getAutoSelectCandidate() { return tarpItem; },
+  tarpaulinRollWidthFor() { return 3; },
+  calculateTarpaulinLinearLength() {
+    return { required_linear_ft: 8, roll_width_ft: 3, orientation: 'original' };
+  }
+};
+tarpCtx.maybeAutoSelectTarpaulinRoll();
+assert.equal(tarpCtx.pendingMaterials.length, 1, 'Auto-select queues the fitted active roll');
+assert.equal(tarpCtx.pendingMaterials[0].item_id, 13, 'Auto-select stores canonical mapped inventory id');
+assert.equal(tarpCtx.pendingMaterials[0].qty, 8, 'Auto-select prefills Actual Usage from dimensions');
+assert.equal(
+  tarpCtx.productionAssignmentInventoryItemId(tarpCtx.pendingMaterials[0]),
+  13,
+  'Auto-selected row posts inventory item_id 13'
+);
+const autoPayload = { ...tarpCtx.pendingMaterials[0] };
+tarpCtx.pendingMaterials = [];
+tarpCtx.queueMaterialFromPicker(tarpItem, { autoSelected: false });
+assert.equal(tarpCtx.pendingMaterials[0].item_id, autoPayload.item_id, 'Manual select serializes the same item_id as auto-select');
+assert.equal(
+  tarpCtx.productionAssignmentInventoryItemId(tarpCtx.pendingMaterials[0]),
+  tarpCtx.productionAssignmentInventoryItemId(autoPayload),
+  'Manual and auto Confirm Set Price payloads share the same canonical item_id'
+);
 
 const api = fs.readFileSync(path.join(__dirname, '..', 'admin', 'job_orders_api.php'), 'utf8');
 assert.match(api, /getStockOnHandForUpdate/, 'Server rechecks stock before material assignment persistence');
