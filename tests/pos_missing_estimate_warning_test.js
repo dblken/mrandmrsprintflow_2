@@ -3,6 +3,9 @@
 /**
  * POS missing-estimate warning must follow the final computed line total,
  * not unit price alone. Fee-only totals (Without Layout ₱200) are valid.
+ *
+ * Covers the Add to Order confirmation path used by confirmServiceModal():
+ * recalculate → applyServicePricing → lineEstimate → needsConfirm.
  */
 
 const fs = require('fs');
@@ -45,15 +48,18 @@ assert.equal(needsConfirm(NaN), true, 'NaN is not a valid positive estimate');
 assert.equal(needsConfirm(''), true, 'empty estimate shows the warning');
 assert.equal(needsConfirm('abc'), true, 'non-numeric estimate shows the warning');
 
-// Live estimator: fee-only Without Layout yields ₱200 and must not look "missing".
-function makeScope({ qty, withoutLayoutPrice }) {
+function makeScope({ qty, withoutLayoutPrice, layoutValue }) {
   const qtyInput = {
     classList: { contains: (c) => c === 'pf-service-quantity-input' },
     value: String(qty),
   };
+  const value = layoutValue == null ? 'Without Layout' : layoutValue;
   const withoutRadio = {
-    matches: (sel) => sel === 'input[type="radio"]:checked' || sel === 'input[type="radio"]' || sel === 'select, input[type="radio"]',
-    value: 'Without Layout',
+    matches: (sel) =>
+      sel === 'input[type="radio"]:checked'
+      || sel === 'input[type="radio"]'
+      || sel === 'select, input[type="radio"]',
+    value,
     hasAttribute: (name) => name === 'data-design-fee-field' || name === 'data-price',
     getAttribute: (name) => {
       if (name === 'data-price') return String(withoutLayoutPrice);
@@ -80,54 +86,167 @@ function makeScope({ qty, withoutLayoutPrice }) {
   };
 }
 
-const totalOut = { textContent: '' };
-const qtyOut = { textContent: '' };
-const scope = makeScope({ qty: 1, withoutLayoutPrice: 200 });
-const controller = sandbox.window.printflowInitServiceEstimatedPrice(scope, {
-  basePrice: 0,
-  form: scope,
-  estimatedTotalEl: totalOut,
-  qtyDisplayEl: qtyOut,
-});
-const feeOnly = controller.recalculate();
-assert.equal(feeOnly.unitPrice, 0, 'fee-only line keeps unit at 0');
-assert.equal(feeOnly.designFee, 200, 'Without Layout fee is 200');
-assert.equal(feeOnly.estimatedTotal, 200, 'displayed estimate is 200');
-assert.equal(needsConfirm(feeOnly.estimatedTotal), false, '₱200 fee-only estimate does not warn');
+/**
+ * Mirror staff/pos.php confirmServiceModal pricing → warning decision:
+ * resolveServiceModalPricing (recalculate) → applyServicePricingToCustomization
+ * → Number(calculated_estimated_price) → posNeedsMissingEstimatedPriceConfirm.
+ */
+function simulateConfirmServiceModalWarning({ basePrice, qty, withoutLayoutPrice, layoutValue }) {
+  const scope = makeScope({ qty, withoutLayoutPrice, layoutValue });
+  const totalOut = { textContent: '' };
+  const qtyOut = { textContent: '' };
+  const controller = sandbox.window.printflowInitServiceEstimatedPrice(scope, {
+    basePrice,
+    form: scope,
+    estimatedTotalEl: totalOut,
+    qtyDisplayEl: qtyOut,
+  });
+  const pricing = controller.recalculate();
 
-const zeroScope = makeScope({ qty: 3, withoutLayoutPrice: 0 });
-// With Layout path: design fee helper returns 0 for With Layout; simulate no fee selected by empty radios.
-zeroScope.querySelectorAll = (sel) => {
-  if (sel === 'select, input[type="radio"]') return [];
-  if (sel === 'input[type="radio"].pricing-field:checked') return [];
-  if (sel === 'select.pricing-field') return [];
-  if (sel === '.nested-fields-container') return [];
-  return [];
-};
-const zeroTotal = { textContent: '' };
-const zeroController = sandbox.window.printflowInitServiceEstimatedPrice(zeroScope, {
-  basePrice: 0,
-  form: zeroScope,
-  estimatedTotalEl: zeroTotal,
-});
-const zeroResult = zeroController.recalculate();
-assert.equal(zeroResult.estimatedTotal, 0, 'no unit and no fee yields ₱0');
-assert.equal(needsConfirm(zeroResult.estimatedTotal), true, '₱0 estimate shows the warning');
+  // applyServicePricingToCustomization (pos.php)
+  const safeUnit = Math.round(Number(pricing.unitPrice) * 100) / 100;
+  const safeQty = pricing.quantity;
+  const safeDesignFee = Math.max(0, Math.round((Number(pricing.designFee) || 0) * 100) / 100);
+  const customization = {
+    calculated_unit_price: safeUnit.toFixed(2),
+    calculated_design_fee: safeDesignFee.toFixed(2),
+    design_fee: safeDesignFee.toFixed(2),
+    calculated_estimated_price: (Math.round((safeUnit * safeQty + safeDesignFee) * 100) / 100).toFixed(2),
+    quantity: String(safeQty),
+  };
 
-// Changing qty with a fee updates the estimate and keeps the warning off.
-const qtyScope = makeScope({ qty: 4, withoutLayoutPrice: 200 });
-const qtyTotal = { textContent: '' };
-const qtyController = sandbox.window.printflowInitServiceEstimatedPrice(qtyScope, {
+  const lineEstimate = Number(
+    customization.calculated_estimated_price != null
+      ? customization.calculated_estimated_price
+      : pricing.estimatedTotal
+  );
+  const warn = needsConfirm(lineEstimate);
+
+  return {
+    displayedText: totalOut.textContent,
+    displayedQty: qtyOut.textContent,
+    unitPrice: pricing.unitPrice,
+    designFee: pricing.designFee,
+    estimatedTotal: pricing.estimatedTotal,
+    calculatedEstimatedPrice: customization.calculated_estimated_price,
+    lineEstimate,
+    warn,
+  };
+}
+
+// Exact live case: Mugs qty 1, Without Layout ₱200, unconfigured unit price.
+const mugsFeeOnly = simulateConfirmServiceModalWarning({
   basePrice: 0,
-  form: qtyScope,
-  estimatedTotalEl: qtyTotal,
+  qty: 1,
+  withoutLayoutPrice: 200,
 });
-const qtyResult = qtyController.recalculate();
-assert.equal(qtyResult.estimatedTotal, 200, 'qty change keeps fee once (0×4+200)');
-assert.equal(needsConfirm(qtyResult.estimatedTotal), false, 'qty change with fee > 0 does not warn');
+assert.equal(mugsFeeOnly.unitPrice, 0, 'Mugs fee-only keeps unit at 0');
+assert.equal(mugsFeeOnly.designFee, 200, 'Without Layout fee is 200');
+assert.equal(mugsFeeOnly.estimatedTotal, 200, 'recalculate line total is 200');
+assert.equal(mugsFeeOnly.calculatedEstimatedPrice, '200.00', 'Add to Order stores calculated_estimated_price 200.00');
+assert.equal(mugsFeeOnly.lineEstimate, 200, 'confirmServiceModal lineEstimate is 200');
+assert.match(mugsFeeOnly.displayedText, /200/, 'form displays ₱200');
+assert.equal(mugsFeeOnly.displayedQty, '1', 'form qty display is 1');
+assert.equal(mugsFeeOnly.warn, false, 'Add to Order must NOT warn for ₱200 fee-only estimate');
+// Prove the old origin/main gate would still wrongly warn.
+assert.equal(mugsFeeOnly.unitPrice <= 0, true, 'old unitPrice<=0 gate would still be true for fee-only');
+assert.notEqual(mugsFeeOnly.warn, mugsFeeOnly.unitPrice <= 0, 'warning must not follow unitPrice alone');
+
+// True ₱0 estimate still warns.
+const zeroEstimate = simulateConfirmServiceModalWarning({
+  basePrice: 0,
+  qty: 1,
+  withoutLayoutPrice: 0,
+  layoutValue: 'With Layout',
+});
+assert.equal(zeroEstimate.estimatedTotal, 0, 'With Layout and no unit yields ₱0');
+assert.equal(zeroEstimate.lineEstimate, 0, 'Add to Order lineEstimate is 0');
+assert.equal(zeroEstimate.warn, true, '₱0 estimate still shows the warning');
+
+// Missing / invalid estimates remain warned.
+assert.equal(needsConfirm(null), true, 'missing estimate stays warned');
+assert.equal(needsConfirm(NaN), true, 'NaN estimate stays warned');
+
+// Qty / layout changes update estimate and warning together.
+const qtyChanged = simulateConfirmServiceModalWarning({
+  basePrice: 0,
+  qty: 4,
+  withoutLayoutPrice: 200,
+});
+assert.equal(qtyChanged.estimatedTotal, 200, 'qty 4 keeps one-time fee (0×4+200)');
+assert.equal(qtyChanged.lineEstimate, 200, 'qty change keeps lineEstimate 200');
+assert.equal(qtyChanged.warn, false, 'qty change with fee > 0 does not warn');
+assert.equal(qtyChanged.displayedQty, '4', 'qty display updates with options');
+
+const layoutCleared = simulateConfirmServiceModalWarning({
+  basePrice: 0,
+  qty: 4,
+  withoutLayoutPrice: 0,
+  layoutValue: 'With Layout',
+});
+assert.equal(layoutCleared.estimatedTotal, 0, 'switching away from Without Layout drops fee');
+assert.equal(layoutCleared.warn, true, 'layout change to ₱0 turns the warning on');
+
+const unitPlusFee = simulateConfirmServiceModalWarning({
+  basePrice: 50,
+  qty: 2,
+  withoutLayoutPrice: 200,
+});
+assert.equal(unitPlusFee.estimatedTotal, 300, 'configured unit×qty + fee = 300');
+assert.equal(unitPlusFee.warn, false, 'positive combined estimate does not warn');
+
+// Static: Add to Order button wires confirmServiceModal, which must check lineEstimate.
+assert.match(
+  posSource,
+  /id="sm-add-to-order-btn"[^>]*onclick="confirmServiceModal\(\)"/,
+  'Add to Order button calls confirmServiceModal()'
+);
+assert.match(posSource, /window\.confirmServiceModal\s*=\s*confirmServiceModal/, 'confirmServiceModal is exported');
+
+function extractFunctionBody(source, functionName) {
+  const startRe = new RegExp(`async function ${functionName}\\(\\)\\s*\\{`);
+  const startMatch = startRe.exec(source);
+  assert.ok(startMatch, `function ${functionName} exists`);
+  let i = startMatch.index + startMatch[0].length;
+  let depth = 1;
+  while (i < source.length && depth > 0) {
+    const ch = source[i++];
+    if (ch === '{') depth += 1;
+    else if (ch === '}') depth -= 1;
+  }
+  return source.slice(startMatch.index, i);
+}
+
+for (const fnName of ['confirmServiceModal', 'confirmServiceModalLegacy']) {
+  const body = extractFunctionBody(posSource, fnName);
+  assert.match(
+    body,
+    /posNeedsMissingEstimatedPriceConfirm\(lineEstimate\)/,
+    `${fnName} warns from final lineEstimate`
+  );
+  assert.match(
+    body,
+    /calculated_estimated_price/,
+    `${fnName} uses calculated_estimated_price from applyServicePricing`
+  );
+  assert.match(
+    body,
+    /resolveServiceModalPricing\(\)/,
+    `${fnName} refreshes pricing via resolveServiceModalPricing before warning`
+  );
+  assert.doesNotMatch(
+    body,
+    /priced\.unitPrice\s*<=\s*0/,
+    `${fnName} must not gate the warning on unitPrice alone`
+  );
+}
 
 assert.match(posSource, /posNeedsMissingEstimatedPriceConfirm\(lineEstimate\)/, 'POS Add to Order uses final line estimate');
-assert.doesNotMatch(posSource, /priced\.unitPrice <= 0\) \{\s*const proceed = await confirmMissingEstimatedPrice/, 'POS no longer warns from unit price alone');
+assert.doesNotMatch(
+  posSource,
+  /priced\.unitPrice\s*<=\s*0\s*\)\s*\{\s*(?:[\s\S]*?)confirmMissingEstimatedPrice/,
+  'POS no longer warns from unit price alone before confirmMissingEstimatedPrice'
+);
 assert.doesNotMatch(posSource, /Mugs Price Required/, 'POS no longer hard-blocks Mugs fee-only estimates');
 
 console.log('POS missing-estimate warning regression tests passed.');
