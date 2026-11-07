@@ -70,9 +70,18 @@ const input = {
     name: 'quantity',
     type: 'number',
     dataset: {},
+    classList: {
+        contains(name) { return name === 'pf-service-quantity-input' ? !!this._hasQtyClass : false; },
+        add(name) { if (name === 'pf-service-quantity-input') this._hasQtyClass = true; }
+    },
+    setAttribute(name, value) { this[name] = value; this.attrs = Object.assign({}, this.attrs, { [name]: value }); },
     matches(selector) { return selector === 'input, select, textarea'; },
     addEventListener(name, callback) { (this.listeners ||= {})[name] = callback; },
-    closest(selector) { assert.equal(selector, '.quantity-container'); return container; }
+    closest(selector) {
+        if (selector === '.shopee-form-row') return null;
+        assert.equal(selector, '.quantity-container');
+        return container;
+    }
 };
 const container = {
     querySelectorAll(selector) { assert.equal(selector, 'button'); return buttons; }

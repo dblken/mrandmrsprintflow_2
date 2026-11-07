@@ -4,25 +4,76 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const renderer = fs.readFileSync(path.join(__dirname, '../includes/service_field_renderer.php'), 'utf8');
-const start = renderer.indexOf('function validateQuantity(input, commit = false) {');
+const start = renderer.indexOf('function pfServiceQuantityInput(root) {');
 const end = renderer.indexOf('\nfunction serviceFieldEventProxy', start);
 assert.ok(start >= 0 && end > start, 'shared quantity functions are present');
 
 let estimateCalls = 0;
+const prevented = [];
 const context = {
   window: { calculateEstimatedPrice() { estimateCalls += 1; } },
-  document: { querySelector() { return null; } },
+  document: {
+    querySelector() { return null; },
+    addEventListener() {},
+  },
+  Event: class Event {
+    constructor(type, init = {}) {
+      this.type = type;
+      this.bubbles = !!init.bubbles;
+    }
+  },
   Number,
   String,
   Math,
 };
-vm.runInNewContext(renderer.slice(start, end) + '\nglobalThis.quantityTest = { validateQuantity, pfChangeQty };', context);
+vm.runInNewContext(
+  renderer.slice(start, end) + '\nglobalThis.quantityTest = { validateQuantity, pfChangeQty, pfRejectNonDigitServiceQuantity, pfServiceQuantityInvalidMessage };',
+  context
+);
 
 function input(value) {
   return {
     value,
     validityMessage: '',
+    classList: { contains() { return true; } },
+    matches(selector) {
+      return String(selector).includes('pf-service-quantity-input') || String(selector).includes('#quantity-input');
+    },
     setCustomValidity(message) { this.validityMessage = message; },
+    dispatchEvent() {},
+  };
+}
+
+function keyEvent(key, extras = {}) {
+  return {
+    type: 'keydown',
+    key,
+    ctrlKey: !!extras.ctrlKey,
+    metaKey: !!extras.metaKey,
+    altKey: !!extras.altKey,
+    target: extras.target || input('1'),
+    prevented: false,
+    preventDefault() { this.prevented = true; prevented.push(['keydown', key]); },
+  };
+}
+
+function beforeInputEvent(data, target) {
+  return {
+    type: 'beforeinput',
+    data,
+    target,
+    prevented: false,
+    preventDefault() { this.prevented = true; prevented.push(['beforeinput', data]); },
+  };
+}
+
+function pasteEvent(text, target) {
+  return {
+    type: 'paste',
+    clipboardData: { getData() { return text; } },
+    target,
+    prevented: false,
+    preventDefault() { this.prevented = true; prevented.push(['paste', text]); },
   };
 }
 
@@ -36,24 +87,61 @@ for (const value of ['1', '5', '20', '50', '100']) {
 const replaced = input('');
 assert.equal(context.quantityTest.validateQuantity(replaced), false, 'blank edit is temporarily invalid');
 assert.equal(replaced.value, '', 'typing handler does not force blank back to one');
+assert.match(replaced.validityMessage, /positive whole number/i, 'empty input shows a clear inline error');
 replaced.value = '5';
 assert.equal(context.quantityTest.validateQuantity(replaced), true, 'typing after clearing works');
 assert.equal(replaced.value, '5', 'replacement value stays visible');
 
-const invalid = input('12abc');
-assert.equal(context.quantityTest.validateQuantity(invalid), false, 'mixed alphanumeric value is rejected');
-assert.equal(invalid.value, '12abc', 'malformed input is not silently converted');
-assert.ok(invalid.validityMessage, 'malformed input receives a validation message');
+for (const value of ['0', '00', '-1', '+1', '1.5', '1e3', 'h5tgj', '12abc', '12!', '']) {
+  const field = input(value);
+  assert.equal(context.quantityTest.validateQuantity(field), false, `invalid value ${JSON.stringify(value)} is rejected`);
+  assert.equal(field.value, value, `invalid value ${JSON.stringify(value)} is not silently converted`);
+  assert.ok(field.validityMessage, `invalid value ${JSON.stringify(value)} receives a validation message`);
+}
 
-for (const [raw, committed] of [['', '1'], ['0', '1'], ['101', '100']]) {
+for (const [raw] of [[''], ['0'], ['101']]) {
   const field = input(raw);
-  assert.equal(context.quantityTest.validateQuantity(field, true), true, `blur normalization accepts ${raw || 'blank'} by clamping to the allowed range`);
-  assert.equal(field.value, committed, `${raw || 'blank'} normalizes to ${committed} on commit`);
+  assert.equal(context.quantityTest.validateQuantity(field, true), false, `blur does not coerce ${raw || 'blank'} into another quantity`);
+  assert.equal(field.value, raw, `${raw || 'blank'} remains unchanged on commit`);
 }
 
 const invalidOnBlur = input('5e1');
 assert.equal(context.quantityTest.validateQuantity(invalidOnBlur, true), false, 'scientific notation remains invalid on blur');
 assert.equal(invalidOnBlur.value, '5e1', 'invalid text is not coerced on blur');
+
+const letterField = input('1');
+const letterKey = keyEvent('h', { target: letterField });
+context.quantityTest.pfRejectNonDigitServiceQuantity(letterKey);
+assert.equal(letterKey.prevented, true, 'letter keystrokes are prevented while typing');
+assert.match(letterField.validityMessage, /positive whole number/i, 'rejected letter shows an inline error');
+
+const digitKey = keyEvent('7', { target: input('1') });
+context.quantityTest.pfRejectNonDigitServiceQuantity(digitKey);
+assert.equal(digitKey.prevented, false, 'digit keystrokes remain allowed');
+
+const selectAll = keyEvent('a', { target: input('12'), ctrlKey: true });
+context.quantityTest.pfRejectNonDigitServiceQuantity(selectAll);
+assert.equal(selectAll.prevented, false, 'Ctrl/Cmd shortcuts remain available');
+
+const beforeBad = beforeInputEvent('h5tgj', input('1'));
+context.quantityTest.pfRejectNonDigitServiceQuantity(beforeBad);
+assert.equal(beforeBad.prevented, true, 'beforeinput blocks non-digit insertions');
+
+const beforeGood = beforeInputEvent('12', input(''));
+context.quantityTest.pfRejectNonDigitServiceQuantity(beforeGood);
+assert.equal(beforeGood.prevented, false, 'beforeinput allows digit insertions');
+
+const pasteBad = pasteEvent('h5tgj', input('1'));
+context.quantityTest.pfRejectNonDigitServiceQuantity(pasteBad);
+assert.equal(pasteBad.prevented, true, 'paste rejects letters/symbols');
+
+const pasteDecimal = pasteEvent('1.5', input(''));
+context.quantityTest.pfRejectNonDigitServiceQuantity(pasteDecimal);
+assert.equal(pasteDecimal.prevented, true, 'paste rejects decimals');
+
+const pasteGood = pasteEvent('4', input(''));
+context.quantityTest.pfRejectNonDigitServiceQuantity(pasteGood);
+assert.equal(pasteGood.prevented, false, 'paste accepts a whole-number digit string');
 
 const boundary = input('100');
 const container = { querySelector() { return boundary; } };
@@ -64,10 +152,22 @@ context.quantityTest.pfChangeQty(button, -1);
 assert.equal(boundary.value, '99', 'minus button decrements and refreshes validation');
 assert.ok(estimateCalls >= 7, 'valid edits and +/- controls recalculate the estimate');
 
-assert.match(renderer, /input type="text" inputmode="numeric"[^\n]*pf-service-quantity-input/);
-assert.doesNotMatch(renderer, /pf-service-quantity-input[^\n]*onkeydown=/, 'quantity field does not block select-all keyboard shortcuts');
-assert.match(renderer, /addEventListener\('focusout'[\s\S]*validateQuantity\(e\.target, true\)/, 'blur commits and normalizes quantity');
+assert.match(renderer, /input type="text" inputmode="numeric"[^\n]*pattern="\[0-9\]\*"[^\n]*pf-service-quantity-input/);
+assert.doesNotMatch(renderer, /pf-service-quantity-input[^\n]*onkeydown=/, 'quantity field does not block select-all via inline onkeydown');
+assert.match(renderer, /addEventListener\('beforeinput',\s*pfRejectNonDigitServiceQuantity/, 'digit rejection is bound for dynamically rendered forms');
+assert.match(renderer, /addEventListener\('paste',\s*pfRejectNonDigitServiceQuantity/, 'paste rejection is bound for service quantity inputs');
+assert.match(renderer, /addEventListener\('focusout'[\s\S]*validateQuantity\(e\.target, true\)/, 'blur still validates quantity');
 assert.match(renderer, /window\.pfChangeQty\(this, -1\)/, 'minus control uses shared quantity handling');
 assert.match(renderer, /window\.pfChangeQty\(this, 1\)/, 'plus control uses shared quantity handling');
+assert.doesNotMatch(
+  renderer.slice(renderer.indexOf('function validateQuantity'), renderer.indexOf('function pfRejectNonDigitServiceQuantity')),
+  /input\.value\s*=\s*'1'/,
+  'validateQuantity no longer silently forces quantity 1'
+);
+
+const fallback = fs.readFileSync(path.join(__dirname, '../staff/api/pos_service_fields.php'), 'utf8');
+assert.match(fallback, /pf-service-quantity-input/, 'unconfigured POS services use the shared quantity input class');
+assert.match(fallback, /inputmode="numeric"/, 'unconfigured POS services use numeric inputmode');
+assert.doesNotMatch(fallback, /type="number"[^\n]*id="quantity-input"/, 'fallback quantity is no longer a free-form number input');
 
 console.log('Shared service quantity manual-edit tests passed.');

@@ -4807,9 +4807,30 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return showPOSConfirm('Estimated Price', POS_MISSING_ESTIMATE_MESSAGE, 'Continue', 'warning');
         }
 
+        function posReadPositiveWholeQuantity(value) {
+            const raw = String(value ?? '');
+            if (!/^[0-9]{1,64}$/.test(raw)) return null;
+            const canonical = raw.replace(/^0+/, '');
+            if (canonical === '' || canonical.length > 7) return null;
+            const parsed = Number(canonical);
+            return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 1000000 ? parsed : null;
+        }
+
+        /** Service-order modal quantity: positive whole numbers only, 1–100 (matches +/- controls). */
+        function posReadServiceOrderQuantity(value) {
+            const parsed = posReadPositiveWholeQuantity(value);
+            if (parsed === null || parsed > 100) return null;
+            return parsed;
+        }
+
         function applyServicePricingToCustomization(customization, unitPrice, quantity, designFee) {
             const safeUnit = Math.round(unitPrice * 100) / 100;
-            const safeQty = Math.max(1, parseInt(String(quantity), 10) || 1);
+            const safeQty = typeof quantity === 'number' && Number.isInteger(quantity) && quantity >= 1 && quantity <= 100
+                ? quantity
+                : posReadServiceOrderQuantity(quantity);
+            if (safeQty === null) {
+                throw new Error('Enter a positive whole number.');
+            }
             const safeDesignFee = Math.max(0, Math.round((Number(designFee) || 0) * 100) / 100);
             customization.calculated_unit_price = safeUnit.toFixed(2);
             customization.calculated_design_fee = safeDesignFee.toFixed(2);
@@ -5270,8 +5291,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
 
                 // Quantity
-                const qtyInput = row.querySelector('#quantity-input');
-                if (qtyInput) { customization['quantity'] = qtyInput.value || 1; }
+                const qtyInput = row.querySelector('#quantity-input, .pf-service-quantity-input, input[name="quantity"]');
+                if (qtyInput) {
+                    const parsedQty = posReadServiceOrderQuantity(qtyInput.value);
+                    if (parsedQty === null) {
+                        showPOSAlert('Quantity', 'Enter a positive whole number.', 'warning');
+                        valid = false;
+                    } else {
+                        customization.quantity = String(parsedQty);
+                    }
+                }
 
                 // Textarea (notes)
                 const textarea = row.querySelector('textarea');
@@ -5370,7 +5399,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             // Add service to cart with calculated unit price from the modal estimator
             const pricing = resolveServiceModalPricing();
-            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization['quantity'] || pricing.quantity, pricing.designFee);
+            let priced;
+            try {
+                priced = applyServicePricingToCustomization(
+                    customization,
+                    pricing.unitPrice,
+                    customization.quantity || pricing.quantity,
+                    pricing.designFee
+                );
+            } catch (quantityError) {
+                await showPOSAlert('Quantity', quantityError.message || 'Enter a positive whole number.', 'warning');
+                return;
+            }
             if (priced.unitPrice <= 0) {
                 const proceed = await confirmMissingEstimatedPrice();
                 if (!proceed) return;
@@ -5712,11 +5752,19 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         async function posValidateServiceStockNow(serviceId, quantityRaw, customization = null) {
             const requestVersion = ++posServiceStockRequestVersion;
             const input = posServiceQuantityInput();
-            const qty = posReadPositiveWholeQuantity(quantityRaw);
+            const qty = posReadServiceOrderQuantity(quantityRaw);
             if (input) input.setCustomValidity(qty === null ? 'Enter a positive whole number.' : '');
             if (qty === null) {
+                const qtyRow = input ? input.closest('.shopee-form-row') : null;
+                if (qtyRow) markServiceFieldInvalid(qtyRow, 'Enter a positive whole number.');
+                else if (input) input.classList.add('field-invalid');
                 posSetServiceStockState(true, '', 'Enter a positive whole number.');
                 return { valid: false, message: 'Enter a positive whole number.' };
+            }
+            if (input) {
+                input.classList.remove('field-invalid');
+                const qtyRow = input.closest('.shopee-form-row');
+                if (qtyRow) clearServiceFieldError(qtyRow);
             }
 
             const serviceCustomization = customization && typeof customization === 'object'
@@ -5810,6 +5858,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (input) {
                 input.min = '1';
                 input.step = '1';
+                input.setAttribute('inputmode', 'numeric');
+                input.setAttribute('pattern', '[0-9]*');
+                input.setAttribute('maxlength', '3');
+                input.setAttribute('autocomplete', 'off');
+                if (!input.classList.contains('pf-service-quantity-input')) {
+                    input.classList.add('pf-service-quantity-input');
+                }
                 input.addEventListener('input', scheduleValidation);
                 input.addEventListener('change', scheduleValidation);
                 const quantityControls = input.closest('.quantity-container');
@@ -5922,7 +5977,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (name.includes('design') || type === 'file') return 'Please upload a design or paste a design link.';
             if (name.includes('layout') || label.toLowerCase().includes('layout')) return 'Please select a layout.';
             if (name.includes('needed_date') || label.toLowerCase().includes('needed date')) return 'Please select a needed date.';
-            if (name.includes('quantity') || label.toLowerCase().includes('quantity')) return 'Quantity must be at least 1.';
+            if (name.includes('quantity') || label.toLowerCase().includes('quantity')) return 'Enter a positive whole number.';
             if (type === 'radio' || row.querySelector('input[type="radio"]')) return 'Please select ' + label.toLowerCase() + '.';
             if (input && input.tagName === 'SELECT') return 'Please select ' + label.toLowerCase() + '.';
             return 'Please enter ' + label.toLowerCase() + '.';
@@ -6152,9 +6207,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             }
                         }
                     }
-                    if (input.name === 'quantity' || input.classList.contains('pf-service-quantity-input')) {
-                        const qty = parseInt(value, 10);
-                        if (!Number.isFinite(qty) || qty < 1) addError(row, input);
+                    if (input.name === 'quantity' || input.classList.contains('pf-service-quantity-input') || input.id === 'quantity-input') {
+                        const qty = posReadServiceOrderQuantity(input.value);
+                        if (qty === null) {
+                            addError(row, input, input.name || 'quantity', 'Enter a positive whole number.');
+                            if (typeof input.setCustomValidity === 'function') {
+                                input.setCustomValidity('Enter a positive whole number.');
+                            }
+                        } else if (typeof input.setCustomValidity === 'function') {
+                            input.setCustomValidity('');
+                        }
                         return;
                     }
                     if (input.type === 'date' && value && posServiceFieldIsNeededDate(input.name, row)) {
@@ -6231,6 +6293,24 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const serviceId = parseInt(overlay.dataset.serviceId);
             const serviceName = overlay.dataset.serviceName;
             const body = document.getElementById('sm-fields-body');
+
+            const serviceQuantityInputEarly = posServiceQuantityInput();
+            const earlyQty = posReadServiceOrderQuantity(serviceQuantityInputEarly ? serviceQuantityInputEarly.value : '');
+            if (earlyQty === null) {
+                if (serviceQuantityInputEarly) {
+                    serviceQuantityInputEarly.setCustomValidity('Enter a positive whole number.');
+                    const qtyRow = serviceQuantityInputEarly.closest('.shopee-form-row');
+                    if (qtyRow) {
+                        markServiceFieldInvalid(qtyRow, 'Enter a positive whole number.');
+                    }
+                    if (typeof serviceQuantityInputEarly.reportValidity === 'function') {
+                        serviceQuantityInputEarly.reportValidity();
+                    }
+                }
+                posSetServiceStockState(true, '', 'Enter a positive whole number.');
+                return;
+            }
+            if (serviceQuantityInputEarly) serviceQuantityInputEarly.setCustomValidity('');
 
             const validationResult = validateServiceOrderForm();
             if (!validationResult.valid) {
@@ -6359,7 +6439,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (dateInput && dateInput.value) setCustomizationValue(customization, row, dateInput, dateInput.value);
 
                 const qtyInput = row.querySelector('#quantity-input, .pf-service-quantity-input, input[name="quantity"]');
-                if (qtyInput) customization.quantity = qtyInput.value || 1;
+                if (qtyInput) {
+                    customization.quantity = String(earlyQty);
+                }
 
                 const textarea = row.querySelector('textarea');
                 if (textarea && textarea.value.trim()) setCustomizationValue(customization, row, textarea, textarea.value.trim());
@@ -6461,7 +6543,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
 
             const pricing = resolveServiceModalPricing();
-            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization.quantity || pricing.quantity, pricing.designFee);
+            let priced;
+            try {
+                priced = applyServicePricingToCustomization(customization, pricing.unitPrice, earlyQty, pricing.designFee);
+            } catch (quantityError) {
+                await showPOSAlert('Quantity', quantityError.message || 'Enter a positive whole number.', 'warning');
+                setServiceAddButtonBusy(false);
+                isAddingToOrder = false;
+                posSetServiceStockState(true, '', 'Enter a positive whole number.');
+                return;
+            }
 
             body.querySelectorAll('input[type="radio"]:checked').forEach(radio => {
                 const row = radio.closest('.shopee-form-row');
@@ -7537,15 +7628,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         // addQuickService kept as no-op for legacy compatibility
         function addQuickService(serviceName) { }
-
-        function posReadPositiveWholeQuantity(value) {
-            const raw = String(value ?? '');
-            if (!/^[0-9]{1,64}$/.test(raw)) return null;
-            const canonical = raw.replace(/^0+/, '');
-            if (canonical === '' || canonical.length > 7) return null;
-            const parsed = Number(canonical);
-            return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 1000000 ? parsed : null;
-        }
 
         function posShowCartQuantityMessage(index, input, message) {
             const warning = document.getElementById(`pos-qty-warning-${index}`);

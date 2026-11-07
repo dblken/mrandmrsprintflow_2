@@ -18,9 +18,11 @@ function extractFunction(source, start, end) {
 const quantityReaderSource = extractFunction(
     pos,
     'function posReadPositiveWholeQuantity(value) {',
-    'function posShowCartQuantityMessage('
+    'function posReadServiceOrderQuantity('
 );
 const readQuantity = new Function(`return (${quantityReaderSource});`)();
+assert.match(pos, /function posReadServiceOrderQuantity\(/, 'service modal quantity uses a capped strict parser');
+assert.match(pos, /function posShowCartQuantityMessage\(/, 'cart quantity messaging remains available');
 
 for (const [raw, expected] of [
     ['1', 1], ['999', 999], ['1000', 1000], ['999999', 999999],

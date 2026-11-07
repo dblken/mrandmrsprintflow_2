@@ -773,7 +773,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $html .= '<div class="shopee-opt-group">';
             $html .= '<div class="quantity-container shopee-opt-btn" style="display: inline-flex; justify-content: space-between; gap: 1rem; width: 175px; cursor: default;">';
             $html .= '<button type="button" class="qty-btn-minus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="window.pfChangeQty(this, -1)">&minus;</button>';
-            $html .= '<input type="text" inputmode="numeric" id="' . htmlspecialchars($qty_id, ENT_QUOTES, 'UTF-8') . '" name="' . $qty_name . '" class="qty-input-field pf-service-quantity-input" style="border: none; text-align: center; width: 60px; font-size: 0.875rem; font-weight: 500; color: #374151; background: transparent; outline: none;" value="' . $saved_qty . '">';
+            $html .= '<input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" autocomplete="off" id="' . htmlspecialchars($qty_id, ENT_QUOTES, 'UTF-8') . '" name="' . $qty_name . '" class="qty-input-field pf-service-quantity-input" style="border: none; text-align: center; width: 60px; font-size: 0.875rem; font-weight: 500; color: #374151; background: transparent; outline: none;" value="' . $saved_qty . '" aria-label="Quantity">';
             $html .= '<button type="button" class="qty-btn-plus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="window.pfChangeQty(this, 1)">+</button>';
             $html .= '</div>';
             $html .= '</div>';
@@ -1653,58 +1653,56 @@ function selectDimensionOthers(e) {
     if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
 }
 
+function pfServiceQuantityInput(root) {
+    const scope = root && typeof root.querySelector === 'function' ? root : document;
+    return scope.querySelector('.pf-service-quantity-input')
+        || scope.querySelector('#quantity-input')
+        || document.querySelector('#serviceForm .pf-service-quantity-input')
+        || document.querySelector('.pf-service-quantity-input')
+        || document.querySelector('#quantity-input');
+}
+
 function increaseQty() {
-    const i = document.querySelector('#serviceForm .pf-service-quantity-input') || document.querySelector('.pf-service-quantity-input');
+    const i = pfServiceQuantityInput();
     if (!i) return;
     const val = Number(i.value);
     i.value = String(Math.min(100, (Number.isInteger(val) && val >= 1 ? val : 1) + 1));
     validateQuantity(i);
+    i.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function decreaseQty() {
-    const i = document.querySelector('#serviceForm .pf-service-quantity-input') || document.querySelector('.pf-service-quantity-input');
+    const i = pfServiceQuantityInput();
     if (!i) return;
     const val = Number(i.value);
     i.value = String(Math.max(1, (Number.isInteger(val) && val >= 1 ? val : 1) - 1));
     validateQuantity(i);
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function pfServiceQuantityInvalidMessage(raw) {
+    if (raw === '' || !/^[0-9]+$/.test(raw)) {
+        return 'Enter a positive whole number.';
+    }
+    return 'Enter a whole number from 1 to 100.';
 }
 
 function validateQuantity(input, commit = false) {
     if (!input) return false;
-    const invalidMessage = 'Enter a whole number from 1 to 100.';
     let raw = String(input.value ?? '');
+    // Never coerce empty, zero, decimals, signs, or letters into another quantity.
+    // commit remains for callers that blur-commit; valid values may canonicalize.
+    void commit;
 
-    // Keep the empty state while the user is selecting and replacing a value.
-    if (raw === '' && !commit) {
-        input.setCustomValidity(invalidMessage);
-        return false;
-    }
-    if (raw === '' && commit) {
-        input.value = '1';
-        raw = '1';
-    }
-    if (!/^[0-9]+$/.test(raw)) {
-        input.setCustomValidity(invalidMessage);
+    if (raw === '' || !/^[0-9]+$/.test(raw)) {
+        input.setCustomValidity(pfServiceQuantityInvalidMessage(raw));
         return false;
     }
 
-    let val = Number(raw);
-    if (!Number.isSafeInteger(val)) {
-        input.setCustomValidity(invalidMessage);
+    const val = Number(raw);
+    if (!Number.isSafeInteger(val) || val < 1 || val > 100) {
+        input.setCustomValidity(pfServiceQuantityInvalidMessage(raw));
         return false;
-    }
-    if (val < 1) {
-        if (!commit) {
-            input.setCustomValidity(invalidMessage);
-            return false;
-        }
-        val = 1;
-    } else if (val > 100) {
-        if (!commit) {
-            input.setCustomValidity(invalidMessage);
-            return false;
-        }
-        val = 100;
     }
 
     input.value = String(val);
@@ -1713,15 +1711,69 @@ function validateQuantity(input, commit = false) {
     return true;
 }
 
+function pfRejectNonDigitServiceQuantity(event) {
+    const input = event && event.target;
+    if (!input || typeof input.matches !== 'function') return;
+    if (!input.matches('.pf-service-quantity-input, #quantity-input')) return;
+
+    const markRejected = () => {
+        input.setCustomValidity('Enter a positive whole number.');
+        if (typeof input.reportValidity === 'function') {
+            // Keep the inline/custom validity message without forcing a native popup on every key.
+        }
+    };
+
+    if (event.type === 'keydown') {
+        if (event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1) return;
+        if (!/^[0-9]$/.test(event.key)) {
+            event.preventDefault();
+            markRejected();
+        }
+        return;
+    }
+
+    if (event.type === 'beforeinput') {
+        if (event.data != null && !/^[0-9]*$/.test(event.data)) {
+            event.preventDefault();
+            markRejected();
+        }
+        return;
+    }
+
+    if (event.type === 'paste') {
+        const pasted = event.clipboardData && typeof event.clipboardData.getData === 'function'
+            ? event.clipboardData.getData('text')
+            : '';
+        if (!/^[0-9]*$/.test(pasted) || pasted.length > 3) {
+            event.preventDefault();
+            markRejected();
+        }
+        return;
+    }
+
+    if (event.type === 'drop') {
+        const dropped = event.dataTransfer && typeof event.dataTransfer.getData === 'function'
+            ? event.dataTransfer.getData('text')
+            : '';
+        if (!/^[0-9]*$/.test(dropped) || dropped.length > 3) {
+            event.preventDefault();
+            markRejected();
+        }
+    }
+}
+
 function pfChangeQty(btn, delta) {
     if (!btn) return;
     const container = btn.closest('.quantity-container') || btn.parentElement;
-    const input = container ? container.querySelector('.pf-service-quantity-input') : (document.querySelector('#serviceForm .pf-service-quantity-input') || document.querySelector('.pf-service-quantity-input'));
+    const input = container
+        ? (container.querySelector('.pf-service-quantity-input') || container.querySelector('#quantity-input'))
+        : pfServiceQuantityInput();
     if (!input) return;
     const current = Number(input.value);
     const val = Number.isInteger(current) && current >= 1 ? current : 1;
     input.value = String(Math.max(1, Math.min(100, val + delta)));
     validateQuantity(input);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function serviceFieldEventProxy(method, target) {
@@ -1804,10 +1856,17 @@ window.increaseQty = increaseQty;
 window.decreaseQty = decreaseQty;
 window.validateQuantity = validateQuantity;
 window.pfChangeQty = pfChangeQty;
+window.pfRejectNonDigitServiceQuantity = pfRejectNonDigitServiceQuantity;
+window.pfServiceQuantityInput = pfServiceQuantityInput;
 window.updateConditionalFields = updateConditionalFields;
 
 if (!window.__pfServiceFieldDelegatesBound) {
     window.__pfServiceFieldDelegatesBound = true;
+
+    document.addEventListener('keydown', pfRejectNonDigitServiceQuantity, true);
+    document.addEventListener('beforeinput', pfRejectNonDigitServiceQuantity, true);
+    document.addEventListener('paste', pfRejectNonDigitServiceQuantity, true);
+    document.addEventListener('drop', pfRejectNonDigitServiceQuantity, true);
 
     document.addEventListener('click', function(e) {
         const dimBtn = e.target.closest('[data-dimension-choice="1"]');
