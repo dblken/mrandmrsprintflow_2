@@ -5904,14 +5904,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     }
                     const uom = paperMaterial.uom || 'sheet';
                     const materialName = paperMaterial.name || 'Required material';
-                    const availabilityText = `Required ${materialName}: ${formatQty(safeRequired)} ${uom} · Available: ${formatQty(safeAvailable)} ${uom}`;
+                    // Do not mirror Required/Available in the gray indicator — the red
+                    // insufficient warning already includes both quantities.
                     if (!validation.ok || issues.length || safeRequired > safeAvailable) {
                         const issue = issues[0] || paperMaterial;
                         const message = `Insufficient ${issue.name || materialName} stock. Available: ${formatQty(issue.available ?? safeAvailable)} ${issue.uom || uom}. Required: ${formatQty(issue.required ?? safeRequired)} ${issue.uom || uom}.`;
-                        posSetServiceStockState(true, availabilityText, posServiceStockDisplayMessage(message, serviceId) || message);
+                        posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId) || message);
                         return { valid: false, message, available: safeAvailable, required: safeRequired };
                     }
-                    posSetServiceStockState(false, availabilityText, '');
+                    posSetServiceStockState(false, `Available ${materialName}: ${formatQty(safeAvailable)} ${uom}`, '');
                     return { valid: true, tracked: true, available: safeAvailable, required: safeRequired };
                 }
                 if (!validation.ok || issues.length) {

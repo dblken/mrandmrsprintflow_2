@@ -21,9 +21,18 @@ assert.match(pos, /paperEarlyStock/, 'Brochure\/Poster skip unrelated incomplete
 assert.match(pos, /paperDimsReady/, 'Dimensions gate Brochure\/Poster stock checks');
 assert.match(pos, /\[67, 64\]\.includes\(Number\(serviceId\)\)/, 'Brochure\/Poster mapping and stock failures stay visible');
 assert.match(pos, /preferred \.\+ material\|inventory item #\|material stock/, 'Brochure\/Poster config failures are allowlisted in stock feedback');
-assert.match(pos, /Required \$\{materialName\}/, 'modal shows required material usage');
-assert.match(pos, /Available: \$\{formatQty\(safeAvailable\)\}/, 'modal shows available stock');
+assert.doesNotMatch(
+  pos,
+  /Required \$\{materialName\}: \$\{formatQty\(safeRequired\)\} \$\{uom\} · Available:/,
+  'modal does not show the redundant Required/Available gray summary'
+);
 assert.match(pos, /Insufficient \$\{issue\.name \|\| materialName\} stock/, 'insufficient paper stock shows a clear shortage');
+assert.match(pos, /Available \$\{materialName\}: \$\{formatQty\(safeAvailable\)\} \$\{uom\}/, 'sufficient stock still shows available quantity');
+assert.match(
+  pos,
+  /posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message, serviceId\) \|\| message\)/,
+  'insufficient Brochure/Poster stock uses only the red warning line'
+);
 assert.match(pos, /posBindServiceStockValidation\(serviceId\)/, 'opening the service form binds live stock validation');
 assert.match(pos, /scheduleValidation\(\)/, 'quantity, dimension, layout, and branch edits revalidate stock');
 assert.match(pos, /customization\.service_id = serviceId/, 'stock payload includes service_id');

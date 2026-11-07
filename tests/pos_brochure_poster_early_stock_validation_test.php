@@ -136,9 +136,10 @@ $expect(str_contains($pos, 'paperEarlyStock')
 $expect(str_contains($pos, '[67, 64].includes(Number(serviceId))')
     && str_contains($pos, 'preferred .+ material|inventory item #|material stock'),
     'Brochure/Poster mapping and stock failures stay visible in the modal');
-$expect(str_contains($pos, 'Required ${materialName}')
-    && str_contains($pos, 'Available:'),
-    'POS modal shows required usage and available stock');
+$expect(!str_contains($pos, 'Required ${materialName}: ${formatQty(safeRequired)}')
+    && str_contains($pos, 'Insufficient ${issue.name || materialName} stock')
+    && str_contains($pos, 'Available ${materialName}:'),
+    'POS modal keeps the red insufficient warning and drops the redundant Required/Available summary');
 $expect(str_contains($validation, 'InventoryManager::getStockOnHand((int)$itemId, $branchId)'),
     'Branch stock comes from InventoryManager::getStockOnHand (read-only)');
 
