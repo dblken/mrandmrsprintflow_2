@@ -63,6 +63,23 @@ assert.strictEqual(byName(tarpRows, '4ft Tarpaulin').compatibility.overrideable,
 assert.strictEqual(byName(tarpRows, '4ft Tarpaulin').compatibility.reason, 'Out of stock');
 assert.strictEqual(picker.inkModeFor(byName(tarpRows, '3ft Tarpaulin')), 'tarp');
 
+// Service 40 authoritative mapping must recognize Eyelet as the optional
+// Tarpaulin finishing material (extras beyond the four included with the roll).
+const tarpService40 = context('Tarpaulin Printing');
+tarpService40.serviceId = 40;
+tarpService40.serviceLabel = 'Tarpaulin';
+const eyeletForTarp = byName(inventory, 'Eyelet');
+const eyeletState = picker.classifyItem(eyeletForTarp, tarpService40, []);
+assert.strictEqual(eyeletState.family, 'eyelet');
+assert.strictEqual(eyeletState.tier, 'optional');
+assert.strictEqual(eyeletState.authoritativelyMapped, true, 'Mapped Eyelet is recognized for Tarpaulin');
+assert.strictEqual(eyeletState.directSelectable, true, 'In-stock Eyelet remains selectable for extras');
+assert.strictEqual(eyeletState.reason, '', 'Mapped Eyelet must not show Not mapped for Tarpaulin');
+const unmappedOnTarp = picker.classifyItem(byName(inventory, 'MUG'), tarpService40, []);
+assert.strictEqual(unmappedOnTarp.authoritativelyMapped, false, 'Truly unmapped material stays unmapped');
+assert.match(unmappedOnTarp.reason, /Not mapped for Tarpaulin/i);
+assert.strictEqual(unmappedOnTarp.directSelectable, false);
+
 // Regression: shorthand "TARP" naming and category-based naming must still be recognized
 // as tarpaulin material (root cause of the "Not suggested" bug) when roll-tracked.
 const tarpShorthandRows = picker.rankItems(

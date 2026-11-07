@@ -60,6 +60,22 @@ $assert(count($byId[71]['materials']) === 1
 $assert(count($byId[36]['materials']) === 4, 'Decals shows its four verified optional material records.');
 $assert(count($byId[40]['materials']) === 1
     && $byId[40]['materials'][0]['service_type'] === 'Tarpaulin Printing', 'Tarpaulin uses only the explicit Tarpaulin Printing alias.');
+$assert(
+    in_array('Eyelet', printflow_service_material_rule_display_registry()[40]['material_names'], true),
+    'Admin Tarpaulin display allowlist includes Eyelet extras without inventing a new inventory row.'
+);
+$tarpWithEyelet = printflow_service_material_rule_display_groups($active, array_merge($rules, [
+    ['id' => 12, 'service_type' => 'Tarpaulin Printing', 'item_id' => 99, 'material_name' => 'Eyelet', 'inventory_uom' => 'pcs', 'rule_type' => 'OPTIONAL'],
+]), $mugs);
+$tarpMaterials = [];
+foreach ($tarpWithEyelet as $group) {
+    if ((int)$group['service_id'] === 40) $tarpMaterials = $group['materials'];
+}
+$tarpNames = array_map(static fn(array $row): string => (string)$row['material_name'], $tarpMaterials);
+$assert(
+    in_array('3ft Tarpaulin', $tarpNames, true) && in_array('Eyelet', $tarpNames, true),
+    'Existing Tarpaulin Eyelet mapping rows are shown alongside roll mappings.'
+);
 $configuredNames = [
     39 => ['AC MC', 'AC PH', 'AC EURO', 'AC THAI', 'AC NMC', 'AC HOME', 'SP MC', 'SP PH', 'SP EURO', 'SP THAI', 'SP NMC'],
     67 => ['C2s Board', 'C2S Special Paper'],

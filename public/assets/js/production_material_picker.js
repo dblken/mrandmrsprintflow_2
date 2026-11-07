@@ -416,9 +416,14 @@
         const isMappedTarpaulinRoll = serviceId === 40
             && tarpaulinMappedRollIds.has(Number(item && item.id))
             && Number(item && item.track_by_roll) === 1;
+        // Eyelet is the established optional Tarpaulin finishing material
+        // (extras beyond the four included with the roll). Treat the family
+        // mapping as authoritative so service 40 does not label it unmapped.
+        const isMappedTarpaulinEyelet = serviceId === 40 && family === 'eyelet';
         const authoritativelyMapped = !!exactRule
             || (serviceId === 36 && stickersDecalsColoredIds.has(Number(item && item.id)))
             || isMappedTarpaulinRoll
+            || isMappedTarpaulinEyelet
             || (serviceId === 63 && Number(item && item.id) === 37);
         if (authoritativelyMapped && !exactRule && requiresAuthoritativeMapping
             && (tier === 'unrelated' || tier === 'unverified')) {
@@ -427,17 +432,10 @@
         let directSelectable = (tier === 'recommended' || tier === 'optional') && inStock;
         let overrideable = (tier === 'unrelated' || tier === 'unverified') && inStock;
         if (requiresAuthoritativeMapping) {
-            // Tarpaulin optional eyelets stay staff-selectable without a closed
-            // registry row; roll materials still require the mapped roll IDs.
-            if (serviceId === 40 && family === 'eyelet' && tier === 'optional' && inStock) {
-                directSelectable = true;
-                overrideable = false;
-            } else {
-                directSelectable = authoritativelyMapped && directSelectable;
-                overrideable = false;
-                if (!authoritativelyMapped && inStock && (tier === 'recommended' || tier === 'optional')) {
-                    tier = 'unrelated';
-                }
+            directSelectable = authoritativelyMapped && directSelectable;
+            overrideable = false;
+            if (!authoritativelyMapped && inStock && (tier === 'recommended' || tier === 'optional')) {
+                tier = 'unrelated';
             }
         }
         const selectable = directSelectable || overrideable;

@@ -34,7 +34,12 @@ function printflow_service_material_rule_display_registry(): array
                 22 => 'Hologram',
             ] + printflow_stickers_decals_colored_sticker_item_names(),
         ],
-        40 => ['name' => 'Tarpaulin', 'service_types' => ['Tarpaulin Printing'], 'material_names' => ['3ft Tarpaulin', '4ft Tarpaulin', '5ft Tarpaulin', '6ft Tarpaulin']],
+        40 => [
+            'name' => 'Tarpaulin',
+            'service_types' => ['Tarpaulin Printing'],
+            // Rolls plus optional Eyelet extras (4 standard eyelets come with the roll).
+            'material_names' => ['3ft Tarpaulin', '4ft Tarpaulin', '5ft Tarpaulin', '6ft Tarpaulin', 'Eyelet'],
+        ],
     ];
 }
 
