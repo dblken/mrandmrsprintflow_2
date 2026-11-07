@@ -4793,7 +4793,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             posEstimatedPriceController = window.printflowInitServiceEstimatedPrice(body, {
                 basePrice: basePrice,
                 serviceId: Number(serviceId) || 0,
-                requirePositiveUnit: Number(serviceId) === 63,
                 form: body,
                 estimatedTotalEl: footer.querySelector('#pos-estimated-total'),
                 qtyDisplayEl: footer.querySelector('#pos-qty-display')
@@ -4804,24 +4803,40 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             let unitPrice = 0;
             let quantity = 1;
             let designFee = 0;
+            let estimatedTotal = null;
             if (posEstimatedPriceController && typeof posEstimatedPriceController.recalculate === 'function') {
                 const result = posEstimatedPriceController.recalculate();
                 unitPrice = Number(result.unitPrice);
                 quantity = Number(result.quantity);
                 designFee = Number(result.designFee || 0);
+                estimatedTotal = result.estimatedTotal;
             } else if (typeof window.calculateEstimatedPrice === 'function') {
                 const result = window.calculateEstimatedPrice();
                 unitPrice = Number(result.unitPrice);
                 quantity = Number(result.quantity);
                 designFee = Number(result.designFee || 0);
+                estimatedTotal = result.estimatedTotal;
             }
             if (!Number.isFinite(unitPrice)) unitPrice = 0;
             if (!Number.isFinite(quantity) || quantity < 1) quantity = 1;
             if (!Number.isFinite(designFee) || designFee < 0) designFee = 0;
-            return { unitPrice, quantity, designFee };
+            if (estimatedTotal == null && Number.isFinite(unitPrice) && Number.isFinite(quantity) && quantity >= 1) {
+                estimatedTotal = Math.round((unitPrice * quantity + designFee) * 100) / 100;
+            }
+            return { unitPrice, quantity, designFee, estimatedTotal };
         }
 
         const POS_MISSING_ESTIMATE_MESSAGE = 'This specification does not have an estimated price yet. The final price will be set by Staff before payment or order completion. Do you want to continue?';
+
+        function posNeedsMissingEstimatedPriceConfirm(estimatedTotal) {
+            if (typeof window.printflowNeedsMissingEstimatedPriceConfirm === 'function') {
+                return window.printflowNeedsMissingEstimatedPriceConfirm(estimatedTotal);
+            }
+            if (estimatedTotal == null || estimatedTotal === '') return true;
+            const amount = Number(estimatedTotal);
+            if (!Number.isFinite(amount)) return true;
+            return amount === 0;
+        }
 
         async function confirmMissingEstimatedPrice() {
             return showPOSConfirm('Estimated Price', POS_MISSING_ESTIMATE_MESSAGE, 'Continue', 'warning');
@@ -5429,15 +5444,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 await showPOSAlert('Quantity', quantityError.message || 'Enter a positive whole number.', 'warning');
                 return;
             }
-            if (Number(serviceId) === 63 && priced.unitPrice <= 0) {
-                await showPOSAlert(
-                    'Mugs Price Required',
-                    'Configure the Mugs per-piece selling price in Admin → Services (services.price). The Without Layout fee is added once and cannot replace the Mug item price.',
-                    'warning'
-                );
-                return;
-            }
-            if (priced.unitPrice <= 0) {
+            // Use the final line estimate (unit×qty + fee), not unit price alone.
+            // Fee-only totals such as Without Layout ₱200 must not trigger this warning.
+            const lineEstimate = Number(
+                customization.calculated_estimated_price != null
+                    ? customization.calculated_estimated_price
+                    : pricing.estimatedTotal
+            );
+            if (posNeedsMissingEstimatedPriceConfirm(lineEstimate)) {
                 const proceed = await confirmMissingEstimatedPrice();
                 if (!proceed) return;
             }
@@ -6626,17 +6640,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 setCustomizationValue(customization, row, radio, radioValue);
             });
 
-            if (Number(serviceId) === 63 && priced.unitPrice <= 0) {
-                setServiceAddButtonBusy(false);
-                isAddingToOrder = false;
-                await showPOSAlert(
-                    'Mugs Price Required',
-                    'Configure the Mugs per-piece selling price in Admin → Services (services.price). The Without Layout fee is added once and cannot replace the Mug item price.',
-                    'warning'
-                );
-                return;
-            }
-            if (priced.unitPrice <= 0) {
+            const lineEstimate = Number(
+                customization.calculated_estimated_price != null
+                    ? customization.calculated_estimated_price
+                    : pricing.estimatedTotal
+            );
+            if (posNeedsMissingEstimatedPriceConfirm(lineEstimate)) {
                 setServiceAddButtonBusy(false);
                 const addBtn = document.getElementById('sm-add-to-order-btn');
                 if (addBtn) addBtn.disabled = true;

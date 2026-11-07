@@ -127,9 +127,6 @@
         options = options || {};
         const scope = options.form || container;
         const basePrice = parsePrice(options.basePrice || 0);
-        const serviceId = Number(options.serviceId || 0);
-        const requirePositiveUnit = options.requirePositiveUnit === true
-            || serviceId === 63; // Mugs: layout fee must never replace the per-piece price
         const estimatedTotalEl = options.estimatedTotalEl || (scope ? scope.querySelector('#estimated-total') : null);
         const qtyDisplayEl = options.qtyDisplayEl || (scope ? scope.querySelector('#qty-display') : null);
         const unitPriceInputEl = options.unitPriceInputEl || (scope ? scope.querySelector('#calculated-unit-price') : null);
@@ -145,9 +142,6 @@
             const quantity = /^[0-9]+$/.test(rawQuantity) ? Number(rawQuantity) : NaN;
             const quantityValid = Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= 100;
             const unitPrice = basePrice + optionsTotal;
-            // Formula: (configured unit × qty) + one-time layout fee.
-            // A missing unit price must not present the layout fee as the full estimate.
-            const unitConfigured = unitPrice >= 0.01;
 
             if (!quantityValid) {
                 // An empty or malformed edit is temporary UI state, not quantity 1.
@@ -161,22 +155,9 @@
                 return { unitPrice: unitPrice, estimatedTotal: null, quantity: null, designFee: designFee };
             }
 
-            if (requirePositiveUnit && !unitConfigured) {
-                if (estimatedTotalEl) estimatedTotalEl.textContent = '—';
-                if (qtyDisplayEl) qtyDisplayEl.textContent = String(quantity);
-                if (unitPriceInputEl) unitPriceInputEl.value = '0.00';
-                if (estimatedPriceInputEl) estimatedPriceInputEl.value = '';
-                if (designFeeInputEl) designFeeInputEl.value = designFee.toFixed(2);
-                return {
-                    unitPrice: 0,
-                    estimatedTotal: null,
-                    quantity: quantity,
-                    designFee: designFee,
-                    unitMissing: true
-                };
-            }
-
             const safeQty = quantity;
+            // Final estimate = (unit × qty) + one-time layout/design fee.
+            // A fee-only total (unit 0, fee > 0) is a valid positive estimate.
             const estimatedTotal = Math.round((unitPrice * safeQty + designFee) * 100) / 100;
 
             if (estimatedTotalEl) {
@@ -225,8 +206,21 @@
         };
     }
 
+    /**
+     * POS missing-estimate confirm should follow the displayed line total,
+     * not unit price alone. Fee-only totals (e.g. Without Layout ₱200) are valid.
+     * Missing / NaN / non-finite values are not treated as a positive estimate.
+     */
+    function printflowNeedsMissingEstimatedPriceConfirm(estimatedTotal) {
+        if (estimatedTotal == null || estimatedTotal === '') return true;
+        const amount = typeof estimatedTotal === 'number' ? estimatedTotal : Number(estimatedTotal);
+        if (!Number.isFinite(amount)) return true;
+        return amount === 0;
+    }
+
     window.printflowInitServiceEstimatedPrice = printflowInitServiceEstimatedPrice;
     window.printflowCalculateServiceOptionsTotal = calculateOptionsTotal;
     window.printflowCalculateServiceDesignFee = calculateDesignFee;
     window.printflowFormatServiceEstimatedPeso = formatPeso;
+    window.printflowNeedsMissingEstimatedPriceConfirm = printflowNeedsMissingEstimatedPriceConfirm;
 })(window);

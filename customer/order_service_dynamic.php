@@ -765,14 +765,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 $unit_price = (float)$linePricing['unit_price'];
                 $design_fee = (float)$linePricing['design_fee'];
                 $estimated_price = (float)$linePricing['line_total'];
-            } elseif (printflow_is_mugs_service((int)$service_id)) {
-                $error = (string)($linePricing['message'] ?? 'Configure a positive Mugs per-piece selling price (services.price). The layout fee cannot replace the Mug item price.');
             } else {
                 $layoutValues = printflow_service_field_values_from_customization($customization, $field_configs);
                 $layoutFee = printflow_design_fee_option($layoutValues, $field_configs);
                 if (empty($layoutFee['ok'])) {
                     $error = (string)($layoutFee['message'] ?? 'The selected layout fee could not be verified.');
                 } else {
+                    // Unconfigured unit price may still yield a positive estimate from
+                    // a one-time layout fee. Inventory unit cost is never substituted.
                     $unit_price = 0.0;
                     $design_fee = (int)$layoutFee['fee_cents'] / 100;
                     $estimated_price = $design_fee;
@@ -2383,7 +2383,6 @@ document.addEventListener('DOMContentLoaded', function() {
             const priceWidget = window.printflowInitServiceEstimatedPrice(form, {
                 basePrice: <?php echo (float)($service['base_price'] ?? 0); ?>,
                 serviceId: <?php echo (int)$service_id; ?>,
-                requirePositiveUnit: <?php echo ((int)$service_id === 63) ? 'true' : 'false'; ?>,
                 form: form
             });
             if (priceWidget && typeof priceWidget.recalculate === 'function') {

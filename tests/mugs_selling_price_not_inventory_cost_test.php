@@ -31,6 +31,8 @@ foreach ($pricingSources as $relative) {
         || str_contains($source, 'Inventory average cost is not used')
         || str_contains($source, 'never use inv_items average/cost')
         || str_contains($source, 'Inventory average cost is never used')
+        || str_contains($source, 'Inventory unit/average cost is never used')
+        || str_contains($source, 'Inventory unit cost is never substituted')
         || str_contains($source, 'Do not copy the Mug inventory'),
         $relative . ' must not read inventory unit/average cost as a selling price.');
     $assert(!preg_match('/InventoryManager::getItem\s*\(\s*37\s*\).*price|getItem\s*\(\s*37\s*\).*average/is', $source),
@@ -59,8 +61,8 @@ $assert(str_contains($admin, "input.value = Number.isFinite(price) && price > 0 
 $estimator = (string)file_get_contents($root . '/public/assets/js/service_estimated_price.js');
 $assert(str_contains($estimator, 'const unitPrice = basePrice + optionsTotal;')
     && str_contains($estimator, 'unitPrice * safeQty + designFee')
-    && str_contains($estimator, 'requirePositiveUnit'),
-    'Estimator uses configured base/options × qty + one-time layout fee, and withholds fee-only Mugs totals when unit price is missing.');
+    && str_contains($estimator, 'printflowNeedsMissingEstimatedPriceConfirm'),
+    'Estimator uses configured base/options × qty + one-time layout fee, and exposes the final-estimate warning helper.');
 
 // Runtime: unconfigured services.price fails closed (no invented inventory cost).
 $missing = printflow_mugs_line_totals_from_unit_price(0.0, 4);
@@ -81,11 +83,10 @@ $rejectMissing = printflow_mugs_require_configured_selling_price([
 $assert($rejectMissing !== null && str_contains($rejectMissing, 'Inventory average cost is not used'),
     'POS/customer guards reject fee-only or cost-derived Mugs unit prices.');
 
-// Explain the screenshot math contract in code: fee alone is not a Mug selling price.
 $assert(
-    str_contains((string)file_get_contents($root . '/staff/api/pos_cart_handler.php'), 'printflow_mugs_require_configured_selling_price')
-    && str_contains((string)file_get_contents($root . '/customer/order_service_dynamic.php'), 'layout fee cannot replace the Mug item price'),
-    'POS and customer refuse treating a one-time layout fee as the Mug selling price.'
+    str_contains((string)file_get_contents($root . '/staff/api/pos_cart_handler.php'), 'Inventory unit/average cost is never used')
+    && str_contains((string)file_get_contents($root . '/customer/order_service_dynamic.php'), 'Inventory unit cost is never substituted'),
+    'POS and customer keep inventory unit cost out of selling-price fallbacks.'
 );
 
 echo "Mugs selling price vs inventory cost separation tests passed.\n";

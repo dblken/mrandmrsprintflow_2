@@ -109,21 +109,18 @@ $estimator = (string)file_get_contents($root . '/public/assets/js/service_estima
 $customer = (string)file_get_contents($root . '/customer/order_service_dynamic.php');
 $designFeeHelper = (string)file_get_contents($root . '/includes/service_design_fee.php');
 
-$assert(str_contains($posCart, 'printflow_mugs_require_configured_selling_price')
-    && str_contains($posCart, 'printflow_is_mugs_service($product_id)'),
-    'POS cart rejects Mugs lines when services.price is missing instead of fee-only totals.');
-$assert(str_contains($posJs, 'Number(serviceId) === 63 && priced.unitPrice <= 0')
+$assert(str_contains($posJs, 'posNeedsMissingEstimatedPriceConfirm')
     && str_contains($posJs, 'initPosEstimatedPrice(body, parseFloat(data.base_price) || 0, serviceId)'),
-    'POS UI blocks Add to Order without a Mug unit price and initializes the estimator with serviceId.');
-$assert(str_contains($estimator, 'requirePositiveUnit')
-    && str_contains($estimator, 'unitPrice * safeQty + designFee')
-    && str_contains($estimator, 'unitMissing'),
-    'Shared estimator multiplies unit×qty then adds fee once, and withholds fee-only Mugs estimates.');
-$assert(str_contains($customer, 'printflow_is_mugs_service((int)$service_id)')
-    && str_contains($customer, 'layout fee cannot replace the Mug item price'),
-    'Customer ordering refuses fee-only Mugs totals.');
-$assert(str_contains($designFeeHelper, 'Never rebuild a Mugs line as layout-fee-only'),
-    'Cart reprice helper refuses fee-only Mugs rebuilds.');
+    'POS missing-estimate warning uses the final line estimate helper.');
+$assert(str_contains($estimator, 'printflowNeedsMissingEstimatedPriceConfirm')
+    && str_contains($estimator, 'unitPrice * safeQty + designFee'),
+    'Shared estimator exposes the warning helper and multiplies unit×qty then adds fee once.');
+$assert(str_contains($customer, 'printflow_calculate_service_line_pricing')
+    && str_contains($posCart, 'printflow_calculate_service_line_pricing'),
+    'Customer and POS keep server-authoritative line pricing.');
+$assert(str_contains($designFeeHelper, 'function printflow_design_fee_option')
+    && str_contains($designFeeHelper, 'function printflow_calculate_service_line_pricing'),
+    'Shared design-fee helper remains available for layout fee calculation.');
 
 // Stock validation remains Mug item 37 only.
 $stock = printflow_mugs_assert_quantity_within_branch_stock(4, 0);

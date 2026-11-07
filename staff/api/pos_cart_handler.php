@@ -564,55 +564,38 @@ try {
                     throw new PosCartValidationException($serviceValidationErrors);
                 }
 
-                if (!function_exists('printflow_is_mugs_service')) {
-                    require_once dirname(__DIR__, 2) . '/includes/mugs_base_pricing.php';
-                }
                 $linePricing = printflow_calculate_service_line_pricing($product_id, $serviceCustomization, $qty, $serviceFieldConfigs);
                 $priceCalc = printflow_calculate_service_unit_price($product_id, $serviceCustomization);
-                if (printflow_is_mugs_service($product_id)) {
-                    // Mugs: services.price × qty + one-time layout fee. Never let
-                    // the Without Layout fee stand in for a missing Mug unit price.
-                    $mugsPriceError = printflow_mugs_require_configured_selling_price($priceCalc);
-                    if ($mugsPriceError !== null) {
-                        throw new PosCartValidationException(['price' => $mugsPriceError]);
-                    }
-                    if (empty($linePricing['ok'])) {
+                if (!$priceCalc['ok']) {
+                    if (($priceCalc['reason'] ?? '') === 'unconfigured') {
+                        // Unconfigured unit price is allowed; layout/design fees may
+                        // still produce a positive line estimate (e.g. Without Layout).
+                        // Inventory unit/average cost is never used as a substitute.
+                        $serviceCustomization['price_unconfigured'] = '1';
+                        $priceCalc = [
+                            'ok' => true,
+                            'unit_price' => 0.0,
+                            'message' => '',
+                        ];
+                    } else {
                         throw new PosCartValidationException([
-                            'price' => (string)($linePricing['message'] ?? 'Mugs line total could not be calculated.'),
+                            'price' => (string)($priceCalc['message'] ?? 'Price could not be calculated.'),
                         ]);
                     }
+                }
+                $price = (float)$priceCalc['unit_price'];
+                if (!empty($linePricing['ok'])) {
                     $price = (float)$linePricing['unit_price'];
                     $designFee = (float)$linePricing['design_fee'];
                     $estimatedLineTotal = (float)$linePricing['line_total'];
                 } else {
-                    if (!$priceCalc['ok']) {
-                        if (($priceCalc['reason'] ?? '') === 'unconfigured') {
-                            $serviceCustomization['price_unconfigured'] = '1';
-                            $priceCalc = [
-                                'ok' => true,
-                                'unit_price' => 0.0,
-                                'message' => '',
-                            ];
-                        } else {
-                            throw new PosCartValidationException([
-                                'price' => (string)($priceCalc['message'] ?? 'Price could not be calculated.'),
-                            ]);
-                        }
+                    $layoutValues = printflow_service_field_values_from_customization($serviceCustomization, $serviceFieldConfigs);
+                    $layoutFee = printflow_design_fee_option($layoutValues, $serviceFieldConfigs);
+                    if (empty($layoutFee['ok'])) {
+                        throw new PosCartValidationException(['layout' => (string)($layoutFee['message'] ?? 'The selected layout fee could not be verified.')]);
                     }
-                    $price = (float)$priceCalc['unit_price'];
-                    if (!empty($linePricing['ok'])) {
-                        $price = (float)$linePricing['unit_price'];
-                        $designFee = (float)$linePricing['design_fee'];
-                        $estimatedLineTotal = (float)$linePricing['line_total'];
-                    } else {
-                        $layoutValues = printflow_service_field_values_from_customization($serviceCustomization, $serviceFieldConfigs);
-                        $layoutFee = printflow_design_fee_option($layoutValues, $serviceFieldConfigs);
-                        if (empty($layoutFee['ok'])) {
-                            throw new PosCartValidationException(['layout' => (string)($layoutFee['message'] ?? 'The selected layout fee could not be verified.')]);
-                        }
-                        $designFee = (int)$layoutFee['fee_cents'] / 100;
-                        $estimatedLineTotal = round($price * $qty + $designFee, 2);
-                    }
+                    $designFee = (int)$layoutFee['fee_cents'] / 100;
+                    $estimatedLineTotal = round($price * $qty + $designFee, 2);
                 }
                 if ($designFee > 0 && !printflow_order_items_has_design_fee_column()) {
                     throw new PosCartValidationException(['layout' => 'The design-fee database migration is required before this layout can be ordered.']);
