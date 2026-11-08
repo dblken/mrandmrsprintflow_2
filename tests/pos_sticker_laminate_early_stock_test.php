@@ -80,10 +80,8 @@ $matte100 = printflow_pos_sticker_laminate_panel_plan(
 );
 $assert($matte100['calculation']['required_linear_ft'] === 200.0,
     'A one-foot-wide laminate roll consumes two linear feet per 1 × 2 ft sticker; quantity 100 requires 200 ft.');
-$matteSingle = printflow_pos_sticker_laminate_panel_plan(
-    printflow_pos_sticker_laminate_selection($lineFor($options[3], 1), $config),
-    $matteRollWidth
-);
+$matteSingleSelection = printflow_pos_sticker_laminate_selection($lineFor($options[3], 1), $config);
+$matteSingle = printflow_pos_sticker_laminate_panel_plan($matteSingleSelection, $matteRollWidth);
 $cabuyao50 = printflow_pos_sticker_laminate_filter_rolls_by_width([[
     'id' => 401, 'branch_id' => 1, 'status' => 'OPEN', 'width_ft' => 1,
     'remaining_length_ft' => 50, 'received_at' => '2026-01-01',
@@ -163,10 +161,51 @@ $assert($invalidRolls === [] && $wrongBranchRolls === [] && $wrongWidthRolls ===
     'Closed, empty, other-branch, and conflicting-width rolls cannot be counted as available stock.');
 $displayRollBalance = 50.0;
 $actualOpenRolls = [['id' => 8, 'branch_id' => 1, 'status' => 'OPEN', 'width_ft' => 2, 'remaining_length_ft' => 50]];
-$eligibleRolls = printflow_pos_sticker_laminate_filter_rolls_by_width($actualOpenRolls, $matteRollWidth);
-$assert(abs($displayRollBalance - printflow_pos_sticker_laminate_roll_balance_ft($actualOpenRolls)) < 0.001
-    && abs($displayRollBalance - printflow_pos_sticker_laminate_roll_balance_ft($eligibleRolls)) > 0.001,
-    'A 50 ft inventory-list balance that disagrees with width-eligible rolls is detectable and must be reported, not rendered as zero stock.');
+$matte24InConfig = [
+    'id' => 21, 'name' => 'Matte Laminate', 'status' => 'ACTIVE', 'unit_of_measure' => 'ft',
+    'track_by_roll' => 1, 'material_format' => 'roll', 'size_variant' => '24 in',
+    'material_width' => 24, 'material_dimension_unit' => 'in',
+];
+$convertedMatteWidth = printflow_pos_sticker_laminate_roll_width_ft(21, $matte24InConfig);
+$convertedMatch = printflow_pos_sticker_laminate_filter_rolls_by_width($actualOpenRolls, $convertedMatteWidth);
+$assert($convertedMatteWidth === 2.0 && count($convertedMatch) === 1,
+    'A configured physical width of 24 in converts to 2 ft and matches the stored 2 ft roll width.');
+$mismatchedAdminConfig = [
+    'id' => 21, 'name' => 'Matte Laminate', 'status' => 'ACTIVE', 'unit_of_measure' => 'ft',
+    'track_by_roll' => 1, 'material_format' => 'roll', 'size_variant' => '24 in',
+    'material_width' => 24, 'material_dimension_unit' => 'ft',
+];
+$badConfiguredWidthFt = printflow_pos_sticker_laminate_roll_width_ft(21, $mismatchedAdminConfig);
+$assert($badConfiguredWidthFt === 24.0,
+    'An Admin width explicitly stored in feet remains 24 ft; the Size/Variant label is not used to silently reinterpret it.');
+$matte24InPlan = printflow_pos_sticker_laminate_panel_plan($matteSingleSelection, $convertedMatteWidth);
+$matchingTwoFtRolls = printflow_pos_sticker_laminate_filter_rolls_by_width($actualOpenRolls, $convertedMatteWidth);
+$matchingTwoFtAllocation = printflow_tarpaulin_allocate_cart_panels(
+    ['matte-24in' => ['item_id' => 21, 'plan' => $matte24InPlan]],
+    [21 => $matchingTwoFtRolls]
+);
+$assert(count($matchingTwoFtRolls) === 1 && !empty($matchingTwoFtAllocation['ok'])
+    && $matchingTwoFtAllocation['required_by_item'][21] === 1.0,
+    'A real open 2 ft roll matches 24 in item metadata and has enough footage for a 1 × 2 ft piece.');
+$liveMismatchRolls = [[
+    'id' => 158, 'branch_id' => 1, 'status' => 'OPEN', 'width_ft' => 1,
+    'remaining_length_ft' => 50, 'received_at' => '2026-11-07 22:05:12',
+]];
+$liveMismatchEligible = printflow_pos_sticker_laminate_filter_rolls_by_width($liveMismatchRolls, $convertedMatteWidth);
+$liveMismatchDetails = printflow_pos_sticker_laminate_roll_width_mismatches($liveMismatchRolls, $convertedMatteWidth);
+$assert($liveMismatchEligible === [] && count($liveMismatchDetails) === 1
+    && $liveMismatchDetails[0]['id'] === 158 && $liveMismatchDetails[0]['width_ft'] === 1.0
+    && $liveMismatchDetails[0]['remaining_length_ft'] === 50.0,
+    'A 50 ft branch roll recorded at 1 ft does not masquerade as the configured 2 ft roll and reports its exact conflicting record.');
+$reconciliationMessage = printflow_pos_sticker_laminate_reconciliation_message('Matte Laminate', [
+    'display_balance' => 50, 'branch_roll_balance' => 50, 'eligible_roll_balance' => 0,
+    'configured_width_ft' => 2, 'width_mismatches' => $liveMismatchDetails,
+]);
+$assert(str_contains($reconciliationMessage, 'Inventory Items shows 50 ft')
+    && str_contains($reconciliationMessage, 'configured width is 2 ft')
+    && str_contains($reconciliationMessage, 'roll #158 is recorded as 1 ft wide with 50 ft remaining')
+    && str_contains($reconciliationMessage, 'Verify the physical width'),
+    'The staff-facing reconciliation explains the exact configured/stored roll-width mismatch without changing stock availability.');
 
 $source = (string)file_get_contents(dirname(__DIR__) . '/includes/pos_service_stock_validation.php');
 $cart = (string)file_get_contents(dirname(__DIR__) . '/staff/api/pos_cart_handler.php');
@@ -188,6 +227,9 @@ $assert(str_contains($source, 'printflow_pos_tarpaulin_open_rolls($itemId, $bran
     && str_contains($inventoryPage, '$branchId')
     && str_contains($source, 'printflow_pos_sticker_laminate_uses_physical_rolls'),
     'POS reconciles its branch roll stock against the same on-hand source used by Admin and selects tracking mode from the actual item.');
+$assert(str_contains($source, 'printflow_pos_sticker_laminate_roll_width_mismatches')
+    && str_contains($source, 'printflow_pos_sticker_laminate_reconciliation_message'),
+    'The POS reconciliation message identifies configured width and the exact stored roll width without treating mismatched footage as eligible.');
 $assert(str_contains($pos, 'const stickerLaminateReady = Number(serviceId) === 36')
     && str_contains($pos, '&& !stickerLaminateReady')
     && str_contains($pos, 'Matte Sticker (?:Printed|Cut Out)')

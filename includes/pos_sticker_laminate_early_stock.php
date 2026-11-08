@@ -122,7 +122,7 @@ function printflow_pos_sticker_laminate_filter_branch_rolls(array $rolls, int $b
     }));
 }
 
-/** Match only open positive-stock rolls whose recorded width is compatible with item metadata. */
+/** Match open positive-stock rolls by the verified inventory item's width in feet. */
 function printflow_pos_sticker_laminate_filter_rolls_by_width(array $rolls, float $configuredWidthFt): array
 {
     if (!is_finite($configuredWidthFt) || $configuredWidthFt <= 0) return [];
@@ -135,6 +135,53 @@ function printflow_pos_sticker_laminate_filter_rolls_by_width(array $rolls, floa
         // Older roll rows with no width inherit only their exact item's verified width.
         return $physicalWidth <= 0 || abs($physicalWidth - $configuredWidthFt) <= 0.01;
     }));
+}
+
+/** Return open positive-stock rolls whose recorded width conflicts with the verified item width. */
+function printflow_pos_sticker_laminate_roll_width_mismatches(array $rolls, float $configuredWidthFt): array
+{
+    if (!is_finite($configuredWidthFt) || $configuredWidthFt <= 0) return [];
+    $mismatches = [];
+    foreach ($rolls as $roll) {
+        if (!is_array($roll)
+            || (int)($roll['id'] ?? 0) <= 0
+            || strtoupper(trim((string)($roll['status'] ?? ''))) !== 'OPEN'
+            || !is_numeric($roll['remaining_length_ft'] ?? null)
+            || (float)$roll['remaining_length_ft'] <= 0) continue;
+        $width = $roll['width_ft'] ?? null;
+        if (!is_numeric($width) || !is_finite((float)$width) || (float)$width <= 0) continue;
+        if (abs((float)$width - $configuredWidthFt) > 0.01) {
+            $mismatches[] = [
+                'id' => (int)$roll['id'],
+                'width_ft' => (float)$width,
+                'remaining_length_ft' => (float)$roll['remaining_length_ft'],
+            ];
+        }
+    }
+    return $mismatches;
+}
+
+/** Explain a stock/width reconciliation without converting unverified roll data. */
+function printflow_pos_sticker_laminate_reconciliation_message(string $name, array $reconciliation): string
+{
+    $format = static fn($value): string => rtrim(rtrim(number_format((float)$value, 3, '.', ''), '0'), '.');
+    $display = $format($reconciliation['display_balance'] ?? 0);
+    $branchRolls = $format($reconciliation['branch_roll_balance'] ?? 0);
+    $eligible = $format($reconciliation['eligible_roll_balance'] ?? 0);
+    $message = $name . ' inventory needs reconciliation: Inventory Items shows '
+        . $display . ' ft, but open rolls at this branch total ' . $branchRolls
+        . ' ft and rolls matching the configured width total ' . $eligible . ' ft.';
+    $mismatches = (array)($reconciliation['width_mismatches'] ?? []);
+    if ($mismatches === []) return $message . ' Ask an Admin to review the branch roll records.';
+
+    $configuredWidth = $format($reconciliation['configured_width_ft'] ?? 0);
+    $rollDetails = array_map(static function (array $roll) use ($format): string {
+        return 'roll #' . (int)($roll['id'] ?? 0) . ' is recorded as '
+            . $format($roll['width_ft'] ?? 0) . ' ft wide with '
+            . $format($roll['remaining_length_ft'] ?? 0) . ' ft remaining';
+    }, $mismatches);
+    return $message . ' The configured width is ' . $configuredWidth . ' ft; '
+        . implode('; ', $rollDetails) . '. Verify the physical width and correct the roll record in Admin if needed.';
 }
 
 /** Sum valid branch-scoped open roll footage in the inventory's recorded unit (feet). */

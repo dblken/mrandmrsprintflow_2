@@ -569,26 +569,39 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                     $itemId = (int)$selection['item_id'];
                     $item = InventoryManager::getItem($itemId);
                     if (!$item) throw new RuntimeException('The selected Sticker/Decals laminate is unavailable. Contact an administrator.');
-                    $rollWidthFt = printflow_pos_sticker_laminate_roll_width_ft($itemId, $item);
-                    $plan = printflow_pos_sticker_laminate_panel_plan($selection, $rollWidthFt);
+                    $configuredRollWidthFt = printflow_pos_sticker_laminate_roll_width_ft($itemId, $item);
                     $physicalRollValidation = printflow_pos_sticker_laminate_uses_physical_rolls($item);
                     if ($physicalRollValidation) {
                         $branchRolls = printflow_pos_sticker_laminate_filter_branch_rolls(
                             printflow_pos_tarpaulin_open_rolls($itemId, $branchId),
                             $branchId
                         );
+                        // Both item metadata and inv_rolls.width_ft are in feet.
+                        // Only rolls matching the verified configured physical width
+                        // are eligible; a conflicting roll width is a reconciliation
+                        // issue, never a reason to silently reinterpret the roll.
+                        $rollWidthFt = $configuredRollWidthFt;
                         $rolls = printflow_pos_sticker_laminate_filter_rolls_by_width($branchRolls, $rollWidthFt);
                         $displayBalance = max(0.0, (float)InventoryManager::getStockOnHand($itemId, $branchId));
                         $rollBalance = printflow_pos_sticker_laminate_roll_balance_ft($branchRolls);
                         $eligibleBalance = printflow_pos_sticker_laminate_roll_balance_ft($rolls);
-                        if (abs($displayBalance - $rollBalance) > 0.001 || abs($displayBalance - $eligibleBalance) > 0.001) {
+                        $widthMismatches = printflow_pos_sticker_laminate_roll_width_mismatches(
+                            $branchRolls,
+                            $configuredRollWidthFt
+                        );
+                        if ($widthMismatches !== []
+                            || abs($displayBalance - $rollBalance) > 0.001
+                            || abs($displayBalance - $eligibleBalance) > 0.001) {
                             $stickerLaminateReconciliationByItem[$itemId] = [
                                 'display_balance' => $displayBalance,
                                 'branch_roll_balance' => $rollBalance,
                                 'eligible_roll_balance' => $eligibleBalance,
+                                'configured_width_ft' => $configuredRollWidthFt,
+                                'width_mismatches' => $widthMismatches,
                             ];
                         }
                     } else {
+                        $rollWidthFt = $configuredRollWidthFt;
                         // Standard FT inventory is ledger footage, not physical roll
                         // rows. Model that branch's aggregate footage as one capacity
                         // bin, while retaining the configured laminate width so every
@@ -604,6 +617,7 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                             'received_at' => '',
                         ]] : [];
                     }
+                    $plan = printflow_pos_sticker_laminate_panel_plan($selection, $rollWidthFt);
                     $stickerLaminateItemIds[$itemId] = true;
                     $stickerLaminateRollsByItem[$itemId] = $rolls;
                     $stickerLaminatePlans[$lineIndex] = [
@@ -700,13 +714,11 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
             $materials[] = $entry;
             if (isset($stickerLaminateReconciliationByItem[$itemId])) {
                 $reconciliation = $stickerLaminateReconciliationByItem[$itemId];
-                $display = rtrim(rtrim(number_format($reconciliation['display_balance'], 3, '.', ''), '0'), '.');
-                $branchRolls = rtrim(rtrim(number_format($reconciliation['branch_roll_balance'], 3, '.', ''), '0'), '.');
-                $eligible = rtrim(rtrim(number_format($reconciliation['eligible_roll_balance'], 3, '.', ''), '0'), '.');
                 $entry['inventory_discrepancy'] = true;
-                $entry['message'] = $entry['name'] . ' inventory needs reconciliation: Inventory Items shows '
-                    . $display . ' ft, but open rolls at this branch total ' . $branchRolls
-                    . ' ft and rolls matching the configured width total ' . $eligible . ' ft. Ask an Admin to review the roll records.';
+                $entry['message'] = printflow_pos_sticker_laminate_reconciliation_message(
+                    $entry['name'],
+                    $reconciliation
+                );
                 $issues[] = $entry;
             } elseif (empty($allocation['ok'])) {
                 $entry['out_of_stock'] = $available <= 0;
