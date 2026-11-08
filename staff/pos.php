@@ -1567,7 +1567,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             display: inline-flex;
             align-items: center;
             gap: 8px;
+            font-size: 0.72rem;
             font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
             color: #475569;
         }
 
@@ -1618,8 +1621,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-summary-total .pos-summary-label {
-            font-size: 15px;
-            font-weight: 700;
             color: #334155;
         }
 
