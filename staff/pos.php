@@ -1658,7 +1658,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-summary-change .pos-summary-amount {
-            color: var(--staff-primary);
+            color: #0f172a;
         }
 
         .pos-tender-group {
