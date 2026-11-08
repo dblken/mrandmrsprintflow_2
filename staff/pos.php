@@ -132,19 +132,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             flex-wrap: wrap;
         }
 
-        #service-modal-overlay .shopee-form-row:has(.pf-dim-select-shell) {
-            align-items: center;
-        }
-
-        #service-modal-overlay .shopee-form-row:has(.pf-dim-select-shell) > .shopee-form-label {
-            padding-top: 0;
-        }
-
-        #service-modal-overlay .shopee-form-row:has(.pf-dim-select-shell) > .shopee-form-field {
-            position: relative;
-            top: -24px;
-        }
-
         #service-modal-overlay .shopee-form-row.pf-pos-dimensions-finish-row > .shopee-form-label {
             display: block;
             box-sizing: border-box;
