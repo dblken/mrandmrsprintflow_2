@@ -5133,6 +5133,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 bindServiceValidationClearers(body);
                 if (typeof initServiceFieldRenderer === 'function') initServiceFieldRenderer(body);
                 else if (typeof initPfDesignUploadGroups === 'function') initPfDesignUploadGroups(body);
+                body.querySelectorAll('.pf-dim-select-shell').forEach((shell) => {
+                    const parent = shell.parentElement;
+                    if (!parent || parent.classList.contains('pf-dim-select-field-group')) return;
+                    const group = document.createElement('div');
+                    group.className = 'shopee-opt-group pf-dim-select-field-group';
+                    parent.insertBefore(group, shell);
+                    group.appendChild(shell);
+                });
                 initPosEstimatedPrice(body, parseFloat(data.base_price) || 0, serviceId);
                 posBindServiceStockValidation(serviceId);
                 posEnforceNeededDateMinimum(body);
@@ -6346,7 +6354,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function markServiceFieldInvalid(row, message) {
             if (!row) return;
             clearServiceFieldError(row);
-            const targetGroup = row.querySelector('.shopee-opt-group') || row.querySelector('.quantity-container');
+            const targetGroup = row.querySelector('.shopee-opt-group')
+                || row.querySelector('.quantity-container')
+                || row.querySelector('.pf-dim-select-shell');
             const targetControl = row.querySelector('.pf-dim-select-trigger')
                 || row.querySelector('input:not([type="hidden"]), select, textarea');
             if (targetGroup) targetGroup.classList.add('field-invalid');
