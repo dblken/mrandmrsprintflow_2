@@ -8,6 +8,8 @@ const root = path.join(__dirname, '..');
 const pos = fs.readFileSync(path.join(root, 'staff/pos.php'), 'utf8');
 const cartHandler = fs.readFileSync(path.join(root, 'staff/api/pos_cart_handler.php'), 'utf8');
 const quantityPhp = fs.readFileSync(path.join(root, 'includes/pos_quantity_validation.php'), 'utf8');
+const fieldRenderer = fs.readFileSync(path.join(root, 'includes/service_field_renderer.php'), 'utf8');
+const fieldsEndpoint = fs.readFileSync(path.join(root, 'staff/api/pos_service_fields.php'), 'utf8');
 
 assert.match(pos, /function posReadServiceOrderQuantity\(/, 'POS has a strict service-order quantity parser');
 const serviceQuantityParser = pos.slice(pos.indexOf('function posReadServiceOrderQuantity('), pos.indexOf('function applyServicePricingToCustomization'));
@@ -41,10 +43,17 @@ for (const value of ['', '0', '-1', '1.5', 'abc', '12abc', '1000001']) {
 assert.match(pos, /posValidateServiceStockNow\(serviceId, quantity \? quantity\.value : ''\)/, 'manual and button quantity edits retain service stock revalidation');
 assert.match(pos, /input\.dataset\.posQuantityMax = '1000000'/, 'POS explicitly opts into the existing server maximum without changing other shared renderer users');
 assert.match(pos, /input\.setAttribute\('maxlength', '7'\)/, 'POS service input can accept up to the server-supported digit count');
+assert.match(fieldsEndpoint, /id="quantity-input"[^>]*onfocus="this\.select\(\)"/, 'Mugs and other endpoint-rendered service quantity selects its current value on focus');
+assert.match(fieldsEndpoint, /pointer-events:auto;user-select:text;cursor:text;/, 'endpoint quantity input remains directly interactive');
+assert.match(fieldRenderer, /aria-label="Quantity" onfocus="this\.select\(\)"/, 'shared service quantity renderer selects its current value on focus');
+assert.match(fieldRenderer, /pointer-events: auto; user-select: text; cursor: text;/, 'shared quantity input remains interactive inside option styling');
+assert.match(fieldRenderer, /function pfChangeQty\(btn, delta\)/, '+/- controls still update the same quantity input');
+assert.match(fieldRenderer, /input\.dispatchEvent\(new Event\('input', \{ bubbles: true \}\)\)/, '+/- changes still trigger estimate and validation updates');
 
 assert.match(cartHandler, /pos_cart_parse_positive_quantity\(/, 'POS cart handler parses quantity through the shared helper');
 assert.match(cartHandler, /case 'validate_service_stock':[\s\S]*pos_cart_parse_positive_quantity\(\$data\['qty'\]/, 'stock validation rejects invalid qty server-side');
 assert.match(cartHandler, /case 'add':[\s\S]*pos_cart_parse_positive_quantity\(/, 'add rejects invalid qty server-side');
+assert.match(pos, /qty: priced\.quantity,/, 'the manually entered validated quantity is submitted unchanged');
 assert.match(quantityPhp, /function printflow_pos_parse_cart_quantity/, 'shared cart quantity parser exists');
 assert.match(quantityPhp, /\$quantity > 1000000/, 'server cart parser uses the shared one-million maximum');
 
