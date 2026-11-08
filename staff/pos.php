@@ -1726,7 +1726,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             top: 50%;
             transform: translateY(-50%);
             font-weight: 700;
-            color: #94a3b8;
+            color: #334155;
             pointer-events: none;
         }
 
@@ -1742,6 +1742,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             font-weight: 400;
             font-size: 16px;
             font-family: var(--pf-ui-font-sans);
+            color: #0f172a;
             outline: none;
             box-sizing: border-box;
             background: #ffffff;
@@ -8363,7 +8364,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         function calculateChange() {
             if (currentTotal === 0) {
-                document.getElementById('pos-change').textContent = formatMoney(0);
+                const changeEl = document.getElementById('pos-change');
+                changeEl.textContent = formatMoney(0);
+                changeEl.style.color = '#0f172a';
                 return;
             }
             const tenderedInput = document.getElementById('pos-tendered');
@@ -8379,7 +8382,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             const changeEl = document.getElementById('pos-change');
             changeEl.textContent = formatMoney(change);
-            changeEl.style.color = (tendered < currentTotal && tendered > 0) ? '#ef4444' : 'var(--staff-primary)';
+            changeEl.style.color = (tendered < currentTotal && tendered > 0) ? '#b91c1c' : '#0f172a';
 
             updateCheckoutState();
         }
