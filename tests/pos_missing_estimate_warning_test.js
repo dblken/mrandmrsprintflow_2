@@ -51,6 +51,7 @@ assert.equal(needsConfirm('abc'), true, 'non-numeric estimate shows the warning'
 function makeScope({ qty, withoutLayoutPrice, layoutValue }) {
   const qtyInput = {
     classList: { contains: (c) => c === 'pf-service-quantity-input' },
+    dataset: { posQuantityMax: '1000000' },
     value: String(qty),
   };
   const value = layoutValue == null ? 'Without Layout' : layoutValue;
@@ -163,6 +164,18 @@ assert.equal(mugsFeeOnly.warn, false, 'Add to Order must NOT warn for ₱200 fee
 assert.equal(mugsFeeOnly.unitPrice <= 0, true, 'old unitPrice<=0 gate would still be true for fee-only');
 assert.notEqual(mugsFeeOnly.warn, mugsFeeOnly.unitPrice <= 0, 'warning must not follow unitPrice alone');
 
+for (const qty of [150, 500, 999]) {
+  const largeQuantity = simulateConfirmServiceModalWarning({
+    basePrice: 1,
+    qty,
+    withoutLayoutPrice: 0,
+    layoutValue: 'With Layout',
+  });
+  assert.equal(largeQuantity.displayedQty, String(qty), `estimate UI displays quantity ${qty}`);
+  assert.equal(largeQuantity.estimatedTotal, qty, `estimate recalculates quantity ${qty}`);
+  assert.equal(largeQuantity.warn, false, `Add to Order estimate path accepts positive quantity ${qty}`);
+}
+
 // True ₱0 estimate still warns.
 const zeroEstimate = simulateConfirmServiceModalWarning({
   basePrice: 0,
@@ -222,6 +235,8 @@ assert.match(
   'Add to Order button calls confirmServiceModal()'
 );
 assert.match(posSource, /window\.confirmServiceModal\s*=\s*confirmServiceModal/, 'confirmServiceModal is exported');
+assert.match(posSource, /qty: priced\.quantity/, 'accepted validated service quantity is passed into the Add to Order cart item');
+assert.match(estimatorSource, /configuredQuantityMax[\s\S]*?Math\.min\(configuredQuantityMax, 1000000\)/, 'estimate calculation honors the POS-specific server-aligned quantity limit');
 
 function extractFunctionBody(source, functionName) {
   const startRe = new RegExp(`async function ${functionName}\\(\\)\\s*\\{`);

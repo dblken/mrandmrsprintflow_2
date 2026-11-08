@@ -1678,11 +1678,18 @@ function pfServiceQuantityInput(root) {
         || document.querySelector('#quantity-input');
 }
 
+function pfServiceQuantityMax(input) {
+    const configured = Number(input && input.dataset ? input.dataset.posQuantityMax : 0);
+    return Number.isSafeInteger(configured) && configured >= 1
+        ? Math.min(configured, 1000000)
+        : 100;
+}
+
 function increaseQty() {
     const i = pfServiceQuantityInput();
     if (!i) return;
     const val = Number(i.value);
-    i.value = String(Math.min(100, (Number.isInteger(val) && val >= 1 ? val : 1) + 1));
+    i.value = String(Math.min(pfServiceQuantityMax(i), (Number.isInteger(val) && val >= 1 ? val : 1) + 1));
     validateQuantity(i);
     i.dispatchEvent(new Event('input', { bubbles: true }));
 }
@@ -1696,11 +1703,14 @@ function decreaseQty() {
     i.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-function pfServiceQuantityInvalidMessage(raw) {
+function pfServiceQuantityInvalidMessage(raw, input) {
     if (raw === '' || !/^[0-9]+$/.test(raw)) {
         return 'Enter a positive whole number.';
     }
-    return 'Enter a whole number from 1 to 100.';
+    const max = pfServiceQuantityMax(input);
+    return max === 1000000
+        ? 'Enter a whole number from 1 to 1,000,000.'
+        : 'Enter a whole number from 1 to 100.';
 }
 
 function validateQuantity(input, commit = false) {
@@ -1711,13 +1721,13 @@ function validateQuantity(input, commit = false) {
     void commit;
 
     if (raw === '' || !/^[0-9]+$/.test(raw)) {
-        input.setCustomValidity(pfServiceQuantityInvalidMessage(raw));
+        input.setCustomValidity(pfServiceQuantityInvalidMessage(raw, input));
         return false;
     }
 
     const val = Number(raw);
-    if (!Number.isSafeInteger(val) || val < 1 || val > 100) {
-        input.setCustomValidity(pfServiceQuantityInvalidMessage(raw));
+    if (!Number.isSafeInteger(val) || val < 1 || val > pfServiceQuantityMax(input)) {
+        input.setCustomValidity(pfServiceQuantityInvalidMessage(raw, input));
         return false;
     }
 
@@ -1760,7 +1770,7 @@ function pfRejectNonDigitServiceQuantity(event) {
         const pasted = event.clipboardData && typeof event.clipboardData.getData === 'function'
             ? event.clipboardData.getData('text')
             : '';
-        if (!/^[0-9]*$/.test(pasted) || pasted.length > 3) {
+        if (!/^[0-9]*$/.test(pasted) || pasted.length > String(pfServiceQuantityMax(input)).length) {
             event.preventDefault();
             markRejected();
         }
@@ -1771,7 +1781,7 @@ function pfRejectNonDigitServiceQuantity(event) {
         const dropped = event.dataTransfer && typeof event.dataTransfer.getData === 'function'
             ? event.dataTransfer.getData('text')
             : '';
-        if (!/^[0-9]*$/.test(dropped) || dropped.length > 3) {
+        if (!/^[0-9]*$/.test(dropped) || dropped.length > String(pfServiceQuantityMax(input)).length) {
             event.preventDefault();
             markRejected();
         }
@@ -1787,7 +1797,7 @@ function pfChangeQty(btn, delta) {
     if (!input) return;
     const current = Number(input.value);
     const val = Number.isInteger(current) && current >= 1 ? current : 1;
-    input.value = String(Math.max(1, Math.min(100, val + delta)));
+    input.value = String(Math.max(1, Math.min(pfServiceQuantityMax(input), val + delta)));
     validateQuantity(input);
     input.dispatchEvent(new Event('input', { bubbles: true }));
 }

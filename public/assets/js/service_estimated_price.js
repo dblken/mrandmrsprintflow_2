@@ -140,7 +140,11 @@
             const qtyInput = scope ? scope.querySelector('.pf-service-quantity-input') : null;
             const rawQuantity = qtyInput ? String(qtyInput.value) : '1';
             const quantity = /^[0-9]+$/.test(rawQuantity) ? Number(rawQuantity) : NaN;
-            const quantityValid = Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= 100;
+            const configuredQuantityMax = Number(qtyInput && qtyInput.dataset ? qtyInput.dataset.posQuantityMax : 0);
+            const quantityMax = Number.isSafeInteger(configuredQuantityMax) && configuredQuantityMax >= 1
+                ? Math.min(configuredQuantityMax, 1000000)
+                : 100;
+            const quantityValid = Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= quantityMax;
             const unitPrice = basePrice + optionsTotal;
 
             if (!quantityValid) {

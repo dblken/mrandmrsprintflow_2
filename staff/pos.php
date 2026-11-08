@@ -4871,18 +4871,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 1000000 ? parsed : null;
         }
 
-        /** Service-order modal quantity: positive whole numbers only, 1–100 (matches +/- controls). */
+        /** Service-order modal quantity: positive whole numbers only, matching the server cart limit. */
         function posReadServiceOrderQuantity(value) {
             const parsed = posReadPositiveWholeQuantity(value);
-            if (parsed === null || parsed > 100) return null;
+            if (parsed === null) return null;
             return parsed;
         }
 
         function applyServicePricingToCustomization(customization, unitPrice, quantity, designFee) {
             const safeUnit = Math.round(unitPrice * 100) / 100;
-            const safeQty = typeof quantity === 'number' && Number.isInteger(quantity) && quantity >= 1 && quantity <= 100
-                ? quantity
-                : posReadServiceOrderQuantity(quantity);
+            const safeQty = posReadServiceOrderQuantity(quantity);
             if (safeQty === null) {
                 throw new Error('Enter a positive whole number.');
             }
@@ -5957,7 +5955,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         posSetServiceStockState(true, '', message);
                         return { valid: false, message };
                     }
-                    const maxAllowed = Math.min(100, Math.floor(safeAvailable));
+                    const maxAllowed = Math.min(1000000, Math.floor(safeAvailable));
                     if (input) {
                         input.max = String(Math.max(0, maxAllowed));
                         input.dataset.posMugAvailable = String(safeAvailable);
@@ -6067,9 +6065,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (input) {
                 input.min = '1';
                 input.step = '1';
+                input.dataset.posQuantityMax = '1000000';
                 input.setAttribute('inputmode', 'numeric');
                 input.setAttribute('pattern', '[0-9]*');
-                input.setAttribute('maxlength', '3');
+                input.setAttribute('maxlength', '7');
                 input.setAttribute('autocomplete', 'off');
                 if (!input.classList.contains('pf-service-quantity-input')) {
                     input.classList.add('pf-service-quantity-input');
