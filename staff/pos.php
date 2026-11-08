@@ -1474,7 +1474,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         .pos-item-total {
             font-family: var(--pf-ui-font-sans);
-            font-weight: 700;
+            font-weight: 400;
             font-size: 16px;
             min-width: 72px;
             text-align: right;
@@ -1624,7 +1624,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         .pos-summary-amount {
             font-family: var(--pf-ui-font-sans);
             font-size: 16px;
-            font-weight: 700;
+            font-weight: 400;
             color: #1e293b;
             text-align: right;
         }
@@ -1646,6 +1646,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-summary-total .pos-summary-amount {
+            font-weight: 700;
             color: #0f172a;
         }
 
@@ -1738,7 +1739,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             border: 1px solid #cbd5e1;
             border-radius: 10px;
             text-align: right;
-            font-weight: 700;
+            font-weight: 400;
             font-size: 16px;
             font-family: var(--pf-ui-font-sans);
             outline: none;
