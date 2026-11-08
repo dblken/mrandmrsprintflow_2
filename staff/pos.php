@@ -1140,10 +1140,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             flex-shrink: 0;
         }
 
+        .pos-cart-header h2,
+        .pos-section-label {
+            font-family: var(--pf-ui-font-sans);
+            font-size: 16px;
+            font-weight: 700;
+            line-height: 1.25;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
         .pos-cart-header h2 {
             margin: 0;
-            font-size: 18px;
-            font-weight: 700;
             color: #1e293b;
         }
 
@@ -1302,7 +1310,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         .pos-cart-item-bottom {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) auto minmax(72px, auto);
+            grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
             gap: 10px;
             align-items: center;
         }
@@ -1381,7 +1389,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             flex-shrink: 0;
             width: max-content;
             max-width: 100%;
-            justify-self: start;
+            justify-self: center;
         }
 
         .pos-item-controls-readonly {
