@@ -159,6 +159,22 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             margin-left: 4px;
         }
 
+        #service-modal-overlay .pf-dim-select-field-group {
+            display: flex;
+            align-items: flex-start;
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
+        }
+
+        #service-modal-overlay .pf-dim-select-field-group.field-invalid {
+            box-sizing: border-box;
+            border: 1px solid #dc2626;
+            border-radius: .65rem;
+            padding: .45rem;
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+        }
+
         .shopee-form-label {
             min-width: 120px;
             padding-top: .5rem;
@@ -5137,7 +5153,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const parent = shell.parentElement;
                     if (!parent || parent.classList.contains('pf-dim-select-field-group')) return;
                     const group = document.createElement('div');
-                    group.className = 'shopee-opt-group pf-dim-select-field-group';
+                    group.className = 'pf-dim-select-field-group';
                     parent.insertBefore(group, shell);
                     group.appendChild(shell);
                 });
@@ -6354,7 +6370,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function markServiceFieldInvalid(row, message) {
             if (!row) return;
             clearServiceFieldError(row);
-            const targetGroup = row.querySelector('.shopee-opt-group')
+            const targetGroup = row.querySelector('.pf-dim-select-field-group')
+                || row.querySelector('.shopee-opt-group')
                 || row.querySelector('.quantity-container')
                 || row.querySelector('.pf-dim-select-shell');
             const targetControl = row.querySelector('.pf-dim-select-trigger')
