@@ -405,9 +405,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         #service-modal-overlay .pf-dim-select-shell > select.shopee-opt-btn {
-            position: absolute;
-            width: 1px;
-            height: 1px;
+            position: absolute !important;
+            width: 1px !important;
+            min-width: 0 !important;
+            height: 1px !important;
+            min-height: 0 !important;
             padding: 0 !important;
             margin: -1px;
             overflow: hidden !important;
