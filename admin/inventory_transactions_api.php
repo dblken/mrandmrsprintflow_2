@@ -7,6 +7,7 @@ ob_start(); // Prevent accidental output from corrupting JSON
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
+require_once __DIR__ . '/../includes/roll_width.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/admin_transaction_visibility.php';
@@ -236,10 +237,25 @@ try {
 
             if ($direction === 'IN') {
                 $rollData = null;
-                if (!empty($_POST['roll_code']) || !empty($_POST['width_ft'])) {
+                $itemForReceipt = InventoryManager::getItem($item_id);
+                if (!$itemForReceipt) {
+                    http_response_code(404);
+                    echo json_encode(['success' => false, 'error' => 'Inventory item not found.']);
+                    exit;
+                }
+                if ((int)($itemForReceipt['track_by_roll'] ?? 0) === 1) {
+                    $widthRaw = $_POST['roll_width'] ?? $_POST['width_ft'] ?? '';
+                    $widthUnit = $_POST['roll_width_unit'] ?? 'ft';
+                    try {
+                        $widthFt = printflow_roll_width_to_feet($widthRaw, (string)$widthUnit);
+                    } catch (InvalidArgumentException $e) {
+                        http_response_code(400);
+                        echo json_encode(['success' => false, 'error' => $e->getMessage(), 'errors' => ['roll_width' => $e->getMessage()]]);
+                        exit;
+                    }
                     $rollData = [
                         'roll_code' => sanitize($_POST['roll_code'] ?? ''),
-                        'width_ft'  => (float)($_POST['width_ft'] ?? 0)
+                        'width_ft'  => $widthFt
                     ];
                 }
 

@@ -6,6 +6,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/RollService.php';
+require_once __DIR__ . '/../includes/roll_width.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 
 require_role(['Admin', 'Manager', 'Staff']);
@@ -88,6 +89,27 @@ try {
             
             $res = RollService::voidRoll($rollId, $notes);
             echo json_encode(['success' => $res]);
+            break;
+
+        case 'correct_roll_width':
+            printflow_inventory_rolls_require_csrf();
+            $actor = get_logged_in_user();
+            if (($actor['role'] ?? '') !== 'Admin') {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Only an Admin can correct a roll width.']);
+                exit;
+            }
+            $branchContext = init_branch_context(false);
+            $selectedBranch = $branchContext['selected_branch_id'] ?? null;
+            $expectedBranchId = is_numeric($selectedBranch) ? (int)$selectedBranch : 0;
+            $rollId = (int)($_POST['roll_id'] ?? 0);
+            $widthFt = printflow_roll_width_to_feet($_POST['roll_width'] ?? '', (string)($_POST['roll_width_unit'] ?? ''));
+            $verificationNote = sanitize($_POST['verification_note'] ?? '');
+            if (($_POST['physical_width_verified'] ?? '') !== '1') {
+                throw new RuntimeException('Confirm that the physical roll width was measured before saving this correction.');
+            }
+            $result = RollService::correctRollWidth($rollId, $widthFt, (int)($actor['user_id'] ?? 0), $verificationNote, $expectedBranchId);
+            echo json_encode(['success' => true, 'data' => $result]);
             break;
 
         default:

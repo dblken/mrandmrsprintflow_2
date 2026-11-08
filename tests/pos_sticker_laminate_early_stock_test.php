@@ -197,6 +197,20 @@ $assert($liveMismatchEligible === [] && count($liveMismatchDetails) === 1
     && $liveMismatchDetails[0]['id'] === 158 && $liveMismatchDetails[0]['width_ft'] === 1.0
     && $liveMismatchDetails[0]['remaining_length_ft'] === 50.0,
     'A 50 ft branch roll recorded at 1 ft does not masquerade as the configured 2 ft roll and reports its exact conflicting record.');
+$correctedRoll158 = [[
+    'id' => 158, 'item_id' => 21, 'branch_id' => 1, 'status' => 'OPEN', 'width_ft' => 2,
+    'total_length_ft' => 50, 'remaining_length_ft' => 50, 'received_at' => '2026-11-07 22:05:12',
+]];
+$correctedRoll158Eligible = printflow_pos_sticker_laminate_filter_rolls_by_width($correctedRoll158, $convertedMatteWidth);
+$correctedRoll158Plan = printflow_pos_sticker_laminate_panel_plan($matteSingleSelection, $convertedMatteWidth);
+$correctedRoll158Allocation = printflow_tarpaulin_allocate_cart_panels(
+    ['matte-roll-158' => ['item_id' => 21, 'plan' => $correctedRoll158Plan]],
+    [21 => $correctedRoll158Eligible]
+);
+$assert(count($correctedRoll158Eligible) === 1 && $correctedRoll158Eligible[0]['id'] === 158
+    && $correctedRoll158[0]['remaining_length_ft'] === 50
+    && !empty($correctedRoll158Allocation['ok']),
+    'After a verified width-only correction to 2 ft, roll 158 remains at 50 ft and is recognized by POS.');
 $reconciliationMessage = printflow_pos_sticker_laminate_reconciliation_message('Matte Laminate', [
     'display_balance' => 50, 'branch_roll_balance' => 50, 'eligible_roll_balance' => 0,
     'configured_width_ft' => 2, 'width_mismatches' => $liveMismatchDetails,

@@ -15,6 +15,7 @@ if (!isset($base_path)) {
     $base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 }
 $current_user = get_logged_in_user();
+$canCorrectRollWidth = (($current_user['role'] ?? '') === 'Admin');
 $page_title = 'Roll Management - Admin';
 
 // Get items that are roll-tracked
@@ -76,7 +77,10 @@ $rollItems = db_query("SELECT id, name FROM inv_items WHERE track_by_roll = 1 AN
                 <h1 class="page-title">Roll Tracking Dashboard</h1>
                 <p style="color:#6b7280; font-size:14px;">Monitor real-time remaining length for all stock rolls.</p>
             </div>
-            <button onclick="document.getElementById('addRollModal').style.display='flex'" class="btn-primary">Add New Roll</button>
+            <div style="display:flex;gap:10px;align-items:center;">
+                <?php if ($canCorrectRollWidth): ?><span style="font-size:12px;color:#6b7280;">Physical width corrections require a measured width and audit note.</span><?php endif; ?>
+                <button onclick="document.getElementById('addRollModal').style.display='flex'" class="btn-primary">Add New Roll</button>
+            </div>
         </header>
 
         <div style="margin-bottom: 24px; display: flex; gap: 12px;">
@@ -101,6 +105,35 @@ $rollItems = db_query("SELECT id, name FROM inv_items WHERE track_by_roll = 1 AN
         </div>
     </div>
 </div>
+
+<?php if ($canCorrectRollWidth): ?>
+<div id="correctRollWidthModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="correctRollWidthTitle">
+    <div class="modal-content" style="width:min(480px,calc(100vw - 32px));">
+        <h3 id="correctRollWidthTitle" class="font-bold text-xl mb-2">Correct Verified Roll Width</h3>
+        <p id="correctRollWidthContext" class="text-sm text-gray-600 mb-4"></p>
+        <form id="correctRollWidthForm" onsubmit="saveRollWidthCorrection(event)">
+            <input type="hidden" name="action" value="correct_roll_width">
+            <input type="hidden" name="roll_id" id="correctRollId">
+            <label class="block text-xs font-bold text-gray-500 uppercase mb-2" for="correctRollWidth">Measured physical width</label>
+            <div style="display:flex;gap:8px;margin-bottom:14px;">
+                <input id="correctRollWidth" name="roll_width" type="number" min="0.001" max="1200" step="0.001" required class="w-full p-3 border rounded-xl" placeholder="e.g. 24">
+                <select id="correctRollWidthUnit" name="roll_width_unit" required class="p-3 border rounded-xl"><option value="in">in</option><option value="ft">ft</option></select>
+            </div>
+            <label class="block text-xs font-bold text-gray-500 uppercase mb-2" for="rollWidthVerificationNote">Verification note</label>
+            <textarea id="rollWidthVerificationNote" name="verification_note" required maxlength="500" class="w-full p-3 border rounded-xl mb-3" placeholder="Record how the physical width was verified"></textarea>
+            <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;margin-bottom:18px;">
+                <input type="checkbox" name="physical_width_verified" value="1" required>
+                <span>I measured or otherwise verified this roll’s physical width. This changes width metadata only; remaining footage is preserved.</span>
+            </label>
+            <div id="correctRollWidthError" role="status" style="color:#b91c1c;font-size:13px;margin-bottom:12px;"></div>
+            <div class="flex gap-4">
+                <button type="button" onclick="this.closest('.modal').style.display='none'" class="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
+                <button id="correctRollWidthSubmit" type="submit" class="flex-1 p-3 bg-indigo-600 text-white rounded-xl font-bold">Save Width Correction</button>
+            </div>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
 
 <div id="addRollModal" class="modal">
     <div class="modal-content">
@@ -133,6 +166,7 @@ $rollItems = db_query("SELECT id, name FROM inv_items WHERE track_by_roll = 1 AN
 
 <script>
     window.PF_INVENTORY_CSRF = <?php echo json_encode(generate_csrf_token(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+    const canCorrectRollWidth = <?php echo $canCorrectRollWidth ? 'true' : 'false'; ?>;
 
     function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
@@ -192,6 +226,7 @@ $rollItems = db_query("SELECT id, name FROM inv_items WHERE track_by_roll = 1 AN
             }
 
             grid.innerHTML = '';
+            const rollsById = new Map(rolls.map(roll => [Number(roll.id), roll]));
             rolls.forEach(roll => {
                 const total = parseFloat(roll.total_length_ft) || 1;
                 const remaining = parseFloat(roll.remaining_length_ft) || 0;
@@ -202,6 +237,12 @@ $rollItems = db_query("SELECT id, name FROM inv_items WHERE track_by_roll = 1 AN
                 const receivedDate = roll.received_at ? new Date(roll.received_at).toLocaleDateString() : '';
                 const finishedDate = roll.finished_at ? new Date(roll.finished_at).toLocaleDateString() : '';
                 const voidBtn = roll.status === 'OPEN' ? `<button onclick="voidRoll(${roll.id})" class="btn-void">VOID</button>` : '';
+                const widthValue = Number(roll.width_ft || 0);
+                const widthMeta = Number.isFinite(widthValue) && widthValue > 0 ? `${widthValue.toFixed(3)} ft wide` : 'Width not recorded';
+                const branchMeta = roll.branch_id ? `Branch ID ${escHtml(String(roll.branch_id))}` : 'No branch assigned';
+                const widthCorrection = canCorrectRollWidth && roll.status === 'OPEN'
+                    ? `<button type="button" class="btn-void" data-correct-width="${Number(roll.id)}" style="background:#eef2ff;color:#4338ca;border-color:#c7d2fe;">CORRECT WIDTH</button>`
+                    : '';
 
                 grid.innerHTML += `
                     <div class="roll-card ${statusCls}">
@@ -212,6 +253,7 @@ $rollItems = db_query("SELECT id, name FROM inv_items WHERE track_by_roll = 1 AN
                             </div>
                             <div style="display:flex;align-items:center;gap:8px;">
                                 <span class="roll-status ${stCls}">${roll.status}</span>
+                                ${widthCorrection}
                                 ${voidBtn}
                             </div>
                         </div>
@@ -229,10 +271,20 @@ $rollItems = db_query("SELECT id, name FROM inv_items WHERE track_by_roll = 1 AN
                         </div>
                         <div class="roll-meta">
                             <span>\u{1F4E6} ${receivedDate}</span>
+                            <span>${widthMeta}</span>
+                            <span>${branchMeta}</span>
                             ${finishedDate ? '<span>\u2705 ' + finishedDate + '</span>' : ''}
                         </div>
                     </div>
                 `;
+            });
+            grid.querySelectorAll('[data-correct-width]').forEach(button => {
+                button.addEventListener('click', () => {
+                    const roll = rollsById.get(Number(button.dataset.correctWidth));
+                    if (!roll) return;
+                    openRollWidthCorrection(Number(roll.id), roll.item_name || 'Material', roll.roll_code || 'ROLL-' + roll.id,
+                        Number(roll.width_ft || 0), Number(roll.branch_id || 0));
+                });
             });
         } catch(e) { grid.innerHTML = '<p style="color:#ef4444;text-align:center;grid-column:1/-1;padding:40px;">Error: ' + escHtml(e.message) + '</p>'; }
     }
@@ -257,6 +309,42 @@ $rollItems = db_query("SELECT id, name FROM inv_items WHERE track_by_roll = 1 AN
         fd.set('csrf_token', window.PF_INVENTORY_CSRF || '');
         const res = await fetch('inventory_rolls_api.php', { method: 'POST', body: fd });
         if((await res.json()).success) loadRolls();
+    }
+
+    function openRollWidthCorrection(rollId, itemName, rollCode, currentWidthFt, branchId) {
+        const modal = document.getElementById('correctRollWidthModal');
+        if (!modal) return;
+        document.getElementById('correctRollId').value = String(rollId);
+        document.getElementById('correctRollWidth').value = '';
+        document.getElementById('correctRollWidthUnit').value = 'in';
+        document.getElementById('rollWidthVerificationNote').value = '';
+        document.querySelector('#correctRollWidthForm [name="physical_width_verified"]').checked = false;
+        document.getElementById('correctRollWidthError').textContent = '';
+        const current = Number(currentWidthFt);
+        document.getElementById('correctRollWidthContext').textContent = `${itemName} · ${rollCode} · Branch ${branchId || 'unassigned'} · recorded width ${current > 0 ? current + ' ft' : 'unknown'}. Remaining length will not change.`;
+        modal.style.display = 'flex';
+    }
+
+    async function saveRollWidthCorrection(event) {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const button = document.getElementById('correctRollWidthSubmit');
+        const error = document.getElementById('correctRollWidthError');
+        button.disabled = true;
+        error.textContent = '';
+        try {
+            const data = new FormData(form);
+            data.set('csrf_token', window.PF_INVENTORY_CSRF || '');
+            const response = await fetch('inventory_rolls_api.php', { method: 'POST', body: data });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.error || 'Width correction failed.');
+            document.getElementById('correctRollWidthModal').style.display = 'none';
+            await loadRolls();
+        } catch (e) {
+            error.textContent = e.message || 'Width correction failed.';
+        } finally {
+            button.disabled = false;
+        }
     }
 
     function printflowInitRollsPage() {
