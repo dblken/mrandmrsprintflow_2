@@ -145,6 +145,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             top: -24px;
         }
 
+        #service-modal-overlay .shopee-form-row.pf-pos-dimensions-finish-row > .shopee-form-label {
+            display: block;
+            box-sizing: border-box;
+            width: 154px;
+            min-width: 154px;
+            max-width: 154px;
+            flex: 0 0 154px;
+            white-space: normal;
+        }
+
+        #service-modal-overlay .shopee-form-row.pf-pos-dimensions-finish-row .pf-field-required-marker {
+            margin-left: 4px;
+        }
+
         .shopee-form-label {
             min-width: 120px;
             padding-top: .5rem;
@@ -399,6 +413,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         #service-modal-overlay .pf-dim-select-trigger > span {
             line-height: 20px;
+        }
+
+        #service-modal-overlay .shopee-form-row.pf-pos-dimensions-finish-row .pf-dim-select-shell {
+            width: 320px;
+            max-width: 100%;
+        }
+
+        #service-modal-overlay .shopee-form-row.pf-pos-dimensions-finish-row .pf-dim-select-trigger-label {
+            flex: 1 1 auto;
+            min-width: 0;
+            overflow: visible;
+            white-space: nowrap;
         }
 
         #service-modal-overlay .pf-dim-select-trigger[disabled] {
@@ -5043,6 +5069,23 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 overlay.dataset.materialDimensionFieldKey = String(data.material_dimension_field_key || '');
                 overlay.dataset.materialSelectionFieldMap = JSON.stringify(data.material_selection_field_map || {});
                 body.innerHTML = data.fields_html;
+                const dimensionsFinishRow = Number(serviceId) === 36
+                    ? Array.from(body.querySelectorAll('.shopee-form-row')).find((row) => {
+                        const label = row.querySelector('.pf-field-label-text');
+                        return String(label?.textContent || '').trim().replace(/\s+/g, ' ').toLowerCase() === 'dimensions and finish';
+                    })
+                    : null;
+                if (dimensionsFinishRow) {
+                    dimensionsFinishRow.classList.add('pf-pos-dimensions-finish-row');
+                    const label = dimensionsFinishRow.querySelector('.pf-field-label-text');
+                    if (label) {
+                        label.replaceChildren(
+                            document.createTextNode('Dimensions And'),
+                            document.createElement('br'),
+                            document.createTextNode('Finish')
+                        );
+                    }
+                }
                 // Tarpaulin size comes from the Dimensions field only — do not
                 // inject redundant Width/Height inputs on the Order Details form.
                 footerActions.style.display = 'block';
