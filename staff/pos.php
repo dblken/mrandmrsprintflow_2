@@ -1281,6 +1281,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             background: #e2e8f0;
         }
 
+        .pos-qty-label {
+            display: inline-flex;
+            align-items: center;
+            align-self: stretch;
+            padding: 0 8px;
+            border-right: 1px solid #e2e8f0;
+            color: #64748b;
+            font-size: 11px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
         .pos-qty-val {
             box-sizing: border-box;
             width: 60px;
@@ -7378,6 +7390,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 <div class="pos-cart-item-bottom">
                     <div class="pos-item-action">${priceHtml}</div>
                     <div class="pos-item-controls">
+                        <span class="pos-qty-label">Quantity</span>
                         <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, -1)" aria-label="Decrease quantity">&minus;</button>
                         <input class="pos-qty-val" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="64" autocomplete="off" value="${escapeHtml(String(item.qty))}" aria-label="Quantity" aria-describedby="pos-qty-warning-${index}" oninput="validateCartQuantityInput(${index}, this)" onblur="commitCartQuantityInput(${index}, this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
                         <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, 1)" aria-label="Increase quantity">&plus;</button>
