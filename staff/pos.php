@@ -385,13 +385,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         #service-modal-overlay .pf-dim-select-trigger {
             width: 100%;
+            display: inline-flex;
+            align-items: center;
             box-sizing: border-box;
             height: 42px;
             min-height: 42px;
             padding: 0 12px !important;
+            line-height: 20px;
             justify-content: space-between;
             text-align: left;
             gap: 8px;
+        }
+
+        #service-modal-overlay .pf-dim-select-trigger > span {
+            line-height: 20px;
         }
 
         #service-modal-overlay .pf-dim-select-trigger[disabled] {
@@ -420,17 +427,26 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             display: none !important;
         }
 
+        #service-modal-overlay .pf-dim-select-menu > li {
+            height: 40px;
+            margin: 0;
+            padding: 0;
+        }
+
         #service-modal-overlay .pf-dim-select-option {
             display: flex;
             align-items: center;
             box-sizing: border-box;
             width: 100%;
+            height: 40px;
             min-height: 40px;
             border: 0;
             background: transparent;
             text-align: left;
             padding: 0 12px;
             font-size: 0.875rem;
+            line-height: 20px;
+            margin: 0;
             color: #0f172a;
             cursor: pointer;
         }
