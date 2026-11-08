@@ -10,6 +10,7 @@ if (file_exists(__DIR__ . '/../config.php')) {
     require_once __DIR__ . '/../config.php';
 }
 require_once __DIR__ . '/customer_id_verification.php';
+require_once __DIR__ . '/admin_transaction_visibility.php';
 $base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 $logout_url = $base_path . '/logout';
 
@@ -24,7 +25,7 @@ if (isset($_SESSION['user_id'])) {
     }
     
     // Get unread notification count
-    $unread_notif_result = db_query("SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = 0", 'i', [$_SESSION['user_id']]);
+    $unread_notif_result = db_query("SELECT COUNT(*) as count FROM notifications n WHERE n.user_id = ? AND n.is_read = 0 AND " . printflow_admin_notification_transaction_visible_sql('n'), 'i', [$_SESSION['user_id']]);
     $unread_notif_count = $unread_notif_result[0]['count'] ?? 0;
 } else {
     $unread_notif_count = 0;

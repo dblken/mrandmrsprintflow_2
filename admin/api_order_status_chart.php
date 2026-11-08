@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/admin_transaction_visibility.php';
 
 require_role(['Admin', 'Manager']);
 
@@ -48,7 +49,7 @@ try {
     $order_status = db_query(
         "SELECT o.status, COUNT(*) as cnt 
          FROM orders o 
-         WHERE " . printflow_order_archive_scope_sql('o') . " AND o.order_date BETWEEN ? AND ? {$bSqlFrag}
+         WHERE " . printflow_order_archive_scope_sql('o') . " AND " . printflow_admin_order_transaction_visible_sql('o') . " AND o.order_date BETWEEN ? AND ? {$bSqlFrag}
          GROUP BY o.status 
          ORDER BY cnt DESC",
         'ss' . ($bTypes ?: ''),

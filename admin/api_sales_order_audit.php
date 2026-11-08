@@ -30,10 +30,16 @@ if (function_exists('db_table_has_column') && db_table_has_column('orders', 'ord
     $orderSelect .= ', order_source';
 }
 $order = db_query(
-    "SELECT {$orderSelect} FROM orders WHERE order_id = ? LIMIT 1",
+    "SELECT {$orderSelect} FROM orders o WHERE order_id = ? AND " . printflow_admin_order_transaction_visible_sql('o') . " LIMIT 1",
     'i',
     [$orderId]
 )[0] ?? null;
+
+if (!$order) {
+    http_response_code(404);
+    echo json_encode(['success' => false, 'error' => 'Successful transaction not found']);
+    exit;
+}
 
 $jobs = db_query(
     'SELECT id, order_id, status, payment_status, payment_method, estimated_total, amount_paid, created_at, payment_verified_at

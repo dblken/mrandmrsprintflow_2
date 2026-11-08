@@ -72,7 +72,8 @@ $check(str_contains($pos, 'aria-label="Price"'), 'product cards still show their
 $check(str_contains($pos, 'id="pos-estimated-price-display" class="pos-estimated-price-display"') && !str_contains($pos, 'pos-estimated-price-display" hidden'), 'the order form shows Estimated Price');
 $check(str_contains($pos, 'pos-est-price-label">Estimated Price') && str_contains($pos, '₱0.00') && str_contains($pos, 'showSetPrice && item.price_set !== true'), 'a zero estimated price is still displayed');
 $check(str_contains($pos, $posModalMessage) && str_contains($pos, 'confirmMissingEstimatedPrice'), 'POS asks before adding a specification with no estimated price');
-$check(str_contains($pos, "if (priced.unitPrice <= 0)") && str_contains($pos, "if (!proceed) return"), 'Cancel leaves the item off the order');
+$check(str_contains($pos, 'posNeedsMissingEstimatedPriceConfirm') && str_contains($pos, 'if (!proceed) return'), 'Cancel leaves the item off the order when the final estimate is missing or exactly ₱0');
+$check(str_contains($pos, 'calculated_estimated_price') && str_contains($estimator, 'printflowNeedsMissingEstimatedPriceConfirm'), 'POS warning uses the final computed line estimate, not unit price alone');
 $check(
     str_contains($customerOrder, 'pf-customer-zero-price-note')
         && str_contains($customerOrder, 'pf-estimated-price-tooltip')

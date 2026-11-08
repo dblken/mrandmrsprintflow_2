@@ -140,7 +140,7 @@ if (!function_exists('printflow_admin_dashboard_hydrate_summary_kpis')) {
     function printflow_admin_dashboard_hydrate_summary_kpis($branchId, string $fromDate, string $toDate, ?callable $mark = null): ?array
     {
         $vars = ['total_customers', 'total_revenue', 'total_orders', 'pending_orders'];
-        $key = printflow_admin_dashboard_cache_key($branchId, $fromDate, $toDate, 'v3-summary');
+        $key = printflow_admin_dashboard_cache_key($branchId, $fromDate, $toDate, 'v4-summary');
         $cached = printflow_admin_dashboard_cache_get($key);
         if (!is_array($cached)) {
             return null;

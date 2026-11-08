@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/pos_quantity_validation.php';
 
-$ftByLength = ['unit_of_measure' => 'ft', 'consumption_method' => 'by_length'];
-$ftManual = ['unit_of_measure' => 'ft', 'consumption_method' => 'manual'];
+$ftByLength = ['unit_of_measure' => 'ft', 'consumption_method' => 'by_area'];
+$ftManual = ['unit_of_measure' => 'ft', 'consumption_method' => 'per_piece'];
 $pieces = ['unit_of_measure' => 'pcs', 'consumption_method' => 'per_piece'];
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException($message);
@@ -12,16 +12,30 @@ $assert = static function (bool $condition, string $message): void {
 
 $assert(printflow_pos_parse_positive_material_quantity('0.25', $ftByLength) === 0.25, 'Small measured lengths remain fractional.');
 $assert(printflow_pos_parse_positive_material_quantity('24.75', $ftByLength) === 24.75, 'Large measured lengths preserve two decimal places.');
-$assert(printflow_pos_parse_positive_material_quantity('0.5', $ftManual) === 0.5, 'Manual confirmation accepts fractional feet only for configured measured items.');
+$assert(printflow_pos_parse_positive_material_quantity('0.5', $ftManual) === 0.5, 'Staff-entered fractional feet do not depend on the obsolete consumption method.');
+$assert(printflow_pos_parse_positive_material_quantity('0.75', ['unit_of_measure' => 'l', 'consumption_method' => 'per_piece']) === 0.75, 'Fractional liters are accepted in the inventory unit without an estimator method.');
 $assert(printflow_pos_parse_positive_material_quantity('24', $pieces) === 24.0, 'Piece quantities remain whole.');
-foreach ([['0.5', $pieces], ['0.5', ['unit_of_measure' => 'ft', 'consumption_method' => 'per_piece']], ['0.5', ['unit_of_measure' => 'm', 'consumption_method' => 'by_length']]] as [$value, $item]) {
+$assert(printflow_pos_parse_positive_material_quantity('1.00', $pieces) === 1.0, 'Saved DECIMAL whole pcs quantities round-trip.');
+foreach ([['0.5', $pieces], ['1.5', $pieces], ['0.5', ['unit_of_measure' => 'sheets']], ['0', ['unit_of_measure' => 'ft']], ['-1', ['unit_of_measure' => 'pcs']]] as [$value, $item]) {
     try {
         printflow_pos_parse_positive_material_quantity($value, $item);
     } catch (InvalidArgumentException $error) {
         continue;
     }
-    throw new RuntimeException('Fractional quantity passed without approved ft measurement configuration.');
+    throw new RuntimeException('Invalid or fractional discrete-unit usage was accepted.');
 }
+$assert(
+    printflow_pos_parse_positive_material_quantity('0.5', [
+        'id' => 55,
+        'name' => 'Subli Paper',
+        'unit_of_measure' => 'sheet',
+    ]) === 0.5,
+    'Subli Paper alone may use half-sheets in the sheet inventory UOM.'
+);
+$assert(
+    !printflow_pos_material_allows_fractional_sheet_usage(['unit_of_measure' => 'sheets', 'name' => 'C2s Board']),
+    'Generic sheet materials remain whole-unit only.'
+);
 
 $files = [
     'service stock validation' => file_get_contents(__DIR__ . '/../includes/pos_service_stock_validation.php'),

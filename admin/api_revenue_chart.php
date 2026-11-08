@@ -12,6 +12,7 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/order_archive.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/admin_transaction_visibility.php';
 
 header('Content-Type: application/json');
 
@@ -50,8 +51,8 @@ if ($user_type === 'Manager') {
     $branch_raw = $_GET['branch_id'] ?? 'all';
     $branch_int = ($branch_raw !== 'all' && ctype_digit((string)$branch_raw)) ? (int)$branch_raw : null;
 }
-$oFilter = ' AND ' . printflow_order_archive_scope_sql('orders') . ($branch_int ? " AND branch_id = $branch_int" : '');
-$jFilter = ' AND ' . printflow_order_archive_exclusion_sql('job_orders.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('job_orders.customer_id') . ($branch_int ? " AND branch_id = $branch_int" : '');
+$oFilter = ' AND ' . printflow_order_archive_scope_sql('orders') . ' AND ' . printflow_admin_order_transaction_visible_sql('orders') . ($branch_int ? " AND branch_id = $branch_int" : '');
+$jFilter = ' AND ' . printflow_order_archive_exclusion_sql('job_orders.order_id') . ' AND ' . printflow_customer_exclusion_customer_scope_sql('job_orders.customer_id') . ' AND ' . printflow_admin_job_transaction_visible_sql('job_orders') . ($branch_int ? " AND branch_id = $branch_int" : '');
 
 try {
     // ── Date-range mode (global filter) ──────────────────────────────────────
@@ -69,7 +70,7 @@ try {
                         COALESCE(SUM(total_amount),0) AS revenue_store,
                         COUNT(*) AS orders_store
                  FROM orders
-                 WHERE (payment_status='Paid' OR status='Completed')
+                 WHERE 1=1
                    AND order_date BETWEEN ? AND ? $oFilter
                  GROUP BY DATE_FORMAT(order_date,'%Y-%m') ORDER BY gkey",
                 'ss', [$from_dt, $to_end]
@@ -82,7 +83,7 @@ try {
                  FROM (SELECT COALESCE(payment_verified_at,created_at) AS ts,
                               COALESCE(NULLIF(amount_paid,0),estimated_total,0) AS amt
                        FROM job_orders
-                       WHERE (payment_status='PAID' OR status='COMPLETED')
+                       WHERE 1=1
                          AND COALESCE(payment_verified_at,created_at) BETWEEN ? AND ? $jFilter) t
                  GROUP BY DATE_FORMAT(ts,'%Y-%m') ORDER BY gkey",
                 'ss', [$from_dt, $to_end]
@@ -104,7 +105,7 @@ try {
                         COALESCE(SUM(total_amount),0) AS revenue_store,
                         COUNT(*) AS orders_store
                  FROM orders
-                 WHERE (payment_status='Paid' OR status='Completed')
+                 WHERE 1=1
                    AND order_date BETWEEN ? AND ? $oFilter
                  GROUP BY DATE(order_date) ORDER BY dkey",
                 'ss', [$from_dt, $to_end]
@@ -117,7 +118,7 @@ try {
                  FROM (SELECT COALESCE(payment_verified_at,created_at) AS ts,
                               COALESCE(NULLIF(amount_paid,0),estimated_total,0) AS amt
                        FROM job_orders
-                       WHERE (payment_status='PAID' OR status='COMPLETED')
+                       WHERE 1=1
                          AND COALESCE(payment_verified_at,created_at) BETWEEN ? AND ? $jFilter) t
                  GROUP BY DATE(ts) ORDER BY dkey",
                 'ss', [$from_dt, $to_end]
@@ -150,7 +151,7 @@ try {
                         COALESCE(SUM(total_amount), 0) AS revenue_store,
                         COUNT(*) AS orders_store
                  FROM orders
-                 WHERE (payment_status = 'Paid' OR status = 'Completed')
+                 WHERE 1=1
                    AND DATE(order_date) = CURDATE()
                    $oFilter
                  GROUP BY HOUR(order_date), DATE_FORMAT(order_date, '%H:00')
@@ -164,7 +165,7 @@ try {
                      SELECT COALESCE(payment_verified_at, created_at) AS ts,
                             COALESCE(NULLIF(amount_paid, 0), estimated_total, 0) AS amt
                      FROM job_orders
-                     WHERE (payment_status = 'PAID' OR status = 'COMPLETED')
+                     WHERE 1=1
                        AND DATE(COALESCE(payment_verified_at, created_at)) = CURDATE()
                        $jFilter
                  ) t
@@ -180,7 +181,7 @@ try {
                         COALESCE(SUM(total_amount), 0) AS revenue_store,
                         COUNT(*) AS orders_store
                  FROM orders
-                 WHERE (payment_status = 'Paid' OR status = 'Completed')
+                 WHERE 1=1
                    AND DATE(order_date) >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
                    AND DATE(order_date) <= CURDATE()
                    $oFilter
@@ -195,7 +196,7 @@ try {
                      SELECT COALESCE(payment_verified_at, created_at) AS ts,
                             COALESCE(NULLIF(amount_paid, 0), estimated_total, 0) AS amt
                      FROM job_orders
-                     WHERE (payment_status = 'PAID' OR status = 'COMPLETED')
+                     WHERE 1=1
                        AND DATE(COALESCE(payment_verified_at, created_at)) >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
                        AND DATE(COALESCE(payment_verified_at, created_at)) <= CURDATE()
                        $jFilter
@@ -212,7 +213,7 @@ try {
                         COALESCE(SUM(total_amount), 0) AS revenue_store,
                         COUNT(*) AS orders_store
                  FROM orders
-                 WHERE (payment_status = 'Paid' OR status = 'Completed')
+                 WHERE 1=1
                    AND MONTH(order_date) = $month AND YEAR(order_date) = $year
                    $oFilter
                  GROUP BY DAY(order_date)
@@ -226,7 +227,7 @@ try {
                      SELECT COALESCE(payment_verified_at, created_at) AS ts,
                             COALESCE(NULLIF(amount_paid, 0), estimated_total, 0) AS amt
                      FROM job_orders
-                     WHERE (payment_status = 'PAID' OR status = 'COMPLETED')
+                     WHERE 1=1
                        AND MONTH(COALESCE(payment_verified_at, created_at)) = $month
                        AND YEAR(COALESCE(payment_verified_at, created_at)) = $year
                        $jFilter
@@ -244,7 +245,7 @@ try {
                         COALESCE(SUM(total_amount), 0) AS revenue_store,
                         COUNT(*) AS orders_store
                  FROM orders
-                 WHERE (payment_status = 'Paid' OR status = 'Completed')
+                 WHERE 1=1
                    AND order_date >= DATE_SUB(CONCAT($year,'-',$month,'-01'), INTERVAL 5 MONTH)
                    AND order_date <= LAST_DAY(CONCAT($year,'-',$month,'-01'))
                    $oFilter
@@ -260,7 +261,7 @@ try {
                      SELECT COALESCE(payment_verified_at, created_at) AS ts,
                             COALESCE(NULLIF(amount_paid, 0), estimated_total, 0) AS amt
                      FROM job_orders
-                     WHERE (payment_status = 'PAID' OR status = 'COMPLETED')
+                     WHERE 1=1
                        AND COALESCE(payment_verified_at, created_at) >= DATE_SUB(CONCAT($year,'-',$month,'-01'), INTERVAL 5 MONTH)
                        AND COALESCE(payment_verified_at, created_at) <= LAST_DAY(CONCAT($year,'-',$month,'-01'))
                        $jFilter
@@ -277,7 +278,7 @@ try {
                         COALESCE(SUM(total_amount), 0) AS revenue_store,
                         COUNT(*) AS orders_store
                  FROM orders
-                 WHERE (payment_status = 'Paid' OR status = 'Completed')
+                 WHERE 1=1
                    AND YEAR(order_date) = $year
                    $oFilter
                  GROUP BY MONTH(order_date), DATE_FORMAT(order_date, '%b')
@@ -291,7 +292,7 @@ try {
                      SELECT COALESCE(payment_verified_at, created_at) AS ts,
                             COALESCE(NULLIF(amount_paid, 0), estimated_total, 0) AS amt
                      FROM job_orders
-                     WHERE (payment_status = 'PAID' OR status = 'COMPLETED')
+                     WHERE 1=1
                        AND YEAR(COALESCE(payment_verified_at, created_at)) = $year
                        $jFilter
                  ) t

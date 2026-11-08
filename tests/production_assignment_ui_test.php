@@ -9,13 +9,22 @@ $assertions = [
     'picker has an internal bounded scroller' => str_contains($source, '.production-material-results') && str_contains($source, 'max-height: 260px'),
     'only truly blocked compatibility states are disabled' => str_contains($source, ':disabled="!item.compatibility.selectable"') && str_contains($source, ':aria-disabled="item.compatibility.selectable'),
     'keyboard material selection is wired' => str_contains($source, '@keydown.arrow-down.prevent') && str_contains($source, '@keydown.enter.prevent'),
-    'recommended material click queues immediately' => str_contains($source, 'this.addMaterialToQueue({ keepListOpen: true, allowQuantityAdjustment: true })'),
+    'one click queues the material with an editable Actual Usage field' => str_contains($source, 'queueMaterialFromPicker(item') && str_contains($source, 'Actual Usage:') && !str_contains($source, '>Add actual usage</button>') && !str_contains($source, '>Confirm Actual Usage</button>'),
+    'Tarpaulin assignment exposes side-by-side Width/Height without a visible Actual Usage input' => str_contains($source, 'handlePendingTarpaulinDimensionInput')
+        && str_contains($source, 'pos-tarp-assignment-dims')
+        && str_contains($source, 'customer_width_ft')
+        && str_contains($source, 'customer_height_ft')
+        && str_contains($source, 'x-show="!isPendingTarpaulinMaterial(pm)"')
+        && str_contains($source, 'calculated_linear_ft'),
+    'Tarpaulin auto-selects the fitted roll and can prefill calculated Actual Usage' => str_contains($source, 'maybeAutoSelectTarpaulinRoll') && str_contains($source, 'tarpaulin_linear_ft') && str_contains($source, 'out.Width') && str_contains($source, 'out.Height'),
     'secondary add-to-content button is removed' => !str_contains($source, '>Add to Order Content</button>'),
     'selected state persists for queued and saved materials' => str_contains($source, "'is-selected': isMaterialSelected(item.id)") && str_contains($source, 'isMaterialSelected(itemId)'),
     'selected state includes visible check badge' => str_contains($source, 'production-material-option__selected-badge') && str_contains($source, 'Selected'),
     'hover and keyboard focus use themed accent styling' => str_contains($source, '.production-material-option:hover') && str_contains($source, '.production-material-option:focus-visible') && str_contains($source, '--staff-accent-rgb'),
     'material starts unselected' => str_contains($source, "newMaterialId: ''"),
-    'recommendations never invoke selection automatically' => !preg_match('/(?:init|finishDetailLoadWith|loadAllInventoryItems)[\s\S]{0,500}handleMaterialSelection\s*\(/', $source),
+    'recommendations never invoke generic handleMaterialSelection automatically' => !preg_match('/(?:init|finishDetailLoadWith|loadAllInventoryItems)[\s\S]{0,500}handleMaterialSelection\s*\(/', $source),
+    'Tarpaulin restores automatic mapped-roll selection from customer dimensions' => str_contains($source, 'maybeAutoSelectTarpaulinRoll()')
+        && str_contains($source, 'this.$nextTick(() => this.maybeAutoSelectTarpaulinRoll())'),
     'active inventory is requested for the production picker' => str_contains($source, 'inventory_items_api.php?action=get_items&active_only=1&production_picker=1'),
     'item 63 is excluded from picker data' => str_contains($source, 'Number(item.id) !== 63'),
     'active service rules are returned' => str_contains($api, "WHERE i.status = 'ACTIVE'") && str_contains($api, "'material_rules' => \$materialRules"),
@@ -33,7 +42,7 @@ $assertions = [
     'obsolete ink options step is removed' => !str_contains($source, 'Ink Options') && !str_contains($source, 'SELECT INK SET') && !str_contains($source, 'Select Ink Set'),
     'obsolete ink guidance copy is removed' => !str_contains($source, 'No printer ink required') && !str_contains($source, 'Printer ink is no longer selected or recorded per order.'),
     'modal shell size was not redefined by picker CSS' => !preg_match('/\.production-material-results\s*\{[^}]*\bwidth\s*:\s*(?:[5-9]\d{2}|\d{4,})px/i', $source),
-    'material usage resolves order dimensions before defaulting' => str_contains($source, 'resolveOrderDimensions(jo)') && str_contains($source, 'const dims = this.resolveOrderDimensions(this.currentJo)'),
+    'material usage stays manual and is not inferred from order dimensions' => str_contains($source, "return { status: 'manual', quantity: null, method: 'manual'") && str_contains($source, 'Staff enters actual usage in the inventory unit.'),
     'modal design uses one combined dynamic section' => str_contains($source, 'staffDesignSectionLabel(item)') && str_contains($source, 'staffDesignDisplayFilename(item)') && !str_contains($source, 'Design Preview'),
     'modal dimensions use one combined label' => str_contains($source, "const displayLabel = 'Dimensions'") && str_contains($source, 'staffSpecIsRedundantDimensionPart'),
     'calculated total area is hidden when dimensions exist' => str_contains($source, "meta.group === 'total_area' && (presentGroups.dimensions || (presentGroups.width && presentGroups.height))") && str_contains($source, 'staffDimensionDisplayStripKeys'),
@@ -43,6 +52,9 @@ $assertions = [
     'detail modal preserves submitted specs and avoids service-profile filtering' => str_contains($source, 'let specs = isDetail || options.skipServiceFilter === true') && str_contains($source, 'submittedSpecs') && str_contains($source, 'this.staffFilterSpecsByServiceForm(normalized, item)'),
     'item customization payload is preserved for fulfillment logic' => str_contains($source, 'const customization = merged') && !str_contains($source, 'const customization = this.normalizeSpecAliases(merged)'),
     'spec rendering uses one normalization pipeline' => str_contains($source, 'staffBuildItemDisplaySpecs') && str_contains($source, 'staffEnrichDimensionSpecs'),
+    'internal POS stock metadata is excluded by exact keys' => str_contains($source, "'pos_selected_material_ids'") && str_contains($source, "'pos_material_dimension_unit'") && str_contains($source, "'pos_material_consumption'") && str_contains($source, "'pos_tarpaulin_selection'"),
+    'assigned undeducted material can invoke the guarded correction request' => str_contains($source, "this.removeMaterial(assignment.id)") && str_contains($source, "fd.append('csrf_token'") && str_contains($source, 'await this.refreshMaterials();'),
+    'deducted assigned material stays protected in the UI' => str_contains($source, 'Material Already Deducted') && str_contains($source, 'authorized inventory correction workflow'),
     'canonical dimensions label is never suppressed by width height aliases' => str_contains($source, "key !== 'Dimensions'") && str_contains($source, "key !== 'Size / Dimensions'"),
     'order notes box is hidden when item specs already include the same note' => str_contains($source, 'staffOrderNotesRenderedInItemSpecs') && str_contains($source, '!staffOrderNotesRenderedInItemSpecs()') && str_contains($source, 'orderFingerprint'),
     'notes aliases collapse to one Notes label' => str_contains($source, "meta.group === 'notes' ? 'Notes' : meta.label"),

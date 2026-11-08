@@ -79,20 +79,40 @@ form.listeners.change[0].call(form.radios[0]);
 assert.equal(clearedRow, form.row, 'correcting the choice clears its inline field error');
 
 const confirmBlock = block('        async function confirmServiceModal() {', '        // ── Legacy service requirements');
-function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromise, cartResponse }) {
+function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromise, cartResponse, serviceId = 63, serviceName = 'Mugs', selectedMaterialId = null }) {
   const button = { disabled: false, style: {}, textContent: 'Add to Order' };
-  const overlay = { dataset: { serviceId: '63', serviceName: 'Mugs' } };
+  const overlay = { dataset: {
+    serviceId: String(serviceId), serviceName,
+    materialSelectionFieldMap: serviceId === 71 ? JSON.stringify({ field_key: 'board_thickness', options: { 'Sintra 3mm': 206, 'Sintra 5mm': 207 } }) : '{}',
+  } };
   const hiddenBranch = { value: '1' };
+  const selectedMaterial = selectedMaterialId === null ? null : {
+    type: 'radio', name: 'board_thickness', value: selectedMaterialId === 206 ? 'Sintra 3mm' : 'Sintra 5mm', checked: true,
+    dataset: { fieldName: 'board_thickness' },
+    closest(selector) { return selector === '.shopee-form-row' ? thicknessRow : null; },
+  };
+  const thicknessRow = {
+    dataset: { fieldKey: 'board_thickness' },
+    querySelector(selector) { return selector === 'input[type="radio"]:checked' ? selectedMaterial : null; },
+  };
   const body = {
     querySelector(selector) {
       if (selector === 'input[type="hidden"][name="branch_id"]') return hiddenBranch;
       return null;
     },
-    querySelectorAll() { return []; },
+    querySelectorAll(selector) {
+      if (selector === '[data-pos-material-id]:checked') return [];
+      if (selector === '.shopee-form-row') return selectedMaterial ? [thicknessRow] : [];
+      if (selector === 'input[type="radio"]:checked') return selectedMaterial ? [selectedMaterial] : [];
+      return [];
+    },
   };
   const busyTransitions = [];
   let cartCalls = 0;
   let stockCalls = 0;
+  const stockServiceIds = [];
+  const stockMaterialIds = [];
+  let cartPayload = null;
   let shownValidationErrors = null;
   const context = vm.createContext({
     document: { getElementById(id) {
@@ -109,8 +129,18 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
     showValidationErrors(errors) { shownValidationErrors = errors; },
     focusFirstInvalidField() {},
     showPOSAlert: async () => {},
-    posServiceQuantityInput() { return { value: '3' }; },
-    async posValidateServiceStockNow() { stockCalls += 1; return stockPromise(); },
+    posServiceQuantityInput() { return { value: '3', checkValidity() { return true; }, reportValidity() {} }; },
+    async posValidateServiceStockNow(checkedServiceId) {
+      stockCalls += 1;
+      stockServiceIds.push(Number(checkedServiceId));
+      stockMaterialIds.push(selectedMaterial ? [selectedMaterialId] : []);
+      return stockPromise();
+    },
+    posSelectedServiceMaterialIds(checkedServiceId, customization, _body, selectedOverlay) {
+      if (Number(checkedServiceId) !== 71) return [];
+      const fieldMap = JSON.parse(selectedOverlay.dataset.materialSelectionFieldMap || '{}');
+      return [Number(fieldMap.options?.[customization[fieldMap.field_key]] || 0)].filter(id => id > 0);
+    },
     resolveServiceModalPricing() { return { unitPrice: 120, quantity: 3, designFee: 200 }; },
     setServiceAddButtonBusy(isBusy) {
       button.disabled = !!isBusy || context.posServiceStockBlocking;
@@ -126,16 +156,17 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
     applyServicePricingToCustomization(customization, unitPrice, quantity, designFee) {
       return { unitPrice, quantity, designFee };
     },
-    async syncedCartAction() { cartCalls += 1; return cartResponse(); },
+    async syncedCartAction(_action, payload) { cartCalls += 1; cartPayload = payload; return cartResponse(); },
     showBackendValidationErrors() {},
     serviceSelectorEscape(value) { return value; },
     isServiceFieldActive() { return true; },
     serviceFieldKey() { return ''; },
     serviceFieldLabel() { return ''; },
     normalizeLayoutCustomizationValue(_row, value) { return value; },
-    setCustomizationValue() {},
+    setCustomizationValue(customization, _row, input, value) { if (input?.name) customization[input.name] = value; },
     posStoreDesignLink() {},
     posCollectTarpaulinStockCustomization() { return {}; },
+    posApplySelectedServiceDimension() {},
     closeServiceModal() {},
     confirmMissingEstimatedPrice: async () => false,
   });
@@ -145,6 +176,9 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
     context, button, busyTransitions,
     get cartCalls() { return cartCalls; },
     get stockCalls() { return stockCalls; },
+    get stockServiceIds() { return stockServiceIds; },
+    get stockMaterialIds() { return stockMaterialIds; },
+    get cartPayload() { return cartPayload; },
     get shownValidationErrors() { return shownValidationErrors; },
   };
 }
@@ -204,6 +238,36 @@ function makeConfirmHarness({ validationValid, validationErrors = {}, stockPromi
   await success.context.confirmServiceModal();
   assert.equal(success.cartCalls, 1, 'successful local addition sends one cart request');
   assert.deepEqual(success.busyTransitions, [true, false], 'success also exits the loading state');
+
+  const noThickness = makeConfirmHarness({
+    validationValid: true, serviceId: 71, serviceName: 'Sintraboard Standees',
+    stockPromise: async () => ({ valid: false }), cartResponse: async () => ({ success: true }),
+  });
+  await noThickness.context.confirmServiceModal();
+  assert.equal(noThickness.cartCalls, 0, 'Sintraboard cannot Add to Order when staff has not selected a board thickness');
+  assert.deepEqual(noThickness.stockMaterialIds, [[]], 'no Sintra thickness is auto-selected from dimensions');
+
+  for (const thicknessId of [206, 207]) {
+    const sintraboard = makeConfirmHarness({
+      validationValid: true, serviceId: 71, serviceName: 'Sintraboard Standees', selectedMaterialId: thicknessId,
+      stockPromise: async () => ({ valid: true }), cartResponse: async () => ({ success: true }),
+    });
+    await sintraboard.context.confirmServiceModal();
+    assert.deepEqual(sintraboard.stockServiceIds, [71], `Sintra ${thicknessId} Add to Order revalidates stock for service ID 71`);
+    assert.deepEqual(sintraboard.stockMaterialIds, [[thicknessId]], `stock validation receives only selected Sintra item ${thicknessId}`);
+    assert.equal(sintraboard.cartCalls, 1, `valid Sintra ${thicknessId} stock allows one cart request`);
+    assert.deepEqual(Array.from(sintraboard.cartPayload.customization.pos_selected_material_ids), [thicknessId],
+      `Add to Order payload persists selected Sintra item ${thicknessId}`);
+
+    const lowStock = makeConfirmHarness({
+      validationValid: true, serviceId: 71, serviceName: 'Sintraboard Standees', selectedMaterialId: thicknessId,
+      stockPromise: async () => ({ valid: false, message: `Insufficient Sintra ${thicknessId} stock.` }),
+      cartResponse: async () => ({ success: true }),
+    });
+    await lowStock.context.confirmServiceModal();
+    assert.deepEqual(lowStock.stockMaterialIds, [[thicknessId]], `low-stock validation checks only selected Sintra item ${thicknessId}`);
+    assert.equal(lowStock.cartCalls, 0, `insufficient Sintra ${thicknessId} stock blocks Add to Order`);
+  }
 
   console.log('POS Add to Order validation and recovery tests passed.');
 })().catch(error => {

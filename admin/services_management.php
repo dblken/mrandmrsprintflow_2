@@ -168,9 +168,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $name = preg_replace('/\s+/', ' ', trim($_POST['name'] ?? ''));
         $category = sanitize($_POST['category'] ?? '');
         $description = sanitize($_POST['description'] ?? '');
-        // Catalog cards derive pricing from enabled service option choices.
-        // Keep the legacy NOT NULL services.price column neutral.
+        // Catalog cards derive pricing from enabled service option choices for
+        // most services. Mugs is quantity-based and stores its per-piece
+        // selling price in services.price (never inventory average cost).
+        require_once __DIR__ . '/../includes/mugs_base_pricing.php';
+        $isMugsCreate = strcasecmp($name, 'Mugs') === 0;
         $price = 0.0;
+        if ($isMugsCreate) {
+            $parsedMugsPrice = printflow_parse_mugs_selling_price_input($_POST['price'] ?? null);
+            if ($parsedMugsPrice === null) {
+                $error = 'Mugs requires a positive per-piece selling price (services.price).';
+            } else {
+                $price = $parsedMugsPrice;
+            }
+        }
         $statusRaw = trim((string) ($_POST['status'] ?? ''));
         $status = ($statusRaw === 'Deactivated') ? 'Deactivated' : 'Activated';
         $hero_image = admin_service_media_url(sanitize(trim((string) ($_POST['hero_image'] ?? ''))));
@@ -178,21 +189,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $video_url = $uploaded_video ?: admin_service_media_url(sanitize(trim((string) ($_POST['video_url'] ?? ''))));
         $customer_modal_text = '';
 
-        if ($name === '') {
+        if ($error === '' && $name === '') {
             $error = 'Service name is required.';
-        } elseif (strlen($name) > 150) {
+        } elseif ($error === '' && strlen($name) > 150) {
             $error = 'Service name must not exceed 150 characters.';
-        } elseif (empty($category) || $category === '-- Select Category --') {
+        } elseif ($error === '' && (empty($category) || $category === '-- Select Category --')) {
             $error = 'Please select a category.';
-        } elseif (!printflow_service_category_is_allowed($category)) {
+        } elseif ($error === '' && !printflow_service_category_is_allowed($category)) {
             $error = 'Invalid category.';
-        } elseif (strlen($description) > 2000) {
+        } elseif ($error === '' && strlen($description) > 2000) {
             $error = 'Description must not exceed 2000 characters.';
-        } elseif ($display_image === '') {
+        } elseif ($error === '' && $display_image === '') {
             $error = 'Please provide at least one service photo.';
-        } elseif (service_name_exists($name, 0)) {
+        } elseif ($error === '' && service_name_exists($name, 0)) {
             $error = 'A service with this name already exists.';
-        } else {
+        } elseif ($error === '') {
             $category = printflow_canonical_service_category($category);
             $result = db_execute(
                 'INSERT INTO services (name, category, description, price, duration, status, visible_to_customer, hero_image, display_image, video_url, customer_modal_text, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, 1, ?, ?, ?, ?, NOW(), NOW())',
@@ -218,9 +229,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $name = preg_replace('/\s+/', ' ', trim($_POST['name'] ?? ''));
         $category = sanitize($_POST['category'] ?? '');
         $description = sanitize($_POST['description'] ?? '');
-        // Staff quotations belong to orders; they must never become a shared
-        // service catalog price.
+        // Other services keep a neutral catalog price. Mugs alone persists its
+        // configured per-piece selling price in services.price.
+        require_once __DIR__ . '/../includes/mugs_base_pricing.php';
         $price = 0.0;
+        if (printflow_is_mugs_service($service_id)) {
+            $parsedMugsPrice = printflow_parse_mugs_selling_price_input($_POST['price'] ?? null);
+            if ($parsedMugsPrice === null) {
+                $error = 'Mugs requires a positive per-piece selling price (services.price). Inventory average cost is not used.';
+            } else {
+                $price = $parsedMugsPrice;
+            }
+        }
         $statusRaw = trim((string) ($_POST['status'] ?? ''));
         $status = ($statusRaw === 'Deactivated') ? 'Deactivated' : 'Activated';
         $hero_image = admin_service_media_url(sanitize(trim((string) ($_POST['hero_image'] ?? ''))));
@@ -229,23 +249,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $existing_modal = db_query("SELECT customer_modal_text FROM services WHERE service_id = ? LIMIT 1", 'i', [$service_id]);
         $customer_modal_text = trim((string)($existing_modal[0]['customer_modal_text'] ?? ''));
 
-        if ($service_id < 1) {
+        if ($error === '' && $service_id < 1) {
             $error = 'Invalid service.';
-        } elseif ($name === '') {
+        } elseif ($error === '' && $name === '') {
             $error = 'Service name is required.';
-        } elseif (strlen($name) > 150) {
+        } elseif ($error === '' && strlen($name) > 150) {
             $error = 'Service name must not exceed 150 characters.';
-        } elseif (empty($category) || $category === '-- Select Category --') {
+        } elseif ($error === '' && (empty($category) || $category === '-- Select Category --')) {
             $error = 'Please select a category.';
-        } elseif (!printflow_service_category_is_allowed($category)) {
+        } elseif ($error === '' && !printflow_service_category_is_allowed($category)) {
             $error = 'Invalid category.';
-        } elseif (strlen($description) > 2000) {
+        } elseif ($error === '' && strlen($description) > 2000) {
             $error = 'Description must not exceed 2000 characters.';
-        } elseif ($display_image === '') {
+        } elseif ($error === '' && $display_image === '') {
             $error = 'Please provide at least one service photo.';
-        } elseif (service_name_exists($name, $service_id)) {
+        } elseif ($error === '' && service_name_exists($name, $service_id)) {
             $error = 'A service with this name already exists.';
-        } else {
+        } elseif ($error === '') {
             $category = printflow_canonical_service_category($category);
             $result = db_execute(
                 'UPDATE services SET name = ?, category = ?, description = ?, price = ?, duration = NULL, status = ?, hero_image = ?, display_image = ?, video_url = ?, customer_modal_text = ?, updated_at = NOW() WHERE service_id = ?',
@@ -434,6 +454,7 @@ function pf_admin_service_row_payload(array $svc): array {
         'name' => (string) ($svc['name'] ?? ''),
         'category' => (string) ($svc['category'] ?? ''),
         'description' => (string) ($svc['description'] ?? ''),
+        'price' => isset($svc['price']) ? (float) $svc['price'] : 0.0,
         'status' => (string) ($svc['status'] ?? ''),
         'display_image' => (string) ($svc['display_image'] ?? ''),
         'video_url' => (string) ($svc['video_url'] ?? ''),
@@ -843,6 +864,13 @@ if (isset($_GET['ajax'])) {
                     <span id="err-description" class="field-error"></span>
                 </div>
 
+                <div class="form-group" id="fg-mugs-base-price" style="display:none;">
+                    <label for="modal-price">Mugs selling price per piece (₱) <span style="color:red">*</span></label>
+                    <input type="number" id="modal-price" name="price" min="0.01" max="99999999.99" step="0.01" inputmode="decimal" placeholder="Enter service selling price">
+                    <small style="display:block;color:#6b7280;font-size:12px;margin-top:6px;">Independent customer selling price from <code>services.price</code>. Do not copy the Mug inventory unit/average cost.</small>
+                    <span id="err-price" class="field-error"></span>
+                </div>
+
                 <div class="form-group" id="fg-photos">
                     <label>Service Photos <span style="color:red">*</span></label>
                     <small style="display:block;color:#6b7280;font-size:12px;margin-bottom:8px;">Upload 1 to 5 photos. Photos are required.</small>
@@ -951,6 +979,26 @@ if (isset($_GET['ajax'])) {
 window.PF_SERVICES_MANAGER_VIEW_ONLY = <?php echo $pf_manager_services_readonly ? 'true' : 'false'; ?>;
 window.PF_DEFAULT_SERVICE_MODAL_TEXT = <?php echo json_encode(printflow_default_customer_service_modal_text(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 window.PF_SERVICE_CATEGORY_ALLOWLIST = <?php echo json_encode(printflow_allowed_service_categories(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+window.PF_MUGS_SERVICE_ID = 63;
+
+function pfSyncMugsBasePriceField(svc) {
+    const wrap = document.getElementById('fg-mugs-base-price');
+    const input = document.getElementById('modal-price');
+    if (!wrap || !input) return;
+    const serviceId = svc && Number(svc.service_id) === Number(window.PF_MUGS_SERVICE_ID);
+    const nameIsMugs = svc && String(svc.name || '').trim().toLowerCase() === 'mugs';
+    const show = !!(serviceId || nameIsMugs);
+    wrap.style.display = show ? '' : 'none';
+    input.required = show;
+    if (!show) {
+        input.value = '';
+        return;
+    }
+    const price = svc && svc.price != null ? Number(svc.price) : NaN;
+    // Never invent a selling price (including the Mug inventory unit cost).
+    // Leave blank until an independent services.price is configured.
+    input.value = Number.isFinite(price) && price > 0 ? price.toFixed(2) : '';
+}
 window.PF_BASE_PATH = <?php echo json_encode($base_path); ?>;
 /* var: Turbo re-runs inline scripts; let/const would throw "already been declared". */
 var activeSort = '<?php echo htmlspecialchars($sort_by); ?>';
@@ -1192,6 +1240,7 @@ function openServiceModal(mode, svc) {
         catSel.value = catVal;
 
         document.getElementById('modal-description').value = svc.description || '';
+        pfSyncMugsBasePriceField(svc);
         
         // Load existing media files
         window.uploadedPhotoFiles = [];
@@ -1222,12 +1271,25 @@ function openServiceModal(mode, svc) {
         renderPhotoPreviews();
         renderVideoPreview();
         document.getElementById('modal-status').value = 'Activated';
+        pfSyncMugsBasePriceField(null);
         if (typeof window.pfSetServiceModalMode === 'function') window.pfSetServiceModalMode('create');
     }
     submitBtn.disabled = false;
     overlay.classList.add('active');
     document.body.style.overflow = 'hidden';
-    document.getElementById('modal-name').focus();
+    const nameInput = document.getElementById('modal-name');
+    if (nameInput && !nameInput.dataset.mugsPriceBound) {
+        nameInput.dataset.mugsPriceBound = '1';
+        nameInput.addEventListener('input', function () {
+            const serviceId = Number(document.getElementById('modal-service-id')?.value || 0);
+            pfSyncMugsBasePriceField({
+                service_id: serviceId,
+                name: nameInput.value,
+                price: document.getElementById('modal-price')?.value || ''
+            });
+        });
+    }
+    nameInput.focus();
     if (typeof window.printflowServiceFormValidationRun === 'function') {
         window.printflowServiceFormValidationRun();
     }

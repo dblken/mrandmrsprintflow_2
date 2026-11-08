@@ -12,6 +12,7 @@ require_once __DIR__ . '/sales_report_dedupe.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/order_archive.php';
 require_once __DIR__ . '/branch_context.php';
+require_once __DIR__ . '/admin_transaction_visibility.php';
 
 /** Simple trend-based 3-month forecast from a historical array. */
 function pf_forecast3(array $hist): array {
@@ -71,7 +72,7 @@ function pf_reports_store_order_paid_completed_expr(string $alias = 'o'): string
 /** Store order with confirmed payment only (legacy/detail filter). */
 function pf_reports_store_order_paid_expr(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
-    return '(' . printflow_order_archive_scope_sql($alias) . " AND LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid'))";
+    return '(' . printflow_order_archive_scope_sql($alias) . ' AND ' . printflow_admin_order_transaction_visible_sql($alias) . ')';
 }
 
 /** Customization / job order counts as paid/completed for revenue exports. */
@@ -92,8 +93,7 @@ function pf_reports_store_order_sales_expr(string $alias = 'o'): string {
     $activeArchiveScope = printflow_order_archive_scope_sql($alias);
     // pos_merged rows are draft shells re-linked during POS checkout; the paid pos order is canonical.
     return "({$activeArchiveScope} AND LOWER(TRIM(COALESCE({$alias}.order_source, ''))) NOT IN ('pos_merged', 'pos_draft')
-             AND (LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
-             OR LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed'))";
+             AND " . printflow_admin_order_transaction_visible_sql($alias) . ")";
 }
 
 /**
@@ -324,8 +324,7 @@ function pf_reports_job_order_sales_expr(string $alias = 'jo'): string {
     $alias = pf_reports_sql_alias($alias, 'jo');
     $activeArchiveScope = printflow_order_archive_exclusion_sql($alias . '.order_id');
     $customerScope = printflow_customer_exclusion_customer_scope_sql($alias . '.customer_id');
-    return "({$activeArchiveScope} AND {$customerScope} AND (LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
-             OR LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed'))";
+    return "({$activeArchiveScope} AND {$customerScope} AND " . printflow_admin_job_transaction_visible_sql($alias) . ")";
 }
 
 /** Official customization/job-order revenue amount. */
@@ -860,6 +859,7 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
     $bucket = pf_product_sales_chart_bucket_sql();
     $label = pf_product_sales_chart_label_sql();
     $family = pf_product_sales_chart_family_sql('p', 'oi');
+    $storeSales = pf_reports_store_order_sales_expr('o');
     try {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
         $datePart = '';
@@ -889,10 +889,7 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
                ON p.product_id = oi.product_id
               AND (p.status IS NULL OR p.status != 'Archived')
              JOIN orders o ON oi.order_id = o.order_id
-             WHERE (
-                 LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid')
-                 OR o.status = 'Completed'
-               )
+             WHERE {$storeSales}
                AND NULLIF(TRIM(p.category), '') IS NOT NULL
                AND LOWER(TRIM(p.category)) <> 'system'
                {$datePart} {$b}
@@ -999,9 +996,9 @@ function pf_reports_sales_by_service_category(string $from, string $toEnd, $bran
         $pfServiceCatBucket = "COALESCE(NULLIF(TRIM(sc.category), ''), NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization')";
         $rows = db_query(
             "SELECT {$pfServiceCatBucket} AS category,
-                    SUM(CASE WHEN (LOWER(TRIM(COALESCE(jo.payment_status, ''))) IN ('paid', 'fully paid') OR UPPER(TRIM(COALESCE(jo.status, ''))) = 'COMPLETED')
+                    SUM(CASE WHEN {$jobSales}
                              THEN COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) ELSE 0 END) AS total,
-                    SUM(CASE WHEN (LOWER(TRIM(COALESCE(jo.payment_status, ''))) IN ('paid', 'fully paid') OR UPPER(TRIM(COALESCE(jo.status, ''))) = 'COMPLETED')
+                    SUM(CASE WHEN {$jobSales}
                              THEN COALESCE(jo.quantity, 1) ELSE 0 END) AS qty_sold
              FROM job_orders jo
              LEFT JOIN (
@@ -1012,9 +1009,9 @@ function pf_reports_sales_by_service_category(string $from, string $toEnd, $bran
              ) sc ON sc.name_key = LOWER(TRIM(COALESCE(jo.service_type, '')))
              WHERE {$jobSales} {$jobExcludeLinkedCustomStore} {$jDatePart} {$bjsc}
              GROUP BY {$pfServiceCatBucket}
-             HAVING SUM(CASE WHEN (LOWER(TRIM(COALESCE(jo.payment_status, ''))) IN ('paid', 'fully paid') OR UPPER(TRIM(COALESCE(jo.status, ''))) = 'COMPLETED')
+             HAVING SUM(CASE WHEN {$jobSales}
                              THEN COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) ELSE 0 END) > 0
-                 OR SUM(CASE WHEN (LOWER(TRIM(COALESCE(jo.payment_status, ''))) IN ('paid', 'fully paid') OR UPPER(TRIM(COALESCE(jo.status, ''))) = 'COMPLETED')
+                 OR SUM(CASE WHEN {$jobSales}
                              THEN COALESCE(jo.quantity, 1) ELSE 0 END) > 0
              ORDER BY total DESC",
             $jdTypes . $btjsc,
@@ -1232,7 +1229,7 @@ function pf_reports_dashboard_all_branches_product_service_slices(string $from, 
         $rows = db_query(
             "SELECT jo.branch_id,
                     {$pfServiceCatBucket} AS category,
-                    SUM(CASE WHEN (LOWER(TRIM(COALESCE(jo.payment_status, ''))) IN ('paid', 'fully paid') OR UPPER(TRIM(COALESCE(jo.status, ''))) = 'COMPLETED')
+                    SUM(CASE WHEN {$jobSales}
                              THEN COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) ELSE 0 END) AS total
              FROM job_orders jo{$jobJoin}
              LEFT JOIN (
@@ -1944,7 +1941,7 @@ function pf_reports_top_products_merged(string $from, string $toEnd, $branchId, 
                     SUM(COALESCE(jo.quantity, 1)) as qty_sold,
                     SUM(CASE WHEN {$jobSales} THEN {$jobRevenue} ELSE 0 END) as revenue
              FROM job_orders jo
-             WHERE 1=1 {$jDatePart} {$bj}
+             WHERE {$jobSales} {$jDatePart} {$bj}
              GROUP BY COALESCE(NULLIF(TRIM(jo.service_type), ''), 'Customization')",
             $jdTypes . $btj,
             array_merge($jdParams, $bpj)
@@ -2146,6 +2143,7 @@ FROM (
         FROM orders o
         INNER JOIN customers c ON c.customer_id = o.customer_id
         WHERE o.customer_id IS NOT NULL
+          AND " . pf_reports_store_order_sales_expr('o') . "
           {$oDate}
           {$bo}
         UNION ALL
@@ -2153,6 +2151,7 @@ FROM (
         FROM job_orders jo
         INNER JOIN customers c ON c.customer_id = jo.customer_id
         WHERE jo.customer_id IS NOT NULL
+          AND " . pf_reports_job_order_sales_expr('jo') . "
           {$joDate}
           {$bj}
     ) z
@@ -3018,7 +3017,7 @@ function pf_reports_period_sales_merged(string $from, string $toEnd, $branchId):
         $sql = "SELECT DATE_FORMAT(o.order_date,'{$fmt}') as d,
                        COUNT(*) as cnt,
                        SUM(CASE WHEN {$storeSales} THEN {$storeRevenue} ELSE 0 END) as rev
-                FROM orders o WHERE 1=1 {$datePart} {$b}
+                FROM orders o WHERE {$storeSales} {$datePart} {$b}
                 GROUP BY d ORDER BY d";
         
         error_log('[PrintFlow] Store orders SQL: ' . $sql . ' | Types: ' . ($dTs . $bt) . ' | Params: ' . json_encode(array_merge($dPs, $bp)));
@@ -3053,7 +3052,7 @@ function pf_reports_period_sales_merged(string $from, string $toEnd, $branchId):
         $sql = "SELECT DATE_FORMAT({$jobDate},'{$fmt}') as d,
                        COUNT(*) as cnt,
                        SUM(CASE WHEN {$jobSales} THEN {$jobRevenue} ELSE 0 END) as rev
-                FROM job_orders jo WHERE 1=1 {$jDatePart} {$bj}
+                FROM job_orders jo WHERE {$jobSales} {$jDatePart} {$bj}
                 GROUP BY d ORDER BY d";
         
         $jrows = db_query($sql, $jdTs . $btj, array_merge($jdPs, $bpj)) ?: [];

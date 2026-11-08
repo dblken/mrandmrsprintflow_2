@@ -7,6 +7,14 @@
  * on the real processing clock.
  */
 
+if (!function_exists('printflow_pos_business_today')) {
+    /** Current business calendar day (Asia/Manila) as Y-m-d. */
+    function printflow_pos_business_today(): string
+    {
+        return (new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
+    }
+}
+
 function printflow_normalize_business_datetime(?string $value): ?string
 {
     $value = trim(str_replace('T', ' ', (string)$value));

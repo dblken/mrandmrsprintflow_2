@@ -10,7 +10,9 @@ const item = (name, stock = 10, extra = {}) => {
 };
 
 const inventory = [
-    item('MUG'), item('BOX MUG'), item('3ft Tarpaulin'), item('4ft Tarpaulin', 0),
+    item('MUG'), item('BOX MUG'),
+    item('3ft Tarpaulin', 10, { track_by_roll: 1, unit_of_measure: 'ft', category_name: 'TARPAULIN' }),
+    item('4ft Tarpaulin', 0, { track_by_roll: 1, unit_of_measure: 'ft', category_name: 'TARPAULIN' }),
     item('VINYL BLACK'), item('VINYL WHITE'), item('NEXJET'), item('PP STKR MATTE 98'),
     item('HOLOGRAM'), item('TRANSPARENT'), item('GLOSS LAMINATE'), item('MATTE LAMINATE'),
     item('STICKER BLACK'), item('STICKER SILVER'), item('3M Reflective'), item('AC EURO'),
@@ -61,10 +63,31 @@ assert.strictEqual(byName(tarpRows, '4ft Tarpaulin').compatibility.overrideable,
 assert.strictEqual(byName(tarpRows, '4ft Tarpaulin').compatibility.reason, 'Out of stock');
 assert.strictEqual(picker.inkModeFor(byName(tarpRows, '3ft Tarpaulin')), 'tarp');
 
+// Service 40 authoritative mapping must recognize Eyelet as the optional
+// Tarpaulin finishing material (extras beyond the four included with the roll).
+const tarpService40 = context('Tarpaulin Printing');
+tarpService40.serviceId = 40;
+tarpService40.serviceLabel = 'Tarpaulin';
+const eyeletForTarp = byName(inventory, 'Eyelet');
+const eyeletState = picker.classifyItem(eyeletForTarp, tarpService40, []);
+assert.strictEqual(eyeletState.family, 'eyelet');
+assert.strictEqual(eyeletState.tier, 'optional');
+assert.strictEqual(eyeletState.authoritativelyMapped, true, 'Mapped Eyelet is recognized for Tarpaulin');
+assert.strictEqual(eyeletState.directSelectable, true, 'In-stock Eyelet remains selectable for extras');
+assert.strictEqual(eyeletState.reason, '', 'Mapped Eyelet must not show Not mapped for Tarpaulin');
+const unmappedOnTarp = picker.classifyItem(byName(inventory, 'MUG'), tarpService40, []);
+assert.strictEqual(unmappedOnTarp.authoritativelyMapped, false, 'Truly unmapped material stays unmapped');
+assert.match(unmappedOnTarp.reason, /Not mapped for Tarpaulin/i);
+assert.strictEqual(unmappedOnTarp.directSelectable, false);
+
 // Regression: shorthand "TARP" naming and category-based naming must still be recognized
-// as tarpaulin material (root cause of the "Not suggested" bug).
+// as tarpaulin material (root cause of the "Not suggested" bug) when roll-tracked.
 const tarpShorthandRows = picker.rankItems(
-    [item('4FT TARP'), item('TARPAULIN 5FT'), item('Tarp Roll', 10, { category_name: 'TARPAULIN' })],
+    [
+        item('4FT TARP', 10, { track_by_roll: 1 }),
+        item('TARPAULIN 5FT', 10, { track_by_roll: 1 }),
+        item('Tarp Roll', 10, { category_name: 'TARPAULIN', track_by_roll: 1 }),
+    ],
     context('Tarpaulin Printing'), [], ''
 );
 assert.strictEqual(byName(tarpShorthandRows, '4FT TARP').compatibility.tier, 'recommended');
@@ -220,7 +243,8 @@ assert.strictEqual(picker.classifyItem(byName(inventory, 'AC EURO'), context('Pl
     .forEach(name => assert.strictEqual(picker.familyFor(item(name)), 'tarpaulin'));
 
 // --- Deterministic tarpaulin width matching / auto-select (no AI/ML) ---
-const tarpInventory = [item('3ft Tarpaulin'), item('4ft Tarpaulin'), item('5ft Tarpaulin'), item('6ft Tarpaulin')];
+const tarpRoll = (name, stock = 10, extra = {}) => item(name, stock, { track_by_roll: 1, unit_of_measure: 'ft', category_name: 'TARPAULIN', ...extra });
+const tarpInventory = [tarpRoll('3ft Tarpaulin'), tarpRoll('4ft Tarpaulin'), tarpRoll('5ft Tarpaulin'), tarpRoll('6ft Tarpaulin')];
 assert.strictEqual(picker.tarpaulinRollWidthFor(byName(tarpInventory, '4ft Tarpaulin')), 4);
 assert.strictEqual(picker.tarpaulinRollWidthFor(item('TARPAULIN 5FT')), 5);
 assert.strictEqual(picker.tarpaulinRollWidthFor(item('MUG')), null);
@@ -240,14 +264,61 @@ tarpContext.customerHeight = 4;
 const tarpAutoSelect = picker.getAutoSelectCandidate(tarpInventory, tarpContext, []);
 assert.strictEqual(tarpAutoSelect && tarpAutoSelect.name, '4ft Tarpaulin');
 
+// 2 × 2 ft → narrowest fitting 3 ft roll; usage is 2 linear ft.
+const twoByTwoContext = context('Tarpaulin Printing');
+twoByTwoContext.customerWidth = 2;
+twoByTwoContext.customerHeight = 2;
+assert.strictEqual(picker.getAutoSelectCandidate(tarpInventory, twoByTwoContext, []).name, '3ft Tarpaulin');
+assert.strictEqual(picker.calculateTarpaulinLinearLength(2, 2, 1, 3).required_linear_ft, 2);
+
+// 6 × 6 ft → 6 ft roll; usage is 6 linear ft.
+const sixBySixContext = context('Tarpaulin Printing');
+sixBySixContext.customerWidth = 6;
+sixBySixContext.customerHeight = 6;
+assert.strictEqual(picker.getAutoSelectCandidate(tarpInventory, sixBySixContext, []).name, '6ft Tarpaulin');
+assert.strictEqual(picker.calculateTarpaulinLinearLength(6, 6, 1, 6).required_linear_ft, 6);
+assert.strictEqual(picker.calculateTarpaulinLinearLength(6, 6, 1, 3), null, 'A 3 ft roll cannot fit 6 × 6 ft even with rotation.');
+
 // Ambiguous case: two rolls of the same smallest fitting width -> do not auto-select.
-const ambiguousTarpInventory = [item('4ft Tarpaulin A'), item('4ft Tarpaulin B'), item('6ft Tarpaulin')];
+const ambiguousTarpInventory = [tarpRoll('4ft Tarpaulin A'), tarpRoll('4ft Tarpaulin B'), tarpRoll('6ft Tarpaulin')];
 const ambiguousAutoSelect = picker.getAutoSelectCandidate(ambiguousTarpInventory, tarpContext, []);
 assert.strictEqual(ambiguousAutoSelect, null);
 
 // No stock -> no auto-select.
-const outOfStockInventory = [item('4ft Tarpaulin', 0), item('6ft Tarpaulin', 0)];
+const outOfStockInventory = [tarpRoll('4ft Tarpaulin', 0), tarpRoll('6ft Tarpaulin', 0)];
 assert.strictEqual(picker.getAutoSelectCandidate(outOfStockInventory, tarpContext, []), null);
+
+// Name lookalike without track_by_roll must not auto-select or be directly selectable
+// for service 40 — Confirm Set Price rejects non-roll inventory IDs.
+const lookalikeOnly = [item('3ft Tarpaulin', 10, { track_by_roll: 0, unit_of_measure: 'pcs' })];
+const lookalikeContext = context('Tarpaulin Printing');
+lookalikeContext.serviceId = 40;
+lookalikeContext.customerWidth = 3;
+lookalikeContext.customerHeight = 8;
+assert.strictEqual(picker.getAutoSelectCandidate(lookalikeOnly, lookalikeContext, []), null);
+assert.strictEqual(picker.classifyItem(lookalikeOnly[0], lookalikeContext, []).directSelectable, false);
+assert.strictEqual(picker.classifyItem(lookalikeOnly[0], lookalikeContext, []).tier, 'unrelated');
+
+// Mapped ACTIVE roll (id 13) with system dimensions must auto-select and stay selectable.
+const mappedThreeFt = {
+    id: 13, name: '3ft Tarpaulin', current_stock: 100, unit_of_measure: 'ft',
+    category_name: 'TARPAULIN', track_by_roll: 1
+};
+const mappedFourFt = {
+    id: 14, name: '4ft Tarpaulin', current_stock: 100, unit_of_measure: 'ft',
+    category_name: 'TARPAULIN', track_by_roll: 1
+};
+const mappedCtx = context('Tarpaulin Printing');
+mappedCtx.serviceId = 40;
+mappedCtx.customerWidth = 3;
+mappedCtx.customerHeight = 8;
+const mappedAuto = picker.getAutoSelectCandidate([mappedThreeFt, mappedFourFt], mappedCtx, []);
+assert.strictEqual(mappedAuto && mappedAuto.id, 13, 'Auto-select returns the canonical mapped 3ft roll id');
+assert.strictEqual(picker.classifyItem(mappedThreeFt, mappedCtx, []).directSelectable, true);
+assert.strictEqual(picker.classifyItem(mappedThreeFt, mappedCtx, []).authoritativelyMapped, true);
+// Manual selection of the same roll uses the same identity.
+assert.strictEqual(Number(mappedAuto.id), 13);
+assert.strictEqual(picker.calculateTarpaulinLinearLength(3, 8, 1, 3).required_linear_ft, 8);
 
 // Single unambiguous recommended material for a non-tarpaulin service should still auto-select.
 const mugAutoSelect = picker.getAutoSelectCandidate(inventory, context('Souvenirs', { souvenir_type: 'Mug' }), []);
@@ -266,9 +337,9 @@ function categoryContext(category, serviceType) {
 }
 const leakedTshirtLabelTarp = picker.rankItems(inventory, categoryContext('Tarpaulin', 'T-Shirt Printing'), [], '');
 assert.strictEqual(byName(leakedTshirtLabelTarp, '3ft Tarpaulin').compatibility.tier, 'recommended');
-assert.strictEqual(byName(leakedTshirtLabelTarp, '3ft Tarpaulin').compatibility.reason, 'Recommended for this job');
+assert.strictEqual(byName(leakedTshirtLabelTarp, '3ft Tarpaulin').compatibility.reason, '');
 assert.strictEqual(byName(leakedTshirtLabelTarp, 'VINYL BLACK'), undefined);
-assert.strictEqual(picker.classifyItem(byName(inventory, 'VINYL BLACK'), categoryContext('Tarpaulin', 'T-Shirt Printing'), []).reason, 'Not suggested for Tarpaulin');
+assert.strictEqual(picker.classifyItem(byName(inventory, 'VINYL BLACK'), categoryContext('Tarpaulin', 'T-Shirt Printing'), []).reason, 'Not listed for Tarpaulin');
 
 const adminTshirtRows = picker.rankItems(inventory, categoryContext('T-Shirt', 'T-Shirt Printing'), [], '');
 assert.strictEqual(byName(adminTshirtRows, 'VINYL BLACK').compatibility.tier, 'recommended');
@@ -289,22 +360,50 @@ const stickerRuleInventory = [
     { id: 22, name: 'Hologram', current_stock: 2003, unit_of_measure: 'pcs', category_name: 'MATERIALS' }
 ];
 const stickerRules = [
-    { service_type: 'Decals/Stickers (Print/Cut)', item_id: 18, rule_type: 'REQUIRED' },
-    { service_type: 'Decals/Stickers (Print/Cut)', item_id: 22, rule_type: 'OPTIONAL' }
+    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 18, rule_type: 'OPTIONAL', selection_group: 'sticker_media', selection_role: 'multi_optional', group_required: false },
+    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 22, rule_type: 'OPTIONAL', selection_group: 'sticker_media', selection_role: 'multi_optional', group_required: false }
 ];
 const stickerRuleRows = picker.rankItems(stickerRuleInventory, stickerRuleContext, stickerRules, '');
-assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.ruleType, 'REQUIRED', 'service ID 36 resolves its canonical REQUIRED rule despite a UI service-label alias');
-assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.tier, 'recommended', 'required rule remains selectable in the recommendation-ranked list');
+assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.ruleType, 'OPTIONAL', 'service ID 36 resolves its mapped sticker rule despite a UI service-label alias');
+assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.selectionRole, 'multi_optional', 'selection guidance comes from the explicit service/item group policy.');
+assert.strictEqual(byName(stickerRuleRows, 'Nextjet').compatibility.tier, 'optional', 'mapped sticker media remains selectable in the recommendation-ranked list');
 assert.strictEqual(byName(stickerRuleRows, 'Hologram').compatibility.ruleType, 'OPTIONAL', 'Hologram retains its explicit OPTIONAL rule');
 assert.strictEqual(byName(stickerRuleRows, 'Hologram').compatibility.tier, 'optional');
+
+// Material #55 = STICKER GREEN. Stickers/Decals (36) now maps the eight colored
+// sticker IDs; Sintraboard must still reject them.
+const stickerColors = [
+    { id: 51, name: 'STICKER BLACK' }, { id: 52, name: 'STICKER WHITE' },
+    { id: 53, name: 'STICKER RED' }, { id: 54, name: 'STICKER BLUE' },
+    { id: 55, name: 'STICKER GREEN' }, { id: 56, name: 'STICKER GOLD' },
+    { id: 57, name: 'STICKER SILVER' }, { id: 58, name: 'STICKER YELLOW' }
+];
+stickerColors.forEach(color => {
+    const mapped = picker.classifyItem({ ...color, current_stock: 12, unit_of_measure: 'ft', category_name: 'STICKER (Colored)' }, {
+        serviceId: 36, serviceType: 'Decals/Stickers (Print/Cut)', serviceLabel: 'Stickers /Decals'
+    }, stickerRules);
+    assert.strictEqual(mapped.authoritativelyMapped, true, `${color.name} (#${color.id}) is mapped for Stickers/Decals`);
+    assert.strictEqual(mapped.directSelectable, true, `${color.name} (#${color.id}) is one-click assignable`);
+    assert.strictEqual(mapped.overrideable, false, `${color.name} (#${color.id}) does not use override for mapping-policy services`);
+    const sintraBlocked = picker.classifyItem({ ...color, current_stock: 12, unit_of_measure: 'ft', category_name: 'STICKER (Colored)' }, {
+        serviceId: 71, serviceType: 'Sintraboard Standees', serviceLabel: 'Sintraboard Standees'
+    }, []);
+    assert.strictEqual(sintraBlocked.authoritativelyMapped, false, `${color.name} (#${color.id}) is not mapped for Sintraboard`);
+    assert.strictEqual(sintraBlocked.directSelectable, false, `${color.name} (#${color.id}) is not selectable for Sintraboard`);
+});
+const unmappedOther = picker.classifyItem({ id: 999, name: 'Random Supply', current_stock: 12, category_name: 'MATERIALS' }, {
+    serviceId: 36, serviceType: 'Decals/Stickers (Print/Cut)', serviceLabel: 'Stickers /Decals'
+}, stickerRules);
+assert.strictEqual(unmappedOther.selectable, false, 'Unrelated unmapped materials remain unselectable for Stickers/Decals');
+
 const canonicalSticker = picker.rankItems(stickerRuleInventory, {
     serviceId: 36, serviceType: 'Decals/Stickers (Print/Cut)'
 }, stickerRules, '');
-assert.strictEqual(byName(canonicalSticker, 'Nextjet').compatibility.ruleType, 'REQUIRED', 'canonical Decals identity resolves the required rule');
+assert.strictEqual(byName(canonicalSticker, 'Nextjet').compatibility.ruleType, 'OPTIONAL', 'canonical Decals identity resolves the mapped sticker rule');
 const validStickerAlias = picker.rankItems(stickerRuleInventory, {
     serviceId: 36, serviceType: 'Stickers /Decals'
 }, stickerRules, '');
-assert.strictEqual(byName(validStickerAlias, 'Nextjet').compatibility.ruleType, 'REQUIRED', 'known Decals alias resolves the canonical required rule');
+assert.strictEqual(byName(validStickerAlias, 'Nextjet').compatibility.ruleType, 'OPTIONAL', 'known Decals alias resolves the mapped sticker rule');
 const conflictingSticker = picker.rankItems(stickerRuleInventory, {
     serviceId: 36, serviceType: 'Poster Printing', serviceLabel: 'Poster Printing', serviceCategory: 'Print'
 }, stickerRules, '');
@@ -320,14 +419,56 @@ assert.strictEqual(byName(posterWithRules, 'Nextjet').compatibility.ruleType, 'O
 const zeroStockRequired = picker.classifyItem({ ...stickerRuleInventory[0], current_stock: 0 }, stickerRuleContext, stickerRules);
 const zeroStockOptional = picker.classifyItem({ ...stickerRuleInventory[1], current_stock: 0 }, stickerRuleContext, stickerRules);
 const zeroStockRecommended = picker.classifyItem({ id: 80, name: 'Sticker Paper', current_stock: 0, category_name: 'MATERIALS' }, stickerRuleContext, []);
-assert.strictEqual(picker.statusLabel(zeroStockRequired), 'Required · Out of stock');
-assert.strictEqual(picker.statusLabel(zeroStockOptional), 'Optional · Out of stock');
-assert.strictEqual(picker.statusLabel(zeroStockRecommended), 'Recommended · Out of stock');
+assert.strictEqual(picker.statusLabel(zeroStockRequired), 'Out of stock');
+assert.strictEqual(picker.statusLabel(zeroStockOptional), 'Out of stock');
+assert.strictEqual(picker.statusLabel(zeroStockRecommended), 'Out of stock');
 assert.strictEqual(zeroStockRequired.selectable, false, 'out-of-stock REQUIRED material remains unselectable');
 assert.strictEqual(zeroStockOptional.selectable, false, 'out-of-stock OPTIONAL material remains unselectable');
 const customOrdersSource = require('fs').readFileSync(require('path').join(__dirname, '../staff/customizations.php'), 'utf8');
 assert.match(customOrdersSource, /PrintFlowProductionMaterials\.statusLabel\(state\)/,
-    'the picker uses the shared rule-type status label, including for out-of-stock entries');
+    'the picker uses the shared stock-only status label.');
+assert.doesNotMatch(customOrdersSource, /aria-describedby="'production-material-status-/,
+    'the option button does not reference a hidden rule-classification badge.');
+assert.match(customOrdersSource, /Record only the material\(s\) actually used for this job; leave unused mapped materials unselected\./,
+    'Production Assignment tells staff to select used materials rather than every mapped row.');
+
+const assignmentRuleRows = [
+    { service_id: 67, service_type: 'Brochure', item_id: 212, rule_type: 'REQUIRED', selection_group: 'brochure_paper', selection_role: 'alternative', group_required: true },
+    { service_id: 67, service_type: 'Brochure', item_id: 211, rule_type: 'REQUIRED', selection_group: 'brochure_paper', selection_role: 'alternative', group_required: true },
+    { service_id: 64, service_type: 'Poster Printing', item_id: 212, rule_type: 'REQUIRED', selection_group: 'poster_paper', selection_role: 'alternative', group_required: true },
+    { service_id: 71, service_type: 'Sintraboard Standees', item_id: 206, rule_type: 'REQUIRED', selection_group: 'sintra_thickness', selection_role: 'alternative', group_required: true },
+    { service_id: 71, service_type: 'Sintraboard Standees', item_id: 207, rule_type: 'REQUIRED', selection_group: 'sintra_thickness', selection_role: 'alternative', group_required: true },
+    { service_id: 71, service_type: 'Sintraboard Standees', item_id: 23, rule_type: 'REQUIRED', selection_role: 'optional', group_required: false },
+    { service_id: 39, service_type: 'Plates', item_id: 1, rule_type: 'REQUIRED', selection_group: 'plate_media', selection_role: 'alternative', group_required: true },
+    { service_id: 40, service_type: 'Tarpaulin Printing', item_id: 13, rule_type: 'REQUIRED', selection_group: 'tarpaulin_roll', selection_role: 'alternative', group_required: true },
+    { service_id: 40, service_type: 'Tarpaulin Printing', item_id: 14, rule_type: 'REQUIRED', selection_group: 'tarpaulin_roll', selection_role: 'alternative', group_required: true },
+    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 18, rule_type: 'OPTIONAL', selection_group: 'sticker_media', selection_role: 'multi_optional', group_required: false },
+    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 22, rule_type: 'OPTIONAL', selection_group: 'sticker_media', selection_role: 'multi_optional', group_required: false },
+    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 20, rule_type: 'OPTIONAL', selection_group: 'sticker_media', selection_role: 'multi_optional', group_required: false },
+    { service_id: 36, service_type: 'Decals/Stickers (Print/Cut)', item_id: 21, rule_type: 'OPTIONAL', selection_group: 'sticker_media', selection_role: 'multi_optional', group_required: false }
+];
+for (const state of [
+    { tier: 'recommended', ruleType: 'REQUIRED', selectionRole: 'alternative', selectionGroup: 'brochure_paper', inStock: true },
+    { tier: 'recommended', ruleType: 'OPTIONAL', selectionRole: 'optional', inStock: true },
+    { tier: 'optional', ruleType: '', selectionRole: '', inStock: true }
+]) assert.strictEqual(picker.statusLabel(state), '', 'Required/Recommended/Optional classification badges are absent.');
+assert.strictEqual(picker.statusLabel({ tier: 'recommended', ruleType: 'REQUIRED', inStock: false }), 'Out of stock',
+    'The actionable stock failure remains visible without a rule-type badge.');
+assert.strictEqual(picker.validateAssignmentGroups(67, [212], assignmentRuleRows), '', 'One selected Brochure paper is accepted.');
+assert.strictEqual(picker.validateAssignmentGroups(67, [], assignmentRuleRows), '', 'Unused mapped Brochure papers do not block group validation.');
+assert.match(picker.validateAssignmentGroups(67, [212, 211], assignmentRuleRows), /choose only one/i, 'Both Brochure papers are still rejected together.');
+assert.strictEqual(picker.validateAssignmentGroups(71, [206, 23], assignmentRuleRows), '', 'Sintra 3mm and intentionally selected optional layer are valid together.');
+assert.strictEqual(picker.validateAssignmentGroups(71, [207], assignmentRuleRows), '', 'Sintra 5mm is accepted without requiring unused Pp.');
+assert.strictEqual(picker.validateAssignmentGroups(36, [], assignmentRuleRows), '', 'No sticker material is forced.');
+assert.strictEqual(picker.validateAssignmentGroups(36, [18, 22, 21], assignmentRuleRows), '',
+    'Nextjet, Hologram, and Matte Laminate may be assigned together for Stickers/Decals.');
+assert.strictEqual(picker.validateAssignmentGroups(36, [55, 51, 20], assignmentRuleRows.concat([
+    { service_id: 36, item_id: 55, selection_group: 'sticker_media', selection_role: 'multi_optional' },
+    { service_id: 36, item_id: 51, selection_group: 'sticker_media', selection_role: 'multi_optional' }
+])), '', 'Multiple colored stickers plus a finish may be assigned together.');
+assert.strictEqual(picker.validateAssignmentGroups(63, [], assignmentRuleRows), '', 'Mugs remains outside shared alternative validation.');
+assert.strictEqual(picker.validateAssignmentGroups(40, [13], assignmentRuleRows), '', 'One dimension-selected Tarpaulin roll is accepted.');
+assert.match(picker.validateAssignmentGroups(40, [13, 14], assignmentRuleRows), /choose only one/i, 'Multiple Tarpaulin roll widths remain prohibited.');
 
 const adminSignageRows = picker.rankItems(inventory, categoryContext('Signage', 'Custom Signage'), [], '');
 assert.strictEqual(byName(adminSignageRows, 'Sintra 3mm 32').compatibility.tier, 'recommended');

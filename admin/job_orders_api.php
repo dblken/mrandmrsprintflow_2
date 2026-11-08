@@ -81,7 +81,9 @@ require_once __DIR__ . '/../includes/job_order_summary.php';
 require_once __DIR__ . '/../includes/change_item_workflow.php';
 require_once __DIR__ . '/../includes/service_field_priority_helper.php';
 require_once __DIR__ . '/../includes/pos_set_price_helpers.php';
+require_once __DIR__ . '/../includes/pos_material_selection.php';
 require_once __DIR__ . '/../includes/job_order_list_helpers.php';
+require_once __DIR__ . '/../includes/admin_transaction_visibility.php';
 
 function jo_api_attach_change_item_rows(array &$rows): void
 {
@@ -950,6 +952,7 @@ function jo_api_material_context_for_assignment(int $orderId, ?string $orderType
     }
     $serviceType = trim((string)($job['service_type'] ?? $job['job_title'] ?? ''));
     return array_merge($context, [
+        'serviceId' => printflow_pos_material_selection_service_id_for_label($serviceType),
         'serviceType' => $serviceType,
         'serviceName' => $serviceType,
         'serviceLabel' => $serviceType !== '' ? $serviceType : 'this service',
@@ -993,7 +996,11 @@ try {
                 jo_api_json_response(['success' => false, 'error' => 'Forbidden'], 403);
             }
             require_once __DIR__ . '/../includes/staff_customization_counts.php';
-            $countRows = printflow_staff_customization_count_rows($joStaffBranch, $listSource);
+            $countRows = printflow_staff_customization_count_rows(
+                $joStaffBranch,
+                $listSource,
+                (get_user_type() ?? '') === 'Admin'
+            );
             $counts = printflow_staff_customization_bucket_counts($countRows);
             $countResponse = ['success' => true, 'data' => $counts];
             if (in_array(strtolower((string)($_GET['debug'] ?? '')), ['1', 'true', 'yes'], true)) {
@@ -1047,6 +1054,9 @@ try {
                     WHERE 1=1 AND " . printflow_order_archive_exclusion_sql('jo.order_id') . "
                       AND " . printflow_customer_exclusion_customer_scope_sql('jo.customer_id');
             $params = []; $types = '';
+            if ((get_user_type() ?? '') === 'Admin') {
+                $sql .= ' AND ' . printflow_admin_job_transaction_visible_sql('jo');
+            }
             if ($status) {
                 $sql .= " AND jo.status = ?";
                 $params[] = $status; $types .= 's';
@@ -1268,7 +1278,11 @@ try {
                     $total_cost = 0;
                     
                     foreach ($jobMats as $m) {
-                        $qty_needed = ($m['track_by_roll'] == 1) ? (float)($m['computed_required_length_ft'] ?: 0) : (float)$m['quantity'];
+                        $materialMeta = json_decode((string)($m['metadata'] ?? '{}'), true);
+                        $isManualUsage = is_array($materialMeta) && ($materialMeta['actual_usage_version'] ?? '') === 'manual_v1';
+                        $qty_needed = ($m['track_by_roll'] == 1 && !$isManualUsage)
+                            ? (float)($m['computed_required_length_ft'] ?: 0)
+                            : (float)$m['quantity'];
                         $itemStock = $stockMap[$m['item_id']] ?? 0;
                         
                         if ($itemStock <= 0) $readiness = 'MISSING';
@@ -1734,6 +1748,16 @@ try {
         case 'get_order':
             $id = (int)($_GET['id'] ?? 0);
             jo_api_require_staff_branch($joStaffBranch, $id);
+            if ((get_user_type() ?? '') === 'Admin') {
+                $visibleJob = db_query(
+                    'SELECT jo.id FROM job_orders jo WHERE jo.id = ? AND ' . printflow_admin_job_transaction_visible_sql('jo'),
+                    'i',
+                    [$id]
+                ) ?: [];
+                if ($visibleJob === []) {
+                    jo_api_json_response(['success' => false, 'message' => 'Order not found.'], 404);
+                }
+            }
             $order = JobOrderService::getOrder($id);
             if (!$order) throw new Exception("Order not found.");
             if (printflow_customer_exclusion_customer_is_active((int)($order['customer_id'] ?? 0))) {
@@ -3035,7 +3059,14 @@ try {
             $price = jo_api_parse_final_price($_POST['price'] ?? '');
             $priceOverrideConfirmed = !empty($_POST['price_override_confirmed']);
             jo_api_require_staff_branch($joStaffBranch, $id);
-            $assignmentErrors = printflow_job_production_assignment_errors($id);
+            $assignmentContext = jo_api_material_context_for_assignment($id, 'JOB');
+            $savedAssignmentRows = JobOrderService::getScopedMaterialsPublic($id, false, false);
+            $savedAssignmentIds = array_map(static fn(array $row): int => (int)($row['item_id'] ?? 0), $savedAssignmentRows);
+            $selectionErrors = printflow_production_assignment_selection_errors(
+                (int)($assignmentContext['serviceId'] ?? 0),
+                $savedAssignmentIds
+            );
+            $assignmentErrors = array_merge($selectionErrors, printflow_job_production_assignment_errors($id));
             if (!empty($assignmentErrors)) {
                 jo_api_json_response([
                     'success' => false,
@@ -3154,9 +3185,18 @@ try {
             require_once __DIR__ . '/../includes/tarpaulin_material_calculation.php';
 
             if (!$orderId || !$itemId) throw new Exception("Incomplete material data.");
-            $isVersionedTarpaulin = is_array($metadata) && function_exists('printflow_tarpaulin_is_versioned_metadata')
-                ? printflow_tarpaulin_is_versioned_metadata($metadata)
-                : (is_array($metadata) && ($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_CALCULATION_VERSION);
+            // New assignments always store staff-entered inventory-UOM usage.
+            // Ignore client-supplied legacy dimension/panel calculation metadata;
+            // historical saved rows continue to use their stored metadata during deduction.
+            foreach ([
+                'tarpaulin_calculation_version', 'tarpaulin_panel_plan', 'tarpaulin_required_linear_ft',
+                'tarpaulin_roll_width_ft', 'tarpaulin_run_length_per_piece_ft', 'computed_required_length_ft',
+                'width_ft', 'height_ft', 'finished_quantity', 'orientation',
+            ] as $calculationKey) unset($metadata[$calculationKey]);
+            foreach (['lamination_item_id', 'lamination_roll_id', 'lamination_length_ft', 'waste_length_ft'] as $derivedKey) {
+                unset($metadata[$derivedKey]);
+            }
+            $isVersionedTarpaulin = false;
             if (!is_finite($qty) || $qty <= 0) {
                 throw new Exception("Material quantity must be positive.");
             }
@@ -3194,6 +3234,19 @@ try {
             }
             $posJob = $jobRows[0] ?? null;
             $posOrderId = (int)($posJob['order_id'] ?? 0);
+            $assignmentJobId = (int)($posJob['job_id'] ?? (strtoupper((string)$orderType) === 'JOB' ? $orderId : 0));
+            if ($assignmentJobId > 0) {
+                $selectionPolicy = printflow_production_assignment_selection_registry()[(int)($materialContext['serviceId'] ?? 0)] ?? [];
+                if ($selectionPolicy !== []) {
+                    $existingAssignments = JobOrderService::getScopedMaterialsPublic($assignmentJobId, false, false);
+                    $existingAssignmentIds = array_map(static fn(array $row): int => (int)($row['item_id'] ?? 0), $existingAssignments);
+                    $groupErrors = printflow_production_assignment_selection_errors(
+                        (int)$materialContext['serviceId'],
+                        array_merge($existingAssignmentIds, [$itemId])
+                    );
+                    if ($groupErrors !== []) throw new Exception((string)reset($groupErrors));
+                }
+            }
             $posSource = strtolower(trim((string)($posJob['order_source'] ?? '')));
             $sessionMarksPos = $posOrderId > 0 && in_array(
                 $posOrderId,
@@ -3202,82 +3255,117 @@ try {
             );
             $isPosAssignment = $posJob !== null
                 && (in_array($posSource, ['pos', 'pos_draft', 'pos_merged', 'walk-in'], true) || $sessionMarksPos);
-            if (!$isVersionedTarpaulin) {
-                $quantityItem = InventoryManager::getItem($itemId);
-                if (!$quantityItem || strtoupper((string)($quantityItem['status'] ?? 'ACTIVE')) !== 'ACTIVE') {
-                    throw new Exception('The selected material is no longer active. Refresh and try again.');
-                }
-                $rawQuantity = trim((string)($_POST['quantity'] ?? ''));
-                try {
-                    $qty = printflow_pos_parse_positive_material_quantity($rawQuantity, $quantityItem);
-                } catch (InvalidArgumentException $quantityError) {
-                    throw new Exception($isPosAssignment
-                        ? 'Material quantity must match its configured unit and consumption method.'
-                        : 'Material quantity must be a positive whole number unless configured for measured linear feet.');
-                }
-                $uom = (string)($quantityItem['unit_of_measure'] ?? $uom);
+            $quantityItem = InventoryManager::getItem($itemId);
+            if (!$quantityItem || strtoupper((string)($quantityItem['status'] ?? 'ACTIVE')) !== 'ACTIVE') {
+                throw new Exception('The selected material is no longer active. Refresh and try again.');
             }
-            if ($isVersionedTarpaulin) {
-                require_once __DIR__ . '/../includes/tarpaulin_material_calculation.php';
-                $rollItem = InventoryManager::getItem($itemId);
-                $rollWidth = is_array($rollItem) ? printflow_tarpaulin_parse_nominal_width($rollItem) : 0.0;
-                $jobId = (int)($posJob['job_id'] ?? ($orderType === 'JOB' ? $orderId : 0));
-                if ($jobId <= 0) throw new Exception('The versioned Tarpaulin calculation requires a linked Tarpaulin service job.');
-                printflow_tarpaulin_assert_versioned_job($metadata, $jobId);
-                $jobDimensions = $jobId > 0
-                    ? (db_query('SELECT id, order_id, order_item_id, width_ft, height_ft, quantity FROM job_orders WHERE id = ? LIMIT 1', 'i', [$jobId])[0] ?? null)
-                    : null;
-                if ($rollWidth <= 0 || !$jobDimensions || strtoupper((string)($rollItem['status'] ?? '')) !== 'ACTIVE' || empty($rollItem['track_by_roll'])) {
-                    throw new Exception('A valid active Tarpaulin roll and linked job dimensions are required.');
+            $rawQuantity = trim((string)($_POST['quantity'] ?? ''));
+            try {
+                $qty = printflow_pos_parse_positive_material_quantity($rawQuantity, $quantityItem);
+            } catch (InvalidArgumentException $quantityError) {
+                $quantityName = trim((string)($quantityItem['name'] ?? ''));
+                $quantityUom = trim((string)($quantityItem['unit_of_measure'] ?? ''));
+                throw new Exception(
+                    ($quantityName !== '' ? $quantityName : 'Material #' . $itemId)
+                    . ' quantity must be a valid positive amount in its inventory unit'
+                    . ($quantityUom !== '' ? ' (' . $quantityUom . ')' : '')
+                    . '.'
+                );
+            }
+            // Plates blank Actual Usage cannot exceed ordered quantity (New Plate / blank-consuming types).
+            if ((int)($materialContext['serviceId'] ?? 0) === 39 && $assignmentJobId > 0) {
+                require_once __DIR__ . '/../includes/pos_plates_release_rule.php';
+                $plateCustomization = [];
+                if (!empty($materialContext['customization'][0]) && is_array($materialContext['customization'][0])) {
+                    $plateCustomization = $materialContext['customization'][0];
                 }
-                if (($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION) {
-                    $panelSelection = printflow_tarpaulin_saved_panel_selection_for_job($jobId, $jobDimensions);
-                    $submittedPanelPlan = $metadata['tarpaulin_panel_plan'] ?? null;
-                    if (!$panelSelection || (int)($panelSelection['item_id'] ?? 0) !== $itemId
-                        || (int)($panelSelection['branch_id'] ?? 0) !== (int)JobOrderService::getJobBranchIdPublic($jobId)
-                        || abs((float)($panelSelection['required_linear_ft'] ?? 0) - $qty) > 0.001
-                        || !is_array($submittedPanelPlan)
-                        || !printflow_tarpaulin_panel_plans_match($submittedPanelPlan, $panelSelection)) {
-                        throw new Exception('Set Price must preserve the current server-validated Tarpaulin panel plan and exact roll quantity.');
-                    }
-                    $qty = (float)$panelSelection['required_linear_ft'];
-                    $metadata = array_merge($metadata, [
-                        'width_ft' => (float)$panelSelection['width_ft'], 'height_ft' => (float)$panelSelection['height_ft'],
-                        'finished_quantity' => (int)$panelSelection['finished_quantity'], 'roll_width_ft' => $rollWidth,
-                        'orientation' => (string)$panelSelection['orientation'], 'run_length_per_piece_ft' => (float)$panelSelection['run_length_per_panel_ft'],
-                        'computed_required_length_ft' => $qty, 'tarpaulin_panel_plan' => $panelSelection,
-                    ]);
-                } else {
-                    $calculation = printflow_tarpaulin_calculate_linear_length(
-                        $jobDimensions['width_ft'] ?? null,
-                        $jobDimensions['height_ft'] ?? null,
-                        $jobDimensions['quantity'] ?? null,
-                        $rollWidth
+                $plateJobQtyRows = db_query(
+                    'SELECT quantity FROM job_orders WHERE id = ? LIMIT 1',
+                    'i',
+                    [$assignmentJobId]
+                ) ?: [];
+                $plateOrderQty = (int)($plateJobQtyRows[0]['quantity'] ?? 0);
+                try {
+                    printflow_pos_plates_assert_blank_usage(
+                        39,
+                        $itemId,
+                        (float)$qty,
+                        $plateOrderQty,
+                        $plateCustomization
                     );
-                    $qty = (float)$calculation['required_linear_ft'];
-                    $metadata = array_merge($metadata, [
-                        'tarpaulin_calculation_version' => PRINTFLOW_TARPAULIN_CALCULATION_VERSION,
-                        'width_ft' => $calculation['width_ft'],
-                        'height_ft' => $calculation['height_ft'],
-                        'finished_quantity' => $calculation['finished_quantity'],
-                        'roll_width_ft' => $calculation['roll_width_ft'],
-                        'orientation' => $calculation['orientation'],
-                        'run_length_per_piece_ft' => $calculation['run_length_per_piece_ft'],
-                        'computed_required_length_ft' => $calculation['required_linear_ft'],
-                    ]);
+                } catch (InvalidArgumentException $plateUsageError) {
+                    throw new Exception($plateUsageError->getMessage());
                 }
+            }
+            // Poster Printing primary sheet/pcs substrate cannot exceed ordered quantity.
+            if ((int)($materialContext['serviceId'] ?? 0) === 64 && $assignmentJobId > 0) {
+                require_once __DIR__ . '/../includes/pos_poster_release_rule.php';
+                $posterJobQtyRows = db_query(
+                    'SELECT quantity FROM job_orders WHERE id = ? LIMIT 1',
+                    'i',
+                    [$assignmentJobId]
+                ) ?: [];
+                $posterOrderQty = (int)($posterJobQtyRows[0]['quantity'] ?? 0);
+                try {
+                    printflow_pos_poster_assert_primary_usage(
+                        64,
+                        $itemId,
+                        (float)$qty,
+                        $posterOrderQty,
+                        is_array($quantityItem) ? $quantityItem : null
+                    );
+                } catch (InvalidArgumentException $posterUsageError) {
+                    throw new Exception($posterUsageError->getMessage());
+                }
+            }
+            $uom = (string)($quantityItem['unit_of_measure'] ?? $uom);
+            $startedMaterialTransaction = !printflow_db_in_transaction($conn);
+            if ($startedMaterialTransaction && !$conn->begin_transaction()) {
+                throw new JoApiPersistenceException('Unable to start the material stock validation transaction.');
+            }
+            if ($assignmentJobId <= 0) {
+                throw new Exception('A linked production job is required to validate branch material stock.');
+            }
+            $branchId = (int)(JobOrderService::getJobBranchIdPublic($assignmentJobId) ?? 0);
+            if ($branchId <= 0) throw new Exception('The order branch could not be identified for material stock validation.');
+            db_query('SELECT id FROM inv_items WHERE id = ? FOR UPDATE', 'i', [$itemId]);
+            $availableStock = (float)InventoryManager::getStockOnHandForUpdate($itemId, $branchId);
+            $jobAssignments = JobOrderService::getScopedMaterialsPublic($assignmentJobId, true, false);
+            $sameItemAssignments = array_values(array_filter($jobAssignments, static fn(array $row): bool => (int)($row['item_id'] ?? 0) === $itemId));
+            if ($sameItemAssignments !== []) {
+                $sameAssignedQty = array_sum(array_map(static fn(array $row): float => (float)($row['quantity'] ?? 0), $sameItemAssignments));
+                if (abs($sameAssignedQty - $qty) > 0.000001) {
+                    throw new Exception('This material is already assigned with a different actual quantity. Correct or remove the existing assignment before entering a new quantity.');
+                }
+            }
+            $demandByItem = [];
+            foreach ($jobAssignments as $assignedRow) {
+                $assignedId = (int)($assignedRow['item_id'] ?? 0);
+                $assignedItem = InventoryManager::getItem($assignedId);
+                if (!$assignedItem) throw new Exception('An existing assigned material is no longer available; refresh before continuing.');
+                $assignedQty = (float)($assignedRow['quantity'] ?? 0);
+                $demandByItem[$assignedId] = ($demandByItem[$assignedId] ?? 0.0) + $assignedQty;
+            }
+            if ($sameItemAssignments === []) $demandByItem[$itemId] = ($demandByItem[$itemId] ?? 0.0) + $qty;
+            foreach ($demandByItem as $demandItemId => $jobDemand) {
+                $demandItem = InventoryManager::getItem((int)$demandItemId);
+                if (!$demandItem) throw new Exception('An assigned material is no longer available; refresh before continuing.');
+                $available = (int)$demandItemId === $itemId
+                    ? $availableStock
+                    : (float)InventoryManager::getStockOnHandForUpdate((int)$demandItemId, $branchId);
+                if ($jobDemand <= $available + 0.000001) continue;
+                throw new Exception(sprintf(
+                    'Insufficient %s stock for this branch: requested %s %s; available %s %s.',
+                    (string)($demandItem['name'] ?? 'Material'),
+                    rtrim(rtrim(number_format($jobDemand, 3, '.', ''), '0'), '.'),
+                    (string)($demandItem['unit_of_measure'] ?? $uom),
+                    rtrim(rtrim(number_format($available, 3, '.', ''), '0'), '.'),
+                    (string)($demandItem['unit_of_measure'] ?? $uom)
+                ));
             }
             if ($isPosAssignment) {
                 require_once __DIR__ . '/../includes/pos_service_stock_validation.php';
-                if ($isVersionedTarpaulin) {
-                    $posMaterialQty = $qty;
-                } else {
-                    try {
-                        $posMaterialQty = printflow_pos_parse_positive_material_quantity($rawQuantity, $quantityItem);
-                    } catch (InvalidArgumentException $quantityError) {
-                        throw new Exception('POS material quantity must match its configured unit and consumption method.');
-                    }
-                }
+                $posMaterialQty = $qty;
                 $jobId = (int)$posJob['job_id'];
                 $branchId = (int)(JobOrderService::getJobBranchIdPublic($jobId) ?? 0);
                 if ($branchId <= 0) {
@@ -3300,11 +3388,33 @@ try {
                 $assignments = JobOrderService::getScopedMaterialsPublic($jobId, false, false);
                 $candidateMaterials = [];
                 foreach ($assignments as $assignment) {
+                    $assignmentItemId = (int)($assignment['item_id'] ?? 0);
+                    $assignmentItem = InventoryManager::getItem($assignmentItemId);
+                    if (!$assignmentItem || strtoupper((string)($assignmentItem['status'] ?? 'ACTIVE')) !== 'ACTIVE') {
+                        throw new Exception('An existing assigned material is no longer active. Refresh Set Price and try again.');
+                    }
+                    try {
+                        $assignmentQty = printflow_pos_parse_positive_material_quantity(
+                            $assignment['quantity'] ?? null,
+                            $assignmentItem
+                        );
+                    } catch (InvalidArgumentException $assignmentQuantityError) {
+                        $assignmentName = trim((string)($assignmentItem['name'] ?? ''));
+                        $assignmentUom = trim((string)($assignmentItem['unit_of_measure'] ?? ''));
+                        throw new Exception(
+                            ($assignmentName !== '' ? $assignmentName : 'Material #' . $assignmentItemId)
+                            . ' quantity must match its inventory unit'
+                            . ($assignmentUom !== '' ? ' (' . $assignmentUom . ')' : '')
+                            . '.'
+                        );
+                    }
                     $assignmentMetadata = $assignment['metadata'] ?? [];
                     if (is_string($assignmentMetadata)) $assignmentMetadata = json_decode($assignmentMetadata, true);
                     $candidateMaterials[] = [
-                        'item_id' => (int)($assignment['item_id'] ?? 0),
-                        'quantity' => $assignment['quantity'] ?? null,
+                        'item_id' => $assignmentItemId,
+                        // Re-canonicalize each saved row with that item's own UOM
+                        // before mixed pcs/ft POS stock validation.
+                        'quantity' => $assignmentQty,
                         'metadata' => is_array($assignmentMetadata) ? $assignmentMetadata : [],
                     ];
                 }
@@ -3314,7 +3424,11 @@ try {
                     'metadata' => is_array($metadata) ? $metadata : [],
                 ];
                 $cartLines[$targetIndex]['pos_material_assignments'] = $candidateMaterials;
-                $stockCheck = printflow_pos_validate_service_stock($cartLines, $branchId);
+                try {
+                    $stockCheck = printflow_pos_validate_service_stock($cartLines, $branchId);
+                } catch (RuntimeException $stockValidationError) {
+                    throw new Exception($stockValidationError->getMessage());
+                }
                 if (empty($stockCheck['ok'])) {
                     $issue = $stockCheck['issues'][0] ?? [];
                     $uom = trim((string)($issue['uom'] ?? ''));
@@ -3325,7 +3439,12 @@ try {
                     );
                 }
             }
+            $metadata['manual_assignment'] = true;
+            $metadata['actual_usage_version'] = 'manual_v1';
             $res = JobOrderService::addMaterial($orderId, $itemId, $qty, $uom, $rollId, $notes, $metadata, $orderType);
+            if ($startedMaterialTransaction && !$conn->commit()) {
+                throw new JoApiPersistenceException('Unable to commit the material assignment.');
+            }
             jo_api_json_response(['success' => true, 'id' => $res]);
             break;
 
@@ -3345,7 +3464,44 @@ try {
         case 'remove_material':
             $jomId = (int)($_POST['id'] ?? 0);
             if (!$jomId) throw new Exception("ID required.");
-            throw new Exception('Assigned materials cannot be removed once they have been set.');
+            jo_api_require_staff_mutation();
+            $hasStoreOrderId = db_table_has_column('job_order_materials', 'std_order_id');
+            $identitySql = 'SELECT job_order_id' . ($hasStoreOrderId ? ', std_order_id' : '')
+                . ' FROM job_order_materials WHERE id = ? LIMIT 1';
+            $assignmentIdentity = db_query($identitySql, 'i', [$jomId]) ?: [];
+            if ($assignmentIdentity === []) {
+                throw new Exception('Material assignment not found.');
+            }
+            $linkedJobId = (int)($assignmentIdentity[0]['job_order_id'] ?? 0);
+            $linkedOrderId = (int)($assignmentIdentity[0]['std_order_id'] ?? 0);
+            if ($linkedJobId > 0) {
+                $jobOrderRows = db_query('SELECT order_id, branch_id FROM job_orders WHERE id = ? LIMIT 1', 'i', [$linkedJobId]) ?: [];
+                if ($jobOrderRows === []) {
+                    throw new Exception('Production job not found.');
+                }
+                $jobOrderId = (int)($jobOrderRows[0]['order_id'] ?? 0);
+                if ($joStaffBranch !== null) {
+                    $jobBranchId = (int)($jobOrderRows[0]['branch_id'] ?? 0);
+                    $orderBranchMatches = $jobOrderId > 0 && printflow_order_in_branch($jobOrderId, $joStaffBranch);
+                    if (($jobBranchId > 0 && $jobBranchId !== $joStaffBranch && !$orderBranchMatches)
+                        || ($jobBranchId <= 0 && !$orderBranchMatches)) {
+                        throw new Exception('Unauthorized');
+                    }
+                }
+                if ($jobOrderId > 0) {
+                    jo_api_require_staff_order_branch($joStaffBranch, $jobOrderId);
+                }
+            } elseif ($linkedOrderId > 0) {
+                jo_api_require_staff_order_branch($joStaffBranch, $linkedOrderId);
+            } else {
+                throw new JoApiConflictException('This assignment is not linked to an order or production job and cannot be corrected safely.');
+            }
+            try {
+                JobOrderService::removeMaterial($jomId, (int)get_user_id(), $linkedJobId, $linkedJobId > 0 ? null : $linkedOrderId);
+            } catch (DomainException $safeBlock) {
+                throw new JoApiConflictException($safeBlock->getMessage());
+            }
+            jo_api_json_response(['success' => true, 'message' => 'Undeducted material assignment removed and correction audit recorded.']);
             break;
 
         case 'change_item_create':

@@ -12,6 +12,7 @@ require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/product_pricing.php';
 require_once __DIR__ . '/../includes/product_stock_status.php';
 require_once __DIR__ . '/../includes/product_catalog_groups.php';
 require_once __DIR__ . '/../includes/product_order_notice.php';
@@ -515,7 +516,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $order_notice_result = printflow_product_order_notice_clean($_POST['order_information_notice'] ?? '');
         $order_information_notice = $order_notice_result['value'];
         $order_information_notice_enabled = isset($_POST['order_information_notice_enabled']) ? 1 : 0;
-        $price = (float)($_POST['price'] ?? 0);
+        $priceInput = $_POST['price'] ?? null;
+        $priceValidation = printflow_product_validate_admin_price($priceInput, 'base');
+        $price = (float)($priceValidation['stored'] ?? 0);
         $stock_quantity = (int)($_POST['stock_quantity'] ?? 0);
         $thresholds = printflow_product_thresholds_from_post($stock_quantity);
         $low_stock_level = $thresholds['reorder'];
@@ -534,8 +537,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Description must not exceed 500 characters.';
         } elseif (!$order_notice_result['ok']) {
             $error = $order_notice_result['message'];
-        } elseif ($price < 1.00 || $price > 1000000) {
-            $error = $price <= 0 ? 'Price is required and must be greater than 0.' : 'Price must be between ₱1.00 and ₱1,000,000.00.';
+        } elseif (!$priceValidation['ok']) {
+            $error = $priceValidation['message'];
         } elseif ($stock_quantity < 0) {
             $error = 'Quantity must be a non-negative whole number.';
         } elseif ($thresholdErr = printflow_validate_item_thresholds((float)$low_stock_level, (float)$critical_level)) {
@@ -990,7 +993,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $order_notice_result = printflow_product_order_notice_clean($_POST['order_information_notice'] ?? '');
         $order_information_notice = $order_notice_result['value'];
         $order_information_notice_enabled = isset($_POST['order_information_notice_enabled']) ? 1 : 0;
-        $price = (float)($_POST['price'] ?? 0);
+        $priceInput = $_POST['price'] ?? null;
+        if (is_string($priceInput) && strcasecmp(trim($priceInput), 'N/A') === 0) {
+            $priceInput = null;
+        }
+        $pricingConfig = printflow_product_catalog_display_price($product_id, $priceInput);
+        $priceMode = in_array((string)($pricingConfig['mode'] ?? ''), ['base', 'option', 'variant'], true)
+            ? (string)$pricingConfig['mode']
+            : 'invalid';
+        $priceValidation = ($priceMode === 'invalid' || ($priceMode !== 'base' && empty($pricingConfig['ok'])))
+            ? ['ok' => false, 'stored' => null, 'message' => 'Product option pricing must be corrected before saving.']
+            : printflow_product_validate_admin_price($priceInput, $priceMode === 'base' ? 'base' : 'option');
+        $price = (float)($priceValidation['stored'] ?? 0);
+        if ($priceValidation['ok'] && $priceMode !== 'base' && ($priceInput === null || trim((string)$priceInput) === '')) {
+            // A blank option-mode field means no base-price edit; retain the stored value.
+            $existingPriceRows = db_query(
+                "SELECT price FROM products WHERE product_id = ? AND status != 'Archived' LIMIT 1",
+                'i',
+                [$product_id]
+            ) ?: [];
+            if (!empty($existingPriceRows)) {
+                $price = (float)$existingPriceRows[0]['price'];
+            }
+        }
         $posted_stock_quantity = max(0, (int)($_POST['stock_quantity'] ?? 0));
         $thresholds = printflow_product_thresholds_from_post($posted_stock_quantity);
         $low_stock_level = $thresholds['reorder'];
@@ -1011,8 +1036,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Description must not exceed 500 characters.';
         } elseif (!$order_notice_result['ok']) {
             $error = $order_notice_result['message'];
-        } elseif ($price < 1.00 || $price > 1000000) {
-            $error = $price <= 0 ? 'Price is required and must be greater than 0.' : 'Price must be between ₱1.00 and ₱1,000,000.00.';
+        } elseif (!$priceValidation['ok']) {
+            $error = $priceValidation['message'];
         } elseif ($posted_stock_quantity > 99999) {
             $error = 'Stock quantity must not exceed 5 digits.';
         } elseif ($thresholdErr = printflow_validate_item_thresholds((float)$low_stock_level, (float)$critical_level)) {
@@ -1204,22 +1229,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = $res['message'] ?? 'Could not remove product from group.';
         }
     }
-} elseif (isset($_POST['archive_product'])) {
-    if ($is_manager) {
-        $error = 'Only administrators can archive products.';
-    } else {
-    $product_id = (int)$_POST['product_id'];
-    db_execute("UPDATE products SET status = 'Archived', updated_at = NOW() WHERE product_id = ?", 'i', [$product_id]);
-    $success = 'Product archived successfully!';
-    }
-} elseif (isset($_POST['restore_product'])) {
-    if ($is_manager) {
-        $error = 'Only administrators can restore products.';
-    } else {
-    $product_id = (int)$_POST['product_id'];
-    db_execute("UPDATE products SET status = 'Activated', updated_at = NOW() WHERE product_id = ?", 'i', [$product_id]);
-    $success = 'Product restored successfully!';
-    }
+} elseif (isset($_POST['archive_product']) || isset($_POST['restore_product'])) {
+    $error = 'Product archive and restore controls have been removed. Existing product records were not changed.';
 } elseif (isset($_POST['recover_system_deleted_product'])) {
     if ($is_manager) {
         $error = 'Only administrators can recover deleted product placeholders.';
@@ -1348,38 +1359,13 @@ if (isset($_GET['reset_product_thresholds']) && $_SERVER['REQUEST_METHOD'] === '
     exit;
 }
 
-// Handle AJAX for Archive Storage Modal
 if (isset($_GET['get_archived'])) {
-    header('Content-Type: application/json');
-    if ($is_manager) {
-        echo json_encode(['success' => false, 'html' => '<p style="padding:24px;text-align:center;color:#9ca3af;">Archived items are only available to administrators.</p>']);
-        exit;
-    }
-    $archived = db_query("SELECT * FROM products WHERE status = 'Archived' ORDER BY updated_at DESC");
-    
-    $html = '<table class="orders-table" style="width:100%;">';
-    $html .= '<thead><tr><th>SKU</th><th>Name</th><th>Category</th><th style="text-align:right;">Actions</th></tr></thead>';
-    $html .= '<tbody>';
-    
-    if (empty($archived)) {
-        $html .= '<tr><td colspan="4" style="padding:40px;text-align:center;color:#9ca3af;">No archived products found.</td></tr>';
-    } else {
-        foreach ($archived as $p) {
-            $html .= '<tr>';
-            $html .= '<td>' . htmlspecialchars($p['sku'] ?? '—') . '</td>';
-            $html .= '<td style="font-weight:500; max-width:300px; word-break: break-word; overflow-wrap: anywhere;">' . htmlspecialchars($p['name']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($p['category'] ?? '—') . '</td>';
-            $html .= '<td style="text-align:right;white-space:nowrap;">';
-            $html .= '<form method="POST" class="inline product-status-form" data-pf-skip-guard style="display:inline-block;margin-right:4px;" data-action="Restore" data-product-name="' . htmlspecialchars($p['name'], ENT_QUOTES) . '" onsubmit="showProductStatusModal(event, this);return false;">';
-            $html .= csrf_field();
-            $html .= '<input type="hidden" name="product_id" value="' . $p['product_id'] . '">';
-            $html .= '<button type="submit" name="restore_product" class="btn-action teal">Restore</button></form>';
-            $html .= '</td></tr>';
-        }
-    }
-    $html .= '</tbody></table>';
-    
-    echo json_encode(['success' => true, 'html' => $html]);
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(410);
+    echo json_encode([
+        'success' => false,
+        'message' => 'The product archive storage view has been removed. Existing product records were not changed.',
+    ]);
     exit;
 }
 
@@ -1528,6 +1514,7 @@ $order_clause = match($sort_by) {
 };
 $sql .= " ORDER BY $order_clause LIMIT $per_page OFFSET $offset";
 $products = db_query($sql, $types ?: null, $params ?: null) ?: [];
+$catalogPricingMap = printflow_product_catalog_display_price_map($products);
 
 $catalog_member_map = [];
 foreach (db_query("SELECT product_id, group_id FROM product_catalog_group_members") ?: [] as $cm) {
@@ -1543,6 +1530,10 @@ $product_notice_picker = db_query(
 ) ?: [];
 
 foreach ($products as &$pfProduct) {
+    $pricingDisplay = $catalogPricingMap[(int)($pfProduct['product_id'] ?? 0)] ?? ['ok' => false, 'mode' => 'invalid'];
+    $pfProduct['has_option_pricing'] = !empty($pricingDisplay['ok'])
+        && in_array((string)($pricingDisplay['mode'] ?? ''), ['option', 'variant'], true);
+    $pfProduct['pricing_mode'] = (string)($pricingDisplay['mode'] ?? 'invalid');
     $effectiveStock = printflow_get_branch_product_stock(
         (int)($pfProduct['product_id'] ?? 0),
         $product_stock_branch_id > 0 ? $product_stock_branch_id : 1
@@ -1633,7 +1624,7 @@ if (isset($_GET['ajax'])) {
                         <td class="product-sku-cell"><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
                         <td style="font-weight:500;color:#1f2937;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($product['name']); ?></td>
                         <td><?php echo htmlspecialchars($product['category'] ?? '—'); ?></td>
-                        <td style="font-weight:600;color:#1f2937;white-space:nowrap;">₱<?php echo number_format($product['price'], 2); ?></td>
+                        <td style="font-weight:600;color:#1f2937;white-space:nowrap;"><?php echo !empty($product['has_option_pricing']) ? 'Option-based' : '₱' . number_format((float)$product['price'], 2); ?></td>
                         <td>
                             <span style="font-weight:<?php echo $isAlertStock ? 'bold' : '400'; ?>;color:<?php echo $qtyColor; ?>;"><?php echo $product['stock_quantity']; ?></span>
                         </td>
@@ -1655,8 +1646,7 @@ if (isset($_GET['ajax'])) {
                                     <button type="submit" name="recover_system_deleted_product" class="btn-action teal">Auto Recover</button>
                                 </form>
                             <?php endif; ?>
-                            <?php if (!$is_manager): ?>
-                            <?php if ($product['status'] !== 'Archived'): ?>
+                            <?php if (!$is_manager && $product['status'] !== 'Archived'): ?>
                                 <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="<?php echo $product['status'] === 'Activated' ? 'Deactivate' : 'Activate'; ?>" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
                                     <?php echo csrf_field(); ?>
                                     <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
@@ -1664,20 +1654,6 @@ if (isset($_GET['ajax'])) {
                                         <?php echo $product['status'] === 'Activated' ? 'Deactivate' : 'Activate'; ?>
                                     </button>
                                 </form>
-                                <?php if ($product['status'] === 'Deactivated'): ?>
-                                    <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Archive" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
-                                        <?php echo csrf_field(); ?>
-                                        <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
-                                        <button type="submit" name="archive_product" class="btn-action gray">Archive</button>
-                                    </form>
-                                <?php endif; ?>
-                            <?php else: ?>
-                                <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Restore" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
-                                    <?php echo csrf_field(); ?>
-                                    <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
-                                    <button type="submit" name="restore_product" class="btn-action teal">Restore</button>
-                                </form>
-                            <?php endif; ?>
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -2971,16 +2947,7 @@ if (isset($_GET['ajax'])) {
                     <div style="display:flex; align-items:center; gap:8px;">
                         <?php if (!$is_manager): ?>
                         <button class="toolbar-btn" type="button" onclick="openProductModal('create')" style="height:38px; border-color:#3b82f6; color:#3b82f6;">Add Item</button>
-                        <?php if ($is_admin): ?>
-                        <button class="toolbar-btn" type="button" id="btn-clear-archived-expired-orders" style="height:38px; border-color:#b91c1c; color:#b91c1c;">Clear Archived Expired Orders</button>
-                        <?php endif; ?>
                         <button class="toolbar-btn" type="button" onclick="openCatalogGroupCreate()" style="height:38px; border-color:#0d9488; color:#0d9488;">Create Group</button>
-                        <button class="toolbar-btn" type="button" onclick="window.openArchiveModal()" style="height:38px; border-color:#6b7280; color:#6b7280; display:flex; align-items:center; gap:6px;">
-                            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
-                            </svg>
-                            Archived Items
-                        </button>
                         <?php endif; ?>
 
                         <!-- Sort Button -->
@@ -3182,8 +3149,7 @@ if (isset($_GET['ajax'])) {
                                                     <button type="submit" name="recover_system_deleted_product" class="btn-action teal">Auto Recover</button>
                                                 </form>
                                             <?php endif; ?>
-                                            <?php if (!$is_manager): ?>
-                                            <?php if ($product['status'] !== 'Archived'): ?>
+                                            <?php if (!$is_manager && $product['status'] !== 'Archived'): ?>
                                                 <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="<?php echo $product['status'] === 'Activated' ? 'Deactivate' : 'Activate'; ?>" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
                                                     <?php echo csrf_field(); ?>
                                                     <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
@@ -3191,20 +3157,6 @@ if (isset($_GET['ajax'])) {
                                                         <?php echo $product['status'] === 'Activated' ? 'Deactivate' : 'Activate'; ?>
                                                     </button>
                                                 </form>
-                                                <?php if ($product['status'] === 'Deactivated'): ?>
-                                                    <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Archive" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
-                                                        <?php echo csrf_field(); ?>
-                                                        <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
-                                                        <button type="submit" name="archive_product" class="btn-action gray">Archive</button>
-                                                    </form>
-                                                <?php endif; ?>
-                                            <?php else: ?>
-                                                <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Restore" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
-                                                    <?php echo csrf_field(); ?>
-                                                    <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
-                                                    <button type="submit" name="restore_product" class="btn-action teal">Restore</button>
-                                                </form>
-                                            <?php endif; ?>
                                             <?php endif; ?>
                                         </td>
                                     </tr>
@@ -3662,8 +3614,8 @@ if (isset($_GET['ajax'])) {
                         <small style="display:block;margin-top:4px;color:#6b7280;">Customer catalog only — POS is unchanged.</small>
                     </div>
                     <div class="form-group" id="fg-price">
-                        <label for="modal-price">Price (₱) <span style="color:red">*</span></label>
-                        <input type="number" id="modal-price" name="price" step="0.01" min="0.01" placeholder="0.00">
+                        <label for="modal-price" id="modal-price-label">Price (₱) <span style="color:red">*</span></label>
+                        <input type="text" inputmode="decimal" id="modal-price" name="price" placeholder="0.00">
                         <span id="err-price" class="field-error"></span>
                     </div>
                 </div>
@@ -3957,35 +3909,6 @@ if (isset($_GET['ajax'])) {
 </div>
 <?php endif; ?>
 
-<!-- Archived Items Modal (z-index above status modal 10000, logout 9999, pf-fg portal 10030+) -->
-<div id="archive-storage-overlay" role="dialog" aria-modal="true" aria-labelledby="archive-storage-title" onclick="if (event.target === this) window.closeArchiveModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10090;align-items:center;justify-content:center;padding:16px;pointer-events:auto;">
-    <div id="archive-storage-modal" onclick="event.stopPropagation()" style="background:white;border-radius:16px;width:100%;max-width:900px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 25px 50px rgba(0,0,0,0.25);pointer-events:auto;">
-        <div class="modal-header" style="padding:20px 24px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
-            <div>
-                <h3 id="archive-storage-title" style="font-size:18px;font-weight:700;color:#1f2937;margin:0;">Archived Items</h3>
-                <p style="font-size:12px;color:#6b7280;margin:0;">Manage archived products here.</p>
-            </div>
-            <button type="button" onclick="window.closeArchiveModal()" style="background:none;border:none;cursor:pointer;color:#9ca3af;padding:4px;line-height:1;">
-                <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                </svg>
-            </button>
-        </div>
-        <div class="modal-body" style="padding:0;overflow-y:auto;flex:1;">
-            <div id="archived-products-container" style="min-height:200px;padding:24px;">
-                <!-- Content loaded via AJAX -->
-                <div style="padding:60px;text-align:center;color:#9ca3af;">
-                    <div class="spinner" style="margin:0 auto 12px;"></div>
-                    <p>Loading archived products...</p>
-                </div>
-            </div>
-            <div style="padding:16px 24px 24px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;">
-                <button type="button" class="btn-secondary" onclick="window.closeArchiveModal()">Close</button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <script>
 window.PF_PRODUCTS_IS_MANAGER = <?php echo $is_manager ? 'true' : 'false'; ?>;
 window.PF_PRODUCT_CATEGORY_ALLOWLIST = <?php echo json_encode(printflow_product_modal_categories(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
@@ -4273,6 +4196,16 @@ function pfSetProductModalEditMode(isEdit) {
     if (resetRow) resetRow.style.display = isEdit ? 'block' : 'none';
     if (editHint) editHint.style.display = isEdit ? 'block' : 'none';
     if (statusRow) statusRow.style.display = isEdit ? 'grid' : 'none';
+}
+
+function pfSetProductModalPriceMode(optionBased) {
+    var input = document.getElementById('modal-price');
+    var label = document.getElementById('modal-price-label');
+    if (!input || !label) return;
+    input.dataset.priceOptional = optionBased ? '1' : '0';
+    if (optionBased) input.value = '';
+    input.placeholder = optionBased ? 'Optional for option-based pricing' : '0.00';
+    label.innerHTML = 'Price (₱)' + (optionBased ? ' <span style="font-weight:500;color:#6b7280">(optional — option prices apply)</span>' : ' <span style="color:red">*</span>');
 }
 
 window.pfOpenProductFields = function pfOpenProductFields() {
@@ -4732,6 +4665,7 @@ window.openProductModal = function openProductModal(mode, product) {
     var pti = document.getElementById('modal-photo');
     if (pti) pti.disabled = false;
     form.reset();
+    pfSetProductModalPriceMode(false);
     pfRefreshModalBarcodePreview();
     var catSelPfInit = document.getElementById('modal-category');
     if (catSelPfInit) catSelPfInit.querySelectorAll('option[data-pf-legacy-cat]').forEach(function(o) { o.remove(); });
@@ -4798,6 +4732,7 @@ window.openProductModal = function openProductModal(mode, product) {
             }
             var priceEl = document.getElementById('modal-price');
             if (priceEl) priceEl.value = product.price != null ? String(product.price) : '';
+            pfSetProductModalPriceMode(product.has_option_pricing === true || String(product.has_option_pricing) === '1');
             var descEl = document.getElementById('modal-description');
             if (descEl) descEl.value = product.description || '';
             var orderNoticeEl = document.getElementById('modal-order-information-notice');
@@ -4833,6 +4768,7 @@ window.openProductModal = function openProductModal(mode, product) {
             }
         }
     } else {
+        pfSetProductModalPriceMode(false);
         if (title) title.textContent = 'Add New Product';
         pfRefreshModalBarcodePreview();
         if (modeInput) { modeInput.name = 'create_product'; modeInput.value = '1'; }
@@ -4919,8 +4855,7 @@ function closeProductModal() {
     if (pti) pti.disabled = false;
     var overlay = document.getElementById('product-modal-overlay');
     if (overlay) overlay.classList.remove('active');
-    if (document.getElementById('archive-storage-overlay')?.style.display !== 'flex' &&
-        document.getElementById('productStatusConfirmModal')?.style.display !== 'flex') {
+    if (document.getElementById('productStatusConfirmModal')?.style.display !== 'flex') {
         document.body.style.overflow = '';
     }
     var submitBtn = pfGetProductModalSubmitBtn();
@@ -5020,7 +4955,7 @@ function openViewModal(product) {
     var priceEl = document.getElementById('view-product-price');
     if (priceEl) {
         var p = parseFloat(product.price);
-        priceEl.textContent = isNaN(p) ? '—' : '₱' + p.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        priceEl.textContent = String(product.has_option_pricing) === '1' ? 'Option-based pricing' : (isNaN(p) ? '—' : '₱' + p.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
     }
     var ssEl = document.getElementById('view-product-stock-status');
     if (ssEl) {
@@ -5079,7 +5014,6 @@ function closeViewModal() {
     var vOverlay = document.getElementById('view-product-modal-overlay');
     if (vOverlay) vOverlay.classList.remove('active');
     if (document.getElementById('product-modal-overlay')?.classList.contains('active')) return;
-    if (document.getElementById('archive-storage-overlay')?.style.display === 'flex') return;
     if (document.getElementById('productStatusConfirmModal')?.style.display === 'flex') return;
     document.body.style.overflow = '';
 }
@@ -5096,7 +5030,6 @@ function showProductStatusModal(event, form) {
     var btn = form.querySelector('button[type="submit"]');
     _productStatusButtonName = btn ? btn.getAttribute('name') : null;
 
-    if (typeof window.closeArchiveModal === 'function') window.closeArchiveModal();
     closeProductModal();
     closeViewModal();
 
@@ -5110,8 +5043,6 @@ function showProductStatusModal(event, form) {
     var msg = '';
     if (action === 'Deactivate') msg = 'This product will be hidden from customers until activated again.';
     else if (action === 'Activate') msg = 'This product will be visible to customers again.';
-    else if (action === 'Archive') msg = 'The product moves to archive storage; you can restore it later.';
-    else if (action === 'Restore') msg = 'The product returns to the main list as Active.';
     else if (action === 'Delete Permanently') msg = 'This cannot be undone.';
     if (infoEl) infoEl.textContent = msg;
 
@@ -5132,11 +5063,6 @@ function closeProductStatusModal() {
 
 document.addEventListener('keydown', function(e) {
     if (e.key !== 'Escape') return;
-    var archiveOv = document.getElementById('archive-storage-overlay');
-    if (archiveOv && archiveOv.style.display === 'flex') {
-        if (typeof window.closeArchiveModal === 'function') window.closeArchiveModal();
-        return;
-    }
     var statusM = document.getElementById('productStatusConfirmModal');
     if (statusM && statusM.style.display === 'flex') {
         closeProductStatusModal();
@@ -5145,38 +5071,6 @@ document.addEventListener('keydown', function(e) {
     closeProductModal();
     closeViewModal();
 });
-
-// Archive Modal Functions (on window for Turbo + inline onclick)
-window.openArchiveModal = function openArchiveModal() {
-    var el = document.getElementById('archive-storage-overlay');
-    if (!el) return;
-    el.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
-    fetchArchivedProducts();
-};
-
-window.closeArchiveModal = function closeArchiveModal() {
-    var el = document.getElementById('archive-storage-overlay');
-    if (el) el.style.display = 'none';
-    document.body.style.overflow = '';
-};
-
-function fetchArchivedProducts() {
-    const container = document.getElementById('archived-products-container');
-    fetch('?get_archived=1')
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                container.innerHTML = data.html;
-            } else {
-                container.innerHTML = '<div style="padding:40px;text-align:center;color:#ef4444;">Failed to load archived products.</div>';
-            }
-        })
-        .catch(err => {
-            console.error(err);
-            container.innerHTML = '<div style="padding:40px;text-align:center;color:#ef4444;">Error loading archived products.</div>';
-        });
-}
 
 function printflowInitProductsPage() {
     /* Alpine tree: Alpine.start / turbo-init initTree(.main-content). Never initTree nested #productsTableContainer or filterPanel here. */
@@ -5413,148 +5307,6 @@ function printflowInitProductsPage() {
         modal.addEventListener('click', function(e) { if (e.target === modal) closeProductStatusModal(); });
     }
 
-    printflowInitClearArchivedExpiredOrders();
-}
-
-function printflowShowAdminFlash(message, isError) {
-    var el = document.getElementById('pfAdminFlashBanner');
-    if (!el) {
-        el = document.createElement('div');
-        el.id = 'pfAdminFlashBanner';
-        el.setAttribute('role', 'status');
-        el.style.cssText = 'position:fixed;top:16px;right:16px;z-index:10060;max-width:420px;padding:14px 18px;border-radius:12px;font-size:14px;font-weight:600;box-shadow:0 12px 30px rgba(15,23,42,.15);';
-        document.body.appendChild(el);
-    }
-    el.style.background = isError ? '#fef2f2' : '#ecfdf5';
-    el.style.color = isError ? '#b91c1c' : '#047857';
-    el.style.border = isError ? '1px solid #fecaca' : '1px solid #a7f3d0';
-    el.textContent = message;
-    el.style.display = 'block';
-    clearTimeout(el._pf_hide_timer);
-    el._pf_hide_timer = setTimeout(function() { el.style.display = 'none'; }, 6000);
-}
-
-function printflowInitClearArchivedExpiredOrders() {
-    var btn = document.getElementById('btn-clear-archived-expired-orders');
-    var modal = document.getElementById('clearArchivedExpiredModal');
-    var countEl = document.getElementById('clearArchivedExpiredCount');
-    var cancelBtn = document.getElementById('clearArchivedExpiredCancel');
-    var confirmBtn = document.getElementById('clearArchivedExpiredConfirm');
-    if (!btn || !modal) {
-        return;
-    }
-    if (btn._pf_clear_archived_bound) {
-        return;
-    }
-    btn._pf_clear_archived_bound = true;
-
-    var basePath = <?php echo json_encode($base_path, JSON_UNESCAPED_SLASHES); ?>;
-    var deleteInFlight = false;
-
-    function csrfToken() {
-        return window.PF_PRODUCTS_CSRF
-            || document.querySelector('input[name="csrf_token"]')?.value
-            || '';
-    }
-
-    function openModal() {
-        modal.classList.add('open');
-        modal.setAttribute('aria-hidden', 'false');
-        document.body.style.overflow = 'hidden';
-    }
-    function closeModal() {
-        modal.classList.remove('open');
-        modal.setAttribute('aria-hidden', 'true');
-        document.body.style.overflow = '';
-    }
-
-    btn.addEventListener('click', async function() {
-        try {
-            var res = await fetch(basePath + '/admin/api/clear_archived_expired_product_orders.php?action=count', {
-                credentials: 'same-origin',
-                cache: 'no-store',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
-            var raw = await res.text();
-            var data;
-            try {
-                data = JSON.parse(raw);
-            } catch (e) {
-                console.error('[Clear Archived] count non-JSON', res.status, raw.slice(0, 400));
-                printflowShowAdminFlash('Could not load archived order count.', true);
-                return;
-            }
-            if (!res.ok || !data.success) {
-                printflowShowAdminFlash(data.message || 'Could not load archived order count.', true);
-                if (data.debug) console.info('[Clear Archived] debug', data.debug);
-                return;
-            }
-            if (countEl) countEl.textContent = String(data.eligible_count ?? 0);
-            if (data.debug) console.info('[Clear Archived] debug', data.debug);
-            openModal();
-        } catch (e) {
-            console.error('[Clear Archived] count fetch failed', e);
-            printflowShowAdminFlash('Could not load archived order count.', true);
-        }
-    });
-
-    if (cancelBtn && !cancelBtn._pf_clear_archived_bound) {
-        cancelBtn._pf_clear_archived_bound = true;
-        cancelBtn.addEventListener('click', closeModal);
-    }
-    if (!modal._pf_clear_archived_bound) {
-        modal._pf_clear_archived_bound = true;
-        modal.addEventListener('click', function(e) {
-            if (e.target === modal || e.target.classList.contains('clear-archived-expired-backdrop')) {
-                closeModal();
-            }
-        });
-    }
-
-    if (confirmBtn && !confirmBtn._pf_clear_archived_bound) {
-        confirmBtn._pf_clear_archived_bound = true;
-        confirmBtn.addEventListener('click', async function() {
-            if (deleteInFlight) return;
-            deleteInFlight = true;
-            confirmBtn.disabled = true;
-            try {
-                var res = await fetch(basePath + '/admin/api/clear_archived_expired_product_orders.php?action=delete', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    cache: 'no-store',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest'
-                    },
-                    body: JSON.stringify({ csrf_token: csrfToken(), action: 'delete' })
-                });
-                var raw = await res.text();
-                var data;
-                try {
-                    data = JSON.parse(raw);
-                } catch (e) {
-                    console.error('[Clear Archived] delete non-JSON', res.status, raw.slice(0, 400));
-                    printflowShowAdminFlash('Delete request failed (invalid response).', true);
-                    return;
-                }
-                if (!res.ok || !data.success) {
-                    printflowShowAdminFlash(data.message || 'Delete failed.', true);
-                    if (data.debug) console.info('[Clear Archived] debug', data.debug);
-                    return;
-                }
-                printflowShowAdminFlash(data.message || 'Deleted.', false);
-                if (countEl) countEl.textContent = String(data.eligible_count ?? 0);
-                if (data.debug) console.info('[Clear Archived] debug', data.debug);
-                closeModal();
-            } catch (e) {
-                console.error('[Clear Archived] delete failed', e);
-                printflowShowAdminFlash('Delete request failed.', true);
-            } finally {
-                deleteInFlight = false;
-                confirmBtn.disabled = false;
-            }
-        });
-    }
 }
 
 if (document.readyState === 'loading') {
@@ -5564,44 +5316,7 @@ if (document.readyState === 'loading') {
 }
 document.addEventListener('printflow:page-init', printflowInitProductsPage);
 </script>
-<script src="<?php echo $base_path; ?>/public/assets/js/product-form-validation.js?v=2.4"></script>
-
-<?php if ($is_admin): ?>
-<style>
-#clearArchivedExpiredModal {
-    position: fixed; inset: 0; z-index: 10050;
-    display: none; align-items: center; justify-content: center;
-    padding: 20px; pointer-events: none;
-}
-#clearArchivedExpiredModal.open {
-    display: flex; pointer-events: auto;
-}
-#clearArchivedExpiredModal .clear-archived-expired-backdrop {
-    position: absolute; inset: 0; background: rgba(15, 23, 42, 0.45);
-}
-#clearArchivedExpiredModal .clear-archived-expired-panel {
-    position: relative; z-index: 1;
-    max-width: 480px; width: 92%;
-    background: #fff; border-radius: 16px; padding: 24px;
-    box-shadow: 0 25px 50px rgba(15, 23, 42, 0.2);
-}
-</style>
-<div id="clearArchivedExpiredModal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="clearArchivedExpiredTitle">
-    <div class="clear-archived-expired-backdrop" aria-hidden="true"></div>
-    <div class="clear-archived-expired-panel">
-        <h3 id="clearArchivedExpiredTitle" style="margin:0 0 12px;font-size:18px;font-weight:800;color:#0f172a;">Clear Archived Expired Orders</h3>
-        <p style="margin:0 0 12px;font-size:14px;color:#374151;line-height:1.5;">
-            This will permanently delete <strong id="clearArchivedExpiredCount">0</strong> eligible archived expired product order(s).
-            Paid, completed, recovered, and valid orders are never included.
-        </p>
-        <p style="margin:0 0 20px;font-size:13px;color:#b91c1c;font-weight:600;">This action cannot be undone.</p>
-        <div style="display:flex;gap:10px;justify-content:flex-end;">
-            <button type="button" class="toolbar-btn" id="clearArchivedExpiredCancel">Cancel</button>
-            <button type="button" class="toolbar-btn" id="clearArchivedExpiredConfirm" style="background:#b91c1c;color:#fff;border-color:#b91c1c;">Confirm Delete</button>
-        </div>
-    </div>
-</div>
-<?php endif; ?>
+<script src="<?php echo $base_path; ?>/public/assets/js/product-form-validation.js?v=<?php echo (int)(@filemtime(__DIR__ . '/../public/assets/js/product-form-validation.js') ?: 1); ?>"></script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>
 </body>

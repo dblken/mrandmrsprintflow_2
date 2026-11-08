@@ -1359,6 +1359,27 @@ if (!function_exists('pf_order_ui_is_product_item')) {
     function pf_order_ui_is_product_item(array $item, bool $is_cart_item = false): bool {
         if (!$is_cart_item) {
             $custom = printflow_decode_modal_customization_payload($item['customization_data'] ?? []);
+            $item_type = strtolower(trim((string)($item['item_type'] ?? $item['type'] ?? '')));
+            $source_page = strtolower(trim((string)($custom['source_page'] ?? $item['source_page'] ?? '')));
+            $source = strtolower(trim((string)($custom['source'] ?? '')));
+            $service_id = (int)($item['service_id'] ?? $custom['service_id'] ?? 0);
+
+            if (in_array($source_page, ['products', 'product'], true)
+                && !in_array($source, ['service', 'services', 'pos'], true)) {
+                return true;
+            }
+            if (in_array($item_type, ['service', 'custom_service'], true)
+                || in_array($source_page, ['service', 'services'], true)
+                || in_array($source, ['service', 'services', 'pos'], true)
+                || $service_id > 0) {
+                return false;
+            }
+            if (in_array($item_type, ['product', 'catalog_product'], true)
+                && empty($custom['service_type'])
+                && (!function_exists('printflow_order_item_has_service_marker')
+                    || !printflow_order_item_has_service_marker($custom))) {
+                return true;
+            }
             return empty($custom['service_type']);
         }
 

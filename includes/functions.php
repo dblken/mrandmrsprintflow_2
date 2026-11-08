@@ -4690,6 +4690,39 @@ function printflow_pick_primary_service_from_summaries(array $itemsOut, array $f
 }
 
 /**
+ * Older checkout rows can have a service_type customization label that made
+ * the line-tagging helper persist item_type=service even though the customer
+ * checked out a catalog product. The persisted Products-page source plus the
+ * line's product FK safely recovers that source, including multi-item orders.
+ */
+function printflow_order_line_is_verified_catalog_product_source(array $order, array $item, array $custom = []): bool {
+    if (strtolower(trim((string)($order['order_type'] ?? ''))) !== 'product') {
+        return false;
+    }
+
+    if ($custom === []) {
+        $custom = printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
+    }
+    if (!is_array($custom)) {
+        $custom = [];
+    }
+
+    $sourcePage = strtolower(trim((string)($custom['source_page'] ?? $item['source_page'] ?? '')));
+    $source = strtolower(trim((string)($custom['source'] ?? '')));
+    if (!in_array($sourcePage, ['products', 'product'], true)
+        || in_array($source, ['service', 'services', 'pos'], true)) {
+        return false;
+    }
+
+    $productId = (int)($item['product_id'] ?? 0);
+    if ($productId <= 0) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
  * Resolve the immutable source of an order line without probing an overlapping
  * products.product_id as a services.service_id. New rows use item_type and
  * service_id; legacy rows are classified from their stored checkout metadata.
@@ -4711,6 +4744,19 @@ function printflow_resolve_order_line_identity(array $order, array $item, array 
     $catalogProduct = customer_orders_custom_order_is_catalog_product($custom);
 
     $customServiceType = trim((string)($custom['service_type'] ?? ''));
+    $explicitProductType = in_array($explicitType, ['product', 'catalog_product'], true);
+    $explicitServiceType = in_array($explicitType, ['service', 'custom_service'], true);
+    $explicitProductSource = in_array($sourcePage, ['products', 'product'], true);
+    $explicitServiceSource = in_array($sourcePage, ['service', 'services'], true)
+        || in_array($source, ['service', 'services', 'pos'], true);
+    $hasExplicitServiceId = (int)($item['service_id'] ?? 0) > 0
+        || (int)($custom['service_id'] ?? 0) > 0;
+    $authoritativeProductLine = printflow_order_line_is_verified_catalog_product_source($order, $item, $custom)
+        || (!$explicitServiceType
+        && !$explicitServiceSource
+        && !$hasExplicitServiceId
+        && ($explicitProductType || $explicitProductSource));
+
     $isService = in_array($explicitType, ['service', 'custom_service'], true)
         || (int)($item['service_id'] ?? 0) > 0
         || (int)($custom['service_id'] ?? 0) > 0
@@ -4718,12 +4764,14 @@ function printflow_resolve_order_line_identity(array $order, array $item, array 
         || in_array($sourcePage, ['service', 'services', 'dynamic_form'], true)
         || in_array($source, ['service', 'pos'], true)
         || ($orderType === 'custom' && !$catalogProduct);
-    if (in_array($explicitType, ['product', 'catalog_product'], true)) {
+    if ($authoritativeProductLine) {
         $isService = false;
     } elseif ($catalogProduct) {
         $isService = false;
     }
     if (
+        !$authoritativeProductLine
+        &&
         !$isService
         && $source === 'pos'
         && ($customServiceType !== '' || (int)($custom['service_id'] ?? 0) > 0)
@@ -4731,6 +4779,8 @@ function printflow_resolve_order_line_identity(array $order, array $item, array 
         $isService = true;
     }
     if (
+        !$authoritativeProductLine
+        &&
         !$isService
         && customer_orders_is_pos_placeholder_product_name(trim((string)($item['product_name'] ?? '')))
         && ($customServiceType !== '' || (int)($custom['service_id'] ?? 0) > 0)
@@ -6811,7 +6861,7 @@ function printflow_is_ready_made_product_order(array $order): bool {
         return false;
     }
 
-    $itemColumns = ['customization_data'];
+    $itemColumns = ['customization_data', 'product_id'];
     if (db_table_has_column('order_items', 'item_type')) {
         $itemColumns[] = 'item_type';
     }
@@ -6824,15 +6874,39 @@ function printflow_is_ready_made_product_order(array $order): bool {
         [$orderId]
     ) ?: [];
 
+    $allLinesExplicitlyCatalogProducts = $items !== [];
     foreach ($items as $item) {
         $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
         $itemType = strtolower(trim((string)($item['item_type'] ?? '')));
         $sourcePage = strtolower(trim((string)($custom['source_page'] ?? '')));
-        if (in_array($itemType, ['service', 'custom_service'], true)
-            || (int)($item['service_id'] ?? 0) > 0
-            || !empty($custom['service_type'])
-            || (int)($custom['service_id'] ?? 0) > 0
+        $verifiedCatalogProductSource = printflow_order_line_is_verified_catalog_product_source($order, $item, $custom);
+        if ($verifiedCatalogProductSource) {
+            // Historical checkout persisted service-like customization data on
+            // catalog lines. The Products-page source plus the line's product
+            // FK is authoritative for these legacy order lines.
+            continue;
+        }
+        $explicitProduct = in_array($itemType, ['product', 'catalog_product'], true)
+            || in_array($sourcePage, ['products', 'product'], true);
+        $explicitService = in_array($itemType, ['service', 'custom_service'], true)
             || in_array($sourcePage, ['service', 'services'], true)
+            || in_array(strtolower(trim((string)($custom['source'] ?? ''))), ['service', 'services'], true)
+            || (int)($item['service_id'] ?? 0) > 0
+            || (int)($custom['service_id'] ?? 0) > 0
+            || !empty($custom['service_type'])
+            || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($custom));
+        if ($explicitService) {
+            return false;
+        }
+        if ($explicitProduct) {
+            // Persisted line type/source is authoritative. Legacy customization
+            // fields may contain a service_type label even on catalog products.
+            continue;
+        }
+
+        $allLinesExplicitlyCatalogProducts = false;
+        if (
+            !empty($custom['service_type'])
             || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($custom))) {
             return false;
         }
@@ -6840,7 +6914,7 @@ function printflow_is_ready_made_product_order(array $order): bool {
 
     // A legacy service checkout can retain order_type=product while using a
     // service reference. Do not route it into the ready-made workflow.
-    if ((int)($order['reference_id'] ?? 0) > 0 && $items !== []) {
+    if ((int)($order['reference_id'] ?? 0) > 0 && $items !== [] && !$allLinesExplicitlyCatalogProducts) {
         $firstCustom = printflow_decode_modal_customization_payload((string)($items[0]['customization_data'] ?? ''));
         if (!customer_orders_custom_order_is_catalog_product($firstCustom)) {
             return false;

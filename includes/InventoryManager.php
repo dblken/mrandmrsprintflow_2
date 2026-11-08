@@ -123,6 +123,13 @@ class InventoryManager {
 
         self::ensureBranchScopedSchema();
 
+        // Serialize ledger writes for an item. This row is the stock-movement
+        // mutex used by manual-assignment validation and deduction.
+        $ownsTransaction = !printflow_db_in_transaction($conn);
+        if ($ownsTransaction && !$conn->begin_transaction()) {
+            throw new RuntimeException('Unable to start the inventory ledger transaction.');
+        }
+
         // $date is an optional final parameter on all public inventory calls.
         // Preserve a supplied POS transaction timestamp; legacy callers still
         // receive the current server timestamp by default.
@@ -160,8 +167,19 @@ class InventoryManager {
         $sql = "INSERT INTO inventory_transactions (" . implode(', ', $cols) . ") 
                 VALUES (" . implode(', ', $placeholders) . ")";
 
+        try {
+            $itemLock = db_query('SELECT id FROM inv_items WHERE id = ? LIMIT 1 FOR UPDATE', 'i', [(int)$itemId]);
+            if (!is_array($itemLock) || $itemLock === []) {
+                throw new RuntimeException('The inventory item could not be locked for its stock movement.');
+            }
+        } catch (Throwable $error) {
+            if ($ownsTransaction && printflow_db_in_transaction($conn)) $conn->rollback();
+            throw $error;
+        }
+
         $stmt = $conn->prepare($sql);
         if (!$stmt) {
+            if ($ownsTransaction && printflow_db_in_transaction($conn)) $conn->rollback();
             throw new Exception("Ledger prepare failed: " . $conn->error);
         }
         $stmt->bind_param($types, ...$values);
@@ -170,6 +188,9 @@ class InventoryManager {
             if ($stmt->execute()) {
                 $id = $stmt->insert_id;
                 $stmt->close();
+                if ($ownsTransaction && !$conn->commit()) {
+                    throw new RuntimeException('The inventory ledger transaction could not be committed.');
+                }
                 return $id;
             }
 
@@ -177,6 +198,7 @@ class InventoryManager {
             $errno = $stmt->errno ?: $conn->errno;
             $stmt->close();
             if ($errno == 1062 && strtoupper((string)$refType) !== 'JOB_ORDER') {
+                if ($ownsTransaction && printflow_db_in_transaction($conn)) $conn->commit();
                 return true;
             }
             throw new Exception("Ledger insert failed: " . $error);
@@ -186,10 +208,52 @@ class InventoryManager {
             }
             // Error 1062 is Duplicate Entry
             if (isset($conn->errno) && $conn->errno == 1062 && strtoupper((string)$refType) !== 'JOB_ORDER') {
+                if ($ownsTransaction && printflow_db_in_transaction($conn)) $conn->commit();
                 return true; 
             }
+            if ($ownsTransaction && printflow_db_in_transaction($conn)) $conn->rollback();
             throw new Exception("Ledger recording failed: " . $e->getMessage());
         }
+    }
+
+    /**
+     * Read the latest branch stock while holding the item and source rows for
+     * update. Call only inside a transaction before a manual material deduction.
+     */
+    public static function getStockOnHandForUpdate($itemId, int $branchId): float {
+        global $conn;
+        if (!printflow_db_in_transaction($conn)) {
+            throw new RuntimeException('A transaction is required for current stock validation.');
+        }
+        self::ensureBranchScopedSchema();
+        $itemId = (int)$itemId;
+        if ($itemId <= 0 || $branchId <= 0) return 0.0;
+        $items = db_query('SELECT id, track_by_roll FROM inv_items WHERE id = ? LIMIT 1 FOR UPDATE', 'i', [$itemId]);
+        if (!is_array($items) || $items === []) throw new RuntimeException('The inventory item could not be verified for stock validation.');
+        if (!empty($items[0]['track_by_roll'])) {
+            [$branchSql, $branchTypes, $branchParams] = printflow_roll_branch_sql('branch_id', $branchId);
+            $rows = db_query(
+                "SELECT id, remaining_length_ft FROM inv_rolls WHERE item_id = ? AND status = 'OPEN'{$branchSql} ORDER BY id ASC FOR UPDATE",
+                'i' . $branchTypes,
+                array_merge([$itemId], $branchParams)
+            );
+            if (!is_array($rows)) throw new RuntimeException('Branch roll stock could not be verified.');
+            return array_sum(array_map(static fn(array $row): float => max(0.0, (float)($row['remaining_length_ft'] ?? 0)), $rows));
+        }
+        [$branchSql, $branchTypes, $branchParams] = self::branchClause('branch_id', $branchId);
+        $rows = db_query(
+            "SELECT id, direction, quantity FROM inventory_transactions WHERE item_id = ? AND UPPER(COALESCE(ref_type, '')) NOT IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT', 'ORDER'){$branchSql} ORDER BY id ASC FOR UPDATE",
+            'i' . $branchTypes,
+            array_merge([$itemId], $branchParams)
+        );
+        if (!is_array($rows)) throw new RuntimeException('Branch ledger stock could not be verified.');
+        $stock = 0.0;
+        foreach ($rows as $row) {
+            $stock += strtoupper((string)($row['direction'] ?? '')) === 'IN'
+                ? (float)($row['quantity'] ?? 0)
+                : -(float)($row['quantity'] ?? 0);
+        }
+        return $stock;
     }
 
     /**
@@ -246,6 +310,8 @@ class InventoryManager {
      * For non-roll items, records a simple OUT transaction.
      */
     public static function issueStock($itemId, $quantity, $uom = null, $refType = 'ADJUSTMENT', $refId = null, $notes = '', $ignoreRollCheck = false, $allowNegativeBypass = false, $branchId = null, $transactionDate = null) {
+        global $conn;
+
         self::ensureBranchScopedSchema();
 
         $item = self::getItem($itemId);
@@ -262,10 +328,15 @@ class InventoryManager {
             return $result;
         }
 
-        $soh = self::getStockOnHand($itemId, $branchId);
-        // For roll-based items used with ignoreRollCheck, skip the SOH check since stock lives in inv_rolls
-        $skipSohCheck = ($item['track_by_roll'] && $ignoreRollCheck) || $allowNegativeBypass;
-        if (!$skipSohCheck && $soh < $quantity && !$item['allow_negative_stock']) {
+        $soh = printflow_db_in_transaction($conn)
+            ? self::getStockOnHandForUpdate($itemId, (int)$branchId)
+            : self::getStockOnHand($itemId, $branchId);
+        $isJobMaterialDeduction = strtoupper(trim((string)$refType)) === 'JOB_ORDER';
+        // Job material deductions always respect current branch stock, even if
+        // a caller has the general negative-stock override enabled.
+        $skipSohCheck = ($item['track_by_roll'] && $ignoreRollCheck && !$isJobMaterialDeduction)
+            || ($allowNegativeBypass && !$isJobMaterialDeduction);
+        if (!$skipSohCheck && $soh < $quantity && ($isJobMaterialDeduction || !$item['allow_negative_stock'])) {
             throw new Exception("Insufficient stock for '{$item['name']}'. Have: $soh, Need: $quantity");
         }
 

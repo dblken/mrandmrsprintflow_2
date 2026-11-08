@@ -217,7 +217,7 @@ if (!empty($order_result)) {
     $has_photo_path = !empty(db_query("SHOW COLUMNS FROM products LIKE 'photo_path'"));
     $product_image_select = "'' AS product_image";
     if ($has_product_image && $has_photo_path) {
-        $product_image_select = "COALESCE(p.photo_path, p.product_image) AS product_image";
+        $product_image_select = "COALESCE(NULLIF(p.photo_path, ''), NULLIF(p.product_image, '')) AS product_image";
     } elseif ($has_product_image) {
         $product_image_select = "p.product_image AS product_image";
     } elseif ($has_photo_path) {
@@ -243,6 +243,27 @@ if (!empty($order_result)) {
         $identity = printflow_resolve_order_line_identity($order, $item, $custom);
         $looksServiceLike = $identity['item_type'] === 'service';
         $resolvedServiceId = (int)$identity['service_id'];
+        // Pass the resolved persisted identity to the shared renderer so a
+        // legacy service_type value in product options cannot select a service
+        // thumbnail or status treatment for a catalog product.
+        $item['item_type'] = $looksServiceLike ? 'service' : 'product';
+        $item['type'] = $looksServiceLike ? 'Service' : 'Product';
+        if (!$looksServiceLike) {
+            $productImage = trim((string)($item['product_image'] ?? ''));
+            $productImageUrl = $productImage !== '' ? pf_order_ui_asset_url($productImage) : null;
+            $productImageExists = $productImageUrl !== ''
+                && $productImageUrl !== null
+                && (!function_exists('printflow_notification_local_media_exists')
+                    || printflow_notification_local_media_exists($productImageUrl));
+            if (!$productImageExists) {
+                $catalogFallback = '/public/assets/images/services/catalog-placeholder.svg';
+                if (is_file(__DIR__ . '/..' . $catalogFallback)) {
+                    $item['product_image'] = $catalogFallback;
+                } else {
+                    $item['product_image'] = '';
+                }
+            }
+        }
 
         if ($resolvedServiceId > 0 && $looksServiceLike) {
             $serviceMedia = pf_payment_service_image_payload($resolvedServiceId, $order_id);
@@ -450,12 +471,22 @@ $financial_snapshot = printflow_order_financial_snapshot(
     (($paymongo_payment['status'] ?? '') === 'paid' || $paymongo_online_enabled) ? $paymongo_payment : []
 );
 $is_ready_made_product = !$is_job_order && printflow_is_ready_made_product_order($order);
+$has_persisted_receipt_item = false;
+foreach ($items as $receiptItem) {
+    if (is_array($receiptItem) && (int)($receiptItem['order_item_id'] ?? 0) > 0) {
+        $has_persisted_receipt_item = true;
+        break;
+    }
+}
+$can_download_payment_receipt = $is_paid_ui && $is_ready_made_product && $has_persisted_receipt_item;
 $paid_waiting_label = printflow_customer_paid_order_waiting_label(
     (string)$order_status,
     true,
     $is_ready_made_product
 );
-$paid_status_label = $paid_waiting_label !== '' ? $paid_waiting_label : (string)$order_status;
+$paid_status_label = ($is_ready_made_product && $is_paid_ui)
+    ? 'Paid'
+    : ($paid_waiting_label !== '' ? $paid_waiting_label : (string)$order_status);
 $paymongo_public = !empty($paymongo_payment)
     ? printflow_provider_payment_public($paymongo_payment, true)
     : [];
@@ -1089,11 +1120,15 @@ if (!function_exists('pf_payment_qr_url')) {
                                 <div class="payment-detail"><span class="paymongo-label">Order Status</span><strong class="payment-detail-value"><?php echo htmlspecialchars($paid_status_label !== '' ? $paid_status_label : 'Paid'); ?></strong></div>
                             </div>
                             <p style="color:#52666d;font-size:.82rem;line-height:1.55;margin:1rem auto 0;max-width:34rem;"><?php echo $is_ready_made_product ? 'Your payment has been received successfully. Please present your order reference when you claim your order.' : 'Payment has been received. Production will begin after staff confirmation.'; ?></p>
-                            <div class="payment-confirmed-actions"><span class="payment-status-badge"><?php echo htmlspecialchars($paid_status_label !== '' ? $paid_status_label : 'Paid'); ?></span><?php if ($is_ready_made_product): ?><button type="button" id="payment-download-receipt" class="paymongo-action paymongo-action-secondary" onclick="downloadPaymentReceipt()">Download Receipt</button><?php endif; ?><a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="paymongo-action paymongo-action-secondary">View Order Details</a></div>
+                            <div class="payment-confirmed-actions"><span class="payment-status-badge"><?php echo htmlspecialchars($paid_status_label !== '' ? $paid_status_label : 'Paid'); ?></span><?php if ($can_download_payment_receipt): ?><button type="button" id="payment-download-receipt" class="paymongo-action paymongo-action-secondary" onclick="downloadPaymentReceipt()">Download Receipt</button><?php endif; ?><a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="paymongo-action paymongo-action-secondary">View Order Details</a></div>
                         <?php else: ?>
                             <div style="font-size:1.45rem;font-weight:900;color:#eaf6fb;margin:10px 0;">Amount Paid: <?php echo format_currency($total_amount); ?></div>
                             <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Payment method: <?php echo htmlspecialchars((string)($order['payment_method'] ?? 'GCash')); ?></p>
-                            <p style="color:#9fc4d4;font-size:.875rem;"><strong style="color:#eaf6fb;">Status: Payment Approved.</strong><br>Your order is proceeding through production.</p>
+                            <p style="color:#9fc4d4;font-size:.875rem;"><strong style="color:#eaf6fb;">Status: <?php echo $is_ready_made_product ? 'Payment Confirmed.' : 'Payment Approved.'; ?></strong><br><?php echo $is_ready_made_product ? 'Your payment is confirmed. Please present your order reference when you claim your order.' : 'Your order is proceeding through production.'; ?></p>
+                            <div class="payment-confirmed-actions">
+                                <?php if ($can_download_payment_receipt): ?><button type="button" id="payment-download-receipt" class="paymongo-action paymongo-action-secondary" onclick="downloadPaymentReceipt()">Download Receipt</button><?php endif; ?>
+                                <a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="paymongo-action paymongo-action-secondary">View Order Details</a>
+                            </div>
                         <?php endif; ?>
                         <?php if (($paymongo_payment['status'] ?? '') !== 'paid'): ?><a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="paymongo-action paymongo-action-secondary" style="margin-top:1rem;">View Order Details</a><?php endif; ?>
                     </div>
@@ -1358,6 +1393,7 @@ if (!function_exists('pf_payment_qr_url')) {
             return response.json();
         };
         const isReadyMadeProductOrder = <?php echo $is_ready_made_product ? 'true' : 'false'; ?>;
+        const canDownloadPaymentReceipt = <?php echo $can_download_payment_receipt ? 'true' : 'false'; ?>;
         const paidStatusLabel = <?php echo json_encode($paid_status_label !== '' ? $paid_status_label : 'Paid'); ?>;
         const renderPayMongoConfirmed = (payment) => {
             stopPayMongoTimers();
@@ -1420,7 +1456,7 @@ if (!function_exists('pf_payment_qr_url')) {
             statusBadge.textContent = paidStatusLabel;
             actions.appendChild(statusBadge);
 
-            if (isReadyMadeProductOrder) {
+            if (canDownloadPaymentReceipt) {
                 const receiptButton = document.createElement('button');
                 receiptButton.type = 'button';
                 receiptButton.textContent = 'Download Receipt';

@@ -158,7 +158,47 @@ function printflow_service_dimension_format_storage(string $width, string $heigh
 }
 
 /**
- * Select/radio fields labeled as dimensions/sizes with "Others" use the guided custom-size panel.
+ * True when an option value opens the guided Custom Size / Others panel.
+ */
+function printflow_service_field_is_custom_size_option_value(string $value): bool
+{
+    $normalized = strtolower(trim($value));
+    return $normalized === 'others'
+        || $normalized === 'custom size'
+        || $normalized === 'customsize';
+}
+
+/**
+ * Canonical option value that reveals the custom-size panel for a field.
+ * Prefer an existing "Custom Size" / "Others" option; otherwise "Others".
+ */
+function printflow_service_field_custom_size_option_value(array $config): string
+{
+    $foundCustomSize = false;
+    $foundOthers = false;
+    foreach ($config['options'] ?? [] as $opt) {
+        $v = trim((string)(is_array($opt) ? ($opt['value'] ?? '') : $opt));
+        if ($v === '') {
+            continue;
+        }
+        if (strcasecmp($v, 'Custom Size') === 0) {
+            $foundCustomSize = true;
+        }
+        if (strcasecmp($v, 'Others') === 0) {
+            $foundOthers = true;
+        }
+    }
+    if ($foundCustomSize) {
+        return 'Custom Size';
+    }
+    if ($foundOthers) {
+        return 'Others';
+    }
+    return 'Others';
+}
+
+/**
+ * Select/radio fields labeled as dimensions/sizes with Others/Custom Size use the guided panel.
  */
 function printflow_service_field_uses_custom_size_panel(string $field_key, array $config): bool
 {
@@ -170,7 +210,7 @@ function printflow_service_field_uses_custom_size_panel(string $field_key, array
     if (!$hasOthers) {
         foreach ($config['options'] ?? [] as $opt) {
             $v = is_array($opt) ? ($opt['value'] ?? '') : $opt;
-            if (strcasecmp(trim((string) $v), 'Others') === 0) {
+            if (printflow_service_field_is_custom_size_option_value((string)$v)) {
                 $hasOthers = true;
                 break;
             }
@@ -414,7 +454,8 @@ function printflow_service_dimension_unit_meta_for_context(array $context, ?arra
 
 function printflow_service_custom_size_option_label(string $optionValue, string $field_key, array $config): string
 {
-    if (strcasecmp(trim($optionValue), 'Others') === 0 && printflow_service_field_uses_custom_size_panel($field_key, $config)) {
+    if (printflow_service_field_is_custom_size_option_value($optionValue)
+        && printflow_service_field_uses_custom_size_panel($field_key, $config)) {
         return printflow_service_dimension_custom_size_label();
     }
     return $optionValue;

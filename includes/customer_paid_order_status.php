@@ -16,5 +16,5 @@ function printflow_customer_paid_order_waiting_label(string $status, bool $payme
         return '';
     }
 
-    return $readyMade ? 'Paid / Awaiting Fulfillment' : 'Payment Received / Awaiting Production';
+    return $readyMade ? 'Paid' : 'Payment Received / Awaiting Production';
 }

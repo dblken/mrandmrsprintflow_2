@@ -128,7 +128,7 @@ try {
         
         $cList = db_query(
             "SELECT c.customer_id, c.first_name, c.last_name, c.email, c.contact_number, c.status, c.created_at,
-                    (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.customer_id AND " . printflow_order_archive_scope_sql('o') . ") as order_count,
+                    (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.customer_id AND " . printflow_order_archive_scope_sql('o') . " AND " . printflow_admin_order_transaction_visible_sql('o') . ") as order_count,
                     (SELECT SUM({$customerStoreRevenueSql}) FROM orders o WHERE o.customer_id = c.customer_id AND {$customerStoreSalesSql}) as total_spent
              FROM customers c WHERE " . printflow_customer_exclusion_customer_scope_sql('c.customer_id') . " ORDER BY total_spent DESC"
         ) ?: [];
@@ -155,7 +155,7 @@ try {
     $avgOrderVal = $grandTotalOrd > 0 ? ($grandTotalRev / $grandTotalOrd) : 0;
 
     if ($show_order_status) {
-        $status_counts = db_query("SELECT o.status, COUNT(*) as cnt, SUM(o.total_amount) as total FROM orders o WHERE o.order_date BETWEEN ? AND ?$bSql GROUP BY o.status ORDER BY cnt DESC", 'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)) ?: [];
+        $status_counts = db_query("SELECT o.status, COUNT(*) as cnt, SUM(o.total_amount) as total FROM orders o WHERE o.order_date BETWEEN ? AND ?$bSql AND " . printflow_admin_order_transaction_visible_sql('o') . " GROUP BY o.status ORDER BY cnt DESC", 'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)) ?: [];
     }
     if ($show_sales_revenue) {
         try {
@@ -250,7 +250,7 @@ try {
             $pid = $p['product_id'];
             $hist = [];
             if ($pid) {
-                $hRows = db_query("SELECT DATE_FORMAT(o.order_date,'%Y-%m') as mon, SUM(oi.quantity) as qty FROM order_items oi JOIN orders o ON oi.order_id=o.order_id WHERE oi.product_id=? AND o.order_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)$bSql GROUP BY mon ORDER BY mon", 'i'.$bTypes, array_merge([$pid], $bParams)) ?: [];
+                $hRows = db_query("SELECT DATE_FORMAT(o.order_date,'%Y-%m') as mon, SUM(oi.quantity) as qty FROM order_items oi JOIN orders o ON oi.order_id=o.order_id WHERE oi.product_id=? AND o.order_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)$bSql AND " . printflow_admin_order_transaction_visible_sql('o') . " GROUP BY mon ORDER BY mon", 'i'.$bTypes, array_merge([$pid], $bParams)) ?: [];
                 foreach($hRows as $hr) $hist[] = (int)$hr['qty'];
             }
             $f3 = function_exists('pf_forecast3') ? pf_forecast3($hist) : [0,0,0];
@@ -290,13 +290,13 @@ try {
         }
     }
     if ($show_customization) {
-        $custom_usage = db_query("SELECT COALESCE(NULLIF(TRIM(p.name), ''), 'Customization') as product, SUM(CASE WHEN (COALESCE(CHAR_LENGTH(oi.design_image),0) > 0 OR COALESCE(CHAR_LENGTH(oi.design_file),0) > 0) THEN 1 ELSE 0 END) as custom_count, SUM(CASE WHEN (COALESCE(CHAR_LENGTH(oi.design_image),0) = 0 AND COALESCE(CHAR_LENGTH(oi.design_file),0) = 0) THEN 1 ELSE 0 END) as template_count FROM orders o JOIN order_items oi ON o.order_id=oi.order_id JOIN products p ON oi.product_id=p.product_id WHERE o.order_date BETWEEN ? AND ?$bSql GROUP BY p.product_id LIMIT 10", 'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)) ?: [];
+        $custom_usage = db_query("SELECT COALESCE(NULLIF(TRIM(p.name), ''), 'Customization') as product, SUM(CASE WHEN (COALESCE(CHAR_LENGTH(oi.design_image),0) > 0 OR COALESCE(CHAR_LENGTH(oi.design_file),0) > 0) THEN 1 ELSE 0 END) as custom_count, SUM(CASE WHEN (COALESCE(CHAR_LENGTH(oi.design_image),0) = 0 AND COALESCE(CHAR_LENGTH(oi.design_file),0) = 0) THEN 1 ELSE 0 END) as template_count FROM orders o JOIN order_items oi ON o.order_id=oi.order_id JOIN products p ON oi.product_id=p.product_id WHERE o.order_date BETWEEN ? AND ?$bSql AND " . printflow_admin_order_transaction_visible_sql('o') . " GROUP BY p.product_id LIMIT 10", 'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)) ?: [];
     }
     if ($show_branch_perf || $show_insights) {
         $branch_perf = pf_reports_branch_performance_merged($from, $toEnd, is_manager() ? $branchId : 'all') ?: [];
     }
     if ($show_top_customers) {
-        $top_customers = db_query("SELECT c.customer_id, CONCAT(c.first_name,' ',c.last_name) as name, COUNT(o.order_id) as orders, SUM(o.total_amount) as spent FROM orders o JOIN customers c ON o.customer_id=c.customer_id WHERE o.order_date BETWEEN ? AND ?$bSql GROUP BY c.customer_id ORDER BY spent DESC LIMIT 10", 'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)) ?: [];
+        $top_customers = db_query("SELECT c.customer_id, CONCAT(c.first_name,' ',c.last_name) as name, COUNT(o.order_id) as orders, SUM(o.total_amount) as spent FROM orders o JOIN customers c ON o.customer_id=c.customer_id WHERE o.order_date BETWEEN ? AND ?$bSql AND " . printflow_admin_order_transaction_visible_sql('o') . " GROUP BY c.customer_id ORDER BY spent DESC LIMIT 10", 'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)) ?: [];
     }
     if ($show_insights) {
         $top_products_insight = pf_reports_top_products_merged('', '', $branchId, 10);
@@ -307,7 +307,7 @@ try {
              FROM order_items oi
              JOIN products p ON oi.product_id=p.product_id
              JOIN orders o ON oi.order_id=o.order_id
-             WHERE o.order_date BETWEEN ? AND ?{$bSql}
+             WHERE o.order_date BETWEEN ? AND ?{$bSql} AND " . printflow_admin_order_transaction_visible_sql('o') . "
              GROUP BY p.product_id, p.name
              ORDER BY qty DESC LIMIT 1",
             'ss' . $bTypes,
@@ -328,7 +328,7 @@ try {
                  FROM order_designs
                  GROUP BY order_id
              ) dc ON dc.order_id = o.order_id
-             WHERE 1=1 {$bSql}
+             WHERE 1=1 {$bSql} AND " . printflow_admin_order_transaction_visible_sql('o') . "
              GROUP BY p.product_id, p.name
              HAVING (
                  SUM(CASE WHEN COALESCE(dc.has_upload, 0) = 1 THEN oi.quantity ELSE 0 END) +

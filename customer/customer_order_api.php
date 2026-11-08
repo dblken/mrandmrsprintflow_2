@@ -35,6 +35,7 @@ try {
             // 1. Validate Basic Info
             $service = sanitize($_POST['service_type'] ?? '');
             if (!$service) throw new Exception("Service type is required.");
+            $serviceId = printflow_pos_material_selection_service_id_for_label($service);
             
             $customerId = ($_SESSION['user_type'] === 'Customer') ? $_SESSION['user_id'] : (int)($_POST['customer_id'] ?? 0);
             if (!$customerId) throw new Exception("Customer context is missing.");
@@ -54,10 +55,16 @@ try {
             );
             if ($materialRuleRows === false) throw new RuntimeException('Service material rules could not be loaded. No order was created.');
             $hasRequiredRules = false;
-            $requiredRuleCount = 0;
+            $allRequiredRuleCount = 0;
             foreach ($materialRuleRows as $rule) {
                 $ruleType = strtoupper(trim((string)($rule['rule_type'] ?? '')));
-                if ($ruleType === 'REQUIRED') { $hasRequiredRules = true; $requiredRuleCount++; }
+                if ($ruleType === 'REQUIRED') {
+                    $allRequiredRuleCount++;
+                    $itemId = (int)($rule['item_id'] ?? 0);
+                    if (!printflow_pos_material_selection_is_staff_choice($serviceId, $itemId)) {
+                        $hasRequiredRules = true;
+                    }
+                }
                 elseif ($ruleType !== 'OPTIONAL') throw new RuntimeException('Service material configuration contains an unsupported rule type. No order was created.');
             }
             $orderMaterials = [];
@@ -82,8 +89,8 @@ try {
                     's', [$service]
                 );
                 if ($requiredRules === false) throw new RuntimeException('Required service material configuration could not be loaded. No order was created.');
-                if (count($requiredRules) !== $requiredRuleCount) throw new RuntimeException('Required service material configuration changed during validation. Refresh and retry; no order was created.');
-                $orderMaterials = printflow_build_approved_service_material_assignments($requiredRules, $qty, $height, $service);
+                if (count($requiredRules) !== $allRequiredRuleCount) throw new RuntimeException('Required service material configuration changed during validation. Refresh and retry; no order was created.');
+                $orderMaterials = printflow_build_approved_service_material_assignments($requiredRules, $qty, $height, $service, $serviceId);
             }
 
             // 3. Create Job Order

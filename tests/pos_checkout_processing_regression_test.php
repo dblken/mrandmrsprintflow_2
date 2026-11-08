@@ -33,7 +33,9 @@ $assert(
 $assert(
     strpos($checkout, 'GET_LOCK(?, 15)') !== false
         && strpos($checkout, 'RELEASE_LOCK(?)') !== false
-        && strpos($checkout, 'pos_checkout_validate_assigned_service_materials($items, $pos_pending_orders_snapshot)') !== false,
+        && strpos($checkout, 'pos_checkout_validate_assigned_service_materials(') !== false
+        && strpos($checkout, '$pos_pending_orders_snapshot') !== false
+        && strpos($checkout, '$sessionCart') !== false,
     'checkout retries serialize by token and assigned service materials are revalidated before order writes'
 );
 $assert(

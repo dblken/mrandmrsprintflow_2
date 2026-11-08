@@ -27,30 +27,28 @@ $staffOrderScopeSql = printflow_staff_order_source_sql('o');
 $staffAccessMeta = printflow_get_staff_access_meta();
 $is_pos_staff = ($staffAccessMeta['key'] ?? '') === 'pos';
 
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'archived' && !$is_pos_staff) {
-    require_once __DIR__ . '/../includes/staff_orders_archived_json.php';
+// Backstop the scheduled cleanup for Online Operational Staff page visits.
+// This runs before the archive AJAX shortcut, order list, search, pagination,
+// and counters. The scheduled CLI task handles all branches when nobody is
+// viewing the page.
+if (!$is_pos_staff
+    && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
+    && $staffBranchId > 0) {
+    $retentionCleanup = printflow_expired_product_order_cleanup($staffBranchId, 100);
+    if (empty($retentionCleanup['ok'])) {
+        error_log('[staff/orders.php] unpaid product order cleanup failed; overdue rows remain filtered from the list.');
+    }
+}
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'archived') {
     header('Content-Type: application/json; charset=utf-8');
-    try {
-        $payload = printflow_staff_archived_expired_orders_payload($staffBranchId, $staffOrderScopeSql, 200);
-    } catch (Throwable $e) {
-        error_log('[staff/orders.php ajax=archived] ' . $e->getMessage());
-        http_response_code(500);
-        echo json_encode([
-            'success' => false,
-            'message' => 'Failed to load archived orders.',
-            'count' => 0,
-            'orders' => [],
-        ], JSON_UNESCAPED_SLASHES);
-        exit;
-    }
-    if (!empty($_GET['debug']) && defined('PRINTFLOW_DEBUG') && PRINTFLOW_DEBUG) {
-        $payload['debug'] = [
-            'endpoint' => 'staff/orders.php?ajax=archived',
-            'branch_id' => $staffBranchId,
-            'user_type' => (string)(get_user_type() ?? ''),
-        ];
-    }
-    echo json_encode($payload, JSON_UNESCAPED_SLASHES);
+    http_response_code(410);
+    echo json_encode([
+        'success' => false,
+        'message' => 'The Archived expired-orders view has been removed. Overdue unpaid product orders still leave active lists after 24 hours via automatic cleanup.',
+        'count' => 0,
+        'orders' => [],
+    ], JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -466,6 +464,9 @@ unset($order);
 // Note: o.order_type = 'product' filter from line 108 is preserved in $sql_conditions
 $kpi_conditions = " AND o.order_type = 'product' AND {$staffOrderScopeSql}";
 $kpi_conditions .= ' AND ' . printflow_order_archive_scope_sql('o');
+if (!$is_pos_staff) {
+    $kpi_conditions .= ' AND ' . printflow_expired_product_order_exclude_archived_sql('o');
+}
 $kpi_types = '';
 $kpi_params = [];
 $kpi_conditions .= branch_where('o', $staffBranchId, $kpi_types, $kpi_params);
@@ -2108,72 +2109,7 @@ $page_title = 'Product Orders - PrintFlow';
         fetchUpdatedTable({ page: 1, display_status: value || '' });
     }
 
-    async function openArchivedOrdersModal() {
-        const modal = document.getElementById('archivedOrdersModal');
-        const body = document.getElementById('archivedOrdersModalBody');
-        if (!modal || !body) {
-            console.error('[Archived Orders] Modal markup missing.');
-            return;
-        }
-        modal.classList.add('open');
-        modal.setAttribute('aria-hidden', 'false');
-        document.body.style.overflow = 'hidden';
-        body.innerHTML = '<div style="padding:32px;text-align:center;color:#64748b;">Loading archived orders...</div>';
-        const endpoint = staffUrl('staff/api/archived_expired_product_orders.php');
-        try {
-            const res = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-            const raw = await res.text();
-            let data;
-            try {
-                data = JSON.parse(raw);
-            } catch (parseErr) {
-                console.error('[Archived Orders] Non-JSON response', res.status, raw.slice(0, 500));
-                body.innerHTML = '<div style="padding:32px;text-align:center;color:#dc2626;">Failed to load archived orders. (Invalid server response)</div>';
-                return;
-            }
-            if (!res.ok || !data.success) {
-                const msg = (data && data.message) ? esc(data.message) : ('Request failed (HTTP ' + res.status + ').');
-                body.innerHTML = '<div style="padding:32px;text-align:center;color:#dc2626;">' + msg + '</div>';
-                if (data && data.debug) {
-                    console.info('[Archived Orders] debug', data.debug);
-                }
-                return;
-            }
-            if (!Array.isArray(data.orders) || data.orders.length === 0) {
-                body.innerHTML = '<div style="padding:32px;text-align:center;color:#64748b;">No archived expired orders.</div>';
-                return;
-            }
-            let html = '<div class="table-responsive"><table class="orders-table orders-table--online" style="width:100%;"><thead><tr>'
-                + '<th>Order Code</th><th>Product</th><th>Customer</th><th>Date</th><th>Total</th><th>Status</th></tr></thead><tbody>';
-            data.orders.forEach(function(row) {
-                html += '<tr><td>' + esc(row.order_code || '') + '</td>'
-                    + '<td>' + esc(row.product_name || '') + '</td>'
-                    + '<td>' + esc(row.customer_name || '') + '</td>'
-                    + '<td>' + esc(row.formatted_date || '') + '</td>'
-                    + '<td>' + esc(row.formatted_total || '') + '</td>'
-                    + '<td>' + esc(row.display_status || 'Expired') + '</td></tr>';
-            });
-            html += '</tbody></table></div>';
-            body.innerHTML = html;
-            if (data.debug) {
-                console.info('[Archived Orders] debug', data.debug);
-            }
-        } catch (e) {
-            console.error('[Archived Orders] fetch error', e);
-            body.innerHTML = '<div style="padding:32px;text-align:center;color:#dc2626;">Failed to load archived orders. Check your connection and try again.</div>';
-        }
-    }
-
-    function closeArchivedOrdersModal() {
-        const modal = document.getElementById('archivedOrdersModal');
-        if (!modal) return;
-        modal.classList.remove('open');
-        modal.setAttribute('aria-hidden', 'true');
-        document.body.style.overflow = '';
-    }
     window.setDisplayStatusFilter = setDisplayStatusFilter;
-    window.openArchivedOrdersModal = openArchivedOrdersModal;
-    window.closeArchivedOrdersModal = closeArchivedOrdersModal;
 
     function ordersPage() {
         return {
@@ -2197,12 +2133,6 @@ $page_title = 'Product Orders - PrintFlow';
                 if (typeof image !== 'string') return staffUrl('public/assets/uploads/profiles/default.png');
                 if (image.startsWith('/') || image.startsWith('http')) return image;
                 return staffUrl('public/assets/uploads/profiles/' + image);
-            },
-            
-            openArchivedOrdersModal() {
-                if (typeof window.openArchivedOrdersModal === 'function') {
-                    window.openArchivedOrdersModal();
-                }
             },
             init() {
                 window.addEventListener('filter-badge-update', e => { this.hasActiveFilters = (e.detail.badge > 0); });
@@ -3046,13 +2976,6 @@ $page_title = 'Product Orders - PrintFlow';
                     </div>
                     <div class="toolbar-group toolbar-group--actions" style="display: flex !important; gap: 8px !important; margin-left: auto !important; flex: 0 1 auto !important; justify-content: flex-end !important;">
 
-                            <?php if (!$is_pos_staff): ?>
-                            <button type="button" class="toolbar-btn" id="btn-open-archived-orders" style="display:flex;align-items:center;gap:6px;" @click="openArchivedOrdersModal()">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18"/><path d="M5 7l1 12h12l1-12"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/></svg>
-                                Archived
-                            </button>
-                            <?php endif; ?>
-
                             <!-- Sort Button -->
                             <div style="position:relative;">
                                 <button class="toolbar-btn" :class="{ active: sortOpen || (activeSort !== 'newest') }" @click="sortOpen = !sortOpen; filterOpen = false">
@@ -3451,38 +3374,6 @@ $page_title = 'Product Orders - PrintFlow';
     }
     .pf-confirm-title { font-size: 20px; font-weight: 800; color: #0f172a; margin-bottom: 12px; }
     .pf-confirm-text { font-size: 15px; color: #64748b; line-height: 1.6; margin-bottom: 32px; }
-</style>
-
-<div id="archivedOrdersModal" class="staff-archived-orders-modal" aria-hidden="true" role="dialog" aria-modal="true">
-    <div class="staff-archived-orders-backdrop" onclick="closeArchivedOrdersModal()" aria-hidden="true"></div>
-    <div class="pf-modal-card staff-archived-orders-panel" style="max-width:960px;width:95%;max-height:85vh;display:flex;flex-direction:column;">
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #e5e7eb;">
-            <h3 style="margin:0;font-size:18px;font-weight:800;color:#0f172a;">Archived Expired Orders</h3>
-            <button type="button" class="filter-close-btn" onclick="closeArchivedOrdersModal()" aria-label="Close">×</button>
-        </div>
-        <div id="archivedOrdersModalBody" style="padding:16px 20px;overflow:auto;flex:1;"></div>
-        <div style="padding:12px 20px;border-top:1px solid #e5e7eb;font-size:12px;color:#64748b;">
-            Unpaid QRPH orders expired for more than 7 days. They remain here until an Admin clears them from Products Management.
-        </div>
-    </div>
-</div>
-<style>
-#archivedOrdersModal.staff-archived-orders-modal {
-    position: fixed; inset: 0; z-index: 10050;
-    display: none; align-items: center; justify-content: center;
-    padding: 20px; pointer-events: none;
-}
-#archivedOrdersModal.staff-archived-orders-modal.open {
-    display: flex; pointer-events: auto;
-}
-#archivedOrdersModal .staff-archived-orders-backdrop {
-    position: absolute; inset: 0; background: rgba(15, 23, 42, 0.45);
-}
-#archivedOrdersModal .staff-archived-orders-panel {
-    position: relative; z-index: 1;
-    background: #fff; border-radius: 16px;
-    box-shadow: 0 25px 50px rgba(15, 23, 42, 0.18);
-}
 </style>
 
 <div id="pfConfirmModal" role="dialog" aria-modal="true">

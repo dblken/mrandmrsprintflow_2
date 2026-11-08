@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="3200" height="2000" viewBox="0 0 3200 2000" role="img" aria-labelledby="title desc">
+<title id="title">Figure 12. Admin, Staff, and Manager Data Flow</title>
+<desc id="desc">A single Level 1 DFD for PrintFlow. External entities are Admin, Staff, Customer, Manager, and PayMongo. Eight numbered processes exchange labeled data with seven logical stores. Stock checking, production assignment, and later inventory issue are shown as distinct steps.</desc>
+<defs><marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1 L11 6 L1 11 Z" fill="#34536b"/></marker>
+<style>
+.bg{fill:#fff} .title{font:700 38px Arial,sans-serif;fill:#102a43} .subtitle{font:400 22px Arial,sans-serif;fill:#486581}
+.panel{fill:#fbfdff;stroke:#d9e2ec;stroke-width:2;rx:14} .panelhead{font:700 18px Arial,sans-serif;fill:#627d98}
+.entity{fill:#f1f6fa;stroke:#244b66;stroke-width:3} .entityText{font:700 20px Arial,sans-serif;fill:#102a43;text-anchor:middle}
+.proc{fill:#e8f5f1;stroke:#176b63;stroke-width:3;rx:13} .divider{stroke:#176b63;stroke-width:2} .num{font:700 18px Arial,sans-serif;fill:#176b63;text-anchor:middle} .procText{font:700 18px Arial,sans-serif;fill:#102a43;text-anchor:middle}
+.storeLine{fill:none;stroke:#607789;stroke-width:3} .storeNum{font:700 16px Arial,sans-serif;fill:#176b63} .storeName{font:700 17px Arial,sans-serif;fill:#263746} .storeDesc{font:400 12px Arial,sans-serif;fill:#52606d}
+.flow{fill:none;stroke:#34536b;stroke-width:2.5;marker-end:url(#arrow);stroke-linejoin:round;stroke-linecap:round} .flow2{fill:none;stroke:#477b91;stroke-width:2.2;marker-end:url(#arrow);stroke-linejoin:round;stroke-linecap:round}
+.lb{fill:#fff;opacity:.98;stroke:#d9e2ec;stroke-width:1;rx:4} .lab{font:600 14px Arial,sans-serif;fill:#243b53;text-anchor:middle}
+.note{font:400 14px Arial,sans-serif;fill:#334e68} .foot{font:600 13px Arial,sans-serif;fill:#334e68}
+</style></defs><rect class="bg" width="3200" height="2000"/>
+<text class="title" x="1600" y="48" text-anchor="middle">Figure 12. Admin, Staff, and Manager Data Flow</text>
+<text class="subtitle" x="1600" y="80" text-anchor="middle">Level 1 Data Flow Diagram — PrintFlow</text>
+<rect class="panel" x="35" y="105" width="1545" height="1740"/><text class="panelhead" x="60" y="137">ORDER AND PRODUCTION</text>
+<rect class="panel" x="1620" y="105" width="1545" height="1740"/><text class="panelhead" x="1645" y="137">ADMINISTRATION AND REPORTING</text>
+
+<path class="flow" d="M350 245 H500"/>
+<rect class="lb" x="360" y="211" width="130" height="21"/><text class="lab" x="425" y="226">customer order</text>
+<path class="flow2" d="M350 325 H500"/>
+<rect class="lb" x="350.4" y="331" width="149.2" height="21"/><text class="lab" x="425" y="346">POS order details</text>
+<path class="flow" d="M960 270 H1180"/>
+<rect class="lb" x="991.6" y="235" width="156.8" height="21"/><text class="lab" x="1070" y="250">order/item records</text>
+<path class="flow2" d="M1180 325 H960"/>
+<rect class="lb" x="995.4" y="332" width="149.2" height="21"/><text class="lab" x="1070" y="347">saved order state</text>
+<path class="flow" d="M850 360 V525 H780 V570"/>
+<rect class="lb" x="940" y="482" width="150" height="21"/><text class="lab" x="1015" y="497">POS stock request</text>
+<path class="flow2" d="M820 570 V515 H920 V360"/>
+<rect class="lb" x="650" y="452" width="150" height="21"/><text class="lab" x="725" y="467">availability result</text>
+<path class="flow" d="M1180 600 H960"/>
+<rect class="lb" x="1000" y="567" width="140" height="21"/><text class="lab" x="1070" y="582">material rules</text>
+<path class="flow2" d="M1180 735 H960"/>
+<rect class="lb" x="1000" y="742" width="140" height="21"/><text class="lab" x="1070" y="757">branch stock</text>
+<path class="flow" d="M350 990 H500"/>
+<rect class="lb" x="358" y="956" width="134" height="21"/><text class="lab" x="425" y="971">payment details</text>
+<path class="flow2" d="M350 1080 H500"/>
+<rect class="lb" x="346.6" y="1087" width="156.8" height="21"/><text class="lab" x="425" y="1102">verification data</text>
+<path class="flow" d="M350 1200 H450 V1120 H500"/>
+<rect class="lb" x="352.6" y="1153" width="194.8" height="21"/><text class="lab" x="450" y="1168">provider payment result</text>
+<path class="flow" d="M960 1015 H1180"/>
+<rect class="lb" x="1005" y="980" width="130" height="21"/><text class="lab" x="1070" y="995">payment record</text>
+<path class="flow2" d="M1180 1085 H960"/>
+<rect class="lb" x="1005" y="1092" width="130" height="21"/><text class="lab" x="1070" y="1107">payment result</text>
+<path class="flow" d="M850 1110 V1160 H1180"/>
+<rect class="lb" x="924" y="1130" width="172" height="21"/><text class="lab" x="1010" y="1145">order payment status</text>
+<path class="flow2" d="M500 1025 H350"/>
+<rect class="lb" x="360" y="1032" width="130" height="21"/><text class="lab" x="425" y="1047">payment status</text>
+<path class="flow" d="M350 1460 H500"/>
+<rect class="lb" x="342.8" y="1426" width="164.4" height="21"/><text class="lab" x="425" y="1441">material assignment</text>
+<path class="flow" d="M1180 1400 H1120 V1470 H960"/>
+<rect class="lb" x="995.4" y="1423" width="149.2" height="21"/><text class="lab" x="1070" y="1438">saved order specs</text>
+<path class="flow2" d="M1180 1510 H960"/>
+<rect class="lb" x="976.4" y="1517" width="187.2" height="21"/><text class="lab" x="1070" y="1532">approved service rules</text>
+<path class="flow" d="M960 1580 H1120 V1650 H1180"/>
+<rect class="lb" x="987.8" y="1547" width="164.4" height="21"/><text class="lab" x="1070" y="1562">assignment snapshot</text>
+<path class="flow" d="M960 1490 H1000 V700 H960"/>
+<rect class="lb" x="898.8" y="1195" width="202.4" height="21"/><text class="lab" x="1000" y="1210">material stock request</text>
+<path class="flow2" d="M960 650 H1045 V1570 H960"/>
+<rect class="lb" x="960" y="1265" width="130" height="21"/><text class="lab" x="1025" y="1280">stock result</text>
+<path class="flow" d="M1990 235 H2140"/>
+<rect class="lb" x="2000" y="201" width="130" height="21"/><text class="lab" x="2065" y="216">user details</text>
+<path class="flow" d="M2600 250 H2740"/>
+<rect class="lb" x="2605" y="216" width="130" height="21"/><text class="lab" x="2670" y="231">account record</text>
+<path class="flow2" d="M2740 300 H2600"/>
+<rect class="lb" x="2587.8" y="307" width="164.4" height="21"/><text class="lab" x="2670" y="322">account/branch data</text>
+<path class="flow2" d="M2140 290 H1990"/>
+<rect class="lb" x="2000" y="298" width="130" height="21"/><text class="lab" x="2065" y="313">account status</text>
+<path class="flow" d="M1990 600 H2140"/>
+<rect class="lb" x="1998" y="566" width="134" height="21"/><text class="lab" x="2065" y="581">item/rule setup</text>
+<path class="flow2" d="M1990 700 H2140"/>
+<rect class="lb" x="1995" y="665" width="140" height="21"/><text class="lab" x="2065" y="680">stock transaction</text>
+<path class="flow" d="M2600 600 H2740"/>
+<rect class="lb" x="2600" y="566" width="140" height="21"/><text class="lab" x="2670" y="581">service rules</text>
+<path class="flow2" d="M2600 680 H2670 V790 H2740"/>
+<rect class="lb" x="2587.8" y="797" width="164.4" height="21"/><text class="lab" x="2670" y="812">stock ledger record</text>
+<path class="flow" d="M1990 1000 H2140"/>
+<rect class="lb" x="1979" y="966" width="172" height="21"/><text class="lab" x="2065" y="981">inquiry/message data</text>
+<path class="flow2" d="M1990 1100 H2140"/>
+<rect class="lb" x="2000" y="1107" width="130" height="21"/><text class="lab" x="2065" y="1122">staff reply</text>
+<rect class="lb" x="2000" y="1107" width="130" height="21"/><text class="lab" x="2065" y="1122">staff reply</text>
+<path class="flow2" d="M2140 1045 H1990"/>
+<rect class="lb" x="1995" y="1052" width="140" height="21"/><text class="lab" x="2065" y="1067">customer reply</text>
+<path class="flow" d="M2600 1040 H2740"/>
+<rect class="lb" x="2603" y="1006" width="134" height="21"/><text class="lab" x="2670" y="1021">message records</text>
+<path class="flow2" d="M2740 1120 H2600"/>
+<path class="flow" d="M2370 1150 V1190 H1990 V1220"/><rect class="lb" x="2045" y="1163" width="150" height="21"/><text class="lab" x="2120" y="1178">inquiry details</text>
+<path class="flow2" d="M1990 1250 H2075 V1210 H2370 V1150"/><rect class="lb" x="2005" y="1257" width="130" height="21"/><text class="lab" x="2070" y="1272">reply text</text>
+<rect class="lb" x="2605" y="1127" width="130" height="21"/><text class="lab" x="2670" y="1142">thread context</text>
+<path class="flow" d="M960 1550 H1590 V835 H2370 V715"/>
+<rect class="lb" x="1786.4" y="805" width="187.2" height="21"/><text class="lab" x="1880" y="820">material issue details</text>
+<path class="flow" d="M1840 1410 V1510 H2250"/>
+<rect class="lb" x="1985" y="1470" width="130" height="21"/><text class="lab" x="2050" y="1485">order data</text>
+<path class="flow2" d="M2210 1410 V1490 H2370 V1510"/>
+<rect class="lb" x="2145" y="1455" width="130" height="21"/><text class="lab" x="2210" y="1470">payment data</text>
+<path class="flow" d="M2580 1410 V1510"/>
+<rect class="lb" x="2513" y="1455" width="134" height="21"/><text class="lab" x="2580" y="1470">production data</text>
+<path class="flow2" d="M2950 1410 V1510 H2770"/>
+<rect class="lb" x="2785" y="1470" width="130" height="21"/><text class="lab" x="2850" y="1485">stock data</text>
+<path class="flow" d="M1990 1610 H2250"/>
+<rect class="lb" x="2053" y="1576" width="134" height="21"/><text class="lab" x="2120" y="1591">report criteria</text>
+<path class="flow2" d="M2250 1670 H1990"/>
+<rect class="lb" x="2055" y="1677" width="130" height="21"/><text class="lab" x="2120" y="1692">system reports</text>
+<path class="flow2" d="M2940 1610 H2770"/>
+<rect class="lb" x="2790" y="1576" width="130" height="21"/><text class="lab" x="2855" y="1591">branch request</text>
+<path class="flow" d="M2770 1670 H2940"/>
+<rect class="lb" x="2790" y="1677" width="130" height="21"/><text class="lab" x="2855" y="1692">branch report</text>
+<rect class="entity" x="70" y="200" width="280" height="90"/><text class="entityText" x="210.0" y="252.0">Customer</text>
+<rect class="entity" x="70" y="290" width="280" height="90"/><text class="entityText" x="210.0" y="342.0">Staff</text>
+<rect class="entity" x="70" y="950" width="280" height="90"/><text class="entityText" x="210.0" y="1002.0">Customer</text>
+<rect class="entity" x="70" y="1040" width="280" height="90"/><text class="entityText" x="210.0" y="1092.0">Staff</text>
+<rect class="entity" x="70" y="1160" width="280" height="90"/><text class="entityText" x="210.0" y="1212.0">PayMongo</text>
+<rect class="entity" x="70" y="1420" width="280" height="90"/><text class="entityText" x="210.0" y="1472.0">Staff</text>
+<rect class="entity" x="1690" y="190" width="300" height="90"/><text class="entityText" x="1840.0" y="242.0">Admin</text>
+<rect class="entity" x="1690" y="555" width="300" height="90"/><text class="entityText" x="1840.0" y="607.0">Admin</text>
+<rect class="entity" x="1690" y="665" width="300" height="90"/><text class="entityText" x="1840.0" y="717.0">Manager</text>
+<rect class="entity" x="1690" y="970" width="300" height="90"/><text class="entityText" x="1840.0" y="1022.0">Customer</text>
+<rect class="entity" x="1690" y="1080" width="300" height="90"/><text class="entityText" x="1840.0" y="1132.0">Staff</text>
+<rect class="entity" x="1690" y="1190" width="300" height="90"/><text class="entityText" x="1840.0" y="1242.0">Admin</text>
+<rect class="entity" x="1690" y="1580" width="300" height="90"/><text class="entityText" x="1840.0" y="1632.0">Admin</text>
+<rect class="entity" x="2940" y="1580" width="200" height="90"/><text class="entityText" x="3040.0" y="1632.0">Manager</text>
+<rect class="proc" x="500" y="180" width="460" height="180"/><path class="divider" d="M500 212 H960"/><text class="num" x="730.0" y="202">2.0</text>
+<text class="procText" x="730.0" y="263.0">Capture Customer and</text>
+<text class="procText" x="730.0" y="287.0">POS Orders</text>
+<rect class="proc" x="500" y="570" width="460" height="190"/><path class="divider" d="M500 602 H960"/><text class="num" x="730.0" y="592">4.0</text>
+<text class="procText" x="730.0" y="670.0">Check Branch Stock</text>
+<rect class="proc" x="500" y="930" width="460" height="200"/><path class="divider" d="M500 962 H960"/><text class="num" x="730.0" y="952">3.0</text>
+<text class="procText" x="730.0" y="1023.0">Process Payments and</text>
+<text class="procText" x="730.0" y="1047.0">Order Status</text>
+<rect class="proc" x="500" y="1390" width="460" height="220"/><path class="divider" d="M500 1422 H960"/><text class="num" x="730.0" y="1412">5.0</text>
+<text class="procText" x="730.0" y="1505.0">Assign Production Materials</text>
+<rect class="proc" x="2140" y="160" width="460" height="180"/><path class="divider" d="M2140 192 H2600"/><text class="num" x="2370.0" y="182">1.0</text>
+<text class="procText" x="2370.0" y="255.0">Maintain User Accounts</text>
+<rect class="proc" x="2140" y="525" width="460" height="190"/><path class="divider" d="M2140 557 H2600"/><text class="num" x="2370.0" y="547">6.0</text>
+<text class="procText" x="2370.0" y="613.0">Maintain Inventory Setup</text>
+<text class="procText" x="2370.0" y="637.0">and Record Stock Transactions</text>
+<rect class="proc" x="2140" y="970" width="460" height="180"/><path class="divider" d="M2140 1002 H2600"/><text class="num" x="2370.0" y="992">7.0</text>
+<text class="procText" x="2370.0" y="1053.0">Handle Inquiries and</text>
+<text class="procText" x="2370.0" y="1077.0">Order Messages</text>
+<rect class="proc" x="2250" y="1510" width="520" height="190"/><path class="divider" d="M2250 1542 H2770"/><text class="num" x="2510.0" y="1532">8.0</text>
+<text class="procText" x="2510.0" y="1610.0">Generate Reports</text>
+<path class="storeLine" d="M1188 285 H1540 M1188 367 H1540 M1188 285 V367"/><text class="storeNum" x="1196" y="316">D2</text><text class="storeName" x="1238" y="316">Orders and Items</text><text class="storeDesc" x="1238" y="343">orders · order_items</text>
+<path class="storeLine" d="M1188 560 H1540 M1188 642 H1540 M1188 560 V642"/><text class="storeNum" x="1196" y="591">D5</text><text class="storeName" x="1238" y="591">Service and Material Setup</text><text class="storeDesc" x="1238" y="618">services · rules · inv_items</text>
+<path class="storeLine" d="M1188 695 H1540 M1188 777 H1540 M1188 695 V777"/><text class="storeNum" x="1196" y="726">D7</text><text class="storeName" x="1238" y="726">Branch Inventory Ledger</text><text class="storeDesc" x="1238" y="753">inventory_transactions · inv_rolls</text>
+<path class="storeLine" d="M1188 1000 H1540 M1188 1082 H1540 M1188 1000 V1082"/><text class="storeNum" x="1196" y="1031">D3</text><text class="storeName" x="1238" y="1031">Payment Records</text><text class="storeDesc" x="1238" y="1058">provider_payments · submissions</text>
+<path class="storeLine" d="M1188 1160 H1540 M1188 1242 H1540 M1188 1160 V1242"/><text class="storeNum" x="1196" y="1191">D2</text><text class="storeName" x="1238" y="1191">Orders and Items</text><text class="storeDesc" x="1238" y="1218">orders · order_items</text>
+<path class="storeLine" d="M1188 1385 H1540 M1188 1467 H1540 M1188 1385 V1467"/><text class="storeNum" x="1196" y="1416">D2</text><text class="storeName" x="1238" y="1416">Orders and Items</text><text class="storeDesc" x="1238" y="1443">orders · order_items</text>
+<path class="storeLine" d="M1188 1495 H1540 M1188 1577 H1540 M1188 1495 V1577"/><text class="storeNum" x="1196" y="1526">D5</text><text class="storeName" x="1238" y="1526">Service and Material Setup</text><text class="storeDesc" x="1238" y="1553">services · rules · inv_items</text>
+<path class="storeLine" d="M1188 1620 H1540 M1188 1702 H1540 M1188 1620 V1702"/><text class="storeNum" x="1196" y="1651">D6</text><text class="storeName" x="1238" y="1651">Production Jobs</text><text class="storeDesc" x="1238" y="1678">job_orders · job_order_materials</text>
+<path class="storeLine" d="M2748 205 H3140 M2748 287 H3140 M2748 205 V287"/><text class="storeNum" x="2756" y="236">D1</text><text class="storeName" x="2798" y="236">Accounts and Branches</text><text class="storeDesc" x="2798" y="263">users · customers · branches</text>
+<path class="storeLine" d="M2748 560 H3140 M2748 642 H3140 M2748 560 V642"/><text class="storeNum" x="2756" y="591">D5</text><text class="storeName" x="2798" y="591">Service and Material Setup</text><text class="storeDesc" x="2798" y="618">services · field configs · rules · inv_items</text>
+<path class="storeLine" d="M2748 750 H3140 M2748 832 H3140 M2748 750 V832"/><text class="storeNum" x="2756" y="781">D7</text><text class="storeName" x="2798" y="781">Branch Inventory Ledger</text><text class="storeDesc" x="2798" y="808">inventory_transactions · inv_rolls</text>
+<path class="storeLine" d="M2748 1000 H3140 M2748 1082 H3140 M2748 1000 V1082"/><text class="storeNum" x="2756" y="1031">D4</text><text class="storeName" x="2798" y="1031">Messages and Inquiries</text><text class="storeDesc" x="2798" y="1058">order_messages · chatbot inquiries/conversations</text>
+<path class="storeLine" d="M1678 1328 H2010 M1678 1410 H2010 M1678 1328 V1410"/><text class="storeNum" x="1686" y="1359">D2</text><text class="storeName" x="1728" y="1359">Orders</text><text class="storeDesc" x="1728" y="1386">orders · order_items</text>
+<path class="storeLine" d="M2048 1328 H2380 M2048 1410 H2380 M2048 1328 V1410"/><text class="storeNum" x="2056" y="1359">D3</text><text class="storeName" x="2098" y="1359">Payments</text><text class="storeDesc" x="2098" y="1386">provider_payments · submissions</text>
+<path class="storeLine" d="M2418 1328 H2750 M2418 1410 H2750 M2418 1328 V1410"/><text class="storeNum" x="2426" y="1359">D6</text><text class="storeName" x="2468" y="1359">Production</text><text class="storeDesc" x="2468" y="1386">jobs · material assignments</text>
+<path class="storeLine" d="M2788 1328 H3120 M2788 1410 H3120 M2788 1328 V1410"/><text class="storeNum" x="2796" y="1359">D7</text><text class="storeName" x="2838" y="1359">Inventory</text><text class="storeDesc" x="2838" y="1386">transactions · roll ledger</text>
+<text class="note" x="70" y="1775">Stock availability (4.0) reads configured rules and branch balances; it does not deduct inventory.</text>
+<text class="note" x="70" y="1808">Production assignment (5.0) is validated separately. Material OUT is recorded later by the job workflow in D7.</text>
+<text class="note" x="70" y="1841">Manager activity/reporting is branch-scoped. Repeated entity/store symbols represent the same actor or logical store.</text>
+<line x1="70" y1="1870" x2="3130" y2="1870" stroke="#d9e2ec" stroke-width="2"/><text class="foot" x="70" y="1904">Each process has a numbered verb phrase; arrows show one direction and name the transferred data. No entity connects directly to a data store.</text>
+</svg>

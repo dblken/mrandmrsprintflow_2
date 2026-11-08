@@ -239,21 +239,30 @@
     }
 
     function matchingContextRule(item, context, rules) {
+        const itemId = Number(item && item.id);
+        const serviceId = Number(context && context.serviceId);
         let candidates = [
             context && context.serviceType,
             context && context.serviceName,
             context && context.serviceLabel,
             context && context.serviceCategory
         ].map(normalize).filter(Boolean);
-        const serviceId = Number(context && context.serviceId);
         if (serviceId === 36) {
             const identityValues = [context && context.serviceType, context && context.serviceName]
                 .map(normalize).filter(Boolean);
             const knownIdentities = (SERVICE_RULE_IDENTITY_ALIASES[serviceId] || []).map(normalize);
+            // Fail closed on stale/conflicting Decals identity before any
+            // service_id shortcut can inherit another service's materials.
             if (!identityValues.length || identityValues.some(identity => !knownIdentities.includes(identity))) return null;
             // Prefer canonical service-specific rows and avoid generic category
             // labels that can collide with rules belonging to other services.
             candidates = [...(SERVICE_RULE_TYPE_ALIASES[serviceId] || []).map(normalize), ...identityValues];
+        }
+        if (Number.isInteger(itemId) && itemId > 0 && Number.isInteger(serviceId) && serviceId > 0) {
+            const byServiceId = (Array.isArray(rules) ? rules : []).find(rule =>
+                Number(rule && rule.item_id) === itemId && Number(rule && rule.service_id) === serviceId
+            );
+            if (byServiceId) return byServiceId;
         }
         for (const candidate of candidates) {
             const rule = matchingRule(item, candidate, rules);
@@ -263,13 +272,54 @@
     }
 
     function statusLabel(state) {
-        if (!state || !['recommended', 'optional'].includes(state.tier)) return '';
-        const classification = state.ruleType === 'REQUIRED'
-            ? 'Required'
-            : state.ruleType === 'OPTIONAL' || state.tier === 'optional'
-                ? 'Optional'
-                : 'Recommended';
-        return state.inStock === false ? classification + ' · Out of stock' : classification;
+        // Rule type remains available to server validation and Admin audit,
+        // but Production Assignment choices do not display it as a usage
+        // instruction. Keep only the actionable stock failure visible here.
+        return state && state.inStock === false ? 'Out of stock' : '';
+    }
+
+    // Enforce only mutual-exclusion groups. No mapped row is a mandatory
+    // usage choice merely because service_material_rules stores REQUIRED.
+    function validateAssignmentGroups(serviceId, itemIds, rules) {
+        const id = Number(serviceId);
+        const knownRules = Array.isArray(rules) ? rules : [];
+        const policyRows = knownRules.filter(rule => Number(rule && rule.service_id) === id
+            && ['alternative', 'optional', 'multi_optional'].includes(String(rule && rule.selection_role || '')));
+        const groups = new Map();
+        policyRows.forEach(rule => {
+            const role = String(rule.selection_role || '');
+            const group = String(rule.selection_group || '');
+            if (role !== 'alternative' || !group) return;
+            if (!groups.has(group)) groups.set(group, {
+                selected: new Set(),
+                label: groupLabelsForSelection(group)
+            });
+        });
+        const selected = new Set((Array.isArray(itemIds) ? itemIds : []).map(Number).filter(value => Number.isInteger(value) && value > 0));
+        policyRows.forEach(rule => {
+            const group = String(rule.selection_group || '');
+            if (String(rule.selection_role || '') !== 'alternative' || !groups.has(group)) return;
+            const itemId = Number(rule.item_id);
+            if (selected.has(itemId)) groups.get(group).selected.add(itemId);
+        });
+        for (const state of groups.values()) {
+            if (state.selected.size > 1) return `Choose only one material from the ${state.label.toLowerCase()} options.`;
+        }
+        return '';
+    }
+
+    function groupLabelsForSelection(group) {
+        return ({
+            plate_media: 'Plate material',
+            brochure_paper: 'Brochure paper',
+            poster_paper: 'Poster paper',
+            sintra_thickness: 'Board Thickness',
+            tarpaulin_roll: 'Tarpaulin roll',
+            decal_base: 'sticker material',
+            decal_finishes: 'sticker material',
+            colored_sticker: 'sticker material',
+            sticker_media: 'sticker material'
+        })[group] || group.replace(/_/g, ' ');
     }
 
     function classifyItem(item, context, rules) {
@@ -314,7 +364,12 @@
             if (family === 'sintra') tier = 'recommended';
             if (family === 'reflective' || family === 'colored_sticker') tier = 'optional';
         } else if (serviceKind === 'tarpaulin') {
-            if (family === 'tarpaulin') tier = 'recommended';
+            // Confirm Set Price requires an ACTIVE track_by_roll inventory item.
+            // Name-family lookalikes without roll tracking must not be assignable
+            // or auto-selected — they serialize the wrong canonical item ID.
+            if (family === 'tarpaulin') {
+                tier = Number(item && item.track_by_roll) === 1 ? 'recommended' : 'unrelated';
+            }
             if (family === 'eyelet') tier = 'optional';
         } else if (serviceKind === 'tshirt' && family === 'heat_vinyl') {
             tier = 'recommended';
@@ -349,20 +404,58 @@
 
         const stock = Number.parseFloat(item && item.current_stock);
         const inStock = Number.isFinite(stock) && stock > 0;
-        const directSelectable = (tier === 'recommended' || tier === 'optional') && inStock;
-        const overrideable = (tier === 'unrelated' || tier === 'unverified') && inStock;
+        const serviceId = Number(context && context.serviceId);
+        // Services with Production Assignment / Set Price mapping validation must
+        // only queue authoritatively mapped inventory IDs. Family heuristics may
+        // still rank lookalikes, but they must not become assignable without a
+        // verified mapping (rule row, Stickers/Decals colored registry, Mug, or
+        // Tarpaulin mapped roll widths 13–16).
+        const requiresAuthoritativeMapping = [36, 39, 40, 64, 67, 71].includes(serviceId);
+        const stickersDecalsColoredIds = new Set([51, 52, 53, 54, 55, 56, 57, 58]);
+        const tarpaulinMappedRollIds = new Set([13, 14, 15, 16]);
+        const isMappedTarpaulinRoll = serviceId === 40
+            && tarpaulinMappedRollIds.has(Number(item && item.id))
+            && Number(item && item.track_by_roll) === 1;
+        // Eyelet is the established optional Tarpaulin finishing material
+        // (extras beyond the four included with the roll). Treat the family
+        // mapping as authoritative so service 40 does not label it unmapped.
+        const isMappedTarpaulinEyelet = serviceId === 40 && family === 'eyelet';
+        const authoritativelyMapped = !!exactRule
+            || (serviceId === 36 && stickersDecalsColoredIds.has(Number(item && item.id)))
+            || isMappedTarpaulinRoll
+            || isMappedTarpaulinEyelet
+            || (serviceId === 63 && Number(item && item.id) === 37);
+        if (authoritativelyMapped && !exactRule && requiresAuthoritativeMapping
+            && (tier === 'unrelated' || tier === 'unverified')) {
+            tier = 'optional';
+        }
+        let directSelectable = (tier === 'recommended' || tier === 'optional') && inStock;
+        let overrideable = (tier === 'unrelated' || tier === 'unverified') && inStock;
+        if (requiresAuthoritativeMapping) {
+            directSelectable = authoritativelyMapped && directSelectable;
+            overrideable = false;
+            if (!authoritativelyMapped && inStock && (tier === 'recommended' || tier === 'optional')) {
+                tier = 'unrelated';
+            }
+        }
         const selectable = directSelectable || overrideable;
         const serviceLabel = String((context && (context.serviceLabel || context.serviceType)) || 'this service').trim();
         const reason = !inStock
             ? 'Out of stock'
+            : !authoritativelyMapped && requiresAuthoritativeMapping
+                ? 'Not mapped for ' + serviceLabel
             : tier === 'unverified'
                 ? 'Usage not verified'
             : tier === 'unrelated'
-                ? 'Not suggested for ' + serviceLabel
-                : tier === 'optional' ? 'Optional / related material' : 'Recommended for this job';
+                ? 'Not listed for ' + serviceLabel
+                : '';
         return {
             tier, family, selectable, directSelectable, overrideable, inStock, reason, serviceKind,
-            ruleType: exactRuleType === 'REQUIRED' || exactRuleType === 'OPTIONAL' ? exactRuleType : ''
+            authoritativelyMapped,
+            ruleType: exactRuleType === 'REQUIRED' || exactRuleType === 'OPTIONAL' ? exactRuleType : '',
+            selectionGroup: String(exactRule && exactRule.selection_group || ''),
+            selectionRole: String(exactRule && exactRule.selection_role || ''),
+            groupRequired: Boolean(exactRule && exactRule.group_required)
         };
     }
 
@@ -379,12 +472,12 @@
             colored_sticker: 'Colored cut sticker',
             sticker_media: 'Sticker / adhesive material',
             reflective: 'Reflective cut material',
-            laminate: 'Optional sticker finishing',
+            laminate: 'Sticker finishing material',
             heat_vinyl: 'T-shirt heat-transfer material',
             tarpaulin: 'Tarpaulin material',
             eyelet: '4 standard eyelets included; add only extras',
             mug: 'Blank mug',
-            mug_box: 'Optional mug packaging',
+            mug_box: 'Mug packaging material',
             pvc_id: 'PVC ID material',
             unverified: 'Usage not verified'
         };
@@ -541,7 +634,10 @@
 
         const serviceKind = classifyService(context || {});
         if (serviceKind === 'tarpaulin') {
-            const fitted = rankTarpaulinRolls(recommended, context && context.customerWidth, context && context.customerHeight);
+            // Auto-select must serialize the same canonical inventory item_id as a
+            // manual click: ACTIVE mapped roll-tracked materials only.
+            const rollCandidates = recommended.filter(item => Number(item && item.track_by_roll) === 1);
+            const fitted = rankTarpaulinRolls(rollCandidates, context && context.customerWidth, context && context.customerHeight);
             if (!fitted.length) return null;
             if (fitted.length === 1) return fitted[0].item;
             const isClearWinner = fitted[0].tier < fitted[1].tier || fitted[0].rollWidth < fitted[1].rollWidth;
@@ -560,7 +656,7 @@
     }
 
     return {
-        normalize, materialText, familyFor, canonicalCategoryKind, classifyServiceFromName, classifyService, classifyItem, statusLabel,
+        normalize, materialText, familyFor, canonicalCategoryKind, classifyServiceFromName, classifyService, classifyItem, statusLabel, validateAssignmentGroups,
         descriptionFor, searchScore, rankItems, inkModeFor, tarpaulinRollWidthFor, calculateTarpaulinLinearLength, getAutoSelectCandidate
     };
 });

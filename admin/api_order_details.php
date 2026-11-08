@@ -10,6 +10,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/service_design_fee.php';
+require_once __DIR__ . '/../includes/admin_transaction_visibility.php';
 
 function pf_order_details_json(array $payload, int $status = 200): void
 {
@@ -61,7 +62,7 @@ try {
         $mgrBranch = printflow_branch_filter_for_user();
         if (get_user_type() !== 'Admin' && $mgrBranch) {
             $total = db_query(
-                "SELECT COUNT(*) as c FROM orders o WHERE o.customer_id = ? AND o.branch_id = ? AND " . printflow_order_archive_scope_sql('o'),
+                "SELECT COUNT(*) as c FROM orders o WHERE o.customer_id = ? AND o.branch_id = ? AND " . printflow_order_archive_scope_sql('o') . " AND " . printflow_admin_order_transaction_visible_sql('o'),
                 'ii',
                 [$cust_id, $mgrBranch]
             )[0]['c'] ?? 0;
@@ -71,7 +72,7 @@ try {
                  FROM orders o
                  LEFT JOIN order_items oi ON o.order_id = oi.order_id
                  LEFT JOIN products p ON oi.product_id = p.product_id
-                 WHERE o.customer_id = ? AND o.branch_id = ? AND " . printflow_order_archive_scope_sql('o') . "
+                 WHERE o.customer_id = ? AND o.branch_id = ? AND " . printflow_order_archive_scope_sql('o') . " AND " . printflow_admin_order_transaction_visible_sql('o') . "
                  GROUP BY o.order_id
                  ORDER BY o.order_date DESC LIMIT ? OFFSET ?",
                 'iiii',
@@ -79,7 +80,7 @@ try {
             ) ?: [];
         } else {
             $total = db_query(
-                "SELECT COUNT(*) as c FROM orders o WHERE o.customer_id = ? AND " . printflow_order_archive_scope_sql('o'),
+                "SELECT COUNT(*) as c FROM orders o WHERE o.customer_id = ? AND " . printflow_order_archive_scope_sql('o') . " AND " . printflow_admin_order_transaction_visible_sql('o'),
                 'i',
                 [$cust_id]
             )[0]['c'] ?? 0;
@@ -89,7 +90,7 @@ try {
                  FROM orders o
                  LEFT JOIN order_items oi ON o.order_id = oi.order_id
                  LEFT JOIN products p ON oi.product_id = p.product_id
-                 WHERE o.customer_id = ? AND " . printflow_order_archive_scope_sql('o') . "
+                 WHERE o.customer_id = ? AND " . printflow_order_archive_scope_sql('o') . " AND " . printflow_admin_order_transaction_visible_sql('o') . "
                  GROUP BY o.order_id
                  ORDER BY o.order_date DESC LIMIT ? OFFSET ?",
                 'iii',
@@ -137,7 +138,7 @@ try {
          LEFT JOIN branches b ON o.branch_id = b.id
          LEFT JOIN order_items oi ON o.order_id = oi.order_id
          LEFT JOIN products p ON oi.product_id = p.product_id
-         WHERE o.order_id = ?
+         WHERE o.order_id = ? AND " . printflow_admin_order_transaction_visible_sql('o') . "
          GROUP BY o.order_id",
         'i',
         [$order_id]

@@ -151,13 +151,29 @@ function pf_service_option_label($value) {
 /**
  * Render a single field based on configuration
  */
-/** HTML min attribute for service date fields (Needed Date may allow past dates in POS backdate mode). */
+/**
+ * HTML min attribute for service date fields.
+ * Needed Date uses the Asia/Manila business calendar day so staff cannot pick a past date.
+ * The legacy printflow_allow_past_needed_date flag is ignored for Needed Date.
+ */
 function printflow_service_field_date_min_attr(string $fieldKey): string
 {
-    if ($fieldKey === 'needed_date' && !empty($GLOBALS['printflow_allow_past_needed_date'])) {
+    if (!function_exists('printflow_pos_business_today')) {
+        $datetimeHelper = __DIR__ . '/inventory_business_datetime.php';
+        if (is_file($datetimeHelper)) {
+            require_once $datetimeHelper;
+        }
+    }
+    $today = function_exists('printflow_pos_business_today')
+        ? printflow_pos_business_today()
+        : date('Y-m-d');
+    if ($fieldKey === 'needed_date') {
+        return ' min="' . htmlspecialchars($today, ENT_QUOTES, 'UTF-8') . '"';
+    }
+    if (!empty($GLOBALS['printflow_allow_past_needed_date'])) {
         return '';
     }
-    return ' min="' . date('Y-m-d') . '"';
+    return ' min="' . htmlspecialchars($today, ENT_QUOTES, 'UTF-8') . '"';
 }
 
 function printflow_service_field_is_branch_field(string $fieldKey, array $config = []): bool
@@ -315,33 +331,50 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                 $allowSelectOthers = !empty($config['allow_others']);
                 $rawOptions = array_values($config['options'] ?? []);
                 $presetValues = [];
+                $hasCustomSizeOption = false;
+                $hasOthersOption = false;
                 foreach ($rawOptions as $opt) {
                     $ov = is_array($opt) ? trim((string)($opt['value'] ?? '')) : trim((string)$opt);
-                    if ($ov !== '') {
-                        $presetValues[$ov] = true;
+                    if ($ov === '') {
+                        continue;
+                    }
+                    $presetValues[$ov] = true;
+                    if (strcasecmp($ov, 'Custom Size') === 0) {
+                        $hasCustomSizeOption = true;
+                    }
+                    if (strcasecmp($ov, 'Others') === 0) {
+                        $hasOthersOption = true;
                     }
                 }
-                $hasOthersInList = isset($presetValues['Others']);
+                $hasOthersInList = $hasOthersOption || $hasCustomSizeOption;
                 $selectOptions = $rawOptions;
+                // Prefer an existing Custom Size option over injecting a second
+                // "Others" choice that would duplicate the Custom Size label.
+                $otherOptionValue = printflow_service_field_custom_size_option_value($config);
                 if ($allowSelectOthers && !$hasOthersInList) {
                     $selectOptions[] = ['value' => 'Others', 'price' => 0];
+                    $otherOptionValue = 'Others';
+                    $hasOthersInList = true;
                 }
                 $othersAvailable = $hasOthersInList || $allowSelectOthers;
 
                 $savedOtherText = trim((string)($saved_customization[$field_label . ' (Other)'] ?? ''));
                 $selectSaved = trim((string)$saved_value);
-                if ($othersAvailable && $selectSaved !== '' && $selectSaved !== 'Others' && !isset($presetValues[$selectSaved])) {
-                    $selectSaved = 'Others';
+                if ($othersAvailable && $selectSaved !== ''
+                    && !printflow_service_field_is_custom_size_option_value($selectSaved)
+                    && !isset($presetValues[$selectSaved])) {
+                    $selectSaved = $otherOptionValue;
                     if ($savedOtherText === '') {
                         $savedOtherText = trim((string)$saved_value);
                     }
                 }
 
-                $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field pf-select-with-others' . (printflow_service_field_uses_custom_size_panel($field_key, $config) ? ' pf-select-custom-size' : '') . '" data-field-key="' . htmlspecialchars($field_key) . '"' . ($is_design_fee_field ? ' data-design-fee-field="1"' : '') . ' data-other-option="Others" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
+                $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field pf-select-with-others' . (printflow_service_field_uses_custom_size_panel($field_key, $config) ? ' pf-select-custom-size' : '') . '" data-field-key="' . htmlspecialchars($field_key) . '"' . ($is_design_fee_field ? ' data-design-fee-field="1"' : '') . ' data-other-option="' . htmlspecialchars($otherOptionValue, ENT_QUOTES, 'UTF-8') . '" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
                 $placeholder = preg_match('/upload\s+design|design\s+upload/i', (string)$config['label'])
                     ? 'Choose an option'
                     : 'Select ' . $label;
                 $html .= '<option value="" selected disabled>' . $placeholder . '</option>';
+                $seenCustomSizeValues = [];
                 foreach ($selectOptions as $option) {
                     $optionValue = is_array($option) ? ($option['value'] ?? '') : $option;
                     $optionPrice = is_array($option) ? ($option['price'] ?? 0) : 0;
@@ -349,6 +382,18 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                     
                     // Skip if this option is already defined in a nested field
                     if (isset($nestedValuesSet[strtolower(trim($optionValue))])) continue;
+
+                    // Keep a single Custom Size / Others entry when both exist.
+                    if (printflow_service_field_is_custom_size_option_value((string)$optionValue)) {
+                        if ((string)$optionValue !== $otherOptionValue) {
+                            continue;
+                        }
+                        $dedupeKey = strtolower($otherOptionValue);
+                        if (isset($seenCustomSizeValues[$dedupeKey])) {
+                            continue;
+                        }
+                        $seenCustomSizeValues[$dedupeKey] = true;
+                    }
                     
                     $value = htmlspecialchars($optionValue);
                     $displayValue = htmlspecialchars(pf_service_option_label(printflow_service_custom_size_option_label((string)$optionValue, $field_key, $config)));
@@ -359,7 +404,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                 $html .= '</select>';
 
                 if ($othersAvailable) {
-                    $showOthersInput = ($selectSaved === 'Others');
+                    $showOthersInput = printflow_service_field_is_custom_size_option_value($selectSaved)
+                        || ($selectSaved === $otherOptionValue);
                     if (printflow_service_field_uses_custom_size_panel($field_key, $config)) {
                         $html .= printflow_render_field_custom_size_others_wrap(
                             $field_key,
@@ -383,29 +429,44 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $allowRadioOthers = !empty($config['allow_others']);
             $rawOptions = array_values($config['options'] ?? []);
             $presetValues = [];
+            $hasCustomSizeOption = false;
+            $hasOthersOption = false;
             foreach ($rawOptions as $opt) {
                 $ov = is_array($opt) ? trim((string)($opt['value'] ?? '')) : trim((string)$opt);
-                if ($ov !== '') {
-                    $presetValues[$ov] = true;
+                if ($ov === '') {
+                    continue;
+                }
+                $presetValues[$ov] = true;
+                if (strcasecmp($ov, 'Custom Size') === 0) {
+                    $hasCustomSizeOption = true;
+                }
+                if (strcasecmp($ov, 'Others') === 0) {
+                    $hasOthersOption = true;
                 }
             }
-            $hasOthersInList = isset($presetValues['Others']);
+            $hasOthersInList = $hasOthersOption || $hasCustomSizeOption;
             $radioOptions = $rawOptions;
+            $otherOptionValue = printflow_service_field_custom_size_option_value($config);
             if ($allowRadioOthers && !$hasOthersInList) {
                 $radioOptions[] = ['value' => 'Others', 'price' => 0];
+                $otherOptionValue = 'Others';
+                $hasOthersInList = true;
             }
             $othersAvailable = $hasOthersInList || $allowRadioOthers;
 
             $savedOtherText = trim((string)($saved_customization[$field_label . ' (Other)'] ?? ''));
             $radioSaved = trim((string)$saved_value);
-            if ($othersAvailable && $radioSaved !== '' && $radioSaved !== 'Others' && !isset($presetValues[$radioSaved])) {
-                $radioSaved = 'Others';
+            if ($othersAvailable && $radioSaved !== ''
+                && !printflow_service_field_is_custom_size_option_value($radioSaved)
+                && !isset($presetValues[$radioSaved])) {
+                $radioSaved = $otherOptionValue;
                 if ($savedOtherText === '') {
                     $savedOtherText = trim((string)$saved_value);
                 }
             }
 
             $html .= '<div class="shopee-opt-group">';
+            $seenCustomSizeValues = [];
             foreach ($radioOptions as $idx => $option) {
                 $optionValue = is_array($option) ? ($option['value'] ?? '') : $option;
                 $nestedFields = is_array($option) ? ($option['nested_fields'] ?? []) : [];
@@ -415,6 +476,16 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                 }
                 if (empty($nestedFields) && isset($nestedValuesSet[strtolower(trim((string)$optionValue))])) {
                     continue;
+                }
+                if (printflow_service_field_is_custom_size_option_value((string)$optionValue)) {
+                    if ((string)$optionValue !== $otherOptionValue) {
+                        continue;
+                    }
+                    $dedupeKey = strtolower($otherOptionValue);
+                    if (isset($seenCustomSizeValues[$dedupeKey])) {
+                        continue;
+                    }
+                    $seenCustomSizeValues[$dedupeKey] = true;
                 }
 
                 $value = htmlspecialchars((string)$optionValue);
@@ -430,7 +501,8 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $html .= '</div>';
 
             if ($othersAvailable) {
-                $showOthersInput = ($radioSaved === 'Others');
+                $showOthersInput = printflow_service_field_is_custom_size_option_value($radioSaved)
+                    || ($radioSaved === $otherOptionValue);
                 if (printflow_service_field_uses_custom_size_panel($field_key, $config)) {
                     $html .= printflow_render_field_custom_size_others_wrap(
                         $field_key,
@@ -717,7 +789,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $html .= '<div class="shopee-opt-group">';
             $html .= '<div class="quantity-container shopee-opt-btn" style="display: inline-flex; justify-content: space-between; gap: 1rem; width: 175px; cursor: default;">';
             $html .= '<button type="button" class="qty-btn-minus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="window.pfChangeQty(this, -1)">&minus;</button>';
-            $html .= '<input type="text" inputmode="numeric" id="' . htmlspecialchars($qty_id, ENT_QUOTES, 'UTF-8') . '" name="' . $qty_name . '" class="qty-input-field pf-service-quantity-input" style="border: none; text-align: center; width: 60px; font-size: 0.875rem; font-weight: 500; color: #374151; background: transparent; outline: none;" value="' . $saved_qty . '">';
+            $html .= '<input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" autocomplete="off" id="' . htmlspecialchars($qty_id, ENT_QUOTES, 'UTF-8') . '" name="' . $qty_name . '" class="qty-input-field pf-service-quantity-input" style="border: none; text-align: center; width: 60px; font-size: 0.875rem; font-weight: 500; color: #374151; background: transparent; outline: none; position: relative; z-index: 1; pointer-events: auto; user-select: text; cursor: text;" value="' . $saved_qty . '" aria-label="Quantity" onfocus="this.select()">';
             $html .= '<button type="button" class="qty-btn-plus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="window.pfChangeQty(this, 1)">+</button>';
             $html .= '</div>';
             $html .= '</div>';
@@ -1224,6 +1296,11 @@ function handleNestedFields(radio, fieldKey, optionIndex) {
     if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
 }
 
+function pfIsCustomSizeOptionValue(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'others' || normalized === 'custom size' || normalized === 'customsize';
+}
+
 function pfSyncRadioOthersWrap(radio) {
     if (!radio || !radio.name) return;
     const wrap = document.getElementById('radio-others-' + radio.name);
@@ -1236,7 +1313,7 @@ function pfSyncRadioOthersWrap(radio) {
             val = r.value;
         }
     });
-    const show = val === 'Others';
+    const show = pfIsCustomSizeOptionValue(val);
     wrap.style.display = show ? 'block' : 'none';
     if (wrap.querySelector('.pf-custom-size-panel')) {
         if (!show) {
@@ -1285,7 +1362,8 @@ function pfSyncSelectOthersWrap(select) {
     const wrap = document.getElementById('select-others-' + select.name);
     if (!wrap) return;
     const otherValue = select.getAttribute('data-other-option') || 'Others';
-    const show = select.value === otherValue;
+    const selected = String(select.value || '');
+    const show = selected === otherValue || pfIsCustomSizeOptionValue(selected);
     wrap.style.display = show ? 'block' : 'none';
     if (wrap.querySelector('.pf-custom-size-panel')) {
         if (!show) {
@@ -1591,58 +1669,66 @@ function selectDimensionOthers(e) {
     if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
 }
 
+function pfServiceQuantityInput(root) {
+    const scope = root && typeof root.querySelector === 'function' ? root : document;
+    return scope.querySelector('.pf-service-quantity-input')
+        || scope.querySelector('#quantity-input')
+        || document.querySelector('#serviceForm .pf-service-quantity-input')
+        || document.querySelector('.pf-service-quantity-input')
+        || document.querySelector('#quantity-input');
+}
+
+function pfServiceQuantityMax(input) {
+    const configured = Number(input && input.dataset ? input.dataset.posQuantityMax : 0);
+    return Number.isSafeInteger(configured) && configured >= 1
+        ? Math.min(configured, 1000000)
+        : 100;
+}
+
 function increaseQty() {
-    const i = document.querySelector('#serviceForm .pf-service-quantity-input') || document.querySelector('.pf-service-quantity-input');
+    const i = pfServiceQuantityInput();
     if (!i) return;
     const val = Number(i.value);
-    i.value = String(Math.min(100, (Number.isInteger(val) && val >= 1 ? val : 1) + 1));
+    i.value = String(Math.min(pfServiceQuantityMax(i), (Number.isInteger(val) && val >= 1 ? val : 1) + 1));
     validateQuantity(i);
+    i.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function decreaseQty() {
-    const i = document.querySelector('#serviceForm .pf-service-quantity-input') || document.querySelector('.pf-service-quantity-input');
+    const i = pfServiceQuantityInput();
     if (!i) return;
     const val = Number(i.value);
     i.value = String(Math.max(1, (Number.isInteger(val) && val >= 1 ? val : 1) - 1));
     validateQuantity(i);
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function pfServiceQuantityInvalidMessage(raw, input) {
+    if (raw === '' || !/^[0-9]+$/.test(raw)) {
+        return 'Enter a positive whole number.';
+    }
+    const max = pfServiceQuantityMax(input);
+    return max === 1000000
+        ? 'Enter a whole number from 1 to 1,000,000.'
+        : 'Enter a whole number from 1 to 100.';
 }
 
 function validateQuantity(input, commit = false) {
     if (!input) return false;
-    const invalidMessage = 'Enter a whole number from 1 to 100.';
     let raw = String(input.value ?? '');
+    // Never coerce empty, zero, decimals, signs, or letters into another quantity.
+    // commit remains for callers that blur-commit; valid values may canonicalize.
+    void commit;
 
-    // Keep the empty state while the user is selecting and replacing a value.
-    if (raw === '' && !commit) {
-        input.setCustomValidity(invalidMessage);
-        return false;
-    }
-    if (raw === '' && commit) {
-        input.value = '1';
-        raw = '1';
-    }
-    if (!/^[0-9]+$/.test(raw)) {
-        input.setCustomValidity(invalidMessage);
+    if (raw === '' || !/^[0-9]+$/.test(raw)) {
+        input.setCustomValidity(pfServiceQuantityInvalidMessage(raw, input));
         return false;
     }
 
-    let val = Number(raw);
-    if (!Number.isSafeInteger(val)) {
-        input.setCustomValidity(invalidMessage);
+    const val = Number(raw);
+    if (!Number.isSafeInteger(val) || val < 1 || val > pfServiceQuantityMax(input)) {
+        input.setCustomValidity(pfServiceQuantityInvalidMessage(raw, input));
         return false;
-    }
-    if (val < 1) {
-        if (!commit) {
-            input.setCustomValidity(invalidMessage);
-            return false;
-        }
-        val = 1;
-    } else if (val > 100) {
-        if (!commit) {
-            input.setCustomValidity(invalidMessage);
-            return false;
-        }
-        val = 100;
     }
 
     input.value = String(val);
@@ -1651,15 +1737,69 @@ function validateQuantity(input, commit = false) {
     return true;
 }
 
+function pfRejectNonDigitServiceQuantity(event) {
+    const input = event && event.target;
+    if (!input || typeof input.matches !== 'function') return;
+    if (!input.matches('.pf-service-quantity-input, #quantity-input')) return;
+
+    const markRejected = () => {
+        input.setCustomValidity('Enter a positive whole number.');
+        if (typeof input.reportValidity === 'function') {
+            // Keep the inline/custom validity message without forcing a native popup on every key.
+        }
+    };
+
+    if (event.type === 'keydown') {
+        if (event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1) return;
+        if (!/^[0-9]$/.test(event.key)) {
+            event.preventDefault();
+            markRejected();
+        }
+        return;
+    }
+
+    if (event.type === 'beforeinput') {
+        if (event.data != null && !/^[0-9]*$/.test(event.data)) {
+            event.preventDefault();
+            markRejected();
+        }
+        return;
+    }
+
+    if (event.type === 'paste') {
+        const pasted = event.clipboardData && typeof event.clipboardData.getData === 'function'
+            ? event.clipboardData.getData('text')
+            : '';
+        if (!/^[0-9]*$/.test(pasted) || pasted.length > String(pfServiceQuantityMax(input)).length) {
+            event.preventDefault();
+            markRejected();
+        }
+        return;
+    }
+
+    if (event.type === 'drop') {
+        const dropped = event.dataTransfer && typeof event.dataTransfer.getData === 'function'
+            ? event.dataTransfer.getData('text')
+            : '';
+        if (!/^[0-9]*$/.test(dropped) || dropped.length > String(pfServiceQuantityMax(input)).length) {
+            event.preventDefault();
+            markRejected();
+        }
+    }
+}
+
 function pfChangeQty(btn, delta) {
     if (!btn) return;
     const container = btn.closest('.quantity-container') || btn.parentElement;
-    const input = container ? container.querySelector('.pf-service-quantity-input') : (document.querySelector('#serviceForm .pf-service-quantity-input') || document.querySelector('.pf-service-quantity-input'));
+    const input = container
+        ? (container.querySelector('.pf-service-quantity-input') || container.querySelector('#quantity-input'))
+        : pfServiceQuantityInput();
     if (!input) return;
     const current = Number(input.value);
     const val = Number.isInteger(current) && current >= 1 ? current : 1;
-    input.value = String(Math.max(1, Math.min(100, val + delta)));
+    input.value = String(Math.max(1, Math.min(pfServiceQuantityMax(input), val + delta)));
     validateQuantity(input);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function serviceFieldEventProxy(method, target) {
@@ -1742,10 +1882,17 @@ window.increaseQty = increaseQty;
 window.decreaseQty = decreaseQty;
 window.validateQuantity = validateQuantity;
 window.pfChangeQty = pfChangeQty;
+window.pfRejectNonDigitServiceQuantity = pfRejectNonDigitServiceQuantity;
+window.pfServiceQuantityInput = pfServiceQuantityInput;
 window.updateConditionalFields = updateConditionalFields;
 
 if (!window.__pfServiceFieldDelegatesBound) {
     window.__pfServiceFieldDelegatesBound = true;
+
+    document.addEventListener('keydown', pfRejectNonDigitServiceQuantity, true);
+    document.addEventListener('beforeinput', pfRejectNonDigitServiceQuantity, true);
+    document.addEventListener('paste', pfRejectNonDigitServiceQuantity, true);
+    document.addEventListener('drop', pfRejectNonDigitServiceQuantity, true);
 
     document.addEventListener('click', function(e) {
         const dimBtn = e.target.closest('[data-dimension-choice="1"]');
@@ -2549,6 +2696,223 @@ function initPfDesignUploadGroups(root) {
     });
 }
 
+function pfSelectLooksLikeDimensionField(select) {
+    if (!select || select.tagName !== 'SELECT') return false;
+    if (select.classList.contains('pf-select-custom-size')) return true;
+    const key = String(select.getAttribute('data-field-key') || select.name || '').toLowerCase();
+    if (/(^|_)(size|sizes|dimension|dimensions)(_|$)/.test(key)) return true;
+    const row = select.closest('.shopee-form-row');
+    const label = row ? String(row.querySelector('.pf-field-label-text, .shopee-form-label')?.textContent || '').toLowerCase() : '';
+    return /\b(dimension|dimensions|size|sizes)\b/.test(label);
+}
+
+function pfDimensionSelectSelectableOptions(select) {
+    return [...(select?.options || [])].filter((opt) => !opt.disabled && String(opt.value || '') !== '');
+}
+
+function pfCloseDimensionSelectPicker(shell) {
+    if (!shell) return;
+    const menu = shell.querySelector('.pf-dim-select-menu');
+    const trigger = shell.querySelector('.pf-dim-select-trigger');
+    if (menu) menu.hidden = true;
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+}
+
+function pfSyncDimensionSelectTrigger(shell) {
+    if (!shell) return;
+    const select = shell.querySelector('select');
+    const trigger = shell.querySelector('.pf-dim-select-trigger');
+    if (!select || !trigger) return;
+    const selected = select.options[select.selectedIndex];
+    const label = selected && !selected.disabled && selected.value
+        ? selected.text
+        : (select.options[0]?.text || 'Select Dimensions');
+    const labelEl = trigger.querySelector('.pf-dim-select-trigger-label');
+    if (labelEl) labelEl.textContent = label;
+    else trigger.textContent = label;
+}
+
+function pfRenderDimensionSelectMenu(shell) {
+    const select = shell.querySelector('select');
+    const menu = shell.querySelector('.pf-dim-select-menu');
+    const error = shell.querySelector('.pf-dim-select-error');
+    const retry = shell.querySelector('.pf-dim-select-retry');
+    const trigger = shell.querySelector('.pf-dim-select-trigger');
+    if (!select || !menu || !trigger) return false;
+    const options = pfDimensionSelectSelectableOptions(select);
+    menu.innerHTML = '';
+    if (options.length === 0) {
+        trigger.disabled = true;
+        trigger.setAttribute('aria-disabled', 'true');
+        if (error) {
+            error.hidden = false;
+            error.textContent = 'Dimension options could not be loaded for this service. Retry or reopen the form.';
+        }
+        if (retry) retry.hidden = false;
+        pfCloseDimensionSelectPicker(shell);
+        return false;
+    }
+    trigger.disabled = false;
+    trigger.removeAttribute('aria-disabled');
+    if (error) {
+        error.hidden = true;
+        error.textContent = '';
+    }
+    if (retry) retry.hidden = true;
+    options.forEach((opt) => {
+        const li = document.createElement('li');
+        li.setAttribute('role', 'presentation');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pf-dim-select-option';
+        btn.setAttribute('role', 'option');
+        btn.setAttribute('data-value', opt.value);
+        btn.setAttribute('aria-selected', select.value === opt.value ? 'true' : 'false');
+        btn.textContent = opt.text;
+        btn.addEventListener('click', function() {
+            select.value = opt.value;
+            select.dispatchEvent(new Event('input', { bubbles: true }));
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            pfSyncDimensionSelectTrigger(shell);
+            pfCloseDimensionSelectPicker(shell);
+            if (typeof pfSyncSelectOthersWrap === 'function') pfSyncSelectOthersWrap(select);
+            if (typeof updateConditionalFields === 'function') updateConditionalFields();
+            if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
+            trigger.focus();
+        });
+        li.appendChild(btn);
+        menu.appendChild(li);
+    });
+    pfSyncDimensionSelectTrigger(shell);
+    return true;
+}
+
+function pfOpenDimensionSelectPicker(shell) {
+    if (!shell) return false;
+    const ready = pfRenderDimensionSelectMenu(shell);
+    if (!ready) return false;
+    const menu = shell.querySelector('.pf-dim-select-menu');
+    const trigger = shell.querySelector('.pf-dim-select-trigger');
+    document.querySelectorAll('.pf-dim-select-shell').forEach(function(other) {
+        if (other !== shell) pfCloseDimensionSelectPicker(other);
+    });
+    if (menu) menu.hidden = false;
+    if (trigger) trigger.setAttribute('aria-expanded', 'true');
+    const selected = menu ? menu.querySelector('.pf-dim-select-option[aria-selected="true"]') : null;
+    const first = menu ? menu.querySelector('.pf-dim-select-option') : null;
+    (selected || first)?.focus();
+    return true;
+}
+
+function pfInitDimensionSelectPickers(root) {
+    const scope = (root && typeof root.querySelectorAll === 'function') ? root : document;
+    scope.querySelectorAll('select').forEach(function(select) {
+        if (!pfSelectLooksLikeDimensionField(select)) return;
+        if (select.closest('.pf-dim-select-shell')) {
+            const existingShell = select.closest('.pf-dim-select-shell');
+            pfRenderDimensionSelectMenu(existingShell);
+            return;
+        }
+        if (select.dataset.pfDimPickerBound === '1') return;
+        select.dataset.pfDimPickerBound = '1';
+
+        const shell = document.createElement('div');
+        shell.className = 'pf-dim-select-shell';
+        shell.setAttribute('data-pf-dim-select-shell', '1');
+        const parent = select.parentNode;
+        if (!parent) return;
+        parent.insertBefore(shell, select);
+        shell.appendChild(select);
+
+        const trigger = document.createElement('button');
+        trigger.type = 'button';
+        trigger.className = 'shopee-opt-btn pf-dim-select-trigger';
+        trigger.setAttribute('aria-haspopup', 'listbox');
+        trigger.setAttribute('aria-expanded', 'false');
+        trigger.innerHTML = '<span class="pf-dim-select-trigger-label"></span><span aria-hidden="true">▾</span>';
+        shell.appendChild(trigger);
+
+        const menu = document.createElement('ul');
+        menu.className = 'pf-dim-select-menu';
+        menu.setAttribute('role', 'listbox');
+        menu.hidden = true;
+        shell.appendChild(menu);
+
+        const error = document.createElement('div');
+        error.className = 'pf-dim-select-error';
+        error.hidden = true;
+        shell.appendChild(error);
+
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'pf-dim-select-retry';
+        retry.textContent = 'Retry loading dimensions';
+        retry.hidden = true;
+        shell.appendChild(retry);
+
+        trigger.addEventListener('click', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (menu.hidden) pfOpenDimensionSelectPicker(shell);
+            else pfCloseDimensionSelectPicker(shell);
+        });
+        trigger.addEventListener('keydown', function(event) {
+            if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                pfOpenDimensionSelectPicker(shell);
+            } else if (event.key === 'Escape') {
+                pfCloseDimensionSelectPicker(shell);
+            }
+        });
+        menu.addEventListener('keydown', function(event) {
+            const options = [...menu.querySelectorAll('.pf-dim-select-option')];
+            const current = document.activeElement;
+            const idx = options.indexOf(current);
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                pfCloseDimensionSelectPicker(shell);
+                trigger.focus();
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                (options[Math.min(options.length - 1, idx + 1)] || options[0])?.focus();
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                (options[Math.max(0, idx - 1)] || options[0])?.focus();
+            } else if (event.key === 'Home') {
+                event.preventDefault();
+                options[0]?.focus();
+            } else if (event.key === 'End') {
+                event.preventDefault();
+                options[options.length - 1]?.focus();
+            }
+        });
+        retry.addEventListener('click', function(event) {
+            event.preventDefault();
+            pfRenderDimensionSelectMenu(shell);
+            if (!menu.hidden || pfDimensionSelectSelectableOptions(select).length > 0) {
+                pfOpenDimensionSelectPicker(shell);
+            }
+        });
+        select.addEventListener('change', function() {
+            pfSyncDimensionSelectTrigger(shell);
+        });
+        pfRenderDimensionSelectMenu(shell);
+    });
+
+    if (!window.__pfDimSelectPickerDocBound) {
+        window.__pfDimSelectPickerDocBound = true;
+        document.addEventListener('click', function(event) {
+            document.querySelectorAll('.pf-dim-select-shell').forEach(function(shell) {
+                if (!shell.contains(event.target)) pfCloseDimensionSelectPicker(shell);
+            });
+        });
+        document.addEventListener('keydown', function(event) {
+            if (event.key !== 'Escape') return;
+            document.querySelectorAll('.pf-dim-select-shell').forEach(pfCloseDimensionSelectPicker);
+        });
+    }
+}
+
 function initServiceFieldRenderer(root) {
     const scope = (root && typeof root.querySelectorAll === 'function') ? root : document;
     const q = (selector) => scope.querySelectorAll(selector);
@@ -2659,7 +3023,12 @@ function initServiceFieldRenderer(root) {
         initPfFieldHelpTooltips(document);
     }
     pfPrepareServiceFormDimensions(scope);
+    pfInitDimensionSelectPickers(scope);
 }
+
+window.pfInitDimensionSelectPickers = pfInitDimensionSelectPickers;
+window.pfSelectLooksLikeDimensionField = pfSelectLooksLikeDimensionField;
+window.pfDimensionSelectSelectableOptions = pfDimensionSelectSelectableOptions;
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initServiceFieldRenderer);

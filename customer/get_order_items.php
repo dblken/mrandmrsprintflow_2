@@ -732,12 +732,6 @@ $approved_order_amount = max(0, (int)($financial_snapshot['amount_due_centavos']
 $payment_received = $payment_received
     || ((int)($financial_snapshot['paid_amount_centavos'] ?? 0) > 0
         && (int)($financial_snapshot['remaining_balance_centavos'] ?? 0) === 0);
-$awaiting_production = $payment_received && !in_array((string)($order['status'] ?? ''), [
-    'In Production', 'Processing', 'Printing', 'Paid - In Process', 'Paid â€“ In Process',
-    'Ready for Pickup', 'Approved Design', 'To Receive', 'Completed', 'To Rate', 'Rated',
-    'Cancelled', 'Rejected'
-], true);
-
 $valid_order_item_ids = [];
 $valid_line_rows = db_query('SELECT order_item_id FROM order_items WHERE order_id = ?', 'i', [$order_id]) ?: [];
 foreach ($valid_line_rows as $vr) {
@@ -802,11 +796,21 @@ foreach ($customization_rows as $cRow) {
 }
 
 $first_item_customization = [];
+$firstLineIdentitySelect = '';
+if (function_exists('db_table_has_column') && db_table_has_column('order_items', 'item_type')) {
+    $firstLineIdentitySelect .= ', item_type';
+}
+if (function_exists('db_table_has_column') && db_table_has_column('order_items', 'service_id')) {
+    $firstLineIdentitySelect .= ', service_id';
+}
+if (function_exists('db_table_has_column') && db_table_has_column('order_items', 'product_id')) {
+    $firstLineIdentitySelect .= ', product_id';
+}
 $specificationsSelect = function_exists('db_table_has_column') && db_table_has_column('order_items', 'specifications')
     ? ', specifications'
     : '';
 $first_item_raw_customization = db_query(
-    "SELECT customization_data{$specificationsSelect} FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC LIMIT 1",
+    "SELECT customization_data{$specificationsSelect}{$firstLineIdentitySelect} FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC LIMIT 1",
     'i',
     [$order_id]
 );
@@ -835,12 +839,37 @@ $first_item_customization = customer_order_items_merge_customization_payload(
     if (customer_orders_is_generic_item_name($first_table_svc)) {
         $first_table_svc = '';
     }
-    $is_service_order =
+    $first_item_type = strtolower(trim((string)($first_item_raw_customization[0]['item_type'] ?? '')));
+    $first_item_service_id = (int)($first_item_raw_customization[0]['service_id'] ?? 0);
+    $first_item_verified_catalog_product = function_exists('printflow_order_line_is_verified_catalog_product_source')
+        && printflow_order_line_is_verified_catalog_product_source(
+            $order,
+            $first_item_raw_customization[0],
+            $first_item_customization
+        );
+    $first_item_has_service_markers = !empty($first_item_customization['service_type'])
+        || (function_exists('printflow_order_item_has_service_marker')
+            && printflow_order_item_has_service_marker($first_item_customization));
+    $first_item_explicit_product = $first_item_verified_catalog_product || ((
+        in_array($first_item_type, ['product', 'catalog_product'], true)
+        || in_array($first_item_source_page, ['products', 'product'], true)
+    ) && $first_item_service_id <= 0
+        && (int)($first_item_customization['service_id'] ?? 0) <= 0
+        && !in_array(strtolower(trim((string)($first_item_customization['source'] ?? ''))), ['service', 'services'], true)
+        && !in_array($first_item_source_page, ['service', 'services'], true)
+        && !$first_item_has_service_markers);
+    $first_item_explicit_service = in_array($first_item_type, ['service', 'custom_service'], true)
+        || $first_item_service_id > 0;
+    $is_service_order = !$first_item_explicit_product && (
         !empty($first_item_customization['service_type'])
         || $first_table_svc !== ''
         || (int)($first_item_customization['service_id'] ?? 0) > 0
         || in_array($first_item_source_page, ['services', 'service'], true)
-        || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($first_item_customization));
+        || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($first_item_customization))
+    );
+    if (!$first_item_verified_catalog_product && $first_item_explicit_service) {
+        $is_service_order = true;
+    }
     if (!$is_service_order) {
         $is_service_order = $order_type_normalized === 'custom' && empty($first_item_customization['product_type']);
     }
@@ -857,10 +886,6 @@ $first_item_customization = customer_order_items_merge_customization_payload(
             $display_status = 'CANCELLED';
         }
     }
-    if ($awaiting_production) {
-        $display_status = 'Payment Received / Awaiting Production';
-    }
-
     // Get items with design info
     $items = db_query("
     SELECT oi.*, p.name as product_name, p.category,
@@ -881,8 +906,32 @@ $job_orders_list = db_query(
 
 if (!$is_service_order) {
     foreach ($items as $probeItem) {
+        $probeType = strtolower(trim((string)($probeItem['item_type'] ?? '')));
+        $probeServiceId = (int)($probeItem['service_id'] ?? 0);
         $probeCustom = customer_order_items_decode_customization_payload((string)($probeItem['customization_data'] ?? ''));
+        $probeVerifiedCatalogProduct = function_exists('printflow_order_line_is_verified_catalog_product_source')
+            && printflow_order_line_is_verified_catalog_product_source($order, $probeItem, $probeCustom);
         $probeSourcePage = strtolower(trim((string)($probeCustom['source_page'] ?? '')));
+        $probeSource = strtolower(trim((string)($probeCustom['source'] ?? '')));
+        if (!$probeVerifiedCatalogProduct && (in_array($probeType, ['service', 'custom_service'], true)
+            || $probeServiceId > 0
+            || (int)($probeCustom['service_id'] ?? 0) > 0
+            || in_array($probeSourcePage, ['service', 'services'], true)
+            || in_array($probeSource, ['service', 'services', 'pos'], true))) {
+            $is_service_order = true;
+            break;
+        }
+        $probeHasServiceMarkers = !empty($probeCustom['service_type'])
+            || (function_exists('printflow_order_item_has_service_marker')
+                && printflow_order_item_has_service_marker($probeCustom));
+        if ($probeVerifiedCatalogProduct
+            || (in_array($probeType, ['product', 'catalog_product'], true) && !$probeHasServiceMarkers)
+            || (in_array($probeSourcePage, ['products', 'product'], true)
+                && (int)($probeCustom['service_id'] ?? 0) <= 0
+                && !in_array($probeSource, ['service', 'services'], true)
+                && !$probeHasServiceMarkers)) {
+            continue;
+        }
         if (
             !empty($probeCustom['service_type'])
             || (int)($probeCustom['service_id'] ?? 0) > 0
@@ -898,6 +947,7 @@ if (
     !$is_service_order
     && $order_type_normalized === 'product'
     && (int)($order['reference_id'] ?? 0) > 0
+    && !$first_item_explicit_product
     && (
         !function_exists('customer_orders_custom_order_is_catalog_product')
         || !customer_orders_custom_order_is_catalog_product($first_item_customization)
@@ -1373,14 +1423,21 @@ if (in_array($order['status'], ['Completed', 'To Rate', 'Rated'], true)) {
 
 $order['_receipt_paid_at'] = $payment_paid_at_raw;
 $order['_receipt_payment_method'] = $payment_method_display;
-$is_ready_made_product = !$is_service_order && printflow_is_ready_made_product_order($order);
+$is_ready_made_product = printflow_is_ready_made_product_order($order);
 $paid_waiting_label = printflow_customer_paid_order_waiting_label(
     (string)($order['status'] ?? ''),
     $payment_received,
     $is_ready_made_product
 );
-$awaiting_production = $paid_waiting_label === 'Payment Received / Awaiting Production';
-$awaiting_fulfillment = $paid_waiting_label === 'Paid / Awaiting Fulfillment';
+if ($is_ready_made_product && $payment_received && $paid_waiting_label !== '') {
+    // Ready-made catalog products are already made; show payment confirmation
+    // without implying production or fulfillment is awaiting a staff action.
+    $paid_waiting_label = 'Paid';
+    $display_status = 'Paid';
+}
+$awaiting_production = !$is_ready_made_product
+    && $paid_waiting_label === 'Payment Received / Awaiting Production';
+$awaiting_fulfillment = false;
 if ($paid_waiting_label !== '') {
     $display_status = $paid_waiting_label;
 }
@@ -1388,7 +1445,7 @@ if ($paid_waiting_label !== '') {
 // claimable immediately after provider-confirmed payment; they do not wait
 // for a production status transition.
 $receipt_available = $is_ready_made_product
-    ? $provider_is_paid
+    ? printflow_customer_ready_made_receipt_is_available($order, $provider_payment, $items)
     : printflow_customer_receipt_is_available((string)($order['status'] ?? ''), $payment_status);
 $receipt_payload = $receipt_available
     ? customer_receipt_build_payload($order, $items_out, $payment_status)

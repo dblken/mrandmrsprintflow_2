@@ -746,13 +746,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
 
             // Recalculate from saved service configuration. Posted hidden price
             // fields are presentation only and are never trusted as authority.
+            require_once __DIR__ . '/../includes/mugs_base_pricing.php';
+            if (printflow_is_mugs_service((int)$service_id) && empty($error)) {
+                $mugStock = printflow_mugs_assert_quantity_within_branch_stock((int)$quantity, (int)$branch_id);
+                if (empty($mugStock['ok'])) {
+                    $error = (string)($mugStock['message'] ?? 'Insufficient Mug stock for this branch.');
+                }
+            }
             $linePricing = printflow_calculate_service_line_pricing(
                 $service_id,
                 $customization,
                 $quantity,
                 $field_configs
             );
-            if (!empty($linePricing['ok'])) {
+            if (!empty($error)) {
+                // Keep validation errors ahead of pricing so stock/config messages surface first.
+            } elseif (!empty($linePricing['ok'])) {
                 $unit_price = (float)$linePricing['unit_price'];
                 $design_fee = (float)$linePricing['design_fee'];
                 $estimated_price = (float)$linePricing['line_total'];
@@ -762,12 +771,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 if (empty($layoutFee['ok'])) {
                     $error = (string)($layoutFee['message'] ?? 'The selected layout fee could not be verified.');
                 } else {
+                    // Unconfigured unit price may still yield a positive estimate from
+                    // a one-time layout fee. Inventory unit cost is never substituted.
                     $unit_price = 0.0;
                     $design_fee = (int)$layoutFee['fee_cents'] / 100;
                     $estimated_price = $design_fee;
                 }
             }
             
+            if (empty($error)) {
             printflow_apply_layout_canonical_to_customization($customization, $field_configs);
             $customization['design_fee'] = number_format((float)($design_fee ?? 0), 2, '.', '');
             $customization['design_fee_version'] = 1;
@@ -821,6 +833,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             } else {
                 // Add to cart action
                 pf_post_redirect('/customer/cart.php');
+            }
             }
             }
         }
@@ -2369,6 +2382,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof window.printflowInitServiceEstimatedPrice === 'function') {
             const priceWidget = window.printflowInitServiceEstimatedPrice(form, {
                 basePrice: <?php echo (float)($service['base_price'] ?? 0); ?>,
+                serviceId: <?php echo (int)$service_id; ?>,
                 form: form
             });
             if (priceWidget && typeof priceWidget.recalculate === 'function') {

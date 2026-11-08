@@ -306,7 +306,8 @@ function pf_sales_trend_breakdown(array $periodInfo, $branchId, array $filters):
             $extraTypes = 's';
             $extraParams[] = $itemName;
         }
-        $sql = "SELECT {$key} AS bucket_key, {$label} AS bucket_label, COALESCE(SUM({$revenue}), 0) AS revenue FROM orders o WHERE LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid') AND {$scope}{$extraSql}{$dateSql}{$branchSql} GROUP BY bucket_key, bucket_label ORDER BY bucket_key";
+        $visible = pf_reports_store_order_sales_expr('o');
+        $sql = "SELECT {$key} AS bucket_key, {$label} AS bucket_label, COALESCE(SUM({$revenue}), 0) AS revenue FROM orders o WHERE {$visible} AND {$scope}{$extraSql}{$dateSql}{$branchSql} GROUP BY bucket_key, bucket_label ORDER BY bucket_key";
         $result = db_query($sql, $extraTypes . $dateTypes . $branchTypes, array_merge($extraParams, $dateParams, $branchParams)) ?: [];
         return array_map(static fn(array $r): array => ['bucket_key' => (string)($r['bucket_key'] ?? ''), 'bucket_label' => (string)($r['bucket_label'] ?? ''), 'type' => $type, 'revenue' => round((float)($r['revenue'] ?? 0), 2)], $result);
     };
@@ -331,7 +332,8 @@ function pf_sales_trend_breakdown(array $periodInfo, $branchId, array $filters):
             $extraParams[] = $itemName;
         }
         $exclude = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
-        $sql = "SELECT {$key} AS bucket_key, {$label} AS bucket_label, COALESCE(SUM({$revenue}), 0) AS revenue FROM job_orders jo WHERE LOWER(TRIM(COALESCE(jo.payment_status, ''))) IN ('paid', 'fully paid'){$exclude}{$extraSql}{$dateSql}{$branchSql} GROUP BY bucket_key, bucket_label ORDER BY bucket_key";
+        $visible = pf_reports_job_order_sales_expr('jo');
+        $sql = "SELECT {$key} AS bucket_key, {$label} AS bucket_label, COALESCE(SUM({$revenue}), 0) AS revenue FROM job_orders jo WHERE {$visible}{$exclude}{$extraSql}{$dateSql}{$branchSql} GROUP BY bucket_key, bucket_label ORDER BY bucket_key";
         $result = db_query($sql, $extraTypes . $dateTypes . $branchTypes, array_merge($extraParams, $dateParams, $branchParams)) ?: [];
         return array_map(static fn(array $r): array => ['bucket_key' => (string)($r['bucket_key'] ?? ''), 'bucket_label' => (string)($r['bucket_label'] ?? ''), 'type' => 'Custom', 'revenue' => round((float)($r['revenue'] ?? 0), 2)], $result);
     };
@@ -412,7 +414,8 @@ function pf_sales_trend_branch_breakdown(array $periodInfo, array $filters): arr
             $extraTypes = 's';
             $extraParams[] = $itemName;
         }
-        $sql = "SELECT {$key} AS bucket_key, {$label} AS bucket_label, {$branchName} AS branch_name, COALESCE(SUM({$revenue}), 0) AS revenue FROM orders o LEFT JOIN branches b ON b.id = o.branch_id WHERE LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid') AND {$scope}{$extraSql}{$dateSql}{$branchSql} GROUP BY bucket_key, bucket_label, branch_name ORDER BY bucket_key, branch_name";
+        $visible = pf_reports_store_order_sales_expr('o');
+        $sql = "SELECT {$key} AS bucket_key, {$label} AS bucket_label, {$branchName} AS branch_name, COALESCE(SUM({$revenue}), 0) AS revenue FROM orders o LEFT JOIN branches b ON b.id = o.branch_id WHERE {$visible} AND {$scope}{$extraSql}{$dateSql}{$branchSql} GROUP BY bucket_key, bucket_label, branch_name ORDER BY bucket_key, branch_name";
         $result = db_query($sql, $extraTypes . $dateTypes . $branchTypes, array_merge($extraParams, $dateParams, $branchParams)) ?: [];
         return array_map(static fn(array $r): array => ['bucket_key' => (string)($r['bucket_key'] ?? ''), 'bucket_label' => (string)($r['bucket_label'] ?? ''), 'branch_name' => (string)($r['branch_name'] ?? ''), 'type' => $type, 'revenue' => round((float)($r['revenue'] ?? 0), 2)], $result);
     };
@@ -438,7 +441,8 @@ function pf_sales_trend_branch_breakdown(array $periodInfo, array $filters): arr
             $extraParams[] = $itemName;
         }
         $exclude = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
-        $sql = "SELECT {$key} AS bucket_key, {$label} AS bucket_label, {$branchName} AS branch_name, COALESCE(SUM({$revenue}), 0) AS revenue FROM job_orders jo LEFT JOIN branches b ON b.id = jo.branch_id WHERE LOWER(TRIM(COALESCE(jo.payment_status, ''))) IN ('paid', 'fully paid'){$exclude}{$extraSql}{$dateSql}{$branchSql} GROUP BY bucket_key, bucket_label, branch_name ORDER BY bucket_key, branch_name";
+        $visible = pf_reports_job_order_sales_expr('jo');
+        $sql = "SELECT {$key} AS bucket_key, {$label} AS bucket_label, {$branchName} AS branch_name, COALESCE(SUM({$revenue}), 0) AS revenue FROM job_orders jo LEFT JOIN branches b ON b.id = jo.branch_id WHERE {$visible}{$exclude}{$extraSql}{$dateSql}{$branchSql} GROUP BY bucket_key, bucket_label, branch_name ORDER BY bucket_key, branch_name";
         $result = db_query($sql, $extraTypes . $dateTypes . $branchTypes, array_merge($extraParams, $dateParams, $branchParams)) ?: [];
         return array_map(static fn(array $r): array => ['bucket_key' => (string)($r['bucket_key'] ?? ''), 'bucket_label' => (string)($r['bucket_label'] ?? ''), 'branch_name' => (string)($r['branch_name'] ?? ''), 'type' => 'Custom', 'revenue' => round((float)($r['revenue'] ?? 0), 2)], $result);
     };

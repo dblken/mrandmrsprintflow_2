@@ -8,6 +8,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/expired_product_order_archive.php';
 
 require_role('Staff');
 printflow_require_staff_module('orders');
@@ -15,6 +16,15 @@ require_once __DIR__ . '/../includes/staff_pending_check.php';
 
 $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 1);
 $staffOrderScopeSql = printflow_staff_order_source_sql('o');
+$retentionOnlineScopeSql = printflow_staff_order_source_sql('o', 'online');
+$overdueProductOrderSql = "(o.order_type = 'product' AND {$retentionOnlineScopeSql} AND "
+    . printflow_expired_product_order_overdue_for_display_sql('o') . ')';
+$staffAccessMeta = printflow_get_staff_access_meta();
+if (($staffAccessMeta['key'] ?? '') === 'online'
+    && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
+    && $staffBranchId > 0) {
+    printflow_expired_product_order_cleanup($staffBranchId, 100);
+}
 
 $order_id = (int)($_GET['id'] ?? 0);
 if (!$order_id) {
@@ -40,7 +50,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
             $_SESSION['error'] = 'You cannot update orders from another branch.';
             redirect("order_details.php?id=$order_id");
         }
-        $postedOrder = db_query('SELECT * FROM orders WHERE order_id = ? LIMIT 1', 'i', [$order_id]) ?: [];
+        $postedOrder = db_query(
+            "SELECT o.* FROM orders o WHERE o.order_id = ?
+             AND NOT {$overdueProductOrderSql} LIMIT 1",
+            'i',
+            [$order_id]
+        ) ?: [];
         if ($postedOrder !== [] && printflow_is_ready_made_product_order($postedOrder[0])) {
             $_SESSION['error'] = 'Manage ready-made product completion from Orders Management after verified PayMongo payment.';
             redirect("order_details.php?id=$order_id");
@@ -67,7 +82,7 @@ $order_result = db_query("
            c.customer_id as cust_id
     FROM orders o 
     LEFT JOIN customers c ON o.customer_id = c.customer_id 
-    WHERE o.order_id = ? AND o.branch_id = ? AND {$staffOrderScopeSql} AND " . printflow_order_archive_scope_sql('o') . "
+    WHERE o.order_id = ? AND o.branch_id = ? AND {$staffOrderScopeSql} AND " . printflow_order_archive_scope_sql('o') . " AND NOT {$overdueProductOrderSql}
 ", 'ii', [$order_id, $staffBranchId]);
 
 if (empty($order_result)) {

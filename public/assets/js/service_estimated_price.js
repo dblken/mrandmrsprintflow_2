@@ -140,7 +140,11 @@
             const qtyInput = scope ? scope.querySelector('.pf-service-quantity-input') : null;
             const rawQuantity = qtyInput ? String(qtyInput.value) : '1';
             const quantity = /^[0-9]+$/.test(rawQuantity) ? Number(rawQuantity) : NaN;
-            const quantityValid = Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= 100;
+            const configuredQuantityMax = Number(qtyInput && qtyInput.dataset ? qtyInput.dataset.posQuantityMax : 0);
+            const quantityMax = Number.isSafeInteger(configuredQuantityMax) && configuredQuantityMax >= 1
+                ? Math.min(configuredQuantityMax, 1000000)
+                : 100;
+            const quantityValid = Number.isSafeInteger(quantity) && quantity >= 1 && quantity <= quantityMax;
             const unitPrice = basePrice + optionsTotal;
 
             if (!quantityValid) {
@@ -156,6 +160,8 @@
             }
 
             const safeQty = quantity;
+            // Final estimate = (unit × qty) + one-time layout/design fee.
+            // A fee-only total (unit 0, fee > 0) is a valid positive estimate.
             const estimatedTotal = Math.round((unitPrice * safeQty + designFee) * 100) / 100;
 
             if (estimatedTotalEl) {
@@ -204,8 +210,21 @@
         };
     }
 
+    /**
+     * POS missing-estimate confirm should follow the displayed line total,
+     * not unit price alone. Fee-only totals (e.g. Without Layout ₱200) are valid.
+     * Missing / NaN / non-finite values are not treated as a positive estimate.
+     */
+    function printflowNeedsMissingEstimatedPriceConfirm(estimatedTotal) {
+        if (estimatedTotal == null || estimatedTotal === '') return true;
+        const amount = typeof estimatedTotal === 'number' ? estimatedTotal : Number(estimatedTotal);
+        if (!Number.isFinite(amount)) return true;
+        return amount === 0;
+    }
+
     window.printflowInitServiceEstimatedPrice = printflowInitServiceEstimatedPrice;
     window.printflowCalculateServiceOptionsTotal = calculateOptionsTotal;
     window.printflowCalculateServiceDesignFee = calculateDesignFee;
     window.printflowFormatServiceEstimatedPeso = formatPeso;
+    window.printflowNeedsMissingEstimatedPriceConfirm = printflowNeedsMissingEstimatedPriceConfirm;
 })(window);

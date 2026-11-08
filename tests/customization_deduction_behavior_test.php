@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 // Execute the real deduction method with an in-memory DB boundary. This is
 // a behavior test, not production stock/ledger evidence.
+require_once __DIR__ . '/../includes/pos_quantity_validation.php';
 $source = (string)file_get_contents(__DIR__ . '/../includes/JobOrderService.php');
 $start = strpos($source, '    private static function processDeductions(');
 $end = strpos($source, '    private static function syncLiveJobMaterialsIfNeeded(', $start);
@@ -26,8 +27,12 @@ class TestConnection {
 class InventoryManager {
     public static float $stock = 10;
     public static array $ledger = [];
-    public static function getItem($id): array { return ['id' => $id, 'name' => 'Test material', 'track_by_roll' => false]; }
+    public static function getItem($id): array { return ['id' => $id, 'name' => 'Test material', 'track_by_roll' => false, 'unit_of_measure' => 'Pcs']; }
     public static function getStockOnHand($id, $branch): float { return self::$stock; }
+    public static function getStockOnHandForUpdate($id, int $branch): float {
+        if (!$GLOBALS['conn']->active) throw new RuntimeException('Current stock must be checked inside the deduction transaction.');
+        return self::$stock;
+    }
     public static function issueStock($id, $qty, $uom, $ref, $refId, $notes, $ignore, $negative, $branch, $date): int {
         if ($qty > self::$stock) throw new RuntimeException('Insufficient stock');
         self::$stock -= $qty;
@@ -67,6 +72,14 @@ function db_execute($sql, $types, $params): bool {
     return true;
 }
 eval('class DeductionUnderTest {
+    private static function decodeMaterialMetadata($metadata) {
+        if (is_array($metadata)) return $metadata;
+        if (is_string($metadata) && trim($metadata) !== "") {
+            $decoded = json_decode($metadata, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+        return [];
+    }
     private static function getJobBranchId($id) { return 2; }
     private static function assignmentIsMarkedDeducted($assignment) {
         $stamp = trim((string)($assignment["deducted_at"] ?? ""));
@@ -104,7 +117,7 @@ function fixture(array $quantities): void {
     InventoryManager::$ledger = [];
     $GLOBALS['materials'] = [];
     foreach ($quantities as $index => $qty) {
-        $GLOBALS['materials'][] = ['id' => $index + 1, 'item_id' => 42, 'quantity' => $qty, 'uom' => 'Pcs', 'deducted_at' => null];
+        $GLOBALS['materials'][] = ['id' => $index + 1, 'item_id' => 42, 'quantity' => $qty, 'uom' => 'Pcs', 'metadata' => ['actual_usage_version' => 'manual_v1'], 'deducted_at' => null];
     }
 }
 function check(bool $ok, string $label): void {
@@ -113,6 +126,7 @@ function check(bool $ok, string $label): void {
 }
 $materials =& $GLOBALS['materials'];
 $conn = new TestConnection();
+$GLOBALS['conn'] = $conn;
 fixture([2]);
 DeductionUnderTest::processDeductions(9, ['materials' => true, 'inks' => false]);
 check(InventoryManager::$stock === 8.0 && count(InventoryManager::$ledger) === 1, 'stock 10 -> 8 and one ledger entry');

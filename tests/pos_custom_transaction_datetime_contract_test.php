@@ -54,9 +54,11 @@ $assert(
     'POS submits no custom transaction time and checkout defaults to current Manila server time'
 );
 $assert(
-    str_contains($serviceFields, 'printflow_allow_past_needed_date')
-        && str_contains($renderer, 'printflow_allow_past_needed_date'),
-    'Authorized POS service fields allow past Needed Date when backdating is enabled'
+    str_contains($serviceFields, "\$GLOBALS['printflow_allow_past_needed_date'] = false")
+        && str_contains($renderer, 'printflow_pos_business_today')
+        && str_contains($pos, 'posEnforceNeededDateMinimum')
+        && !str_contains($pos, 'posAllowPastNeededDateInputs'),
+    'POS Needed Date uses Manila business today and no longer strips the date min for backdating'
 );
 
 echo "POS custom transaction datetime contract: {$passed} assertions passed.\n";

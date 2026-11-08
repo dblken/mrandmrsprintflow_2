@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/product_pricing.php';
 
 require_role(['Admin', 'Manager']);
 
@@ -26,13 +27,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     if (!is_array($submitted)) {
         $error = 'Invalid field configuration payload.';
     } else {
-        $existing = array_keys(get_product_field_config($product_id));
-        $incoming = array_keys($submitted);
-        foreach (array_diff($existing, $incoming) as $field_key) {
-            delete_product_field_config($product_id, (string)$field_key);
+        foreach ($submitted as $fieldKey => $config) {
+            if (!is_array($config)
+                || trim((string)($config['label'] ?? '')) === ''
+                || !in_array((string)($config['type'] ?? ''), ['select', 'radio', 'dimension'], true)) {
+                $error = 'Each product field must have a valid label and supported type.';
+                break;
+            }
+        }
+        $pricingValidation = printflow_product_option_pricing_config($submitted);
+        if ($error !== '') {
+            // Keep the existing configuration intact when any submitted field is malformed.
+        } elseif (empty($pricingValidation['ok'])) {
+            $error = (string)($pricingValidation['message'] ?? 'Product option pricing is invalid.');
+        } elseif ($pricingValidation['mode'] === 'option' && function_exists('db_table_has_column') && db_table_has_column('product_variants', 'variant_id') && !empty(db_query("SELECT variant_id FROM product_variants WHERE product_id = ? AND status = 'Active' LIMIT 1", 'i', [$product_id]))) {
+            $error = 'This product already has priced variants. Remove that pricing source before configuring priced fields.';
+        } else {
+            $baseValidation = printflow_product_validate_admin_price($product['price'] ?? null, (string)$pricingValidation['mode']);
+            if (empty($baseValidation['ok'])) {
+                $error = (string)$baseValidation['message'];
+            }
         }
 
-        foreach ($submitted as $field_key => $config) {
+        $existing = $error === '' ? array_keys(get_product_field_config($product_id)) : [];
+        $incoming = array_keys($submitted);
+        if ($error === '') {
+            foreach (array_diff($existing, $incoming) as $field_key) {
+                delete_product_field_config($product_id, (string)$field_key);
+            }
+        }
+
+        foreach ($error === '' ? $submitted : [] as $field_key => $config) {
             if (!is_array($config)) {
                 continue;
             }
@@ -49,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 'required' => !empty($config['required']),
                 'default' => null,
                 'unit' => (string)($config['unit'] ?? 'ft'),
-                'allow_others' => !array_key_exists('allow_others', $config) || !empty($config['allow_others']),
+                'allow_others' => !empty($config['allow_others']),
                 'order' => (int)($config['order'] ?? 0),
                 'options' => printflow_product_field_normalize_option_rows((array)($config['options'] ?? []), $type),
             ];
@@ -57,7 +82,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             save_product_field_config($product_id, (string)$field_key, $payload);
         }
 
-        $success = 'Product field configuration saved successfully.';
+        if ($error === '') {
+            $success = 'Product field configuration saved successfully.';
+        }
     }
 }
 
@@ -219,7 +246,7 @@ $page_title = 'Product Fields - ' . $product['name'];
                     <label class="toggle-label">
                         <span>Allow "Others"</span>
                         <label class="toggle-switch">
-                            <input type="checkbox" id="modal-allow-others" checked>
+                            <input type="checkbox" id="modal-allow-others">
                             <span class="toggle-slider"></span>
                         </label>
                     </label>
@@ -246,15 +273,15 @@ $page_title = 'Product Fields - ' . $product['name'];
 <script>
 const fieldConfigurations = <?php echo json_encode($field_configs, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?> || {};
 
-function optionRowHtml(value = '', price = '0') {
+function optionRowHtml(value = '', price = '') {
     return `<div class="option-item">
         <input type="text" class="option-input option-value" maxlength="32" placeholder="Option label" value="${value.replace(/"/g, '&quot;')}">
-        <input type="number" class="field-input option-price" min="0" step="0.01" style="max-width:120px;" placeholder="Price" value="${price}">
+        <input type="number" class="field-input option-price" min="0.01" step="0.01" style="max-width:120px;" placeholder="Required price" value="${price}">
         <button type="button" class="btn-action red" onclick="this.parentNode.remove()">Remove</button>
     </div>`;
 }
 
-function addOptionRow(value = '', price = '0') {
+function addOptionRow(value = '', price = '') {
     const list = document.getElementById('modalOptionsList');
     list.insertAdjacentHTML('beforeend', optionRowHtml(value, price));
 }
@@ -263,7 +290,7 @@ function toggleModalOptions() {
     const type = document.getElementById('modal-field-type').value;
     document.getElementById('modalOptionsGroup').style.display = (type === 'select' || type === 'radio' || type === 'dimension') ? 'block' : 'none';
     document.getElementById('modalUnitGroup').style.display = type === 'dimension' ? 'block' : 'none';
-    document.getElementById('modal-allow-others').checked = true;
+    // Preserve the user's configured allow-others value when changing field type.
 }
 
 function openFieldModal(fieldKey = '') {
@@ -279,7 +306,7 @@ function openFieldModal(fieldKey = '') {
         document.getElementById('modal-field-unit').value = config.unit || 'ft';
         document.getElementById('modal-field-required').checked = !!config.required;
         document.getElementById('modal-field-visible').checked = !!config.visible;
-        document.getElementById('modal-allow-others').checked = config.allow_others !== false;
+        document.getElementById('modal-allow-others').checked = config.allow_others === true;
         toggleModalOptions();
         (config.options || []).forEach(option => addOptionRow(option.value || '', option.price || '0'));
     } else {
@@ -289,7 +316,7 @@ function openFieldModal(fieldKey = '') {
         document.getElementById('modal-field-unit').value = 'ft';
         document.getElementById('modal-field-required').checked = true;
         document.getElementById('modal-field-visible').checked = true;
-        document.getElementById('modal-allow-others').checked = true;
+        document.getElementById('modal-allow-others').checked = false;
         toggleModalOptions();
         addOptionRow();
     }
@@ -327,9 +354,20 @@ function saveFieldFromModal() {
 
     const options = [];
     if (type === 'select' || type === 'radio' || type === 'dimension') {
-        document.querySelectorAll('#modalOptionsList .option-item').forEach(row => {
+        const optionRows = Array.from(document.querySelectorAll('#modalOptionsList .option-item'));
+        const invalidPriceRow = optionRows.find(row => {
             const value = row.querySelector('.option-value').value.trim();
-            const price = parseFloat(row.querySelector('.option-price').value || '0') || 0;
+            const rawPrice = row.querySelector('.option-price').value.trim();
+            return value && (!/^\d+(?:\.\d{1,2})?$/.test(rawPrice) || Number(rawPrice) <= 0);
+        });
+        if (invalidPriceRow) {
+            alert('Every selectable option must have a valid price greater than ₱0.00, with up to two decimal places.');
+            return;
+        }
+        optionRows.forEach(row => {
+            const value = row.querySelector('.option-value').value.trim();
+            const rawPrice = row.querySelector('.option-price').value.trim();
+            const price = Number(rawPrice);
             if (value) {
                 options.push({ value, price });
             }

@@ -354,8 +354,6 @@ if (isset($_GET['ajax'])) {
         .inv-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: auto; }
         .inv-table th { padding: 12px 16px; font-size: 13px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         .inv-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; color: #374151; max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        #serviceMaterialApprovalPanel .inv-table td.service-material-rule-actions { min-width: 280px; max-width: none; overflow: visible; text-overflow: clip; }
-        #serviceMaterialApprovalPanel .service-material-rule-actions button { min-height: 36px; cursor: pointer; }
         .no-truncate { max-width: none !important; overflow: visible !important; white-space: nowrap !important; text-overflow: clip !important; }
         .inv-table tbody tr { cursor: pointer; transition: background 0.1s; }
         .inv-table tbody tr:hover td { background: #f9fafb; }
@@ -860,24 +858,6 @@ if (isset($_GET['ajax'])) {
         </header>
 
         <main>
-            <?php if (is_admin()): ?>
-            <section class="card" id="serviceMaterialApprovalPanel" style="margin-bottom:20px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
-                    <div>
-                        <h2 style="font-size:16px;margin:0;color:#1f2937;">Service Material Rules</h2>
-                        <p style="font-size:12px;color:#64748b;margin:5px 0 0;">Only an Admin can save multipliers or approve REQUIRED rules. Changing a multiplier clears its approval and requires a new approval.</p>
-                    </div>
-                    <button type="button" class="toolbar-btn" onclick="pfLoadServiceMaterialRules()">Refresh rules</button>
-                </div>
-                <div id="serviceMaterialRuleFeedback" role="status" aria-live="polite" style="font-size:13px;margin:0 0 10px;color:#334155;"></div>
-                <div style="overflow-x:auto;">
-                    <table class="inv-table" style="min-width:900px;">
-                        <thead><tr><th>Service</th><th>Material</th><th>Inventory UOM</th><th>Rule Type</th><th>Multiplier</th><th>Approval</th><th>Action</th></tr></thead>
-                        <tbody id="serviceMaterialRuleRows"><tr><td colspan="7" style="padding:16px;">Loading service material rules…</td></tr></tbody>
-                    </table>
-                </div>
-            </section>
-            <?php endif; ?>
             <!-- Items Card -->
             <div class="card">
                 <?php if ($inventory_read_only): ?>
@@ -1170,10 +1150,13 @@ if (isset($_GET['ajax'])) {
                     <input type="text" id="addStockRollCode" placeholder="e.g. ROLL-001" style="margin-bottom:12px;">
                     <span id="err-addStockRollCode" class="field-error"></span>
                     
-                    <label for="addStockWidth">Roll Width (ft) *</label>
-                    <input type="number" step="1" min="1" max="12" id="addStockWidth" placeholder="e.g. 6 or 10">
+                    <label for="addStockWidth">Physical Roll Width *</label>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <input type="number" step="0.001" min="0.001" id="addStockWidth" placeholder="Enter roll width" oninput="updateAddStockUI()" onchange="updateAddStockUI()">
+                        <select id="addStockWidthUnit" aria-label="Roll width unit" onchange="updateAddStockUI()" style="max-width:100px;"><option value="ft">ft</option><option value="in">in</option></select>
+                    </div>
                     <span id="err-addStockWidth" class="field-error"></span>
-                    <p style="font-size:10px;color:#3b82f6;margin-top:4px;line-height:1.4;">Specify width for tarpaulin/vinyl rolls. <br>Leave code empty to auto-generate.</p>
+                    <p style="font-size:10px;color:#3b82f6;margin-top:4px;line-height:1.4;">The received length is entered separately above. Width is stored in feet. Leave code empty to auto-generate.</p>
                 </div>
                 <div class="filter-group">
                     <label for="addStockNotes">Notes</label>
@@ -1625,58 +1608,6 @@ if (isset($_GET['ajax'])) {
     /* var: Turbo re-executes this block; let/const would throw "already been declared". */
     window.PF_INVENTORY_CSRF = <?php echo json_encode(generate_csrf_token(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
     var ADMIN_API_BASE = '<?php echo $base_path; ?>/admin/';
-    <?php if (is_admin()): ?>
-    window.pfLoadServiceMaterialRules = async function () {
-        var body = document.getElementById('serviceMaterialRuleRows');
-        var feedback = document.getElementById('serviceMaterialRuleFeedback');
-        if (!body) return;
-        body.innerHTML = '<tr><td colspan="7" style="padding:16px;">Loading…</td></tr>';
-        try {
-            var response = await fetch(ADMIN_API_BASE + 'service_material_rules_api.php', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
-            var data = await response.json();
-            if (!response.ok || !data.success) throw new Error(data.error || 'Could not load rules.');
-            if (!data.data.length) { body.innerHTML = '<tr><td colspan="7" style="padding:16px;">No service material rules are configured.</td></tr>'; return; }
-            body.innerHTML = data.data.map(function (rule) {
-                var required = String(rule.rule_type || '').toUpperCase() === 'REQUIRED';
-                var approved = String(rule.qty_multiplier_approved) === '1';
-                var auditPresent = rule.qty_multiplier_approved_by && rule.qty_multiplier_approved_at;
-                var status = approved && auditPresent ? 'Approved by Admin #' + escapeHtml(rule.qty_multiplier_approved_by) + ' at ' + escapeHtml(rule.qty_multiplier_approved_at) : (approved ? 'Approval audit incomplete; reapproval required' : 'Not approved');
-                var multiplier = rule.qty_multiplier == null ? '' : String(rule.qty_multiplier);
-                var actions = '<button type="button" class="toolbar-btn" onclick="pfSaveServiceMaterialMultiplier(' + Number(rule.id) + ')">Save multiplier</button>';
-                if (required) actions += ' <button type="button" class="toolbar-btn" onclick="pfApproveServiceMaterialRule(' + Number(rule.id) + ')">Approve REQUIRED</button>';
-                return '<tr><td>' + escapeHtml(rule.service_name || rule.service_type) + '</td><td>' + escapeHtml(rule.material_name || ('Inventory item #' + rule.item_id)) + '</td><td>' + escapeHtml(rule.inventory_uom || '—') + '</td><td>' + escapeHtml(rule.rule_type || '') + '</td><td><input id="serviceMaterialMultiplier-' + Number(rule.id) + '" type="number" min="0.01" max="99999999.99" step="0.01" value="' + escapeHtml(multiplier) + '" aria-label="Multiplier for rule ' + Number(rule.id) + '" style="width:120px;padding:7px;border:1px solid #cbd5e1;border-radius:6px;"></td><td>' + status + '</td><td class="service-material-rule-actions" style="white-space:nowrap;">' + actions + '</td></tr>';
-            }).join('');
-            if (feedback) feedback.textContent = '';
-        } catch (error) {
-            body.innerHTML = '<tr><td colspan="7" style="padding:16px;color:#b91c1c;">' + escapeHtml(error.message) + '</td></tr>';
-        }
-    };
-    window.pfMutateServiceMaterialRule = async function (ruleId, action, multiplier) {
-        var feedback = document.getElementById('serviceMaterialRuleFeedback');
-        var form = new FormData();
-        form.set('csrf_token', window.PF_INVENTORY_CSRF || '');
-        form.set('rule_id', String(ruleId));
-        form.set('action', action);
-        if (multiplier != null) form.set('qty_multiplier', multiplier);
-        if (feedback) feedback.textContent = 'Saving…';
-        try {
-            var response = await fetch(ADMIN_API_BASE + 'service_material_rules_api.php', { method: 'POST', body: form, credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
-            var data = await response.json();
-            if (!response.ok || !data.success) throw new Error(data.error || 'The rule could not be saved.');
-            if (feedback) feedback.textContent = action === 'approve' ? 'Approval recorded with Admin ID and timestamp.' : (data.approval_required ? 'Multiplier saved. This REQUIRED rule must be explicitly approved again.' : 'Multiplier saved.');
-            await window.pfLoadServiceMaterialRules();
-        } catch (error) {
-            if (feedback) feedback.textContent = error.message;
-        }
-    };
-    window.pfSaveServiceMaterialMultiplier = function (ruleId) {
-        var input = document.getElementById('serviceMaterialMultiplier-' + ruleId);
-        if (input) window.pfMutateServiceMaterialRule(ruleId, 'update_multiplier', input.value);
-    };
-    window.pfApproveServiceMaterialRule = function (ruleId) { window.pfMutateServiceMaterialRule(ruleId, 'approve', null); };
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', window.pfLoadServiceMaterialRules);
-    else window.pfLoadServiceMaterialRules();
-    <?php endif; ?>
     var currentItems = <?php echo $items_js; ?>;
     var usageChart = null;
     var selectedItemForStockCard = null;
@@ -3267,6 +3198,28 @@ if (isset($_GET['ajax'])) {
         return uom === 'l' ? 'Liter (L)' : (uom === 'sheet' ? 'Sheet' : uom);
     }
 
+    function printflowGetRollWidthDefault(item) {
+        const raw = item && item.material_width != null ? String(item.material_width).trim() : '';
+        const unitRaw = String(item?.material_dimension_unit || '').trim().toLowerCase();
+        const unit = ['in', 'inch', 'inches'].includes(unitRaw) ? 'in'
+            : (['ft', 'feet', 'foot'].includes(unitRaw) ? 'ft' : '');
+        return raw !== '' && Number.isFinite(Number(raw)) && Number(raw) > 0 && unit
+            ? { value: raw, unit }
+            : { value: '', unit: 'ft' };
+    }
+
+    function validateAddStockRollWidth() {
+        const input = document.getElementById('addStockWidth');
+        const unit = String(document.getElementById('addStockWidthUnit')?.value || '');
+        const raw = String(input?.value || '').trim();
+        const n = Number(raw);
+        const widthFt = unit === 'in' ? n / 12 : (unit === 'ft' ? n : NaN);
+        if (!raw || !Number.isFinite(n) || n <= 0 || !Number.isFinite(widthFt) || widthFt <= 0 || widthFt > 100) {
+            return { ok: false, message: 'Enter a valid physical roll width in ft or inches.' };
+        }
+        return { ok: true, widthFt };
+    }
+
     function openAddStockModal(item) {
         const currentStock = parseFloat(item.current_stock || 0);
         const modalUom = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
@@ -3296,7 +3249,9 @@ if (isset($_GET['ajax'])) {
         if (unitCostInput) unitCostInput.value = (isNaN(currentUnitCost) || currentUnitCost <= 0) ? '0.00' : currentUnitCost.toFixed(2);
         document.getElementById('addStockQty').value = '';
         document.getElementById('addStockRollCode').value = '';
-        document.getElementById('addStockWidth').value = item.default_roll_width_ft || '1'; // Default to 1 if no width specified
+        const rollWidthDefault = printflowGetRollWidthDefault(item);
+        document.getElementById('addStockWidth').value = rollWidthDefault.value;
+        document.getElementById('addStockWidthUnit').value = rollWidthDefault.unit;
         document.getElementById('addStockNotes').value = '';
         document.getElementById('addStockQtyError').style.display = 'none';
         const errCostEl = document.getElementById('err-addStockUnitCost');
@@ -3307,9 +3262,9 @@ if (isset($_GET['ajax'])) {
         document.getElementById('addStockLargeWarning').style.display = 'none';
         
         const isRoll = item.track_by_roll == 1;
-        // Hidden per user request ("you can hide them") - keeps modal clean for simple intake
-        document.getElementById('addStockRollGroup').style.display = 'none';
-        document.getElementById('addStockWidth').required = false; 
+        document.getElementById('addStockRollGroup').style.display = isRoll ? 'block' : 'none';
+        document.getElementById('addStockWidth').required = isRoll;
+        document.getElementById('addStockWidthUnit').required = isRoll;
         
         updateAddStockUI();
         document.getElementById('addStockModal').style.display = 'flex';
@@ -3453,6 +3408,13 @@ if (isset($_GET['ajax'])) {
         const errCostEl = document.getElementById('err-addStockUnitCost');
         const btn = document.getElementById('addStockBtn');
         const costValid = !isNaN(cNew) && cNew > 0;
+        const isRoll = document.getElementById('addStockIsRoll')?.value == 1;
+        const widthErrorEl = document.getElementById('err-addStockWidth');
+        const rollWidthCheck = isRoll ? validateAddStockRollWidth() : { ok: true };
+        if (widthErrorEl) {
+            widthErrorEl.textContent = rollWidthCheck.ok ? '' : rollWidthCheck.message;
+            widthErrorEl.style.display = rollWidthCheck.ok ? 'none' : 'block';
+        }
         
         if (raw === '') {
             errEl.style.display = 'none';
@@ -3506,6 +3468,11 @@ if (isset($_GET['ajax'])) {
                 cUpdated = cNew;
             }
             costPreviewEl.textContent = 'New Estimated Unit Cost: \u20B1' + cUpdated.toFixed(2);
+        }
+
+        if (!rollWidthCheck.ok) {
+            if (btn) btn.disabled = true;
+            return;
         }
 
         if (btn) btn.disabled = false;
@@ -3766,6 +3733,17 @@ if (isset($_GET['ajax'])) {
         const uomType = normalizeAddStockUom();
         const qtyCheck = validateAddStockQtyString(qtyStr, uomType);
         const unitCost = parseFloat(document.getElementById('addStockUnitCost')?.value || '0');
+        const rollWidthCheck = isRoll ? validateAddStockRollWidth() : { ok: true };
+
+        if (!rollWidthCheck.ok) {
+            const errWidthEl = document.getElementById('err-addStockWidth');
+            if (errWidthEl) {
+                errWidthEl.textContent = rollWidthCheck.message;
+                errWidthEl.style.display = 'block';
+            }
+            btn.disabled = false; btn.textContent = 'Receive IN';
+            return;
+        }
 
         if (!qtyCheck.ok) {
             const errEl = document.getElementById('addStockQtyError');
@@ -3803,8 +3781,8 @@ if (isset($_GET['ajax'])) {
         fd.set('notes', notes || 'Manual stock entry');
         if (isRoll) {
             fd.set('roll_code', rollCode);
-            let w = document.getElementById('addStockWidth').value;
-            fd.set('width_ft', w || '1'); // Ensure it's never empty for rolls
+            fd.set('roll_width', String(document.getElementById('addStockWidth').value).trim());
+            fd.set('roll_width_unit', document.getElementById('addStockWidthUnit').value);
         }
 
         try {
@@ -3824,6 +3802,7 @@ if (isset($_GET['ajax'])) {
                     for (let key in data.errors) {
                             let errEl = null;
                             if (key === 'unit_cost') errEl = document.getElementById('err-addStockUnitCost');
+                            else if (key === 'roll_width') errEl = document.getElementById('err-addStockWidth');
                             else if (key === 'quantity') errEl = document.getElementById('addStockQtyError');
                             else errEl = document.getElementById('err-' + key);
                             if (!errEl) errEl = document.getElementById('addStockQtyError');

@@ -21,7 +21,11 @@ $posPayMongoQrphAvailable = $posPayMongoAvailable
 // Require staff or admin role
 require_role(['Admin', 'Staff']);
 printflow_require_staff_module('pos');
-$GLOBALS['printflow_allow_past_needed_date'] = true;
+// Needed Date must not accept past calendar days in the Manila business timezone.
+$GLOBALS['printflow_allow_past_needed_date'] = false;
+$pos_business_today = function_exists('printflow_pos_business_today')
+    ? printflow_pos_business_today()
+    : (new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->format('Y-m-d');
 
 // Resolve and lock staff branch into session
 $_pos_branch_ctx = init_branch_context(false);
@@ -166,6 +170,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             font-weight: 500;
             color: #374151;
             min-height: 2.25rem;
+        }
+
+        /* Native <select> pickers break under display:flex/inline-flex in Chromium. */
+        select.shopee-opt-btn {
+            display: inline-block !important;
+            align-items: normal;
+            justify-content: normal;
+            text-align: left;
         }
 
         .shopee-opt-btn:hover {
@@ -318,10 +330,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             color: #374151 !important;
         }
 
+        /* Native <select> menus break under overflow:hidden + flex from .shopee-opt-btn.
+           Dimension fields use a custom listbox; keep native selects usable as fallback. */
         #service-modal-overlay select.shopee-opt-btn {
             appearance: none;
             -webkit-appearance: none;
             -moz-appearance: none;
+            display: inline-block !important;
+            overflow: visible !important;
+            pointer-events: auto !important;
+            cursor: pointer !important;
+            z-index: 2;
             color: #0f172a !important;
             background-color: #ffffff !important;
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
@@ -329,6 +348,95 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             background-position: right 0.75rem center;
             background-size: 1rem;
             padding-right: 2.5rem !important;
+        }
+
+        #service-modal-overlay .pf-dim-select-shell {
+            position: relative;
+            width: 175px;
+            max-width: 100%;
+        }
+
+        #service-modal-overlay .pf-dim-select-shell > select.shopee-opt-btn {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0 !important;
+            margin: -1px;
+            overflow: hidden !important;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0 !important;
+            opacity: 0;
+            pointer-events: none !important;
+        }
+
+        #service-modal-overlay .pf-dim-select-trigger {
+            width: 100%;
+            justify-content: space-between;
+            text-align: left;
+            gap: 8px;
+        }
+
+        #service-modal-overlay .pf-dim-select-trigger[disabled] {
+            opacity: 0.65;
+            cursor: not-allowed !important;
+        }
+
+        #service-modal-overlay .pf-dim-select-menu {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: calc(100% + 4px);
+            z-index: 40;
+            margin: 0;
+            padding: 6px 0;
+            list-style: none;
+            max-height: 220px;
+            overflow-y: auto;
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+        }
+
+        #service-modal-overlay .pf-dim-select-menu[hidden] {
+            display: none !important;
+        }
+
+        #service-modal-overlay .pf-dim-select-option {
+            width: 100%;
+            border: 0;
+            background: transparent;
+            text-align: left;
+            padding: 8px 12px;
+            font-size: 0.875rem;
+            color: #0f172a;
+            cursor: pointer;
+        }
+
+        #service-modal-overlay .pf-dim-select-option:hover,
+        #service-modal-overlay .pf-dim-select-option[aria-selected="true"] {
+            background: #f1f5f9;
+        }
+
+        #service-modal-overlay .pf-dim-select-error {
+            margin-top: 8px;
+            color: #b91c1c;
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1.35;
+        }
+
+        #service-modal-overlay .pf-dim-select-retry {
+            margin-top: 6px;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #0f172a;
+            border-radius: 6px;
+            padding: 4px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
         }
 
         #service-modal-overlay select.shopee-opt-btn option {
@@ -1263,6 +1371,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             width: max-content;
             max-width: 100%;
             justify-self: start;
+        }
+
+        .pos-item-controls-readonly {
+            justify-content: center;
+            min-width: 60px;
+            padding: 3px 8px;
+        }
+
+        .pos-qty-readonly {
+            min-width: 44px;
+            text-align: center;
+            font-size: 14px;
+            font-weight: 600;
+            color: #0f172a;
         }
 
         .pos-qty-btn {
@@ -3407,6 +3529,20 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         };
         let posLastServiceCardEl = null;
         const POS_CSRF_TOKEN = document.body.dataset.csrf || '';
+        const POS_BUSINESS_TODAY = <?php echo json_encode($pos_business_today, JSON_UNESCAPED_SLASHES); ?>;
+
+        /** Asia/Manila business calendar day from the server; never use UTC browser midnight. */
+        function posBusinessToday() {
+            const raw = String(POS_BUSINESS_TODAY || '').trim();
+            return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '';
+        }
+
+        function posNeededDateIsNotBeforeToday(value) {
+            const day = String(value || '').trim().slice(0, 10);
+            const today = posBusinessToday();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || today === '') return false;
+            return day >= today;
+        }
 
         function posCatalogImageUrl(product) {
             if (!product) return POS_DEFAULT_CATALOG_IMG;
@@ -3572,6 +3708,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return !!(item && item.is_service === true);
         }
 
+        function posCartItemQuantityHtml(item, index, isServiceLine) {
+            const quantity = escapeHtml(String(item?.qty ?? ''));
+            if (isServiceLine) {
+                return `<div class="pos-item-controls pos-item-controls-readonly"><span class="pos-qty-readonly" aria-label="Quantity">${quantity}</span></div>`;
+            }
+            return `<div class="pos-item-controls">
+                <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, -1)" aria-label="Decrease quantity">&minus;</button>
+                <input class="pos-qty-val" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="64" autocomplete="off" value="${quantity}" aria-label="Quantity" aria-describedby="pos-qty-warning-${index}" oninput="validateCartQuantityInput(${index}, this)" onblur="commitCartQuantityInput(${index}, this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
+                <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, 1)" aria-label="Increase quantity">&plus;</button>
+            </div>`;
+        }
+
         function posCartItemShowsSetPriceButton(item) {
             if (posCartItemRequiresSetPrice(item)) {
                 return !posCartItemStaffPricingComplete(item);
@@ -3594,17 +3742,39 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         function posCartItemEstimatedUnitPrice(item) {
             const c = item && item.customization ? item.customization : {};
-            const qty = Math.max(1, parseInt(item?.qty, 10) || 1);
-            const lineTotal = parseFloat(c.calculated_estimated_price);
-            if (Number.isFinite(lineTotal) && lineTotal > 0) {
-                return lineTotal / qty;
-            }
+            // Prefer the stored per-unit amount. Never divide a line total that
+            // already includes the one-time layout/design fee by quantity —
+            // that incorrectly spreads Without Layout fee across units.
             const unit = parseFloat(c.calculated_unit_price);
             if (Number.isFinite(unit) && unit > 0) {
                 return unit;
             }
             const cartUnit = parseFloat(item?.price);
-            return Number.isFinite(cartUnit) ? cartUnit : 0;
+            if (Number.isFinite(cartUnit) && cartUnit > 0) {
+                return cartUnit;
+            }
+            const qty = Math.max(1, parseInt(item?.qty, 10) || 1);
+            const lineTotal = parseFloat(c.calculated_estimated_price);
+            const fee = Math.max(0, Number(item?.design_fee ?? c.design_fee) || 0);
+            if (Number.isFinite(lineTotal) && lineTotal > 0) {
+                return Math.max(0, (lineTotal - fee) / qty);
+            }
+            return 0;
+        }
+
+        function posCartItemDisplayedLineTotal(item) {
+            if (!item) return 0;
+            if (item.line_total_override !== null && item.line_total_override !== undefined) {
+                return Math.max(0, Number(item.line_total_override) || 0);
+            }
+            const unit = parseFloat(item.price) || 0;
+            const qty = Math.max(1, parseInt(item.qty, 10) || 1);
+            const fee = Math.max(0, Number(item.design_fee ?? item.customization?.design_fee) || 0);
+            const estimated = parseFloat(item.estimated_price ?? item.customization?.calculated_estimated_price);
+            if (Number.isFinite(estimated) && estimated > 0) {
+                return estimated;
+            }
+            return (unit * qty) + fee;
         }
 
         function posVariantOptionsList(product) {
@@ -4652,7 +4822,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (qtyEl) qtyEl.textContent = '1';
         }
 
-        function initPosEstimatedPrice(body, basePrice) {
+        function initPosEstimatedPrice(body, basePrice, serviceId) {
             destroyPosEstimatedPrice();
             const footer = document.getElementById('pos-estimated-price-display');
             if (!footer || typeof window.printflowInitServiceEstimatedPrice !== 'function') {
@@ -4660,6 +4830,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
             posEstimatedPriceController = window.printflowInitServiceEstimatedPrice(body, {
                 basePrice: basePrice,
+                serviceId: Number(serviceId) || 0,
                 form: body,
                 estimatedTotalEl: footer.querySelector('#pos-estimated-total'),
                 qtyDisplayEl: footer.querySelector('#pos-qty-display')
@@ -4670,32 +4841,87 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             let unitPrice = 0;
             let quantity = 1;
             let designFee = 0;
+            let estimatedTotal = null;
             if (posEstimatedPriceController && typeof posEstimatedPriceController.recalculate === 'function') {
                 const result = posEstimatedPriceController.recalculate();
                 unitPrice = Number(result.unitPrice);
                 quantity = Number(result.quantity);
                 designFee = Number(result.designFee || 0);
+                estimatedTotal = result.estimatedTotal;
             } else if (typeof window.calculateEstimatedPrice === 'function') {
                 const result = window.calculateEstimatedPrice();
                 unitPrice = Number(result.unitPrice);
                 quantity = Number(result.quantity);
                 designFee = Number(result.designFee || 0);
+                estimatedTotal = result.estimatedTotal;
             }
             if (!Number.isFinite(unitPrice)) unitPrice = 0;
             if (!Number.isFinite(quantity) || quantity < 1) quantity = 1;
             if (!Number.isFinite(designFee) || designFee < 0) designFee = 0;
-            return { unitPrice, quantity, designFee };
+            if (estimatedTotal == null && Number.isFinite(unitPrice) && Number.isFinite(quantity) && quantity >= 1) {
+                estimatedTotal = Math.round((unitPrice * quantity + designFee) * 100) / 100;
+            }
+            return { unitPrice, quantity, designFee, estimatedTotal };
         }
 
         const POS_MISSING_ESTIMATE_MESSAGE = 'This specification does not have an estimated price yet. The final price will be set by Staff before payment or order completion. Do you want to continue?';
+
+        function posNeedsMissingEstimatedPriceConfirm(estimatedTotal) {
+            if (typeof window.printflowNeedsMissingEstimatedPriceConfirm === 'function') {
+                return window.printflowNeedsMissingEstimatedPriceConfirm(estimatedTotal);
+            }
+            if (estimatedTotal == null || estimatedTotal === '') return true;
+            const amount = typeof estimatedTotal === 'number' ? estimatedTotal : Number(estimatedTotal);
+            if (!Number.isFinite(amount)) return true;
+            return amount === 0;
+        }
+
+        /**
+         * Final line estimate for the missing-price warning must match the modal display:
+         * (unit × qty) + one-time layout/design fee. Prefer the value just returned by
+         * resolveServiceModalPricing()/recalculate() (what painted #pos-estimated-total).
+         * Do not coerce missing values through Number(null) === 0.
+         */
+        function posResolveFinalLineEstimate(pricing, customization) {
+            const candidates = [
+                pricing && pricing.estimatedTotal,
+                customization && customization.calculated_estimated_price,
+            ];
+            for (let i = 0; i < candidates.length; i++) {
+                const value = candidates[i];
+                if (value == null || value === '') continue;
+                const amount = typeof value === 'number' ? value : Number(value);
+                if (Number.isFinite(amount)) return amount;
+            }
+            return NaN;
+        }
 
         async function confirmMissingEstimatedPrice() {
             return showPOSConfirm('Estimated Price', POS_MISSING_ESTIMATE_MESSAGE, 'Continue', 'warning');
         }
 
+        function posReadPositiveWholeQuantity(value) {
+            const raw = String(value ?? '');
+            if (!/^[0-9]{1,64}$/.test(raw)) return null;
+            const canonical = raw.replace(/^0+/, '');
+            if (canonical === '' || canonical.length > 7) return null;
+            const parsed = Number(canonical);
+            return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 1000000 ? parsed : null;
+        }
+
+        /** Service-order modal quantity: positive whole numbers only, matching the server cart limit. */
+        function posReadServiceOrderQuantity(value) {
+            const parsed = posReadPositiveWholeQuantity(value);
+            if (parsed === null) return null;
+            return parsed;
+        }
+
         function applyServicePricingToCustomization(customization, unitPrice, quantity, designFee) {
             const safeUnit = Math.round(unitPrice * 100) / 100;
-            const safeQty = Math.max(1, parseInt(String(quantity), 10) || 1);
+            const safeQty = posReadServiceOrderQuantity(quantity);
+            if (safeQty === null) {
+                throw new Error('Enter a positive whole number.');
+            }
             const safeDesignFee = Math.max(0, Math.round((Number(designFee) || 0) * 100) / 100);
             customization.calculated_unit_price = safeUnit.toFixed(2);
             customization.calculated_design_fee = safeDesignFee.toFixed(2);
@@ -4709,6 +4935,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 customization.price_unconfigured = '1';
             }
             return { unitPrice: safeUnit, quantity: safeQty, designFee: safeDesignFee };
+        }
+
+        function posServiceStaffFacingMaterialMessage(message, serviceId = null) {
+            const text = String(message || '').trim();
+            if (Number(serviceId) === 71 && /select exactly one material from the sintra(?:_thickness| thickness) choices/i.test(text)) {
+                return 'Please select Sintra 3mm or Sintra 5mm.';
+            }
+            if (Number(serviceId) === 71 && /stable(?:-id)?\s+and\s+legacy|sintraboard mappings conflict|duplicate configuration|multiple rules exist for one service\/material|stable service id conflicts with the stored service_type/i.test(text)) {
+                return 'May kailangan bang linawin tungkol sa material na gagamitin? May nalilito ba sa pagpili ng material? Pakisuri ang Sintra 3mm o Sintra 5mm bago magpatuloy.';
+            }
+            return text;
         }
 
         async function openServiceModal(serviceId, serviceName) {
@@ -4740,12 +4977,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 const data = await res.json();
                 console.log('Service fields response:', data);
                 if (!data.success) {
-                    body.innerHTML = '<p style="color:#ef4444;text-align:center;padding:1rem;">' + (data.error || 'Failed to load fields.') + '</p>';
+                    body.innerHTML = '<p style="color:#ef4444;text-align:center;padding:1rem;"></p>';
+                    body.firstElementChild.textContent = posServiceStaffFacingMaterialMessage(data.error || 'Failed to load fields.', serviceId);
                     return;
                 }
                 overlay.dataset.csrfToken = data.csrf_token;
+                overlay.dataset.materialDimensionUnit = String(data.material_dimension_unit || '');
+                overlay.dataset.materialDimensionFieldKey = String(data.material_dimension_field_key || '');
+                overlay.dataset.materialSelectionFieldMap = JSON.stringify(data.material_selection_field_map || {});
                 body.innerHTML = data.fields_html;
-                if (Number(serviceId) === 40) posEnsureTarpaulinJoiningControls(body);
+                // Tarpaulin size comes from the Dimensions field only — do not
+                // inject redundant Width/Height inputs on the Order Details form.
                 footerActions.style.display = 'block';
                 isAddingToOrder = false;
                 setServiceAddButtonBusy(false);
@@ -4791,11 +5033,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 bindServiceValidationClearers(body);
                 if (typeof initServiceFieldRenderer === 'function') initServiceFieldRenderer(body);
                 else if (typeof initPfDesignUploadGroups === 'function') initPfDesignUploadGroups(body);
-                initPosEstimatedPrice(body, parseFloat(data.base_price) || 0);
+                initPosEstimatedPrice(body, parseFloat(data.base_price) || 0, serviceId);
                 posBindServiceStockValidation(serviceId);
-                if (typeof posAllowPastNeededDateInputs === 'function') {
-                    posAllowPastNeededDateInputs(body);
-                }
+                posEnforceNeededDateMinimum(body);
             } catch (e) {
                 body.innerHTML = '<p style="color:#ef4444;text-align:center;padding:1rem;">Network error. Please try again.</p>';
             }
@@ -5141,8 +5381,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
 
                 // Quantity
-                const qtyInput = row.querySelector('#quantity-input');
-                if (qtyInput) { customization['quantity'] = qtyInput.value || 1; }
+                const qtyInput = row.querySelector('#quantity-input, .pf-service-quantity-input, input[name="quantity"]');
+                if (qtyInput) {
+                    const parsedQty = posReadServiceOrderQuantity(qtyInput.value);
+                    if (parsedQty === null) {
+                        showPOSAlert('Quantity', 'Enter a positive whole number.', 'warning');
+                        valid = false;
+                    } else {
+                        customization.quantity = String(parsedQty);
+                    }
+                }
 
                 // Textarea (notes)
                 const textarea = row.querySelector('textarea');
@@ -5241,8 +5489,22 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             // Add service to cart with calculated unit price from the modal estimator
             const pricing = resolveServiceModalPricing();
-            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization['quantity'] || pricing.quantity, pricing.designFee);
-            if (priced.unitPrice <= 0) {
+            let priced;
+            try {
+                priced = applyServicePricingToCustomization(
+                    customization,
+                    pricing.unitPrice,
+                    customization.quantity || pricing.quantity,
+                    pricing.designFee
+                );
+            } catch (quantityError) {
+                await showPOSAlert('Quantity', quantityError.message || 'Enter a positive whole number.', 'warning');
+                return;
+            }
+            // Use the final line estimate (unit×qty + fee), not unit price alone.
+            // Fee-only totals such as Without Layout ₱200 must not trigger this warning.
+            const lineEstimate = posResolveFinalLineEstimate(pricing, customization);
+            if (posNeedsMissingEstimatedPriceConfirm(lineEstimate)) {
                 const proceed = await confirmMissingEstimatedPrice();
                 if (!proceed) return;
             }
@@ -5286,6 +5548,54 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             setServiceAddButtonBusy(isAddingToOrder);
         }
 
+        function posServiceStockDisplayMessage(message, serviceId = null) {
+            const text = posServiceStaffFacingMaterialMessage(message, serviceId);
+            if (!text) return '';
+            // Keep genuine stock failures visible, including the legacy
+            // "only N available; M required" wording used by cart validation.
+            // Brochure/Poster messages often say "Insufficient {name} stock".
+            if (/out of stock|insufficient\b.*\bstock|not enough stock|low stock|has only\s+[\d,.]+.*available.*required|only\s+[\d,.]+.*available.*required|cannot be cut as continuous pieces from the available open rolls/i.test(text)) {
+                return text;
+            }
+            // Brochure / Poster mapping and dimension precheck failures must remain visible.
+            if ([67, 64].includes(Number(serviceId))
+                && /preferred .+ material|inventory item #|material stock|select valid dimensions|could not be verified|inactive|renamed|unavailable|no active material rule|approved .+ multiplier|consumption rule/i.test(text)) {
+                return text;
+            }
+            if (Number(serviceId) === 39
+                && /mapped plates material|plate material stock|inventory item #|inactive|renamed|unavailable|could not be verified/i.test(text)) {
+                return text;
+            }
+            if (Number(serviceId) === 71 && text.startsWith('May kailangan bang linawin tungkol sa material na gagamitin?')) {
+                return text;
+            }
+            if (Number(serviceId) === 40) {
+                // Tarpaulin dimensions still block Add to Order. Only surface
+                // stock/roll availability failures here; ordinary precheck text
+                // belongs to field validation. Joining direction/allowance are
+                // no longer collected on new POS Tarpaulin orders.
+                if (/no active tarpaulin roll width can fit|tarpaulin roll.*(?:no longer active|no longer available)|cannot be cut as continuous pieces from the available open rolls/i.test(text)) {
+                    return text;
+                }
+                return '';
+            }
+            // Preserve actual dimension-entry validation. Configuration or
+            // material-consumption explanations are not shown in POS feedback.
+            if (/^(?:width|height) must be|^select a valid dimensions option|^the selected (?:size|option).*physical (?:width|height|dimensions)|^the configured dimension field|^this service must have one explicit dimension unit|^enter valid custom width/i.test(text)) {
+                return text;
+            }
+            if (/could not be verified|unable to validate|try again|network error/i.test(text)) {
+                return text;
+            }
+            if (/^stock:.*\bavailable\b|^estimated consumption:|\bto consume\b/i.test(text)) {
+                return '';
+            }
+            if (/material|consumption|multiplier|inventory units|square feet|area-based|exactly one .*choices/i.test(text)) {
+                return '';
+            }
+            return text;
+        }
+
         function posDisposeServiceStockValidationListeners() {
             if (posServiceStockValidationController) {
                 posServiceStockValidationController.abort();
@@ -5320,7 +5630,118 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (branch) customization.branch_id = branch.value;
             const quantity = posServiceQuantityInput();
             if (quantity) customization.quantity = quantity.value;
+            const overlay = document.getElementById('service-modal-overlay');
+            if (overlay && overlay.dataset.materialDimensionUnit) customization.pos_material_dimension_unit = overlay.dataset.materialDimensionUnit;
+            posApplySelectedServiceDimension(customization, body, overlay);
+            const serviceId = Number(overlay?.dataset.serviceId || customization.service_id || 0);
+            if (serviceId > 0) customization.service_id = serviceId;
+            if (serviceId === 67) {
+                delete customization.pos_selected_material_ids;
+            } else {
+                customization.pos_selected_material_ids = posSelectedServiceMaterialIds(serviceId, customization, body, overlay);
+            }
             return customization;
+        }
+
+        function posSelectedServiceMaterialIds(serviceId, customization, body, overlay) {
+            // Production materials are selected later in Custom Orders. The
+            // only POS material identity currently determined by a customer
+            // specification is Sintraboard Board Thickness.
+            if (Number(serviceId) !== 71) return [];
+
+            let fieldMap = {};
+            try {
+                fieldMap = JSON.parse(String(overlay?.dataset.materialSelectionFieldMap || '{}'));
+            } catch (_) {
+                return [];
+            }
+            const fieldKey = String(fieldMap.field_key || '');
+            const options = fieldMap.options && typeof fieldMap.options === 'object' ? fieldMap.options : {};
+            const selectedValue = String(customization?.[fieldKey] || '').trim().replace(/\s+/g, ' ').toLowerCase();
+            const mappedEntry = Object.entries(options).find(([label]) => String(label).trim().replace(/\s+/g, ' ').toLowerCase() === selectedValue);
+            const selectedId = mappedEntry ? Number(mappedEntry[1]) : 0;
+            if (!Number.isInteger(selectedId) || selectedId <= 0) return [];
+            return [selectedId];
+        }
+
+        function posApplySelectedServiceDimension(customization, body, overlay) {
+            if (!customization || !body || !overlay) return;
+            // Service 40 uses dedicated Width/Height inputs; never clear those
+            // from the shared preset-dimension parser.
+            if (Number(overlay.dataset.serviceId || customization.service_id || 0) === 40) {
+                return;
+            }
+            const fieldKey = String(overlay.dataset.materialDimensionFieldKey || '').trim();
+            if (!fieldKey) return;
+            const control = Array.from(body.querySelectorAll('select, input[type="radio"]')).find((field) =>
+                field.name === fieldKey && (field.tagName === 'SELECT' ? !!field.value : !!field.checked)
+            );
+            if (!control) {
+                customization.width = '';
+                customization.height = '';
+                delete customization.pos_material_dimension_unit;
+                return;
+            }
+            const selectedValue = String(control.value || '').trim();
+            const otherValue = control.tagName === 'SELECT' ? (control.getAttribute('data-other-option') || 'Others') : 'Others';
+            if (selectedValue.toLowerCase() === String(otherValue).toLowerCase()) {
+                const row = control.closest('.shopee-form-row');
+                const width = row?.querySelector('[data-dimension-role="width"]')?.value || customization.width || '';
+                const height = row?.querySelector('[data-dimension-role="height"]')?.value || customization.height || '';
+                if (String(width).trim() && String(height).trim()) {
+                    customization.width = String(width).trim();
+                    customization.height = String(height).trim();
+                    const unitField = body.querySelector('[name="' + fieldKey + '_unit"]') || body.querySelector('[name="unit"]');
+                    customization.pos_material_dimension_unit = String(unitField?.value || overlay.dataset.materialDimensionUnit || '').trim();
+                }
+                return;
+            }
+            const option = control.tagName === 'SELECT' && control.options
+                ? control.options[control.selectedIndex]
+                : null;
+            const label = control.tagName === 'SELECT'
+                ? String((option && option.textContent) || '').trim()
+                : String(control.closest('label')?.textContent || '').trim();
+            const raw = /\d+(?:\.\d+)?\s*(?:(?:feet|foot|ft|inches|inch|in|cm|mm|m)\b|\")?\s*[x×*]\s*\d+(?:\.\d+)?/i.test(label) ? label : selectedValue;
+            const pairs = raw.match(/\d+(?:\.\d+)?\s*(?:(?:feet|foot|ft|inches|inch|in|cm|mm|m)\b|\")?\s*[x×*]\s*\d+(?:\.\d+)?\s*(?:(?:feet|foot|ft|inches|inch|in|cm|mm|m)\b|\")?/gi) || [];
+            if (pairs.length !== 1) {
+                customization.width = '';
+                customization.height = '';
+                delete customization.pos_material_dimension_unit;
+                return;
+            }
+            const pair = pairs[0].match(/(\d+(?:\.\d+)?)(?:\s*(?:feet|foot|ft|inches|inch|in|cm|mm|m)\b|\s*\")?\s*[x×*]\s*(\d+(?:\.\d+)?)/i);
+            if (!pair || Number(pair[1]) <= 0 || Number(pair[2]) <= 0) {
+                customization.width = '';
+                customization.height = '';
+                delete customization.pos_material_dimension_unit;
+                return;
+            }
+            const unitMatches = raw.match(/(?<![a-z])(?:feet|foot|ft|inches|inch|in|cm|mm|m)(?![a-z])|"/gi) || [];
+            const normalizedUnits = new Set(unitMatches.map((token) => {
+                const value = token.toLowerCase();
+                if (['feet', 'foot', 'ft'].includes(value)) return 'ft';
+                if (['inches', 'inch', 'in', '"'].includes(value)) return 'in';
+                return value;
+            }));
+            if (normalizedUnits.size > 1 || (normalizedUnits.size === 1 && normalizedUnits.has('m'))) {
+                customization.width = '';
+                customization.height = '';
+                delete customization.pos_material_dimension_unit;
+                return;
+            }
+            const optionUnit = normalizedUnits.size === 1
+                ? Array.from(normalizedUnits)[0]
+                : String(overlay.dataset.materialDimensionUnit || '').trim().toLowerCase();
+            if (!['ft', 'in', 'cm', 'mm'].includes(optionUnit)) {
+                customization.width = '';
+                customization.height = '';
+                delete customization.pos_material_dimension_unit;
+                return;
+            }
+            customization.width = pair[1];
+            customization.height = pair[2];
+            customization.pos_material_dimension_unit = optionUnit;
         }
 
         function posCollectTarpaulinStockCustomization() {
@@ -5348,6 +5769,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return match ? { width: match[1], height: match[2] } : null;
             };
             if (dimensionControl) customization.dimensions = String(dimensionControl.value || '').trim();
+            // Size comes from the Dimensions field (preset label, Others custom
+            // panel, or renderer-synced hidden width/height). Separate POS
+            // Width/Height inputs are not collected on Order Details.
             if (customSizeActive) {
                 customization.width = String(customWidth ? customWidth.value : '').trim();
                 customization.height = String(customHeight ? customHeight.value : '').trim();
@@ -5359,44 +5783,45 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (pair) {
                     customization.width = pair.width;
                     customization.height = pair.height;
+                } else {
+                    const hiddenW = body.querySelector('[data-dimension-role="width"]');
+                    const hiddenH = body.querySelector('[data-dimension-role="height"]');
+                    if (hiddenW || hiddenH) {
+                        customization.width = String(hiddenW ? hiddenW.value : '').trim();
+                        customization.height = String(hiddenH ? hiddenH.value : '').trim();
+                    }
                 }
             }
-            const joiningDirection = body.querySelector('[name="joining_direction"]');
-            const allowanceMode = body.querySelector('[name="joining_allowance_mode"]');
-            const allowance = body.querySelector('[name="joining_allowance_ft"]');
-            customization.joining_direction = joiningDirection ? joiningDirection.value : 'automatic';
-            customization.joining_allowance_mode = allowanceMode ? allowanceMode.value : 'included';
-            customization.joining_allowance_ft = allowance ? allowance.value : '0';
+            const unitField = body.querySelector('[name="dimensions_unit"], [name="unit"]');
+            const overlay = document.getElementById('service-modal-overlay');
+            customization.pos_material_dimension_unit = String(
+                unitField?.value || overlay?.dataset.materialDimensionUnit || customization.pos_material_dimension_unit || 'ft'
+            ).trim() || 'ft';
+            // Joining direction / seams / allowance remain removed from new POS orders.
+            delete customization.joining_direction;
+            delete customization.joining_allowance_mode;
+            delete customization.joining_allowance_ft;
             const quantity = posServiceQuantityInput();
             if (quantity) customization.quantity = quantity.value;
             return customization;
         }
 
-        function posEnsureTarpaulinJoiningControls(body) {
-            if (!body || body.querySelector('.pos-tarpaulin-joining-controls')) return;
-            const wrap = document.createElement('div');
-            wrap.className = 'pos-tarpaulin-joining-controls';
-            wrap.style.cssText = 'display:grid;gap:10px;margin:12px 0;padding:12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc';
-            wrap.innerHTML = '<label style="display:grid;gap:5px;font-size:12px;font-weight:700;color:#334155">Joining Direction <select name="joining_direction" class="input-field"><option value="automatic">Automatic</option><option value="vertical">Vertical seams</option><option value="horizontal">Horizontal seams</option></select></label>'
-                + '<label style="display:grid;gap:5px;font-size:12px;font-weight:700;color:#334155">Joining Allowance <select name="joining_allowance_mode" class="input-field"><option value="included">Included in requested size</option><option value="additional">Additional allowance</option></select></label>'
-                + '<label data-tarp-allowance-wrap style="display:none;gap:5px;font-size:12px;font-weight:700;color:#334155">Additional Allowance (ft) <input name="joining_allowance_ft" type="number" min="0" step="any" value="0" class="input-field"><small style="font-weight:400">Total per finished Tarpaulin, not per seam.</small></label>';
-            const firstQuantity = body.querySelector('.quantity-container, input[name="quantity"]')?.closest('.shopee-form-row');
-            body.insertBefore(wrap, firstQuantity || null);
-            const mode = wrap.querySelector('[name="joining_allowance_mode"]');
-            const allowanceWrap = wrap.querySelector('[data-tarp-allowance-wrap]');
-            const syncAllowance = () => { allowanceWrap.style.display = mode.value === 'additional' ? 'grid' : 'none'; };
-            mode.addEventListener('change', syncAllowance);
-            syncAllowance();
-        }
-
         async function posValidateServiceStockNow(serviceId, quantityRaw, customization = null) {
             const requestVersion = ++posServiceStockRequestVersion;
             const input = posServiceQuantityInput();
-            const qty = posReadPositiveWholeQuantity(quantityRaw);
+            const qty = posReadServiceOrderQuantity(quantityRaw);
             if (input) input.setCustomValidity(qty === null ? 'Enter a positive whole number.' : '');
             if (qty === null) {
+                const qtyRow = input ? input.closest('.shopee-form-row') : null;
+                if (qtyRow) markServiceFieldInvalid(qtyRow, 'Enter a positive whole number.');
+                else if (input) input.classList.add('field-invalid');
                 posSetServiceStockState(true, '', 'Enter a positive whole number.');
                 return { valid: false, message: 'Enter a positive whole number.' };
+            }
+            if (input) {
+                input.classList.remove('field-invalid');
+                const qtyRow = input.closest('.shopee-form-row');
+                if (qtyRow) clearServiceFieldError(qtyRow);
             }
 
             const serviceCustomization = customization && typeof customization === 'object'
@@ -5404,19 +5829,64 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 : Number(serviceId) === 40
                     ? posCollectTarpaulinStockCustomization()
                     : posCollectServiceStockCustomization();
+            // Do not show transient red material/dimension precheck errors
+            // while required specifications are still being entered. The Add
+            // handler performs and displays this same field validation before
+            // it starts its authoritative stock check. Mugs still loads the
+            // mapped Mug capacity so quantity limits are visible immediately.
+            // Brochure / Poster Printing revalidate as soon as Dimensions + Qty
+            // are present (Needed Date / other fields must not hide stock).
+            const paperEarlyStock = [67, 64].includes(Number(serviceId));
+            const paperDimsReady = paperEarlyStock
+                && Number(serviceCustomization.width) > 0
+                && Number(serviceCustomization.height) > 0
+                && ['ft', 'in', 'cm', 'mm'].includes(String(serviceCustomization.pos_material_dimension_unit || '').toLowerCase());
+            const stickerLaminateReady = Number(serviceId) === 36
+                && Object.values(serviceCustomization).some(value => {
+                    const selected = String(value || '').trim();
+                    return /^(?:Glossy Sticker (?:Printed|Cut Out)|Matte Sticker (?:Printed|Cut Out))\b/i.test(selected)
+                        && /\d+(?:\.\d+)?\s*(?:ft|feet|foot|in|inch|inches|cm|mm|m|\")\s*[x×*]\s*\d+(?:\.\d+)?/i.test(selected);
+                });
+            const plateTypeRaw = String(
+                serviceCustomization.type_of_plates
+                || serviceCustomization['Type Of Plates']
+                || ''
+            ).trim().toLowerCase().replace(/\s+/g, ' ');
+            const plateTypeItemIds = {
+                'new plate': 2,
+                'car and euro plate': 3,
+                'address plate': 6,
+                'adress plate': 6,
+            };
+            const plateTypeItemId = Number(serviceId) === 39 ? (plateTypeItemIds[plateTypeRaw] || 0) : 0;
+            const plateTypeReady = plateTypeItemId > 0;
+            const plateTypeSelected = Number(serviceId) === 39 && plateTypeRaw !== '';
+            const sintraSelectedIds = Number(serviceId) === 71 && Array.isArray(serviceCustomization.pos_selected_material_ids)
+                ? serviceCustomization.pos_selected_material_ids.map(Number).filter(id => Number.isInteger(id) && id > 0)
+                : [];
+            const sintraSelectedItemId = sintraSelectedIds.length === 1 ? sintraSelectedIds[0] : 0;
+            const sintraThicknessSelected = Number(serviceId) === 71 && sintraSelectedItemId > 0;
+            if (typeof validateServiceOrderForm === 'function' && !validateServiceOrderForm().valid
+                && Number(serviceId) !== 63
+                && !(paperEarlyStock && paperDimsReady)
+                && !stickerLaminateReady
+                && !plateTypeSelected
+                && !sintraThicknessSelected) {
+                posSetServiceStockState(false, '', '');
+                return { valid: true, deferred: true };
+            }
+            if (paperEarlyStock && !paperDimsReady) {
+                const message = 'Select valid Dimensions before checking material stock.';
+                posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId) || message);
+                return { valid: false, message };
+            }
             if (Number(serviceId) === 40) {
                 const width = Number(serviceCustomization.width);
                 const height = Number(serviceCustomization.height);
-                const allowance = Number(serviceCustomization.joining_allowance_ft);
                 const validDim = (value) => Number.isFinite(value) && value > 0 && value <= 100;
                 if (!validDim(width) || !validDim(height)) {
-                    const message = !validDim(width) ? 'Width must be greater than 0 and at most 100 feet.' : 'Height must be greater than 0 and at most 100 feet.';
-                    posSetServiceStockState(true, '', message);
-                    return { valid: false, message };
-                }
-                if (serviceCustomization.joining_allowance_mode === 'additional' && (!Number.isFinite(allowance) || allowance < 0)) {
-                    const message = 'Additional allowance must be a finite nonnegative number of feet.';
-                    posSetServiceStockState(true, '', message);
+                    const message = 'Select a valid Dimensions option before adding Tarpaulin.';
+                    posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId));
                     return { valid: false, message };
                 }
             }
@@ -5438,33 +5908,173 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (requestVersion !== posServiceStockRequestVersion) return { valid: false, stale: true };
                 if (!response.ok || data.success === false) {
                     const message = data.message || 'Material stock could not be verified. Try again.';
-                    posSetServiceStockState(true, '', message);
+                    posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId));
                     return { valid: false, message };
                 }
                 const validation = data.stock_validation || {};
+                const materials = Array.isArray(validation.materials) ? validation.materials : [];
+                const formatQty = value => String(Number(value || 0));
+                const preferredPaperId = Number(serviceId) === 67 ? 211
+                    : (Number(serviceId) === 64 ? 212 : 0);
+                const mugMaterial = Number(serviceId) === 63
+                    ? (materials.find(row => Number(row.item_id) === 37) || materials[0] || null)
+                    : null;
+                const paperMaterial = preferredPaperId > 0
+                    ? (materials.find(row => Number(row.item_id) === preferredPaperId) || materials[0] || null)
+                    : null;
+                if (Number(serviceId) === 63 && !validation.tracked) {
+                    const message = 'Mug stock could not be verified. Try again.';
+                    posSetServiceStockState(true, '', message);
+                    return { valid: false, message };
+                }
+                if (preferredPaperId > 0 && !validation.tracked) {
+                    const message = 'Material stock could not be verified for this service. Try again.';
+                    posSetServiceStockState(true, '', message);
+                    return { valid: false, message };
+                }
                 if (!validation.tracked) {
                     posSetServiceStockState(false, '', '');
                     return { valid: true, tracked: false };
                 }
-                const materials = Array.isArray(validation.materials) ? validation.materials : [];
-                const formatQty = value => String(Number(value || 0));
-                const hideMaterialAvailability = [36, 40, 63].includes(Number(serviceId));
-                const indicator = hideMaterialAvailability ? '' : materials.map(material => `${material.name}: ${formatQty(material.available)} ${material.uom || 'units'} available · ${formatQty(material.required)} required`).join(' | ');
                 const issues = Array.isArray(validation.issues) ? validation.issues : [];
+                if (Number(serviceId) === 71 && sintraThicknessSelected) {
+                    const sintraMaterial = materials.find(row => Number(row && row.item_id) === sintraSelectedItemId) || null;
+                    const available = Number(sintraMaterial && sintraMaterial.available);
+                    const required = Number(sintraMaterial && sintraMaterial.required);
+                    const safeAvailable = Number.isFinite(available) ? Math.max(0, available) : null;
+                    const safeRequired = Number.isFinite(required) ? Math.max(0, required) : null;
+                    if (!validation.tracked || !sintraMaterial || safeAvailable === null || safeRequired === null) {
+                        const message = 'Selected Sintraboard stock could not be verified. Try again.';
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message };
+                    }
+                    if (sintraMaterial.availability_only) {
+                        if (safeAvailable <= 0) {
+                            const message = `${sintraMaterial.name || 'Selected Sintra board'} is out of stock.`;
+                            posSetServiceStockState(true, '', message);
+                            return { valid: false, message, available: safeAvailable };
+                        }
+                        const unrelatedIssue = issues[0] || null;
+                        if (!validation.ok && unrelatedIssue) {
+                            const message = Number(unrelatedIssue.available) <= 0
+                                ? `${unrelatedIssue.name || 'Material'} is out of stock.`
+                                : `Insufficient ${unrelatedIssue.name || 'material'} stock. Available: ${formatQty(unrelatedIssue.available)} ${unrelatedIssue.uom || 'units'}. Required: ${formatQty(unrelatedIssue.required)} ${unrelatedIssue.uom || 'units'}.`;
+                            posSetServiceStockState(true, '', message);
+                            return { valid: false, message };
+                        }
+                        posSetServiceStockState(false, '', '');
+                        return { valid: true, tracked: true, deferred: true, available: safeAvailable };
+                    }
+                    const selectedIssue = issues.find(row => Number(row && row.item_id) === sintraSelectedItemId) || null;
+                    if (selectedIssue || safeRequired > safeAvailable) {
+                        const issue = selectedIssue || sintraMaterial;
+                        const message = Number(issue.available ?? safeAvailable) <= 0
+                            ? `${issue.name || sintraMaterial.name || 'Selected Sintra board'} is out of stock.`
+                            : `Insufficient ${issue.name || sintraMaterial.name || 'Sintra board'} stock. Available: ${formatQty(issue.available ?? safeAvailable)} ${issue.uom || sintraMaterial.uom || 'pcs'}. Required: ${formatQty(issue.required ?? safeRequired)} ${issue.uom || sintraMaterial.uom || 'pcs'}.`;
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message, available: safeAvailable, required: safeRequired };
+                    }
+                    if (!validation.ok && issues.length) {
+                        const issue = issues[0];
+                        const message = Number(issue.available) <= 0
+                            ? `${issue.name || 'Material'} is out of stock.`
+                            : `Insufficient ${issue.name || 'material'} stock. Available: ${formatQty(issue.available)} ${issue.uom || 'units'}. Required: ${formatQty(issue.required)} ${issue.uom || 'units'}.`;
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message };
+                    }
+                    posSetServiceStockState(false, '', '');
+                    return { valid: true, tracked: true, available: safeAvailable, required: safeRequired };
+                }
+                if (Number(serviceId) === 63 && mugMaterial) {
+                    const available = Number(mugMaterial.available);
+                    const safeAvailable = Number.isFinite(available) ? Math.max(0, available) : null;
+                    if (safeAvailable === null) {
+                        const message = 'Mug stock could not be verified. Try again.';
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message };
+                    }
+                    const maxAllowed = Math.min(1000000, Math.floor(safeAvailable));
+                    if (input) {
+                        input.max = String(Math.max(0, maxAllowed));
+                        input.dataset.posMugAvailable = String(safeAvailable);
+                    }
+                    const availabilityText = `Available ${mugMaterial.name || 'Mug'}: ${formatQty(safeAvailable)} ${mugMaterial.uom || 'pcs'}`;
+                    if (!validation.ok || issues.length || qty > maxAllowed) {
+                        const issue = issues[0] || mugMaterial;
+                        const message = `Insufficient ${issue.name || 'Mug'} stock. Available: ${formatQty(issue.available ?? safeAvailable)} ${issue.uom || 'pcs'}. Required: ${formatQty(issue.required ?? qty)} ${issue.uom || 'pcs'}.`;
+                        posSetServiceStockState(true, availabilityText, posServiceStockDisplayMessage(message, serviceId) || message);
+                        return { valid: false, message, available: safeAvailable };
+                    }
+                    posSetServiceStockState(false, availabilityText, '');
+                    return { valid: true, tracked: true, available: safeAvailable };
+                }
+                if (Number(serviceId) === 39 && plateTypeReady) {
+                    if (!validation.tracked) {
+                        const message = 'Plate material stock could not be verified. Try again.';
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message };
+                    }
+                    const plateMaterial = materials.find(row => Number(row && row.item_id) === plateTypeItemId) || null;
+                    const available = Number(plateMaterial && plateMaterial.available);
+                    const required = Number(plateMaterial && plateMaterial.required);
+                    const safeAvailable = Number.isFinite(available) ? Math.max(0, available) : null;
+                    const safeRequired = Number.isFinite(required) ? Math.max(0, required) : null;
+                    if (!plateMaterial || safeAvailable === null || safeRequired === null) {
+                        const message = 'Plate material stock could not be verified. Try again.';
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message };
+                    }
+                    const uom = plateMaterial.uom || 'pcs';
+                    const materialName = plateMaterial.name || 'Plate material';
+                    if (!validation.ok || issues.length || safeRequired > safeAvailable) {
+                        const issue = issues[0] || plateMaterial;
+                        const message = `Insufficient ${issue.name || materialName} stock. Available: ${formatQty(issue.available ?? safeAvailable)} ${issue.uom || uom}. Required: ${formatQty(issue.required ?? safeRequired)} ${issue.uom || uom}.`;
+                        posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId) || message);
+                        return { valid: false, message, available: safeAvailable, required: safeRequired };
+                    }
+                    posSetServiceStockState(false, '', '');
+                    return { valid: true, tracked: true, available: safeAvailable, required: safeRequired };
+                }
+                if (preferredPaperId > 0 && paperMaterial) {
+                    const available = Number(paperMaterial.available);
+                    const required = Number(paperMaterial.required);
+                    const safeAvailable = Number.isFinite(available) ? Math.max(0, available) : null;
+                    const safeRequired = Number.isFinite(required) ? Math.max(0, required) : null;
+                    if (safeAvailable === null || safeRequired === null) {
+                        const message = 'Material stock could not be verified for this service. Try again.';
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message };
+                    }
+                    const uom = paperMaterial.uom || 'sheet';
+                    const materialName = paperMaterial.name || 'Required material';
+                    // Do not mirror Required/Available in the gray indicator — the red
+                    // insufficient warning already includes both quantities.
+                    if (!validation.ok || issues.length || safeRequired > safeAvailable) {
+                        const issue = issues[0] || paperMaterial;
+                        const message = `Insufficient ${issue.name || materialName} stock. Available: ${formatQty(issue.available ?? safeAvailable)} ${issue.uom || uom}. Required: ${formatQty(issue.required ?? safeRequired)} ${issue.uom || uom}.`;
+                        posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId) || message);
+                        return { valid: false, message, available: safeAvailable, required: safeRequired };
+                    }
+                    posSetServiceStockState(false, `Available ${materialName}: ${formatQty(safeAvailable)} ${uom}`, '');
+                    return { valid: true, tracked: true, available: safeAvailable, required: safeRequired };
+                }
                 if (!validation.ok || issues.length) {
                     const issue = issues[0] || {};
-                    const message = Number(serviceId) === 36
-                        ? 'Insufficient material stock for this quantity. Reduce the quantity or contact an administrator.'
-                        : `Insufficient ${issue.name || 'material'} stock. Available: ${formatQty(issue.available)} ${issue.uom || 'units'}. Required: ${formatQty(issue.required)} ${issue.uom || 'units'}.`;
-                    posSetServiceStockState(true, indicator, message);
+                    if (Number(serviceId) === 36 && issue.inventory_discrepancy && issue.message) {
+                        const message = String(issue.message);
+                        posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId) || message);
+                        return { valid: false, message };
+                    }
+                    const message = `Insufficient ${issue.name || 'selected material'} stock. Available: ${formatQty(issue.available)} ${issue.uom || 'units'}. Required: ${formatQty(issue.required)} ${issue.uom || 'units'}.`;
+                    posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId));
                     return { valid: false, message };
                 }
-                posSetServiceStockState(false, indicator, '');
+                posSetServiceStockState(false, '', '');
                 return { valid: true, tracked: true };
             } catch (error) {
                 if (requestVersion !== posServiceStockRequestVersion) return { valid: false, stale: true };
                 const message = 'Material stock could not be verified. Try again.';
-                posSetServiceStockState(true, '', message);
+                posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId));
                 return { valid: false, message };
             }
         }
@@ -5493,6 +6103,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (input) {
                 input.min = '1';
                 input.step = '1';
+                input.dataset.posQuantityMax = '1000000';
+                input.setAttribute('inputmode', 'numeric');
+                input.setAttribute('pattern', '[0-9]*');
+                input.setAttribute('maxlength', '7');
+                input.setAttribute('autocomplete', 'off');
+                if (!input.classList.contains('pf-service-quantity-input')) {
+                    input.classList.add('pf-service-quantity-input');
+                }
                 input.addEventListener('input', scheduleValidation);
                 input.addEventListener('change', scheduleValidation);
                 const quantityControls = input.closest('.quantity-container');
@@ -5605,7 +6223,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (name.includes('design') || type === 'file') return 'Please upload a design or paste a design link.';
             if (name.includes('layout') || label.toLowerCase().includes('layout')) return 'Please select a layout.';
             if (name.includes('needed_date') || label.toLowerCase().includes('needed date')) return 'Please select a needed date.';
-            if (name.includes('quantity') || label.toLowerCase().includes('quantity')) return 'Quantity must be at least 1.';
+            if (name.includes('quantity') || label.toLowerCase().includes('quantity')) return 'Enter a positive whole number.';
             if (type === 'radio' || row.querySelector('input[type="radio"]')) return 'Please select ' + label.toLowerCase() + '.';
             if (input && input.tagName === 'SELECT') return 'Please select ' + label.toLowerCase() + '.';
             return 'Please enter ' + label.toLowerCase() + '.';
@@ -5835,16 +6453,28 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             }
                         }
                     }
-                    if (input.name === 'quantity' || input.classList.contains('pf-service-quantity-input')) {
-                        const qty = parseInt(value, 10);
-                        if (!Number.isFinite(qty) || qty < 1) addError(row, input);
+                    if (input.name === 'quantity' || input.classList.contains('pf-service-quantity-input') || input.id === 'quantity-input') {
+                        const qty = posReadServiceOrderQuantity(input.value);
+                        if (qty === null) {
+                            addError(row, input, input.name || 'quantity', 'Enter a positive whole number.');
+                            if (typeof input.setCustomValidity === 'function') {
+                                input.setCustomValidity('Enter a positive whole number.');
+                            }
+                        } else if (typeof input.setCustomValidity === 'function') {
+                            input.setCustomValidity('');
+                        }
                         return;
                     }
                     if (input.type === 'date' && value && posServiceFieldIsNeededDate(input.name, row)) {
-                        const today = new Date().toISOString().split('T')[0];
-                        if (value < today) {
+                        if (!posNeededDateIsNotBeforeToday(value)) {
                             addError(row, input, input.name, 'Needed date cannot be in the past.');
+                            if (typeof input.setCustomValidity === 'function') {
+                                input.setCustomValidity('Needed date cannot be in the past.');
+                            }
                             return;
+                        }
+                        if (typeof input.setCustomValidity === 'function') {
+                            input.setCustomValidity('');
                         }
                     }
                     if (!value) addError(row, input);
@@ -5914,6 +6544,24 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const serviceId = parseInt(overlay.dataset.serviceId);
             const serviceName = overlay.dataset.serviceName;
             const body = document.getElementById('sm-fields-body');
+
+            const serviceQuantityInputEarly = posServiceQuantityInput();
+            const earlyQty = posReadServiceOrderQuantity(serviceQuantityInputEarly ? serviceQuantityInputEarly.value : '');
+            if (earlyQty === null) {
+                if (serviceQuantityInputEarly) {
+                    serviceQuantityInputEarly.setCustomValidity('Enter a positive whole number.');
+                    const qtyRow = serviceQuantityInputEarly.closest('.shopee-form-row');
+                    if (qtyRow) {
+                        markServiceFieldInvalid(qtyRow, 'Enter a positive whole number.');
+                    }
+                    if (typeof serviceQuantityInputEarly.reportValidity === 'function') {
+                        serviceQuantityInputEarly.reportValidity();
+                    }
+                }
+                posSetServiceStockState(true, '', 'Enter a positive whole number.');
+                return;
+            }
+            if (serviceQuantityInputEarly) serviceQuantityInputEarly.setCustomValidity('');
 
             const validationResult = validateServiceOrderForm();
             if (!validationResult.valid) {
@@ -6042,7 +6690,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (dateInput && dateInput.value) setCustomizationValue(customization, row, dateInput, dateInput.value);
 
                 const qtyInput = row.querySelector('#quantity-input, .pf-service-quantity-input, input[name="quantity"]');
-                if (qtyInput) customization.quantity = qtyInput.value || 1;
+                if (qtyInput) {
+                    customization.quantity = String(earlyQty);
+                }
 
                 const textarea = row.querySelector('textarea');
                 if (textarea && textarea.value.trim()) setCustomizationValue(customization, row, textarea, textarea.value.trim());
@@ -6096,6 +6746,23 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
             });
 
+            if (Number(serviceId) === 40) {
+                // Tarpaulin width/height are derived from the Dimensions field
+                // (and its Others custom panel). Re-collect after the form loop
+                // so the shared preset parser cannot blank them before cart save.
+                Object.assign(customization, posCollectTarpaulinStockCustomization());
+            } else {
+                posApplySelectedServiceDimension(customization, body, overlay);
+            }
+
+            if (serviceId === 67) {
+                delete customization.pos_selected_material_ids;
+            } else {
+                customization.pos_selected_material_ids = posSelectedServiceMaterialIds(serviceId, customization, body, overlay);
+            }
+            customization.pos_material_dimension_unit = customization.pos_material_dimension_unit
+                || String(overlay.dataset.materialDimensionUnit || '').trim();
+
             try {
                 posStripInactiveDesignUploads(body, customization);
                 await posStageDesignUploadsFromModal(body, customization);
@@ -6125,7 +6792,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
 
             const pricing = resolveServiceModalPricing();
-            const priced = applyServicePricingToCustomization(customization, pricing.unitPrice, customization.quantity || pricing.quantity, pricing.designFee);
+            let priced;
+            try {
+                priced = applyServicePricingToCustomization(customization, pricing.unitPrice, earlyQty, pricing.designFee);
+            } catch (quantityError) {
+                await showPOSAlert('Quantity', quantityError.message || 'Enter a positive whole number.', 'warning');
+                setServiceAddButtonBusy(false);
+                isAddingToOrder = false;
+                posSetServiceStockState(true, '', 'Enter a positive whole number.');
+                return;
+            }
 
             body.querySelectorAll('input[type="radio"]:checked').forEach(radio => {
                 const row = radio.closest('.shopee-form-row');
@@ -6134,7 +6810,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 setCustomizationValue(customization, row, radio, radioValue);
             });
 
-            if (priced.unitPrice <= 0) {
+            // Same final estimate as the displayed ₱ amount (recalculate + fee).
+            // Never gate this confirm on unitPrice alone (fee-only Mugs would false-warn).
+            const lineEstimate = posResolveFinalLineEstimate(pricing, customization);
+            if (posNeedsMissingEstimatedPriceConfirm(lineEstimate)) {
                 setServiceAddButtonBusy(false);
                 const addBtn = document.getElementById('sm-add-to-order-btn');
                 if (addBtn) addBtn.disabled = true;
@@ -6824,7 +7503,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 inputHtml = `<input type="file" id="custom_field_${idx}" name="${reqName}"${multipleAttr} accept="${(req.accept || '').replace(/"/g, '&quot;')}" style="${baseStyle}" data-field-name="${reqName}">`;
                 div.innerHTML = label + inputHtml;
             } else if (req.type === 'date') {
-                const minAttr = ` min="${new Date().toISOString().split('T')[0]}"`;
+                const today = posBusinessToday() || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+                const minAttr = ` min="${today}"`;
                 inputHtml = `<input type="date" id="custom_field_${idx}" name="${reqName}"${minAttr} style="${baseStyle}" data-field-name="${reqName}">`;
                 div.innerHTML = label + inputHtml;
             } else {
@@ -7202,15 +7882,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         // addQuickService kept as no-op for legacy compatibility
         function addQuickService(serviceName) { }
 
-        function posReadPositiveWholeQuantity(value) {
-            const raw = String(value ?? '');
-            if (!/^[0-9]{1,64}$/.test(raw)) return null;
-            const canonical = raw.replace(/^0+/, '');
-            if (canonical === '' || canonical.length > 7) return null;
-            const parsed = Number(canonical);
-            return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 1000000 ? parsed : null;
-        }
-
         function posShowCartQuantityMessage(index, input, message) {
             const warning = document.getElementById(`pos-qty-warning-${index}`);
             if (warning) warning.textContent = message;
@@ -7328,9 +7999,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const unitPrice = posCartItemEstimatedUnitPrice(item);
                     const pricingComplete = posCartItemStaffPricingComplete(item);
                     const countsInTotal = posCartItemCountsInCheckoutTotal(item);
-                    const confirmedLineTotal = item.line_total_override !== null && item.line_total_override !== undefined
-                        ? Math.max(0, Number(item.line_total_override) || 0)
-                        : ((parseFloat(item.price) || 0) * (item.qty || 1)) + Math.max(0, Number(item.design_fee ?? item.customization?.design_fee) || 0);
+                    const confirmedLineTotal = posCartItemDisplayedLineTotal(item);
                     if (countsInTotal) {
                         currentTotal += confirmedLineTotal;
                     }
@@ -7389,18 +8058,23 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 </div>
                 <div class="pos-cart-item-bottom">
                     <div class="pos-item-action">${priceHtml}</div>
+<<<<<<< HEAD
                     <div class="pos-item-controls">
                         <span class="pos-qty-label">Quantity</span>
                         <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, -1)" aria-label="Decrease quantity">&minus;</button>
                         <input class="pos-qty-val" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="64" autocomplete="off" value="${escapeHtml(String(item.qty))}" aria-label="Quantity" aria-describedby="pos-qty-warning-${index}" oninput="validateCartQuantityInput(${index}, this)" onblur="commitCartQuantityInput(${index}, this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
                         <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, 1)" aria-label="Increase quantity">&plus;</button>
                     </div>
+=======
+                    ${posCartItemQuantityHtml(item, index, isServiceLine)}
+>>>>>>> efd0c340e47393516c2532d76c10af2c61759c97
                     <div class="pos-item-total">${totalDisplay}</div>
                 </div>
                 <div class="pos-qty-warning" id="pos-qty-warning-${index}" role="status" aria-live="polite"></div>
             `;
                     cont.appendChild(div);
-                    posBindCartQuantityInput(index, div.querySelector('.pos-qty-val'));
+                    const quantityInput = div.querySelector('.pos-qty-val');
+                    if (quantityInput) posBindCartQuantityInput(index, quantityInput);
                 });
             }
 
@@ -7785,14 +8459,34 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             text.textContent = message;
         }
 
-        function posAllowPastNeededDateInputs(root) {
+        function posEnforceNeededDateMinimum(root) {
             const scope = root || document;
+            const today = posBusinessToday();
+            if (!today) return;
             scope.querySelectorAll('input[type="date"]').forEach(function(input) {
-                const name = String(input.name || '').toLowerCase();
-                const id = String(input.id || '').toLowerCase();
-                if (name === 'needed_date' || id === 'needed_date' || name.indexOf('needed_date') !== -1) {
-                    input.removeAttribute('min');
+                if (!posServiceFieldIsNeededDate(input.name || input.id, input.closest('.shopee-form-row'))) {
+                    return;
                 }
+                input.min = today;
+                input.setAttribute('min', today);
+                const syncValidity = () => {
+                    const value = String(input.value || '').trim();
+                    if (value && !posNeededDateIsNotBeforeToday(value)) {
+                        input.setCustomValidity('Needed date cannot be in the past.');
+                        const row = input.closest('.shopee-form-row');
+                        if (row) markServiceFieldInvalid(row, 'Needed date cannot be in the past.');
+                    } else {
+                        input.setCustomValidity('');
+                        const row = input.closest('.shopee-form-row');
+                        if (row) clearServiceFieldError(row);
+                    }
+                };
+                if (!input.dataset.pfNeededDateBound) {
+                    input.dataset.pfNeededDateBound = '1';
+                    input.addEventListener('change', syncValidity);
+                    input.addEventListener('input', syncValidity);
+                }
+                syncValidity();
             });
         }
 

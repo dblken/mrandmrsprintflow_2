@@ -143,6 +143,11 @@ function pfpm_classify_service(array $context): string
 
 function pfpm_matching_context_rule(array $item, array $context, array $rules): ?array
 {
+    $itemId = filter_var($item['id'] ?? null, FILTER_VALIDATE_INT);
+    if ($itemId === false || (int)$itemId <= 0) return null;
+    $serviceId = filter_var($context['serviceId'] ?? null, FILTER_VALIDATE_INT);
+    $serviceId = $serviceId === false ? 0 : (int)$serviceId;
+
     $baseCandidates = array_filter(array_map('pfpm_normalize', [
         $context['serviceType'] ?? '',
         $context['serviceName'] ?? '',
@@ -150,7 +155,7 @@ function pfpm_matching_context_rule(array $item, array $context, array $rules): 
         $context['serviceCategory'] ?? '',
     ]));
     $candidates = $baseCandidates;
-    if ((int)($context['serviceId'] ?? 0) === 36) {
+    if ($serviceId === 36) {
         // The numeric ID alone is not enough to apply aliases: stale or
         // conflicting order data must fail closed instead of inheriting rules.
         $identityValues = array_values(array_filter(array_map('pfpm_normalize', [
@@ -175,8 +180,20 @@ function pfpm_matching_context_rule(array $item, array $context, array $rules): 
         ]);
         $candidates = array_values(array_unique(array_merge($canonicalAliases, $identityValues)));
     }
+
+    // Prefer stable numeric service_id matches once identity checks pass so
+    // string label drift cannot reject an intentionally mapped material.
+    if ($serviceId > 0) {
+        foreach ($rules as $rule) {
+            $ruleItemId = filter_var($rule['item_id'] ?? null, FILTER_VALIDATE_INT);
+            $ruleServiceId = filter_var($rule['service_id'] ?? null, FILTER_VALIDATE_INT);
+            if ($ruleItemId === false || (int)$ruleItemId !== (int)$itemId) continue;
+            if ($ruleServiceId !== false && (int)$ruleServiceId === $serviceId) return $rule;
+        }
+    }
     foreach ($rules as $rule) {
-        if ((string)($rule['item_id'] ?? '') !== (string)($item['id'] ?? '')) continue;
+        $ruleItemId = filter_var($rule['item_id'] ?? null, FILTER_VALIDATE_INT);
+        if ($ruleItemId === false || (int)$ruleItemId !== (int)$itemId) continue;
         if (in_array(pfpm_normalize($rule['service_type'] ?? ''), $candidates, true)) return $rule;
     }
     return null;
@@ -230,12 +247,35 @@ function pfpm_classify_item(array $item, array $context, array $rules = []): arr
     elseif ($serviceKind === 'unknown') $tier = $rule ? $tier : 'unverified';
     if ($family === 'unverified' || ($family === 'other' && $tier === 'unrelated')) $tier = 'unverified';
     if ($family === 'pvc_id') $tier = 'unrelated';
-    return ['tier' => $tier, 'family' => $family, 'serviceKind' => $serviceKind, 'applicable' => in_array($tier, ['recommended', 'optional'], true)];
+    $serviceId = filter_var($context['serviceId'] ?? null, FILTER_VALIDATE_INT);
+    $serviceId = $serviceId === false ? 0 : (int)$serviceId;
+    $requiresAuthoritativeMapping = in_array($serviceId, [36, 39, 64, 67, 71], true);
+    $stickersDecalsColoredIds = [51, 52, 53, 54, 55, 56, 57, 58];
+    $authoritativelyMapped = $rule !== null
+        || ($serviceId === 36 && in_array((int)($item['id'] ?? 0), $stickersDecalsColoredIds, true))
+        || ($serviceId === 63 && (int)($item['id'] ?? 0) === 37);
+    if ($requiresAuthoritativeMapping && !$authoritativelyMapped && in_array($tier, ['recommended', 'optional'], true)) {
+        $tier = 'unrelated';
+    }
+    $applicable = in_array($tier, ['recommended', 'optional'], true);
+    if ($requiresAuthoritativeMapping) {
+        $applicable = $applicable && $authoritativelyMapped;
+    }
+    return [
+        'tier' => $tier,
+        'family' => $family,
+        'serviceKind' => $serviceKind,
+        'authoritativelyMapped' => $authoritativelyMapped,
+        'applicable' => $applicable,
+    ];
 }
 
 function pfpm_material_rules(): array
 {
-    return db_query('SELECT service_type, item_id, rule_type FROM service_material_rules') ?: [];
+    $hasServiceIdColumn = function_exists('db_table_has_column')
+        && db_table_has_column('service_material_rules', 'service_id', true);
+    $serviceIdSelect = $hasServiceIdColumn ? 'service_id' : 'NULL AS service_id';
+    return db_query("SELECT {$serviceIdSelect}, service_type, item_id, rule_type FROM service_material_rules") ?: [];
 }
 
 function pfpm_item_with_category(int $itemId): ?array
@@ -254,7 +294,17 @@ function pfpm_assert_material_applicable(int $itemId, array $context): void
     if (!$item) {
         throw new Exception('Selected material is not available.');
     }
-    $state = pfpm_classify_item($item, $context, pfpm_material_rules());
+    $rules = pfpm_material_rules();
+    $serviceId = filter_var($context['serviceId'] ?? null, FILTER_VALIDATE_INT);
+    $serviceId = $serviceId === false ? 0 : (int)$serviceId;
+    if ($serviceId > 0
+        && function_exists('printflow_production_assignment_allowed_item_ids')
+        && in_array($itemId, printflow_production_assignment_allowed_item_ids($serviceId), true)) {
+        return;
+    }
+    $exactRule = pfpm_matching_context_rule($item, $context, $rules);
+    if ($exactRule !== null) return;
+    $state = pfpm_classify_item($item, $context, $rules);
     if (empty($state['applicable'])) {
         $label = trim((string)($context['serviceLabel'] ?? $context['serviceType'] ?? 'this service'));
         throw new Exception('Selected material is not recommended for ' . ($label !== '' ? $label : 'this service') . '.');

@@ -12,6 +12,80 @@ require_once __DIR__ . '/roll_branch_scope.php';
 class RollService {
 
     /**
+     * Correct only the physical width metadata for an existing open roll.
+     * Length balances and all inventory transactions are deliberately untouched.
+     */
+    public static function correctRollWidth(int $rollId, float $widthFt, int $actorUserId, string $verificationNote, int $expectedBranchId = 0): array {
+        global $conn;
+        require_once __DIR__ . '/InventoryManager.php';
+        $verificationNote = trim($verificationNote);
+        if ($rollId <= 0 || !is_finite($widthFt) || $widthFt <= 0 || $widthFt > 100 || $actorUserId <= 0 || $verificationNote === '') {
+            throw new InvalidArgumentException('A valid roll, verified physical width, Admin identity, and verification note are required.');
+        }
+        $conn->begin_transaction();
+        try {
+            $stmt = $conn->prepare("SELECT id, item_id, branch_id, roll_code, width_ft, total_length_ft, remaining_length_ft, status FROM inv_rolls WHERE id = ? LIMIT 1 FOR UPDATE");
+            if (!$stmt) throw new RuntimeException('Could not verify the selected roll.');
+            $stmt->bind_param('i', $rollId);
+            if (!$stmt->execute()) { $stmt->close(); throw new RuntimeException('Could not verify the selected roll.'); }
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if (!$row) throw new RuntimeException('The selected roll no longer exists.');
+            if (strtoupper((string)$row['status']) !== 'OPEN') throw new RuntimeException('Only an open roll can have its physical width corrected.');
+            if ($expectedBranchId > 0 && (int)$row['branch_id'] !== $expectedBranchId) throw new RuntimeException('The roll is outside the selected branch.');
+            if ((float)$row['remaining_length_ft'] <= 0) throw new RuntimeException('The selected roll has no remaining length.');
+            $item = InventoryManager::getItem((int)$row['item_id']);
+            if (!$item || (int)($item['track_by_roll'] ?? 0) !== 1) throw new RuntimeException('The selected inventory item is not configured for roll tracking.');
+            $oldWidthFt = (float)$row['width_ft'];
+            if (abs($oldWidthFt - $widthFt) < 0.000001) {
+                $conn->commit();
+                return ['roll_id' => $rollId, 'old_width_ft' => $oldWidthFt, 'new_width_ft' => $widthFt, 'changed' => false];
+            }
+
+            $update = $conn->prepare("UPDATE inv_rolls SET width_ft = ? WHERE id = ? AND status = 'OPEN'");
+            if (!$update) throw new RuntimeException('Could not prepare the roll-width correction.');
+            $update->bind_param('di', $widthFt, $rollId);
+            if (!$update->execute() || $update->affected_rows !== 1) { $update->close(); throw new RuntimeException('The roll width was not changed; refresh and try again.'); }
+            $update->close();
+
+            $verify = $conn->prepare("SELECT width_ft, total_length_ft, remaining_length_ft FROM inv_rolls WHERE id = ? LIMIT 1");
+            if (!$verify) throw new RuntimeException('Could not verify the saved roll-width correction.');
+            $verify->bind_param('i', $rollId);
+            if (!$verify->execute()) { $verify->close(); throw new RuntimeException('Could not verify the saved roll-width correction.'); }
+            $saved = $verify->get_result()->fetch_assoc();
+            $verify->close();
+            if (!$saved
+                || abs((float)$saved['width_ft'] - $widthFt) > 0.000001
+                || abs((float)$saved['total_length_ft'] - (float)$row['total_length_ft']) > 0.000001
+                || abs((float)$saved['remaining_length_ft'] - (float)$row['remaining_length_ft']) > 0.000001) {
+                throw new RuntimeException('Saved roll values failed verification; the correction was rolled back.');
+            }
+
+            $auditDetails = json_encode([
+                'roll_id' => $rollId,
+                'item_id' => (int)$row['item_id'],
+                'branch_id' => (int)$row['branch_id'],
+                'roll_code' => (string)($row['roll_code'] ?? ''),
+                'old_width_ft' => $oldWidthFt,
+                'new_width_ft' => (float)$saved['width_ft'],
+                'physical_width_verification_note' => $verificationNote,
+                'total_length_ft_preserved' => (float)$row['total_length_ft'],
+                'remaining_length_ft_preserved' => (float)$row['remaining_length_ft'],
+            ], JSON_THROW_ON_ERROR);
+            $audit = $conn->prepare("INSERT INTO activity_logs (user_id, action, details, created_at) SELECT user_id, 'Inventory roll width corrected', ?, NOW() FROM users WHERE user_id = ? AND role = 'Admin' LIMIT 1");
+            if (!$audit) throw new RuntimeException('Could not prepare the correction audit record.');
+            $audit->bind_param('si', $auditDetails, $actorUserId);
+            if (!$audit->execute() || $audit->affected_rows !== 1) { $audit->close(); throw new RuntimeException('Admin audit verification failed; the width correction was rolled back.'); }
+            $audit->close();
+            $conn->commit();
+            return ['roll_id' => $rollId, 'old_width_ft' => $oldWidthFt, 'new_width_ft' => $widthFt, 'changed' => true];
+        } catch (Throwable $e) {
+            if ($conn->in_transaction) $conn->rollback();
+            throw $e;
+        }
+    }
+
+    /**
      * Create a new roll record.
      */
     public static function createRoll($itemId, $totalLength, $rollCode = null, $supplier = null, $widthFt = 0, $branchId = null) {

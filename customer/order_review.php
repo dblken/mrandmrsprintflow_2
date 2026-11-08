@@ -13,6 +13,7 @@ require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/product_pricing.php';
 require_once __DIR__ . '/../includes/ensure_customer_checkout_idempotency_schema.php';
 require_once __DIR__ . '/../includes/product_order_notice.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
@@ -223,54 +224,8 @@ function review_catalog_unit_price(array $item): ?float {
         return $cache[$cache_key];
     }
 
-    if ($variant_id > 0) {
-        $variant = db_query(
-            "SELECT price FROM product_variants WHERE variant_id = ? AND product_id = ? AND status = 'Active' LIMIT 1",
-            'ii',
-            [$variant_id, $product_id]
-        );
-        if (!empty($variant)) {
-            $basePrice = (float)$variant[0]['price'];
-        } else {
-            return $cache[$cache_key] = null;
-        }
-    } else {
-        $product = db_query(
-            "SELECT price FROM products WHERE product_id = ? AND status = 'Activated' LIMIT 1",
-            'i',
-            [$product_id]
-        );
-        if (empty($product)) {
-            return $cache[$cache_key] = null;
-        }
-        $basePrice = (float)$product[0]['price'];
-    }
-
-    // Product options are priced from the saved server-side field configuration.
-    // Cart/session price is display state only and is never authoritative here.
-    $optionTotal = 0.0;
-    foreach (get_product_field_config($product_id) as $fieldKey => $config) {
-        if (empty($config['visible'])) {
-            continue;
-        }
-        $label = trim((string)($config['label'] ?? $fieldKey));
-        $selected = trim((string)($custom[$label] ?? $custom[$fieldKey] ?? ''));
-        if (($config['type'] ?? '') === 'dimension') {
-            $unit = trim((string)($config['unit'] ?? ''));
-            if ($unit !== '') {
-                $selected = preg_replace('/\s+' . preg_quote($unit, '/') . '$/i', '', $selected) ?? $selected;
-            }
-        }
-        foreach ((array)($config['options'] ?? []) as $option) {
-            $value = is_array($option) ? trim((string)($option['value'] ?? '')) : trim((string)$option);
-            if ($value !== '' && hash_equals($value, $selected)) {
-                $optionTotal += max(0.0, (float)(is_array($option) ? ($option['price'] ?? 0) : 0));
-                break;
-            }
-        }
-    }
-
-    return $cache[$cache_key] = round(max(0.0, $basePrice + $optionTotal), 2);
+    $resolved = printflow_product_resolve_catalog_unit_price($product_id, $custom, $variant_id > 0 ? $variant_id : null);
+    return $cache[$cache_key] = (!empty($resolved['ok']) ? (float)$resolved['unit_price'] : null);
 }
 
 function review_item_unit_price(array $item): float {
@@ -491,6 +446,7 @@ if (!$needs_branch_selection) {
 
 $checkout_fingerprint_payload = [];
 $serviceDesignPricingError = null;
+$productPricingError = null;
 foreach ($items_to_review as $key => $checkoutItem) {
     if (review_item_is_service($checkoutItem)) {
         $pricingItem = $checkoutItem;
@@ -501,6 +457,8 @@ foreach ($items_to_review as $key => $checkoutItem) {
         } else {
             $serviceDesignPricingError = (string)($pricing['message'] ?? 'A service price could not be verified.');
         }
+    } elseif (review_catalog_unit_price($checkoutItem) === null) {
+        $productPricingError = 'A product pricing option or base price could not be verified. Return to the product and choose a valid priced option.';
     }
     $checkout_fingerprint_payload[$key] = [
         'product_id' => (int)($checkoutItem['product_id'] ?? 0),
@@ -542,7 +500,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
         ? printflow_db_error_reference()
         : substr(hash('sha256', uniqid('', true)), 0, 12);
     error_log('[order_review] confirmation_received ref=' . $request_reference . ' customer=' . (int)$customer_id);
-    if ($serviceDesignPricingError !== null) {
+    if ($productPricingError !== null) {
+        $order_error = $productPricingError;
+    } elseif ($serviceDesignPricingError !== null) {
         $order_error = $serviceDesignPricingError;
     } elseif (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $order_error = 'Invalid request. Please try again.';
@@ -579,24 +539,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
         } elseif (empty($selectedBranchIsActive)) {
             $order_error = 'Please select a valid branch for pickup.';
         } else {
+            require_once __DIR__ . '/../includes/mugs_base_pricing.php';
+            require_once __DIR__ . '/../includes/service_design_fee.php';
             foreach ($items_to_review as $reviewItem) {
-                if (!review_item_is_product($reviewItem)) {
+                if (review_item_is_product($reviewItem)) {
+                    $productId = (int)($reviewItem['product_id'] ?? 0);
+                    if ($productId <= 0) {
+                        continue;
+                    }
+                    $reviewCustom = review_item_customization($reviewItem);
+                    $reviewQty = review_item_quantity($reviewItem);
+                    $authoritativePrice = review_catalog_unit_price($reviewItem);
+                    if ($authoritativePrice === null || $authoritativePrice < 0) {
+                        $order_error = 'A product or price changed while you were checking out. Please return to your cart and review it.';
+                        break;
+                    }
+                    $stockCheck = printflow_product_option_stock_validate($productId, $selected_branch_id, $reviewCustom, $reviewQty);
+                    if (!empty($stockCheck['uses_option_stock']) && empty($stockCheck['ok'])) {
+                        $order_error = (string)($stockCheck['message'] ?? 'Selected variant is out of stock.');
+                        break;
+                    }
                     continue;
                 }
-                $productId = (int)($reviewItem['product_id'] ?? 0);
-                if ($productId <= 0) {
+                if (!review_item_is_service($reviewItem)) {
                     continue;
                 }
                 $reviewCustom = review_item_customization($reviewItem);
+                $reviewServiceId = (int)($reviewItem['service_id'] ?? ($reviewCustom['service_id'] ?? 0));
+                if (!printflow_is_mugs_service($reviewServiceId)) {
+                    continue;
+                }
                 $reviewQty = review_item_quantity($reviewItem);
-                $authoritativePrice = review_catalog_unit_price($reviewItem);
-                if ($authoritativePrice === null || $authoritativePrice < 0) {
-                    $order_error = 'A product or price changed while you were checking out. Please return to your cart and review it.';
+                $mugStock = printflow_mugs_assert_quantity_within_branch_stock($reviewQty, $selected_branch_id);
+                if (empty($mugStock['ok'])) {
+                    $order_error = (string)($mugStock['message'] ?? 'Insufficient Mug stock for this branch.');
                     break;
                 }
-                $stockCheck = printflow_product_option_stock_validate($productId, $selected_branch_id, $reviewCustom, $reviewQty);
-                if (!empty($stockCheck['uses_option_stock']) && empty($stockCheck['ok'])) {
-                    $order_error = (string)($stockCheck['message'] ?? 'Selected variant is out of stock.');
+                $linePricing = printflow_calculate_service_line_pricing($reviewServiceId, $reviewCustom, $reviewQty);
+                if (empty($linePricing['ok'])) {
+                    $order_error = (string)($linePricing['message'] ?? 'Mugs price could not be verified at checkout.');
                     break;
                 }
             }
@@ -1265,6 +1246,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
             }
         }
     }
+}
+
+if ($order_error === null && $productPricingError !== null) {
+    $order_error = $productPricingError;
 }
 
 order_review_post_complete:

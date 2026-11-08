@@ -27,20 +27,22 @@ foreach (['', '0', '-1', '1.5', 'abc', 1.5, null, true] as $input) {
     throw new RuntimeException('Invalid general quantity was accepted: ' . var_export($input, true));
 }
 
-$measuredFt = ['unit_of_measure' => 'ft', 'consumption_method' => 'by_length'];
+$measuredFt = ['unit_of_measure' => 'ft', 'consumption_method' => 'per_piece'];
 if (printflow_pos_parse_positive_material_quantity('0.25', $measuredFt) !== 0.25
     || printflow_pos_parse_positive_material_quantity('7.50', $measuredFt) !== 7.5
     || printflow_pos_parse_positive_material_quantity('2', $measuredFt) !== 2.0
-    || printflow_pos_parse_positive_material_quantity(2.0, ['unit_of_measure' => 'pcs', 'consumption_method' => 'per_piece']) !== 2.0) {
-    throw new RuntimeException('Configured linear-foot material quantities must preserve valid measured fractions.');
+    || printflow_pos_parse_positive_material_quantity(2.0, ['unit_of_measure' => 'pcs', 'consumption_method' => 'per_piece']) !== 2.0
+    || printflow_pos_parse_positive_material_quantity('1.00', ['unit_of_measure' => 'pcs', 'consumption_method' => 'per_piece']) !== 1.0
+    || printflow_pos_parse_positive_material_quantity('1.00', $measuredFt) !== 1.0) {
+    throw new RuntimeException('Staff-entered inventory-unit quantities must preserve valid fractions and whole-unit values.');
 }
-foreach ([['pcs', 'by_length'], ['ft', 'per_piece'], ['pcs', 'manual']] as [$uom, $method]) {
+foreach ([['pcs', 'by_length'], ['sheet', 'per_piece'], ['unit', 'manual']] as [$uom, $method]) {
     try {
         printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => $uom, 'consumption_method' => $method]);
     } catch (InvalidArgumentException $error) {
         continue;
     }
-    throw new RuntimeException('A fractional material quantity was accepted without a matching measured UOM and method.');
+    throw new RuntimeException('A fractional material quantity was accepted for a discrete inventory unit.');
 }
 foreach (['0', '-0.25', '0.001', '1.234', '1e-1', '100000000.00'] as $invalid) {
     try {
@@ -58,8 +60,10 @@ try {
     $wholeRangeRejected = true;
 }
 if (!$wholeRangeRejected) throw new RuntimeException('Material quantity above the DECIMAL(10,2) storage range was accepted.');
-if (printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => 'ft', 'consumption_method' => 'manual']) !== 0.25) {
-    throw new RuntimeException('Manually confirmed configured linear-foot usage must accept a fraction below one foot.');
+if (printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => 'ft', 'consumption_method' => 'per_piece']) !== 0.25
+    || printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => 'm', 'consumption_method' => 'by_area']) !== 0.25
+    || printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => 'l', 'consumption_method' => 'dimension_sheet']) !== 0.25) {
+    throw new RuntimeException('Manual actual usage in measured inventory units must not depend on obsolete calculation methods.');
 }
 
 $cartValid = ['1' => 1, '999' => 999, '1000' => 1000, '999999' => 999999, '1000000' => 1000000, '0001' => 1, '0001000000' => 1000000, 1000000 => 1000000];

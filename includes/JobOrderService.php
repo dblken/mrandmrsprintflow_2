@@ -14,6 +14,8 @@ require_once __DIR__ . '/NotificationService.php';
 require_once __DIR__ . '/revision_workflow.php';
 require_once __DIR__ . '/service_design_fee.php';
 require_once __DIR__ . '/pos_quantity_validation.php';
+require_once __DIR__ . '/pos_material_selection.php';
+require_once __DIR__ . '/material_assignment_removal_policy.php';
 
 class JobOrderService {
     private static array $columnExistsCache = [];
@@ -331,6 +333,10 @@ class JobOrderService {
             $metadata = self::decodeMaterialMetadata($material['metadata'] ?? null);
             $laminationItemId = (int)($metadata['lamination_item_id'] ?? 0);
             $laminationLength = (float)($metadata['lamination_length_ft'] ?? 0);
+            if (($metadata['actual_usage_version'] ?? '') === 'manual_v1') {
+                $laminationItemId = 0;
+                $laminationLength = 0.0;
+            }
             if ($laminationItemId > 0 && $laminationLength > 0) {
                 if (!isset($itemsById[$laminationItemId])) {
                     $laminationItem = InventoryManager::getItem($laminationItemId);
@@ -350,9 +356,6 @@ class JobOrderService {
         $issues = [];
         foreach ($demandByItem as $itemId => $required) {
             $inventoryItem = $itemsById[$itemId];
-            if (empty($inventoryItem['track_by_roll']) && !empty($inventoryItem['allow_negative_stock'])) {
-                continue;
-            }
             $available = (float)InventoryManager::getStockOnHand((int)$itemId, $branchId);
             if ($required > $available) {
                 $issues[] = [
@@ -444,6 +447,9 @@ class JobOrderService {
         $computed = (float)($material['computed_required_length_ft'] ?? 0);
         $quantity = (float)($material['quantity'] ?? 0);
         $meta = self::decodeMaterialMetadata($material['metadata'] ?? null);
+        if (($meta['actual_usage_version'] ?? '') === 'manual_v1') {
+            return is_finite($quantity) && $quantity > 0 ? $quantity : 0.0;
+        }
         $jobId = (int)($jobRow['id'] ?? $material['job_order_id'] ?? 0);
         if (printflow_tarpaulin_assert_versioned_job($meta, $jobId, $jobRow)) {
             // Versioned assignments already store the authoritative linear-ft
@@ -491,6 +497,12 @@ class JobOrderService {
         array $pendingMaterials,
         array $itemsById
     ): bool {
+        $materialMetadata = self::decodeMaterialMetadata($material['metadata'] ?? null);
+        // Staff-confirmed manual assignments represent material actually used;
+        // never suppress one selected roll because another roll is wider.
+        if (($materialMetadata['actual_usage_version'] ?? '') === 'manual_v1') {
+            return false;
+        }
         $item = $itemsById[(int)($material['item_id'] ?? 0)] ?? null;
         if ($item === null || !self::itemIsRollWithNominalWidth($item)) {
             return false;
@@ -986,12 +998,20 @@ class JobOrderService {
 
             // 2. Insert Required Materials (placeholders + capture unit cost)
             if (!empty($materials)) {
-                $materialSql = "INSERT INTO job_order_materials (job_order_id, item_id, quantity, uom, computed_required_length_ft, unit_cost_at_assignment) VALUES (?, ?, ?, ?, ?, ?)";
+                $hasMaterialMetadata = self::tableHasColumn('job_order_materials', 'metadata');
+                $materialSql = $hasMaterialMetadata
+                    ? "INSERT INTO job_order_materials (job_order_id, item_id, quantity, uom, computed_required_length_ft, unit_cost_at_assignment, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                    : "INSERT INTO job_order_materials (job_order_id, item_id, quantity, uom, computed_required_length_ft, unit_cost_at_assignment) VALUES (?, ?, ?, ?, ?, ?)";
                 $mStmt = $conn->prepare($materialSql);
                 foreach ($materials as $m) {
                     $item = InventoryManager::getItem($m['item_id']);
                     $cost = $item['unit_cost'] ?? 0;
-                    $mStmt->bind_param("iidsdd", $orderId, $m['item_id'], $m['quantity'], $m['uom'], $m['computed_len'], $cost);
+                    if ($hasMaterialMetadata) {
+                        $metadataJson = json_encode((array)($m['metadata'] ?? []), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                        $mStmt->bind_param("iidsdds", $orderId, $m['item_id'], $m['quantity'], $m['uom'], $m['computed_len'], $cost, $metadataJson);
+                    } else {
+                        $mStmt->bind_param("iidsdd", $orderId, $m['item_id'], $m['quantity'], $m['uom'], $m['computed_len'], $cost);
+                    }
                     $mStmt->execute();
                 }
                 $mStmt->close();
@@ -1061,6 +1081,102 @@ class JobOrderService {
         return '';
     }
 
+    /** Convert a saved server-validated POS selection into deferred job assignments. */
+    private static function posSelectedMaterialsForCustomization(int $serviceId, array $custom): array {
+        // POS records customer specifications only. Staff select production
+        // materials and enter actual quantities in Production Assignment.
+        return [];
+    }
+
+    /**
+     * Attach server-authored selected materials to pre-existing jobs after
+     * pending-job relinking. Exact order_item_id matching avoids cross-line
+     * assignments; this writes assignment rows only and never deducts stock.
+     */
+    private static function syncPosSelectedMaterialsForStoreOrder(int $orderId): void {
+        if ($orderId <= 0) return;
+        if (!self::tableHasColumn('job_orders', 'order_item_id')) {
+            throw new RuntimeException('POS selected materials require job/order-item links; no material assignment was created.');
+        }
+        $items = db_query(
+            'SELECT order_item_id, customization_data FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC',
+            'i', [$orderId]
+        );
+        if (!is_array($items)) throw new RuntimeException('POS selected-material order lines could not be loaded.');
+        $jobs = db_query(
+            "SELECT id, order_item_id FROM job_orders WHERE order_id = ? AND status NOT IN ('COMPLETED', 'CANCELLED') ORDER BY id ASC",
+            'i', [$orderId]
+        );
+        if (!is_array($jobs)) throw new RuntimeException('POS production jobs could not be loaded for selected-material assignment.');
+        $jobsByItem = [];
+        foreach ($jobs as $job) {
+            $itemId = (int)($job['order_item_id'] ?? 0);
+            if ($itemId > 0) $jobsByItem[$itemId][] = (int)$job['id'];
+        }
+
+        $pending = [];
+        foreach ($items as $item) {
+            $custom = json_decode((string)($item['customization_data'] ?? ''), true);
+            if (!is_array($custom)) continue;
+            $serviceId = (int)($custom['service_id'] ?? 0);
+            $materials = self::posSelectedMaterialsForCustomization($serviceId, $custom);
+            if ($materials === []) continue;
+            $orderItemId = (int)($item['order_item_id'] ?? 0);
+            $linkedJobs = $jobsByItem[$orderItemId] ?? [];
+            if (count($linkedJobs) !== 1) {
+                throw new RuntimeException('A POS service line does not have exactly one linked active production job; selected materials were not assigned.');
+            }
+            foreach ($materials as $material) $pending[] = ['job_id' => $linkedJobs[0], 'material' => $material];
+        }
+        if ($pending === []) return;
+
+        global $conn;
+        $started = !function_exists('printflow_db_in_transaction') || !printflow_db_in_transaction($conn);
+        if ($started && !$conn->begin_transaction()) throw new RuntimeException('Could not start selected-material assignment transaction.');
+        try {
+            $hasMetadata = self::tableHasColumn('job_order_materials', 'metadata');
+            foreach ($pending as $entry) {
+                $jobId = (int)$entry['job_id'];
+                $material = $entry['material'];
+                $itemId = (int)$material['item_id'];
+                $existing = db_query(
+                    'SELECT id, quantity, uom FROM job_order_materials WHERE job_order_id = ? AND item_id = ? AND roll_id IS NULL ORDER BY id ASC',
+                    'ii', [$jobId, $itemId]
+                );
+                if (!is_array($existing)) throw new RuntimeException('Existing job material assignments could not be checked.');
+                if (count($existing) > 1) throw new RuntimeException('Duplicate job assignments exist for a selected POS material; no assignment was changed.');
+                if ($existing !== []) {
+                    if (abs((float)$existing[0]['quantity'] - (float)$material['quantity']) > 0.000001
+                        || strcasecmp(trim((string)$existing[0]['uom']), (string)$material['uom']) !== 0) {
+                        throw new RuntimeException('An existing job material assignment conflicts with the saved POS selection; no assignment was changed.');
+                    }
+                    continue;
+                }
+                $inventoryItem = InventoryManager::getItem($itemId);
+                if (!$inventoryItem || strcasecmp(trim((string)($inventoryItem['unit_of_measure'] ?? '')), (string)$material['uom']) !== 0) {
+                    throw new RuntimeException('The selected POS inventory item or unit changed before production assignment.');
+                }
+                if ($hasMetadata) {
+                    $metadata = json_encode($material['metadata'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                    $saved = db_execute(
+                        'INSERT INTO job_order_materials (job_order_id, item_id, roll_id, quantity, uom, computed_required_length_ft, unit_cost_at_assignment, notes, metadata) VALUES (?, ?, NULL, ?, ?, 0, ?, ?, ?)',
+                        'iidsdss', [$jobId, $itemId, $material['quantity'], $material['uom'], (float)($inventoryItem['unit_cost'] ?? 0), 'POS selected material; deduction deferred until job completion.', $metadata]
+                    );
+                } else {
+                    $saved = db_execute(
+                        'INSERT INTO job_order_materials (job_order_id, item_id, roll_id, quantity, uom, computed_required_length_ft, unit_cost_at_assignment, notes) VALUES (?, ?, NULL, ?, ?, 0, ?, ?)',
+                        'iidsds', [$jobId, $itemId, $material['quantity'], $material['uom'], (float)($inventoryItem['unit_cost'] ?? 0), 'POS selected material; calculation stored on the order item.']
+                    );
+                }
+                if ($saved === false) throw new RuntimeException('Could not persist a selected POS material assignment.');
+            }
+            if ($started && !$conn->commit()) throw new RuntimeException('Could not commit selected POS material assignments.');
+        } catch (Throwable $e) {
+            if ($started) $conn->rollback();
+            throw $e;
+        }
+    }
+
     /**
      * If a store order has line items but no job_orders (e.g. checkout job step failed), create jobs like checkout does.
      * Returns first job_orders.id or null if order/items missing.
@@ -1069,6 +1185,7 @@ class JobOrderService {
         $existing = db_query('SELECT id FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1', 'i', [$orderId]);
         if (!empty($existing)) {
             self::repairMissingOrderItemLinks($orderId);
+            self::syncPosSelectedMaterialsForStoreOrder($orderId);
             return (int)$existing[0]['id'];
         }
         $order = db_query('SELECT * FROM orders WHERE order_id = ?', 'i', [$orderId]);
@@ -1138,14 +1255,8 @@ class JobOrderService {
             $unit_price = (float)($item['unit_price'] ?? 0);
             $estimatedTotal = printflow_order_item_calculated_line_total($item);
 
-            // Do not auto-assign production materials during store/POS job creation.
-            // Materials must only be attached through explicit staff actions later.
-            $autoMaterials = [];
-            error_log(sprintf(
-                'PrintFlow Material Assignment: skipped auto-assignment for store order %d (service: %s)',
-                $orderId,
-                $service_type
-            ));
+            $selectionServiceId = (int)($custom['service_id'] ?? 0);
+            $autoMaterials = self::posSelectedMaterialsForCustomization($selectionServiceId, $custom);
 
             try {
                 require_once __DIR__ . '/service_field_priority_helper.php';
@@ -1251,7 +1362,20 @@ class JobOrderService {
             $orderType = (!empty($isJob)) ? 'JOB' : 'ORDER';
         }
         $qty = (float)$qty;
-        $isVersionedTarpaulin = is_array($metadata) && printflow_tarpaulin_is_versioned_metadata($metadata);
+        // New assignments use the quantity entered by staff in the inventory
+        // unit. Strip legacy dimension-derived metadata at the write boundary;
+        // historical saved rows remain untouched and readable.
+        if (is_array($metadata)) {
+            foreach ([
+                'tarpaulin_calculation_version', 'tarpaulin_panel_plan', 'tarpaulin_required_linear_ft',
+                'tarpaulin_roll_width_ft', 'tarpaulin_run_length_per_piece_ft', 'computed_required_length_ft',
+                'width_ft', 'height_ft', 'finished_quantity', 'orientation',
+            ] as $calculationKey) unset($metadata[$calculationKey]);
+            foreach (['lamination_item_id', 'lamination_roll_id', 'lamination_length_ft', 'waste_length_ft'] as $derivedKey) {
+                unset($metadata[$derivedKey]);
+            }
+        }
+        $isVersionedTarpaulin = false;
         $item = InventoryManager::getItem($itemId);
         if (!$item) throw new Exception("Item not found.");
         if ($isVersionedTarpaulin) {
@@ -1271,15 +1395,8 @@ class JobOrderService {
             $metadata = [];
         }
 
-        // Calculate computed length if track_by_roll
-        $computed_len = 0;
-        if ($track_by_roll) {
-            if (isset($metadata['height_ft']) && (float)$metadata['height_ft'] > 0) {
-                $computed_len = (float)$metadata['height_ft'] * $qty;
-            } else {
-                $computed_len = ($uom === 'ft') ? $qty : 0;
-            }
-        }
+        // For rolls, the saved length is the manually entered inventory-unit qty.
+        $computed_len = !empty($track_by_roll) ? $qty : 0;
 
         $colId = 'job_order_id';
         if ($orderType === 'ORDER' && self::tableHasColumn('job_order_materials', 'std_order_id')) {
@@ -1295,84 +1412,8 @@ class JobOrderService {
             $liveJobId = (int)$orderId;
         }
 
-        if ($isVersionedTarpaulin) {
-            if (!$track_by_roll || (int)($liveJobId ?? 0) <= 0) {
-                throw new RuntimeException('The linear_ft_v1 calculation can only be assigned to a linked Tarpaulin job and active roll material.');
-            }
-            printflow_tarpaulin_assert_versioned_job($metadata, (int)$liveJobId);
-        }
-
-        if ($track_by_roll) {
-            $jobLookupId = (int)($liveJobId ?? 0);
-            if ($jobLookupId <= 0 && $orderType === 'JOB') {
-                $jobLookupId = (int)$orderId;
-            }
-            $jobRowForLength = null;
-            if ($jobLookupId > 0) {
-                $job = db_query('SELECT id, order_id, order_item_id, height_ft, width_ft, quantity FROM job_orders WHERE id = ? LIMIT 1', 'i', [$jobLookupId]);
-                $jobRowForLength = $job[0] ?? null;
-            }
-            if ($isVersionedTarpaulin) {
-                $rollWidth = printflow_tarpaulin_parse_nominal_width($item);
-                if ($rollWidth <= 0 || $jobRowForLength === null) {
-                    throw new RuntimeException('The versioned Tarpaulin assignment is missing a valid roll width or linked job dimensions.');
-                }
-                if (($metadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION) {
-                    $selection = printflow_tarpaulin_saved_panel_selection_for_job((int)$jobLookupId, $jobRowForLength);
-                    $submittedPanelPlan = $metadata['tarpaulin_panel_plan'] ?? null;
-                    if (!$selection || (int)($selection['item_id'] ?? 0) !== (int)$itemId
-                        || (int)($selection['branch_id'] ?? 0) !== (int)JobOrderService::getJobBranchIdPublic((int)$jobLookupId)
-                        || abs((float)($selection['required_linear_ft'] ?? 0) - $qty) > 0.001
-                        || !is_array($submittedPanelPlan)
-                        || !printflow_tarpaulin_panel_plans_match($submittedPanelPlan, $selection)) {
-                        throw new RuntimeException('The Set Price Tarpaulin assignment does not match the saved POS panel plan. Reopen Set Price and use the validated material and quantity.');
-                    }
-                    $qty = (float)$selection['required_linear_ft'];
-                    $computed_len = $qty;
-                    $metadata = array_merge($metadata, [
-                        'width_ft' => (float)$selection['width_ft'], 'height_ft' => (float)$selection['height_ft'],
-                        'finished_quantity' => (int)$selection['finished_quantity'], 'roll_width_ft' => $rollWidth,
-                        'orientation' => (string)$selection['orientation'], 'run_length_per_piece_ft' => (float)$selection['run_length_per_panel_ft'],
-                        'computed_required_length_ft' => $qty, 'tarpaulin_panel_plan' => $selection,
-                    ]);
-                } else {
-                    $calculation = printflow_tarpaulin_calculate_linear_length(
-                        $jobRowForLength['width_ft'] ?? null,
-                        $jobRowForLength['height_ft'] ?? null,
-                        $jobRowForLength['quantity'] ?? null,
-                        $rollWidth
-                    );
-                    $qty = (float)$calculation['required_linear_ft'];
-                    $computed_len = $qty;
-                    $metadata = array_merge($metadata, [
-                        'tarpaulin_calculation_version' => PRINTFLOW_TARPAULIN_CALCULATION_VERSION,
-                        'width_ft' => $calculation['width_ft'], 'height_ft' => $calculation['height_ft'],
-                        'finished_quantity' => $calculation['finished_quantity'], 'roll_width_ft' => $calculation['roll_width_ft'],
-                        'orientation' => $calculation['orientation'], 'run_length_per_piece_ft' => $calculation['run_length_per_piece_ft'],
-                        'computed_required_length_ft' => $calculation['required_linear_ft'],
-                    ]);
-                }
-            }
-            if ($computed_len <= 0 && $jobRowForLength !== null) {
-                $jH = (float)($jobRowForLength['height_ft'] ?? 0);
-                $jW = (float)($jobRowForLength['width_ft'] ?? 0);
-                $jQ = (float)($jobRowForLength['quantity'] ?? 1);
-                $computed_len = max($jH, $jW) * $jQ;
-            }
-            if ($jobRowForLength !== null) {
-                $metadata['manual_assignment'] = true;
-                $computed_len = self::resolveRollMaterialLengthFt(
-                    [
-                        'quantity' => $qty,
-                        'computed_required_length_ft' => $computed_len,
-                        'metadata' => $metadata,
-                    ],
-                    $jobRowForLength
-                );
-            }
-        }
-
         $metadata['manual_assignment'] = true;
+        $metadata['actual_usage_version'] = 'manual_v1';
         $metaJson = !empty($metadata) ? json_encode($metadata) : null;
 
         // Check for duplicates
@@ -1441,10 +1482,151 @@ class JobOrderService {
     /**
      * Remove a material from a job order.
      */
-    public static function removeMaterial($jomId) {
-        // Can only remove if not yet deducted
-        $sql = "DELETE FROM job_order_materials WHERE id = ? AND deducted_at IS NULL";
-        return db_execute($sql, 'i', [$jomId]);
+    public static function materialRemovalSafetyError(array $assignment, array $linkedJobs, array $ledgerRows): string {
+        return printflow_material_assignment_removal_safety_error($assignment, $linkedJobs, $ledgerRows);
+    }
+
+    public static function removeMaterial($jomId, ?int $actorUserId = null, ?int $expectedJobId = null, ?int $expectedOrderId = null): bool {
+        global $conn;
+        $id = (int)$jomId;
+        if ($id <= 0) {
+            throw new InvalidArgumentException('Material assignment ID is required.');
+        }
+
+        $started = !printflow_db_in_transaction($conn);
+        if ($started && !printflow_db_transaction_depth_bump($conn)) {
+            throw new RuntimeException('Unable to start the material correction transaction.');
+        }
+
+        try {
+            $assignmentErrorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+            $assignmentRows = db_query('SELECT * FROM job_order_materials WHERE id = ? LIMIT 1 FOR UPDATE', 'i', [$id]);
+            if ($assignmentRows === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $assignmentErrorCount)) {
+                throw new RuntimeException('Unable to verify the material assignment before correction.');
+            }
+            if ($assignmentRows === []) {
+                throw new RuntimeException('Material assignment not found.');
+            }
+            $assignment = $assignmentRows[0];
+            $jobId = (int)($assignment['job_order_id'] ?? 0);
+            $storeOrderId = (int)($assignment['std_order_id'] ?? 0);
+            if (($expectedJobId !== null && $jobId !== $expectedJobId)
+                || ($expectedOrderId !== null && $storeOrderId !== $expectedOrderId)) {
+                throw new DomainException('The assignment link changed while it was being corrected. Refresh the order and try again.');
+            }
+            $linkedJobs = [];
+            if ($jobId > 0) {
+                $jobErrorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+                $linkedJobs = db_query('SELECT id, order_id, branch_id, status FROM job_orders WHERE id = ? LIMIT 1 FOR UPDATE', 'i', [$jobId]);
+                if ($linkedJobs === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $jobErrorCount)) {
+                    throw new RuntimeException('Unable to verify the linked production job before correction.');
+                }
+            } elseif ($storeOrderId > 0) {
+                $jobErrorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+                $linkedJobs = db_query('SELECT id, order_id, branch_id, status FROM job_orders WHERE order_id = ? ORDER BY id ASC FOR UPDATE', 'i', [$storeOrderId]);
+                if ($linkedJobs === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $jobErrorCount)) {
+                    throw new RuntimeException('Unable to verify the linked production jobs before correction.');
+                }
+            } else {
+                throw new RuntimeException('This assignment is not linked to a production job.');
+            }
+
+            $ledgerRows = [];
+            $itemId = (int)($assignment['item_id'] ?? 0);
+            foreach ($linkedJobs as $job) {
+                $linkedJobId = (int)($job['id'] ?? 0);
+                $branchId = (int)($job['branch_id'] ?? 0);
+                if ($branchId <= 0 && (int)($job['order_id'] ?? 0) > 0) {
+                    $orderRows = db_query('SELECT branch_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [(int)$job['order_id']]) ?: [];
+                    $branchId = (int)($orderRows[0]['branch_id'] ?? 0);
+                }
+                if ($linkedJobId <= 0 || $branchId <= 0 || $itemId <= 0) {
+                    throw new RuntimeException('The assignment is missing a verifiable job, branch, or inventory-item link.');
+                }
+                $ledgerErrorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+                $jobLedger = db_query(
+                    "SELECT id FROM inventory_transactions
+                     WHERE UPPER(ref_type) = 'JOB_ORDER' AND ref_id = ? AND item_id = ?
+                       AND branch_id = ? AND UPPER(direction) = 'OUT' LIMIT 1 FOR UPDATE",
+                    'iii',
+                    [$linkedJobId, $itemId, $branchId]
+                );
+                if ($jobLedger === false || (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $ledgerErrorCount)) {
+                    throw new RuntimeException('Unable to verify inventory history; the assignment was not changed.');
+                }
+                if ($jobLedger !== []) {
+                    $ledgerRows = array_merge($ledgerRows, $jobLedger);
+                }
+            }
+
+            $safetyError = self::materialRemovalSafetyError($assignment, $linkedJobs, $ledgerRows);
+            if ($safetyError !== '') {
+                throw new DomainException($safetyError);
+            }
+
+            $itemRows = db_query('SELECT name FROM inv_items WHERE id = ? LIMIT 1', 'i', [$itemId]) ?: [];
+            if ($itemRows === []) {
+                throw new RuntimeException('The assigned inventory item could not be identified for the correction audit.');
+            }
+            $actor = (int)($actorUserId ?? (function_exists('get_user_id') ? get_user_id() : 0));
+            $actorRows = $actor > 0 ? (db_query('SELECT user_id FROM users WHERE user_id = ? LIMIT 1', 'i', [$actor]) ?: []) : [];
+            if ($actorRows === []) {
+                throw new RuntimeException('A valid staff account is required to record the assignment correction audit.');
+            }
+            $auditDetails = json_encode([
+                'assignment_id' => $id,
+                'job_order_id' => $jobId > 0 ? $jobId : null,
+                'store_order_id' => $storeOrderId > 0 ? $storeOrderId : null,
+                'linked_job_ids' => array_values(array_map(static fn(array $job): int => (int)($job['id'] ?? 0), $linkedJobs)),
+                'item_id' => $itemId,
+                'item_name' => (string)($itemRows[0]['name'] ?? ''),
+                'quantity' => $assignment['quantity'] ?? null,
+                'uom' => $assignment['uom'] ?? null,
+                'roll_id' => isset($assignment['roll_id']) ? (int)$assignment['roll_id'] : null,
+                'computed_required_length_ft' => $assignment['computed_required_length_ft'] ?? null,
+                'unit_cost_at_assignment' => $assignment['unit_cost_at_assignment'] ?? null,
+                'notes' => $assignment['notes'] ?? null,
+                'metadata' => $assignment['metadata'] ?? null,
+                'job_statuses' => array_values(array_map(static fn(array $job): string => (string)($job['status'] ?? ''), $linkedJobs)),
+                'reason' => 'Undeducted pre-production assignment correction',
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if ($auditDetails === false || db_execute(
+                'INSERT INTO activity_logs (user_id, action, details, created_at) VALUES (?, ?, ?, NOW())',
+                'iss',
+                [$actor, 'Production material assignment corrected', $auditDetails]
+            ) === false) {
+                throw new RuntimeException('Unable to save the assignment correction audit; no assignment was changed.');
+            }
+
+            $affected = db_execute_affected_rows(
+                "DELETE FROM job_order_materials
+                 WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')",
+                'i',
+                [$id]
+            );
+            if ($affected !== 1) {
+                throw new RuntimeException('The assignment changed during correction. Refresh the order; no assignment was removed.');
+            }
+
+            if ($started) {
+                if (!$conn->commit()) {
+                    $conn->rollback();
+                    $GLOBALS['printflow_db_transaction_depth'] = 0;
+                    throw new RuntimeException('Unable to commit the material correction; the assignment was not changed.');
+                }
+                $GLOBALS['printflow_db_transaction_depth'] = 0;
+            }
+            return true;
+        } catch (Throwable $error) {
+            if ($started) {
+                if ((int)($GLOBALS['printflow_db_transaction_depth'] ?? 0) > 0) {
+                    printflow_db_transaction_depth_pop($conn, false);
+                } elseif ($conn instanceof mysqli && ($conn->in_transaction ?? false)) {
+                    $conn->rollback();
+                }
+            }
+            throw $error;
+        }
     }
 
     /**
@@ -1458,7 +1640,9 @@ class JobOrderService {
         $status = 'READY';
         foreach ($order['materials'] as $m) {
             $stock = InventoryManager::getStockOnHand($m['item_id'], $branchId);
-            $required = $m['track_by_roll'] ? $m['computed_required_length_ft'] : $m['quantity'];
+            $meta = self::decodeMaterialMetadata($m['metadata'] ?? null);
+            $required = !empty($m['track_by_roll']) && ($meta['actual_usage_version'] ?? '') !== 'manual_v1'
+                ? $m['computed_required_length_ft'] : $m['quantity'];
             
             if ($stock <= 0) {
                 return 'MISSING';
@@ -1502,7 +1686,10 @@ class JobOrderService {
         $materials = self::getScopedMaterials((int)$orderId, false);
         $total = 0.0;
         foreach ($materials as $m) {
-            $qty = (float)((float)($m['computed_required_length_ft'] ?? 0) > 0 ? $m['computed_required_length_ft'] : $m['quantity']);
+            $meta = self::decodeMaterialMetadata($m['metadata'] ?? null);
+            $qty = !empty($m['track_by_roll']) && ($meta['actual_usage_version'] ?? '') !== 'manual_v1'
+                ? (float)($m['computed_required_length_ft'] ?? 0)
+                : (float)($m['quantity'] ?? 0);
             $total += $qty * (float)($m['unit_cost_at_assignment'] ?? 0);
         }
         return $total;
@@ -1943,7 +2130,21 @@ class JobOrderService {
                     throw new RuntimeException('An assigned inventory material no longer exists.');
                 }
                 $itemId = (int)($m['item_id'] ?? 0);
-                $beforeStock = InventoryManager::getStockOnHand($itemId, $branchId);
+                $assignmentMetadata = self::decodeMaterialMetadata($m['metadata'] ?? null);
+                if (($assignmentMetadata['actual_usage_version'] ?? '') === 'manual_v1') {
+                    if (strcasecmp(trim((string)($m['uom'] ?? '')), trim((string)($item['unit_of_measure'] ?? ''))) !== 0) {
+                        throw new RuntimeException('The saved actual-usage unit no longer matches ' . (string)($item['name'] ?? 'the inventory item') . '. Refresh the assignment before deduction.');
+                    }
+                    try {
+                        $manualQty = printflow_pos_parse_positive_material_quantity($m['quantity'] ?? null, $item);
+                    } catch (InvalidArgumentException $quantityError) {
+                        throw new RuntimeException('The saved actual usage is not a valid positive quantity in ' . (string)($item['unit_of_measure'] ?? 'the inventory unit') . '.');
+                    }
+                    if (abs($manualQty - (float)($m['quantity'] ?? 0)) > 0.000001) {
+                        throw new RuntimeException('The saved actual usage changed after assignment; no inventory was deducted.');
+                    }
+                }
+                $beforeStock = InventoryManager::getStockOnHandForUpdate($itemId, $branchId);
                 $debugLog('material_before', [
                     'assignment_id' => (int)($m['id'] ?? 0),
                     'job_order_id' => (int)$orderId,
@@ -1986,6 +2187,17 @@ class JobOrderService {
                             'length_needed' => $lengthNeeded,
                         ]);
                         throw new RuntimeException('Assigned roll material requires a positive length.');
+                    }
+
+                    if ($lengthNeeded > $beforeStock + 0.000001) {
+                        throw new RuntimeException(sprintf(
+                            'Insufficient %s stock for this branch: requested %s %s; available %s %s.',
+                            (string)($item['name'] ?? 'Material'),
+                            rtrim(rtrim(number_format($lengthNeeded, 2, '.', ''), '0'), '.'),
+                            (string)($item['unit_of_measure'] ?? 'ft'),
+                            rtrim(rtrim(number_format($beforeStock, 2, '.', ''), '0'), '.'),
+                            (string)($item['unit_of_measure'] ?? 'ft')
+                        ));
                     }
 
                     try {
@@ -2090,6 +2302,17 @@ class JobOrderService {
                             'quantity' => $quantityNeeded,
                         ]);
                         throw new RuntimeException('Assigned material requires a positive quantity.');
+                    }
+                    $beforeStock = InventoryManager::getStockOnHandForUpdate($itemId, $branchId);
+                    if ($quantityNeeded > $beforeStock + 0.000001) {
+                        throw new RuntimeException(sprintf(
+                            'Insufficient %s stock for this branch: requested %s %s; available %s %s.',
+                            (string)($item['name'] ?? 'Material'),
+                            rtrim(rtrim(number_format($quantityNeeded, 2, '.', ''), '0'), '.'),
+                            (string)($item['unit_of_measure'] ?? ''),
+                            rtrim(rtrim(number_format($beforeStock, 2, '.', ''), '0'), '.'),
+                            (string)($item['unit_of_measure'] ?? '')
+                        ));
                     }
                     $deductionResult = InventoryManager::issueStock(
                         $m['item_id'], 
