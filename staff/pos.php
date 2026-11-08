@@ -148,10 +148,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         #service-modal-overlay .shopee-form-row.pf-pos-dimensions-finish-row > .shopee-form-label {
             display: block;
             box-sizing: border-box;
-            width: 154px;
-            min-width: 154px;
-            max-width: 154px;
-            flex: 0 0 154px;
+            width: 120px;
+            min-width: 120px;
+            max-width: 120px;
+            flex: 0 0 120px;
             white-space: normal;
         }
 
@@ -6347,7 +6347,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (!row) return;
             clearServiceFieldError(row);
             const targetGroup = row.querySelector('.shopee-opt-group') || row.querySelector('.quantity-container');
-            const targetControl = row.querySelector('input:not([type="hidden"]), select, textarea');
+            const targetControl = row.querySelector('.pf-dim-select-trigger')
+                || row.querySelector('input:not([type="hidden"]), select, textarea');
             if (targetGroup) targetGroup.classList.add('field-invalid');
             if (targetControl) targetControl.classList.add('field-invalid');
             const field = row.querySelector('.shopee-form-field') || row;
