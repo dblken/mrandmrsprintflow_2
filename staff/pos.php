@@ -1142,7 +1142,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-services-grid .pos-catalog-card__body {
-            flex: 0 0 auto;
+            flex: 1 1 auto;
             flex-shrink: 0;
             min-height: 92px;
             padding: 10px 12px 14px;
@@ -1163,6 +1163,37 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             line-clamp: 2;
             -webkit-line-clamp: 2;
             flex-shrink: 0;
+        }
+
+        .pos-services-grid .pos-catalog-card__select {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            align-self: flex-start;
+            gap: 8px;
+            min-height: 34px;
+            margin-top: auto;
+            padding: 8px 12px;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            background: var(--staff-pos-button-bg);
+            color: #ffffff;
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1.2;
+            box-shadow: 0 6px 14px var(--staff-pos-button-shadow);
+            transition: filter 0.2s, box-shadow 0.2s;
+        }
+
+        .pos-services-grid .pos-catalog-card:hover .pos-catalog-card__select,
+        .pos-services-grid .pos-catalog-card:focus-visible .pos-catalog-card__select {
+            filter: brightness(1.06);
+            box-shadow: 0 8px 18px var(--staff-pos-button-shadow);
+        }
+
+        .pos-services-grid .pos-catalog-card:focus-visible {
+            outline: 3px solid rgba(var(--staff-accent-rgb), 0.55);
+            outline-offset: 3px;
         }
 
         .pos-services-grid .pos-catalog-card__price {
@@ -3186,6 +3217,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                             data-service-id="<?php echo (int) $svc['service_id']; ?>"
                                             data-service-name="<?php echo $svc_name; ?>"
                                             onclick="posOpenServiceFromCard(this, Number(this.dataset.serviceId), this.dataset.serviceName)"
+                                            aria-label="Select <?php echo $svc_name; ?>"
                                             title="<?php echo $svc_name; ?>">
                                             <div class="pos-catalog-card__media">
                                                 <img src="<?php echo $svc_img; ?>" alt="" loading="lazy" decoding="async"
@@ -3196,6 +3228,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                                     <span class="pos-catalog-card__meta"><?php echo htmlspecialchars($svc['category']); ?></span>
                                                 <?php endif; ?>
                                                 <p class="pos-catalog-card__name" title="<?php echo $svc_name; ?>"><?php echo $svc_name; ?></p>
+                                                <span class="pos-catalog-card__select" aria-hidden="true">
+                                                    <span>Select</span>
+                                                    <i class="fas fa-arrow-right"></i>
+                                                </span>
                                             </div>
                                         </button>
                                     <?php endforeach; ?>
