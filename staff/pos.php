@@ -1473,8 +1473,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-item-total {
-            font-weight: 800;
-            font-size: 15px;
+            font-family: var(--pf-ui-font-sans);
+            font-weight: 700;
+            font-size: 16px;
             min-width: 72px;
             text-align: right;
             color: #0f172a;
@@ -1621,6 +1622,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-summary-amount {
+            font-family: var(--pf-ui-font-sans);
+            font-size: 16px;
             font-weight: 700;
             color: #1e293b;
             text-align: right;
@@ -1643,8 +1646,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-summary-total .pos-summary-amount {
-            font-size: 22px;
-            font-weight: 800;
             color: #0f172a;
         }
 
@@ -1656,8 +1657,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-summary-change .pos-summary-amount {
-            font-size: 20px;
-            font-weight: 800;
             color: var(--staff-primary);
         }
 
@@ -1741,6 +1740,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             text-align: right;
             font-weight: 700;
             font-size: 16px;
+            font-family: var(--pf-ui-font-sans);
             outline: none;
             box-sizing: border-box;
             background: #ffffff;
@@ -1912,7 +1912,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             padding-left: 0;
             font-family: var(--pf-ui-font-sans);
             font-size: 14px;
-            font-weight: 600;
+            font-weight: 400;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
