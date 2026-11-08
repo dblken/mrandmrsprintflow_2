@@ -1912,6 +1912,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             padding-left: 0;
             font-family: var(--pf-ui-font-sans);
             font-size: 14px;
+            font-weight: 600;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -1949,7 +1950,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             font-weight: 900;
             position: absolute;
             left: 22px;
-            top: calc(50% - 2px);
+            top: calc(50% + 2px);
             transform: translateY(-50%);
             color: #94a3b8;
             font-size: 13px;
@@ -1965,6 +1966,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             background: #f8fafc;
             color: #1e293b;
             font-size: 14px;
+            font-family: var(--pf-ui-font-sans);
             outline: none;
             box-sizing: border-box;
         }
@@ -1981,7 +1983,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         .pos-customer-option__name {
             font-size: 14px;
-            font-weight: 700;
+            font-family: var(--pf-ui-font-sans);
+            font-weight: 600;
             color: #0f172a;
             line-height: 1.35;
         }
