@@ -3734,6 +3734,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             </div>`;
         }
 
+        function posCartRowQuantityValue(item, input) {
+            if (input) return input.value;
+            return posCartItemRequiresSetPrice(item) ? item.qty : '';
+        }
+
         function posCartItemShowsSetPriceButton(item) {
             if (posCartItemRequiresSetPrice(item)) {
                 return !posCartItemStaffPricingComplete(item);
@@ -8400,9 +8405,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             const invalidCartQuantity = Array.from(document.querySelectorAll('.pos-cart-item')).some((row, index) => {
                 const input = row.querySelector('.pos-qty-val');
-                const quantity = posReadPositiveWholeQuantity(input ? input.value : '');
-                if (quantity === null || input?.dataset.pending === 'true') return true;
                 const item = cart[index];
+                const quantity = posReadPositiveWholeQuantity(posCartRowQuantityValue(item, input));
+                if (quantity === null || input?.dataset.pending === 'true') return true;
                 const available = Number(item?.stock);
                 return !item
                     || quantity !== Number(item.qty)
@@ -8413,7 +8418,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 icon.className = 'fas fa-lock';
                 const hasMalformedQuantity = Array.from(document.querySelectorAll('.pos-cart-item')).some((row, index) => {
                     const input = row.querySelector('.pos-qty-val');
-                    return !input || posReadPositiveWholeQuantity(input.value) === null;
+                    return posReadPositiveWholeQuantity(posCartRowQuantityValue(cart[index], input)) === null;
                 });
                 text.textContent = hasMalformedQuantity ? 'Fix Quantity' : 'Update Quantity';
                 return;
@@ -8500,8 +8505,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             const invalidQuantityIndex = Array.from(document.querySelectorAll('.pos-cart-item')).findIndex((row, index) => {
                 const input = row.querySelector('.pos-qty-val');
-                const quantity = posReadPositiveWholeQuantity(input ? input.value : '');
                 const item = cart[index];
+                const quantity = posReadPositiveWholeQuantity(posCartRowQuantityValue(item, input));
                 if (quantity === null || !item || input?.dataset.pending === 'true') return true;
                 if (quantity !== Number(item.qty)) return true;
                 const available = Number(item?.stock);
