@@ -132,6 +132,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             flex-wrap: wrap;
         }
 
+        #service-modal-overlay .shopee-form-row:has(.pf-dim-select-shell) {
+            align-items: center;
+        }
+
+        #service-modal-overlay .shopee-form-row:has(.pf-dim-select-shell) > .shopee-form-label {
+            padding-top: 0;
+        }
+
         .shopee-form-label {
             min-width: 120px;
             padding-top: .5rem;
