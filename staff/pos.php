@@ -140,6 +140,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             padding-top: 0;
         }
 
+        #service-modal-overlay .shopee-form-row:has(.pf-dim-select-shell) > .shopee-form-field {
+            position: relative;
+            top: -24px;
+        }
+
         .shopee-form-label {
             min-width: 120px;
             padding-top: .5rem;
