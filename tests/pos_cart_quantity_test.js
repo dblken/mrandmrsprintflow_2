@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const pos = fs.readFileSync(path.join(root, 'staff/pos.php'), 'utf8');
+const cartHandler = fs.readFileSync(path.join(root, 'staff/api/pos_cart_handler.php'), 'utf8');
 
 function extractFunction(source, start, end) {
     const from = source.indexOf(start);
@@ -44,6 +45,35 @@ assert.match(pos, /function posCartItemDisplayedLineTotal\(item\) \{/);
 assert.match(pos, /const confirmedLineTotal = posCartItemDisplayedLineTotal\(item\);/);
 assert.match(pos, /currentTotal \+= confirmedLineTotal;/);
 assert.match(pos, /Never divide a line total that/);
+
+const quantityMarkupSource = extractFunction(
+    pos,
+    'function posCartItemQuantityHtml(item, index, isServiceLine) {',
+    'function posCartItemShowsSetPriceButton('
+);
+const quantityMarkup = new Function('escapeHtml', `return (${quantityMarkupSource});`)(
+    value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))
+);
+const serviceQuantityHtml = quantityMarkup({ qty: 150 }, 0, true);
+assert.match(serviceQuantityHtml, /pos-qty-readonly/);
+assert.match(serviceQuantityHtml, />150</);
+assert.doesNotMatch(serviceQuantityHtml, /pos-qty-btn|pos-qty-val|updateQtyByCartIndex/,
+    'service quantity is visible but has no cart increment/decrement controls');
+const productQuantityHtml = quantityMarkup({ qty: 7 }, 2, false);
+assert.match(productQuantityHtml, /pos-qty-val/);
+assert.match(productQuantityHtml, /updateQtyByCartIndex\(2, -1\)/);
+assert.match(productQuantityHtml, /updateQtyByCartIndex\(2, 1\)/,
+    'product quantity controls remain editable');
+assert.match(pos, /\$\{posCartItemQuantityHtml\(item, index, isServiceLine\)\}/,
+    'the real cart renderer uses the service-aware quantity markup');
+assert.match(pos, /if \(quantityInput\) posBindCartQuantityInput\(index, quantityInput\);/,
+    'quantity input event handlers are only attached when an editable product input exists');
+assert.match(pos, /qty: priced\.quantity,/,
+    'service modal quantity is sent unchanged when adding a service line');
+assert.match(cartHandler, /\$qty = pos_cart_parse_positive_quantity\(array_key_exists\('qty', \$data\) \? \$data\['qty'\] : 1\);/,
+    'server continues parsing and validating the submitted cart quantity');
+assert.match(cartHandler, /'qty'\s*=>\s*\$qty,/,
+    'server stores the validated service quantity on the cart line');
 
 const bindSource = extractFunction(
     pos,
