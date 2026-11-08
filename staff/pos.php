@@ -168,10 +168,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         #service-modal-overlay .pf-dim-select-field-group.field-invalid {
+            align-self: flex-start;
             box-sizing: border-box;
             border: 1px solid #dc2626;
             border-radius: .65rem;
             padding: .45rem;
+            width: fit-content;
+            max-width: 100%;
             box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
         }
 
