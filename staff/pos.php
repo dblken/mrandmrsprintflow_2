@@ -385,6 +385,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         #service-modal-overlay .pf-dim-select-trigger {
             width: 100%;
+            box-sizing: border-box;
+            height: 42px;
+            min-height: 42px;
+            padding: 0 12px !important;
             justify-content: space-between;
             text-align: left;
             gap: 8px;
@@ -402,7 +406,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             top: calc(100% + 4px);
             z-index: 40;
             margin: 0;
-            padding: 6px 0;
+            padding: 0;
             list-style: none;
             max-height: 220px;
             overflow-y: auto;
@@ -417,11 +421,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         #service-modal-overlay .pf-dim-select-option {
+            display: flex;
+            align-items: center;
+            box-sizing: border-box;
             width: 100%;
+            min-height: 40px;
             border: 0;
             background: transparent;
             text-align: left;
-            padding: 8px 12px;
+            padding: 0 12px;
             font-size: 0.875rem;
             color: #0f172a;
             cursor: pointer;
