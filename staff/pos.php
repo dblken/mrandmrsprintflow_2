@@ -6266,7 +6266,6 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function markServiceFieldInvalid(row, message) {
             if (!row) return;
             clearServiceFieldError(row);
-            row.classList.add('field-invalid');
             const targetGroup = row.querySelector('.shopee-opt-group') || row.querySelector('.quantity-container');
             const targetControl = row.querySelector('input:not([type="hidden"]), select, textarea');
             if (targetGroup) targetGroup.classList.add('field-invalid');
