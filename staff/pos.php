@@ -1313,6 +1313,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .pos-item-name {
+            font-family: inherit;
             font-size: 15px;
             font-weight: 700;
             color: #0f172a;
@@ -1322,6 +1323,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
             overflow: hidden;
+        }
+
+        .pos-item-name-detail {
+            display: block;
+            margin-top: 2px;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            color: #64748b;
+            line-height: 1.35;
         }
 
         .pos-item-meta {
@@ -8049,7 +8060,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     div.innerHTML = `
                 <div class="pos-cart-item-top">
                     <div class="pos-item-details">
-                        <div class="pos-item-name">${escapeHtml(item.name)}${variantLabel ? `<div style="font-size:11px; color:#64748b; margin-top:2px;">${escapeHtml(variantLabel)}</div>` : ''}${materialLabel ? `<div style="font-size:11px;color:#64748b;margin-top:2px;">Material: ${escapeHtml(materialLabel)}</div>` : ''}</div>
+                        <div class="pos-item-name">${escapeHtml(item.name)}${variantLabel ? `<div class="pos-item-name-detail">${escapeHtml(variantLabel)}</div>` : ''}${materialLabel ? `<div class="pos-item-name-detail">Material: ${escapeHtml(materialLabel)}</div>` : ''}</div>
                     </div>
                     <div class="pos-cart-item-top-actions" style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
                         ${estimateBesideRemoveHtml}
