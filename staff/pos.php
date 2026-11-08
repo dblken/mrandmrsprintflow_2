@@ -3215,8 +3215,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                                     </label>
                                     <div class="pos-tender-wrap">
                                         <span class="pos-tender-prefix">₱</span>
-                                        <input type="number" id="pos-tendered" name="amount_tendered"
-                                            class="pos-tender-input" placeholder="0.00" oninput="calculateChange()">
+                                        <input type="text" inputmode="decimal" id="pos-tendered" name="amount_tendered"
+                                            class="pos-tender-input" placeholder="0.00" oninput="formatAmountPaidInput(this); calculateChange()" onkeydown="handleAmountPaidKeydown(event, this)">
                                     </div>
                                 </div>
 
@@ -8362,6 +8362,61 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             updateCheckoutState();
         }
 
+        function normalizeAmountPaidText(value) {
+            let normalized = String(value ?? '').replace(/,/g, '').replace(/[^0-9.]/g, '');
+            const decimalIndex = normalized.indexOf('.');
+            if (decimalIndex >= 0) {
+                normalized = normalized.slice(0, decimalIndex + 1) + normalized.slice(decimalIndex + 1).replace(/\./g, '');
+            }
+            return normalized;
+        }
+
+        function formatAmountPaidInput(input) {
+            if (!input) return;
+            const rawValue = input.value;
+            const caret = input.selectionStart ?? rawValue.length;
+            const logicalCaret = normalizeAmountPaidText(rawValue.slice(0, caret)).length;
+            const normalized = normalizeAmountPaidText(rawValue);
+            const decimalIndex = normalized.indexOf('.');
+            const integerPart = decimalIndex >= 0 ? normalized.slice(0, decimalIndex) : normalized;
+            const decimalPart = decimalIndex >= 0 ? normalized.slice(decimalIndex) : '';
+            const formatted = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + decimalPart;
+
+            input.value = formatted;
+            let formattedCaret = 0;
+            let logicalPosition = 0;
+            while (formattedCaret < formatted.length && logicalPosition < logicalCaret) {
+                if (formatted[formattedCaret] !== ',') logicalPosition++;
+                formattedCaret++;
+            }
+            input.setSelectionRange(formattedCaret, formattedCaret);
+        }
+
+        function handleAmountPaidKeydown(event, input) {
+            if (!input || (event.key !== 'Backspace' && event.key !== 'Delete')) return;
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            if (start !== end) return;
+
+            const commaIndex = event.key === 'Backspace' ? start - 1 : start;
+            if (input.value[commaIndex] !== ',') return;
+            const digitIndex = event.key === 'Backspace' ? commaIndex - 1 : commaIndex + 1;
+            if (digitIndex < 0 || !/[0-9]/.test(input.value[digitIndex] || '')) return;
+
+            event.preventDefault();
+            input.value = input.value.slice(0, digitIndex) + input.value.slice(digitIndex + 1);
+            const caret = event.key === 'Backspace' ? commaIndex - 1 : commaIndex;
+            input.setSelectionRange(caret, caret);
+            formatAmountPaidInput(input);
+            calculateChange();
+        }
+
+        function readAmountPaidValue() {
+            const input = document.getElementById('pos-tendered');
+            const amount = Number(String(input?.value ?? '').replace(/,/g, '').trim());
+            return Number.isFinite(amount) ? amount : 0;
+        }
+
         function calculateChange() {
             if (currentTotal === 0) {
                 const changeEl = document.getElementById('pos-change');
@@ -8370,11 +8425,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 return;
             }
             const tenderedInput = document.getElementById('pos-tendered');
-            let tendered = parseFloat(tenderedInput.value) || 0;
+            let tendered = readAmountPaidValue();
 
             if (tendered > 1000000) {
                 tendered = 1000000;
-                tenderedInput.value = tendered;
+                tenderedInput.value = '1,000,000';
             }
 
             let change = tendered - currentTotal;
@@ -8461,7 +8516,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const pm = document.getElementById('pos-payment-method').value;
 
             // Regular products require payment
-            const tendered = parseFloat(document.getElementById('pos-tendered').value) || 0;
+            const tendered = readAmountPaidValue();
             if (!isPayMongoPaymentMethod(pm) && (tendered < currentTotal || tendered > 1000000)) {
                 canCheckout = false;
                 if (message === 'Complete Sale') message = 'Enter Valid Amount';
@@ -8570,7 +8625,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             }
 
             const pm = document.getElementById('pos-payment-method').value;
-            const tendered = parseFloat(document.getElementById('pos-tendered').value) || 0;
+            const tendered = readAmountPaidValue();
 
             if (!isPayMongoPaymentMethod(pm) && (tendered < currentTotal || tendered > 1000000)) {
                 await showPOSAlert('Invalid Amount', "Amount paid must be at least " + formatMoney(currentTotal) + " and not exceed ₱1,000,000.", 'warning');
