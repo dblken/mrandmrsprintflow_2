@@ -1143,9 +1143,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         .pos-cart-header h2,
         .pos-section-label {
             font-family: var(--pf-ui-font-sans);
-            font-size: 16px;
-            font-weight: 700;
-            line-height: 1.25;
+            font-size: 0.72rem;
+            font-weight: 600;
             letter-spacing: 0.04em;
             text-transform: uppercase;
         }
