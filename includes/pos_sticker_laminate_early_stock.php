@@ -122,3 +122,32 @@ function printflow_pos_sticker_laminate_filter_branch_rolls(array $rolls, int $b
     }));
 }
 
+/** Match only open positive-stock rolls whose recorded width is compatible with item metadata. */
+function printflow_pos_sticker_laminate_filter_rolls_by_width(array $rolls, float $configuredWidthFt): array
+{
+    if (!is_finite($configuredWidthFt) || $configuredWidthFt <= 0) return [];
+    return array_values(array_filter($rolls, static function (array $roll) use ($configuredWidthFt): bool {
+        if ((int)($roll['id'] ?? 0) <= 0 || (int)($roll['branch_id'] ?? 0) <= 0
+            || strtoupper(trim((string)($roll['status'] ?? ''))) !== 'OPEN'
+            || !is_numeric($roll['remaining_length_ft'] ?? null)
+            || (float)$roll['remaining_length_ft'] <= 0) return false;
+        $physicalWidth = is_numeric($roll['width_ft'] ?? null) ? (float)$roll['width_ft'] : 0.0;
+        // Older roll rows with no width inherit only their exact item's verified width.
+        return $physicalWidth <= 0 || abs($physicalWidth - $configuredWidthFt) <= 0.01;
+    }));
+}
+
+/** Sum valid branch-scoped open roll footage in the inventory's recorded unit (feet). */
+function printflow_pos_sticker_laminate_roll_balance_ft(array $rolls): float
+{
+    $total = 0.0;
+    foreach ($rolls as $roll) {
+        if (!is_array($roll) || (int)($roll['id'] ?? 0) <= 0 || (int)($roll['branch_id'] ?? 0) <= 0
+            || strtoupper(trim((string)($roll['status'] ?? ''))) !== 'OPEN'
+            || !is_numeric($roll['remaining_length_ft'] ?? null)) continue;
+        $length = (float)$roll['remaining_length_ft'];
+        if (is_finite($length) && $length > 0) $total += $length;
+    }
+    return $total;
+}
+

@@ -6024,6 +6024,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 }
                 if (!validation.ok || issues.length) {
                     const issue = issues[0] || {};
+                    if (Number(serviceId) === 36 && issue.inventory_discrepancy && issue.message) {
+                        const message = String(issue.message);
+                        posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId) || message);
+                        return { valid: false, message };
+                    }
                     const message = `Insufficient ${issue.name || 'selected material'} stock. Available: ${formatQty(issue.available)} ${issue.uom || 'units'}. Required: ${formatQty(issue.required)} ${issue.uom || 'units'}.`;
                     posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId));
                     return { valid: false, message };

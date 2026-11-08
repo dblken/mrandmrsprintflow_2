@@ -391,6 +391,7 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
     $stickerLaminatePlans = [];
     $stickerLaminateItemIds = [];
     $stickerLaminateRollsByItem = [];
+    $stickerLaminateReconciliationByItem = [];
     $stickerLaminatePhysicalIssues = [];
     $materialSelectionsByLine = [];
     $availabilityProbes = [];
@@ -572,18 +573,21 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                     $plan = printflow_pos_sticker_laminate_panel_plan($selection, $rollWidthFt);
                     $physicalRollValidation = printflow_pos_sticker_laminate_uses_physical_rolls($item);
                     if ($physicalRollValidation) {
-                        $rolls = array_values(array_filter(
-                            printflow_pos_sticker_laminate_filter_branch_rolls(
-                                printflow_pos_tarpaulin_open_rolls($itemId, $branchId),
-                                $branchId
-                            ),
-                            static function (array $roll) use ($rollWidthFt): bool {
-                                $physicalWidth = (float)($roll['width_ft'] ?? 0);
-                                // Legacy rolls without a width inherit only their
-                                // exact item's configured width; conflicting widths fail closed.
-                                return $physicalWidth <= 0 || abs($physicalWidth - $rollWidthFt) <= 0.01;
-                            }
-                        ));
+                        $branchRolls = printflow_pos_sticker_laminate_filter_branch_rolls(
+                            printflow_pos_tarpaulin_open_rolls($itemId, $branchId),
+                            $branchId
+                        );
+                        $rolls = printflow_pos_sticker_laminate_filter_rolls_by_width($branchRolls, $rollWidthFt);
+                        $displayBalance = max(0.0, (float)InventoryManager::getStockOnHand($itemId, $branchId));
+                        $rollBalance = printflow_pos_sticker_laminate_roll_balance_ft($branchRolls);
+                        $eligibleBalance = printflow_pos_sticker_laminate_roll_balance_ft($rolls);
+                        if (abs($displayBalance - $rollBalance) > 0.001 || abs($displayBalance - $eligibleBalance) > 0.001) {
+                            $stickerLaminateReconciliationByItem[$itemId] = [
+                                'display_balance' => $displayBalance,
+                                'branch_roll_balance' => $rollBalance,
+                                'eligible_roll_balance' => $eligibleBalance,
+                            ];
+                        }
                     } else {
                         // Standard FT inventory is ledger footage, not physical roll
                         // rows. Model that branch's aggregate footage as one capacity
@@ -594,6 +598,7 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                             'id' => $itemId,
                             'branch_id' => $branchId,
                             'roll_code' => 'Branch FT stock',
+                            'status' => 'OPEN',
                             'width_ft' => $rollWidthFt,
                             'remaining_length_ft' => $availableFt,
                             'received_at' => '',
@@ -680,7 +685,9 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                 throw new RuntimeException('A selected Sticker/Decals laminate is no longer active. Contact an administrator.');
             }
             $rolls = $stickerLaminateRollsByItem[$itemId] ?? [];
-            $available = array_sum(array_map(static fn(array $roll): float => max(0.0, (float)($roll['remaining_length_ft'] ?? 0)), $rolls));
+            $available = isset($stickerLaminateReconciliationByItem[$itemId])
+                ? (float)$stickerLaminateReconciliationByItem[$itemId]['display_balance']
+                : printflow_pos_sticker_laminate_roll_balance_ft($rolls);
             $required = (float)($requiredByItem[$itemId] ?? 0.0);
             $entry = [
                 'item_id' => $itemId,
@@ -691,7 +698,17 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                 'physical_roll_validation' => !empty($plansForItem) && (bool)reset($plansForItem)['physical_roll_validation'],
             ];
             $materials[] = $entry;
-            if (empty($allocation['ok'])) {
+            if (isset($stickerLaminateReconciliationByItem[$itemId])) {
+                $reconciliation = $stickerLaminateReconciliationByItem[$itemId];
+                $display = rtrim(rtrim(number_format($reconciliation['display_balance'], 3, '.', ''), '0'), '.');
+                $branchRolls = rtrim(rtrim(number_format($reconciliation['branch_roll_balance'], 3, '.', ''), '0'), '.');
+                $eligible = rtrim(rtrim(number_format($reconciliation['eligible_roll_balance'], 3, '.', ''), '0'), '.');
+                $entry['inventory_discrepancy'] = true;
+                $entry['message'] = $entry['name'] . ' inventory needs reconciliation: Inventory Items shows '
+                    . $display . ' ft, but open rolls at this branch total ' . $branchRolls
+                    . ' ft and rolls matching the configured width total ' . $eligible . ' ft. Ask an Admin to review the roll records.';
+                $issues[] = $entry;
+            } elseif (empty($allocation['ok'])) {
                 $entry['out_of_stock'] = $available <= 0;
                 $entry['message'] = $available <= 0
                     ? $entry['name'] . ' is out of stock at this branch.'

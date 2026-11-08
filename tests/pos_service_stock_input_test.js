@@ -18,6 +18,8 @@ const stockValidationSource = source.slice(stockValidationStart, stockBindingSta
 assert.doesNotMatch(stockValidationSource, /Estimated consumption:|to consume|`Stock: \$\{availability\}`/, 'informational consumption and available-stock summaries are not rendered');
 assert.match(source, /const message = `Insufficient \$\{issue\.name \|\| 'selected material'\} stock\. Available: \$\{formatQty\(issue\.available\)\} \$\{issue\.uom \|\| 'units'\}\. Required: \$\{formatQty\(issue\.required\)\}/,
     'Insufficient selected-material stock reports the actual material, available quantity, and required quantity for every service');
+assert.match(source, /Number\(serviceId\) === 36 && issue\.inventory_discrepancy && issue\.message/,
+    'a laminate balance/roll-width mismatch is surfaced as a reconciliation error rather than a false zero-stock message');
 assert.match(source, /posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message, serviceId\)\);\s*return \{ valid: false, message \};/,
     'Insufficient selected-material stock continues to block Add to Order');
 const confirmStart = source.indexOf('        async function confirmServiceModal() {');
